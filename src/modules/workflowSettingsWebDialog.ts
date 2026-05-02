@@ -6,6 +6,10 @@ import type { LoadedWorkflow } from "../workflows/types";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import type { BackendInstance } from "../backends/types";
+import { ACP_BACKEND_TYPE } from "../config/defaults";
+import { loadBackendsRegistry } from "../backends/registry";
+import { persistBackendsConfig } from "./backendManager";
+import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
 
 type WorkflowSettingsDialogSnapshot = {
   title: string;
@@ -24,6 +28,7 @@ type WorkflowSettingsDialogSnapshot = {
     blockedNoProfile: string;
     workflowSettingsNumberInvalid: string;
     workflowSettingsPositiveIntegerRequired: string;
+    refreshAcpRuntimeCache: string;
   };
   workflow: {
     id: string;
@@ -59,6 +64,7 @@ type WorkflowSettingsDialogSnapshot = {
     workflowParams: Record<string, unknown>;
     providerOptions: Record<string, unknown>;
     hasConfigurableSettings: boolean;
+    canRefreshAcpRuntimeCache?: boolean;
   };
   persistChecked: boolean;
 };
@@ -168,7 +174,8 @@ function isStructuralDraftChange(args: { changedSection: string; changedKey: str
     (
       args.changedKey === "engine" ||
       args.changedKey === "provider_id" ||
-      args.changedKey === "model"
+      args.changedKey === "model" ||
+      args.changedKey === "acpModelId"
     )
   ) {
     return true;
@@ -209,11 +216,21 @@ export async function openWorkflowSettingsWebDialog(args: {
     workflowParams: { ...descriptor.workflowParams },
     providerOptions: { ...descriptor.providerOptions },
   };
+  let candidateBackends = args.candidateBackends;
   let persistChecked = true;
   let result: WorkflowSettingsDialogResult = { status: "canceled" };
   let dialog: DialogHelper | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
+
+  const resolveSelectedBackendForSnapshot = () => {
+    const selectedProfile = String(
+      draft.backendId || descriptor.selectedProfile || "",
+    ).trim();
+    return (candidateBackends || []).find(
+      (backend) => String(backend.id || "").trim() === selectedProfile,
+    );
+  };
 
   const pushSnapshot = (messageType: "workflow-settings-dialog:init" | "workflow-settings-dialog:snapshot") => {
     if (!frameWindow) {
@@ -269,6 +286,10 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-positive-integer-required",
           "Please enter a positive integer.",
         ),
+        refreshAcpRuntimeCache: localize(
+          "workflow-settings-refresh-acp-runtime-cache",
+          "Refresh ACP Config Cache",
+        ),
       },
       workflow: {
         id: descriptor.workflowId,
@@ -286,6 +307,8 @@ export async function openWorkflowSettingsWebDialog(args: {
         workflowParams: { ...(draft.workflowParams || {}) },
         providerOptions: { ...(draft.providerOptions || {}) },
         hasConfigurableSettings: descriptor.hasConfigurableSettings,
+        canRefreshAcpRuntimeCache:
+          resolveSelectedBackendForSnapshot()?.type === ACP_BACKEND_TYPE,
       },
       persistChecked,
     };
@@ -302,7 +325,7 @@ export async function openWorkflowSettingsWebDialog(args: {
     descriptor = await buildWorkflowSettingsUiDescriptor({
       workflow: args.workflow,
       draft,
-      candidateBackends: args.candidateBackends,
+      candidateBackends,
       autoSelectFallbackProfile: true,
     });
     draft = {
@@ -361,6 +384,34 @@ export async function openWorkflowSettingsWebDialog(args: {
       if (action === "toggle-persist") {
         persistChecked = envelope.payload?.checked !== false;
         pushSnapshot("workflow-settings-dialog:snapshot");
+        return;
+      }
+      if (action === "refresh-acp-runtime-cache") {
+        const selectedBackendId = String(
+          draft.backendId || descriptor.selectedProfile || "",
+        ).trim();
+        const loaded = await loadBackendsRegistry();
+        const backends = [...loaded.backends];
+        const index = backends.findIndex(
+          (backend) => String(backend.id || "").trim() === selectedBackendId,
+        );
+        if (index < 0) {
+          throw new Error(`ACP backend not found: ${selectedBackendId}`);
+        }
+        if (String(backends[index].type || "").trim() !== ACP_BACKEND_TYPE) {
+          throw new Error(`Selected backend is not an ACP backend: ${selectedBackendId}`);
+        }
+        const result = await probeAcpBackendRuntimeOptions({
+          backend: backends[index],
+        });
+        backends[index] = result.backend;
+        persistBackendsConfig(backends);
+        candidateBackends = backends;
+        await refreshDescriptor();
+        pushSnapshot("workflow-settings-dialog:snapshot");
+        if (!result.ok) {
+          throw new Error(result.error || "ACP config cache refresh failed");
+        }
         return;
       }
       if (action === "confirm") {

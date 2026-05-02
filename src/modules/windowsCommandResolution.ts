@@ -59,6 +59,10 @@ function isPathLikeCommand(commandRaw: string) {
   );
 }
 
+function isSafeBareWindowsCommand(commandRaw: string) {
+  return /^[A-Za-z0-9_.@-]+$/.test(normalizeString(commandRaw));
+}
+
 export function isAbsoluteCommandPath(commandRaw: string) {
   const command = normalizeString(commandRaw);
   if (!command) {
@@ -225,6 +229,9 @@ export function getWindowsExecutableCandidates(command: string, platform?: strin
   if (!normalized || isPathLikeCommand(normalized)) {
     return [] as string[];
   }
+  if (!isSafeBareWindowsCommand(normalized)) {
+    return [] as string[];
+  }
   const runtime = globalThis as {
     process?: { env?: Record<string, string | undefined> };
   };
@@ -336,6 +343,28 @@ function getWindowsNodeInstallRoots(platform?: string) {
   );
 }
 
+function getWindowsUserLocalBinRoots(platform?: string) {
+  if (!detectWindowsHost(platform)) {
+    return [] as string[];
+  }
+  const home =
+    readProcessEnv("USERPROFILE") || readDirectoryServicePath("Home");
+  const localAppData =
+    readProcessEnv("LOCALAPPDATA") ||
+    readProcessEnv("LocalAppData") ||
+    readDirectoryServicePath("LocalAppData");
+  const roots = [
+    readProcessEnv("UV_INSTALL_DIR"),
+    home ? joinWindowsPath(home, ".local", "bin") : "",
+    localAppData ? joinWindowsPath(localAppData, "uv", "bin") : "",
+    localAppData ? joinWindowsPath(localAppData, "Programs", "uv") : "",
+    localAppData ? joinWindowsPath(localAppData, "Programs", "uv", "bin") : "",
+  ];
+  return Array.from(
+    new Set(roots.map((entry) => normalizeString(entry)).filter(Boolean)),
+  );
+}
+
 function buildWindowsCommandCandidates(command: string) {
   const withoutExt = normalizeString(command).replace(/\.(exe|cmd|bat|ps1)$/i, "");
   return [
@@ -345,6 +374,32 @@ function buildWindowsCommandCandidates(command: string) {
     `${withoutExt}.ps1`,
     withoutExt,
   ];
+}
+
+export async function resolveWindowsCommandFromUserLocalBin(
+  command: string,
+  platform?: string,
+) {
+  if (!detectWindowsHost(platform)) {
+    return [] as string[];
+  }
+  const normalized = normalizeString(command);
+  if (!normalized || isPathLikeCommand(normalized)) {
+    return [] as string[];
+  }
+  const variants = buildWindowsCommandCandidates(normalized);
+  const candidates = getWindowsUserLocalBinRoots(platform).flatMap((root) =>
+    variants.map((variant) => joinWindowsPath(root, variant)),
+  );
+  const resolved: string[] = [];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) {
+      resolved.push(candidate);
+    }
+  }
+  return Array.from(
+    new Set(resolved.map((entry) => normalizeString(entry)).filter(Boolean)),
+  );
 }
 
 export async function resolveWindowsCommandFromGlobalNpmRoot(
@@ -408,6 +463,9 @@ export async function resolveWindowsCommandFromPowerShell(
   }
   const normalized = normalizeString(command);
   if (!normalized || isPathLikeCommand(normalized)) {
+    return [] as string[];
+  }
+  if (!isSafeBareWindowsCommand(normalized)) {
     return [] as string[];
   }
   const runtime = globalThis as {

@@ -41,7 +41,7 @@ export default defineConfig({
     "https://github.com/{{owner}}/{{repo}}/releases/download/v{{version}}/{{xpiName}}.xpi",
 
   build: {
-    assets: ["addon/**/*.*", "workflows_builtin/**/*.*"],
+    assets: ["addon/**/*.*", "workflows_builtin/**/*.*", "skills_builtin/**/*.*"],
     define: {
       ...pkg.config,
       author: pkg.author,

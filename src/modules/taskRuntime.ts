@@ -19,6 +19,7 @@ export type WorkflowTaskRecord = {
   inputUnitIdentity?: string;
   inputUnitLabel?: string;
   providerId?: string;
+  requestKind?: string;
   backendId?: string;
   backendType?: string;
   backendBaseUrl?: string;
@@ -81,6 +82,7 @@ export function buildWorkflowTaskRecordFromJob(
   const requestId = resolveRequestIdFromJob(job);
   const engine = normalizeMetaString(job.meta, "engine");
   const providerId = normalizeMetaString(job.meta, "providerId");
+  const requestKind = normalizeMetaString(job.meta, "requestKind");
   const backendId = normalizeMetaString(job.meta, "backendId");
   const backendType = normalizeMetaString(job.meta, "backendType");
   const backendBaseUrl = normalizeMetaString(job.meta, "backendBaseUrl");
@@ -97,6 +99,7 @@ export function buildWorkflowTaskRecordFromJob(
     inputUnitIdentity: inputUnitIdentity || undefined,
     inputUnitLabel: inputUnitLabel || undefined,
     providerId: providerId || undefined,
+    requestKind: requestKind || undefined,
     backendId: backendId || undefined,
     backendType: backendType || undefined,
     backendBaseUrl: backendBaseUrl || undefined,
@@ -160,6 +163,7 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     inputUnitIdentity: String(raw.inputUnitIdentity || "").trim() || undefined,
     inputUnitLabel: String(raw.inputUnitLabel || "").trim() || undefined,
     providerId: String(raw.providerId || "").trim() || undefined,
+    requestKind: String(raw.requestKind || "").trim() || undefined,
     backendId: String(raw.backendId || "").trim() || undefined,
     backendType: String(raw.backendType || "").trim() || undefined,
     backendBaseUrl: String(raw.backendBaseUrl || "").trim() || undefined,

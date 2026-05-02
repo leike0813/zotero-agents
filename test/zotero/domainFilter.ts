@@ -30,6 +30,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<
     /(^|\/)test\/ui\/35-workflow-settings-execution\.test\.ts$/,
     /(^|\/)test\/ui\/40-gui-preferences-menu-scan\.test\.ts$/,
     /(^|\/)test\/ui\/50-workflow-settings-dialog-model\.test\.ts$/,
+    /(^|\/)test\/ui\/99-acp-runtime-dependency-probe\.zotero\.test\.ts$/,
   ],
   workflow: [
     /(^|\/)test\/workflow-literature-digest\/21-workflow-literature-digest\.test\.ts$/,
@@ -91,6 +92,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "gui: workflow context menu keeps pass-through workflow menu item enabled without backend profile",
     "workflow settings dialog model keeps provider_id field for provider-scoped qwen engine and hides it for gemini",
     "workflow settings dialog model enables effort choices for codex models that advertise supported_effort",
+    "ACP runtime dependency probe in Zotero ",
   ],
   workflow: [
     "workflow: literature-digest builds request from selected markdown attachment",

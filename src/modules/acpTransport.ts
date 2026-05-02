@@ -6,6 +6,7 @@ import {
   resolveWindowsCommandFromGlobalNpmRoot,
   resolveWindowsCommandFromNodeInstallRoot,
   resolveWindowsCommandFromPowerShell,
+  resolveWindowsCommandFromUserLocalBin,
 } from "./windowsCommandResolution";
 
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -87,6 +88,9 @@ export type AcpLaunchPlan = {
   commandLine: string;
 };
 
+const ACP_STDERR_MAX_CHARS = 64 * 1024;
+const ACP_PIPE_DRAIN_TIMEOUT_MS = 2_000;
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -165,10 +169,7 @@ function shouldWrapWindowsLaunch(args: {
   if (!detectWindowsPlatform(args.platform)) {
     return false;
   }
-  return (
-    !isPathLikeCommand(args.command) ||
-    /\.(cmd|bat)$/i.test(normalizeString(args.resolvedCommand))
-  );
+  return /\.(cmd|bat)$/i.test(normalizeString(args.resolvedCommand));
 }
 
 export function buildAcpLaunchPlanForTests(args: {
@@ -356,11 +357,19 @@ async function drainMozillaPipe(pipe: {
   }
   let combined = "";
   while (true) {
-    const chunk = await pipe.readString();
+    const chunk = await Promise.race([
+      pipe.readString(),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve(""), ACP_PIPE_DRAIN_TIMEOUT_MS);
+      }),
+    ]);
     if (!chunk) {
       break;
     }
     combined += chunk;
+    if (combined.length > ACP_STDERR_MAX_CHARS) {
+      combined = combined.slice(combined.length - ACP_STDERR_MAX_CHARS);
+    }
   }
   return combined;
 }
@@ -394,6 +403,12 @@ async function resolveMozillaCommand(
     );
     if (resolvedFromPowerShell.length > 0) {
       return normalizeString(resolvedFromPowerShell[0]);
+    }
+    const resolvedFromUserLocalBin = await resolveWindowsCommandFromUserLocalBin(
+      command,
+    );
+    if (resolvedFromUserLocalBin.length > 0) {
+      return normalizeString(resolvedFromUserLocalBin[0]);
     }
     const resolvedFromGlobalNpm = await resolveWindowsCommandFromGlobalNpmRoot(
       command,
@@ -598,9 +613,12 @@ async function launchNodeAcpTransport(
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
-  const stderrChunks: string[] = [];
+  let stderrText = "";
   child.stderr.on("data", (chunk: Buffer | string) => {
-    stderrChunks.push(String(chunk || ""));
+    stderrText += String(chunk || "");
+    if (stderrText.length > ACP_STDERR_MAX_CHARS) {
+      stderrText = stderrText.slice(stderrText.length - ACP_STDERR_MAX_CHARS);
+    }
   });
   const closed = new Promise<void>((resolve, reject) => {
     child.once("error", reject);
@@ -741,7 +759,7 @@ async function launchNodeAcpTransport(
       await closed;
     },
     closed,
-    getStderrText: () => stderrChunks.join(""),
+    getStderrText: () => stderrText,
     getCommandLabel: () => launchPlan.commandLabel,
     getCommandLine: () => launchPlan.commandLine,
   };

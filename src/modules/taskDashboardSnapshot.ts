@@ -59,10 +59,7 @@ export function normalizeDashboardBackends(args: {
 }) {
   const map = new Map<string, BackendInstance>();
   for (const backend of args.configured) {
-    if (
-      backend.type === PASS_THROUGH_BACKEND_TYPE ||
-      backend.type === ACP_BACKEND_TYPE
-    ) {
+    if (backend.type === PASS_THROUGH_BACKEND_TYPE) {
       continue;
     }
     map.set(backend.id, cloneBackend(backend));

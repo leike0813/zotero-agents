@@ -1,4 +1,7 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -8,6 +11,8 @@ import {
 } from "../../src/workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
+import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
+import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 import {
   decodeBase64Utf8,
   expectWorkflowSummaryCounter,
@@ -43,6 +48,10 @@ function parsePayloadEntryPath(noteContent: string, payloadType: string) {
   const decoded = decodeBase64Utf8(match[3]);
   const parsed = JSON.parse(decoded) as { entry?: string };
   return String(parsed.entry || "").trim();
+}
+
+async function mkTempRoot() {
+  return fs.mkdtemp(path.join(os.tmpdir(), "zs-literature-digest-"));
 }
 
 const itFullOnly = isFullTestMode() ? it : it.skip;
@@ -414,6 +423,71 @@ describe("workflow: literature-digest", function () {
       parsePayloadEntryPath(citationAnalysisNote.getNote(), "citation-analysis-json"),
       citationPath,
     );
+  });
+
+  itNodeOnly("applies ACP local result paths through shared result context without bundle projection", async function () {
+    const root = await mkTempRoot();
+    try {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Workflow ACP Result Context Parent" },
+      });
+      const resultDir = path.join(root, "result");
+      await fs.mkdir(resultDir, { recursive: true });
+      const digestPath = path.join(resultDir, "digest.md");
+      const referencesPath = path.join(resultDir, "references.json");
+      const citationPath = path.join(resultDir, "citation_analysis.json");
+      await fs.writeFile(digestPath, "# ACP Digest", "utf8");
+      await fs.writeFile(referencesPath, "[]", "utf8");
+      await fs.writeFile(citationPath, '{"report_md":"# ACP Citation"}', "utf8");
+      const resultJson = {
+        digest_path: digestPath,
+        references_path: referencesPath,
+        citation_analysis_path: citationPath,
+      };
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow, "missing literature-digest workflow");
+      const bundleReader = createUnavailableBundleReader("acp-local-result");
+      const resultContext = await createWorkflowResultContext({
+        runResult: {
+          requestId: "acp-local-result",
+          resultJson,
+          responseJson: {
+            workspaceDir: root,
+            resultJsonPath: path.join(resultDir, "result.json"),
+          },
+        },
+        bundleReader,
+        manifest: workflow!.manifest,
+      });
+
+      const applied = (await executeApplyResult({
+        workflow: workflow!,
+        parent,
+        bundleReader,
+        resultContext,
+        runResult: {
+          requestId: "acp-local-result",
+          resultJson,
+          responseJson: {
+            workspaceDir: root,
+          },
+        },
+      })) as { notes: Zotero.Item[] };
+
+      assert.lengthOf(applied.notes, 3);
+      const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+      assert.equal(
+        parsePayloadEntryPath(digestNote.getNote(), "digest-markdown"),
+        digestPath.replace(/\\/g, "/"),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   itNodeOnly("surfaces missing artifact path details when all entry candidates fail", async function () {

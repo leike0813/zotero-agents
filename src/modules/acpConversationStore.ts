@@ -3,13 +3,13 @@ import { joinPath } from "../utils/path";
 import {
   PLUGIN_TASK_DOMAIN_ACP,
   deletePluginTaskRequestEntry,
-  getPluginDataDirectoryPath,
   getPluginTaskRequestEntry,
   listPluginTaskRequestEntries,
   listPluginTaskRowEntries,
   replacePluginTaskRowEntries,
   upsertPluginTaskRequestEntry,
 } from "./pluginStateStore";
+import { getRuntimePersistencePaths } from "./runtimePersistence";
 import {
   cloneAcpConversationItem,
   cloneAcpSelectableOption,
@@ -485,18 +485,12 @@ export function resolveAcpStoragePaths(
 ) {
   const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId = normalizeString(conversationIdRaw);
-  const dataRoot = getPluginDataDirectoryPath();
-  const normalizedRoot = String(dataRoot || "").replace(/\\/g, "/");
-  const root =
-    normalizedRoot.endsWith("/.zotero-skills-runtime") ||
-    normalizedRoot.endsWith(".zotero-skills-runtime")
-      ? joinPath(dataRoot, "acp")
-      : joinPath(dataRoot, "zotero-skills", "acp");
+  const paths = getRuntimePersistencePaths();
   return {
     workspaceDir: conversationId
-      ? joinPath(root, "workspaces", backendId, conversationId)
-      : joinPath(root, "workspaces", backendId),
-    runtimeDir: joinPath(root, "runtime", backendId),
+      ? joinPath(paths.acpChatWorkspacesDir, backendId, conversationId)
+      : joinPath(paths.acpChatWorkspacesDir, backendId),
+    runtimeDir: joinPath(paths.acpChatRuntimeDir, backendId),
   };
 }
 

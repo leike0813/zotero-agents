@@ -1,4 +1,5 @@
 import { joinPath } from "../../utils/path";
+import { readRuntimeTextFile, runtimePathExists } from "../runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 const dynamicImport: DynamicImport = new Function(
@@ -54,5 +55,31 @@ export function createUnavailableBundleReader(requestId: string): BundleReader {
         `Run ${requestId} does not provide bundle content; entry unavailable: ${entryPath}`,
       );
     },
+  };
+}
+
+function normalizeEntryPath(entryPath: string) {
+  return String(entryPath || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/g, "")
+    .split("/")
+    .filter((segment) => segment && segment !== "." && segment !== "..")
+    .join("/");
+}
+
+export function createDirectoryBundleReader(rootDir: string): BundleReader {
+  return {
+    readText: async (entryPath: string) => {
+      const normalized = normalizeEntryPath(entryPath);
+      if (!normalized) {
+        throw new Error("bundle entry path is required");
+      }
+      const filePath = joinPath(rootDir, normalized);
+      if (!(await runtimePathExists(filePath))) {
+        throw new Error(`bundle entry not found: ${normalized}`);
+      }
+      return readRuntimeTextFile(filePath);
+    },
+    getExtractedDir: async () => rootDir,
   };
 }

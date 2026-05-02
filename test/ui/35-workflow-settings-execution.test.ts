@@ -15,6 +15,7 @@ import {
   updateWorkflowSettings,
 } from "../../src/modules/workflowSettings";
 import { loadBackendsRegistry } from "../../src/backends/registry";
+import { computeAcpBackendConfigFingerprint } from "../../src/modules/acpBackendProbe";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -586,7 +587,7 @@ describe("workflow settings execution", function () {
     assert.equal(context.providerOptions.no_cache, false);
   });
 
-  itNodeOnly("filters profile options by workflow provider in settings descriptor", async function () {
+  itNodeOnly("lists ACP backends as compatible profiles for skillrunner job workflows", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
       (entry) => entry.manifest.id === "literature-digest",
@@ -602,8 +603,192 @@ describe("workflow settings execution", function () {
     });
 
     const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
-    assert.deepEqual(profileIds, ["skillrunner-alt", "skillrunner-primary"].sort());
+    assert.includeMembers(profileIds, [
+      "acp-opencode",
+      "skillrunner-alt",
+      "skillrunner-primary",
+    ]);
     assert.isFalse(profileIds.includes("generic-http-local"));
+  });
+
+  itNodeOnly("resolves skillrunner job workflows to ACP provider when an ACP backend is selected", async function () {
+    const acpBackend = {
+      id: "acp-opencode",
+      displayName: "OpenCode ACP",
+      type: "acp",
+      baseUrl: "local://acp-opencode",
+      command: "npx",
+      args: ["opencode-ai@latest", "acp"],
+    };
+    Zotero.Prefs.set(
+      backendsConfigPrefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          acpBackend,
+          {
+            id: "skillrunner-primary",
+            displayName: "skillrunner-primary",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ].map((backend) =>
+          backend.id === "acp-opencode"
+            ? {
+                ...backend,
+                acp: {
+                  connectionTest: {
+                    status: "passed",
+                    testedAt: "2026-04-29T00:00:00.000Z",
+                    configFingerprint: computeAcpBackendConfigFingerprint(
+                      backend as any,
+                    ),
+                  },
+                  runtimeOptionsCache: {
+                    refreshedAt: "2026-04-29T00:00:00.000Z",
+                    modes: [{ id: "default", label: "Default" }],
+                    currentModeId: "default",
+                    rawModels: [{ id: "qwen3", label: "Qwen 3" }],
+                    currentRawModelId: "qwen3",
+                    displayModels: [{ id: "qwen3", label: "Qwen 3" }],
+                    currentDisplayModelId: "qwen3",
+                    reasoningEfforts: [{ id: "default", label: "Default" }],
+                    currentReasoningEffortId: "default",
+                  },
+                },
+              }
+            : backend,
+        ),
+      }),
+      true,
+    );
+    updateWorkflowSettings("literature-digest", {
+      backendId: "acp-opencode",
+      providerOptions: {
+        engine: "gemini",
+        model: "gemini-2.5-flash",
+      },
+    });
+
+    const loaded = await loadWorkflowManifests(workflowsPath());
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-digest",
+    );
+    assert.isOk(workflow);
+
+    const context = await resolveWorkflowExecutionContext({
+      workflow: workflow!,
+    });
+    assert.equal(context.backend.id, "acp-opencode");
+    assert.equal(context.backend.type, "acp");
+    assert.equal(context.providerId, "acp");
+    assert.equal(context.requestKind, "skillrunner.job.v1");
+    assert.deepEqual(context.providerOptions, {
+      acpModeId: "default",
+      acpModelId: "qwen3",
+      acpReasoningEffort: "default",
+    });
+  });
+
+  itNodeOnly("keeps ACP normal models selectable and disables reasoning dropdown when unsupported", async function () {
+    const acpBackend = {
+      id: "acp-normal-models",
+      displayName: "ACP Normal Models",
+      type: "acp",
+      baseUrl: "local://acp-normal-models",
+      command: "npx",
+      args: ["opencode-ai@latest", "acp"],
+    };
+    Zotero.Prefs.set(
+      backendsConfigPrefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          acpBackend,
+          {
+            id: "skillrunner-primary",
+            displayName: "skillrunner-primary",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ].map((backend) =>
+          backend.id === "acp-normal-models"
+            ? {
+                ...backend,
+                acp: {
+                  connectionTest: {
+                    status: "passed",
+                    testedAt: "2026-04-29T00:00:00.000Z",
+                    configFingerprint: computeAcpBackendConfigFingerprint(
+                      backend as any,
+                    ),
+                  },
+                  runtimeOptionsCache: {
+                    refreshedAt: "2026-04-29T00:00:00.000Z",
+                    modes: [{ id: "default", label: "Default" }],
+                    currentModeId: "default",
+                    rawModels: [
+                      { id: "sonnet", label: "Sonnet" },
+                      { id: "opus", label: "Opus" },
+                      { id: "gpt-5-high", label: "GPT 5 High" },
+                      { id: "gpt-5-low", label: "GPT 5 Low" },
+                    ],
+                    currentRawModelId: "sonnet",
+                    displayModels: [
+                      { id: "sonnet", label: "Sonnet" },
+                      { id: "opus", label: "Opus" },
+                      { id: "gpt-5", label: "GPT 5" },
+                    ],
+                    currentDisplayModelId: "sonnet",
+                    reasoningEfforts: [],
+                    currentReasoningEffortId: "",
+                  },
+                },
+              }
+            : backend,
+        ),
+      }),
+      true,
+    );
+    updateWorkflowSettings("literature-digest", {
+      backendId: "acp-normal-models",
+      providerOptions: {
+        acpModelId: "opus",
+      },
+    });
+
+    const loaded = await loadWorkflowManifests(workflowsPath());
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-digest",
+    );
+    assert.isOk(workflow);
+
+    const registry = await loadBackendsRegistry();
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: workflow!,
+      candidateBackends: registry.backends,
+    });
+    const modelEntry = descriptor.providerSchemaEntries.find(
+      (entry) => entry.key === "acpModelId",
+    );
+    const effortEntry = descriptor.providerSchemaEntries.find(
+      (entry) => entry.key === "acpReasoningEffort",
+    );
+
+    assert.deepEqual(modelEntry?.enumValues, ["sonnet", "opus", "gpt-5"]);
+    assert.equal(descriptor.providerOptions.acpModelId, "opus");
+    assert.deepEqual(effortEntry?.enumValues, ["default"]);
+    assert.isTrue(effortEntry?.disabled);
+
+    const context = await resolveWorkflowExecutionContext({
+      workflow: workflow!,
+    });
+    assert.deepEqual(context.providerOptions, {
+      acpModeId: "default",
+      acpModelId: "opus",
+    });
   });
 
   itNodeOnly("drops incompatible persisted backendId when provider mismatches", async function () {

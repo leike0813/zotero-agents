@@ -47,6 +47,24 @@ function bindPrefEvents() {
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
+  const runtimeDataRoot = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-root`,
+  ) as HTMLElement | null;
+  const runtimeDataSummary = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-summary`,
+  ) as HTMLElement | null;
+  const runtimeDataCategories = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-categories`,
+  ) as HTMLElement | null;
+  const runtimeDataRescanButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-rescan`,
+  ) as XUL.Button | null;
+  const runtimeDataCopyRootButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-copy-root`,
+  ) as XUL.Button | null;
+  const runtimeDataOpenRootButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-open-root`,
+  ) as XUL.Button | null;
 
   const localRuntimeDeployButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`,
@@ -159,6 +177,113 @@ function bindPrefEvents() {
   };
   const debugModeEnabled = isDebugModeEnabled();
   setButtonHidden(localRuntimeOpenDebugConsoleButton, !debugModeEnabled);
+
+  let lastRuntimeDataRoot = "";
+
+  const formatBytes = (bytesRaw: unknown) => {
+    const bytes = Math.max(0, Number(bytesRaw || 0) || 0);
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    const units = ["KB", "MB", "GB", "TB"];
+    let value = bytes / 1024;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024;
+      index += 1;
+    }
+    return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
+  };
+
+  const renderRuntimeDataUsage = (snapshot: any) => {
+    const root = String(snapshot?.root || "").trim();
+    lastRuntimeDataRoot = root;
+    if (runtimeDataRoot) {
+      runtimeDataRoot.textContent = root || "-";
+    }
+    if (runtimeDataSummary) {
+      const total = formatBytes(snapshot?.totalBytes);
+      const scannedAt = String(snapshot?.scannedAt || "").trim();
+      runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total}${scannedAt ? ` · ${scannedAt}` : ""}`;
+    }
+    if (!runtimeDataCategories) {
+      return;
+    }
+    runtimeDataCategories.textContent = "";
+    const categories = Array.isArray(snapshot?.categories)
+      ? snapshot.categories
+      : [];
+    for (const category of categories) {
+      const id = String(category?.category || "").trim();
+      const label = String(category?.label || id || "-").trim();
+      const path = String(category?.path || "").trim();
+      const rowLabel = doc.createElement("span");
+      rowLabel.className = "zs-runtime-data-category";
+      rowLabel.textContent = label;
+      if (path) {
+        rowLabel.setAttribute("title", path);
+      }
+      const rowSize = doc.createElement("span");
+      rowSize.className = "zs-runtime-data-size";
+      rowSize.textContent = formatBytes(category?.bytes);
+      const action = doc.createElement("button") as unknown as XUL.Button;
+      action.textContent = getString("pref-runtime-data-cleanup" as any);
+      if (category?.cleanable !== true || !id) {
+        action.setAttribute("disabled", "true");
+      } else {
+        action.addEventListener("command", () => {
+          void cleanupRuntimeDataCategory(id, label, rowSize.textContent || "");
+        });
+      }
+      runtimeDataCategories.appendChild(rowLabel);
+      runtimeDataCategories.appendChild(rowSize);
+      runtimeDataCategories.appendChild(action);
+    }
+  };
+
+  const refreshRuntimeDataUsage = async () => {
+    try {
+      if (runtimeDataSummary) {
+        runtimeDataSummary.textContent = getString("pref-runtime-data-scanning" as any);
+      }
+      const snapshot = await addon.hooks.onPrefsEvent("scanRuntimePersistenceUsage", {
+        window: addon.data.prefs?.window,
+      });
+      renderRuntimeDataUsage(snapshot);
+    } catch (error) {
+      if (runtimeDataSummary) {
+        runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
+      }
+    }
+  };
+
+  const cleanupRuntimeDataCategory = async (
+    category: string,
+    label: string,
+    sizeText: string,
+  ) => {
+    const confirmed = confirmWithWindow(
+      `${getString("pref-runtime-data-cleanup-confirm" as any)}\n\n${label}: ${sizeText}`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    if (runtimeDataSummary) {
+      runtimeDataSummary.textContent = getString("pref-runtime-data-cleaning" as any);
+    }
+    try {
+      const result = await addon.hooks.onPrefsEvent("cleanupRuntimePersistenceCategory", {
+        window: addon.data.prefs?.window,
+        category,
+      });
+      const usage = (result as { usage?: unknown } | null | undefined)?.usage || result;
+      renderRuntimeDataUsage(usage);
+    } catch (error) {
+      if (runtimeDataSummary) {
+        runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
+      }
+    }
+  };
 
   const setLocalRuntimeStatusText = (text: string) => {
     if (!localRuntimeStatusText) {
@@ -955,6 +1080,36 @@ function bindPrefEvents() {
         window: addon.data.prefs?.window,
       });
     });
+  }
+
+  if (runtimeDataRescanButton) {
+    runtimeDataRescanButton.addEventListener("command", () => {
+      void refreshRuntimeDataUsage();
+    });
+  }
+
+  if (runtimeDataCopyRootButton) {
+    runtimeDataCopyRootButton.addEventListener("command", () => {
+      const text = lastRuntimeDataRoot;
+      const nav = (addon.data.prefs?.window.navigator || globalThis.navigator) as
+        | { clipboard?: { writeText?: (text: string) => Promise<void> } }
+        | undefined;
+      if (text && typeof nav?.clipboard?.writeText === "function") {
+        void nav.clipboard.writeText(text);
+      }
+    });
+  }
+
+  if (runtimeDataOpenRootButton) {
+    runtimeDataOpenRootButton.addEventListener("command", () => {
+      void addon.hooks.onPrefsEvent("openRuntimePersistenceRoot", {
+        window: addon.data.prefs?.window,
+      });
+    });
+  }
+
+  if (runtimeDataRoot || runtimeDataSummary || runtimeDataCategories) {
+    void refreshRuntimeDataUsage();
   }
 
   if (localRuntimeStatusText) {

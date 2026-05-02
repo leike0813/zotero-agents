@@ -154,6 +154,10 @@ class FakeDocument {
     return new FakeXULElement(this, tagName);
   }
 
+  createElement(tagName: string) {
+    return this.createXULElement(tagName);
+  }
+
   register(element: FakeXULElement) {
     if (element.id) {
       this.elements.set(element.id, element);
@@ -302,6 +306,7 @@ function setWorkflowState(workflows: LoadedWorkflow[]) {
 
 function createPrefsWindow(args?: {
   confirmResults?: boolean[];
+  includeRuntimeDataControls?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -323,6 +328,47 @@ function createPrefsWindow(args?: {
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
+  const runtimeDataRoot = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  if (runtimeDataRoot) {
+    runtimeDataRoot.id = `zotero-prefpane-${config.addonRef}-runtime-data-root`;
+  }
+  const runtimeDataSummary = args?.includeRuntimeDataControls
+    ? document.createXULElement("description")
+    : null;
+  if (runtimeDataSummary) {
+    runtimeDataSummary.id =
+      `zotero-prefpane-${config.addonRef}-runtime-data-summary`;
+  }
+  const runtimeDataCategories = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  if (runtimeDataCategories) {
+    runtimeDataCategories.id =
+      `zotero-prefpane-${config.addonRef}-runtime-data-categories`;
+  }
+  const runtimeDataRescanButton = args?.includeRuntimeDataControls
+    ? document.createXULElement("button")
+    : null;
+  if (runtimeDataRescanButton) {
+    runtimeDataRescanButton.id =
+      `zotero-prefpane-${config.addonRef}-runtime-data-rescan`;
+  }
+  const runtimeDataCopyRootButton = args?.includeRuntimeDataControls
+    ? document.createXULElement("button")
+    : null;
+  if (runtimeDataCopyRootButton) {
+    runtimeDataCopyRootButton.id =
+      `zotero-prefpane-${config.addonRef}-runtime-data-copy-root`;
+  }
+  const runtimeDataOpenRootButton = args?.includeRuntimeDataControls
+    ? document.createXULElement("button")
+    : null;
+  if (runtimeDataOpenRootButton) {
+    runtimeDataOpenRootButton.id =
+      `zotero-prefpane-${config.addonRef}-runtime-data-open-root`;
+  }
   const localRuntimeDeployButton = document.createXULElement("button");
   localRuntimeDeployButton.id =
     `zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`;
@@ -409,6 +455,12 @@ function createPrefsWindow(args?: {
     workflowSettingsButton,
     workflowOpenLogsButton,
     backendManageButton,
+    runtimeDataRoot,
+    runtimeDataSummary,
+    runtimeDataCategories,
+    runtimeDataRescanButton,
+    runtimeDataCopyRootButton,
+    runtimeDataOpenRootButton,
     localRuntimeDeployButton,
     localRuntimeStopButton,
     localRuntimeUninstallButton,
@@ -628,6 +680,79 @@ describe("gui: preference scripts", function () {
     assert.deepEqual(calls[5].data, {
       window,
     });
+  });
+
+  it("renders runtime persistence usage and dispatches category cleanup", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "scanRuntimePersistenceUsage") {
+        return {
+          root: "C:\\RuntimeRoot",
+          scannedAt: "2026-04-28T00:00:00.000Z",
+          totalBytes: 2048,
+          categories: [
+            {
+              category: "logs",
+              label: "Runtime logs",
+              path: "C:\\RuntimeRoot\\logs",
+              bytes: 2048,
+              exists: true,
+              cleanable: true,
+            },
+          ],
+        };
+      }
+      if (type === "cleanupRuntimePersistenceCategory") {
+        return {
+          ok: true,
+          category: data.category,
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-04-28T00:01:00.000Z",
+            totalBytes: 0,
+            categories: [],
+          },
+        };
+      }
+      return {};
+    };
+
+    const {
+      window,
+      runtimeDataRoot,
+      runtimeDataSummary,
+      runtimeDataCategories,
+      confirmMessages,
+    } = createPrefsWindow({ includeRuntimeDataControls: true });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    assert.equal(runtimeDataRoot?.textContent, "C:\\RuntimeRoot");
+    assert.include(String(runtimeDataSummary?.textContent || ""), "2.00 KB");
+    assert.isAtLeast(runtimeDataCategories?.children.length || 0, 3);
+
+    runtimeDataCategories?.children[2]?.dispatch("command");
+    await flushTasks();
+
+    assert.include(
+      calls.map((entry) => entry.type),
+      "cleanupRuntimePersistenceCategory",
+    );
+    assert.deepEqual(
+      calls.find((entry) => entry.type === "cleanupRuntimePersistenceCategory")
+        ?.data,
+      { window, category: "logs" },
+    );
+    assert.lengthOf(confirmMessages, 1);
   });
 
   it("binds local backend controls and dispatches oneclick/stop/uninstall/debug actions", async function () {

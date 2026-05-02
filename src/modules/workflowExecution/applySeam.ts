@@ -6,9 +6,12 @@ import type { BundleReader } from "./bundleIO";
 import {
   buildTempBundlePath,
   createUnavailableBundleReader,
+  createDirectoryBundleReader,
   removeFileIfExists,
   writeBytes,
 } from "./bundleIO";
+import { createWorkflowResultContext } from "./resultContext";
+import { markAcpSkillRunApplyResult } from "../acpSkillRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
   resolveTargetParentIDFromRequest,
@@ -26,6 +29,11 @@ type RunResultLike = {
   status?: string;
   backendStatus?: string;
   bundleBytes?: Uint8Array;
+  bundleDir?: string;
+  resultJson?: unknown;
+  responseJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
   requestId?: string;
 };
 
@@ -45,6 +53,23 @@ function isPendingWorkflowJobState(state: string) {
   return isActive(state);
 }
 
+function isAcpProviderResult(args: {
+  result?: RunResultLike;
+  job?: { meta?: Record<string, unknown> };
+}) {
+  const responseJson =
+    args.result?.responseJson &&
+    typeof args.result.responseJson === "object" &&
+    !Array.isArray(args.result.responseJson)
+      ? (args.result.responseJson as Record<string, unknown>)
+      : {};
+  return (
+    String(responseJson.provider || "").trim() === "acp" ||
+    String(args.job?.meta?.backendType || "").trim() === "acp" ||
+    String(args.job?.meta?.providerId || "").trim() === "acp"
+  );
+}
+
 type ApplySeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   normalizeErrorMessage: typeof normalizeErrorMessage;
@@ -53,7 +78,9 @@ type ApplySeamDeps = {
   writeBytes: typeof writeBytes;
   removeFileIfExists: typeof removeFileIfExists;
   createUnavailableBundleReader: typeof createUnavailableBundleReader;
+  createDirectoryBundleReader: typeof createDirectoryBundleReader;
   createZipBundleReader: (bundlePath: string) => BundleReader;
+  createWorkflowResultContext: typeof createWorkflowResultContext;
 };
 
 const defaultApplySeamDeps: ApplySeamDeps = {
@@ -64,7 +91,9 @@ const defaultApplySeamDeps: ApplySeamDeps = {
   writeBytes,
   removeFileIfExists,
   createUnavailableBundleReader,
+  createDirectoryBundleReader,
   createZipBundleReader: (bundlePath) => new ZipBundleReader(bundlePath),
+  createWorkflowResultContext,
 };
 
 export async function runWorkflowApplySeam(args: {
@@ -260,6 +289,10 @@ export async function runWorkflowApplySeam(args: {
       isSkillRunnerAutoRequest({
         workflow: args.runState.workflow,
         request: args.runState.requests[i],
+      }) &&
+      !isAcpProviderResult({
+        result,
+        job: job as { meta?: Record<string, unknown> },
       })
     ) {
       pending += 1;
@@ -308,14 +341,28 @@ export async function runWorkflowApplySeam(args: {
         bundlePath = resolved.buildTempBundlePath(result.requestId);
         await resolved.writeBytes(bundlePath, result.bundleBytes);
         bundleReader = resolved.createZipBundleReader(bundlePath);
+      } else if (result.bundleDir) {
+        bundleReader = resolved.createDirectoryBundleReader(result.bundleDir);
       }
+      const resultContext = await resolved.createWorkflowResultContext({
+        runResult: result,
+        bundleReader,
+        manifest: args.runState.workflow.manifest,
+      });
       await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: applyParent,
         bundleReader,
+        resultContext,
         request: args.runState.requests[i],
         runResult: job.result,
       });
+      if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
+        markAcpSkillRunApplyResult({
+          requestId: result.requestId,
+          state: "succeeded",
+        });
+      }
       succeeded += 1;
       jobOutcomes.push({
         index: i,
@@ -366,6 +413,13 @@ export async function runWorkflowApplySeam(args: {
         },
         error,
       });
+      if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
+        markAcpSkillRunApplyResult({
+          requestId: result.requestId,
+          state: "failed",
+          error: reason,
+        });
+      }
     } finally {
       if (bundlePath) {
         await resolved.removeFileIfExists(bundlePath);

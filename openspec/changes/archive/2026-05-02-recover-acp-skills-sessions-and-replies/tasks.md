@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec spec delta for ACP Skills session recovery and connection controls.
+- [x] 2. Extend ACP Skill run store fields, actions, and shutdown detach behavior.
+- [x] 3. Add recovery-aware controller creation in the ACP SkillRunner orchestrator.
+- [x] 4. Add ACP Skills UI connection indicator and Connect/Disconnect actions.
+- [x] 5. Add recovered workflow continuation guard and keep it out of user-facing transcript text.
+- [x] 6. Add/adjust core and UI smoke tests.
+- [x] 7. Run validation commands and record results.

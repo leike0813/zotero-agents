@@ -8,6 +8,7 @@ import {
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
 import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
+import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
@@ -50,17 +51,19 @@ import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHea
 import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
 import { flushRuntimeLogsPersistence } from "./modules/runtimeLogManager";
 import {
-  installSkillRunnerSidebarShell,
-  openSkillRunnerSidebar,
-  removeSkillRunnerSidebarShell,
-  toggleSkillRunnerSidebar,
-} from "./modules/skillRunnerSidebar";
-import {
-  installAcpSidebarShell,
-  openAcpSidebar,
-  removeAcpSidebarShell,
-} from "./modules/acpSidebar";
+  installAssistantWorkspaceSidebarShell,
+  openAssistantWorkspaceSidebar,
+  removeAssistantWorkspaceSidebarShell,
+  toggleAssistantWorkspaceSidebar,
+} from "./modules/assistantWorkspaceSidebar";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
+import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunStore";
+import {
+  cleanupRuntimePersistenceCategory,
+  getRuntimePersistencePaths,
+  scanRuntimePersistenceUsage,
+  type RuntimePersistenceCategory,
+} from "./modules/runtimePersistence";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -206,6 +209,7 @@ async function onStartup() {
     typeof rootURI === "string" && rootURI
       ? rootURI
       : `chrome://${addon.data.config.addonRef}/`;
+  setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   try {
     await syncBuiltinWorkflowsOnStartup({
       rootURI: runtimeRootURI,
@@ -246,8 +250,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
   await ensureWorkflowRegistryAndMenu(win);
   ensureDashboardToolbarButton(win);
-  installSkillRunnerSidebarShell(win);
-  installAcpSidebarShell(win);
+  installAssistantWorkspaceSidebarShell(win);
 
   const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
   const popupWin = ProgressWindow
@@ -289,20 +292,19 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
 async function onMainWindowUnload(win: Window): Promise<void> {
   removeDashboardToolbarButton(win);
-  removeSkillRunnerSidebarShell(win as _ZoteroTypes.MainWindow);
-  removeAcpSidebarShell(win as _ZoteroTypes.MainWindow);
+  removeAssistantWorkspaceSidebarShell(win as _ZoteroTypes.MainWindow);
   unregisterToolkitSafely();
   addon.data.dialog?.window?.close();
 }
 
 async function onShutdown(): Promise<void> {
+  await shutdownAcpSkillRunConversations();
   await shutdownAcpSessionManager();
   await shutdownSkillRunnerAsyncLifecycle();
   await flushRuntimeLogsPersistence();
   for (const win of Zotero.getMainWindows?.() || []) {
     removeDashboardToolbarButton(win);
-    removeSkillRunnerSidebarShell(win);
-    removeAcpSidebarShell(win);
+    removeAssistantWorkspaceSidebarShell(win);
   }
   unregisterToolkitSafely();
   addon.data.dialog?.window?.close();
@@ -434,18 +436,27 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       await openTaskManagerDialog();
       break;
     case "openSkillRunnerSidebar":
-      await openSkillRunnerSidebar({
+      await openAssistantWorkspaceSidebar({
         window: data.window,
+        tab: "skillrunner",
       });
       break;
     case "openAcpSidebar":
-      await openAcpSidebar({
+      await openAssistantWorkspaceSidebar({
         window: data.window,
+        tab: "acp-chat",
+      });
+      break;
+    case "openAcpSkillRunnerSidebar":
+      await openAssistantWorkspaceSidebar({
+        window: data.window,
+        tab: "acp-skills",
       });
       break;
     case "toggleSkillRunnerSidebar":
-      await toggleSkillRunnerSidebar({
+      await toggleAssistantWorkspaceSidebar({
         window: data.window,
+        tab: "skillrunner",
       });
       break;
     case "openLogViewer":
@@ -453,6 +464,27 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         initialTabKey: "runtime-logs",
       });
       break;
+    case "scanRuntimePersistenceUsage":
+      return scanRuntimePersistenceUsage();
+    case "cleanupRuntimePersistenceCategory":
+      return cleanupRuntimePersistenceCategory(
+        String(data.category || "") as RuntimePersistenceCategory,
+      );
+    case "openRuntimePersistenceRoot":
+      try {
+        openFolderInSystemFileManager(getRuntimePersistencePaths().root);
+        return {
+          ok: true,
+          stage: "open-runtime-persistence-root",
+          message: "runtime persistence root opened",
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          stage: "open-runtime-persistence-root",
+          message: String(error),
+        };
+      }
     case "openSkillRunnerLocalDeployDebugConsole":
       if (!isDebugModeEnabled()) {
         return {

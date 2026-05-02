@@ -169,6 +169,8 @@ Dashboard 当前不支持：
 - Workflow Manifest Schema：`src/schemas/workflow.schema.json`
 - Workflow Hook Helpers：`doc/components/workflow-hook-helpers.md`
 - Zotero Host Capability Broker SSOT：`doc/components/zotero-host-capability-broker-ssot.md`
+- Plugin Skill Registry / ACP Compatible SSOT：`doc/components/plugin-skill-registry-and-acp-compatible-ssot.md`
+- Runtime Persistence Governance SSOT：`doc/components/runtime-persistence-governance-ssot.md`
 - Providers：`doc/components/providers.md`
 - Selection/Context：`doc/components/selection-context.md`
 - Selection/Context Schema：`doc/components/selection-context.schema.json`

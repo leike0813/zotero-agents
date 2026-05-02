@@ -260,6 +260,76 @@ describe("workflow apply seam risk regression", function () {
     assert.include(runtimeStages, "foreground-apply-skipped-auto");
   });
 
+  it("does not skip foreground apply for ACP skillrunner-compatible auto succeeded job", async function () {
+    const runtimeStages: string[] = [];
+    let applyCalls = 0;
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [
+            {
+              kind: "skillrunner.job.v1",
+              targetParentID: 3,
+              runtime_options: {
+                execution_mode: "auto",
+              },
+            },
+          ],
+          jobIds: ["job-acp-auto-1"],
+          jobsById: {
+            "job-acp-auto-1": {
+              id: "job-acp-auto-1",
+              state: "succeeded",
+              meta: {
+                requestId: "acp-auto-1",
+                targetParentID: 3,
+                providerId: "acp",
+                backendType: "acp",
+              },
+              result: {
+                status: "succeeded",
+                requestId: "acp-auto-1",
+                fetchType: "result",
+                resultJson: {
+                  digest_path: "result/digest.md",
+                },
+                responseJson: {
+                  provider: "acp",
+                  workspaceDir: "C:/tmp/acp-auto-1",
+                },
+              },
+            },
+          },
+          workflowManifest: {
+            provider: "skillrunner",
+            request: {
+              kind: "skillrunner.job.v1",
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+        executeApplyResult: async () => {
+          applyCalls += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(applyCalls, 1);
+    assert.equal(summary.succeeded, 1);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.pending, 0);
+    assert.lengthOf(summary.reconcileOwnedPendingJobs, 0);
+    assert.notInclude(runtimeStages, "foreground-apply-skipped-auto");
+    assert.include(runtimeStages, "apply-succeeded");
+  });
+
   it("keeps request-created skillrunner auto job pending when local dispatch fails after request creation", async function () {
     const runtimeStages: string[] = [];
 

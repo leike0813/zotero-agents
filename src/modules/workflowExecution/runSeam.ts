@@ -4,7 +4,9 @@ import { appendRuntimeLog } from "../runtimeLogManager";
 import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { ensureSkillRunnerRecoverableContext } from "../skillRunnerTaskReconciler";
-import { openSkillRunnerSidebar } from "../skillRunnerSidebar";
+import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
+import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
+import { selectAcpSkillRun } from "../acpSkillRunStore";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
@@ -23,7 +25,9 @@ type RunSeamDeps = {
   recordWorkflowTaskUpdate: typeof recordWorkflowTaskUpdate;
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
   ensureSkillRunnerRecoverableContext: typeof ensureSkillRunnerRecoverableContext;
-  openSkillRunnerSidebar: typeof openSkillRunnerSidebar;
+  openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
+  focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
+  selectAcpSkillRun: typeof selectAcpSkillRun;
 };
 
 const defaultRunSeamDeps: RunSeamDeps = {
@@ -33,7 +37,9 @@ const defaultRunSeamDeps: RunSeamDeps = {
   recordWorkflowTaskUpdate,
   recordTaskDashboardHistoryFromJob,
   ensureSkillRunnerRecoverableContext,
-  openSkillRunnerSidebar,
+  openAssistantWorkspaceSidebar,
+  focusSkillRunnerWorkspace,
+  selectAcpSkillRun,
 };
 
 export function runWorkflowExecutionSeam(
@@ -95,15 +101,36 @@ export function runWorkflowExecutionSeam(
         const executionContext = args.prepared.executionContext;
         const skillrunnerMode =
           args.prepared.workflow.manifest.execution?.skillrunner_mode;
+        const isSkillRunnerJob =
+          executionContext.requestKind === "skillrunner.job.v1";
+        const backendType = String(executionContext.backend.type || "").trim();
         if (
-          executionContext.providerId === "skillrunner" &&
-          skillrunnerMode === "interactive" &&
+          isSkillRunnerJob &&
+          backendType === "skillrunner" &&
           requestId
         ) {
-          resolved.openSkillRunnerSidebar({
+          void resolved.focusSkillRunnerWorkspace({
             backend: executionContext.backend,
             requestId,
+            selectionChanged: true,
           });
+          if (skillrunnerMode === "interactive") {
+            void resolved.openAssistantWorkspaceSidebar({
+              tab: "skillrunner",
+              backend: executionContext.backend,
+              requestId,
+            });
+          }
+        }
+        if (isSkillRunnerJob && backendType === "acp" && requestId) {
+          resolved.selectAcpSkillRun(requestId);
+          if (skillrunnerMode === "interactive") {
+            void resolved.openAssistantWorkspaceSidebar({
+              tab: "acp-skills",
+              backend: executionContext.backend,
+              requestId,
+            });
+          }
         }
       }
     },
@@ -152,6 +179,7 @@ export function runWorkflowExecutionSeam(
         inputUnitLabel,
         targetParentID: resolveTargetParentIDFromRequest(request),
         providerId: args.prepared.executionContext.providerId,
+        requestKind: args.prepared.executionContext.requestKind,
         backendId: args.prepared.executionContext.backend.id,
         backendType: args.prepared.executionContext.backend.type,
         backendBaseUrl: args.prepared.executionContext.backend.baseUrl,

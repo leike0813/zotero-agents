@@ -1,26 +1,147 @@
-import type { ProviderExecutionResult, AcpPromptRequestV1 } from "../contracts";
+import type {
+  ProviderExecutionResult,
+  AcpPromptRequestV1,
+} from "../contracts";
 import type { Provider, ProviderSupportsArgs } from "../types";
 import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
+import { isAcpBackendConnectionTestPassed } from "../../modules/acpBackendProbe";
+import {
+  buildAcpFoldedModelGroups,
+  normalizeAcpEffortId,
+} from "../../modules/acpModelOptionFolding";
+import type { BackendInstance } from "../../backends/types";
+
+const SKILLRUNNER_JOB_REQUEST_KIND = "skillrunner.job.v1";
 
 export class AcpProvider implements Provider {
   readonly id = ACP_BACKEND_TYPE;
 
   getRuntimeOptionSchema() {
-    return {};
+    return {
+      acpModeId: {
+        type: "string" as const,
+        title: "ACP mode",
+        description:
+          "ACP session mode for this workflow run. Values come from the backend connection test cache.",
+      },
+      acpModelId: {
+        type: "string" as const,
+        title: "ACP model",
+        description:
+          "Display model for this workflow run. Reasoning variants are folded into the reasoning option.",
+      },
+      acpReasoningEffort: {
+        type: "string" as const,
+        title: "Reasoning effort",
+        description:
+          "Reasoning effort derived from ACP model variants. The runner resolves it to the raw ACP model id before prompting.",
+      },
+    };
   }
 
-  normalizeRuntimeOptions() {
-    return {};
+  getRuntimeOptionEnumValues(args: {
+    key: string;
+    options?: Record<string, unknown>;
+    backend?: BackendInstance;
+  }) {
+    const backend = args.backend;
+    const cache = backend?.acp?.runtimeOptionsCache;
+    if (!backend || !isAcpBackendConnectionTestPassed(backend) || !cache) {
+      return [];
+    }
+    const key = String(args.key || "").trim();
+    if (key === "acpModeId") {
+      return (cache.modes || []).map((mode) => mode.id);
+    }
+    if (key === "acpModelId") {
+      return (cache.displayModels || []).map((model) => model.id);
+    }
+    if (key === "acpReasoningEffort") {
+      const selectedModelId = String(
+        args.options?.acpModelId || cache.currentDisplayModelId || "",
+      ).trim();
+      const group = buildAcpFoldedModelGroups(cache.rawModels || []).get(
+        selectedModelId,
+      );
+      const variants = group?.variants || [];
+      if (variants.length > 0) {
+        return variants.map((variant) => variant.effortId);
+      }
+      const cachedEfforts = (cache.reasoningEfforts || []).map((effort) => effort.id);
+      return cachedEfforts.length > 0 ? cachedEfforts : ["default"];
+    }
+    return [];
+  }
+
+  normalizeRuntimeOptions(
+    options: unknown = {},
+    backend?: BackendInstance,
+  ) {
+    const cache = backend?.acp?.runtimeOptionsCache;
+    const source =
+      options && typeof options === "object" && !Array.isArray(options)
+        ? (options as Record<string, unknown>)
+        : {};
+    if (!cache) {
+      return {};
+    }
+    const modeIds = new Set((cache.modes || []).map((entry) => entry.id));
+    const modelGroups = buildAcpFoldedModelGroups(cache.rawModels || []);
+    const modelIds = new Set([
+      ...(cache.displayModels || []).map((entry) => entry.id),
+      ...Array.from(modelGroups.keys()),
+    ]);
+    const selectedMode = String(
+      source.acpModeId || cache.currentModeId || "",
+    ).trim();
+    const selectedModel = String(
+      source.acpModelId || cache.currentDisplayModelId || "",
+    ).trim();
+    const model =
+      (selectedModel && modelIds.has(selectedModel) ? selectedModel : "") ||
+      cache.currentDisplayModelId ||
+      Array.from(modelGroups.keys())[0] ||
+      "";
+    const group = modelGroups.get(model);
+    const effortIds = new Set((group?.variants || []).map((entry) => entry.effortId));
+    const normalizedEffort = normalizeAcpEffortId(source.acpReasoningEffort);
+    const fallbackEffort =
+      group && group.variants.length > 0
+        ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||
+          group.variants[0]?.effortId ||
+          ""
+        : (cache.reasoningEfforts || []).length > 0
+          ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||
+            normalizeAcpEffortId(cache.reasoningEfforts?.[0]?.id) ||
+            ""
+        : "";
+    return {
+      ...(selectedMode && modeIds.has(selectedMode)
+        ? { acpModeId: selectedMode }
+        : cache.currentModeId
+          ? { acpModeId: cache.currentModeId }
+          : {}),
+      ...(model ? { acpModelId: model } : {}),
+      ...(normalizedEffort && effortIds.has(normalizedEffort)
+        ? { acpReasoningEffort: normalizedEffort }
+        : fallbackEffort
+          ? { acpReasoningEffort: fallbackEffort }
+          : {}),
+    };
   }
 
   supports(args: ProviderSupportsArgs) {
+    const backendType = String(args.backend.type || "").trim();
+    const requestKind = String(args.requestKind || "").trim();
     return (
-      String(args.backend.type || "").trim() === ACP_BACKEND_TYPE &&
-      String(args.requestKind || "").trim() === ACP_PROMPT_REQUEST_KIND
+      backendType === ACP_BACKEND_TYPE &&
+      (requestKind === ACP_PROMPT_REQUEST_KIND ||
+        requestKind === SKILLRUNNER_JOB_REQUEST_KIND)
     );
   }
 
@@ -34,6 +155,9 @@ export class AcpProvider implements Provider {
       throw new Error(
         `Unsupported request kind/backend for AcpProvider: requestKind=${args.requestKind}, backendType=${args.backend.type}`,
       );
+    }
+    if (String(args.requestKind || "").trim() === SKILLRUNNER_JOB_REQUEST_KIND) {
+      return executeAcpSkillRunnerJob(args);
     }
     const request = args.request as AcpPromptRequestV1;
     const requestId = `acp-${Date.now().toString(36)}-${Math.random()

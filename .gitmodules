@@ -1,0 +1,17 @@
+[submodule "skills_builtin/skill-converter-agent"]
+	path = skills_builtin/skill-converter-agent
+	url = https://github.com/leike0813/agent-skills
+	branch = skill/skill-converter-agent
+
+[submodule "skills_builtin/literature-digest"]
+	path = skills_builtin/literature-digest
+	url = https://github.com/leike0813/agent-skills
+	branch = skill/literature-digest
+[submodule "skills_builtin/tag-regulator"]
+	path = skills_builtin/tag-regulator
+	url = https://github.com/leike0813/agent-skills
+	branch = skill/tag-regulator
+[submodule "skills_builtin/literature-explainer"]
+	path = skills_builtin/literature-explainer
+	url = https://github.com/leike0813/agent-skills
+	branch = skill/literature-explainer

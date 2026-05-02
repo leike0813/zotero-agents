@@ -320,6 +320,10 @@
       snapshot.homeAcpEntry && typeof snapshot.homeAcpEntry === "object"
         ? snapshot.homeAcpEntry
         : null;
+    const homeAcpSkillRunsEntry =
+      snapshot.homeAcpSkillRunsEntry && typeof snapshot.homeAcpSkillRunsEntry === "object"
+        ? snapshot.homeAcpSkillRunsEntry
+        : null;
     const workflows = Array.isArray(snapshot.homeWorkflows)
       ? snapshot.homeWorkflows
       : [];
@@ -398,6 +402,48 @@
       panel.appendChild(actions);
       acpSection.appendChild(panel);
       main.appendChild(acpSection);
+    }
+    if (homeAcpSkillRunsEntry) {
+      const section = el("section", "section");
+      section.classList.add("workflow-bubbles-section");
+      section.appendChild(
+        el(
+          "h3",
+          "section-title",
+          homeAcpSkillRunsEntry.title || "ACP Skill Runs",
+        ),
+      );
+      const panel = el("div", "panel");
+      const summary = el("div", "bound-task");
+      summary.appendChild(
+        el("div", "bound-task-item", homeAcpSkillRunsEntry.subtitle || ""),
+      );
+      summary.appendChild(
+        el(
+          "div",
+          "bound-task-item",
+          "Active: " +
+            String(homeAcpSkillRunsEntry.activeCount || 0) +
+            " · Failed: " +
+            String(homeAcpSkillRunsEntry.failedCount || 0) +
+            " · Recent: " +
+            String(homeAcpSkillRunsEntry.recentCount || 0),
+        ),
+      );
+      panel.appendChild(summary);
+      const actions = el("div", "actions-wrap");
+      const openButton = el(
+        "button",
+        "btn",
+        homeAcpSkillRunsEntry.actionLabel || "Open Runs",
+      );
+      openButton.addEventListener("click", function () {
+        sendAction("open-acp-skill-runs", {});
+      });
+      actions.appendChild(openButton);
+      panel.appendChild(actions);
+      section.appendChild(panel);
+      main.appendChild(section);
     }
     if (workflows.length > 0) {
       const section = el("section", "section");
@@ -521,6 +567,7 @@
             backendId: row.backendId || "",
             backendType: row.backendType || "",
             requestId: row.requestId || "",
+            requestKind: row.requestKind || "",
           });
         },
         columns: [
@@ -652,7 +699,31 @@
               taskId: row.id,
             });
           });
-          return [view];
+          const actions = [view];
+          if (
+            String(backend.backendType || "").trim() === "acp" &&
+            String(row.requestKind || "").trim() === "skillrunner.job.v1" &&
+            row.requestId
+          ) {
+            const openRun = el("button", "btn", labels.openRun || "Open Run");
+            openRun.addEventListener("click", function () {
+              sendAction("open-run", {
+                backendId: backend.backendId,
+                requestId: row.requestId,
+              });
+            });
+            actions.push(openRun);
+            const cancelRun = el("button", "btn", labels.cancelRun || "Cancel");
+            cancelRun.disabled = isTerminalStatus(row.state, row.stateSemantics);
+            cancelRun.addEventListener("click", function () {
+              sendAction("cancel-run", {
+                backendId: backend.backendId,
+                requestId: row.requestId,
+              });
+            });
+            actions.push(cancelRun);
+          }
+          return actions;
         },
       }),
     );
@@ -761,6 +832,96 @@
             actionsWrap.textContent = "-";
           } else {
             actionButtons.forEach((button) => actionsWrap.appendChild(button));
+          }
+          actionCell.appendChild(actionsWrap);
+          tr.appendChild(actionCell);
+        },
+      }),
+    );
+  }
+
+  function renderAcpSkillRunnerBackend(main, snapshot) {
+    const labels = snapshot.labels;
+    const backend = snapshot.backendView;
+    if (!backend) {
+      main.appendChild(el("div", "empty", labels.noHistory));
+      return;
+    }
+    const toolbar = el("div", "toolbar");
+    toolbar.appendChild(el("h2", "page-title", backend.title));
+    const openRuns = el("button", "btn", labels.openRun || "Open Runs");
+    openRuns.addEventListener("click", function () {
+      sendAction("open-acp-skill-runs", {});
+    });
+    toolbar.appendChild(openRuns);
+    main.appendChild(toolbar);
+
+    main.appendChild(
+      renderTaskTable({
+        rows: backend.rows || [],
+        labels,
+        panelClassName: "skillrunner-task-panel",
+        tableWrapClassName: "backend-task-table-wrap",
+        scrollKey: snapshot.selectedTabKey,
+        emptyText: backend.emptyRowsText || labels.backendNoTasks || labels.noHistory,
+        columns: [
+          labels.colTask,
+          labels.colWorkflow,
+          labels.colEngine || "Engine",
+          labels.colStatus,
+          labels.colRequestId,
+          labels.colUpdatedAt,
+          labels.colActions || "Actions",
+        ],
+        renderRow: (tr, row) => {
+          const taskCell = document.createElement("td");
+          taskCell.textContent = row.taskName;
+          tr.appendChild(taskCell);
+
+          const workflowCell = document.createElement("td");
+          workflowCell.textContent = row.workflowLabel;
+          tr.appendChild(workflowCell);
+
+          const engineCell = document.createElement("td");
+          engineCell.textContent = row.engine || "ACP";
+          tr.appendChild(engineCell);
+
+          const statusCell = document.createElement("td");
+          statusCell.appendChild(renderStatusBadge(row.state, row.stateLabel));
+          tr.appendChild(statusCell);
+
+          const requestCell = document.createElement("td");
+          requestCell.className = "mono";
+          requestCell.textContent = row.requestId || "-";
+          tr.appendChild(requestCell);
+
+          const updatedCell = document.createElement("td");
+          updatedCell.textContent = formatTime(row.updatedAt);
+          tr.appendChild(updatedCell);
+
+          const actionCell = document.createElement("td");
+          actionCell.className = "actions-cell";
+          const actionsWrap = el("div", "actions-wrap");
+          if (row.requestId) {
+            const openRun = el("button", "btn", labels.openRun || "Open Run");
+            openRun.addEventListener("click", function () {
+              sendAction("open-run", {
+                backendId: backend.backendId,
+                requestId: row.requestId,
+              });
+            });
+            actionsWrap.appendChild(openRun);
+            const cancelRun = el("button", "btn", labels.cancelRun || "Cancel");
+            cancelRun.disabled = isTerminalStatus(row.state, row.stateSemantics);
+            cancelRun.addEventListener("click", function () {
+              sendAction("cancel-run", {
+                backendId: backend.backendId,
+                requestId: row.requestId,
+              });
+            });
+            actionsWrap.appendChild(cancelRun);
+          } else {
+            actionsWrap.textContent = "-";
           }
           actionCell.appendChild(actionsWrap);
           tr.appendChild(actionCell);
@@ -1776,6 +1937,9 @@
     } else if (snapshot.backendView && snapshot.backendView.backendType === "skillrunner") {
       main.classList.add("skillrunner-fill");
       renderSkillRunnerBackend(main, snapshot);
+    } else if (snapshot.backendView && snapshot.backendView.backendType === "acp") {
+      main.classList.add("skillrunner-fill");
+      renderAcpSkillRunnerBackend(main, snapshot);
     } else {
       renderGenericBackend(main, snapshot);
     }

@@ -4,6 +4,7 @@ import {
   launchAcpTransport,
   type AcpLaunchPlan,
 } from "../../src/modules/acpTransport";
+import { resolveWindowsCommandFromPowerShell } from "../../src/modules/windowsCommandResolution";
 import type { BackendInstance } from "../../src/backends/types";
 
 type SubprocessCallInvocation = {
@@ -99,6 +100,32 @@ describe("acp transport", function () {
     assert.deepEqual(plan.args, ["opencode-ai@latest", "acp"]);
     assert.equal(plan.commandLabel, "npx opencode-ai@latest acp");
     assert.equal(plan.commandLine, "/usr/local/bin/npx opencode-ai@latest acp");
+  });
+
+  it("keeps resolved Windows executables direct so nested quoted args survive", function () {
+    const plan = buildAcpLaunchPlanForTests({
+      command: "uv",
+      resolvedCommand: "C:\\Users\\tester\\.local\\bin\\uv.exe",
+      args: [
+        "run",
+        "--isolated",
+        "--",
+        "C:\\Program Files\\nodejs\\npx.cmd",
+        "@zed-industries/claude-code-acp@latest",
+      ],
+      platform: "win32",
+      comspec: "C:\\Windows\\System32\\cmd.exe",
+    });
+
+    assert.equal(plan.command, "C:\\Users\\tester\\.local\\bin\\uv.exe");
+    assert.deepEqual(plan.args, [
+      "run",
+      "--isolated",
+      "--",
+      "C:\\Program Files\\nodejs\\npx.cmd",
+      "@zed-industries/claude-code-acp@latest",
+    ]);
+    assert.notInclude(plan.commandLine, "cmd.exe /d /c");
   });
 
   it("creates mozilla transport adapters without global Web Streams", async function () {
@@ -269,6 +296,33 @@ describe("acp transport", function () {
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("does not invoke PowerShell fallback for unsafe bare command names", async function () {
+    let invoked = false;
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: true,
+      Utilities: {
+        Internal: {
+          subprocess: async () => {
+            invoked = true;
+            return "";
+          },
+        },
+      },
+    });
+
+    try {
+      const resolved = await resolveWindowsCommandFromPowerShell(
+        "npx;Write-Output pwned",
+        "win32",
+      );
+
+      assert.deepEqual(resolved, []);
+      assert.isFalse(invoked);
+    } finally {
       restoreGlobalProperty("Zotero", previousZotero);
     }
   });

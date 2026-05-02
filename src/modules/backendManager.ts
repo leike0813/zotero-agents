@@ -29,6 +29,10 @@ import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { untrackSkillRunnerBackendHealth } from "./skillRunnerBackendHealthRegistry";
 import { purgeSkillRunnerBackendReconcileState } from "./skillRunnerTaskReconciler";
 import { pruneAcpSessionSlotsForBackends } from "./acpSessionManager";
+import {
+  computeAcpBackendConfigFingerprint,
+  probeAcpBackendRuntimeOptions,
+} from "./acpBackendProbe";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -63,6 +67,7 @@ type EditableBackendRow = {
   command: string;
   argsText: string;
   envText: string;
+  acp?: BackendInstance["acp"];
 };
 
 export type SkillRunnerManagementLaunchPayload = {
@@ -307,6 +312,7 @@ function buildFallbackBackendRow(): EditableBackendRow {
     command: "",
     argsText: "",
     envText: "",
+    acp: undefined,
   };
 }
 
@@ -329,6 +335,7 @@ function normalizeRowFromBackend(backend: BackendInstance): EditableBackendRow {
           .map(([key, value]) => `${key}=${value}`)
           .join("\n")
       : "",
+    acp: backend.acp,
   };
 }
 
@@ -387,10 +394,122 @@ function appendSelectCell(
   cell.appendChild(control);
 }
 
+function readAcpMetadataFromRow(row: Element): BackendInstance["acp"] | undefined {
+  const raw = String(row.getAttribute("data-zs-backend-acp") || "").trim();
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as BackendInstance["acp"])
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeAcpMetadataToRow(row: Element, acp: BackendInstance["acp"] | undefined) {
+  if (acp) {
+    row.setAttribute("data-zs-backend-acp", JSON.stringify(acp));
+  } else {
+    row.removeAttribute("data-zs-backend-acp");
+  }
+  const chip = row.querySelector("[data-zs-acp-connection-status='1']") as HTMLElement | null;
+  if (chip) {
+    const status = acp?.connectionTest?.status || "untested";
+    styleAcpBackendStatusChip({
+      chip,
+      status,
+    });
+  }
+  const button = row.querySelector(
+    "[data-zs-backend-action='refresh-acp-runtime-options']",
+  ) as HTMLButtonElement | null;
+  if (button) {
+    button.disabled = false;
+    button.textContent = getAcpBackendActionLabel(acp);
+  }
+}
+
+function getAcpBackendActionLabel(acp: BackendInstance["acp"] | undefined) {
+  return acp?.connectionTest?.status === "passed"
+    ? getString("backend-manager-refresh-acp-runtime-cache" as any)
+    : getString("backend-manager-test-acp-connection" as any);
+}
+
+function styleAcpBackendStatusChip(args: {
+  chip: HTMLElement;
+  status: string;
+  text?: string;
+}) {
+  const { chip, status, text } = args;
+  chip.textContent = text || status;
+  chip.style.backgroundColor =
+    status === "passed"
+      ? "#dcfce7"
+      : status === "failed"
+        ? "#fee2e2"
+        : status === "testing" || status === "refreshing"
+          ? "#fef3c7"
+          : "#f3f4f6";
+  chip.style.color =
+    status === "passed"
+      ? "#166534"
+      : status === "failed"
+        ? "#991b1b"
+        : status === "testing" || status === "refreshing"
+          ? "#92400e"
+          : "#374151";
+}
+
+function setAcpBackendRowBusy(row: Element, busy: boolean) {
+  const button = row.querySelector(
+    "[data-zs-backend-action='refresh-acp-runtime-options']",
+  ) as HTMLButtonElement | null;
+  const chip = row.querySelector("[data-zs-acp-connection-status='1']") as
+    | HTMLElement
+    | null;
+  const acp = readAcpMetadataFromRow(row);
+  const wasPassed = acp?.connectionTest?.status === "passed";
+  if (button) {
+    button.disabled = busy;
+    button.textContent = busy
+      ? getString(
+          (wasPassed
+            ? "backend-manager-acp-refreshing"
+            : "backend-manager-acp-testing") as any,
+        )
+      : getAcpBackendActionLabel(acp);
+  }
+  if (chip) {
+    if (busy) {
+      styleAcpBackendStatusChip({
+        chip,
+        status: wasPassed ? "refreshing" : "testing",
+        text: getString(
+          (wasPassed
+            ? "backend-manager-acp-refreshing"
+            : "backend-manager-acp-testing") as any,
+        ),
+      });
+    } else {
+      const status = acp?.connectionTest?.status || "untested";
+      styleAcpBackendStatusChip({
+        chip,
+        status,
+      });
+    }
+  }
+}
+
 export function getBackendRowActionKindsForType(type: string) {
   const normalizedType = String(type || "").trim();
   if (normalizedType === DEFAULT_BACKEND_TYPE) {
     return ["manage-ui", "refresh-model-cache", "remove"] as const;
+  }
+  if (normalizedType === ACP_BACKEND_TYPE) {
+    return ["refresh-acp-runtime-options", "remove"] as const;
   }
   return ["remove"] as const;
 }
@@ -400,6 +519,7 @@ function appendActionCell(args: {
   backendType: string;
   onOpenManagement?: (row: HTMLElement) => void;
   onRefreshModelCache?: (row: HTMLElement) => void;
+  onRefreshAcpRuntimeOptions?: (row: HTMLElement) => void;
 }) {
   const cell = appendCell(args.row);
   if (String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
@@ -429,6 +549,31 @@ function appendActionCell(args: {
     refreshButton.style.marginRight = "6px";
     cell.appendChild(refreshButton);
   }
+  if (String(args.backendType || "").trim() === ACP_BACKEND_TYPE) {
+    const refreshButton = createHtmlElement(args.row.ownerDocument!, "button");
+    refreshButton.type = "button";
+    const status = readAcpMetadataFromRow(args.row)?.connectionTest?.status || "untested";
+    refreshButton.textContent = getAcpBackendActionLabel(
+      readAcpMetadataFromRow(args.row),
+    );
+    refreshButton.setAttribute("data-zs-backend-action", "refresh-acp-runtime-options");
+    refreshButton.addEventListener("click", () => {
+      if (typeof args.onRefreshAcpRuntimeOptions === "function") {
+        args.onRefreshAcpRuntimeOptions(args.row);
+      }
+    });
+    refreshButton.style.marginRight = "6px";
+    cell.appendChild(refreshButton);
+    const chip = createHtmlElement(args.row.ownerDocument!, "span");
+    chip.setAttribute("data-zs-acp-connection-status", "1");
+    chip.style.padding = "2px 6px";
+    chip.style.borderRadius = "999px";
+    styleAcpBackendStatusChip({
+      chip,
+      status,
+    });
+    cell.appendChild(chip);
+  }
   const button = createHtmlElement(args.row.ownerDocument!, "button");
   button.type = "button";
   button.textContent = getString("backend-manager-remove" as any);
@@ -444,11 +589,15 @@ function appendBackendRow(args: {
   backend: EditableBackendRow;
   onOpenManagement?: (row: HTMLElement) => void;
   onRefreshModelCache?: (row: HTMLElement) => void;
+  onRefreshAcpRuntimeOptions?: (row: HTMLElement) => void;
 }) {
   const row = createHtmlElement(args.tbody.ownerDocument!, "tr");
   row.setAttribute("data-zs-backend-row", "1");
   row.setAttribute("data-zs-backend-type", args.backend.type);
   row.setAttribute("data-zs-backend-internal-id", args.backend.internalId);
+  if (args.backend.acp) {
+    row.setAttribute("data-zs-backend-acp", JSON.stringify(args.backend.acp));
+  }
 
   appendTextCell(row, "displayName", args.backend.displayName, "190px");
   if (args.backend.type === ACP_BACKEND_TYPE) {
@@ -480,6 +629,7 @@ function appendBackendRow(args: {
     backendType: args.backend.type,
     onOpenManagement: args.onOpenManagement,
     onRefreshModelCache: args.onRefreshModelCache,
+    onRefreshAcpRuntimeOptions: args.onRefreshAcpRuntimeOptions,
   });
   args.tbody.appendChild(row);
 }
@@ -666,6 +816,97 @@ function resolveSkillRunnerBackendFromRow(
   };
 }
 
+function parseBackendEnvText(envText: string) {
+  const parsedEnv: Record<string, string> = {};
+  for (const line of String(envText || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const equalsIndex = trimmed.indexOf("=");
+    if (equalsIndex <= 0) {
+      continue;
+    }
+    const key = trimmed.slice(0, equalsIndex).trim();
+    if (!key) {
+      continue;
+    }
+    parsedEnv[key] = trimmed.slice(equalsIndex + 1);
+  }
+  return parsedEnv;
+}
+
+function parseBackendArgsText(argsText: string) {
+  return String(argsText || "")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function resolveAcpBackendFromRow(row: Element): BackendInstance {
+  const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
+  if (type !== ACP_BACKEND_TYPE) {
+    throw new Error(
+      getString("backend-manager-error-unsupported-provider" as any, {
+        args: { row: "?", type },
+      }),
+    );
+  }
+  let backendId = readRowInternalId(row);
+  const displayName = String(readRowField(row, "displayName") || "").trim();
+  const command = String(readRowField(row, "command") || "").trim();
+  if (!displayName) {
+    throw new Error(
+      getString("backend-manager-error-id-required" as any, {
+        args: { row: "?" },
+      }),
+    );
+  }
+  if (!backendId) {
+    backendId = generateBackendInternalId({
+      displayName,
+      type,
+      usedIds: new Set(),
+    });
+    row.setAttribute("data-zs-backend-internal-id", backendId);
+  }
+  if (!command) {
+    throw new Error(
+      getString("backend-manager-error-command-required" as any, {
+        args: { row: "?" },
+      }),
+    );
+  }
+  const metadata = readAcpMetadataFromRow(row);
+  const backend: BackendInstance = {
+    id: backendId,
+    displayName: normalizeBackendDisplayName(displayName, backendId),
+    type,
+    baseUrl: `local://${backendId}`,
+    command,
+    args: parseBackendArgsText(readRowField(row, "args")),
+    ...(Object.keys(parseBackendEnvText(readRowField(row, "env"))).length > 0
+      ? { env: parseBackendEnvText(readRowField(row, "env")) }
+      : {}),
+    ...(metadata ? { acp: metadata } : {}),
+  };
+  const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+  if (
+    backend.acp?.connectionTest?.configFingerprint &&
+    backend.acp.connectionTest.configFingerprint !== expectedFingerprint
+  ) {
+    backend.acp = {
+      ...backend.acp,
+      connectionTest: {
+        ...backend.acp.connectionTest,
+        status: "stale",
+        error: "Backend command, args, env, or ACP overrides changed.",
+      },
+    };
+  }
+  return backend;
+}
+
 export async function launchSkillRunnerManagementFromRow(args: {
   row: Element;
   openDialog?: (payload: SkillRunnerManagementLaunchPayload) => Promise<void>;
@@ -685,6 +926,43 @@ export async function refreshSkillRunnerModelCacheFromRow(args: {
   return refresh({
     backend,
   });
+}
+
+export async function refreshAcpRuntimeOptionsFromRow(args: {
+  row: Element;
+  probe?: typeof probeAcpBackendRuntimeOptions;
+}) {
+  const backend = resolveAcpBackendFromRow(args.row);
+  const probe = args.probe || probeAcpBackendRuntimeOptions;
+  const result = await probe({
+    backend,
+  });
+  writeAcpMetadataToRow(args.row, result.backend.acp);
+  return result;
+}
+
+export async function persistAcpBackendProbeResultFromRow(
+  row: Element,
+  deps: Partial<BackendPersistenceDeps> = {},
+) {
+  const backend = resolveAcpBackendFromRow(row);
+  const loaded = await loadBackendsRegistry();
+  if (loaded.fatalError) {
+    throw new Error(loaded.fatalError);
+  }
+  let replaced = false;
+  const nextBackends = loaded.backends.map((entry) => {
+    if (entry.id !== backend.id) {
+      return entry;
+    }
+    replaced = true;
+    return backend;
+  });
+  if (!replaced) {
+    nextBackends.push(backend);
+  }
+  persistBackendsConfig(nextBackends, deps);
+  return backend;
 }
 
 export function collectBackendsFromDialog(doc: Document): {
@@ -750,34 +1028,33 @@ export function collectBackendsFromDialog(doc: Document): {
           }),
         );
       }
-      const parsedEnv: Record<string, string> = {};
-      for (const line of String(envText || "").split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-        const equalsIndex = trimmed.indexOf("=");
-        if (equalsIndex <= 0) {
-          continue;
-        }
-        const key = trimmed.slice(0, equalsIndex).trim();
-        if (!key) {
-          continue;
-        }
-        parsedEnv[key] = trimmed.slice(equalsIndex + 1);
-      }
-      backends.push({
+      const parsedEnv = parseBackendEnvText(envText);
+      const metadata = readAcpMetadataFromRow(row);
+      const backend: BackendInstance = {
         id,
         displayName: normalizeBackendDisplayName(displayName, id),
         type,
         baseUrl: `local://${id}`,
         command,
-        args: String(argsText || "")
-          .split(/\r?\n/)
-          .map((entry) => entry.trim())
-          .filter(Boolean),
+        args: parseBackendArgsText(argsText),
         ...(Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
-      });
+        ...(metadata ? { acp: metadata } : {}),
+      };
+      const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+      if (
+        backend.acp?.connectionTest?.configFingerprint &&
+        backend.acp.connectionTest.configFingerprint !== expectedFingerprint
+      ) {
+        backend.acp = {
+          ...backend.acp,
+          connectionTest: {
+            ...backend.acp.connectionTest,
+            status: "stale",
+            error: "Backend command, args, env, or ACP overrides changed.",
+          },
+        };
+      }
+      backends.push(backend);
       continue;
     }
 
@@ -1137,6 +1414,51 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
             );
           });
       };
+      const refreshAcpRuntimeOptions = (row: HTMLElement) => {
+        const button = row.querySelector(
+          "[data-zs-backend-action='refresh-acp-runtime-options']",
+        ) as HTMLButtonElement | null;
+        if (button?.disabled) {
+          return;
+        }
+        setAcpBackendRowBusy(row, true);
+        void refreshAcpRuntimeOptionsFromRow({
+          row,
+        })
+          .then(async (result) => {
+            await persistAcpBackendProbeResultFromRow(row);
+            if (result.ok) {
+              alertWindow?.alert?.(
+                getString(
+                  "backend-manager-refresh-acp-runtime-cache-success" as any,
+                  {
+                    args: {
+                      refreshedAt: String(
+                        result.backend.acp?.runtimeOptionsCache?.refreshedAt ||
+                          "",
+                      ),
+                    },
+                  },
+                ),
+              );
+              return;
+            }
+            throw new Error(String(result.error || "unknown error"));
+          })
+          .catch((error) => {
+            alertWindow?.alert?.(
+              getString(
+                "backend-manager-refresh-acp-runtime-cache-failed" as any,
+                {
+                  args: { error: String(error) },
+                },
+              ),
+            );
+          })
+          .finally(() => {
+            setAcpBackendRowBusy(row, false);
+          });
+      };
 
       initialRows.forEach((backend) => {
         const tbody = bodyMap.get(backend.type);
@@ -1148,6 +1470,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
           backend,
           onOpenManagement: openManagementFromRow,
           onRefreshModelCache: refreshModelCacheFromRow,
+          onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
         });
       });
 
@@ -1171,16 +1494,17 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
               internalId: "",
               displayName: "",
               type: providerType,
-          baseUrl: "",
-          authKind: "none",
-          authToken: "",
-          timeoutMs: "",
-          command: "",
-          argsText: "",
-          envText: "",
-        },
+              baseUrl: "",
+              authKind: "none",
+              authToken: "",
+              timeoutMs: "",
+              command: "",
+              argsText: "",
+              envText: "",
+            },
             onOpenManagement: openManagementFromRow,
             onRefreshModelCache: refreshModelCacheFromRow,
+            onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
           });
         });
       });

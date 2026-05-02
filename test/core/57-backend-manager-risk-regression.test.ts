@@ -1,9 +1,14 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
+import type { BackendInstance } from "../../src/backends/types";
+import {
+  computeAcpBackendConfigFingerprint,
+} from "../../src/modules/acpBackendProbe";
 import {
   collectBackendsFromDialog,
   getBackendRowActionKindsForType,
   launchSkillRunnerManagementFromRow,
+  persistAcpBackendProbeResultFromRow,
   persistBackendsConfig,
   refreshSkillRunnerModelCacheFromRow,
   resolveSkillRunnerManagementLaunchPayloadFromRow,
@@ -58,8 +63,10 @@ function makeRow(args: {
   command?: string;
   argsText?: string;
   envText?: string;
+  acp?: BackendInstance["acp"];
 }): FakeRow {
   let internalId = String(args.internalId || "").trim();
+  let acp = args.acp ? JSON.stringify(args.acp) : "";
   const controls = new Map<string, FakeControl>([
     ["displayName", makeTextControl(args.displayName)],
     ["baseUrl", makeTextControl(args.baseUrl || "")],
@@ -79,11 +86,17 @@ function makeRow(args: {
       if (name === "data-zs-backend-internal-id") {
         return internalId;
       }
+      if (name === "data-zs-backend-acp") {
+        return acp;
+      }
       return null;
     },
     setAttribute: (name: string, value: string) => {
       if (name === "data-zs-backend-internal-id") {
         internalId = String(value || "").trim();
+      }
+      if (name === "data-zs-backend-acp") {
+        acp = String(value || "").trim();
       }
     },
     querySelector: (selector: string) => {
@@ -175,7 +188,7 @@ describe("backend manager risk regression", function () {
     assert.deepEqual(collected.backends, []);
   });
 
-  it("exposes management action only for skillrunner rows", function () {
+  it("exposes provider-specific backend row actions", function () {
     assert.deepEqual(getBackendRowActionKindsForType("skillrunner"), [
       "manage-ui",
       "refresh-model-cache",
@@ -184,7 +197,10 @@ describe("backend manager risk regression", function () {
     assert.deepEqual(getBackendRowActionKindsForType("generic-http"), [
       "remove",
     ]);
-    assert.deepEqual(getBackendRowActionKindsForType("acp"), ["remove"]);
+    assert.deepEqual(getBackendRowActionKindsForType("acp"), [
+      "refresh-acp-runtime-options",
+      "remove",
+    ]);
     assert.deepEqual(getBackendRowActionKindsForType(""), ["remove"]);
   });
 
@@ -384,6 +400,81 @@ describe("backend manager risk regression", function () {
     assert.equal(parsed.backends?.[0]?.id, "backend-skillrunner-primary");
     assert.equal(parsed.backends?.[0]?.displayName, "SkillRunner Primary");
     assert.equal(refreshCalls, 1);
+  });
+
+  it("persists ACP connection test metadata immediately after probe", async function () {
+    const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+    const previous = Zotero.Prefs.get(prefKey, true);
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [],
+      }),
+      true,
+    );
+    let persisted = "";
+    const fingerprint = computeAcpBackendConfigFingerprint({
+      id: "backend-acp-tested",
+      displayName: "Tested ACP",
+      type: "acp",
+      baseUrl: "local://backend-acp-tested",
+      command: "npx",
+      args: ["codex", "acp"],
+    });
+    const row = makeRow({
+      type: "acp",
+      internalId: "backend-acp-tested",
+      displayName: "Tested ACP",
+      command: "npx",
+      argsText: "codex\nacp",
+      acp: {
+        connectionTest: {
+          status: "passed",
+          testedAt: "2026-04-29T00:00:00.000Z",
+          configFingerprint: fingerprint,
+        },
+        runtimeOptionsCache: {
+          refreshedAt: "2026-04-29T00:00:00.000Z",
+          modes: [{ id: "default", label: "Default" }],
+          currentModeId: "default",
+          rawModels: [{ id: "qwen3", label: "Qwen 3" }],
+          currentRawModelId: "qwen3",
+          displayModels: [{ id: "qwen3", label: "Qwen 3" }],
+          currentDisplayModelId: "qwen3",
+          reasoningEfforts: [{ id: "default", label: "Default" }],
+          currentReasoningEffortId: "default",
+        },
+      },
+    });
+
+    try {
+      await persistAcpBackendProbeResultFromRow(row as unknown as Element, {
+        setPref: ((_: string, value: string) => {
+          persisted = value;
+          Zotero.Prefs.set(prefKey, value, true);
+        }) as any,
+        refreshWorkflowMenus: () => {},
+      });
+    } finally {
+      if (typeof previous === "undefined") {
+        Zotero.Prefs.clear(prefKey, true);
+      } else {
+        Zotero.Prefs.set(prefKey, previous, true);
+      }
+    }
+
+    const parsed = JSON.parse(persisted) as {
+      backends?: Array<{
+        id?: string;
+        acp?: BackendInstance["acp"];
+      }>;
+    };
+    const backend = parsed.backends?.find(
+      (entry) => entry.id === "backend-acp-tested",
+    );
+    assert.equal(backend?.acp?.connectionTest?.status, "passed");
+    assert.equal(backend?.acp?.runtimeOptionsCache?.currentDisplayModelId, "qwen3");
   });
 
   it("triggers silent model-cache refresh when a new skillrunner backend is added", function () {

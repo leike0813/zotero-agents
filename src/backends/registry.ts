@@ -12,6 +12,7 @@ import {
   normalizeBackendDisplayName,
 } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
+import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
 
 type BackendsDocument = {
   defaultBackendId?: unknown;
@@ -64,6 +65,20 @@ function normalizeStringMap(value: unknown) {
     normalized[normalizedKey] = entry;
   }
   return normalized;
+}
+
+function normalizeAcpOptionArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as Array<{ id: string; label: string; description?: string }>;
+  }
+  return value
+    .filter(isObject)
+    .map((entry) => ({
+      id: String(entry.id || "").trim(),
+      label: String(entry.label || entry.name || entry.id || "").trim(),
+      description: String(entry.description || "").trim() || undefined,
+    }))
+    .filter((entry) => entry.id && entry.label);
 }
 
 function buildBuiltinAcpBackends() {
@@ -457,20 +472,76 @@ function normalizeBackendEntry(
   const command = isAcp ? String(rawEntry.command || "").trim() : "";
   const args = isAcp ? normalizeStringArray(rawEntry.args) : [];
   const env = isAcp ? normalizeStringMap(rawEntry.env) : {};
+  let acp: BackendInstance["acp"] | undefined;
+  if (isAcp && typeof rawEntry.acp !== "undefined") {
+    if (!isObject(rawEntry.acp)) {
+      return { error: `entry[${index}] (${id}) acp must be an object` };
+    }
+    const agentFamily = String(rawEntry.acp.agentFamily || "").trim();
+    const skillRoots = normalizeStringArray(rawEntry.acp.skillRoots);
+    const connectionTestRaw = rawEntry.acp.connectionTest;
+    const runtimeOptionsCacheRaw = rawEntry.acp.runtimeOptionsCache;
+    const connectionTest = isObject(connectionTestRaw)
+      ? ({
+          status:
+            connectionTestRaw.status === "passed" ||
+            connectionTestRaw.status === "failed" ||
+            connectionTestRaw.status === "stale" ||
+            connectionTestRaw.status === "untested"
+              ? connectionTestRaw.status
+              : "untested",
+          testedAt: String(connectionTestRaw.testedAt || "").trim() || undefined,
+          configFingerprint:
+            String(connectionTestRaw.configFingerprint || "").trim() || undefined,
+          error: String(connectionTestRaw.error || "").trim() || undefined,
+        } satisfies NonNullable<
+          NonNullable<BackendInstance["acp"]>["connectionTest"]
+        >)
+      : undefined;
+    const runtimeOptionsCache = isObject(runtimeOptionsCacheRaw)
+      ? {
+          refreshedAt: String(runtimeOptionsCacheRaw.refreshedAt || "").trim() || undefined,
+          modes: normalizeAcpOptionArray(runtimeOptionsCacheRaw.modes),
+          currentModeId: String(runtimeOptionsCacheRaw.currentModeId || "").trim(),
+          rawModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels),
+          currentRawModelId: String(runtimeOptionsCacheRaw.currentRawModelId || "").trim(),
+          displayModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.displayModels),
+          currentDisplayModelId:
+            String(runtimeOptionsCacheRaw.currentDisplayModelId || "").trim(),
+          reasoningEfforts: normalizeAcpOptionArray(runtimeOptionsCacheRaw.reasoningEfforts),
+          currentReasoningEffortId:
+            String(runtimeOptionsCacheRaw.currentReasoningEffortId || "").trim(),
+        }
+      : undefined;
+    acp = {
+      ...(agentFamily
+        ? {
+            agentFamily: agentFamily as NonNullable<
+              BackendInstance["acp"]
+            >["agentFamily"],
+          }
+        : {}),
+      ...(skillRoots.length > 0 ? { skillRoots } : {}),
+      ...(connectionTest ? { connectionTest } : {}),
+      ...(runtimeOptionsCache ? { runtimeOptionsCache } : {}),
+    };
+  }
 
+  const backend: BackendInstance = {
+    id,
+    displayName,
+    type,
+    baseUrl,
+    ...(command ? { command } : {}),
+    ...(args.length > 0 ? { args } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+    ...(auth ? { auth } : {}),
+    ...(defaults ? { defaults } : {}),
+    ...(managementAuth ? { management_auth: managementAuth } : {}),
+    ...(acp ? { acp } : {}),
+  };
   return {
-    backend: {
-      id,
-      displayName,
-      type,
-      baseUrl,
-      ...(command ? { command } : {}),
-      ...(args.length > 0 ? { args } : {}),
-      ...(Object.keys(env).length > 0 ? { env } : {}),
-      ...(auth ? { auth } : {}),
-      ...(defaults ? { defaults } : {}),
-      ...(managementAuth ? { management_auth: managementAuth } : {}),
-    },
+    backend: isAcp ? markAcpBackendConnectionState(backend) : backend,
   };
 }
 
@@ -622,6 +693,20 @@ function resolveProviderTypeFromWorkflow(workflow: LoadedWorkflow) {
   return "";
 }
 
+function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
+  const providerType = resolveProviderTypeFromWorkflow(workflow);
+  const types = new Set<string>();
+  if (providerType) {
+    types.add(providerType);
+  }
+  const requestKind = String(workflow.manifest.request?.kind || "").trim();
+  if (requestKind === "skillrunner.job.v1") {
+    types.add("skillrunner");
+    types.add(ACP_BACKEND_TYPE);
+  }
+  return Array.from(types.values());
+}
+
 export async function listBackendsForProvider(providerType: string) {
   const loaded = await loadBackendsRegistry();
   if (loaded.fatalError) {
@@ -632,6 +717,20 @@ export async function listBackendsForProvider(providerType: string) {
     return [];
   }
   return loaded.backends.filter((backend) => backend.type === normalizedType);
+}
+
+export async function listBackendsForWorkflow(workflow: LoadedWorkflow) {
+  const loaded = await loadBackendsRegistry();
+  if (loaded.fatalError) {
+    throw new Error(loaded.fatalError);
+  }
+  const compatibleBackendTypes = resolveCompatibleBackendTypesForWorkflow(workflow);
+  if (compatibleBackendTypes.length === 0) {
+    return [];
+  }
+  return loaded.backends.filter((backend) =>
+    compatibleBackendTypes.includes(backend.type),
+  );
 }
 
 export async function resolveBackendForWorkflow(
@@ -646,18 +745,18 @@ export async function resolveBackendForWorkflow(
   }
 
   const byId = new Map(loaded.backends.map((backend) => [backend.id, backend]));
-  const providerType = resolveProviderTypeFromWorkflow(workflow);
-  if (!providerType) {
+  const compatibleBackendTypes = resolveCompatibleBackendTypesForWorkflow(workflow);
+  if (compatibleBackendTypes.length === 0) {
     throw new Error(
       `Workflow ${workflow.manifest.id} does not declare provider and request kind cannot infer provider type`,
     );
   }
   const backendsByType = loaded.backends.filter(
-    (backend) => backend.type === providerType,
+    (backend) => compatibleBackendTypes.includes(backend.type),
   );
   if (backendsByType.length === 0) {
     throw new Error(
-      `No backend profiles found for provider "${providerType}" (workflow=${workflow.manifest.id})`,
+      `No backend profiles found for workflow ${workflow.manifest.id} (compatible types=${compatibleBackendTypes.join(",")})`,
     );
   }
 
@@ -665,9 +764,9 @@ export async function resolveBackendForWorkflow(
   if (preferredBackendId) {
     const preferredMatched = byId.get(preferredBackendId);
     if (preferredMatched) {
-      if (preferredMatched.type !== providerType) {
+      if (!compatibleBackendTypes.includes(preferredMatched.type)) {
         throw new Error(
-          `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (provider=${providerType})`,
+          `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (compatible types=${compatibleBackendTypes.join(",")})`,
         );
       }
       return preferredMatched;
@@ -679,7 +778,7 @@ export async function resolveBackendForWorkflow(
       );
     }
     throw new Error(
-      `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (provider=${providerType})`,
+      `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (compatible types=${compatibleBackendTypes.join(",")})`,
     );
   }
 

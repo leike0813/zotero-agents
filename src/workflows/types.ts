@@ -14,6 +14,8 @@ import type {
   ZoteroHostNoteDetailChunkDto,
   ZoteroHostNoteDto,
 } from "../modules/zoteroHostCapabilityBroker";
+import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
+export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
 export type WorkflowParameterType = "string" | "number" | "boolean";
 
@@ -309,6 +311,7 @@ export type ApplyResultHook = (args: {
     readText: (entryPath: string) => Promise<string>;
     getExtractedDir?: () => Promise<string>;
   };
+  resultContext?: WorkflowResultContext;
   request?: unknown;
   runResult?: unknown;
   manifest: WorkflowManifest;

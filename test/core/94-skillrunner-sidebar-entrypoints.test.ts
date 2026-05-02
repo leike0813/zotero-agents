@@ -7,9 +7,9 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("skillrunner sidebar entrypoints", function () {
-  it("routes dashboard open-run actions to the sidebar entry instead of the legacy dialog", async function () {
+  it("routes dashboard open-run actions to the Assistant shell instead of the legacy dialog", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
-    assert.include(ts, "openSkillRunnerSidebar");
+    assert.include(ts, "openAssistantWorkspaceSidebar");
     assert.notInclude(ts, "await openSkillRunnerRunDialog({");
     assert.include(ts, 'if (action === "open-running-task")');
     assert.include(ts, 'if (action === "open-run")');
@@ -26,11 +26,11 @@ describe("skillrunner sidebar entrypoints", function () {
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
     assert.include(
       en,
-      "task-dashboard-toolbar-open-skillrunner = Open/Close Skill-Runner Sidebar",
+      "task-dashboard-toolbar-open-skillrunner = Open/Close Assistant Sidebar",
     );
     assert.include(
       zh,
-      "task-dashboard-toolbar-open-skillrunner = 打开/关闭 Skill-Runner 侧边栏",
+      "task-dashboard-toolbar-open-skillrunner = 打开/关闭 Assistant 侧边栏",
     );
     assert.include(
       en,
@@ -65,9 +65,12 @@ describe("skillrunner sidebar entrypoints", function () {
     assert.notInclude(ts, 'onPrefsEvent("openSkillRunnerSidebar", { window: win })');
   });
 
-  it("routes interactive request-created openings through the sidebar entrypoint", async function () {
+  it("routes interactive request-created openings through the Assistant shell entrypoint", async function () {
     const ts = await readProjectFile("src/modules/workflowExecution/runSeam.ts");
-    assert.include(ts, "openSkillRunnerSidebar");
+    assert.include(ts, "openAssistantWorkspaceSidebar");
+    assert.include(ts, "focusSkillRunnerWorkspace");
+    assert.include(ts, "selectAcpSkillRun");
     assert.notInclude(ts, "resolved.openSkillRunnerRunDialog({");
+    assert.notInclude(ts, "openSkillRunnerSidebar");
   });
 });

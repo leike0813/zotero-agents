@@ -1029,13 +1029,17 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
     assert.equal(lastAdapter?.prompts.length, 1);
     assert.equal(lastFactoryArgs?.sessionCwd, "D:\\ZoteroData");
-    assert.include(
-      String(lastFactoryArgs?.workspaceDir || ""),
-      "D:\\ZoteroData\\zotero-skills\\acp\\workspaces\\acp-opencode\\",
+    const expectedStoragePaths = resolveAcpStoragePaths(
+      ACP_OPENCODE_BACKEND_ID,
+      snapshot.conversationId,
+    );
+    assert.equal(
+      lastFactoryArgs?.workspaceDir,
+      expectedStoragePaths.workspaceDir,
     );
     assert.equal(
       lastFactoryArgs?.runtimeDir,
-      "D:\\ZoteroData\\zotero-skills\\acp\\runtime\\acp-opencode",
+      expectedStoragePaths.runtimeDir,
     );
 
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
@@ -1870,23 +1874,34 @@ describe("acp conversation store", function () {
   });
 
   it("resolves ACP workspace and runtime paths from Zotero.DataDirectory with cwd fallback", function () {
-    (Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }).DataDirectory = {
-      dir: "D:\\ZoteroData",
-    };
-    const primary = resolveAcpStoragePaths(ACP_OPENCODE_BACKEND_ID);
-    assert.equal(
-      primary.workspaceDir,
-      "D:\\ZoteroData\\zotero-skills\\acp\\workspaces\\acp-opencode",
-    );
-    assert.equal(
-      primary.runtimeDir,
-      "D:\\ZoteroData\\zotero-skills\\acp\\runtime\\acp-opencode",
-    );
+    const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = "D:\\ZoteroSkillsRuntime";
+    try {
+      const primary = resolveAcpStoragePaths(ACP_OPENCODE_BACKEND_ID);
+      assert.equal(
+        primary.workspaceDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspaces\\acp-opencode",
+      );
+      assert.equal(
+        primary.runtimeDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\runtime\\acp-opencode",
+      );
 
-    delete (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory;
-    const fallback = resolveAcpStoragePaths(ACP_OPENCODE_BACKEND_ID);
-    assert.include(fallback.workspaceDir.replace(/\\/g, "/"), "/.zotero-skills-runtime/acp/workspaces/acp-opencode");
-    assert.include(fallback.runtimeDir.replace(/\\/g, "/"), "/.zotero-skills-runtime/acp/runtime/acp-opencode");
+      const withConversation = resolveAcpStoragePaths(
+        ACP_OPENCODE_BACKEND_ID,
+        "conversation-1",
+      );
+      assert.equal(
+        withConversation.workspaceDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspaces\\acp-opencode\\conversation-1",
+      );
+    } finally {
+      if (typeof previousRoot === "undefined") {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
+      }
+    }
   });
 
   it("resolves ACP session cwd from Zotero.DataDirectory with process cwd fallback", function () {

@@ -30,6 +30,28 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    .zs-runtime-data-grid {
+      display: grid;
+      grid-template-columns: minmax(140px, 1fr) auto auto;
+      gap: 6px 10px;
+      align-items: center;
+      font-size: 12px;
+    }
+    .zs-runtime-data-path {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 11px;
+      word-break: break-all;
+      color: #334155;
+    }
+    .zs-runtime-data-category {
+      color: #334155;
+    }
+    .zs-runtime-data-size {
+      color: #0f172a;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }
     #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
       gap: 8px;
       align-items: center;
@@ -185,6 +207,37 @@
         ></button>
       </hbox>
       <description data-l10n-id="pref-backend-manage-help"></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label class="zs-pref-card-title" data-l10n-id="pref-section-runtime-data"></label>
+      <description data-l10n-id="pref-runtime-data-help"></description>
+      <html:div
+        id="zotero-prefpane-__addonRef__-runtime-data-root"
+        class="zs-runtime-data-path"
+      ></html:div>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-runtime-data-rescan"
+          data-l10n-id="pref-runtime-data-rescan"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-runtime-data-copy-root"
+          data-l10n-id="pref-runtime-data-copy-root"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-runtime-data-open-root"
+          data-l10n-id="pref-runtime-data-open-root"
+        ></button>
+      </hbox>
+      <description
+        id="zotero-prefpane-__addonRef__-runtime-data-summary"
+        data-l10n-id="pref-runtime-data-summary-idle"
+      ></description>
+      <html:div
+        id="zotero-prefpane-__addonRef__-runtime-data-categories"
+        class="zs-runtime-data-grid"
+      ></html:div>
     </vbox>
 
     <vbox class="zs-pref-card">

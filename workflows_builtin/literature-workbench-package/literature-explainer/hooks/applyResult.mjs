@@ -124,6 +124,16 @@ function resolveBundleEntryPath(rawPath, fallbackPath) {
 }
 
 async function resolveNotePath(args) {
+  if (
+    args.resultContext &&
+    typeof args.resultContext === "object" &&
+    "resultJson" in args.resultContext
+  ) {
+    const fromContext = getNotePathFromRecord(args.resultContext.resultJson);
+    if (fromContext) {
+      return fromContext;
+    }
+  }
   const fromRunResult = resolveNotePathFromRunResult(args.runResult);
   if (fromRunResult) {
     return fromRunResult;
@@ -135,6 +145,57 @@ async function resolveNotePath(args) {
   } catch {
     return "";
   }
+}
+
+async function readNoteMarkdown(args) {
+  if (
+    args.resultContext &&
+    typeof args.resultContext.readArtifactText === "function"
+  ) {
+    const resolved = await args.resultContext.readArtifactText({
+      fieldName: "note_path",
+      rawPath: args.notePath,
+      fallbackPath: "result/conversation-note.md",
+    });
+    return {
+      markdown: resolved.text,
+      noteEntry: resolved.entryPath,
+      candidates: resolved.candidates,
+      lastError: null,
+    };
+  }
+
+  const noteCandidates = resolveBundleEntryPath(
+    args.notePath,
+    "result/conversation-note.md",
+  );
+  if (noteCandidates.length === 0) {
+    return {
+      markdown: "",
+      noteEntry: "",
+      candidates: noteCandidates,
+      lastError: null,
+    };
+  }
+
+  let markdown = "";
+  let noteEntry = "";
+  let lastError = null;
+  for (const candidate of noteCandidates) {
+    try {
+      markdown = await args.bundleReader.readText(candidate);
+      noteEntry = candidate;
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return {
+    markdown,
+    noteEntry,
+    candidates: noteCandidates,
+    lastError,
+  };
 }
 
 function formatLocalTimestamp() {
@@ -155,7 +216,7 @@ function resolveHostApi(runtime) {
   throw new Error("workflow hostApi is unavailable in runtime");
 }
 
-export async function applyResult({ parent, bundleReader, runResult, runtime }) {
+export async function applyResult({ parent, bundleReader, resultContext, runResult, runtime }) {
   let stage = "resolve-parent";
   try {
     const hostApi = resolveHostApi(runtime);
@@ -166,6 +227,7 @@ export async function applyResult({ parent, bundleReader, runResult, runtime }) 
     stage = "resolve-note-path";
     const notePath = await resolveNotePath({
       bundleReader,
+      resultContext,
       runResult,
     });
 
@@ -177,11 +239,13 @@ export async function applyResult({ parent, bundleReader, runResult, runtime }) 
       };
     }
 
-    const noteCandidates = resolveBundleEntryPath(
+    stage = "read-bundle-entry";
+    const resolvedNote = await readNoteMarkdown({
+      bundleReader,
+      resultContext,
       notePath,
-      "result/conversation-note.md",
-    );
-    if (noteCandidates.length === 0) {
+    });
+    if (resolvedNote.candidates.length === 0) {
       return {
         notes: [],
         skipped: true,
@@ -190,29 +254,18 @@ export async function applyResult({ parent, bundleReader, runResult, runtime }) 
       };
     }
 
-    stage = "read-bundle-entry";
-    let markdown = "";
-    let noteEntry = "";
-    let lastError = null;
-    for (const candidate of noteCandidates) {
-      try {
-        markdown = await bundleReader.readText(candidate);
-        noteEntry = candidate;
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (!noteEntry) {
+    if (!resolvedNote.noteEntry) {
       return {
         notes: [],
         skipped: true,
         reason: "note_path not found in bundle",
         note_path: notePath,
-        bundle_entry: noteCandidates[0],
-        candidates: noteCandidates,
+        bundle_entry: resolvedNote.candidates[0],
+        candidates: resolvedNote.candidates,
         last_error: String(
-          lastError && lastError.message ? lastError.message : lastError || "unknown",
+          resolvedNote.lastError && resolvedNote.lastError.message
+            ? resolvedNote.lastError.message
+            : resolvedNote.lastError || "unknown",
         ),
       };
     }
@@ -223,15 +276,15 @@ export async function applyResult({ parent, bundleReader, runResult, runtime }) 
       runtime,
       parentItem,
       title,
-      markdown,
-      noteEntry,
+      markdown: resolvedNote.markdown,
+      noteEntry: resolvedNote.noteEntry,
     });
 
     return {
       notes: [note],
       requested_note_path: notePath,
-      note_path: noteEntry,
-      bundle_candidates: noteCandidates,
+      note_path: resolvedNote.noteEntry,
+      bundle_candidates: resolvedNote.candidates,
       parent_item_id: parentItem.id,
       created_note_id: note?.id,
       title,

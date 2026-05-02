@@ -30,6 +30,7 @@ import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import type {
   LoadedWorkflow,
+  WorkflowResultContext,
   WorkflowRuntimeContext,
 } from "./types";
 
@@ -97,6 +98,7 @@ type NoValidInputUnitsError = Error & {
 
 const GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY =
   "__zsCurrentWorkflowExecutionRuntime";
+let workflowRuntimeScopeTail: Promise<void> = Promise.resolve();
 
 function createNoValidInputUnitsError(args: {
   workflowId: string;
@@ -335,6 +337,15 @@ async function withWorkflowExecutionRuntimeScope<T>(
   runtime: WorkflowRuntimeContext,
   work: () => Promise<T> | T,
 ): Promise<T> {
+  const previousTail = workflowRuntimeScopeTail;
+  let releaseScope!: () => void;
+  workflowRuntimeScopeTail = previousTail.then(
+    () =>
+      new Promise<void>((resolve) => {
+        releaseScope = resolve;
+      }),
+  );
+  await previousTail;
   const host = globalThis as Record<string, unknown>;
   const previous = host[GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY];
   host[GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY] = {
@@ -365,6 +376,7 @@ async function withWorkflowExecutionRuntimeScope<T>(
     } else {
       host[GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY] = previous;
     }
+    releaseScope();
   }
 }
 
@@ -1068,6 +1080,7 @@ export async function executeApplyResult(args: {
     readText: (entryPath: string) => Promise<string>;
     getExtractedDir?: () => Promise<string>;
   };
+  resultContext?: WorkflowResultContext;
   request?: unknown;
   runResult?: unknown;
   runtime?: Partial<WorkflowRuntimeContext>;
@@ -1099,6 +1112,7 @@ export async function executeApplyResult(args: {
               args.workflow.hooks.applyResult({
                 parent: args.parent,
                 bundleReader: args.bundleReader,
+                resultContext: args.resultContext,
                 request: args.request,
                 runResult: args.runResult,
                 manifest: args.workflow.manifest,

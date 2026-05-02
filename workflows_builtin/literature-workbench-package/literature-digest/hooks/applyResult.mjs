@@ -70,6 +70,44 @@ async function readBundleTextWithPathFallback(args) {
   );
 }
 
+function getResultArtifactPath(result, key) {
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+  return (
+    String(result?.[key] || "").trim() ||
+    String(result?.data?.[key] || "").trim() ||
+    String(result?.result?.[key] || "").trim()
+  );
+}
+
+async function readResultJson({ resultContext, bundleReader }) {
+  if (resultContext && typeof resultContext === "object" && "resultJson" in resultContext) {
+    return resultContext.resultJson;
+  }
+  const resultJsonText = await bundleReader.readText("result/result.json");
+  return JSON.parse(resultJsonText);
+}
+
+async function readArtifactText(args) {
+  if (
+    args.resultContext &&
+    typeof args.resultContext.readArtifactText === "function"
+  ) {
+    return args.resultContext.readArtifactText({
+      fieldName: args.fieldName,
+      rawPath: args.rawPath,
+      fallbackPath: args.fallbackPath,
+    });
+  }
+  return readBundleTextWithPathFallback({
+    bundleReader: args.bundleReader,
+    fieldName: args.fieldName,
+    rawPath: args.rawPath,
+    fallbackPath: args.fallbackPath,
+  });
+}
+
 function collectSourceAttachmentPathsFromRequest(request) {
   if (!request || typeof request !== "object") {
     return [];
@@ -167,25 +205,23 @@ async function resolveSourceAttachmentItemKey({ parentItem, request, runtime }) 
   return "";
 }
 
-async function applyResultImpl({ parent, bundleReader, request, runtime }) {
+async function applyResultImpl({ parent, bundleReader, resultContext, request, runtime }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const result = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readResultJson",
     {},
-    async () => {
-      const resultJsonText = await bundleReader.readText("result/result.json");
-      return JSON.parse(resultJsonText);
-    },
+    () => readResultJson({ resultContext, bundleReader }),
   );
 
   const digestResolved = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readDigestArtifact",
     {},
     () =>
-      readBundleTextWithPathFallback({
+      readArtifactText({
+        resultContext,
         bundleReader,
         fieldName: "digest_path",
-        rawPath: result?.data?.digest_path,
+        rawPath: getResultArtifactPath(result, "digest_path"),
         fallbackPath: "artifacts/digest.md",
       }),
   );
@@ -193,10 +229,11 @@ async function applyResultImpl({ parent, bundleReader, request, runtime }) {
     "executeApplyResult:literatureDigest:readReferencesArtifact",
     {},
     () =>
-      readBundleTextWithPathFallback({
+      readArtifactText({
+        resultContext,
         bundleReader,
         fieldName: "references_path",
-        rawPath: result?.data?.references_path,
+        rawPath: getResultArtifactPath(result, "references_path"),
         fallbackPath: "artifacts/references.json",
       }),
   );
@@ -204,10 +241,11 @@ async function applyResultImpl({ parent, bundleReader, request, runtime }) {
     "executeApplyResult:literatureDigest:readCitationArtifact",
     {},
     () =>
-      readBundleTextWithPathFallback({
+      readArtifactText({
+        resultContext,
         bundleReader,
         fieldName: "citation_analysis_path",
-        rawPath: result?.data?.citation_analysis_path,
+        rawPath: getResultArtifactPath(result, "citation_analysis_path"),
         fallbackPath: "artifacts/citation_analysis.json",
       }),
   );

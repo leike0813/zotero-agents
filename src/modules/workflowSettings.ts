@@ -1,7 +1,15 @@
-import { resolveBackendForWorkflow, listBackendsForProvider } from "../backends/registry";
+import {
+  resolveBackendForWorkflow,
+  listBackendsForProvider,
+  listBackendsForWorkflow,
+} from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { resolveBackendDisplayName } from "../backends/displayName";
-import { resolveProviderById, normalizeProviderRuntimeOptions } from "../providers/registry";
+import {
+  resolveProvider,
+  resolveProviderById,
+  normalizeProviderRuntimeOptions,
+} from "../providers/registry";
 import {
   isSkillRunnerProviderScopedEngine,
   resolveSkillRunnerModelNameForProvider,
@@ -15,6 +23,7 @@ import {
   DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
+import { isAcpBackendConnectionTestPassed } from "./acpBackendProbe";
 import {
   type WorkflowExecutionOptions,
   type WorkflowSettingsDialogInitialState,
@@ -105,6 +114,25 @@ function resolveProviderId(workflow: LoadedWorkflow) {
     );
   }
   return providerId;
+}
+
+function isSkillRunnerJobWorkflow(workflow: LoadedWorkflow) {
+  return String(workflow.manifest.request?.kind || "").trim() === "skillrunner.job.v1";
+}
+
+function resolveProviderIdForBackend(args: {
+  workflow: LoadedWorkflow;
+  backend?: BackendInstance;
+}) {
+  const backend = args.backend;
+  if (!backend) {
+    return resolveProviderId(args.workflow);
+  }
+  const requestKind = resolveWorkflowRequestKind(args.workflow, backend.type);
+  return resolveProvider({
+    requestKind,
+    backend,
+  }).id;
 }
 
 function buildLocalBackendForProvider(providerId: string): BackendInstance {
@@ -362,7 +390,10 @@ function toProviderSchemaEntries(args: {
   backend: BackendInstance | undefined;
   providerOptions: Record<string, unknown>;
 }): WorkflowSettingsSchemaEntry[] {
-  const providerId = resolveProviderId(args.workflow);
+  const providerId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend: args.backend,
+  });
   const provider = resolveProviderById(providerId);
   const schema = provider.getRuntimeOptionSchema?.() || {};
   const providerEngine = String(args.providerOptions.engine || "").trim();
@@ -402,7 +433,9 @@ function toProviderSchemaEntries(args: {
       enumValues: resolvedEnumValues,
       defaultValue: entry.default,
       disabled:
-        key === "effort" && entry.type === "string" && resolvedEnumValues.length <= 1,
+        (key === "effort" || key === "acpReasoningEffort") &&
+        entry.type === "string" &&
+        resolvedEnumValues.length <= 1,
     };
   });
   const filteredEntries = baseEntries.filter((entry) => {
@@ -428,16 +461,25 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   excludedBackendIds?: string[];
   autoSelectFallbackProfile?: boolean;
 }): Promise<WorkflowSettingsUiDescriptor> {
-  const providerId = resolveProviderId(args.workflow);
-  assertWorkflowExecutionProviderSupported(providerId);
-  const provider = resolveProviderById(providerId);
-  const requiresBackendProfile = provider.requiresBackendProfile !== false;
+  const manifestProviderId = resolveProviderId(args.workflow);
+  if (!isSkillRunnerJobWorkflow(args.workflow)) {
+    assertWorkflowExecutionProviderSupported(manifestProviderId);
+  }
+  const manifestProvider = resolveProviderById(manifestProviderId);
+  const requiresBackendProfile = manifestProvider.requiresBackendProfile !== false;
   const rawCandidateBackends = Array.isArray(args.candidateBackends)
     ? args.candidateBackends
-    : await listBackendsForProvider(providerId);
+    : isSkillRunnerJobWorkflow(args.workflow)
+      ? await listBackendsForWorkflow(args.workflow)
+      : await listBackendsForProvider(manifestProviderId);
   const availableBackends = rawCandidateBackends.filter(
     (backend) => {
-      if (String(backend.type || "").trim() !== providerId) {
+      if (isSkillRunnerJobWorkflow(args.workflow)) {
+        const backendType = String(backend.type || "").trim();
+        if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
+          return false;
+        }
+      } else if (String(backend.type || "").trim() !== manifestProviderId) {
         return false;
       }
       const backendId = String(backend.id || "").trim();
@@ -474,6 +516,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   const selectedBackend = selectedProfile
     ? availableBackends.find((entry) => entry.id === selectedProfile)
     : undefined;
+  const providerId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend: selectedBackend,
+  });
   const workflowSchemaEntries = toWorkflowSchemaEntries(args.workflow);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,
@@ -486,7 +532,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
   });
   const providerOptions = normalizeProviderRuntimeOptions({
-    providerId: provider.id,
+    providerId,
     options: merged.providerOptions,
     backend: selectedBackend,
   });
@@ -586,27 +632,49 @@ export function applyRunOnceWorkflowSettingsDraft(args: {
 
 export async function listProviderProfilesForWorkflow(workflow: LoadedWorkflow) {
   const providerId = resolveProviderId(workflow);
-  assertWorkflowExecutionProviderSupported(providerId);
-  return listBackendsForProvider(providerId);
+  if (!isSkillRunnerJobWorkflow(workflow)) {
+    assertWorkflowExecutionProviderSupported(providerId);
+    return listBackendsForProvider(providerId);
+  }
+  return listBackendsForWorkflow(workflow);
 }
 
 export async function resolveWorkflowExecutionContext(args: {
   workflow: LoadedWorkflow;
   executionOptionsOverride?: WorkflowExecutionOptions;
 }): Promise<WorkflowExecutionContext> {
-  const providerId = resolveProviderId(args.workflow);
-  assertWorkflowExecutionProviderSupported(providerId);
-  const provider = resolveProviderById(providerId);
+  const manifestProviderId = resolveProviderId(args.workflow);
+  if (!isSkillRunnerJobWorkflow(args.workflow)) {
+    assertWorkflowExecutionProviderSupported(manifestProviderId);
+  }
+  const manifestProvider = resolveProviderById(manifestProviderId);
   const saved = getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
 
   const backend =
-    provider.requiresBackendProfile === false
-      ? buildLocalBackendForProvider(provider.id)
+    manifestProvider.requiresBackendProfile === false
+      ? buildLocalBackendForProvider(manifestProvider.id)
       : await resolveBackendForWorkflow(args.workflow, {
           preferredBackendId: merged.backendId,
         });
   const requestKind = resolveWorkflowRequestKind(args.workflow, backend.type);
+  if (
+    requestKind === "skillrunner.job.v1" &&
+    String(backend.type || "").trim() === ACP_BACKEND_TYPE &&
+    !isAcpBackendConnectionTestPassed(backend)
+  ) {
+    const status = backend.acp?.connectionTest?.status || "untested";
+    const error = backend.acp?.connectionTest?.error || "";
+    throw new Error(
+      `ACP Skills backend "${backend.displayName || backend.id}" is not ready. Run connection test / refresh config cache first. status=${status}${
+        error ? `; error=${error}` : ""
+      }`,
+    );
+  }
+  const providerId = resolveProvider({
+    requestKind,
+    backend,
+  }).id;
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,
     merged.workflowParams,
@@ -618,7 +686,7 @@ export async function resolveWorkflowExecutionContext(args: {
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
   });
   const providerOptions = normalizeProviderRuntimeOptions({
-    providerId: provider.id,
+    providerId,
     options: merged.providerOptions,
     backend,
   });

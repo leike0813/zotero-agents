@@ -1,5 +1,12 @@
 import { joinPath } from "../utils/path";
 import { getPref, setPref } from "../utils/prefs";
+import {
+  getLegacyPluginStateDatabasePath,
+  getRuntimePersistencePaths,
+  registerPluginTaskDomainClearer,
+  registerPluginTaskDomainExceptRowScopesClearer,
+  registerPluginTaskScopeClearer,
+} from "./runtimePersistence";
 
 type SqlPrimitive = string | number | null;
 type SqlParams = Record<string, SqlPrimitive>;
@@ -12,7 +19,7 @@ type SqlAdapter = {
   transaction: <T>(fn: () => T) => T;
 };
 
-type PluginTaskScope = "active" | "history";
+type PluginTaskScope = "active" | "history" | "skill-runs";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
@@ -213,11 +220,51 @@ function ensureDirectoryZotero(targetDir: string) {
 }
 
 function getStateDirectoryPath() {
-  return joinPath(getDataDirectoryPath(), "zotero-skills", "state");
+  return getRuntimePersistencePaths().stateDir;
 }
 
 export function getPluginStateDatabasePath() {
-  return joinPath(getStateDirectoryPath(), SQLITE_FILE_NAME);
+  return getRuntimePersistencePaths().stateDbPath;
+}
+
+function migrateLegacyStateDatabaseIfNeeded() {
+  const runtime = globalThis as {
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => any;
+      };
+    };
+  };
+  const targetPath = getPluginStateDatabasePath();
+  const legacyPath = getLegacyPluginStateDatabasePath();
+  if (!runtime.Zotero?.File?.pathToFile || targetPath === legacyPath) {
+    return;
+  }
+  try {
+    const target = runtime.Zotero.File.pathToFile(targetPath);
+    if (typeof target?.exists === "function" && target.exists()) {
+      return;
+    }
+    const legacy = runtime.Zotero.File.pathToFile(legacyPath);
+    if (typeof legacy?.exists !== "function" || !legacy.exists()) {
+      return;
+    }
+    const parent = target?.parent;
+    if (!parent || typeof legacy.copyTo !== "function") {
+      return;
+    }
+    legacy.copyTo(parent, SQLITE_FILE_NAME);
+    logInfo("[pluginStateStore] migrated legacy state database", {
+      legacyPath,
+      targetPath,
+    });
+  } catch (error) {
+    logWarn("[pluginStateStore] failed to migrate legacy state database", {
+      legacyPath,
+      targetPath,
+      error: String(error),
+    });
+  }
 }
 
 function ensureStateDirectory() {
@@ -228,6 +275,7 @@ function ensureStateDirectory() {
   const stateDir = getStateDirectoryPath();
   if (runtime.Services && runtime.Zotero) {
     ensureDirectoryZotero(stateDir);
+    migrateLegacyStateDatabaseIfNeeded();
   }
 }
 
@@ -501,10 +549,34 @@ function buildMemoryAdapter(): SqlAdapter {
         return { value: count };
       }
       if (normalizedSql.startsWith("select count(*) as value from plugin_task_contexts")) {
-        return { value: memoryTables.contexts.size };
+        const domain = normalizeString(params.domain);
+        const backendId = normalizeString(params.backend_id);
+        let count = 0;
+        for (const row of memoryTables.contexts.values()) {
+          if (domain && row.domain !== domain) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          count += 1;
+        }
+        return { value: count };
       }
       if (normalizedSql.startsWith("select count(*) as value from plugin_task_rows")) {
-        return { value: memoryTables.rows.size };
+        const domain = normalizeString(params.domain);
+        const backendId = normalizeString(params.backend_id);
+        let count = 0;
+        for (const row of memoryTables.rows.values()) {
+          if (domain && row.domain !== domain) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          count += 1;
+        }
+        return { value: count };
       }
       if (normalizedSql.startsWith("select count(*) as value from plugin_meta")) {
         return { value: memoryTables.meta.size };
@@ -1384,6 +1456,144 @@ export function deletePluginTaskRowEntriesByBackend(
   return Number.isFinite(before) ? before : 0;
 }
 
+export function clearPluginTaskDomain(domainRaw: string) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  const db = getAdapter();
+  const requestCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_requests
+        WHERE domain=@domain
+      `,
+      { domain },
+    )?.value || 0,
+  );
+  const contextCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_contexts
+        WHERE domain=@domain
+      `,
+      { domain },
+    )?.value || 0,
+  );
+  const rowCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_rows
+        WHERE domain=@domain
+      `,
+      { domain },
+    )?.value || 0,
+  );
+  db.transaction(() => {
+    db.run("DELETE FROM plugin_task_requests WHERE domain=@domain", { domain });
+    db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", { domain });
+    db.run("DELETE FROM plugin_task_rows WHERE domain=@domain", { domain });
+  });
+  return [requestCount, contextCount, rowCount].reduce((sum, value) => {
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+export function clearPluginTaskDomainExceptRowScopes(
+  domainRaw: string,
+  preservedRowScopesRaw: string[],
+) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  const preserved = new Set(
+    (preservedRowScopesRaw || [])
+      .map((scope) => normalizeString(scope))
+      .filter(Boolean),
+  );
+  const db = getAdapter();
+  const requestCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_requests
+        WHERE domain=@domain
+      `,
+      { domain },
+    )?.value || 0,
+  );
+  const contextCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_contexts
+        WHERE domain=@domain
+      `,
+      { domain },
+    )?.value || 0,
+  );
+  const rows = db.all(
+    `
+      SELECT scope
+      FROM plugin_task_rows
+      WHERE domain=@domain
+    `,
+    { domain },
+  );
+  const rowCount = rows.filter(
+    (row) => !preserved.has(normalizeString(row.scope)),
+  ).length;
+  db.transaction(() => {
+    db.run("DELETE FROM plugin_task_requests WHERE domain=@domain", { domain });
+    db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", { domain });
+    if (preserved.size === 0) {
+      db.run("DELETE FROM plugin_task_rows WHERE domain=@domain", { domain });
+      return;
+    }
+    for (const row of rows) {
+      const scope = normalizeString(row.scope);
+      if (!scope || preserved.has(scope)) {
+        continue;
+      }
+      db.run(
+        "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope",
+        { domain, scope },
+      );
+    }
+  });
+  return [requestCount, contextCount, rowCount].reduce((sum, value) => {
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+export function clearPluginTaskScope(domainRaw: string, scopeRaw: string) {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  if (!domain || !scope) {
+    return 0;
+  }
+  const db = getAdapter();
+  const rowCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_rows
+        WHERE domain=@domain AND scope=@scope
+      `,
+      { domain, scope },
+    )?.value || 0,
+  );
+  db.run(
+    "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope",
+    { domain, scope },
+  );
+  return Number.isFinite(rowCount) ? rowCount : 0;
+}
+
 export function resetPluginStateStoreForTests() {
   if (!adapter) {
     return;
@@ -1422,6 +1632,10 @@ export function inspectPluginStateStoreCounts() {
     rowCount: Number.isFinite(rowCount) ? rowCount : 0,
   };
 }
+
+registerPluginTaskDomainClearer(clearPluginTaskDomain);
+registerPluginTaskDomainExceptRowScopesClearer(clearPluginTaskDomainExceptRowScopes);
+registerPluginTaskScopeClearer(clearPluginTaskScope);
 
 export function exportPluginStateStoreRowsForTests() {
   const db = getAdapter();

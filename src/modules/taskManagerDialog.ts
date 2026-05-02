@@ -47,9 +47,14 @@ import {
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
-import { openSkillRunnerSidebar } from "./skillRunnerSidebar";
 import { getAcpFrontendSnapshot } from "./acpSessionManager";
-import { openAcpSidebar } from "./acpSidebar";
+import {
+  buildAcpSkillRunPanelSnapshot,
+  cancelAcpSkillRun,
+  selectAcpSkillRun,
+  subscribeAcpSkillRunSnapshots,
+} from "./acpSkillRunStore";
+import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -99,6 +104,7 @@ type DashboardRow = {
   };
   stateLabel: string;
   requestId?: string;
+  requestKind?: string;
   engine?: string;
   jobId: string;
   runId: string;
@@ -160,6 +166,15 @@ type DashboardSnapshot = {
     actionLabel: string;
     lastError?: string;
   };
+  homeAcpSkillRunsEntry?: {
+    title: string;
+    subtitle: string;
+    activeCount: number;
+    failedCount: number;
+    recentCount: number;
+    actionLabel: string;
+  };
+  acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   homeWorkflowDocView?: {
     workflowId: string;
     workflowLabel: string;
@@ -267,15 +282,83 @@ function escapeHtml(value: string) {
 }
 
 function sanitizeRenderedMarkdownHtml(html: string) {
-  return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/<\/?(iframe|object|embed|style|link|meta|base)[^>]*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, "")
-    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "")
-    .replace(
-      /\s(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi,
-      (_m, attr: string) => ` ${attr}="#"`,
-    );
+  const runtime = globalThis as {
+    DOMParser?: typeof DOMParser;
+    XMLSerializer?: typeof XMLSerializer;
+    document?: Document;
+  };
+  const ParserCtor = runtime.DOMParser;
+  if (typeof ParserCtor !== "function") {
+    return escapeHtml(html);
+  }
+  const allowedTags = new Set([
+    "A",
+    "B",
+    "BLOCKQUOTE",
+    "BR",
+    "CODE",
+    "DEL",
+    "DIV",
+    "EM",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "HR",
+    "I",
+    "LI",
+    "OL",
+    "P",
+    "PRE",
+    "S",
+    "SPAN",
+    "STRONG",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL",
+  ]);
+  const allowedAttrs = new Set(["class", "title", "href", "target", "rel"]);
+  const parser = new ParserCtor();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body?.firstElementChild;
+  if (!root) {
+    return "";
+  }
+  const sanitizeNode = (node: Element) => {
+    for (const child of Array.from(node.children)) {
+      if (!allowedTags.has(child.tagName)) {
+        child.replaceWith(doc.createTextNode(child.textContent || ""));
+        continue;
+      }
+      for (const attr of Array.from(child.attributes)) {
+        const name = attr.name.toLowerCase();
+        const value = String(attr.value || "").trim();
+        if (!allowedAttrs.has(name) || name.startsWith("on")) {
+          child.removeAttribute(attr.name);
+          continue;
+        }
+        if ((name === "href" || name === "src") && /^javascript:/i.test(value)) {
+          child.removeAttribute(attr.name);
+        }
+      }
+      if (child.tagName === "A") {
+        const href = child.getAttribute("href") || "";
+        if (href) {
+          child.setAttribute("target", "_blank");
+          child.setAttribute("rel", "noopener noreferrer");
+        }
+      }
+      sanitizeNode(child);
+    }
+  };
+  sanitizeNode(root);
+  return String(root.innerHTML || "");
 }
 
 function buildHomeAcpEntry() {
@@ -558,6 +641,20 @@ function isSkillRunnerBackend(backend: BackendInstance) {
   return String(backend.type || "").trim() === "skillrunner";
 }
 
+function isAcpBackend(backend: BackendInstance) {
+  return String(backend.type || "").trim() === "acp";
+}
+
+function isAcpSkillRunnerTask(row: {
+  backendType?: string;
+  requestKind?: string;
+}) {
+  return (
+    String(row.backendType || "").trim() === "acp" &&
+    String(row.requestKind || "").trim() === "skillrunner.job.v1"
+  );
+}
+
 function isBackendReconcileFlagged(args: {
   backendId?: string;
   backendType?: string;
@@ -672,6 +769,7 @@ function mapTaskRowWithMeta(
     },
     stateLabel: resolveStatusLabel(normalizedState),
     requestId: task.requestId,
+    requestKind: task.requestKind,
     engine: task.engine,
     jobId: task.jobId,
     runId: task.runId,
@@ -961,6 +1059,7 @@ async function buildDashboardSnapshot(args: {
 
   let homeWorkflows: DashboardSnapshot["homeWorkflows"] = [];
   let homeAcpEntry: DashboardSnapshot["homeAcpEntry"] = undefined;
+  let homeAcpSkillRunsEntry: DashboardSnapshot["homeAcpSkillRunsEntry"] = undefined;
   let homeWorkflowDocView: DashboardSnapshot["homeWorkflowDocView"] = undefined;
   const selectedBackendFromRequestedTab = args.backends.find(
     (entry) => entry.id === fromBackendTabKey(selectedTabKey),
@@ -980,6 +1079,24 @@ async function buildDashboardSnapshot(args: {
       backends: args.backends,
     });
     homeAcpEntry = buildHomeAcpEntry();
+    const acpSkillRunSnapshot = buildAcpSkillRunPanelSnapshot();
+    homeAcpSkillRunsEntry = {
+      title: localize(
+        "task-dashboard-home-acp-skill-runs-title",
+        "ACP Skill Runs",
+      ),
+      subtitle: localize(
+        "task-dashboard-home-acp-skill-runs-subtitle",
+        "Observe workflow runs executed through ACP backends.",
+      ),
+      activeCount: acpSkillRunSnapshot.summary.active,
+      failedCount: acpSkillRunSnapshot.summary.failed,
+      recentCount: acpSkillRunSnapshot.summary.recent,
+      actionLabel: localize(
+        "task-dashboard-home-acp-skill-runs-open",
+        "Open Runs",
+      ),
+    };
     const requestedWorkflowId = String(
       args.state.homeWorkflowDocWorkflowId || "",
     ).trim();
@@ -1162,6 +1279,14 @@ async function buildDashboardSnapshot(args: {
     homeAcpTitle: localize("task-dashboard-home-acp-title", "ACP Chat"),
     homeAcpOpen: localize("task-dashboard-home-acp-open", "Open Chat"),
     homeAcpMessages: localize("task-dashboard-home-acp-messages", "Messages"),
+    homeAcpSkillRunsTitle: localize(
+      "task-dashboard-home-acp-skill-runs-title",
+      "ACP Skill Runs",
+    ),
+    homeAcpSkillRunsOpen: localize(
+      "task-dashboard-home-acp-skill-runs-open",
+      "Open Runs",
+    ),
     homeWorkflowDocMissingReadme: localize(
       "task-dashboard-home-workflow-doc-missing-readme",
       "README.md was not found for this workflow.",
@@ -1244,6 +1369,7 @@ async function buildDashboardSnapshot(args: {
     runningRows,
     homeWorkflows,
     homeAcpEntry,
+    homeAcpSkillRunsEntry,
     homeWorkflowDocView,
     backendLoadError: args.state.backendLoadError,
   };
@@ -1342,6 +1468,15 @@ async function buildDashboardSnapshot(args: {
             ),
           },
         })
+      : isAcpBackend(selectedBackend)
+        ? localize("task-dashboard-acp-backend-title", "ACP Backend: {id}", {
+            args: {
+              id: resolveBackendDisplayName(
+                selectedBackend.id,
+                selectedBackend.displayName,
+              ),
+            },
+          })
       : localize("task-dashboard-generic-title", "Generic HTTP Backend: {id}", {
           args: {
             id: resolveBackendDisplayName(
@@ -1356,6 +1491,16 @@ async function buildDashboardSnapshot(args: {
   };
 
   if (isSkillRunnerBackend(selectedBackend)) {
+    snapshot.backendView = backendView;
+    return snapshot;
+  }
+
+  if (isAcpBackend(selectedBackend)) {
+    backendView.rows = rows.filter(
+      (row) => String(row.requestKind || "").trim() === "skillrunner.job.v1",
+    );
+    backendView.emptyRowsText =
+      backendView.emptyRowsText || labels.backendNoTasks || "No ACP skill runs.";
     snapshot.backendView = backendView;
     return snapshot;
   }
@@ -1446,6 +1591,7 @@ export async function openTaskManagerDialog(args?: {
 
   let unsubscribeTasks: (() => void) | undefined;
   let unsubscribeBackendHealth: (() => void) | undefined;
+  let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let refreshTimer: number | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
@@ -1690,6 +1836,23 @@ export async function openTaskManagerDialog(args?: {
       }
       const backend = state.backends.find((entry) => entry.id === backendId);
       const backendType = String(backend?.type || payloadBackendType).trim();
+      const requestKind = String(payload.requestKind || "").trim();
+      if (
+        isAcpSkillRunnerTask({
+          backendType,
+          requestKind,
+        })
+      ) {
+        if (requestId) {
+          selectAcpSkillRun(requestId);
+        }
+        await openAssistantWorkspaceSidebar({
+          window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+          tab: "acp-skills",
+          requestId,
+        });
+        return;
+      }
       if (backendType === "skillrunner") {
         if (!requestId) {
           taskManagerDialog?.window?.alert?.(
@@ -1703,8 +1866,9 @@ export async function openTaskManagerDialog(args?: {
         if (!backend || !isSkillRunnerBackend(backend)) {
           return;
         }
-        await openSkillRunnerSidebar({
+        await openAssistantWorkspaceSidebar({
           window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+          tab: "skillrunner",
           backend,
           requestId,
         });
@@ -1722,8 +1886,21 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "open-acp-sidebar") {
-      await openAcpSidebar({
+      await openAssistantWorkspaceSidebar({
         window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+        tab: "acp-chat",
+      });
+      return;
+    }
+    if (action === "open-acp-skill-runs") {
+      const requestId = String(payload.requestId || "").trim();
+      if (requestId) {
+        selectAcpSkillRun(requestId);
+      }
+      await openAssistantWorkspaceSidebar({
+        window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+        tab: "acp-skills",
+        requestId,
       });
       return;
     }
@@ -1802,9 +1979,17 @@ export async function openTaskManagerDialog(args?: {
       if (backendId && requestId) {
         const backend = state.backends.find((entry) => entry.id === backendId);
         if (backend && isSkillRunnerBackend(backend)) {
-          await openSkillRunnerSidebar({
+          await openAssistantWorkspaceSidebar({
             window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+            tab: "skillrunner",
             backend,
+            requestId,
+          });
+        } else if (backend && isAcpBackend(backend)) {
+          selectAcpSkillRun(requestId);
+          await openAssistantWorkspaceSidebar({
+            window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+            tab: "acp-skills",
             requestId,
           });
         }
@@ -1876,7 +2061,25 @@ export async function openTaskManagerDialog(args?: {
       const backendId = String(payload.backendId || "").trim();
       const requestId = String(payload.requestId || "").trim();
       const backend = state.backends.find((entry) => entry.id === backendId);
-      if (!backend || !requestId || !isSkillRunnerBackend(backend)) {
+      if (!backend || !requestId) {
+        return;
+      }
+      if (isAcpBackend(backend)) {
+        try {
+          await cancelAcpSkillRun(requestId);
+        } catch (error) {
+          taskManagerDialog?.window?.alert?.(
+            localize("task-dashboard-skillrunner-cancel-failed", "Failed to cancel run: {error}", {
+              args: {
+                error: compactError(error),
+              },
+            }),
+          );
+        }
+        refresh("user-action");
+        return;
+      }
+      if (!isSkillRunnerBackend(backend)) {
         return;
       }
       const active = normalizeFilteredActive();
@@ -2102,6 +2305,9 @@ export async function openTaskManagerDialog(args?: {
       unsubscribeBackendHealth = subscribeSkillRunnerBackendHealth(() => {
         refresh("backend-health");
       });
+      unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
+        refresh("task-update");
+      });
       refreshTimer = dialogWindow.setInterval(() => {
         refresh("periodic");
       }, 1200);
@@ -2118,6 +2324,10 @@ export async function openTaskManagerDialog(args?: {
       if (unsubscribeBackendHealth) {
         unsubscribeBackendHealth();
         unsubscribeBackendHealth = undefined;
+      }
+      if (unsubscribeAcpSkillRuns) {
+        unsubscribeAcpSkillRuns();
+        unsubscribeAcpSkillRuns = undefined;
       }
       if (removeMessageListener) {
         removeMessageListener();

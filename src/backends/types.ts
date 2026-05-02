@@ -21,6 +21,33 @@ export type BackendInstance = {
     timeout_ms?: number;
   };
   management_auth?: BackendManagementAuth;
+  acp?: {
+    agentFamily?:
+      | "codex"
+      | "claude-code"
+      | "opencode"
+      | "gemini-cli"
+      | "qwen-code"
+      | "unknown";
+    skillRoots?: string[];
+    connectionTest?: {
+      status?: "untested" | "passed" | "failed" | "stale";
+      testedAt?: string;
+      configFingerprint?: string;
+      error?: string;
+    };
+    runtimeOptionsCache?: {
+      refreshedAt?: string;
+      modes?: Array<{ id: string; label: string; description?: string }>;
+      currentModeId?: string;
+      rawModels?: Array<{ id: string; label: string; description?: string }>;
+      currentRawModelId?: string;
+      displayModels?: Array<{ id: string; label: string; description?: string }>;
+      currentDisplayModelId?: string;
+      reasoningEfforts?: Array<{ id: string; label: string; description?: string }>;
+      currentReasoningEffortId?: string;
+    };
+  };
 };
 
 export type LoadedBackends = {

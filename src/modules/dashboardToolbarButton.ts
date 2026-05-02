@@ -300,7 +300,7 @@ function ensureSkillRunnerToolbarButton(
   const button = doc.createXULElement("toolbarbutton");
   const tooltip = localize(
     "task-dashboard-toolbar-open-skillrunner",
-    "Open/Close Skill-Runner Sidebar",
+    "Open/Close Assistant Sidebar",
   );
   button.id = SKILLRUNNER_BUTTON_ID;
   button.setAttribute("class", "zotero-tb-button zs-skillrunner-toolbar-button");

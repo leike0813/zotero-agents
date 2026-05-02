@@ -1,4 +1,7 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -16,6 +19,8 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { applyResult as applyLiteratureExplainerResult } from "../../workflows_builtin/literature-workbench-package/literature-explainer/hooks/applyResult.mjs";
+import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
+import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode = isZoteroRuntime() && !isFullTestMode() ? it.skip : it;
@@ -72,6 +77,10 @@ async function getWorkflow() {
   );
   assert.isOk(workflow, "expected literature-explainer workflow");
   return workflow!;
+}
+
+async function mkNodeTempRoot() {
+  return fs.mkdtemp(path.join(os.tmpdir(), "zs-literature-explainer-"));
 }
 
 describe("workflow: literature-explainer", function () {
@@ -214,6 +223,60 @@ describe("workflow: literature-explainer", function () {
     assert.equal(payload?.format, "markdown");
     assert.equal(payload?.version, 1);
     assert.equal(payload?.content, markdown);
+  });
+
+  itNodeOnly("creates a conversation note from ACP local note_path through shared result context", async function () {
+    const root = await mkNodeTempRoot();
+    try {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Literature Explainer ACP Result Context Parent" },
+      });
+      const resultDir = path.join(root, "result");
+      await fs.mkdir(resultDir, { recursive: true });
+      const notePath = path.join(resultDir, "conversation-note.md");
+      const markdown = "# ACP Conversation\n\n- Direct local note path.\n";
+      await fs.writeFile(notePath, markdown, "utf8");
+      const resultJson = {
+        note_path: notePath,
+      };
+      const workflow = await getWorkflow();
+      const bundleReader = createUnavailableBundleReader("acp-explainer-result");
+      const resultContext = await createWorkflowResultContext({
+        runResult: {
+          requestId: "acp-explainer-result",
+          resultJson,
+          responseJson: {
+            workspaceDir: root,
+          },
+        },
+        bundleReader,
+        manifest: workflow.manifest,
+      });
+
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader,
+        resultContext,
+        runResult: {
+          requestId: "acp-explainer-result",
+          resultJson,
+          responseJson: {
+            workspaceDir: root,
+          },
+        },
+      })) as { notes?: Zotero.Item[]; note_path?: string };
+
+      assert.lengthOf(applied.notes || [], 1);
+      assert.equal(applied.note_path, notePath.replace(/\\/g, "/"));
+      const note = Zotero.Items.get((applied.notes || [])[0].id)!;
+      const payload = parsePayloadData(note.getNote());
+      assert.equal(payload?.path, notePath.replace(/\\/g, "/"));
+      assert.equal(payload?.content, markdown);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   itNodeOnly("creates a conversation note when applyResult receives parent id instead of item object", async function () {

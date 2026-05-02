@@ -1,5 +1,10 @@
 import { getPref, setPref } from "../utils/prefs";
 import { version } from "../../package.json";
+import {
+  getRuntimePersistencePaths,
+  registerRuntimeLogClearer,
+  writeRuntimeTextFile,
+} from "./runtimePersistence";
 
 export type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 export type RuntimeLogErrorCategory =
@@ -263,6 +268,7 @@ let hydrated = false;
 let persistenceDirty = false;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceFlushCount = 0;
+let filePersistenceFailureCount = 0;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -607,6 +613,81 @@ function buildRuntimeLogDocument() {
   };
 }
 
+function getNodeBuiltinModule(name: string) {
+  const runtime = globalThis as {
+    process?: {
+      getBuiltinModule?: (specifier: string) => any;
+    };
+  };
+  try {
+    const module = runtime.process?.getBuiltinModule?.(name);
+    if (module) {
+      return module;
+    }
+  } catch {
+    // Fall through to CommonJS require fallback.
+  }
+  try {
+    const requireFn = new Function(
+      "return typeof require === 'function' ? require : null",
+    )() as ((specifier: string) => any) | null;
+    return requireFn ? requireFn(name) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readRuntimeLogFileSync() {
+  const runtime = globalThis as { process?: unknown };
+  if (!runtime.process) {
+    return "";
+  }
+  try {
+    const fs = getNodeBuiltinModule("fs");
+    if (!fs) {
+      return "";
+    }
+    const path = getRuntimePersistencePaths().runtimeLogPath;
+    if (!fs.existsSync(path)) {
+      return "";
+    }
+    return String(fs.readFileSync(path, "utf8") || "");
+  } catch {
+    return "";
+  }
+}
+
+function writeRuntimeLogFileSync(content: string) {
+  const runtime = globalThis as { process?: unknown };
+  if (!runtime.process) {
+    return false;
+  }
+  try {
+    const fs = getNodeBuiltinModule("fs");
+    const path = getNodeBuiltinModule("path");
+    if (!fs || !path) {
+      return false;
+    }
+    const logPath = getRuntimePersistencePaths().runtimeLogPath;
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, content, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeRuntimeLogFileAsync(content: string) {
+  if (writeRuntimeLogFileSync(content)) {
+    return;
+  }
+  void writeRuntimeTextFile(getRuntimePersistencePaths().runtimeLogPath, content).catch(
+    () => {
+      filePersistenceFailureCount += 1;
+    },
+  );
+}
+
 function clearPersistTimer() {
   if (!persistTimer) {
     return;
@@ -621,7 +702,8 @@ function persistRuntimeLogsNow(force = false) {
     return;
   }
   try {
-    setPref(HISTORY_PREF_KEY, JSON.stringify(buildRuntimeLogDocument()));
+    writeRuntimeLogFileAsync(JSON.stringify(buildRuntimeLogDocument()));
+    setPref(HISTORY_PREF_KEY, "");
   } catch {
     // Ignore prefs persistence failures in runtime logger.
   }
@@ -679,11 +761,17 @@ function hydrateRuntimeLogsIfNeeded() {
     return;
   }
   hydrated = true;
-  let raw = "";
+  let raw = readRuntimeLogFileSync();
   try {
-    raw = String(getPref(HISTORY_PREF_KEY) || "").trim();
+    if (!raw.trim()) {
+      raw = String(getPref(HISTORY_PREF_KEY) || "").trim();
+      if (raw) {
+        writeRuntimeLogFileAsync(raw);
+        setPref(HISTORY_PREF_KEY, "");
+      }
+    }
   } catch {
-    raw = "";
+    raw = raw || "";
   }
   if (!raw) {
     return;
@@ -957,6 +1045,8 @@ export function clearRuntimeLogs() {
   emitChanged();
 }
 
+registerRuntimeLogClearer(clearRuntimeLogs);
+
 function snapshotRuntimeLogsInternal(): RuntimeLogSnapshot {
   const budget = resolveActiveRetentionBudget();
   return {
@@ -998,6 +1088,8 @@ export function getRuntimeLogPersistenceStateForTests() {
     dirty: persistenceDirty,
     hasPendingTimer: persistTimer !== null,
     flushCount: persistenceFlushCount,
+    fileFailureCount: filePersistenceFailureCount,
+    path: getRuntimePersistencePaths().runtimeLogPath,
   };
 }
 

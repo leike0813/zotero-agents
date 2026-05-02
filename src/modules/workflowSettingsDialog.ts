@@ -641,6 +641,16 @@ export async function openWorkflowSettingsDialog(args?: {
   // Domain layer resets pending run-once override so every open starts from persisted snapshot.
   const initialState = getWorkflowSettingsDialogInitialState(workflowId);
   const providerId = String(workflow.manifest.provider || "").trim();
+  const isSkillRunnerCompatibleWorkflow =
+    String(workflow.manifest.request?.kind || "").trim() === "skillrunner.job.v1";
+  const resolveProviderIdForBackend = (
+    backend: (typeof profiles)[number] | undefined,
+  ) => {
+    if (isSkillRunnerCompatibleWorkflow && backend) {
+      return String(backend.type || "").trim() || providerId;
+    }
+    return providerId;
+  };
   const renderModel = buildWorkflowSettingsDialogRenderModel({
     providerId,
     profileItems,
@@ -808,8 +818,9 @@ export async function openWorkflowSettingsDialog(args?: {
           ...collectSchemaValues(args.container),
         };
         const backend = args.resolveBackend();
+        const effectiveProviderId = resolveProviderIdForBackend(backend);
         const providerSchemaEntries = resolveProviderSchemaEntries({
-          providerId,
+          providerId: effectiveProviderId,
           currentValues: mergedValues,
           backend,
         });
@@ -821,7 +832,7 @@ export async function openWorkflowSettingsDialog(args?: {
           idPrefix: args.idPrefix,
           emptyText: getString("workflow-settings-no-provider-options" as any),
         });
-        const dynamicControls = ["engine", "provider_id", "model"]
+        const dynamicControls = ["engine", "provider_id", "model", "acpModelId"]
           .map((key) =>
             args.container.querySelector(
               `[data-zs-option-key="${key}"]`,

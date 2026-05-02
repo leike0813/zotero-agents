@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zotero Skills Assistant</title>
+    <link rel="stylesheet" href="./assistant-workspace.css" />
+  </head>
+  <body>
+    <main class="assistant-workspace-shell">
+      <header class="assistant-workspace-tabbar">
+        <nav class="assistant-workspace-tabs" aria-label="Assistant workspace tabs">
+          <button id="assistant-tab-skillrunner" class="assistant-tab" type="button" data-tab="skillrunner">
+            SkillRunner
+          </button>
+          <button id="assistant-tab-acp-chat" class="assistant-tab" type="button" data-tab="acp-chat">
+            ACP Chat
+          </button>
+          <button id="assistant-tab-acp-skills" class="assistant-tab" type="button" data-tab="acp-skills">
+            ACP Skills
+          </button>
+        </nav>
+      </header>
+
+      <section class="assistant-workspace-body">
+        <iframe
+          id="assistant-frame-skillrunner"
+          class="assistant-frame"
+          title="SkillRunner"
+          src="./run-dialog.html"
+        ></iframe>
+        <iframe
+          id="assistant-frame-acp-chat"
+          class="assistant-frame hidden"
+          title="ACP Chat"
+          src="./acp-chat.html"
+        ></iframe>
+        <iframe
+          id="assistant-frame-acp-skills"
+          class="assistant-frame hidden"
+          title="ACP Skills"
+          src="./acp-skill-run.html"
+        ></iframe>
+      </section>
+    </main>
+    <script src="./assistant-workspace.js"></script>
+  </body>
+</html>

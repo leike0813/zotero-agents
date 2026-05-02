@@ -81,6 +81,7 @@ function parseHistoryRecord(raw: unknown): TaskDashboardHistoryRecord | null {
     inputUnitIdentity: String(raw.inputUnitIdentity || "").trim() || undefined,
     inputUnitLabel: String(raw.inputUnitLabel || "").trim() || undefined,
     providerId: String(raw.providerId || "").trim() || undefined,
+    requestKind: String(raw.requestKind || "").trim() || undefined,
     backendId: String(raw.backendId || "").trim() || undefined,
     backendType: String(raw.backendType || "").trim() || undefined,
     backendBaseUrl: String(raw.backendBaseUrl || "").trim() || undefined,

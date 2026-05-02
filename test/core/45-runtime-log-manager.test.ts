@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import fs from "node:fs";
 import { config } from "../../package.json";
 import {
   appendRuntimeLog,
@@ -17,6 +18,14 @@ import {
 } from "../../src/modules/runtimeLogManager";
 
 describe("runtime log manager", function () {
+  function readPersistedRuntimeLogDocument() {
+    const state = getRuntimeLogPersistenceStateForTests();
+    const raw = fs.existsSync(state.path)
+      ? fs.readFileSync(state.path, "utf8")
+      : "{}";
+    return JSON.parse(raw || "{}") as { entries?: Array<{ stage?: string }> };
+  }
+
   beforeEach(function () {
     clearRuntimeLogs();
     resetRuntimeLogAllowedLevels();
@@ -173,7 +182,7 @@ describe("runtime log manager", function () {
     assert.equal(filtered[0].stage, "warn-stage");
   });
 
-  it("persists logs into prefs and clears persisted payload", async function () {
+  it("persists logs into runtime log storage and clears legacy prefs payload", async function () {
     appendRuntimeLog({
       level: "info",
       scope: "system",
@@ -185,16 +194,16 @@ describe("runtime log manager", function () {
     const rawPersisted = String(
       (globalThis as any).Zotero.Prefs.get(prefKey, true) || "",
     );
-    assert.isTrue(rawPersisted.length > 0);
-    const parsedPersisted = JSON.parse(rawPersisted) as { entries?: unknown[] };
+    assert.equal(rawPersisted, "");
+    const parsedPersisted = readPersistedRuntimeLogDocument();
     assert.equal(parsedPersisted.entries?.length || 0, 1);
 
     clearRuntimeLogs();
     const rawCleared = String(
       (globalThis as any).Zotero.Prefs.get(prefKey, true) || "",
     );
-    assert.isTrue(rawCleared.length > 0);
-    const parsedCleared = JSON.parse(rawCleared) as { entries?: unknown[] };
+    assert.equal(rawCleared, "");
+    const parsedCleared = readPersistedRuntimeLogDocument();
     assert.equal(parsedCleared.entries?.length || 0, 0);
   });
 
@@ -236,8 +245,6 @@ describe("runtime log manager", function () {
   });
 
   it("flushes pending persistence before snapshot and bundle export", function () {
-    const prefKey = `${config.prefsPrefix}.runtimeLogsJson`;
-
     appendRuntimeLog({
       level: "info",
       scope: "system",
@@ -256,9 +263,7 @@ describe("runtime log manager", function () {
       dirty: false,
       hasPendingTimer: false,
     });
-    const persistedAfterSnapshot = JSON.parse(
-      String((globalThis as any).Zotero.Prefs.get(prefKey, true) || "{}"),
-    ) as { entries?: Array<{ stage?: string }> };
+    const persistedAfterSnapshot = readPersistedRuntimeLogDocument();
     assert.equal(persistedAfterSnapshot.entries?.[0]?.stage, "snapshot-stage");
 
     appendRuntimeLog({
@@ -283,9 +288,7 @@ describe("runtime log manager", function () {
       dirty: false,
       hasPendingTimer: false,
     });
-    const persistedAfterBundle = JSON.parse(
-      String((globalThis as any).Zotero.Prefs.get(prefKey, true) || "{}"),
-    ) as { entries?: Array<{ stage?: string }> };
+    const persistedAfterBundle = readPersistedRuntimeLogDocument();
     assert.equal(
       persistedAfterBundle.entries?.[persistedAfterBundle.entries.length - 1]?.stage,
       "bundle-stage",

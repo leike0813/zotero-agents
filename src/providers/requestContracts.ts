@@ -9,6 +9,7 @@ import {
 type ProviderRequestContractDefinition = {
   providerType: string;
   backendType: string;
+  compatiblePairs?: Array<{ providerType: string; backendType: string }>;
   validatePayload: (request: unknown) => string | null;
 };
 
@@ -19,6 +20,16 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
   "skillrunner.job.v1": {
     providerType: DEFAULT_BACKEND_TYPE,
     backendType: DEFAULT_BACKEND_TYPE,
+    compatiblePairs: [
+      {
+        providerType: DEFAULT_BACKEND_TYPE,
+        backendType: DEFAULT_BACKEND_TYPE,
+      },
+      {
+        providerType: ACP_BACKEND_TYPE,
+        backendType: ACP_BACKEND_TYPE,
+      },
+    ],
     validatePayload: validateSkillRunnerJobPayload,
   },
   "generic-http.request.v1": {
@@ -67,6 +78,17 @@ function isNonEmptyString(value: unknown): value is string {
 
 function normalizeRequestKind(value: unknown) {
   return String(value || "").trim();
+}
+
+function getCompatiblePairs(contract: ProviderRequestContractDefinition) {
+  return contract.compatiblePairs?.length
+    ? contract.compatiblePairs
+    : [
+        {
+          providerType: contract.providerType,
+          backendType: contract.backendType,
+        },
+      ];
 }
 
 function validateSkillRunnerJobPayload(request: unknown) {
@@ -295,19 +317,25 @@ export function assertRequestKindBackendCompatible(args: {
 }) {
   const normalizedBackendType = String(args.backendType || "").trim();
   const resolved = assertRequestKindSupported(args.requestKind);
-  if (resolved.contract.backendType !== normalizedBackendType) {
+  const matchedPair = getCompatiblePairs(resolved.contract).find(
+    (pair) => pair.backendType === normalizedBackendType,
+  );
+  if (!matchedPair) {
     throw new ProviderRequestContractError({
       category: "provider_backend_mismatch",
       reason: "backend_type_mismatch",
       requestKind: resolved.requestKind,
       backendType: normalizedBackendType,
       providerId: resolved.contract.providerType,
-      detail: `expected backendType=${resolved.contract.backendType}`,
+      detail: `expected backendType=${getCompatiblePairs(resolved.contract)
+        .map((pair) => pair.backendType)
+        .join("|")}`,
     });
   }
   return {
     ...resolved,
     backendType: normalizedBackendType,
+    providerType: matchedPair.providerType,
   };
 }
 
@@ -317,13 +345,19 @@ export function assertRequestKindProviderCompatible(args: {
 }) {
   const normalizedProviderId = String(args.providerId || "").trim();
   const resolved = assertRequestKindSupported(args.requestKind);
-  if (resolved.contract.providerType !== normalizedProviderId) {
+  if (
+    !getCompatiblePairs(resolved.contract).some(
+      (pair) => pair.providerType === normalizedProviderId,
+    )
+  ) {
     throw new ProviderRequestContractError({
       category: "provider_contract_error",
       reason: "provider_type_mismatch",
       requestKind: resolved.requestKind,
       providerId: normalizedProviderId,
-      detail: `expected providerId=${resolved.contract.providerType}`,
+      detail: `expected providerId=${getCompatiblePairs(resolved.contract)
+        .map((pair) => pair.providerType)
+        .join("|")}`,
     });
   }
   return {
@@ -363,6 +397,23 @@ export function assertProviderRequestDispatchContract(args: {
     requestKind: byBackend.requestKind,
     providerId: args.providerId,
   });
+  const normalizedProviderId = String(args.providerId || "").trim();
+  const normalizedBackendType = String(args.backendType || "").trim();
+  const pairMatched = getCompatiblePairs(byProvider.contract).some(
+    (pair) =>
+      pair.providerType === normalizedProviderId &&
+      pair.backendType === normalizedBackendType,
+  );
+  if (!pairMatched) {
+    throw new ProviderRequestContractError({
+      category: "provider_backend_mismatch",
+      reason: "backend_type_mismatch",
+      requestKind: byProvider.requestKind,
+      backendType: normalizedBackendType,
+      providerId: normalizedProviderId,
+      detail: "request kind does not allow this provider/backend pair",
+    });
+  }
   assertRequestPayloadContract({
     requestKind: byProvider.requestKind,
     request: args.request,

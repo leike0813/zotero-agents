@@ -114,6 +114,7 @@ export type ProviderExecutionSucceededResult = {
   requestId: string;
   fetchType: "bundle" | "result";
   bundleBytes?: Uint8Array;
+  bundleDir?: string;
   resultJson?: unknown;
   responseJson?: unknown;
 };

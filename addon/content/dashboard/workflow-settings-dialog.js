@@ -446,6 +446,26 @@
 
     const actions = document.createElement("div");
     actions.className = "settings-actions";
+    if (form.canRefreshAcpRuntimeCache === true) {
+      const refreshBtn = document.createElement("button");
+      refreshBtn.type = "button";
+      refreshBtn.className = "settings-btn";
+      refreshBtn.textContent =
+        snapshot.labels.refreshAcpRuntimeCache || "Refresh ACP Config Cache";
+      refreshBtn.addEventListener("click", function () {
+        if (!flushDraftFromControls()) {
+          return;
+        }
+        sendAction("refresh-acp-runtime-cache", {
+          executionOptions: {
+            backendId: toText(state.draft.backendId || "").trim(),
+            workflowParams: cloneRecord(state.draft.workflowParams),
+            providerOptions: cloneRecord(state.draft.providerOptions),
+          },
+        });
+      });
+      actions.appendChild(refreshBtn);
+    }
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "settings-btn";

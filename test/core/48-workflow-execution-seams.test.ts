@@ -584,10 +584,10 @@ describe("workflow execution seams", function () {
     assert.equal(capturedConcurrency, 1);
   });
 
-  it("routes interactive skillrunner request-created openings to the sidebar entry", function () {
+  it("routes interactive skillrunner request-created openings to the Assistant shell skillrunner tab", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
-    const sidebarCalls: Array<Record<string, unknown>> = [];
-    let legacyDialogCalls = 0;
+    const assistantCalls: Array<Record<string, unknown>> = [];
+    const focusCalls: Array<Record<string, unknown>> = [];
     const queueStub = {
       enqueue() {
         return "job-1";
@@ -628,12 +628,12 @@ describe("workflow execution seams", function () {
           capturedQueueConfig = config as unknown as Record<string, unknown>;
           return queueStub as any;
         },
-        openSkillRunnerSidebar: (args) => {
-          sidebarCalls.push(args as unknown as Record<string, unknown>);
+        openAssistantWorkspaceSidebar: (args) => {
+          assistantCalls.push(args as unknown as Record<string, unknown>);
           return Promise.resolve();
         },
-        openSkillRunnerRunDialog: () => {
-          legacyDialogCalls += 1;
+        focusSkillRunnerWorkspace: (args) => {
+          focusCalls.push(args as unknown as Record<string, unknown>);
           return Promise.resolve();
         },
       } as any,
@@ -660,12 +660,170 @@ describe("workflow execution seams", function () {
       },
     );
 
-    assert.lengthOf(sidebarCalls, 1);
-    assert.equal(sidebarCalls[0].requestId, "req-1");
+    assert.lengthOf(focusCalls, 1);
+    assert.equal(focusCalls[0].requestId, "req-1");
+    assert.lengthOf(assistantCalls, 1);
+    assert.equal(assistantCalls[0].tab, "skillrunner");
+    assert.equal(assistantCalls[0].requestId, "req-1");
     assert.equal(
-      (sidebarCalls[0].backend as { id?: string }).id,
+      (assistantCalls[0].backend as { id?: string }).id,
       "backend-1",
     );
-    assert.equal(legacyDialogCalls, 0);
+  });
+
+  it("selects auto ACP skill runs without opening the Assistant shell", function () {
+    let capturedQueueConfig: Record<string, unknown> | undefined;
+    const selectedRequestIds: string[] = [];
+    const assistantCalls: Array<Record<string, unknown>> = [];
+    const queueStub = {
+      enqueue() {
+        return "job-1";
+      },
+      waitForIdle() {
+        return Promise.resolve();
+      },
+    };
+
+    runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-auto-select",
+              label: "Seam ACP Auto Select",
+              execution: {
+                skillrunner_mode: "auto",
+              },
+            },
+          } as any,
+          requests: [{ targetParentID: 3 }],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "acp",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: {},
+            backend: {
+              id: "backend-acp",
+              type: "acp",
+              baseUrl: "local://backend-acp",
+            },
+          },
+        },
+      },
+      {
+        createQueue: (config) => {
+          capturedQueueConfig = config as unknown as Record<string, unknown>;
+          return queueStub as any;
+        },
+        selectAcpSkillRun: (requestId) => {
+          selectedRequestIds.push(String(requestId));
+        },
+        openAssistantWorkspaceSidebar: (args) => {
+          assistantCalls.push(args as unknown as Record<string, unknown>);
+          return Promise.resolve();
+        },
+      } as any,
+    );
+
+    const onJobProgress = capturedQueueConfig?.onJobProgress as
+      | ((job: Record<string, unknown>, event: Record<string, unknown>) => void)
+      | undefined;
+    onJobProgress?.(
+      {
+        id: "job-1",
+        workflowId: "seam-acp-auto-select",
+        request: { targetParentID: 3 },
+        meta: { index: 0 },
+        state: "running",
+        createdAt: "2026-04-17T00:00:00.000Z",
+        updatedAt: "2026-04-17T00:00:00.000Z",
+      },
+      {
+        type: "request-created",
+        requestId: "acp-req-1",
+      },
+    );
+
+    assert.deepEqual(selectedRequestIds, ["acp-req-1"]);
+    assert.lengthOf(assistantCalls, 0);
+  });
+
+  it("opens interactive ACP skill runs in the Assistant shell ACP Skills tab", function () {
+    let capturedQueueConfig: Record<string, unknown> | undefined;
+    const selectedRequestIds: string[] = [];
+    const assistantCalls: Array<Record<string, unknown>> = [];
+    const queueStub = {
+      enqueue() {
+        return "job-1";
+      },
+      waitForIdle() {
+        return Promise.resolve();
+      },
+    };
+
+    runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-interactive-open",
+              label: "Seam ACP Interactive Open",
+              execution: {
+                skillrunner_mode: "interactive",
+              },
+            },
+          } as any,
+          requests: [{ targetParentID: 3 }],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "acp",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: {},
+            backend: {
+              id: "backend-acp",
+              type: "acp",
+              baseUrl: "local://backend-acp",
+            },
+          },
+        },
+      },
+      {
+        createQueue: (config) => {
+          capturedQueueConfig = config as unknown as Record<string, unknown>;
+          return queueStub as any;
+        },
+        selectAcpSkillRun: (requestId) => {
+          selectedRequestIds.push(String(requestId));
+        },
+        openAssistantWorkspaceSidebar: (args) => {
+          assistantCalls.push(args as unknown as Record<string, unknown>);
+          return Promise.resolve();
+        },
+      } as any,
+    );
+
+    const onJobProgress = capturedQueueConfig?.onJobProgress as
+      | ((job: Record<string, unknown>, event: Record<string, unknown>) => void)
+      | undefined;
+    onJobProgress?.(
+      {
+        id: "job-1",
+        workflowId: "seam-acp-interactive-open",
+        request: { targetParentID: 3 },
+        meta: { index: 0 },
+        state: "running",
+        createdAt: "2026-04-17T00:00:00.000Z",
+        updatedAt: "2026-04-17T00:00:00.000Z",
+      },
+      {
+        type: "request-created",
+        requestId: "acp-req-2",
+      },
+    );
+
+    assert.deepEqual(selectedRequestIds, ["acp-req-2"]);
+    assert.lengthOf(assistantCalls, 1);
+    assert.equal(assistantCalls[0].tab, "acp-skills");
+    assert.equal(assistantCalls[0].requestId, "acp-req-2");
   });
 });
