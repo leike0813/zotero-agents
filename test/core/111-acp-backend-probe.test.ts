@@ -26,7 +26,12 @@ describe("ACP backend probe", function () {
   });
 
   it("creates probe cwd, workspace, and runtime dirs before launching adapter", async function () {
-    const seen: Array<{ sessionCwd: string; workspaceDir: string; runtimeDir: string }> = [];
+    const seen: Array<{
+      agentWorkspaceDir: string;
+      sessionCwd: string;
+      workspaceDir: string;
+      runtimeDir: string;
+    }> = [];
     const result = await probeAcpBackendRuntimeOptions({
       backend: {
         id: "acp-test",
@@ -37,11 +42,12 @@ describe("ACP backend probe", function () {
       },
       createAdapter: async (args) => {
         seen.push({
+          agentWorkspaceDir: args.agentWorkspaceDir,
           sessionCwd: args.sessionCwd,
           workspaceDir: args.workspaceDir,
           runtimeDir: args.runtimeDir,
         });
-        for (const target of [args.sessionCwd, args.workspaceDir, args.runtimeDir]) {
+        for (const target of [args.agentWorkspaceDir, args.sessionCwd, args.workspaceDir, args.runtimeDir]) {
           const stat = await fs.stat(target);
           assert.isTrue(stat.isDirectory(), `${target} should exist before adapter launch`);
         }
@@ -86,6 +92,8 @@ describe("ACP backend probe", function () {
 
     assert.isTrue(result.ok);
     assert.lengthOf(seen, 1);
+    assert.equal(seen[0]?.agentWorkspaceDir, seen[0]?.sessionCwd);
+    assert.equal(seen[0]?.agentWorkspaceDir, seen[0]?.workspaceDir);
     assert.equal(result.backend.acp?.connectionTest?.status, "passed");
     assert.deepEqual(
       result.backend.acp?.runtimeOptionsCache?.displayModels.map((entry) => entry.id),

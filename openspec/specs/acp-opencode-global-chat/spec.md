@@ -85,15 +85,18 @@ The system SHALL keep ACP storage paths under the plugin-owned runtime area whil
 
 #### Scenario: Resolve ACP storage directories
 - **WHEN** the ACP runtime prepares filesystem paths for OpenCode
-- **THEN** it MUST use `<Zotero.DataDirectory>/zotero-skills/acp/workspaces/acp-opencode/` as the primary workspace root
-- **THEN** it MUST use `<Zotero.DataDirectory>/zotero-skills/acp/runtime/acp-opencode/` for ACP runtime state
-- **THEN** if `Zotero.DataDirectory` is unavailable, it MUST fall back to `<cwd>/.zotero-skills-runtime/acp/...`
+- **THEN** it MUST use the central runtime persistence resolver for ACP Chat private storage
+- **THEN** it MUST keep conversation-private storage under `<runtime-root>/acp/chat/conversations/<backend-id>/<conversation-id>/`
+- **THEN** conversation-private storage MUST NOT be located under `<runtime-root>/acp/chat/workspace/`
+- **THEN** it MUST keep ACP runtime state under `<runtime-root>/acp/chat/runtime/<backend-id>/`
+- **THEN** it MUST NOT label private storage paths as user-facing workspace paths
 
 #### Scenario: Resolve ACP session cwd
 - **WHEN** the ACP runtime prepares the working directory used for `npx opencode-ai@latest acp` and `session/new`
-- **THEN** it MUST use `Zotero.DataDirectory` as the default session cwd
-- **THEN** if `Zotero.DataDirectory` is unavailable, it MUST fall back to the host process cwd
-- **THEN** it MUST NOT reuse the plugin-owned ACP storage workspace as the session cwd
+- **THEN** it MUST use `<runtime-root>/acp/chat/workspace` as the shared ACP Chat session cwd for all ACP Chat conversations
+- **THEN** `Workspace` in the ACP Chat UI MUST mean this shared agent working directory
+- **THEN** it MUST NOT use `Zotero.DataDirectory` as the default ACP Chat session cwd
+- **THEN** it MUST NOT expose ACP Chat private storage/runtime directories as normal user-facing workspace metadata
 
 ### Requirement: ACP remains outside workflow execution v1
 The system SHALL keep ACP global chat outside the workflow execution path during this phase.
@@ -102,4 +105,3 @@ The system SHALL keep ACP global chat outside the workflow execution path during
 - **WHEN** workflow settings, request compilation, or run execution enumerate workflow-capable backends and providers
 - **THEN** they MUST NOT treat the `acp` backend as a workflow-executable target
 - **THEN** existing SkillRunner, generic-http, and pass-through workflow behavior MUST remain unchanged
-

@@ -13,6 +13,9 @@ import type {
   ZoteroHostNoteDetailArgs,
   ZoteroHostNoteDetailChunkDto,
   ZoteroHostNoteDto,
+  ZoteroHostNotePayloadDetailArgs,
+  ZoteroHostNotePayloadDetailDto,
+  ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
@@ -191,6 +194,13 @@ export type WorkflowHostApi = {
       ref: ZoteroHostItemRefInput,
       args?: ZoteroHostNoteDetailArgs,
     ) => Promise<ZoteroHostNoteDetailChunkDto>;
+    listNotePayloads: (
+      ref: ZoteroHostItemRefInput,
+    ) => Promise<ZoteroHostNotePayloadSummaryDto[]>;
+    getNotePayload: (
+      ref: ZoteroHostItemRefInput,
+      args?: ZoteroHostNotePayloadDetailArgs,
+    ) => Promise<ZoteroHostNotePayloadDetailDto>;
     getItemAttachments: (
       ref: ZoteroHostItemRefInput,
     ) => Promise<ZoteroHostAttachmentDto[]>;

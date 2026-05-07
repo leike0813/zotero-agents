@@ -51,6 +51,7 @@ export type AcpConnectionPermissionListener = (
 
 export type AcpConnectionAdapterFactoryArgs = {
   backend: BackendInstance;
+  agentWorkspaceDir: string;
   sessionCwd: string;
   workspaceDir: string;
   runtimeDir: string;
@@ -122,6 +123,22 @@ function compactError(error: unknown) {
   return describeAcpError(error, "unknown error")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function compactText(value: unknown, limit = 360) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > limit ? `${text.slice(0, Math.max(0, limit - 1))}…` : text;
+}
+
+function safeJson(value: unknown, limit = 4000) {
+  try {
+    return compactText(JSON.stringify(value, null, 2), limit);
+  } catch {
+    return compactText(value, limit);
+  }
 }
 
 const ZOTERO_MCP_PROMPT_GUIDANCE = [
@@ -361,6 +378,17 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         sessionId: this.currentSessionId,
         toolCallId: requestId,
         toolTitle: `Zotero MCP: ${request.toolName}`,
+        source: "zotero-mcp-write",
+        summary: request.summary,
+        detail: safeJson(
+          {
+            toolName: request.toolName,
+            mutation: request.mutation,
+            preview: request.preview,
+            summary: request.summary,
+          },
+          8000,
+        ),
         requestedAt: request.requestedAt,
         options: [
           {
@@ -416,6 +444,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
                 optionId,
                 kind: String(entry?.kind || "").trim(),
                 name,
+                description: String(entry?.description || "").trim() || undefined,
               });
               return acc;
             }, [] as AcpPendingPermissionRequest["options"])
@@ -435,14 +464,36 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           };
         }
         const requestId = nextOpaqueId("acp-permission");
+        const toolCall = params.toolCall || {};
+        const optionDescriptions = normalizedOptions
+          .map((entry) => entry.description)
+          .filter(Boolean);
+        const summary =
+          compactText(
+            (toolCall as any).summary ||
+              (toolCall as any).description ||
+              optionDescriptions[0] ||
+              toolCall.title,
+          ) || "ACP backend requests approval.";
+        const detail = safeJson(
+          {
+            sessionId: params.sessionId,
+            toolCall,
+            options: params.options,
+          },
+          8000,
+        );
         const outcome = await new Promise<RequestPermissionOutcome>((resolve) => {
           const request: AcpPendingPermissionRequest & {
             resolve: (outcome: RequestPermissionOutcome) => void;
           } = {
             requestId,
             sessionId: String(params.sessionId || "").trim(),
-            toolCallId: String(params.toolCall?.toolCallId || "").trim(),
-            toolTitle: String(params.toolCall?.title || "Tool Call").trim(),
+            toolCallId: String(toolCall.toolCallId || "").trim(),
+            toolTitle: String(toolCall.title || "Tool Call").trim(),
+            source: "acp-tool-call",
+            summary,
+            detail,
             requestedAt: nowIso(),
             options: normalizedOptions,
             resolve,
@@ -487,7 +538,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     try {
       this.transport = await launchAcpTransport({
         backend: this.args.backend,
-        cwd: this.args.sessionCwd,
+        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
       });
       this.commandLabel = this.transport.getCommandLabel();
       this.commandLine = this.transport.getCommandLine();
@@ -633,7 +684,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     }
     try {
       const response = (await this.connection!.newSession({
-        cwd: this.args.sessionCwd,
+        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
         mcpServers: await this.resolveMcpServers("session_new"),
       })) as NewSessionResponse & {
         title?: string | null;
@@ -690,7 +741,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     try {
       const response = await this.connection!.loadSession({
         sessionId,
-        cwd: this.args.sessionCwd,
+        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
         mcpServers: await this.resolveMcpServers("session_load"),
       });
       this.emitDiagnostic({
@@ -728,7 +779,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     try {
       const response = await this.connection!.resumeSession({
         sessionId,
-        cwd: this.args.sessionCwd,
+        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
         mcpServers: await this.resolveMcpServers("session_resume"),
       });
       this.emitDiagnostic({

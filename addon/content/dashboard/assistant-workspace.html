@@ -10,28 +10,22 @@
     <main class="assistant-workspace-shell">
       <header class="assistant-workspace-tabbar">
         <nav class="assistant-workspace-tabs" aria-label="Assistant workspace tabs">
-          <button id="assistant-tab-skillrunner" class="assistant-tab" type="button" data-tab="skillrunner">
-            SkillRunner
-          </button>
           <button id="assistant-tab-acp-chat" class="assistant-tab" type="button" data-tab="acp-chat">
             ACP Chat
           </button>
           <button id="assistant-tab-acp-skills" class="assistant-tab" type="button" data-tab="acp-skills">
             ACP Skills
           </button>
+          <button id="assistant-tab-skillrunner" class="assistant-tab" type="button" data-tab="skillrunner">
+            SkillRunner
+          </button>
         </nav>
       </header>
 
       <section class="assistant-workspace-body">
         <iframe
-          id="assistant-frame-skillrunner"
-          class="assistant-frame"
-          title="SkillRunner"
-          src="./run-dialog.html"
-        ></iframe>
-        <iframe
           id="assistant-frame-acp-chat"
-          class="assistant-frame hidden"
+          class="assistant-frame"
           title="ACP Chat"
           src="./acp-chat.html"
         ></iframe>
@@ -40,6 +34,12 @@
           class="assistant-frame hidden"
           title="ACP Skills"
           src="./acp-skill-run.html"
+        ></iframe>
+        <iframe
+          id="assistant-frame-skillrunner"
+          class="assistant-frame hidden"
+          title="SkillRunner"
+          src="./run-dialog.html"
         ></iframe>
       </section>
     </main>

@@ -24,7 +24,10 @@ export type RuntimePersistencePaths = {
   logsDir: string;
   runtimeLogPath: string;
   acpChatRoot: string;
-  acpChatWorkspacesDir: string;
+  acpChatWorkspaceDir: string;
+  acpChatConversationsDir: string;
+  /** Legacy ACP Chat private storage path. New writes use acpChatConversationsDir. */
+  legacyAcpChatWorkspacesDir: string;
   acpChatRuntimeDir: string;
   acpSkillRunsDir: string;
   cacheDir: string;
@@ -200,7 +203,9 @@ export function getRuntimePersistencePaths(rootRaw?: string): RuntimePersistence
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,
-    acpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
+    acpChatWorkspaceDir: joinPath(acpChatRoot, "workspace"),
+    acpChatConversationsDir: joinPath(acpChatRoot, "conversations"),
+    legacyAcpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
     acpChatRuntimeDir: joinPath(acpChatRoot, "runtime"),
     acpSkillRunsDir: joinPath(root, "acp", "skill-runs"),
     cacheDir: joinPath(root, "cache"),
@@ -493,6 +498,7 @@ export async function statRuntimePath(pathRaw: string): Promise<{
   exists: boolean;
   isDir: boolean;
   size: number;
+  lastModified?: number;
 }> {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -500,7 +506,7 @@ export async function statRuntimePath(pathRaw: string): Promise<{
   }
   const runtime = globalThis as {
     IOUtils?: {
-      stat?: (path: string) => Promise<{ type?: string; size?: number }>;
+      stat?: (path: string) => Promise<{ type?: string; size?: number; lastModified?: number; lastModifiedTime?: number }>;
     };
   };
   if (typeof runtime.IOUtils?.stat === "function") {
@@ -510,6 +516,10 @@ export async function statRuntimePath(pathRaw: string): Promise<{
         exists: true,
         isDir: String(stat.type || "").toLowerCase() === "directory",
         size: Math.max(0, Number(stat.size || 0) || 0),
+        lastModified: Math.max(
+          0,
+          Number(stat.lastModified || stat.lastModifiedTime || 0) || 0,
+        ) || undefined,
       };
     } catch {
       return { exists: false, isDir: false, size: 0 };
@@ -523,6 +533,7 @@ export async function statRuntimePath(pathRaw: string): Promise<{
         exists: true,
         isDir: typeof stat.isDirectory === "function" ? stat.isDirectory() : false,
         size: Math.max(0, Number(stat.size || 0) || 0),
+        lastModified: Math.max(0, Number(stat.mtimeMs || 0) || 0) || undefined,
       };
     } catch {
       return { exists: false, isDir: false, size: 0 };

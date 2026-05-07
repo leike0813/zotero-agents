@@ -208,6 +208,7 @@ task-dashboard-acp-archive-conversation = Archive
 task-dashboard-acp-archive-conversation-confirm = Archive this conversation? It will be hidden from the list.
 task-dashboard-acp-session-busy = Session changes are disabled while a prompt or permission request is active.
 task-dashboard-acp-session-empty = No conversations yet.
+task-dashboard-acp-session-show-more = Show more...
 task-dashboard-acp-connect = Connect
 task-dashboard-acp-disconnect = Disconnect
 task-dashboard-acp-reconnect = Reconnect

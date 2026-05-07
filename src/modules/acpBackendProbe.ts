@@ -174,7 +174,8 @@ export async function probeAcpBackendRuntimeOptions(args: {
     await ensureRuntimeDirectory(runtimeDir);
     adapter = await createAdapter({
       backend: args.backend,
-      sessionCwd: root,
+      agentWorkspaceDir: workspaceDir,
+      sessionCwd: workspaceDir,
       workspaceDir,
       runtimeDir,
     });

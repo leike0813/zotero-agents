@@ -1,6 +1,12 @@
 import { handlers } from "../handlers";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { buildCurrentAcpHostContext } from "./acpContextBuilder";
+import {
+  getNotePayloadDetail,
+  listNotePayloadBlocks,
+  type ZoteroNotePayloadBlock,
+  type ZoteroNotePayloadDetail,
+} from "./notePayloadCodec";
 import type { AcpHostContext } from "./acpTypes";
 
 export type ZoteroHostItemRefInput =
@@ -161,6 +167,22 @@ export type ZoteroHostNoteDetailChunkDto = {
     title: string;
   };
   warnings?: string[];
+};
+
+export type ZoteroHostNotePayloadSummaryDto = Omit<
+  ZoteroNotePayloadBlock,
+  "encodedValue" | "decodedText" | "payload" | "markdown"
+>;
+
+export type ZoteroHostNotePayloadDetailDto = Omit<
+  ZoteroNotePayloadDetail,
+  "encodedValue" | "decodedText"
+>;
+
+export type ZoteroHostNotePayloadDetailArgs = {
+  payloadType?: string;
+  offset?: number | string;
+  maxChars?: number | string;
 };
 
 export type ZoteroHostMutationOperation =
@@ -617,6 +639,48 @@ function serializeNoteDetailChunk(
     truncated: nextOffset < fullContent.length,
     parent,
     warnings: warnings.length ? warnings : undefined,
+  };
+}
+
+function serializeNotePayloadSummary(
+  item: Zotero.Item,
+): ZoteroHostNotePayloadSummaryDto[] {
+  const warnings: string[] = [];
+  const html = extractNoteHtml(item, warnings);
+  return listNotePayloadBlocks(html).map((entry) => ({
+    payloadType: entry.payloadType,
+    noteKind: entry.noteKind,
+    version: entry.version,
+    encoding: entry.encoding,
+    estimatedSize: entry.estimatedSize,
+    format: entry.format,
+    errors: entry.errors,
+  }));
+}
+
+function serializeNotePayloadDetail(
+  item: Zotero.Item,
+  args: ZoteroHostNotePayloadDetailArgs = {},
+): ZoteroHostNotePayloadDetailDto {
+  const warnings: string[] = [];
+  const html = extractNoteHtml(item, warnings);
+  const detail = getNotePayloadDetail(html, args);
+  return {
+    payloadType: detail.payloadType,
+    noteKind: detail.noteKind,
+    version: detail.version,
+    encoding: detail.encoding,
+    estimatedSize: detail.estimatedSize,
+    payload: detail.payload,
+    markdown: detail.markdown,
+    format: detail.format,
+    errors: detail.errors,
+    content: detail.content,
+    offset: detail.offset,
+    nextOffset: detail.nextOffset,
+    hasMore: detail.hasMore,
+    totalChars: detail.totalChars,
+    truncated: detail.truncated,
   };
 }
 
@@ -1363,6 +1427,15 @@ export function createZoteroHostCapabilityBrokerApis() {
         args: ZoteroHostNoteDetailArgs = {},
       ) {
         return serializeNoteDetailChunk(requireNote(ref), args);
+      },
+      async listNotePayloads(ref: ZoteroHostItemRefInput) {
+        return serializeNotePayloadSummary(requireNote(ref));
+      },
+      async getNotePayload(
+        ref: ZoteroHostItemRefInput,
+        args: ZoteroHostNotePayloadDetailArgs = {},
+      ) {
+        return serializeNotePayloadDetail(requireNote(ref), args);
       },
       async getItemAttachments(ref: ZoteroHostItemRefInput) {
         const item = requireItem(ref, "item");

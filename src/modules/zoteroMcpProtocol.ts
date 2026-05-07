@@ -1,4 +1,5 @@
 import { createWorkflowHostApi } from "../workflows/hostApi";
+import { buildMarkdownBackedNoteContent } from "./notePayloadCodec";
 import {
   ZoteroCollectionNotFoundError,
   ZoteroItemNotFoundError,
@@ -9,11 +10,20 @@ import type { AcpHostContext } from "./acpTypes";
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
+  ZoteroHostItemDetailDto,
   ZoteroHostItemRefInput,
+  ZoteroHostItemSummaryDto,
+  ZoteroHostLibraryItemSummaryDto,
   ZoteroHostLibraryListArgs,
+  ZoteroHostLibraryListResponse,
+  ZoteroHostMutationExecuteResponse,
   ZoteroHostMutationPreviewResponse,
   ZoteroHostMutationRequest,
   ZoteroHostNoteDetailArgs,
+  ZoteroHostNoteDetailChunkDto,
+  ZoteroHostNoteDto,
+  ZoteroHostNotePayloadDetailDto,
+  ZoteroHostNotePayloadSummaryDto,
 } from "./zoteroHostCapabilityBroker";
 
 export const ZOTERO_MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -24,8 +34,12 @@ export const ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS = "list_library_items";
 export const ZOTERO_MCP_TOOL_GET_ITEM_DETAIL = "get_item_detail";
 export const ZOTERO_MCP_TOOL_GET_ITEM_NOTES = "get_item_notes";
 export const ZOTERO_MCP_TOOL_GET_NOTE_DETAIL = "get_note_detail";
+export const ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS = "list_note_payloads";
+export const ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD = "get_note_payload";
 export const ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS =
   "get_item_attachments";
+export const ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT =
+  "prepare_paper_reading_context";
 export const ZOTERO_MCP_TOOL_GET_MCP_STATUS = "get_mcp_status";
 export const ZOTERO_MCP_TOOL_PREVIEW_MUTATION = "preview_mutation";
 export const ZOTERO_MCP_TOOL_UPDATE_ITEM_FIELDS = "update_item_fields";
@@ -33,6 +47,8 @@ export const ZOTERO_MCP_TOOL_ADD_ITEM_TAGS = "add_item_tags";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEM_TAGS = "remove_item_tags";
 export const ZOTERO_MCP_TOOL_CREATE_CHILD_NOTE = "create_child_note";
 export const ZOTERO_MCP_TOOL_UPDATE_NOTE = "update_note";
+export const ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE = "create_markdown_note";
+export const ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE = "update_markdown_note";
 export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
@@ -235,6 +251,9 @@ const itemRefProperties = {
   },
 };
 
+const MCP_LIBRARY_LIST_LIMIT_DEFAULT = 25;
+const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
+
 function resolveHostApi(options: ZoteroMcpHandlerOptions) {
   return options.resolveHostApi?.() || createWorkflowHostApi();
 }
@@ -268,6 +287,590 @@ function buildToolResult(args: {
       ...args.structuredContent,
     },
   };
+}
+
+function compactText(value: unknown, limit = 160) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > limit ? `${text.slice(0, Math.max(0, limit - 1))}…` : text;
+}
+
+function formatItemRef(
+  value:
+    | Partial<ZoteroHostItemSummaryDto>
+    | Partial<ZoteroHostItemRefInput & { libraryID?: number | string }>
+    | null
+    | undefined,
+) {
+  if (!value || typeof value !== "object") {
+    return "ref=unavailable";
+  }
+  const key = compactText((value as { key?: unknown }).key);
+  const libraryId =
+    (value as { libraryId?: unknown }).libraryId ??
+    (value as { libraryID?: unknown }).libraryID;
+  const id = (value as { id?: unknown }).id;
+  return [
+    key ? `key=${key}` : "",
+    libraryId !== undefined && libraryId !== null && libraryId !== ""
+      ? `libraryId=${libraryId}`
+      : "",
+    id !== undefined && id !== null && id !== "" ? `id=${id}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ") || "ref=unavailable";
+}
+
+function formatItemLine(item: Partial<ZoteroHostItemSummaryDto>) {
+  const fields = [
+    formatItemRef(item),
+    item.itemType ? `type=${compactText(item.itemType)}` : "",
+    item.title ? `title="${compactText(item.title, 120)}"` : "",
+    item.year ? `year=${compactText(item.year)}` : "",
+    item.creators?.length ? `creators="${compactText(item.creators.join(", "), 120)}"` : "",
+    "noteCount" in item && item.noteCount !== undefined
+      ? `notes=${item.noteCount}`
+      : "",
+    "attachmentCount" in item && item.attachmentCount !== undefined
+      ? `attachments=${item.attachmentCount}`
+      : "",
+  ].filter(Boolean);
+  return `- ${fields.join(" ")}`;
+}
+
+function formatNoteLine(note: Partial<ZoteroHostNoteDto>) {
+  const parent = note.parent ? ` parent=${formatItemRef(note.parent)}` : "";
+  const excerpt = note.textExcerpt ? ` excerpt="${compactText(note.textExcerpt, 180)}"` : "";
+  const lengths = [
+    note.textLength !== undefined ? `textLength=${note.textLength}` : "",
+    note.htmlLength !== undefined ? `htmlLength=${note.htmlLength}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return [
+    `- ${formatItemRef(note)}`,
+    note.title ? `title="${compactText(note.title, 100)}"` : "",
+    lengths,
+    parent.trim(),
+    excerpt.trim(),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function formatAttachmentLine(
+  attachment: Partial<ZoteroHostAttachmentDto> & {
+    access?: Record<string, unknown>;
+    contentRole?: unknown;
+    readability?: unknown;
+    recommendedForReading?: unknown;
+    recommendationReason?: unknown;
+    rank?: unknown;
+  },
+) {
+  const access = attachment.access || {};
+  const path = compactText(access.path || attachment.path, 260);
+  const fields = [
+    formatItemRef(attachment),
+    attachment.filename || attachment.title
+      ? `filename="${compactText(attachment.filename || attachment.title, 120)}"`
+      : "",
+    attachment.contentType ? `contentType=${compactText(attachment.contentType)}` : "",
+    attachment.contentRole ? `contentRole=${compactText(attachment.contentRole)}` : "",
+    attachment.readability ? `readability=${compactText(attachment.readability)}` : "",
+    attachment.recommendedForReading ? "recommendedForReading=true" : "",
+    attachment.rank !== undefined ? `rank=${attachment.rank}` : "",
+    access.mode ? `access.mode=${compactText(access.mode)}` : "",
+    access.locality ? `locality=${compactText(access.locality)}` : "",
+    path ? `path="${path}"` : "path=unavailable",
+    attachment.recommendationReason
+      ? `reason="${compactText(attachment.recommendationReason, 160)}"`
+      : "",
+  ].filter(Boolean);
+  return `- ${fields.join(" ")}`;
+}
+
+function formatJsonCall(tool: string, args?: Record<string, unknown>) {
+  return args ? `${tool} ${JSON.stringify(args)}` : tool;
+}
+
+function formatNextCalls(calls: Array<{ tool: string; args?: Record<string, unknown> }>) {
+  if (calls.length === 0) {
+    return "";
+  }
+  return ["", "Next:", ...calls.map((call) => `- ${formatJsonCall(call.tool, call.args)}`)].join(
+    "\n",
+  );
+}
+
+function firstItemRefArgs(value: Partial<ZoteroHostItemSummaryDto> | undefined | null) {
+  if (!value) {
+    return undefined;
+  }
+  if (value.key) {
+    return {
+      key: value.key,
+      libraryId: value.libraryId,
+    };
+  }
+  if (value.id !== undefined) {
+    return {
+      id: value.id,
+    };
+  }
+  return undefined;
+}
+
+function buildReadToolSummary(args: {
+  title: string;
+  lines?: string[];
+  nextCalls?: Array<{ tool: string; args?: Record<string, unknown> }>;
+}) {
+  return [
+    args.title,
+    ...(args.lines && args.lines.length > 0 ? ["", ...args.lines] : []),
+    formatNextCalls(args.nextCalls || []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildSelectedItemsSummary(items: ZoteroHostItemSummaryDto[]) {
+  const firstRef = firstItemRefArgs(items[0]);
+  return buildReadToolSummary({
+    title: `Selected Zotero items: ${items.length}.`,
+    lines: items.map(formatItemLine),
+    nextCalls: firstRef
+      ? [
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef },
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: firstRef },
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_NOTES, args: firstRef },
+        ]
+      : [],
+  });
+}
+
+function buildSearchItemsSummary(query: string, items: ZoteroHostItemSummaryDto[]) {
+  const firstRef = firstItemRefArgs(items[0]);
+  return buildReadToolSummary({
+    title: `Found ${items.length} Zotero item(s) for query="${compactText(query)}".`,
+    lines: items.map(formatItemLine),
+    nextCalls: firstRef
+      ? [
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef },
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: firstRef },
+        ]
+      : [],
+  });
+}
+
+function buildLibraryItemsSummary(result: ZoteroHostLibraryListResponse) {
+  const firstRef = firstItemRefArgs(result.items[0]);
+  const filters = Object.entries(result.filters || {})
+    .filter(([, value]) => value !== undefined && value !== "")
+    .map(([key, value]) =>
+      typeof value === "object" ? `${key}=${JSON.stringify(value)}` : `${key}=${value}`,
+    )
+    .join(" ");
+  return buildReadToolSummary({
+    title: [
+      `Listed ${result.returned} Zotero parent item index entrie(s).`,
+      filters ? `filters: ${filters}` : "",
+      `hasMore=${Boolean(result.hasMore)}`,
+      result.nextCursor ? `nextCursor=${result.nextCursor}` : "",
+      `totalScanned=${result.totalScanned}`,
+      "Use get_item_detail for full metadata.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    lines: result.items.map(formatItemLine),
+    nextCalls: [
+      ...(firstRef ? [{ tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstRef }] : []),
+      ...(result.hasMore && result.nextCursor
+        ? [{ tool: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS, args: { cursor: result.nextCursor } }]
+        : []),
+    ],
+  });
+}
+
+function toLibraryIndexItem(item: ZoteroHostLibraryItemSummaryDto) {
+  return {
+    id: item.id,
+    key: item.key,
+    libraryId: item.libraryId,
+    itemType: item.itemType,
+    title: item.title,
+    year: item.year,
+    noteCount: item.noteCount,
+    attachmentCount: item.attachmentCount,
+  };
+}
+
+function compactLibraryListResult(result: ZoteroHostLibraryListResponse) {
+  return {
+    ...result,
+    items: result.items.map(toLibraryIndexItem),
+    compact: true,
+    itemShape:
+      "index-only: id,key,libraryId,itemType,title,year,noteCount,attachmentCount",
+  };
+}
+
+function buildItemDetailSummary(
+  ref: ZoteroHostItemRefInput,
+  item: ZoteroHostItemDetailDto | null,
+) {
+  if (!item) {
+    return buildReadToolSummary({
+      title: `Item not found for ${JSON.stringify(ref)}.`,
+    });
+  }
+  const itemRef = firstItemRefArgs(item);
+  const core = [
+    formatItemLine(item),
+    item.fields?.DOI ? `- DOI=${compactText(item.fields.DOI)}` : "",
+    item.fields?.url ? `- url=${compactText(item.fields.url, 200)}` : "",
+    item.fields?.abstractNote
+      ? `- abstract="${compactText(item.fields.abstractNote, 240)}"`
+      : "",
+    item.tags?.length ? `- tags=${item.tags.map((tag) => `"${compactText(tag)}"`).join(", ")}` : "",
+  ].filter(Boolean);
+  return buildReadToolSummary({
+    title: `Item detail: ${formatItemRef(item)} title="${compactText(item.title, 120)}".`,
+    lines: core,
+    nextCalls: itemRef
+      ? [
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_NOTES, args: itemRef },
+          { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: itemRef },
+        ]
+      : [],
+  });
+}
+
+function buildItemNotesSummary(ref: ZoteroHostItemRefInput, notes: ZoteroHostNoteDto[]) {
+  const firstRef = firstItemRefArgs(notes[0]);
+  return buildReadToolSummary({
+    title: `Found ${notes.length} Zotero note summary item(s) for ${JSON.stringify(ref)}.`,
+    lines: notes.map(formatNoteLine),
+    nextCalls: firstRef
+      ? [{ tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL, args: firstRef }]
+      : [],
+  });
+}
+
+function buildNoteDetailSummary(note: ZoteroHostNoteDetailChunkDto) {
+  return buildReadToolSummary({
+    title: [
+      `Read Zotero note chunk ${note.offset}-${note.nextOffset} of ${note.totalChars}.`,
+      `offset=${note.offset}`,
+      `nextOffset=${note.nextOffset}`,
+      `totalChars=${note.totalChars}`,
+      `hasMore=${Boolean(note.hasMore)}`,
+      `format=${note.format}`,
+      `note=${formatItemRef(note)}`,
+    ].join(" "),
+    lines: [
+      note.title ? `- title="${compactText(note.title, 120)}"` : "",
+      note.content ? `- contentExcerpt="${compactText(note.content, 220)}"` : "",
+    ].filter(Boolean),
+    nextCalls: note.hasMore
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
+            args: {
+              key: note.key,
+              libraryId: note.libraryId,
+              offset: note.nextOffset,
+            },
+          },
+        ]
+      : [],
+  });
+}
+
+function formatPayloadLine(payload: Partial<ZoteroHostNotePayloadSummaryDto>) {
+  const fields = [
+    payload.payloadType ? `payloadType=${compactText(payload.payloadType)}` : "",
+    payload.noteKind ? `noteKind=${compactText(payload.noteKind)}` : "",
+    payload.format ? `format=${compactText(payload.format)}` : "",
+    payload.encoding ? `encoding=${compactText(payload.encoding)}` : "",
+    payload.version ? `version=${compactText(payload.version)}` : "",
+    payload.estimatedSize !== undefined ? `estimatedSize=${payload.estimatedSize}` : "",
+    payload.errors?.length ? `errors="${compactText(payload.errors.join("; "), 160)}"` : "",
+  ].filter(Boolean);
+  return `- ${fields.join(" ")}`;
+}
+
+function buildNotePayloadsSummary(
+  ref: ZoteroHostItemRefInput,
+  payloads: ZoteroHostNotePayloadSummaryDto[],
+) {
+  const firstPayload = payloads.find((entry) => !entry.errors?.length);
+  const refArgs = isPlainObject(ref) ? (ref as Record<string, unknown>) : { ref };
+  return buildReadToolSummary({
+    title: `Found ${payloads.length} Zotero note payload block(s) for ${JSON.stringify(ref)}.`,
+    lines: payloads.map(formatPayloadLine),
+    nextCalls: firstPayload
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+            args: {
+              ...refArgs,
+              payloadType: firstPayload.payloadType,
+            },
+          },
+        ]
+      : [],
+  });
+}
+
+function buildNotePayloadDetailSummary(
+  ref: ZoteroHostItemRefInput,
+  detail: ZoteroHostNotePayloadDetailDto,
+) {
+  return buildReadToolSummary({
+    title: [
+      `Read Zotero note payload ${detail.payloadType}.`,
+      `note=${JSON.stringify(ref)}`,
+      `noteKind=${detail.noteKind || "unknown"}`,
+      `format=${detail.format}`,
+      `offset=${detail.offset}`,
+      `nextOffset=${detail.nextOffset}`,
+      `totalChars=${detail.totalChars}`,
+      `hasMore=${Boolean(detail.hasMore)}`,
+    ].join(" "),
+    lines: [
+      formatPayloadLine(detail),
+      detail.content ? `- contentExcerpt="${compactText(detail.content, 240)}"` : "",
+    ].filter(Boolean),
+    nextCalls: detail.hasMore
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+            args: {
+              ...(isPlainObject(ref) ? (ref as Record<string, unknown>) : { ref }),
+              payloadType: detail.payloadType,
+              offset: detail.nextOffset,
+            },
+          },
+        ]
+      : [],
+  });
+}
+
+function buildAttachmentsSummary(
+  ref: ZoteroHostItemRefInput,
+  attachments: Array<
+    Partial<ZoteroHostAttachmentDto> & {
+      access?: Record<string, unknown>;
+      recommendedForReading?: boolean;
+      recommendationReason?: string;
+    }
+  >,
+) {
+  const recommended = attachments.find((attachment) => attachment.recommendedForReading);
+  return buildReadToolSummary({
+    title: [
+      `Found ${attachments.length} Zotero attachment(s) for ${JSON.stringify(ref)}.`,
+      "File content is not returned by this tool.",
+      recommended
+        ? `Recommended for reading: ${formatItemRef(recommended)} ${
+            recommended.filename || recommended.title
+              ? `filename="${compactText(recommended.filename || recommended.title, 120)}"`
+              : ""
+          } ${recommended.recommendationReason || ""}`.trim()
+        : "No readable attachment recommendation is available.",
+    ].join(" "),
+    lines: attachments.map(formatAttachmentLine),
+  });
+}
+
+type AttachmentAccessManifest = ReturnType<typeof buildAttachmentAccess>;
+
+type ReadingAttachmentMetadata = {
+  access: AttachmentAccessManifest;
+  contentRole: string;
+  readability: string;
+  recommendedForReading: boolean;
+  recommendationReason: string;
+  rank: number;
+};
+
+type AttachmentWithReadingMetadata = ZoteroHostAttachmentDto &
+  ReadingAttachmentMetadata;
+
+const READABLE_MARKDOWN_PAYLOAD_TYPES = new Set([
+  "custom-markdown",
+  "conversation-note-markdown",
+  "digest-markdown",
+]);
+
+function parseBoundedPositiveInteger(
+  value: unknown,
+  fallback: number,
+  max: number,
+) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(1, Math.floor(numeric)));
+}
+
+function classifyAttachmentForReading(
+  attachment: ZoteroHostAttachmentDto,
+  access: AttachmentAccessManifest,
+) {
+  const filename = String(attachment.filename || attachment.title || access.filename || "");
+  const contentType = String(attachment.contentType || access.contentType || "").toLowerCase();
+  const path = String(access.path || attachment.path || "").toLowerCase();
+  const haystack = `${filename} ${path} ${contentType}`.toLowerCase();
+  const hasLocalPath = access.mode === "local-path" && !!access.path;
+  const isSupplement =
+    /\b(supplement|supplementary|appendix|dataset|figure|image|table)\b/.test(
+      haystack,
+    );
+  const hasMainSignal = /\b(full|fulltext|paper|main|article|manuscript)\b/.test(
+    haystack,
+  );
+  const isMarkdown =
+    contentType.includes("markdown") || /\.(md|markdown|mdown)(?:$|[?#])/.test(path);
+  const isText =
+    contentType.startsWith("text/plain") || /\.(txt|text)(?:$|[?#])/.test(path);
+  const isPdf =
+    contentType.includes("pdf") || /\.pdf(?:$|[?#])/.test(path) || /\.pdf$/i.test(filename);
+  const isWeb =
+    contentType.includes("html") || /^https?:\/\//i.test(String(attachment.path || ""));
+
+  let contentRole = "unknown";
+  let readability = hasLocalPath ? "local-file" : "unavailable";
+  let rank = hasLocalPath ? 40 : 0;
+  if (isMarkdown) {
+    contentRole = "markdown-fulltext";
+    readability = hasLocalPath ? "direct-text" : "unavailable";
+    rank = 500;
+  } else if (isText) {
+    contentRole = "text-fulltext";
+    readability = hasLocalPath ? "direct-text" : "unavailable";
+    rank = 450;
+  } else if (isPdf) {
+    contentRole = "pdf";
+    readability = hasLocalPath ? "local-pdf" : "unavailable";
+    rank = 300;
+  } else if (isWeb) {
+    contentRole = "web-link";
+    readability = "web-link";
+    rank = 150;
+  }
+
+  if (isSupplement) {
+    contentRole = contentRole === "unknown" ? "supplementary" : contentRole;
+    rank -= 160;
+  }
+  if (hasMainSignal) {
+    rank += 35;
+  }
+  if (!hasLocalPath && readability !== "web-link") {
+    rank -= 120;
+  }
+  rank = Math.max(0, rank);
+  const reasonParts = [
+    contentRole,
+    readability,
+    hasMainSignal ? "main-document filename signal" : "",
+    isSupplement ? "supplementary filename signal" : "",
+    hasLocalPath ? "local path available" : "local path unavailable",
+  ].filter(Boolean);
+  return {
+    contentRole,
+    readability,
+    rank,
+    recommendationReason: reasonParts.join("; "),
+  };
+}
+
+function enrichAttachmentsForReading(
+  attachments: ZoteroHostAttachmentDto[],
+): AttachmentWithReadingMetadata[] {
+  const enriched = attachments.map((attachment) => {
+    const access = buildAttachmentAccess(attachment);
+    const reading = classifyAttachmentForReading(attachment, access);
+    return {
+      ...attachment,
+      access,
+      contentRole: reading.contentRole,
+      readability: reading.readability,
+      recommendedForReading: false,
+      recommendationReason: reading.recommendationReason,
+      rank: reading.rank,
+    };
+  });
+  const best = enriched
+    .filter((attachment) => attachment.rank > 0)
+    .sort((left, right) => right.rank - left.rank)[0];
+  if (best) {
+    best.recommendedForReading = true;
+    best.recommendationReason = `Best available reading attachment: ${best.recommendationReason}`;
+  }
+  return enriched;
+}
+
+function buildMcpStatusSummary(status: Record<string, unknown>) {
+  const safeStatus = status || {};
+  const queue = isPlainObject(safeStatus.queue) ? safeStatus.queue : {};
+  const guard = isPlainObject(safeStatus.guard) ? safeStatus.guard : {};
+  const recent = Array.isArray(safeStatus.recentRequests)
+    ? safeStatus.recentRequests.length
+    : undefined;
+  return buildReadToolSummary({
+    title: "Zotero MCP status snapshot.",
+    lines: [
+      safeStatus.state ? `- state=${compactText(safeStatus.state)}` : "",
+      safeStatus.transport ? `- transport=${compactText(safeStatus.transport)}` : "",
+      Object.keys(queue).length ? `- queue=${compactText(JSON.stringify(queue), 240)}` : "",
+      Object.keys(guard).length ? `- guard=${compactText(JSON.stringify(guard), 240)}` : "",
+      recent !== undefined ? `- recentRequests=${recent}` : "",
+    ].filter(Boolean),
+  });
+}
+
+function summarizeMutationTargetRefs(
+  refs: ZoteroHostMutationPreviewResponse["targetRefs"] | undefined,
+) {
+  const values = refs || [];
+  return values.length > 0 ? values.map(formatItemLine) : ["- targets=not available"];
+}
+
+function buildWriteToolSummary(args: {
+  toolName: string;
+  mutation: ZoteroHostMutationRequest;
+  preview: ZoteroHostMutationPreviewResponse;
+  executed: boolean;
+  permission?: { outcome?: string; reason?: string };
+  execution?: ZoteroHostMutationExecuteResponse;
+  verificationHint?: string;
+}) {
+  const permission = args.permission?.outcome || "not_requested";
+  const executionOk = args.execution ? String(args.execution.ok) : "not_run";
+  const previewOk = String(args.preview.ok);
+  const operation = args.preview.operation || args.mutation.operation || args.toolName;
+  return [
+    `Zotero mutation ${operation}: preview.ok=${previewOk}; permission=${permission}; executed=${args.executed}; execution.ok=${executionOk}.`,
+    args.permission?.reason ? `Permission reason: ${args.permission.reason}.` : "",
+    args.preview.summary ? `Preview: ${args.preview.summary}` : "",
+    args.execution?.summary ? `Execution: ${args.execution.summary}` : "",
+    "",
+    "Targets:",
+    ...summarizeMutationTargetRefs(args.preview.targetRefs),
+    args.executed
+      ? "Zotero write may have changed data. Verify before retrying if transport status is ambiguous."
+      : "No Zotero write was executed.",
+    args.verificationHint ? `Verify: ${args.verificationHint}` : "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }
 
 function resolveToolName(params: unknown) {
@@ -369,7 +972,11 @@ function buildLibraryListArgs(args: Record<string, unknown>): ZoteroHostLibraryL
     tag: args.tag as string | undefined,
     itemType: args.itemType as string | undefined,
     query: args.query as string | undefined,
-    limit: args.limit as number | string | undefined,
+    limit: parseBoundedPositiveInteger(
+      args.limit,
+      MCP_LIBRARY_LIST_LIMIT_DEFAULT,
+      MCP_LIBRARY_LIST_LIMIT_MAX,
+    ),
     cursor: args.cursor as number | string | undefined,
   };
 }
@@ -382,11 +989,150 @@ function buildNoteDetailArgs(args: Record<string, unknown>): ZoteroHostNoteDetai
   };
 }
 
+function buildNotePayloadArgs(args: Record<string, unknown>) {
+  return {
+    payloadType: args.payloadType as string | undefined,
+    offset: args.offset as number | string | undefined,
+    maxChars: args.maxChars as number | string | undefined,
+  };
+}
+
 function buildWriteVerificationHint(toolName: string) {
   return [
     "If the client reports fetch failed after this write, the Zotero server may still have executed it.",
     `Verify with ${ZOTERO_MCP_TOOL_GET_ITEM_DETAIL} for item refs or ${ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS} for library/collection summaries before retrying ${toolName}.`,
   ].join(" ");
+}
+
+function hasExplicitItemRef(args: Record<string, unknown>) {
+  return ["ref", "item", "target", "id", "key", "libraryId", "libraryID"].some(
+    (key) => args[key] !== undefined && args[key] !== null && args[key] !== "",
+  );
+}
+
+function resolveReadingContextRef(args: Record<string, unknown>, context: ToolContext) {
+  if (hasExplicitItemRef(args)) {
+    return {
+      ref: resolveItemRef(args),
+      source: "arguments",
+      candidates: [] as ZoteroHostItemSummaryDto[],
+    };
+  }
+  const currentView = context.hostApi.context.getCurrentView();
+  if (currentView.currentItem?.key || currentView.currentItem?.id) {
+    return {
+      ref: firstItemRefArgs(currentView.currentItem) || currentView.currentItem,
+      source: "current-view",
+      candidates: [] as ZoteroHostItemSummaryDto[],
+    };
+  }
+  const selected = currentView.selectedItems || context.hostApi.context.getSelectedItems();
+  if (selected.length === 1) {
+    return {
+      ref: firstItemRefArgs(selected[0]) || selected[0],
+      source: "single-selection",
+      candidates: [] as ZoteroHostItemSummaryDto[],
+    };
+  }
+  if (selected.length > 1) {
+    throw new ZoteroMcpToolInputError(
+      "multiple selected Zotero items; pass an explicit item ref",
+      {
+        candidates: selected.map((item) => ({
+          ref: firstItemRefArgs(item),
+          item,
+        })),
+      },
+    );
+  }
+  throw new ZoteroMcpToolInputError(
+    "item reference is required when there is no current item or single selection",
+  );
+}
+
+function summarizePayloadForReading(payload: ZoteroHostNotePayloadSummaryDto) {
+  return {
+    ...payload,
+    readableAsMarkdown: READABLE_MARKDOWN_PAYLOAD_TYPES.has(payload.payloadType),
+    recommendedNextCall: payload.errors?.length
+      ? undefined
+      : {
+          tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+          payloadType: payload.payloadType,
+        },
+  };
+}
+
+function buildPaperReadingContextSummary(args: {
+  ref: ZoteroHostItemRefInput;
+  source: string;
+  item: ZoteroHostItemDetailDto | null;
+  notes: ZoteroHostNoteDto[];
+  notePayloads: Array<{
+    note: ZoteroHostNoteDto;
+    payloads: ReturnType<typeof summarizePayloadForReading>[];
+  }>;
+  attachments: AttachmentWithReadingMetadata[];
+  recommendedAttachment?: AttachmentWithReadingMetadata;
+  limitations: string[];
+}) {
+  const itemRef = args.item ? firstItemRefArgs(args.item) : undefined;
+  const nextCalls: Array<{ tool: string; args?: Record<string, unknown> }> = [
+    ...(itemRef ? [{ tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: itemRef }] : []),
+    ...(itemRef
+      ? [{ tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: itemRef }]
+      : []),
+    ...(args.notes[0]
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
+            args: firstItemRefArgs(args.notes[0]),
+          },
+        ]
+      : []),
+    ...(args.notePayloads[0]?.payloads[0]
+      ? [
+          {
+            tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+            args: {
+              ...firstItemRefArgs(args.notePayloads[0].note),
+              payloadType: args.notePayloads[0].payloads[0].payloadType,
+            },
+          },
+        ]
+      : []),
+  ];
+  return buildReadToolSummary({
+    title: [
+      `Prepared Zotero paper reading context from ${args.source}.`,
+      args.item
+        ? `item=${formatItemRef(args.item)} title="${compactText(args.item.title, 140)}"`
+        : `item not found for ${JSON.stringify(args.ref)}`,
+      `notes=${args.notes.length}`,
+      `notePayloadBlocks=${args.notePayloads.reduce(
+        (sum, entry) => sum + entry.payloads.length,
+        0,
+      )}`,
+      `attachments=${args.attachments.length}`,
+    ].join(" "),
+    lines: [
+      args.recommendedAttachment
+        ? `- recommendedAttachment ${formatAttachmentLine(args.recommendedAttachment).slice(2)}`
+        : "- recommendedAttachment=unavailable",
+      ...args.notes.map((note) => formatNoteLine(note)),
+      ...args.notePayloads.flatMap((entry) =>
+        entry.payloads.map(
+          (payload) =>
+            `- notePayload note=${formatItemRef(entry.note)} ${formatPayloadLine(payload).slice(
+              2,
+            )} readableAsMarkdown=${payload.readableAsMarkdown}`,
+        ),
+      ),
+      ...args.attachments.map(formatAttachmentLine),
+      ...args.limitations.map((limitation) => `- limitation=${limitation}`),
+    ],
+    nextCalls,
+  });
 }
 
 function requirePlainObject(value: unknown, label: string) {
@@ -418,13 +1164,6 @@ function buildAttachmentAccess(attachment: ZoteroHostAttachmentDto) {
     size: undefined,
     sha256: undefined,
     locality: path ? "same-host" : "remote",
-  };
-}
-
-function withAttachmentAccess(attachment: ZoteroHostAttachmentDto) {
-  return {
-    ...attachment,
-    access: buildAttachmentAccess(attachment),
   };
 }
 
@@ -519,7 +1258,12 @@ async function previewMutationTool(
   const preview = await context.hostApi.mutations.preview(mutation);
   return buildToolResult({
     tool: toolName,
-    summary: preview.summary || (preview.ok ? "Mutation preview ready." : "Mutation preview failed."),
+    summary: buildWriteToolSummary({
+      toolName,
+      mutation,
+      preview,
+      executed: false,
+    }),
     structuredContent: {
       mutation,
       preview,
@@ -538,7 +1282,16 @@ async function executeMutationTool(
   if (!preview.ok) {
     return buildToolResult({
       tool: toolName,
-      summary: preview.error.message,
+      summary: buildWriteToolSummary({
+        toolName,
+        mutation,
+        preview,
+        executed: false,
+        permission: {
+          outcome: "not_requested",
+          reason: "preview_failed",
+        },
+      }),
       structuredContent: {
         mutation,
         preview,
@@ -553,7 +1306,16 @@ async function executeMutationTool(
   if (!context.options.requestToolPermission) {
     return buildToolResult({
       tool: toolName,
-      summary: "Zotero write permission is unavailable; mutation was not executed.",
+      summary: buildWriteToolSummary({
+        toolName,
+        mutation,
+        preview,
+        executed: false,
+        permission: {
+          outcome: "unavailable",
+          reason: "permission_hook_missing",
+        },
+      }),
       structuredContent: {
         mutation,
         preview,
@@ -577,7 +1339,13 @@ async function executeMutationTool(
   if (permission.outcome !== "approved") {
     return buildToolResult({
       tool: toolName,
-      summary: "Zotero write permission was not approved; mutation was not executed.",
+      summary: buildWriteToolSummary({
+        toolName,
+        mutation,
+        preview,
+        executed: false,
+        permission,
+      }),
       structuredContent: {
         mutation,
         preview,
@@ -590,7 +1358,15 @@ async function executeMutationTool(
   const verificationHint = buildWriteVerificationHint(toolName);
   return buildToolResult({
     tool: toolName,
-    summary: execution.summary || "Zotero mutation executed.",
+    summary: buildWriteToolSummary({
+      toolName,
+      mutation,
+      preview,
+      executed: execution.ok,
+      permission,
+      execution,
+      verificationHint,
+    }),
     structuredContent: {
       mutation,
       preview,
@@ -598,6 +1374,323 @@ async function executeMutationTool(
       permission,
       execution,
       verificationHint,
+    },
+  });
+}
+
+function normalizeMarkdownNoteKind(value: unknown) {
+  const noteKind = String(value || "custom").trim() || "custom";
+  if (noteKind !== "custom" && noteKind !== "conversation-note") {
+    throw new ZoteroMcpToolInputError(
+      "noteKind must be custom or conversation-note for MCP markdown writes",
+    );
+  }
+  return noteKind;
+}
+
+function requireNonEmptyString(value: unknown, label: string) {
+  const text = String(value || "").trim();
+  if (!text) {
+    throw new ZoteroMcpToolInputError(`${label} must be non-empty`);
+  }
+  return text;
+}
+
+async function executePreparedMarkdownMutationTool(args: {
+  toolName: string;
+  mutation: ZoteroHostMutationRequest;
+  context: ToolContext;
+  payloadType: string;
+  noteKind: string;
+  markdownLength: number;
+}) {
+  const preview = await args.context.hostApi.mutations.preview(args.mutation);
+  const buildSummary = (
+    executed: boolean,
+    permission?: { outcome?: string; reason?: string },
+    execution?: ZoteroHostMutationExecuteResponse,
+    verificationHint?: string,
+  ) =>
+    [
+      `Markdown note payload: payloadType=${args.payloadType}; noteKind=${args.noteKind}; markdownLength=${args.markdownLength}.`,
+      buildWriteToolSummary({
+        toolName: args.toolName,
+        mutation: args.mutation,
+        preview,
+        executed,
+        permission,
+        execution,
+        verificationHint,
+      }),
+      executed
+        ? `Verify with ${ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD} using payloadType=${args.payloadType}.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  if (!preview.ok) {
+    const permission = {
+      outcome: "not_requested",
+      reason: "preview_failed",
+    };
+    return buildToolResult({
+      tool: args.toolName,
+      summary: buildSummary(false, permission),
+      structuredContent: {
+        mutation: args.mutation,
+        preview,
+        payloadType: args.payloadType,
+        noteKind: args.noteKind,
+        markdownLength: args.markdownLength,
+        executed: false,
+        permission,
+      },
+    });
+  }
+  if (!args.context.options.requestToolPermission) {
+    const permission = {
+      outcome: "unavailable",
+      reason: "permission_hook_missing",
+    };
+    return buildToolResult({
+      tool: args.toolName,
+      summary: buildSummary(false, permission),
+      structuredContent: {
+        mutation: args.mutation,
+        preview,
+        payloadType: args.payloadType,
+        noteKind: args.noteKind,
+        markdownLength: args.markdownLength,
+        executed: false,
+        permission,
+      },
+    });
+  }
+  const permission = normalizePermissionDecision(
+    await args.context.options.requestToolPermission({
+      toolName: args.toolName,
+      mutation: args.mutation,
+      preview,
+      summary: preview.summary,
+      requestedAt: new Date().toISOString(),
+    }),
+  );
+  if (permission.outcome !== "approved") {
+    return buildToolResult({
+      tool: args.toolName,
+      summary: buildSummary(false, permission),
+      structuredContent: {
+        mutation: args.mutation,
+        preview,
+        payloadType: args.payloadType,
+        noteKind: args.noteKind,
+        markdownLength: args.markdownLength,
+        executed: false,
+        permission,
+      },
+    });
+  }
+  const execution = await args.context.hostApi.mutations.execute(args.mutation);
+  const verificationHint = `Call ${ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD} on the created or updated note and payloadType=${args.payloadType}.`;
+  return buildToolResult({
+    tool: args.toolName,
+    summary: buildSummary(execution.ok, permission, execution, verificationHint),
+    structuredContent: {
+      mutation: args.mutation,
+      preview,
+      payloadType: args.payloadType,
+      noteKind: args.noteKind,
+      markdownLength: args.markdownLength,
+      executed: execution.ok,
+      permission,
+      execution,
+      verificationHint,
+    },
+  });
+}
+
+async function createMarkdownNoteTool(
+  args: Record<string, unknown>,
+  context: ToolContext,
+) {
+  const title = requireNonEmptyString(args.title, "title");
+  const markdown = requireNonEmptyString(args.markdown, "markdown");
+  const noteKind = normalizeMarkdownNoteKind(args.noteKind);
+  const rendered = buildMarkdownBackedNoteContent({
+    title,
+    markdown,
+    noteKind,
+    noteEntry: String(args.noteEntry || "").trim() || undefined,
+  });
+  return executePreparedMarkdownMutationTool({
+    toolName: ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
+    mutation: {
+      operation: "note.createChild",
+      parent: args.parent || args.target || resolveItemRef(args),
+      content: rendered.content,
+    },
+    context,
+    payloadType: rendered.payloadType,
+    noteKind: rendered.noteKind,
+    markdownLength: markdown.length,
+  });
+}
+
+async function updateMarkdownNoteTool(
+  args: Record<string, unknown>,
+  context: ToolContext,
+) {
+  const noteRef = args.note || args.target || resolveItemRef(args);
+  const markdown = requireNonEmptyString(args.markdown, "markdown");
+  const existingPayloads = await context.hostApi.library.listNotePayloads(
+    noteRef as ZoteroHostItemRefInput,
+  );
+  const expectedPayloadType = String(args.expectedPayloadType || "").trim();
+  const markdownPayload = expectedPayloadType
+    ? existingPayloads.find((entry) => entry.payloadType === expectedPayloadType)
+    : existingPayloads.find((entry) => entry.payloadType.endsWith("-markdown"));
+  if (!markdownPayload) {
+    throw new ZoteroMcpToolInputError(
+      expectedPayloadType
+        ? `expected markdown payload not found: ${expectedPayloadType}`
+        : "target note does not contain a markdown payload",
+      { payloads: existingPayloads.map((entry) => entry.payloadType) },
+    );
+  }
+  if (!markdownPayload.payloadType.endsWith("-markdown")) {
+    throw new ZoteroMcpToolInputError(
+      `expectedPayloadType is not markdown-backed: ${markdownPayload.payloadType}`,
+    );
+  }
+  const noteKind = normalizeMarkdownNoteKind(args.noteKind || markdownPayload.noteKind);
+  const title = String(args.title || "").trim() || "Markdown Note";
+  const rendered = buildMarkdownBackedNoteContent({
+    title,
+    markdown,
+    noteKind,
+    noteEntry: String(args.noteEntry || "").trim() || undefined,
+  });
+  if (expectedPayloadType && rendered.payloadType !== expectedPayloadType) {
+    throw new ZoteroMcpToolInputError(
+      `expectedPayloadType ${expectedPayloadType} does not match rendered payload ${rendered.payloadType}`,
+    );
+  }
+  return executePreparedMarkdownMutationTool({
+    toolName: ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
+    mutation: {
+      operation: "note.update",
+      note: noteRef as ZoteroHostItemRefInput,
+      content: rendered.content,
+    },
+    context,
+    payloadType: rendered.payloadType,
+    noteKind: rendered.noteKind,
+    markdownLength: markdown.length,
+  });
+}
+
+async function preparePaperReadingContextTool(
+  args: Record<string, unknown>,
+  context: ToolContext,
+) {
+  const resolution = resolveReadingContextRef(args, context);
+  const includeNotes = args.includeNotes !== false;
+  const includeAttachments = args.includeAttachments !== false;
+  const includePayloads = args.includePayloads !== false;
+  const maxNotes = parseBoundedPositiveInteger(args.maxNotes, 8, 20);
+  const maxPayloadsPerNote = parseBoundedPositiveInteger(args.maxPayloadsPerNote, 5, 20);
+  const item = await context.hostApi.library.getItemDetail(resolution.ref);
+  const notes = includeNotes
+    ? await context.hostApi.library.getItemNotes(resolution.ref, {
+        limit: maxNotes,
+        maxExcerptChars: 280,
+      })
+    : [];
+  const notePayloads = includePayloads
+    ? (
+        await Promise.all(
+          notes.slice(0, maxNotes).map(async (note) => {
+            if (!note.key && note.id === undefined) {
+              return { note, payloads: [] };
+            }
+            try {
+              const payloads = await context.hostApi.library.listNotePayloads(
+                firstItemRefArgs(note) || note,
+              );
+              return {
+                note,
+                payloads: payloads
+                  .slice(0, maxPayloadsPerNote)
+                  .map(summarizePayloadForReading),
+              };
+            } catch (error) {
+              return {
+                note,
+                payloads: [
+                  summarizePayloadForReading({
+                    payloadType: "unavailable",
+                    noteKind: "",
+                    version: "",
+                    encoding: "",
+                    estimatedSize: 0,
+                    format: "text",
+                    errors: [
+                      error instanceof Error ? error.message : String(error),
+                    ],
+                  }),
+                ],
+              };
+            }
+          }),
+        )
+      ).filter((entry) => entry.payloads.length > 0)
+    : [];
+  const attachments = includeAttachments
+    ? enrichAttachmentsForReading(
+        await context.hostApi.library.getItemAttachments(resolution.ref),
+      )
+    : [];
+  const recommendedAttachment = attachments.find(
+    (attachment) => attachment.recommendedForReading,
+  );
+  const limitations = [
+    "Attachment file content is not returned by this tool.",
+    recommendedAttachment?.access.path
+      ? "The agent may read access.path only when its backend has same-host filesystem access."
+      : "No recommended local attachment path is available.",
+    "Reader annotations and Zotero reader state are outside this MCP tool.",
+  ];
+  const summary = buildPaperReadingContextSummary({
+    ref: resolution.ref,
+    source: resolution.source,
+    item,
+    notes,
+    notePayloads,
+    attachments,
+    recommendedAttachment,
+    limitations,
+  });
+  return buildToolResult({
+    tool: ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
+    summary,
+    structuredContent: {
+      ref: resolution.ref,
+      source: resolution.source,
+      item,
+      notes,
+      notePayloads,
+      attachments,
+      recommendedAttachment,
+      nextCalls: [
+        item ? { tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL, args: firstItemRefArgs(item) } : undefined,
+        item
+          ? { tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS, args: firstItemRefArgs(item) }
+          : undefined,
+        notes[0]
+          ? { tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL, args: firstItemRefArgs(notes[0]) }
+          : undefined,
+      ].filter(Boolean),
+      limitations,
     },
   });
 }
@@ -630,7 +1723,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       const items = context.hostApi.context.getSelectedItems();
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS,
-        summary: `Selected Zotero items: ${items.length}.`,
+        summary: buildSelectedItemsSummary(items),
         structuredContent: {
           items,
         },
@@ -668,7 +1761,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       });
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_SEARCH_ITEMS,
-        summary: `Found ${items.length} Zotero item(s).`,
+        summary: buildSearchItemsSummary(query, items),
         structuredContent: {
           query,
           items,
@@ -680,7 +1773,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
     title: "List Zotero library items",
     description:
-      "Preferred bounded index tool for collecting parent item keys from a library or collection. Returns paged summaries only; do not scan the library with concurrent search/detail calls. Optional filters: libraryId, collection/ref, collectionId, collectionKey, tag, itemType, query, limit <= 200, cursor.",
+      "Preferred bounded index tool for collecting parent item keys from a library or collection. Returns compact paged summaries/index entries only; use get_item_detail for full metadata. Optional filters: libraryId, collection/ref, collectionId, collectionKey, tag, itemType, query, limit <= 50, cursor.",
     inputSchema: objectSchema({
       libraryId: {
         type: ["number", "string"],
@@ -719,8 +1812,8 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       );
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
-        summary: `Listed ${result.returned} Zotero parent item(s).`,
-        structuredContent: result,
+        summary: buildLibraryItemsSummary(result),
+        structuredContent: compactLibraryListResult(result),
       });
     },
   },
@@ -735,7 +1828,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       const item = await context.hostApi.library.getItemDetail(ref);
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL,
-        summary: item ? `Item detail: ${item.title || item.key}.` : "Item not found.",
+        summary: buildItemDetailSummary(ref, item),
         structuredContent: {
           ref,
           item,
@@ -769,7 +1862,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       });
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
-        summary: `Found ${notes.length} Zotero note summary item(s).`,
+        summary: buildItemNotesSummary(ref, notes),
         structuredContent: {
           ref,
           notes,
@@ -803,10 +1896,62 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       );
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
-        summary: `Read Zotero note chunk ${note.offset}-${note.nextOffset} of ${note.totalChars}.`,
+        summary: buildNoteDetailSummary(note),
         structuredContent: {
           ref,
           note,
+        },
+      });
+    },
+  },
+  {
+    name: ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+    title: "List Zotero note payloads",
+    description:
+      "List hidden workflow payload blocks in one Zotero note. Use this before get_note_payload when a note may contain markdown or workflow JSON payloads.",
+    inputSchema: objectSchema(itemRefProperties),
+    handler: async (args, context) => {
+      const ref = resolveItemRef(args);
+      const payloads = await context.hostApi.library.listNotePayloads(ref);
+      return buildToolResult({
+        tool: ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+        summary: buildNotePayloadsSummary(ref, payloads),
+        structuredContent: {
+          ref,
+          payloads,
+        },
+      });
+    },
+  },
+  {
+    name: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+    title: "Get Zotero note payload",
+    description:
+      "Decode one hidden workflow payload from a Zotero note. Markdown payloads return canonical markdown; JSON payloads return decoded JSON plus bounded text chunks.",
+    inputSchema: objectSchema({
+      ...itemRefProperties,
+      payloadType: {
+        type: "string",
+      },
+      offset: {
+        type: ["number", "string"],
+      },
+      maxChars: {
+        type: ["number", "string"],
+      },
+    }),
+    handler: async (args, context) => {
+      const ref = resolveItemRef(args);
+      const payload = await context.hostApi.library.getNotePayload(
+        ref,
+        buildNotePayloadArgs(args),
+      );
+      return buildToolResult({
+        tool: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+        summary: buildNotePayloadDetailSummary(ref, payload),
+        structuredContent: {
+          ref,
+          payload,
         },
       });
     },
@@ -819,18 +1964,43 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     inputSchema: objectSchema(itemRefProperties),
     handler: async (args, context) => {
       const ref = resolveItemRef(args);
-      const attachments = (
-        await context.hostApi.library.getItemAttachments(ref)
-      ).map(withAttachmentAccess);
+      const attachments = enrichAttachmentsForReading(
+        await context.hostApi.library.getItemAttachments(ref),
+      );
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS,
-        summary: `Found ${attachments.length} Zotero attachment(s).`,
+        summary: buildAttachmentsSummary(ref, attachments),
         structuredContent: {
           ref,
           attachments,
         },
       });
     },
+  },
+  {
+    name: ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
+    title: "Prepare Zotero paper reading context",
+    description:
+      "Aggregate one paper's metadata, note summaries, note payload manifests, attachment manifests, and a recommended reading attachment. This tool does not return attachment file contents.",
+    inputSchema: objectSchema({
+      ...itemRefProperties,
+      includeNotes: {
+        type: "boolean",
+      },
+      includeAttachments: {
+        type: "boolean",
+      },
+      includePayloads: {
+        type: "boolean",
+      },
+      maxNotes: {
+        type: ["number", "string"],
+      },
+      maxPayloadsPerNote: {
+        type: ["number", "string"],
+      },
+    }),
+    handler: (args, context) => preparePaperReadingContextTool(args, context),
   },
   {
     name: ZOTERO_MCP_TOOL_GET_MCP_STATUS,
@@ -842,7 +2012,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       const status = context.options.resolveMcpStatus?.() || {};
       return buildToolResult({
         tool: ZOTERO_MCP_TOOL_GET_MCP_STATUS,
-        summary: "Zotero MCP status snapshot.",
+        summary: buildMcpStatusSummary(status),
         structuredContent: {
           status,
         },
@@ -949,6 +2119,61 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     }, ["content"]),
     handler: (args, context) =>
       executeMutationTool(ZOTERO_MCP_TOOL_UPDATE_NOTE, args, context),
+  },
+  {
+    name: ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
+    title: "Create Zotero markdown-backed note",
+    description:
+      'Permission-gated creation of a child note with rendered HTML plus a base64 markdown payload. Required: parent item ref, title, markdown. Optional noteKind: "custom" or "conversation-note".',
+    inputSchema: objectSchema({
+      ...itemRefProperties,
+      parent: {
+        description: "Parent item reference.",
+      },
+      title: {
+        type: "string",
+      },
+      markdown: {
+        type: "string",
+      },
+      noteKind: {
+        type: "string",
+        enum: ["custom", "conversation-note"],
+      },
+      noteEntry: {
+        type: "string",
+      },
+    }, ["title", "markdown"]),
+    handler: createMarkdownNoteTool,
+  },
+  {
+    name: ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
+    title: "Update Zotero markdown-backed note",
+    description:
+      'Permission-gated update of an existing markdown-backed Zotero note. Required: note ref and markdown. Optional expectedPayloadType prevents accidental workflow payload mismatch.',
+    inputSchema: objectSchema({
+      ...itemRefProperties,
+      note: {
+        description: "Note item reference.",
+      },
+      title: {
+        type: "string",
+      },
+      markdown: {
+        type: "string",
+      },
+      noteKind: {
+        type: "string",
+        enum: ["custom", "conversation-note"],
+      },
+      expectedPayloadType: {
+        type: "string",
+      },
+      noteEntry: {
+        type: "string",
+      },
+    }, ["markdown"]),
+    handler: updateMarkdownNoteTool,
   },
   {
     name: ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION,

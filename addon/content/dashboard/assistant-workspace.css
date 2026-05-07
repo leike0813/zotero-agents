@@ -59,12 +59,15 @@ button {
   align-items: center;
   align-self: end;
   gap: 2px;
+  width: 100%;
   min-width: 0;
   height: 100%;
 }
 
 .assistant-tab {
+  flex: 1 1 0;
   align-self: end;
+  min-width: 0;
   min-height: 28px;
   margin: 0 0 -1px;
   padding: 4px 11px;
@@ -76,6 +79,7 @@ button {
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
+  text-align: center;
 }
 
 .assistant-tab.is-active {
@@ -91,8 +95,10 @@ button {
 
 .assistant-workspace-body {
   position: relative;
+  display: block;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -101,6 +107,9 @@ button {
   inset: 0;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: block;
   border: 0;
   background: #ffffff;
 }

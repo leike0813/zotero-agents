@@ -17,6 +17,8 @@ Runtime data that can grow over time SHALL be stored under a single managed runt
 - **WHEN** a module needs runtime storage
 - **THEN** it SHALL use the central resolver
 - **AND** it SHALL use semantic subdirectories for `state`, `logs`, `acp/chat`, `acp/skill-runs`, `cache`, `tmp`, and `legacy`.
+- **AND** ACP Chat SHALL reserve `<runtime-root>/acp/chat/workspace` as the shared agent working directory and `<runtime-root>/acp/chat/conversations` as private per-conversation storage.
+- **AND** ACP Chat private per-conversation storage SHALL NOT live inside `<runtime-root>/acp/chat/workspace`.
 
 ### Requirement: Settings and user assets are excluded
 Runtime persistence governance SHALL NOT include plugin settings or user-owned skill/workflow assets.
@@ -49,4 +51,3 @@ The preferences UI SHALL expose runtime storage usage and category cleanup.
 - **WHEN** the user triggers cleanup for a category
 - **THEN** the UI SHALL ask for confirmation
 - **AND** cleanup SHALL only remove rows/files owned by that category.
-

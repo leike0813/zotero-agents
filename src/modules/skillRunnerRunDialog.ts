@@ -36,7 +36,10 @@ import {
   subscribeWorkflowTasks,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import { getSkillRunnerRequestLedgerRecord } from "./skillRunnerRequestLedger";
+import {
+  archiveSkillRunnerRequestLedgerRecord,
+  getSkillRunnerRequestLedgerRecord,
+} from "./skillRunnerRequestLedger";
 import {
   isSkillRunnerBackendReconcileFlagged,
   subscribeSkillRunnerBackendHealth,
@@ -1327,6 +1330,9 @@ async function buildRunWorkspaceModel() {
     };
     for (const row of mergedRows) {
       const requestId = String(row.requestId || "").trim();
+      if (requestId && getSkillRunnerRequestLedgerRecord(requestId)?.archivedAt) {
+        continue;
+      }
       const key = resolveRunWorkspaceTaskKey({
         backendId,
         requestId,
@@ -2852,6 +2858,19 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
     await refreshWorkspaceSnapshot({
       requestedTaskKey: String(payload.taskKey || "").trim(),
     });
+    return;
+  }
+  if (action === "archive-run") {
+    const requestId = String(payload.requestId || "").trim();
+    const record = getSkillRunnerRequestLedgerRecord(requestId);
+    if (record && isTerminal(record.snapshot)) {
+      archiveSkillRunnerRequestLedgerRecord(requestId);
+      await refreshWorkspaceSnapshot({
+        requestedTaskKey: "",
+      });
+    } else {
+      await refreshWorkspaceSnapshot();
+    }
     return;
   }
   if (action === "toggle-group-collapse") {

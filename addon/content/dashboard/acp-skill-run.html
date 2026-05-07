@@ -5,121 +5,76 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ACP Skill Run</title>
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
+    <link rel="stylesheet" href="./assistant-panel-shared.css" />
     <link rel="stylesheet" href="./acp-skill-run.css" />
   </head>
   <body>
-    <main class="acp-skill-run-shell">
-      <header class="acp-skill-run-header">
-        <div class="title-stack">
-          <h1 id="acp-skill-run-title">ACP Skill Run</h1>
-          <div id="acp-skill-run-summary" class="subtitle">No runs captured yet.</div>
-          <div id="acp-skill-run-statusbar" class="run-statusbar hidden"></div>
-        </div>
-        <div class="header-actions">
-          <button id="acp-skill-run-drawer-btn" class="btn" type="button">Runs</button>
-          <button id="acp-skill-run-details-btn" class="btn" type="button">Details</button>
-          <button id="acp-skill-run-close-btn" class="btn" type="button">Close</button>
-        </div>
-      </header>
+    <main class="acp-skill-run-shell asst-panel-shell">
+      <header id="acp-skill-run-toolbar" class="acp-skill-toolbar asst-shell-toolbar"></header>
 
-      <section id="acp-skill-run-drawer" class="run-drawer hidden">
-        <div class="drawer-backdrop" data-run-drawer-close="true"></div>
-        <aside class="drawer-panel" aria-label="ACP skill runs">
-          <div class="drawer-header">
-            <strong>Runs</strong>
-            <button id="acp-skill-run-drawer-close-btn" class="btn" type="button">Close</button>
-          </div>
-          <div id="acp-skill-run-list" class="run-list"></div>
-        </aside>
-      </section>
+      <section id="acp-skill-run-banner" class="acp-skill-banner asst-banner"></section>
+
+      <section id="acp-skill-run-drawer" class="run-drawer hidden"></section>
 
       <section id="acp-skill-run-empty" class="empty-state">
         Select an ACP skill run to inspect its transcript.
       </section>
 
-      <section id="acp-skill-run-main" class="run-main hidden">
-        <section id="acp-skill-run-transcript" class="run-transcript"></section>
-
-        <section id="acp-skill-run-plan-panel" class="plan-panel hidden">
-          <div class="plan-panel-header">
-            <strong>Plan</strong>
-            <span id="acp-skill-run-plan-summary"></span>
+      <section id="acp-skill-run-main" class="acp-skill-run-main hidden">
+        <section
+          id="acp-skill-conversation-window"
+          class="acp-skill-conversation-window asst-conversation-surface"
+        >
+          <section id="acp-skill-run-transcript" class="run-transcript"></section>
+          <div class="asst-conversation-overlay-menu" aria-label="Conversation view">
+            <button
+              id="acp-skill-chat-mode-plain"
+              class="asst-button-compact"
+              type="button"
+              data-assistant-view-mode="plain"
+              aria-label="Plain transcript view"
+              aria-pressed="true"
+            >
+              Plain
+            </button>
+            <button
+              id="acp-skill-chat-mode-bubble"
+              class="asst-button-compact"
+              type="button"
+              data-assistant-view-mode="bubble"
+              aria-label="Bubble conversation view"
+              aria-pressed="false"
+            >
+              Bubble
+            </button>
           </div>
-          <div id="acp-skill-run-plan-list" class="plan-list"></div>
         </section>
 
-        <section id="acp-skill-run-interaction" class="interaction-zone hidden">
-          <section id="acp-skill-run-running" class="running-indicator hidden">
-            <span class="running-spinner" aria-hidden="true"></span>
-            <span id="acp-skill-run-running-label">Agent is working...</span>
-          </section>
+        <section
+          id="acp-skill-run-plan-panel"
+          class="acp-skill-plan-region asst-plan-surface hidden"
+        ></section>
 
-          <section id="acp-skill-run-final" class="status-banner hidden"></section>
+        <section
+          id="acp-skill-run-interaction"
+          class="acp-skill-hint-region asst-hint-surface hidden"
+        ></section>
 
-          <section id="acp-skill-run-permission" class="permission-banner hidden">
-            <div class="permission-copy">
-              <strong>Approval required</strong>
-              <span id="acp-skill-run-permission-summary"></span>
-            </div>
-            <div id="acp-skill-run-permission-actions" class="permission-actions"></div>
-          </section>
-        </section>
-
-        <form id="acp-skill-run-reply-form" class="reply-composer" autocomplete="off">
-          <textarea
-            id="acp-skill-run-reply-text"
-            rows="2"
-            placeholder="Interactive ACP skill replies are not available for this run."
-          ></textarea>
-          <div class="reply-actions">
-            <span id="acp-skill-run-reply-hint">Reply is enabled while the ACP conversation is active.</span>
-            <button id="acp-skill-run-reply-submit" class="btn primary" type="submit">Send</button>
-          </div>
-        </form>
+        <section
+          id="acp-skill-run-reply-form"
+          class="acp-skill-reply-zone asst-reply-surface"
+        ></section>
       </section>
 
-      <section id="acp-skill-run-details" class="details-drawer hidden">
-        <div class="drawer-backdrop" data-details-drawer-close="true"></div>
-        <aside class="drawer-panel details-panel" aria-label="ACP skill run details">
-          <div class="drawer-header">
-            <strong>Run Details</strong>
-            <button id="acp-skill-run-details-close-btn" class="btn" type="button">Close</button>
-          </div>
-          <div id="acp-skill-run-actions" class="actions"></div>
-          <section class="details-section">
-            <h2>Workspace</h2>
-            <dl id="acp-skill-run-workspace"></dl>
-          </section>
-          <section class="details-section">
-            <h2>Runner</h2>
-            <dl id="acp-skill-run-runner"></dl>
-          </section>
-          <section class="details-section">
-            <h2>Validation</h2>
-            <dl id="acp-skill-run-validation"></dl>
-          </section>
-          <section class="details-section">
-            <h2>Runtime Dependencies</h2>
-            <dl id="acp-skill-run-deps"></dl>
-          </section>
-          <section class="details-section">
-            <h2>Projection</h2>
-            <dl id="acp-skill-run-projection"></dl>
-          </section>
-          <section class="details-section">
-            <h2>Runtime Logs</h2>
-            <div id="acp-skill-run-logs" class="log-list"></div>
-          </section>
-          <section class="details-section">
-            <h2>Result JSON</h2>
-            <pre id="acp-skill-run-result" class="code-surface"></pre>
-          </section>
-        </aside>
-      </section>
+      <section id="acp-skill-run-details" class="details-drawer hidden"></section>
     </main>
     <script src="./vendor/katex/katex.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script src="./assistant-conversation-view.js"></script>
+    <script src="./assistant-transcript-renderer.js"></script>
+    <script src="./assistant-panel-model.js"></script>
+    <script src="./assistant-panel-renderer.js"></script>
     <script src="./acp-skill-run.js"></script>
   </body>
 </html>

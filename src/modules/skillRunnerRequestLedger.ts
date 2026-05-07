@@ -32,6 +32,7 @@ export type SkillRunnerRequestLedgerRecord = {
   jobId: string;
   taskName: string;
   error?: string;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
   reconcileFlag?: boolean;
@@ -78,6 +79,7 @@ function parseRecord(raw: unknown): SkillRunnerRequestLedgerRecord | null {
   const taskName = normalizeString(raw.taskName) || jobId;
   const createdAt = normalizeString(raw.createdAt);
   const updatedAt = normalizeString(raw.updatedAt);
+  const archivedAt = normalizeString(raw.archivedAt);
   if (
     !requestId ||
     !backendId ||
@@ -105,6 +107,7 @@ function parseRecord(raw: unknown): SkillRunnerRequestLedgerRecord | null {
     taskName,
     reconcileFlag: raw.reconcileFlag === true,
     error: normalizeString(raw.error) || undefined,
+    archivedAt: archivedAt || undefined,
     createdAt: createdAt || updatedAt || nowIso(),
     updatedAt: updatedAt || createdAt || nowIso(),
   };
@@ -195,8 +198,10 @@ function resolveRequestIdFromJob(job: JobRecord) {
   return "";
 }
 
-export function listSkillRunnerRequestLedgerRecords() {
+export function listSkillRunnerRequestLedgerRecords(args?: { includeArchived?: boolean }) {
+  const includeArchived = args?.includeArchived === true;
   return Array.from(readRecordsMap().values())
+    .filter((entry) => includeArchived || !normalizeString(entry.archivedAt))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((entry) => ({ ...entry }));
 }
@@ -246,6 +251,7 @@ export function upsertSkillRunnerRequestLedgerRecord(
     workflowLabel: normalizeString(input.workflowLabel) || normalizeString(input.workflowId),
     taskName: normalizeString(input.taskName) || normalizeString(input.jobId),
     snapshot: normalizeStatus(input.snapshot, previous?.snapshot || "running"),
+    archivedAt: previous?.archivedAt || normalizeString(input.archivedAt) || undefined,
     createdAt: previous?.createdAt || normalizeString(input.createdAt) || nowIso(),
     updatedAt: normalizeString(input.updatedAt) || nowIso(),
   };
@@ -396,7 +402,7 @@ export function removeSkillRunnerRequestLedgerRecordsByBackendId(
   if (!backendId) {
     return 0;
   }
-  const before = listSkillRunnerRequestLedgerRecords();
+  const before = listSkillRunnerRequestLedgerRecords({ includeArchived: true });
   const removed = before.filter(
     (entry) => normalizeString(entry.backendId) === backendId,
   ).length;
@@ -408,6 +414,42 @@ export function removeSkillRunnerRequestLedgerRecordsByBackendId(
     emitLedgerChanged();
   }
   return removed;
+}
+
+export function archiveSkillRunnerRequestLedgerRecord(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId) {
+    return false;
+  }
+  const map = readRecordsMap();
+  const current = map.get(requestId);
+  if (!current) {
+    return false;
+  }
+  const archivedAt = nowIso();
+  const next: SkillRunnerRequestLedgerRecord = {
+    ...current,
+    archivedAt,
+    updatedAt: archivedAt,
+  };
+  map.set(requestId, next);
+  upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, {
+    requestId: next.requestId,
+    backendId: next.backendId,
+    state: next.snapshot,
+    updatedAt: next.updatedAt,
+    payload: JSON.stringify(
+      (({
+        reconcileFlag,
+        ...rest
+      }) => {
+        void reconcileFlag;
+        return rest;
+      })(next),
+    ),
+  });
+  emitLedgerChanged();
+  return true;
 }
 
 export function listSkillRunnerReconnectCandidates() {

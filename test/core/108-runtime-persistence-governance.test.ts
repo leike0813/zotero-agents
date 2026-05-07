@@ -53,17 +53,25 @@ describe("runtime persistence governance", function () {
     const paths = getRuntimePersistencePaths();
     assert.equal(paths.root, tempRoot);
     assert.equal(paths.stateDbPath, path.join(tempRoot, "state", "zotero-skills.db"));
-    assert.include(paths.acpChatWorkspacesDir.replace(/\\/g, "/"), "/acp/chat/workspaces");
+    assert.include(paths.acpChatWorkspaceDir.replace(/\\/g, "/"), "/acp/chat/workspace");
+    assert.include(paths.acpChatConversationsDir.replace(/\\/g, "/"), "/acp/chat/conversations");
+    assert.isFalse(
+      paths.acpChatConversationsDir
+        .replace(/\\/g, "/")
+        .startsWith(`${paths.acpChatWorkspaceDir.replace(/\\/g, "/")}/`),
+    );
+    // Legacy read/migration fallback only; new private conversation writes use conversations.
+    assert.include(paths.legacyAcpChatWorkspacesDir.replace(/\\/g, "/"), "/acp/chat/workspaces");
     assert.include(paths.acpSkillRunsDir.replace(/\\/g, "/"), "/acp/skill-runs");
   });
 
   it("scans cleanable categories without including user assets", async function () {
     const paths = getRuntimePersistencePaths();
-    await fs.mkdir(path.join(paths.acpChatWorkspacesDir, "backend", "conversation"), {
+    await fs.mkdir(path.join(paths.acpChatConversationsDir, "backend", "conversation"), {
       recursive: true,
     });
     await fs.writeFile(
-      path.join(paths.acpChatWorkspacesDir, "backend", "conversation", "trace.txt"),
+      path.join(paths.acpChatConversationsDir, "backend", "conversation", "trace.txt"),
       "hello",
       "utf8",
     );

@@ -4,286 +4,69 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ACP Chat</title>
+    <link rel="stylesheet" href="./assistant-panel-shared.css" />
     <link rel="stylesheet" href="./acp-chat.css" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
   </head>
   <body>
-    <main class="acp-chat-shell">
-      <header class="acp-chat-header">
-        <div class="acp-title-stack">
-          <h1 id="acp-title" class="acp-chat-title">ACP Chat</h1>
-          <div id="acp-subtitle" class="acp-chat-subtitle"></div>
-        </div>
-        <div class="acp-header-actions">
-          <button id="acp-session-manager-btn" class="btn btn-compact" type="button">
-            Sessions
-          </button>
-          <div class="acp-actions-menu-wrap">
-            <button id="acp-more-btn" class="btn btn-compact" type="button">More</button>
-            <div id="acp-actions-menu" class="acp-actions-menu hidden">
-              <button
-                id="acp-status-details-toggle-btn"
-                class="btn"
-                type="button"
-              >
-                Show Details
-              </button>
-              <button id="acp-authenticate-btn" class="btn" type="button">
-                Authenticate
-              </button>
-              <button id="acp-diagnostics-toggle-btn" class="btn" type="button">
-                Show Diagnostics
-              </button>
-              <button id="acp-diagnostics-copy-btn" class="btn" type="button">
-                Copy Diagnostics
-              </button>
-              <button id="acp-manage-backends-btn" class="btn" type="button">
-                Manage Backends
-              </button>
-              <button id="acp-close-btn" class="btn" type="button">Close</button>
-            </div>
-          </div>
-        </div>
-      </header>
+    <main class="acp-chat-shell asst-panel-shell">
+      <header id="acp-chat-toolbar" class="acp-chat-toolbar asst-shell-toolbar"></header>
 
-      <section id="acp-status-summary" class="acp-control-bar">
-        <div class="acp-control-main">
-          <div class="acp-status-pill">
-            <span id="acp-status-label">Idle</span>
-          </div>
-          <label class="acp-control-picker acp-backend-picker">
-            <span id="acp-backend-picker-label">Backend</span>
-            <select id="acp-backend-select"></select>
-          </label>
-          <label class="acp-control-picker acp-session-picker">
-            <span id="acp-session-picker-label">Conversation</span>
-            <select id="acp-session-select"></select>
-          </label>
-          <button id="acp-new-conversation-btn" class="btn btn-compact" type="button">
-            New
-          </button>
-        </div>
-        <div class="acp-control-secondary">
-          <div class="acp-connection-actions">
-            <button id="acp-connect-btn" class="btn btn-primary btn-compact" type="button">
-              Connect
-            </button>
-            <button id="acp-disconnect-btn" class="btn btn-compact" type="button">
-              Disconnect
-            </button>
-          </div>
-          <div id="acp-updated-at" class="acp-updated-at"></div>
-          <span id="acp-status-summary-text" class="acp-status-summary-text">-</span>
-          <span id="acp-mcp-injection-status" class="acp-mcp-status-monitor">
-            MCP
-          </span>
-          <div class="acp-view-toggle" role="group" aria-label="Chat view">
-            <button id="acp-chat-mode-plain" class="btn btn-compact" type="button">
-              Plain
-            </button>
-            <button id="acp-chat-mode-bubble" class="btn btn-compact" type="button">
-              Bubble
-            </button>
-          </div>
-        </div>
-      </section>
+      <section id="acp-chat-banner" class="acp-chat-banner asst-banner"></section>
+
+      <section id="acp-chat-drawer" class="acp-chat-drawer hidden"></section>
 
       <section
-        id="acp-status-details-panel"
-        class="acp-overlay-panel acp-status-details-panel hidden"
+        id="acp-chat-conversation-window"
+        class="acp-conversation-window asst-conversation-surface"
       >
-        <section class="acp-meta-grid">
-          <div class="acp-meta-chip">
-            <strong>Target</strong>
-            <span id="acp-target-label">Library</span>
-          </div>
-          <div class="acp-meta-chip">
-            <strong>Agent</strong>
-            <span id="acp-agent-label">-</span>
-          </div>
-          <div class="acp-meta-chip">
-            <strong>Session</strong>
-            <span id="acp-session-label">-</span>
-          </div>
-          <div class="acp-meta-chip">
-            <strong id="acp-remote-session-label">Remote session</strong>
-            <span id="acp-remote-session-value">-</span>
-          </div>
-          <div class="acp-meta-chip">
-            <strong id="acp-remote-restore-label">Remote restore</strong>
-            <span id="acp-remote-restore-value">-</span>
-          </div>
-          <div class="acp-meta-chip">
-            <strong>Command</strong>
-            <span id="acp-command-label">-</span>
-          </div>
-        </section>
-
-        <section class="acp-path-grid">
-          <div class="acp-path-row">
-            <strong id="acp-workspace-label">Workspace</strong>
-            <span id="acp-workspace-dir">-</span>
-          </div>
-          <div class="acp-path-row">
-            <strong id="acp-runtime-label">Runtime</strong>
-            <span id="acp-runtime-dir">-</span>
-          </div>
-          <div class="acp-path-row">
-            <strong id="acp-host-context-label">Host Context</strong>
-            <span id="acp-host-context-summary">-</span>
-          </div>
-        </section>
-      </section>
-
-      <section id="acp-transcript" class="acp-transcript plain-mode"></section>
-
-      <section
-        id="acp-plan-panel"
-        class="acp-plan-panel hidden"
-        aria-live="polite"
-      >
-        <div class="acp-plan-panel-header">
-          <strong id="acp-plan-title">Plan</strong>
-          <span id="acp-plan-summary" class="acp-plan-summary"></span>
-        </div>
-        <div id="acp-plan-list" class="acp-plan-list"></div>
-      </section>
-
-      <section id="acp-session-drawer" class="acp-session-drawer hidden">
-        <div class="acp-session-drawer-backdrop" data-acp-session-drawer-close="true"></div>
-        <aside class="acp-session-drawer-panel" aria-labelledby="acp-session-drawer-title">
-          <div class="acp-session-drawer-header">
-            <div>
-              <strong id="acp-session-drawer-title">Sessions</strong>
-              <div id="acp-session-drawer-subtitle" class="acp-session-drawer-subtitle"></div>
-            </div>
-            <button id="acp-session-drawer-close-btn" class="btn btn-compact" type="button">
-              Close
-            </button>
-          </div>
-          <div id="acp-session-drawer-busy" class="acp-session-drawer-note hidden"></div>
-          <div id="acp-session-drawer-list" class="acp-session-drawer-list"></div>
-          <div id="acp-session-drawer-empty" class="acp-empty-state hidden">
-            No conversations yet.
-          </div>
-        </aside>
-      </section>
-
-      <section id="acp-interaction-notices" class="acp-interaction-notices hidden">
-        <section id="acp-status-banner" class="acp-status-banner hidden"></section>
-        <section id="acp-running-indicator" class="acp-running-indicator hidden">
-          <span class="acp-running-spinner" aria-hidden="true"></span>
-          <span id="acp-running-label">Working...</span>
-        </section>
-
-        <section id="acp-permission-banner" class="acp-permission-banner hidden">
-          <div class="acp-permission-copy">
-            <strong id="acp-permission-title">Permission request</strong>
-            <button
-              id="acp-permission-summary"
-              class="acp-permission-summary"
-              type="button"
-            ></button>
-            <button
-              id="acp-permission-details-btn"
-              class="acp-permission-details-btn"
-              type="button"
-            >
-              View full command
-            </button>
-          </div>
-          <div id="acp-permission-actions" class="acp-permission-actions"></div>
-        </section>
-      </section>
-
-      <section id="acp-permission-drawer" class="acp-permission-drawer hidden">
+        <section id="acp-transcript" class="acp-transcript plain-mode"></section>
         <div
-          class="acp-permission-drawer-backdrop"
-          data-acp-permission-drawer-close="true"
-        ></div>
-        <aside
-          class="acp-permission-drawer-panel"
-          aria-labelledby="acp-permission-drawer-title"
+          class="asst-conversation-overlay-menu acp-conversation-overlay-menu"
+          role="group"
+          aria-label="Chat view"
         >
-          <div class="acp-permission-drawer-header">
-            <div>
-              <strong id="acp-permission-drawer-title">Permission request</strong>
-              <div
-                id="acp-permission-drawer-subtitle"
-                class="acp-permission-drawer-subtitle"
-              ></div>
-            </div>
-            <button
-              id="acp-permission-drawer-close-btn"
-              class="btn btn-compact"
-              type="button"
-            >
-              Close
-            </button>
-          </div>
-          <pre
-            id="acp-permission-full-command"
-            class="acp-permission-full-command"
-          ></pre>
-          <div
-            id="acp-permission-drawer-actions"
-            class="acp-permission-actions acp-permission-drawer-actions"
-          ></div>
-        </aside>
-      </section>
-
-      <section
-        id="acp-diagnostics-panel"
-        class="acp-overlay-panel acp-diagnostics-panel hidden"
-      >
-        <div class="acp-diagnostics-header">
-          <strong id="acp-diagnostics-title">Diagnostics</strong>
-          <div id="acp-stop-reason" class="acp-diagnostics-summary"></div>
-          <div id="acp-diagnostics-copy-status" class="acp-diagnostics-summary"></div>
-        </div>
-        <div id="acp-diagnostics-list" class="acp-diagnostics-list"></div>
-      </section>
-
-      <form id="acp-composer-form" class="acp-composer">
-        <textarea
-          id="acp-composer-input"
-          rows="3"
-          placeholder="Ask the active ACP backend about the current library or item..."
-        ></textarea>
-        <div class="acp-composer-footer">
-          <div class="acp-composer-pickers">
-            <label class="acp-picker">
-              <span id="acp-mode-label">Mode</span>
-              <select id="acp-mode-select"></select>
-            </label>
-            <label class="acp-picker">
-              <span id="acp-model-label">Model</span>
-              <select id="acp-model-select"></select>
-            </label>
-            <label class="acp-picker">
-              <span id="acp-reasoning-label">Reasoning</span>
-              <select id="acp-reasoning-select"></select>
-            </label>
-          </div>
-          <div
-            id="acp-usage-gauge"
-            class="acp-usage-gauge hidden"
-            title=""
-            aria-label="Usage"
+          <button
+            id="acp-chat-mode-plain"
+            class="asst-button-compact"
+            type="button"
+            data-assistant-view-mode="plain"
+            aria-label="Plain transcript view"
+            aria-pressed="true"
           >
-            <span class="acp-usage-gauge-ring">
-              <span id="acp-usage-gauge-value">0%</span>
-            </span>
-          </div>
-          <button id="acp-primary-action-btn" class="btn btn-primary" type="submit">
-            Send
+            Plain
+          </button>
+          <button
+            id="acp-chat-mode-bubble"
+            class="asst-button-compact"
+            type="button"
+            data-assistant-view-mode="bubble"
+            aria-label="Bubble conversation view"
+            aria-pressed="false"
+          >
+            Bubble
           </button>
         </div>
-      </form>
+      </section>
+
+      <section id="acp-chat-plan-panel" class="acp-plan-panel asst-plan-surface hidden"></section>
+
+      <section
+        id="acp-chat-interaction"
+        class="acp-interaction-notices asst-hint-surface hidden"
+      ></section>
+
+      <section id="acp-chat-reply" class="acp-composer asst-reply-surface"></section>
+
+      <section id="acp-chat-details" class="acp-diagnostics-panel hidden"></section>
     </main>
     <script src="./vendor/katex/katex.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script src="./assistant-conversation-view.js"></script>
+    <script src="./assistant-transcript-renderer.js"></script>
+    <script src="./assistant-panel-model.js"></script>
+    <script src="./assistant-panel-renderer.js"></script>
     <script src="./acp-chat.js"></script>
   </body>
 </html>

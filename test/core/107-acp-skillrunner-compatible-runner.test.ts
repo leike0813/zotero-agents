@@ -10,10 +10,13 @@ import {
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
   buildAcpSkillRunPanelSnapshot,
+  cancelAcpSkillRun,
+  archiveAcpSkillRun,
   connectAcpSkillRun,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   getAcpSkillRunRecord,
+  recordAcpSkillRunSessionUpdate,
   registerAcpSkillRunController,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
@@ -59,6 +62,10 @@ function restoreGlobalProperty(key: string, descriptor?: PropertyDescriptor) {
     return;
   }
   Object.defineProperty(runtime, key, descriptor);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function createSkill(
@@ -489,6 +496,167 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isNull(resolvedSnapshot?.pendingPermission);
   });
 
+  it("marks tool updates with output payload as completed when ACP omits status", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-tool-output",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    recordAcpSkillRunSessionUpdate("run-tool-output", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Run command",
+        status: "pending",
+        input: { command: "echo ok" },
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-tool-output", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        output: { ok: true },
+      },
+    } as any);
+
+    const tool = getAcpSkillRunRecord("run-tool-output")?.transcriptItems.find(
+      (item) => item.kind === "tool_call" && item.toolCallId === "tool-1",
+    );
+    assert.equal(tool?.kind, "tool_call");
+    if (tool?.kind === "tool_call") {
+      assert.equal(tool.state, "completed");
+      assert.include(tool.resultSummary || "", "ok");
+    }
+  });
+
+  it("surfaces workspace activity as visible status while ACP prompt is active", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-workspace-activity",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+      event: {
+        stage: "workspace-activity",
+        message: "Workspace file updated while agent is working: digest_payload.json",
+        level: "info",
+      },
+    });
+
+    const statusItem = getAcpSkillRunRecord("run-workspace-activity")?.transcriptItems.find(
+      (item) => item.kind === "status" && item.label === "workspace-activity",
+    );
+    assert.equal(statusItem?.kind, "status");
+    if (statusItem?.kind === "status") {
+      assert.include(statusItem.text, "digest_payload.json");
+    }
+  });
+
+  it("keeps ACP Skills panel run list lightweight while selectedRun stays complete", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-lightweight-list-a",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workflowLabel: "Workflow A",
+      taskName: "Task A",
+      event: {
+        stage: "created",
+        message: "Created run A.",
+        level: "info",
+      },
+    });
+    recordAcpSkillRunSessionUpdate("run-lightweight-list-a", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "Thinking A" },
+      },
+    } as any);
+    upsertAcpSkillRun({
+      requestId: "run-lightweight-list-b",
+      status: "failed",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workflowLabel: "Workflow B",
+      taskName: "Task B",
+      event: {
+        stage: "failed",
+        message: "Failed run B.",
+        level: "error",
+      },
+    });
+
+    const snapshot = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-lightweight-list-a",
+    });
+    assert.equal(snapshot.selectedRun?.requestId, "run-lightweight-list-a");
+    assert.isAtLeast(snapshot.selectedRun?.transcriptItems.length || 0, 1);
+    assert.isAtLeast(snapshot.selectedRun?.events.length || 0, 1);
+    const listed = snapshot.runs.find((run) => run.requestId === "run-lightweight-list-a") as any;
+    assert.equal(listed.workflowLabel, "Workflow A");
+    assert.equal(listed.taskName, "Task A");
+    assert.notProperty(listed, "transcriptItems");
+    assert.notProperty(listed, "events");
+    assert.notProperty(listed, "outputRevisions");
+    assert.notProperty(listed, "resultJson");
+  });
+
+  it("coalesces high-frequency ACP skill session update notifications without dropping transcript data", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-coalesced-updates",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    let notifications = 0;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      notifications += 1;
+    });
+    try {
+      recordAcpSkillRunSessionUpdate("run-coalesced-updates", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "A" },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-coalesced-updates", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "B" },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-coalesced-updates", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "C" },
+        },
+      } as any);
+      assert.equal(notifications, 0);
+      await delay(120);
+      assert.equal(notifications, 1);
+      const thought = getAcpSkillRunRecord("run-coalesced-updates")?.transcriptItems.find(
+        (item) => item.kind === "thought",
+      );
+      assert.equal(thought?.kind, "thought");
+      if (thought?.kind === "thought") {
+        assert.equal(thought.text, "ABC");
+      }
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("records reply visibility and recovers a missing controller before reply", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -719,6 +887,62 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "available");
   });
 
+  it("cancels and hides a detached recoverable run without requiring a live controller", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-detached-cancel",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-detached",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+    });
+
+    await cancelAcpSkillRun("run-detached-cancel");
+
+    const record = getAcpSkillRunRecord("run-detached-cancel");
+    assert.equal(record?.status, "canceled");
+    assert.equal(record?.conversationState, "ended");
+    assert.equal(record?.conversationRecoveryState, "unavailable");
+    assert.isString(record?.removedAt);
+    const snapshot = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-detached-cancel",
+    });
+    assert.isUndefined(snapshot.selectedRun);
+    assert.isFalse(snapshot.runs.some((run) => run.requestId === "run-detached-cancel"));
+  });
+
+  it("archives terminal ACP skill runs without deleting persisted diagnostics", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-terminal-archive",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      conversationState: "ended",
+      conversationRecoveryState: "unavailable",
+      event: {
+        stage: "finished",
+        message: "Finished.",
+        level: "info",
+      },
+    });
+
+    archiveAcpSkillRun("run-terminal-archive");
+
+    const record = getAcpSkillRunRecord("run-terminal-archive");
+    assert.equal(record?.status, "succeeded");
+    assert.isString(record?.archivedAt);
+    assert.isString(record?.removedAt);
+    assert.isAtLeast(record?.events.length || 0, 2);
+    const snapshot = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-terminal-archive",
+    });
+    assert.isUndefined(snapshot.selectedRun);
+    assert.isFalse(snapshot.runs.some((run) => run.requestId === "run-terminal-archive"));
+  });
+
   it("materializes skill, repairs invalid turn output, and returns provider result", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, { dependencies: ["pandas"] });
@@ -886,6 +1110,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     const panelSnapshot = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
     });
+    assert.isObject(panelSnapshot.mcpServer);
+    assert.isObject(panelSnapshot.mcpHealth);
     assert.equal(panelSnapshot.selectedRun?.requestId, result.requestId);
     assert.equal(panelSnapshot.selectedRun?.status, "succeeded");
     assert.equal(panelSnapshot.selectedRun?.workflowId, "demo-skill");
@@ -898,6 +1124,12 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isString(panelSnapshot.selectedRun?.requestedSkillProxyPath);
     assert.equal(panelSnapshot.selectedRun?.repairRounds, 1);
     assert.equal(panelSnapshot.selectedRun?.validationStatus, "valid");
+    assert.deepEqual(
+      panelSnapshot.selectedRun?.outputRevisions.map((entry) => entry.status),
+      ["invalid", "final"],
+    );
+    assert.include(panelSnapshot.selectedRun?.outputRevisions[0]?.candidateText || "", "This is not JSON.");
+    assert.include(panelSnapshot.selectedRun?.outputRevisions[0]?.replacementReason || "", "final");
     assert.isAtLeast(panelSnapshot.selectedRun?.skillRoots?.length || 0, 1);
     assert.isAtLeast(panelSnapshot.selectedRun?.events.length || 0, 5);
     const transcript = panelSnapshot.selectedRun?.transcriptItems || [];
@@ -911,6 +1143,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       assistantMessages.some((item) => item.text.includes("```json") && item.text.includes('"ok": true')),
     );
     assert.isFalse(assistantMessages.some((item) => item.text.includes("__SKILL_DONE__")));
+    assert.isFalse(assistantMessages.some((item) => item.text.includes("This is not JSON.")));
+    assert.isTrue(assistantMessages.some((item) => item.revision?.count === 2));
     const toolRows = transcript.filter((item) => item.kind === "tool_call");
     assert.lengthOf(toolRows, 1);
     assert.equal(toolRows[0].state, "completed");
@@ -1076,6 +1310,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(pendingAssistantMessages.some((item) => item.text === "Need user confirmation."));
     assert.isFalse(pendingAssistantMessages.some((item) => item.text.includes("__SKILL_DONE__")));
     assert.isFalse(pendingAssistantMessages.some((item) => item.text.includes("ui_hints")));
+    assert.deepEqual(capturedWaiting?.outputRevisions.map((entry) => entry.status), ["pending"]);
+    assert.isTrue(pendingAssistantMessages.some((item) => item.revision?.count === 1));
     assert.equal(result.status, "succeeded");
     assert.equal((result.resultJson as { ok?: boolean }).ok, true);
     assert.deepEqual(promptSessionIds, [
@@ -1096,6 +1332,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       finalAssistantMessages.some((item) => item.text.includes("```json") && item.text.includes('"ok": true')),
     );
     assert.isFalse(finalAssistantMessages.some((item) => item.text.includes("__SKILL_DONE__")));
+    assert.deepEqual(finished?.outputRevisions.map((entry) => entry.status), ["pending", "final"]);
     assert.isTrue(
       await fs
         .access(path.join(finished?.workspaceDir || "", "result", "result.json"))
@@ -1205,6 +1442,13 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(capturedWaiting?.applyResultState, undefined);
     assert.equal(capturedWaiting?.resultJson, undefined);
     assert.equal(capturedWaiting?.pendingInteraction?.message, "Need one more answer.");
+    assert.deepEqual(capturedWaiting?.outputRevisions.map((entry) => entry.status), ["invalid", "pending"]);
+    assert.include(capturedWaiting?.outputRevisions[0]?.replacementReason || "", "pending");
+    const waitingMessages = capturedWaiting?.transcriptItems.filter(
+      (item) => item.kind === "message" && item.role === "assistant",
+    ) || [];
+    assert.isFalse(waitingMessages.some((item) => item.text.includes("not valid json")));
+    assert.isTrue(waitingMessages.some((item) => item.revision?.count === 2));
     assert.equal(result.status, "succeeded");
     assert.equal(promptCount, 3);
   });

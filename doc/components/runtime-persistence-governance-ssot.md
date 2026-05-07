@@ -13,7 +13,9 @@ The runtime persistence root is resolved by the runtime persistence module:
 ## Managed Categories
 - `state/`: plugin runtime SQLite state, including SkillRunner ledger and ACP conversation rows.
 - `logs/`: runtime log persistence.
-- `acp/chat/`: ACP chat workspaces and runtime directories.
+- `acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations.
+- `acp/chat/conversations/`: plugin-private ACP Chat per-conversation storage; this is not the user-facing workspace and must not live inside `acp/chat/workspace/`.
+- `acp/chat/runtime/`: plugin-private ACP Chat backend runtime state.
 - `acp/skill-runs/`: ACP SkillRunner-compatible run workspaces.
 - `cache/`: runtime caches.
 - `tmp/`: temporary runtime files.
@@ -32,3 +34,5 @@ Migration is conservative. Existing runtime state may be copied into the new roo
 
 ## Development Rule
 Any new persistent runtime content that can grow over time must register a semantic path/category through the runtime persistence module and appear in preferences usage monitoring.
+
+`workspace` is reserved for directories where an agent process actually runs. Plugin-private persistence directories such as ACP Chat `conversations/` and `runtime/` must not be described as workspaces in user-facing UI.

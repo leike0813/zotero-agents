@@ -50,6 +50,7 @@ import {
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   registerAcpSkillRunController,
+  recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
   setAcpSkillRunPermissionRequest,
   setAcpSkillRunRecoveryHandler,
@@ -57,6 +58,7 @@ import {
 } from "./acpSkillRunStore";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
+import { listRuntimeChildren, statRuntimePath } from "./runtimePersistence";
 
 export type AcpSkillRunnerExecutionSnapshot = {
   requestId: string;
@@ -86,6 +88,56 @@ export type AcpSkillRunnerDependencies = {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function basename(path: string) {
+  return normalizeString(path).split(/[\\/]+/).filter(Boolean).pop() || "";
+}
+
+async function findWorkspaceActivitySnapshot(rootDir: string) {
+  const root = normalizeString(rootDir);
+  if (!root) {
+    return null;
+  }
+  const queue = [{ path: root, depth: 0 }];
+  let visited = 0;
+  let best: { path: string; size: number; mtime: number } | null = null;
+  while (queue.length > 0 && visited < 120) {
+    const current = queue.shift();
+    if (!current) break;
+    visited += 1;
+    const stat = await statRuntimePath(current.path);
+    if (!stat.exists) continue;
+    const mtime = Number((stat as { lastModified?: unknown; mtimeMs?: unknown }).lastModified || (stat as { mtimeMs?: unknown }).mtimeMs || 0) || 0;
+    if (!stat.isDir) {
+      const candidate = { path: current.path, size: stat.size, mtime };
+      if (
+        !best ||
+        candidate.mtime > best.mtime ||
+        (candidate.mtime === best.mtime && candidate.path.localeCompare(best.path) > 0)
+      ) {
+        best = candidate;
+      }
+      continue;
+    }
+    if (current.depth >= 3) continue;
+    const children = await listRuntimeChildren(current.path);
+    for (const child of children) {
+      const name = basename(child);
+      if (name === ".claude" || name === ".acp") {
+        continue;
+      }
+      queue.push({ path: child, depth: current.depth + 1 });
+    }
+  }
+  if (!best) {
+    return null;
+  }
+  return {
+    fileName: basename(best.path),
+    path: best.path,
+    signature: `${best.path}:${best.size}:${best.mtime}`,
+  };
 }
 
 function assertSkillRunnerJobRequest(value: unknown): SkillRunnerJobRequestV1 {
@@ -598,6 +650,7 @@ export async function recoverAcpSkillRunConversation(args: {
   const createAdapter = args.dependencies?.createAdapter || createAcpConnectionAdapter;
   const adapter = await createAdapter({
     backend: dependencyPlan.wrappedBackend,
+    agentWorkspaceDir: workspaceDir,
     sessionCwd: workspaceDir,
     workspaceDir,
     runtimeDir,
@@ -722,6 +775,8 @@ export async function recoverAcpSkillRunConversation(args: {
         requestId,
         kind: "pending",
         message: convergence.message,
+        candidateText: convergence.candidateText,
+        repairRound: latest.repairRounds || 0,
       });
       upsertAcpSkillRun({
         requestId,
@@ -747,6 +802,13 @@ export async function recoverAcpSkillRunConversation(args: {
       return;
     }
     if (convergence.kind !== "final") {
+      recordAcpSkillRunOutputRevision({
+        requestId,
+        status: "invalid",
+        candidateText: convergence.candidateText,
+        repairRound: latest.repairRounds || 0,
+        errors: convergence.errors,
+      });
       upsertAcpSkillRun({
         requestId,
         status: "failed",
@@ -777,6 +839,8 @@ export async function recoverAcpSkillRunConversation(args: {
       requestId,
       kind: "final",
       resultJson: convergence.resultJson,
+      candidateText: convergence.candidateText,
+      repairRound: latest.repairRounds || 0,
     });
     upsertAcpSkillRun({
       requestId,
@@ -1162,6 +1226,7 @@ export async function executeAcpSkillRunnerJob(args: {
   try {
     adapter = await createAdapter({
       backend: dependencyPlan.wrappedBackend,
+      agentWorkspaceDir: workspace.workspaceDir,
       sessionCwd: workspace.workspaceDir,
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
@@ -1188,6 +1253,9 @@ export async function executeAcpSkillRunnerJob(args: {
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
   let currentTurnAssistantText = "";
+  let workspaceActivityTimer: ReturnType<typeof setInterval> | null = null;
+  let workspaceActivitySignature = "";
+  let workspaceActivityScanRunning = false;
   let pendingReplyResolver: ((message: string) => void) | null = null;
   let pendingReplyRejecter: ((error: Error) => void) | null = null;
   let unsubscribePermission: () => void = () => undefined;
@@ -1207,6 +1275,10 @@ export async function executeAcpSkillRunnerJob(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    if (workspaceActivityTimer) {
+      clearInterval(workspaceActivityTimer);
+      workspaceActivityTimer = null;
+    }
     registerAcpSkillRunController(workspace.requestId, null);
     upsertAcpSkillRun({
       requestId: workspace.requestId,
@@ -1220,9 +1292,61 @@ export async function executeAcpSkillRunnerJob(args: {
       await adapter.close();
     }
   };
+  const scanWorkspaceActivity = async () => {
+    if (workspaceActivityScanRunning) {
+      return;
+    }
+    workspaceActivityScanRunning = true;
+    try {
+      const snapshot = await findWorkspaceActivitySnapshot(workspace.workspaceDir);
+      if (!snapshot) {
+        return;
+      }
+      if (!workspaceActivitySignature) {
+        workspaceActivitySignature = snapshot.signature;
+        return;
+      }
+      if (snapshot.signature === workspaceActivitySignature) {
+        return;
+      }
+      workspaceActivitySignature = snapshot.signature;
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "workspace-activity",
+          message: `Workspace file updated while agent is working: ${snapshot.fileName}`,
+          level: "info",
+          details: {
+            path: snapshot.path,
+          },
+        },
+      });
+    } catch {
+      // Activity hints are best-effort and must never affect prompt execution.
+    } finally {
+      workspaceActivityScanRunning = false;
+    }
+  };
+  const startWorkspaceActivityHeartbeat = () => {
+    if (workspaceActivityTimer) {
+      return;
+    }
+    void scanWorkspaceActivity();
+    workspaceActivityTimer = setInterval(() => {
+      void scanWorkspaceActivity();
+    }, 15000);
+  };
+  const stopWorkspaceActivityHeartbeat = () => {
+    if (!workspaceActivityTimer) {
+      return;
+    }
+    clearInterval(workspaceActivityTimer);
+    workspaceActivityTimer = null;
+  };
   const promptExistingSession = async (message: string) => {
     currentTurnAssistantText = "";
     captureAssistantText = true;
+    startWorkspaceActivityHeartbeat();
     try {
       const result = await runPrompt({
         adapter,
@@ -1238,6 +1362,7 @@ export async function executeAcpSkillRunnerJob(args: {
       };
     } finally {
       captureAssistantText = false;
+      stopWorkspaceActivityHeartbeat();
     }
   };
   const waitForInteractiveReply = () =>
@@ -1427,6 +1552,8 @@ export async function executeAcpSkillRunnerJob(args: {
           requestId: workspace.requestId,
           kind: "final",
           resultJson: convergence.resultJson,
+          candidateText: convergence.candidateText,
+          repairRound,
         });
         upsertAcpSkillRun({
           requestId: workspace.requestId,
@@ -1458,6 +1585,8 @@ export async function executeAcpSkillRunnerJob(args: {
           requestId: workspace.requestId,
           kind: "pending",
           message: convergence.message,
+          candidateText: convergence.candidateText,
+          repairRound,
         });
         upsertAcpSkillRun({
           requestId: workspace.requestId,
@@ -1513,6 +1642,13 @@ export async function executeAcpSkillRunnerJob(args: {
             errors: convergence.errors,
           },
         },
+      });
+      recordAcpSkillRunOutputRevision({
+        requestId: workspace.requestId,
+        status: "invalid",
+        candidateText: convergence.candidateText,
+        repairRound,
+        errors: convergence.errors,
       });
       if (repairRound >= maxRepairRounds) {
         upsertAcpSkillRun({

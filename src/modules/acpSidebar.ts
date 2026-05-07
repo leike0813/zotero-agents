@@ -447,7 +447,8 @@ async function handleSidebarAction(
       return;
     }
     if (action === "new-conversation") {
-      await startNewAcpConversation();
+      const backendId = String(envelope.payload?.backendId || "").trim();
+      await startNewAcpConversation({ backendId });
       return;
     }
     if (action === "rename-conversation") {
@@ -478,11 +479,15 @@ async function handleSidebarAction(
       return;
     }
     if (action === "connect") {
-      await connectAcpConversation();
+      await connectAcpConversation({
+        backendId: String(envelope.payload?.backendId || "").trim(),
+      });
       return;
     }
     if (action === "disconnect") {
-      await disconnectAcpConversation();
+      await disconnectAcpConversation({
+        backendId: String(envelope.payload?.backendId || "").trim(),
+      });
       return;
     }
     if (action === "cancel") {
@@ -492,6 +497,7 @@ async function handleSidebarAction(
     if (action === "authenticate") {
       const methodId = String(envelope.payload?.methodId || "").trim();
       await authenticateAcpConversation({
+        backendId: String(envelope.payload?.backendId || "").trim(),
         methodId,
       });
       return;

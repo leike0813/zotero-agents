@@ -201,6 +201,9 @@ export type AcpPendingPermissionRequest = {
   sessionId: string;
   toolCallId: string;
   toolTitle: string;
+  source?: "acp-tool-call" | "zotero-mcp-write" | string;
+  summary?: string;
+  detail?: string;
   requestedAt: string;
   options: AcpPermissionOption[];
 };
@@ -304,6 +307,8 @@ export type AcpConversationSnapshot = {
   diagnostics: AcpDiagnosticsEntry[];
   items: AcpConversationItem[];
   lastHostContext: AcpHostContext | null;
+  agentWorkspaceDir: string;
+  conversationStorageDir: string;
   sessionCwd: string;
   workspaceDir: string;
   runtimeDir: string;
@@ -385,6 +390,8 @@ export type AcpDiagnosticsBundle = {
     remoteSessionRestoreStatus: AcpRemoteSessionRestoreStatus;
     commandLabel: string;
     commandLine: string;
+    agentWorkspaceDir: string;
+    conversationStorageDir: string;
     sessionCwd: string;
     workspaceDir: string;
     runtimeDir: string;
@@ -444,6 +451,8 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     diagnostics: [],
     items: [],
     lastHostContext: null,
+    agentWorkspaceDir: "",
+    conversationStorageDir: "",
     sessionCwd: "",
     workspaceDir: "",
     runtimeDir: "",

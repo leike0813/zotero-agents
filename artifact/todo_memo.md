@@ -44,12 +44,15 @@
 - [x] 让 Tag Manager 不选中父条目也可以触发
 - [x] **test 治理**
 - [x] ACP 权限审批消息区域超限问题（改为摘要+可展开抽屉的形式），此外权限审批选项是否简化了？需要复核
-- [ ] ACP chat 和 ACP skills 的视觉统一
-- [ ] ACP 聊天区的滚动条锁定与解除问题
+- [x] ACP chat 和 ACP skills 的视觉统一
+- [x] ACP 聊天区的滚动条锁定与解除问题
 - [ ] ACP 本地已归档 transcript 的自动清理功
 - [x] 执行状态提示（和权限审批共用一个区域）
 - [x] 用量由文字提示改为类似 Codex 的转圈进度条，带tooltip，用kTokens为单位
-- [ ] plain 视图改为类似 Claude Code 的左侧状态指示灯条样式
+- [x] plain 视图改为类似 Claude Code 的左侧状态指示灯条样式
+- [ ] Skill Runner tool 消息模型调整（直接显示Tool/命令类型+摘要）
+- [ ] ACP Skills 的 Connect/Disconnect 按钮与状态失配问题
+- [ ] Skill 终态输出没有转 Markdown 的问题
 - [ ] **本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [ ] **兼容 Zotero 8**

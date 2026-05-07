@@ -208,6 +208,7 @@ task-dashboard-acp-archive-conversation = 归档
 task-dashboard-acp-archive-conversation-confirm = 归档该对话？它会从列表中隐藏。
 task-dashboard-acp-session-busy = 正在对话或等待权限审批时不能切换或修改会话。
 task-dashboard-acp-session-empty = 暂无对话。
+task-dashboard-acp-session-show-more = 显示更多...
 task-dashboard-acp-connect = 连接
 task-dashboard-acp-disconnect = 断开
 task-dashboard-acp-reconnect = 重连

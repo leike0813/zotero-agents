@@ -155,6 +155,8 @@ export function buildAcpSidebarViewSnapshot(args: {
     agentVersion: String(args.snapshot.agentVersion || "").trim(),
     sessionTitle: String(args.snapshot.sessionTitle || "").trim(),
     sessionUpdatedAt: String(args.snapshot.sessionUpdatedAt || "").trim(),
+    agentWorkspaceDir: String(args.snapshot.agentWorkspaceDir || args.snapshot.sessionCwd || "").trim(),
+    conversationStorageDir: String(args.snapshot.conversationStorageDir || "").trim(),
     sessionCwd: String(args.snapshot.sessionCwd || "").trim(),
     workspaceDir: String(args.snapshot.workspaceDir || "").trim(),
     runtimeDir: String(args.snapshot.runtimeDir || "").trim(),
@@ -252,6 +254,10 @@ export function buildAcpSidebarViewSnapshot(args: {
       sessionEmpty: localize(
         "task-dashboard-acp-session-empty" as any,
         "No conversations yet.",
+      ),
+      sessionShowMore: localize(
+        "task-dashboard-acp-session-show-more" as any,
+        "Show more...",
       ),
       connect: localize("task-dashboard-acp-connect" as any, "Connect"),
       disconnect: localize(

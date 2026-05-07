@@ -8,6 +8,7 @@ import {
   syncToolbarButtonIconFill,
 } from "./dashboardToolbarButton";
 import {
+  archiveAcpSkillRun,
   buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   connectAcpSkillRun,
@@ -369,6 +370,10 @@ async function handleSidebarAction(
     }
     if (action === "cancel-run") {
       await cancelAcpSkillRun(String(payload.requestId || "").trim());
+      return;
+    }
+    if (action === "archive-run") {
+      archiveAcpSkillRun(String(payload.requestId || "").trim());
       return;
     }
     if (action === "reply-run") {

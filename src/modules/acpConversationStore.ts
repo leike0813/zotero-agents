@@ -204,6 +204,9 @@ function parsePendingPermissionRequest(
     sessionId: normalizeString(value.sessionId),
     toolCallId: normalizeString(value.toolCallId),
     toolTitle: normalizeString(value.toolTitle),
+    source: normalizeString(value.source) || undefined,
+    summary: normalizeString(value.summary) || undefined,
+    detail: normalizeString(value.detail) || undefined,
     requestedAt: normalizeString(value.requestedAt) || nowIso(),
     options,
   };
@@ -467,6 +470,13 @@ function normalizeSnapshotPayload(args: {
     );
     snapshot.diagnostics = parseDiagnostics(parsed.diagnostics);
     snapshot.lastHostContext = parseHostContext(parsed.lastHostContext);
+    snapshot.agentWorkspaceDir = normalizeString(parsed.agentWorkspaceDir);
+    const legacyParsed = parsed as Partial<AcpConversationSnapshot> & {
+      privateStorageDir?: unknown;
+    };
+    snapshot.conversationStorageDir = normalizeString(
+      parsed.conversationStorageDir || legacyParsed.privateStorageDir,
+    );
     snapshot.sessionCwd = normalizeString(parsed.sessionCwd);
     snapshot.workspaceDir = normalizeString(parsed.workspaceDir);
     snapshot.runtimeDir = normalizeString(parsed.runtimeDir);
@@ -479,31 +489,30 @@ function normalizeSnapshotPayload(args: {
   return snapshot;
 }
 
-export function resolveAcpStoragePaths(
+export function resolveAcpChatRuntimePaths(
   backendIdRaw: string,
   conversationIdRaw?: string,
 ) {
   const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId = normalizeString(conversationIdRaw);
   const paths = getRuntimePersistencePaths();
+  const agentWorkspaceDir = paths.acpChatWorkspaceDir;
+  const conversationStorageDir = conversationId
+    ? joinPath(paths.acpChatConversationsDir, backendId, conversationId)
+    : joinPath(paths.acpChatConversationsDir, backendId);
   return {
-    workspaceDir: conversationId
-      ? joinPath(paths.acpChatWorkspacesDir, backendId, conversationId)
-      : joinPath(paths.acpChatWorkspacesDir, backendId),
+    agentWorkspaceDir,
+    conversationStorageDir,
+    workspaceDir: agentWorkspaceDir,
+    storageDir: conversationStorageDir,
     runtimeDir: joinPath(paths.acpChatRuntimeDir, backendId),
   };
 }
 
+export const resolveAcpStoragePaths = resolveAcpChatRuntimePaths;
+
 export function resolveAcpSessionCwd() {
-  const runtime = globalThis as {
-    Zotero?: { DataDirectory?: { dir?: string } };
-    process?: { cwd?: () => string };
-  };
-  const dataDir = normalizeString(runtime.Zotero?.DataDirectory?.dir);
-  if (dataDir) {
-    return dataDir;
-  }
-  return normalizeString(runtime.process?.cwd?.());
+  return getRuntimePersistencePaths().acpChatWorkspaceDir;
 }
 
 function deriveConversationTitle(args: {
@@ -994,6 +1003,8 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       lastHostContext: snapshot.lastHostContext
         ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
         : null,
+      agentWorkspaceDir: snapshot.agentWorkspaceDir,
+      conversationStorageDir: snapshot.conversationStorageDir,
       sessionCwd: snapshot.sessionCwd,
       workspaceDir: snapshot.workspaceDir,
       runtimeDir: snapshot.runtimeDir,

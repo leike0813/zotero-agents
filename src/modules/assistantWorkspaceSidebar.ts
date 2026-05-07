@@ -40,6 +40,7 @@ import {
 import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
+  archiveAcpSkillRun,
   buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   connectAcpSkillRun,
@@ -760,6 +761,10 @@ async function handleAcpSkillRunAction(
       await cancelAcpSkillRun(String(payload.requestId || "").trim());
       return;
     }
+    if (action === "archive-run") {
+      archiveAcpSkillRun(String(payload.requestId || "").trim());
+      return;
+    }
     if (action === "end-session") {
       await endAcpSkillRunSession(String(payload.requestId || "").trim());
       return;
@@ -845,7 +850,8 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "new-conversation") {
-      await startNewAcpConversation();
+      const backendId = String(payload.backendId || "").trim();
+      await startNewAcpConversation({ backendId });
       return;
     }
     if (action === "rename-conversation") {
@@ -866,11 +872,11 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "connect") {
-      await connectAcpConversation();
+      await connectAcpConversation({ backendId: String(payload.backendId || "").trim() });
       return;
     }
     if (action === "disconnect") {
-      await disconnectAcpConversation();
+      await disconnectAcpConversation({ backendId: String(payload.backendId || "").trim() });
       return;
     }
     if (action === "cancel") {
@@ -878,7 +884,10 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "authenticate") {
-      await authenticateAcpConversation({ methodId: String(payload.methodId || "").trim() });
+      await authenticateAcpConversation({
+        backendId: String(payload.backendId || "").trim(),
+        methodId: String(payload.methodId || "").trim(),
+      });
       return;
     }
     if (action === "resolve-permission") {

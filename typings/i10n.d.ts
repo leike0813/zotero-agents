@@ -282,6 +282,7 @@ export type FluentMessageId =
   | 'task-dashboard-acp-session-cwd'
   | 'task-dashboard-acp-session-empty'
   | 'task-dashboard-acp-session-manager'
+  | 'task-dashboard-acp-session-show-more'
   | 'task-dashboard-acp-status-auth-required'
   | 'task-dashboard-acp-status-checking-command'
   | 'task-dashboard-acp-status-connected'

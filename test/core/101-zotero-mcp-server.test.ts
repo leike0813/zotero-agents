@@ -21,13 +21,19 @@ import {
   ZOTERO_MCP_TOOL_ADD_ITEM_TAGS,
   ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
   ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS,
+  ZOTERO_MCP_TOOL_GET_ITEM_DETAIL,
   ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
   ZOTERO_MCP_TOOL_GET_MCP_STATUS,
   ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
+  ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
   ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS,
+  ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
   ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+  ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+  ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
   ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
   ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+  ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
 } from "../../src/modules/zoteroMcpProtocol";
 
 const dynamicImport = new Function(
@@ -74,6 +80,14 @@ function parseRawHttpResponse(raw: string) {
 
 function parseJsonBody(raw: string) {
   return JSON.parse(parseRawHttpResponse(raw).body);
+}
+
+function toolText(response: any) {
+  return String(response?.result?.content?.[0]?.text || "");
+}
+
+function assertNotCountOnlyToolText(text: string) {
+  assert.notMatch(text.trim(), /^(Selected Zotero items|Found|Listed)\s+\d+\b[^.\n]*\.$/);
 }
 
 async function readRequestBody(request: any) {
@@ -352,7 +366,10 @@ describe("embedded Zotero MCP server protocol", function () {
       "get_item_detail",
       "get_item_notes",
       ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
+      ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+      ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
       ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS,
+      ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
       ZOTERO_MCP_TOOL_GET_MCP_STATUS,
       ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
       "update_item_fields",
@@ -360,6 +377,8 @@ describe("embedded Zotero MCP server protocol", function () {
       "remove_item_tags",
       "create_child_note",
       "update_note",
+      ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
+      ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
       "add_items_to_collection",
       "remove_items_from_collection",
     ]);
@@ -387,6 +406,15 @@ describe("embedded Zotero MCP server protocol", function () {
       (tool: { name: string }) => tool.name === ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
     );
     assert.include(noteDetail.description, "bounded chunks");
+    const notePayload = (response as any).result.tools.find(
+      (tool: { name: string }) => tool.name === ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+    );
+    assert.include(notePayload.description, "Decode one hidden workflow payload");
+    const createMarkdownNote = (response as any).result.tools.find(
+      (tool: { name: string }) =>
+        tool.name === ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
+    );
+    assert.deepEqual(createMarkdownNote.inputSchema.required, ["title", "markdown"]);
   });
 
   it("accepts MCP initialized notification without returning an error", async function () {
@@ -555,10 +583,16 @@ describe("embedded Zotero MCP server protocol", function () {
     );
 
     assert.strictEqual((response as any).result.structuredContent.items[0].key, "READTOOL1");
-    assert.include((response as any).result.content[0].text, "Selected Zotero items: 1");
+    const text = toolText(response);
+    assert.include(text, "READTOOL1");
+    assert.include(text, "libraryId=1");
+    assert.include(text, "type=journalArticle");
+    assert.include(text, ZOTERO_MCP_TOOL_GET_ITEM_DETAIL);
+    assertNotCountOnlyToolText(text);
   });
 
   it("returns paged library item summaries without large child content", async function () {
+    let observedArgs: any = null;
     const response = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -577,7 +611,9 @@ describe("embedded Zotero MCP server protocol", function () {
         resolveHostApi: () =>
           ({
             library: {
-              listItems: async () => ({
+              listItems: async (args: any) => {
+                observedArgs = args;
+                return {
                 items: [
                   {
                     id: 10,
@@ -589,7 +625,8 @@ describe("embedded Zotero MCP server protocol", function () {
                     year: "",
                     date: "",
                     publicationTitle: "",
-                    tags: [],
+                    creators: ["Long Creator Name"],
+                    tags: ["large-tag-that-should-not-be-returned-in-index"],
                     collections: ["COLLKEY"],
                     noteCount: 2,
                     attachmentCount: 1,
@@ -600,18 +637,127 @@ describe("embedded Zotero MCP server protocol", function () {
                 returned: 1,
                 hasMore: true,
                 filters: {},
+              };
+              },
+            },
+          }) as any,
+      },
+    );
+
+    assert.strictEqual(observedArgs.limit, 1);
+    const structured = (response as any).result.structuredContent;
+    assert.strictEqual(structured.items[0].key, "PARENTKEY");
+    assert.strictEqual(structured.items[0].noteCount, 2);
+    assert.isTrue(structured.compact);
+    assert.notProperty(structured.items[0], "creators");
+    assert.notProperty(structured.items[0], "tags");
+    assert.notProperty(structured.items[0], "collections");
+    assert.notProperty(structured.items[0], "publicationTitle");
+    assert.isTrue(structured.hasMore);
+    assert.notProperty(structured.items[0], "notes");
+    assert.notProperty(structured.items[0], "attachments");
+    const text = toolText(response);
+    assert.include(text, "PARENTKEY");
+    assert.include(text, "libraryId=1");
+    assert.include(text, "notes=2");
+    assert.include(text, "attachments=1");
+    assert.include(text, "hasMore=true");
+    assert.include(text, "nextCursor=1");
+    assert.include(text, "Use get_item_detail for full metadata");
+    assert.include(text, ZOTERO_MCP_TOOL_GET_ITEM_DETAIL);
+    assertNotCountOnlyToolText(text);
+  });
+
+  it("caps list_library_items page size for agent-safe MCP responses", async function () {
+    let observedArgs: any = null;
+    await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "library-list-cap",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+          arguments: {
+            limit: 200,
+          },
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            library: {
+              listItems: async (args: any) => {
+                observedArgs = args;
+                return {
+                  items: [],
+                  nextCursor: "",
+                  totalScanned: 0,
+                  returned: 0,
+                  hasMore: false,
+                  filters: {},
+                };
+              },
+            },
+          }) as any,
+      },
+    );
+
+    assert.strictEqual(observedArgs.limit, 50);
+  });
+
+  it("returns actionable item detail summaries", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "item-detail",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_GET_ITEM_DETAIL,
+          arguments: {
+            key: "PARENTKEY",
+            libraryId: 1,
+          },
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            library: {
+              getItemDetail: async () => ({
+                id: 10,
+                key: "PARENTKEY",
+                libraryId: 1,
+                itemType: "journalArticle",
+                title: "Parent Paper",
+                creators: ["Example Author"],
+                year: "2024",
+                date: "2024",
+                publicationTitle: "Journal",
+                tags: ["mcp"],
+                collections: [],
+                fields: {
+                  DOI: "10.123/example",
+                  abstractNote: "This paper has a useful abstract.",
+                },
+                noteCount: 2,
+                attachmentCount: 1,
+                relatedItemKeys: [],
               }),
             },
           }) as any,
       },
     );
 
-    const structured = (response as any).result.structuredContent;
-    assert.strictEqual(structured.items[0].key, "PARENTKEY");
-    assert.strictEqual(structured.items[0].noteCount, 2);
-    assert.isTrue(structured.hasMore);
-    assert.notProperty(structured.items[0], "notes");
-    assert.notProperty(structured.items[0], "attachments");
+    const text = toolText(response);
+    assert.include(text, "PARENTKEY");
+    assert.include(text, "libraryId=1");
+    assert.include(text, "Parent Paper");
+    assert.include(text, "notes=2");
+    assert.include(text, "attachments=1");
+    assert.include(text, "10.123/example");
+    assert.include(text, ZOTERO_MCP_TOOL_GET_ITEM_NOTES);
+    assert.include(text, ZOTERO_MCP_TOOL_GET_ITEM_ATTACHMENTS);
+    assertNotCountOnlyToolText(text);
   });
 
   it("returns note summaries by default and reads note details in chunks", async function () {
@@ -652,6 +798,13 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(notes[0].key, "NOTEKEY1");
     assert.strictEqual(notes[0].textLength, largeText.length);
     assert.notProperty(notes[0], "html");
+    const notesText = toolText(notesResponse);
+    assert.include(notesText, "NOTEKEY1");
+    assert.include(notesText, "libraryId=1");
+    assert.include(notesText, "textLength=1000");
+    assert.include(notesText, largeText.slice(0, 20));
+    assert.include(notesText, ZOTERO_MCP_TOOL_GET_NOTE_DETAIL);
+    assertNotCountOnlyToolText(notesText);
 
     const detailResponse = await handleZoteroMcpRequestForTests(
       {
@@ -692,6 +845,12 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(note.content, largeText.slice(0, 12));
     assert.isTrue(note.hasMore);
     assert.strictEqual(note.nextOffset, 12);
+    const detailText = toolText(detailResponse);
+    assert.include(detailText, "0-12");
+    assert.include(detailText, "nextOffset");
+    assert.include(detailText, "totalChars");
+    assert.include(detailText, "hasMore=true");
+    assert.include(detailText, ZOTERO_MCP_TOOL_GET_NOTE_DETAIL);
   });
 
   it("returns a JSON-RPC error when a tool backend throws", async function () {
@@ -747,6 +906,15 @@ describe("embedded Zotero MCP server protocol", function () {
             library: {
               getItemAttachments: async () => [
                 {
+                  id: 4,
+                  key: "ATTACHMD",
+                  libraryId: 1,
+                  title: "paper.md",
+                  contentType: "text/markdown",
+                  path: "C:\\Users\\leike\\Zotero\\storage\\ATTACHMD\\paper.md",
+                  filename: "paper.md",
+                },
+                {
                   id: 2,
                   key: "ATTACH1",
                   libraryId: 1,
@@ -773,10 +941,215 @@ describe("embedded Zotero MCP server protocol", function () {
     const attachments = (response as any).result.structuredContent.attachments;
     assert.strictEqual(attachments[0].access.mode, "local-path");
     assert.strictEqual(attachments[0].access.locality, "same-host");
-    assert.include(attachments[0].access.path, "paper.pdf");
+    assert.include(attachments[0].access.path, "paper.md");
+    assert.strictEqual(attachments[0].contentRole, "markdown-fulltext");
+    assert.strictEqual(attachments[0].readability, "direct-text");
+    assert.strictEqual(attachments[0].recommendedForReading, true);
+    assert.isAbove(attachments[0].rank, attachments[1].rank);
     assert.isUndefined(attachments[0].access.url);
-    assert.strictEqual(attachments[1].access.mode, "unavailable");
+    assert.strictEqual(attachments[2].access.mode, "unavailable");
     assert.notProperty(attachments[0], "content");
+    const text = toolText(response);
+    assert.include(text, "Recommended for reading");
+    assert.include(text, "ATTACHMD");
+    assert.include(text, "contentRole=markdown-fulltext");
+    assert.include(text, "recommendedForReading=true");
+    assert.include(text, "ATTACH1");
+    assert.include(text, "paper.pdf");
+    assert.include(text, "contentType=application/pdf");
+    assert.include(text, "access.mode=local-path");
+    assert.include(text, "locality=same-host");
+    assert.include(text, "File content is not returned");
+    assert.include(text, "ATTACH2");
+    assert.include(text, "access.mode=unavailable");
+    assertNotCountOnlyToolText(text);
+  });
+
+  it("prepares paper reading context from a single selected item", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "reading-context",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
+          arguments: {},
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            context: {
+              getCurrentView: () => ({
+                target: "library",
+                libraryId: 1,
+                selectionEmpty: false,
+                selectedItems: [
+                  {
+                    id: 1,
+                    key: "PAPER1",
+                    libraryId: 1,
+                    itemType: "journalArticle",
+                    title: "Context Paper",
+                    creators: ["Lin"],
+                    year: "2021",
+                    date: "2021",
+                    publicationTitle: "Test Journal",
+                    tags: [],
+                    collections: [],
+                  },
+                ],
+              }),
+              getSelectedItems: () => [],
+            },
+            library: {
+              getItemDetail: async () => ({
+                id: 1,
+                key: "PAPER1",
+                libraryId: 1,
+                itemType: "journalArticle",
+                title: "Context Paper",
+                creators: ["Lin"],
+                year: "2021",
+                date: "2021",
+                publicationTitle: "Test Journal",
+                tags: ["detr"],
+                collections: [],
+                fields: {
+                  DOI: "10.1234/example",
+                },
+                noteCount: 1,
+                attachmentCount: 2,
+                relatedItemKeys: [],
+              }),
+              getItemNotes: async () => [
+                {
+                  id: 10,
+                  key: "NOTE1",
+                  libraryId: 1,
+                  title: "Digest",
+                  textExcerpt: "Key finding excerpt",
+                  textLength: 120,
+                },
+              ],
+              listNotePayloads: async () => [
+                {
+                  payloadType: "digest-markdown",
+                  noteKind: "digest",
+                  version: "1",
+                  encoding: "base64",
+                  estimatedSize: 200,
+                  format: "markdown",
+                },
+              ],
+              getItemAttachments: async () => [
+                {
+                  id: 2,
+                  key: "FULLMD",
+                  libraryId: 1,
+                  title: "main-fulltext.md",
+                  contentType: "text/markdown",
+                  path: "C:\\Zotero\\storage\\FULLMD\\main-fulltext.md",
+                  filename: "main-fulltext.md",
+                },
+                {
+                  id: 3,
+                  key: "PDF1",
+                  libraryId: 1,
+                  title: "paper.pdf",
+                  contentType: "application/pdf",
+                  path: "C:\\Zotero\\storage\\PDF1\\paper.pdf",
+                  filename: "paper.pdf",
+                },
+              ],
+            },
+          }) as any,
+      },
+    );
+
+    const structured = (response as any).result.structuredContent;
+    assert.strictEqual(structured.source, "single-selection");
+    assert.strictEqual(structured.item.key, "PAPER1");
+    assert.strictEqual(structured.notes[0].key, "NOTE1");
+    assert.strictEqual(
+      structured.notePayloads[0].payloads[0].readableAsMarkdown,
+      true,
+    );
+    assert.strictEqual(structured.recommendedAttachment.key, "FULLMD");
+    assert.strictEqual(
+      structured.recommendedAttachment.contentRole,
+      "markdown-fulltext",
+    );
+    assert.notProperty(structured.recommendedAttachment, "content");
+    const text = toolText(response);
+    assert.include(text, "Prepared Zotero paper reading context");
+    assert.include(text, "recommendedAttachment");
+    assert.include(text, "FULLMD");
+    assert.include(text, "digest-markdown");
+    assert.include(text, ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
+    assert.include(text, "Attachment file content is not returned");
+  });
+
+  it("does not guess a paper reading context for multiple selected items", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "reading-context-multi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
+          arguments: {},
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            context: {
+              getCurrentView: () => ({
+                target: "library",
+                libraryId: 1,
+                selectionEmpty: false,
+                selectedItems: [
+                  {
+                    id: 1,
+                    key: "PAPER1",
+                    libraryId: 1,
+                    itemType: "journalArticle",
+                    title: "One",
+                    creators: [],
+                    year: "",
+                    date: "",
+                    publicationTitle: "",
+                    tags: [],
+                    collections: [],
+                  },
+                  {
+                    id: 2,
+                    key: "PAPER2",
+                    libraryId: 1,
+                    itemType: "journalArticle",
+                    title: "Two",
+                    creators: [],
+                    year: "",
+                    date: "",
+                    publicationTitle: "",
+                    tags: [],
+                    collections: [],
+                  },
+                ],
+              }),
+              getSelectedItems: () => [],
+            },
+          }) as any,
+      },
+    );
+
+    assert.strictEqual((response as any).error.code, -32602);
+    assert.include((response as any).error.message, "multiple selected");
+    assert.strictEqual(
+      (response as any).error.data.details.candidates[0].item.key,
+      "PAPER1",
+    );
   });
 
   it("returns structured item-not-found errors for broker read tools", async function () {
@@ -798,6 +1171,104 @@ describe("embedded Zotero MCP server protocol", function () {
       (response as any).error.data.errorName,
       "ZoteroItemNotFoundError",
     );
+  });
+
+  it("lists and reads Zotero note payloads for workflow notes", async function () {
+    const hostApi = {
+      library: {
+        listNotePayloads: async () => [
+          {
+            payloadType: "digest-markdown",
+            noteKind: "digest",
+            version: "1",
+            encoding: "base64",
+            estimatedSize: 42,
+            format: "markdown",
+          },
+          {
+            payloadType: "references-json",
+            noteKind: "references",
+            version: "1",
+            encoding: "base64",
+            estimatedSize: 120,
+            format: "json",
+          },
+        ],
+        getNotePayload: async () => ({
+          payloadType: "digest-markdown",
+          noteKind: "digest",
+          version: "1",
+          encoding: "base64",
+          estimatedSize: 42,
+          format: "markdown",
+          markdown: "# Digest\n\nBody",
+          payload: {
+            version: 1,
+            content: "# Digest\n\nBody",
+          },
+          content: "# Digest",
+          offset: 0,
+          nextOffset: 8,
+          totalChars: 14,
+          hasMore: true,
+          truncated: true,
+        }),
+      },
+    } as any;
+
+    const listed = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "payloads",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
+          arguments: {
+            key: "NOTEPAY1",
+            libraryId: 1,
+          },
+        },
+      },
+      {
+        resolveHostApi: () => hostApi,
+      },
+    );
+    const listedText = toolText(listed);
+    assert.include(listedText, "digest-markdown");
+    assert.include(listedText, "references-json");
+    assert.include(listedText, ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
+    assert.deepEqual(
+      (listed as any).result.structuredContent.payloads.map(
+        (entry: { payloadType: string }) => entry.payloadType,
+      ),
+      ["digest-markdown", "references-json"],
+    );
+
+    const detail = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "payload",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
+          arguments: {
+            key: "NOTEPAY1",
+            libraryId: 1,
+            payloadType: "digest-markdown",
+            maxChars: 8,
+          },
+        },
+      },
+      {
+        resolveHostApi: () => hostApi,
+      },
+    );
+    const detailPayload = (detail as any).result.structuredContent.payload;
+    assert.strictEqual(detailPayload.payloadType, "digest-markdown");
+    assert.strictEqual(detailPayload.markdown, "# Digest\n\nBody");
+    assert.strictEqual(detailPayload.hasMore, true);
+    assert.include(toolText(detail), "nextOffset=8");
+    assert.include(toolText(detail), "hasMore=true");
   });
 
   it("previews mutations without requesting permission or executing", async function () {
@@ -848,6 +1319,10 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(permissionCalls, 0);
     assert.isFalse((response as any).result.structuredContent.executed);
     assert.strictEqual((response as any).result.structuredContent.preview.summary, "Add 1 tag.");
+    const text = toolText(response);
+    assert.include(text, "executed=false");
+    assert.include(text, "permission=not_requested");
+    assert.include(text, "No Zotero write was executed");
   });
 
   it("executes write tools only after permission approval", async function () {
@@ -913,6 +1388,175 @@ describe("embedded Zotero MCP server protocol", function () {
       (response as any).result.structuredContent.verificationHint,
       ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
     );
+    const text = toolText(response);
+    assert.include(text, "permission=approved");
+    assert.include(text, "executed=true");
+    assert.include(text, "Verify:");
+  });
+
+  it("creates markdown-backed notes through permission-gated mutation flow", async function () {
+    let mutationContent = "";
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "create-md-note",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
+          arguments: {
+            parent: {
+              key: "PARENT1",
+              libraryId: 1,
+            },
+            title: "Agent Note",
+            markdown: "# Agent Note\n\nBody",
+          },
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            mutations: {
+              preview: async (mutation: any) => {
+                mutationContent = mutation.content;
+                return {
+                  ok: true,
+                  operation: mutation.operation,
+                  targetRefs: [],
+                  summary: "Create markdown note.",
+                  warnings: [],
+                  requiresConfirmation: true,
+                };
+              },
+              execute: async (mutation: any) => ({
+                ok: true,
+                operation: mutation.operation,
+                targetRefs: [],
+                summary: "Created markdown note.",
+                warnings: [],
+                requiresConfirmation: true,
+                result: {
+                  notes: [
+                    {
+                      key: "NOTE1",
+                      libraryId: 1,
+                      title: "Agent Note",
+                    },
+                  ],
+                },
+              }),
+            },
+          }) as any,
+        requestToolPermission: () => ({
+          outcome: "approved",
+        }),
+      },
+    );
+
+    assert.include(mutationContent, 'data-zs-note-kind="custom"');
+    assert.include(mutationContent, 'data-zs-payload="custom-markdown"');
+    assert.include(mutationContent, 'data-zs-encoding="base64"');
+    assert.isTrue((response as any).result.structuredContent.executed);
+    assert.strictEqual(
+      (response as any).result.structuredContent.payloadType,
+      "custom-markdown",
+    );
+    assert.include(toolText(response), "payloadType=custom-markdown");
+    assert.include(toolText(response), ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
+  });
+
+  it("updates markdown-backed notes only when the expected payload matches", async function () {
+    let executeCalls = 0;
+    const hostApi = {
+      library: {
+        listNotePayloads: async () => [
+          {
+            payloadType: "conversation-note-markdown",
+            noteKind: "conversation-note",
+            version: "1",
+            encoding: "base64",
+            estimatedSize: 20,
+            format: "markdown",
+          },
+        ],
+      },
+      mutations: {
+        preview: async (mutation: any) => ({
+          ok: true,
+          operation: mutation.operation,
+          targetRefs: [],
+          summary: "Update markdown note.",
+          warnings: [],
+          requiresConfirmation: true,
+        }),
+        execute: async (mutation: any) => {
+          executeCalls += 1;
+          assert.include(mutation.content, 'data-zs-payload="conversation-note-markdown"');
+          return {
+            ok: true,
+            operation: mutation.operation,
+            targetRefs: [],
+            summary: "Updated markdown note.",
+            warnings: [],
+            requiresConfirmation: true,
+            result: {
+              notes: [],
+            },
+          };
+        },
+      },
+    } as any;
+    const updated = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "update-md-note",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
+          arguments: {
+            note: {
+              key: "NOTE1",
+              libraryId: 1,
+            },
+            title: "Conversation Note",
+            markdown: "# Updated",
+            expectedPayloadType: "conversation-note-markdown",
+          },
+        },
+      },
+      {
+        resolveHostApi: () => hostApi,
+        requestToolPermission: () => true,
+      },
+    );
+    assert.strictEqual(executeCalls, 1);
+    assert.isTrue((updated as any).result.structuredContent.executed);
+
+    const rejected = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "reject-md-note",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
+          arguments: {
+            note: {
+              key: "NOTE1",
+              libraryId: 1,
+            },
+            markdown: "# Updated",
+            expectedPayloadType: "references-json",
+          },
+        },
+      },
+      {
+        resolveHostApi: () => hostApi,
+        requestToolPermission: () => true,
+      },
+    );
+    assert.strictEqual((rejected as any).error.code, -32602);
+    assert.include((rejected as any).error.message, "expected markdown payload not found");
+    assert.strictEqual(executeCalls, 1);
   });
 
   it("does not execute write tools when permission is denied or unavailable", async function () {
@@ -998,6 +1642,10 @@ describe("embedded Zotero MCP server protocol", function () {
       (unavailable as any).result.structuredContent.permission.outcome,
       "unavailable",
     );
+    assert.include(toolText(denied), "permission=denied");
+    assert.include(toolText(denied), "executed=false");
+    assert.include(toolText(denied), "No Zotero write was executed");
+    assert.include(toolText(unavailable), "permission=unavailable");
   });
 
   it("is compatible with the official MCP Streamable HTTP client", async function () {

@@ -4,154 +4,58 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SkillRunner Workspace</title>
+    <link rel="stylesheet" href="./assistant-panel-shared.css" />
     <link rel="stylesheet" href="./run-dialog.css" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
   </head>
   <body>
-    <div id="run-root" class="workspace-root">
-      <div id="workspace-backdrop" class="workspace-backdrop hidden"></div>
-      <aside id="workspace-sidebar" class="workspace-sidebar">
-        <div class="workspace-sidebar-header">
-          <div class="section-title">Sessions</div>
-          <button id="workspace-drawer-close" class="btn hidden" type="button">Close</button>
-        </div>
-        <div id="workspace-empty" class="workspace-empty hidden">No SkillRunner tasks.</div>
-        <div id="workspace-context-note" class="workspace-context-note hidden"></div>
-        <div id="workspace-groups" class="workspace-groups"></div>
-      </aside>
-
-      <main class="workspace-main">
-        <section id="workspace-global-actions" class="workspace-global-actions hidden">
-          <button id="sessions-toggle-btn" class="btn hidden" type="button">Sessions</button>
-          <button id="close-sidebar-btn" class="btn hidden" type="button">Close</button>
-        </section>
-        <section id="selection-task-strip" class="selection-task-strip hidden">
-          <div id="selection-task-title" class="selection-task-title"></div>
-          <div id="selection-task-list" class="selection-task-list"></div>
-        </section>
-        <section class="card banner-card">
-          <div class="banner-top-row">
-            <div class="title-cluster">
-              <h1 id="run-title" class="title">SkillRunner Workspace</h1>
-              <span
-                id="context-indicator"
-                class="context-indicator hidden"
-                aria-label="Related to current selection"
-                title=""
-              ></span>
-            </div>
-            <div class="header-actions">
-              <button id="cancel-run-btn" class="btn btn-danger" type="button">Cancel Run</button>
-            </div>
-          </div>
-          <div id="run-subtitle" class="subtitle"></div>
-          <div id="run-meta" class="meta-strip">
-            <div id="meta-backend-chip" class="meta-chip hidden">
-              <strong id="meta-label-backend">Backend</strong>
-              <span id="run-backend">-</span>
-            </div>
-            <div id="meta-status-chip" class="meta-chip">
-              <strong id="meta-label-status">Status</strong>
-              <span id="run-status" class="status-badge">-</span>
-            </div>
-            <div id="meta-engine-chip" class="meta-chip hidden">
-              <strong id="meta-label-engine">Engine</strong>
-              <span id="run-engine">-</span>
-            </div>
-            <div id="meta-model-chip" class="meta-chip hidden">
-              <strong id="meta-label-model">Model</strong>
-              <span id="run-model">-</span>
-            </div>
-            <div id="meta-updated-chip" class="meta-chip hidden">
-              <strong id="meta-label-updated-at">Updated At</strong>
-              <span id="run-updated-at">-</span>
-            </div>
+    <main id="run-root" class="skillrunner-panel-shell asst-panel-shell">
+      <header id="skillrunner-toolbar" class="skillrunner-toolbar asst-shell-toolbar"></header>
+      <section id="skillrunner-banner" class="skillrunner-banner asst-banner"></section>
+      <section id="skillrunner-drawer" class="skillrunner-drawer hidden"></section>
+      <section id="skillrunner-details" class="skillrunner-details hidden"></section>
+      <section id="skillrunner-empty" class="empty-state">No SkillRunner task selected.</section>
+      <section id="skillrunner-main" class="skillrunner-main hidden">
+        <section
+          id="skillrunner-conversation-window"
+          class="skillrunner-conversation-window asst-conversation-surface"
+        >
+          <section id="chat-panel" class="skillrunner-transcript"></section>
+          <div class="asst-conversation-overlay-menu" aria-label="Conversation view">
+            <button
+              id="chat-mode-plain"
+              class="asst-button-compact"
+              type="button"
+              data-assistant-view-mode="plain"
+              aria-label="Plain transcript view"
+              aria-pressed="true"
+            >
+              Plain
+            </button>
+            <button
+              id="chat-mode-bubble"
+              class="asst-button-compact"
+              type="button"
+              data-assistant-view-mode="bubble"
+              aria-label="Bubble conversation view"
+              aria-pressed="false"
+            >
+              Bubble
+            </button>
           </div>
         </section>
-
-        <section class="card conversation-card">
-          <div class="header-row chat-view-header">
-            <div id="conversation-title" class="section-title">Conversation</div>
-            <div class="chat-view-toggle">
-              <span class="muted">View</span>
-              <button id="chat-mode-plain" class="btn" type="button" aria-pressed="true">Plain</button>
-              <button id="chat-mode-bubble" class="btn" type="button" aria-pressed="false">Bubble</button>
-            </div>
-          </div>
-          <div id="chat-panel" class="chat-panel"></div>
-
-          <div id="thinking-card" class="thinking-card hidden" role="status" aria-live="polite">
-            <div class="thinking-dots" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <div id="thinking-title" class="thinking-title">Agent is thinking</div>
-              <div id="thinking-desc" class="thinking-desc">Running inference and preparing the next response...</div>
-            </div>
-          </div>
-
-          <div id="final-summary-card" class="prompt-card hidden" role="status" aria-live="polite">
-            <div id="final-summary-title" class="section-title">Final Summary</div>
-            <div id="final-summary-status"></div>
-          </div>
-
-          <div id="prompt-card" class="prompt-card hidden">
-            <div id="prompt-card-title" class="section-title">Pending Input Request</div>
-            <div id="prompt-card-text"></div>
-            <div id="prompt-card-hint" class="prompt-list hidden"></div>
-            <div id="prompt-card-files" class="prompt-list hidden"></div>
-            <div class="prompt-meta">
-              <span><span id="prompt-meta-id-label">interaction_id:</span> <code id="prompt-card-id">-</code></span>
-              <span><span id="prompt-meta-kind-label">kind:</span> <code id="prompt-card-kind">-</code></span>
-            </div>
-            <div id="prompt-card-required" class="prompt-list hidden"></div>
-            <div id="prompt-card-actions" class="action-button-group hidden"></div>
-          </div>
-
-          <div id="auth-card" class="prompt-card hidden">
-            <div id="auth-card-title" class="section-title">Authentication Required</div>
-            <div id="auth-card-text"></div>
-            <div id="auth-card-hint" class="prompt-list hidden"></div>
-            <div class="prompt-meta">
-              <span><span id="auth-meta-session-label">auth_session_id:</span> <code id="auth-card-id">-</code></span>
-              <span><span id="auth-meta-engine-label">engine:</span> <code id="auth-card-engine">-</code></span>
-              <span><span id="auth-meta-provider-label">provider:</span> <code id="auth-card-provider">-</code></span>
-            </div>
-            <div id="auth-card-actions" class="action-button-group hidden"></div>
-            <div id="auth-card-link" class="prompt-list hidden"></div>
-            <div id="auth-card-code" class="prompt-list hidden"></div>
-            <div id="auth-card-error" class="prompt-list hidden"></div>
-
-            <div id="auth-import-panel" class="prompt-list hidden">
-              <div id="auth-import-hint" class="import-hint"></div>
-              <div id="auth-import-risk" class="prompt-list hidden import-risk"></div>
-              <div id="auth-import-files" class="action-button-group"></div>
-              <div class="import-actions">
-                <button id="auth-import-submit" class="btn btn-primary" type="button">Import and Continue</button>
-              </div>
-            </div>
-          </div>
-
-          <form id="reply-form" class="reply-box">
-            <input type="hidden" id="interaction-id" value="" />
-            <input type="hidden" id="auth-session-id" value="" />
-            <input type="hidden" id="auth-reply-mode" value="" />
-            <input type="hidden" id="auth-input-kind" value="" />
-            <div id="reply-composer">
-              <textarea id="reply-text" rows="3" placeholder="Reply to agent..." disabled></textarea>
-              <div class="reply-actions">
-                <button id="reply-submit" class="btn btn-primary" type="submit" disabled>Send Reply</button>
-                <span id="reply-shortcut-hint" class="muted">Ctrl+Enter / Cmd+Enter to send</span>
-              </div>
-            </div>
-            <div id="reply-error" class="prompt-list hidden"></div>
-          </form>
-        </section>
-      </main>
-    </div>
+        <section id="skillrunner-plan" class="skillrunner-plan asst-plan-surface hidden"></section>
+        <section id="skillrunner-hint" class="skillrunner-hint asst-hint-surface hidden"></section>
+        <section id="reply-form" class="skillrunner-reply asst-reply-surface"></section>
+      </section>
+    </main>
     <script src="./vendor/katex/katex.min.js"></script>
     <script src="./vendor/markdown-it/markdown-it.min.js"></script>
     <script src="./vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script src="./assistant-conversation-view.js"></script>
+    <script src="./assistant-transcript-renderer.js"></script>
+    <script src="./assistant-panel-model.js"></script>
+    <script src="./assistant-panel-renderer.js"></script>
     <script src="./chat_thinking_core.js?v=20260405a"></script>
     <script src="./run-dialog.js"></script>
   </body>

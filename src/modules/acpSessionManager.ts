@@ -19,8 +19,7 @@ import {
   loadAcpConversationState,
   loadAcpFrontendState,
   renameAcpConversationState,
-  resolveAcpSessionCwd,
-  resolveAcpStoragePaths,
+  resolveAcpChatRuntimePaths,
   saveAcpChatSessionIndex,
   saveAcpConversationState,
   saveAcpFrontendState,
@@ -48,6 +47,7 @@ import {
   type AcpSelectableOption,
 } from "./acpTypes";
 import type { RequestPermissionOutcome } from "./acpProtocol";
+import { ensureRuntimeDirectory } from "./runtimePersistence";
 import {
   getZoteroMcpHealthSnapshot,
   getZoteroMcpServerStatus,
@@ -207,6 +207,12 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
   if (!snapshot.conversationCreatedAt) {
     snapshot.conversationCreatedAt = nowIso();
   }
+  const paths = resolveAcpChatRuntimePaths(backendId, snapshot.conversationId);
+  snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
+  snapshot.conversationStorageDir = paths.conversationStorageDir;
+  snapshot.sessionCwd = paths.agentWorkspaceDir;
+  snapshot.workspaceDir = paths.agentWorkspaceDir;
+  snapshot.runtimeDir = paths.runtimeDir;
   snapshot.sessionId = "";
   snapshot.remoteSessionId = String(snapshot.remoteSessionId || "").trim();
   snapshot.remoteSessionRestoreStatus =
@@ -378,6 +384,7 @@ async function refreshAcpBackends() {
   for (const backend of cachedAcpBackends) {
     const slot = getOrCreateSlot(backend.id);
     slot.snapshot.backend = backend;
+    applyRuntimeOptionsCache(slot, backend);
   }
   return cachedAcpBackends;
 }
@@ -388,12 +395,15 @@ async function resolveBackendForSlot(slot: AcpSessionSlot) {
   if (!backend) {
     throw new Error(`ACP backend "${slot.backendId}" is not available`);
   }
-  const paths = resolveAcpStoragePaths(backend.id, slot.snapshot.conversationId);
+  const paths = resolveAcpChatRuntimePaths(backend.id, slot.snapshot.conversationId);
   slot.snapshot.backend = backend;
   slot.snapshot.backendId = backend.id;
-  slot.snapshot.sessionCwd = resolveAcpSessionCwd();
-  slot.snapshot.workspaceDir = paths.workspaceDir;
+  slot.snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
+  slot.snapshot.conversationStorageDir = paths.conversationStorageDir;
+  slot.snapshot.sessionCwd = paths.agentWorkspaceDir;
+  slot.snapshot.workspaceDir = paths.agentWorkspaceDir;
   slot.snapshot.runtimeDir = paths.runtimeDir;
+  applyRuntimeOptionsCache(slot, backend);
   return backend;
 }
 
@@ -793,6 +803,71 @@ function normalizeModeOption(args: {
   };
 }
 
+function normalizeCachedSelectableOptions(
+  value: unknown,
+): AcpSelectableOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      const source = entry && typeof entry === "object"
+        ? entry as Record<string, unknown>
+        : {};
+      const id = String(source.id || source.value || "").trim();
+      const label = String(source.label || source.name || source.title || id).trim();
+      const description = String(source.description || "").trim();
+      return id && label
+        ? {
+            id,
+            label,
+            ...(description ? { description } : {}),
+          }
+        : null;
+    })
+    .filter((entry): entry is AcpSelectableOption => entry !== null);
+}
+
+function applyRuntimeOptionsCache(
+  slot: AcpSessionSlot,
+  backend: BackendInstance,
+) {
+  const cache = backend.acp?.runtimeOptionsCache;
+  if (!cache) {
+    return;
+  }
+
+  if (slot.snapshot.modeOptions.length === 0) {
+    const modeOptions = normalizeCachedSelectableOptions(cache.modes);
+    if (modeOptions.length > 0) {
+      slot.snapshot.modeOptions = modeOptions;
+      const currentModeId = String(
+        slot.snapshot.currentMode?.id || cache.currentModeId || modeOptions[0]?.id || "",
+      ).trim();
+      slot.snapshot.currentMode =
+        modeOptions.find((entry) => entry.id === currentModeId) ||
+        modeOptions[0];
+    }
+  }
+
+  if (slot.snapshot.modelOptions.length === 0) {
+    const rawModelOptions = normalizeCachedSelectableOptions(cache.rawModels);
+    if (rawModelOptions.length > 0) {
+      slot.snapshot.modelOptions = rawModelOptions;
+      const currentRawModelId = String(
+        slot.snapshot.currentModel?.id ||
+          cache.currentRawModelId ||
+          rawModelOptions[0]?.id ||
+          "",
+      ).trim();
+      slot.snapshot.currentModel =
+        rawModelOptions.find((entry) => entry.id === currentRawModelId) ||
+        rawModelOptions[0];
+      deriveModelEffortState(slot.snapshot);
+    }
+  }
+}
+
 function applyModeState(
   slot: AcpSessionSlot,
   value: {
@@ -800,16 +875,19 @@ function applyModeState(
     availableModes?: Array<{ id: string; name: string; description?: string | null }> | null;
   },
 ) {
-  const availableModes = Array.isArray(value.availableModes)
+  const incomingModes = Array.isArray(value.availableModes)
     ? value.availableModes
-        .map((entry) =>
-          normalizeModeOption({
-            id: entry.id,
-            name: entry.name,
-            description: entry.description,
-          }),
-        )
-        .filter((entry) => entry.id && entry.label)
+      .map((entry) =>
+        normalizeModeOption({
+          id: entry.id,
+          name: entry.name,
+          description: entry.description,
+        }),
+      )
+      .filter((entry) => entry.id && entry.label)
+    : [];
+  const availableModes = incomingModes.length > 0
+    ? incomingModes
     : slot.snapshot.modeOptions;
   slot.snapshot.modeOptions = availableModes;
   const currentModeId = String(
@@ -1061,14 +1139,17 @@ function applyModelState(
     }> | null;
   },
 ) {
-  const availableModels = Array.isArray(value.availableModels)
+  const incomingModels = Array.isArray(value.availableModels)
     ? value.availableModels
-        .map((entry) => ({
-          id: String(entry.modelId || "").trim(),
-          label: String(entry.name || entry.modelId || "").trim(),
-          description: String(entry.description || "").trim() || undefined,
-        }))
-        .filter((entry) => entry.id && entry.label)
+      .map((entry) => ({
+        id: String(entry.modelId || "").trim(),
+        label: String(entry.name || entry.modelId || "").trim(),
+        description: String(entry.description || "").trim() || undefined,
+      }))
+      .filter((entry) => entry.id && entry.label)
+    : [];
+  const availableModels = incomingModels.length > 0
+    ? incomingModels
     : slot.snapshot.modelOptions;
   slot.snapshot.modelOptions = availableModels;
   const currentModelId = String(
@@ -1319,6 +1400,9 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
       sessionId: request.sessionId,
       toolCallId: request.toolCallId,
       toolTitle: request.toolTitle,
+      source: request.source,
+      summary: request.summary,
+      detail: request.detail,
       requestedAt: request.requestedAt,
       options: request.options.map((entry) => ({ ...entry })),
     };
@@ -1366,8 +1450,12 @@ async function ensureAdapter(backendId?: string) {
   slot.snapshot.status = "checking-command";
   emitSlotSnapshot(slot);
   try {
+    await ensureRuntimeDirectory(slot.snapshot.agentWorkspaceDir || slot.snapshot.sessionCwd);
+    await ensureRuntimeDirectory(slot.snapshot.conversationStorageDir);
+    await ensureRuntimeDirectory(slot.snapshot.runtimeDir);
     const nextAdapter = await adapterFactory({
       backend,
+      agentWorkspaceDir: slot.snapshot.agentWorkspaceDir,
       sessionCwd: slot.snapshot.sessionCwd,
       workspaceDir: slot.snapshot.workspaceDir,
       runtimeDir: slot.snapshot.runtimeDir,
@@ -1443,6 +1531,11 @@ function applyAttachedSessionResult(
   slot.snapshot.sessionUpdatedAt = String(result.sessionUpdatedAt || "").trim();
   applyModeState(slot, result.modes || {});
   applyModelState(slot, result.models || {});
+  const backend = slot.snapshot.backend ||
+    cachedAcpBackends.find((entry) => entry.id === slot.backendId);
+  if (backend) {
+    applyRuntimeOptionsCache(slot, backend);
+  }
   slot.snapshot.status = "connected";
   slot.snapshot.busy = false;
 }
@@ -1723,7 +1816,7 @@ function createNewLocalConversationSnapshot(args: {
 }) {
   const createdAt = args.createdAt || nowIso();
   const conversationId = nextOpaqueId("acp-conversation");
-  const paths = resolveAcpStoragePaths(args.backendId, conversationId);
+  const paths = resolveAcpChatRuntimePaths(args.backendId, conversationId);
   return {
     ...createEmptyAcpConversationSnapshot(),
     backend: args.backend,
@@ -1734,8 +1827,10 @@ function createNewLocalConversationSnapshot(args: {
     showDiagnostics: args.slot.snapshot.showDiagnostics,
     statusExpanded: args.slot.snapshot.statusExpanded,
     chatDisplayMode: args.slot.snapshot.chatDisplayMode,
-    sessionCwd: resolveAcpSessionCwd(),
-    workspaceDir: paths.workspaceDir,
+    agentWorkspaceDir: paths.agentWorkspaceDir,
+    conversationStorageDir: paths.conversationStorageDir,
+    sessionCwd: paths.agentWorkspaceDir,
+    workspaceDir: paths.agentWorkspaceDir,
     runtimeDir: paths.runtimeDir,
     updatedAt: createdAt,
   };
@@ -1910,6 +2005,9 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
     backendId: preservedBackendId,
     createdAt,
   });
+  if (preservedBackend) {
+    applyRuntimeOptionsCache(slot, preservedBackend);
+  }
   slot.snapshot.showDiagnostics = preservedDiagnosticsVisibility;
   slot.snapshot.statusExpanded = preservedStatusExpanded;
   slot.snapshot.chatDisplayMode = preservedChatDisplayMode;
@@ -2047,16 +2145,20 @@ export async function deleteActiveAcpConversation(args?: { backendId?: string })
   }
   const preservedBackend = slot.snapshot.backend;
   const preservedBackendId = slot.snapshot.backendId || slot.backendId;
+  const conversationId = nextOpaqueId("acp-conversation");
+  const paths = resolveAcpChatRuntimePaths(preservedBackendId, conversationId);
   slot.snapshot = {
     ...createEmptyAcpConversationSnapshot(),
     backend: preservedBackend,
     backendId: preservedBackendId,
-    conversationId: nextOpaqueId("acp-conversation"),
+    conversationId,
     conversationTitle: "New Conversation",
     conversationCreatedAt: nowIso(),
-    sessionCwd: slot.snapshot.sessionCwd,
-    workspaceDir: slot.snapshot.workspaceDir,
-    runtimeDir: slot.snapshot.runtimeDir,
+    agentWorkspaceDir: paths.agentWorkspaceDir,
+    conversationStorageDir: paths.conversationStorageDir,
+    sessionCwd: paths.agentWorkspaceDir,
+    workspaceDir: paths.agentWorkspaceDir,
+    runtimeDir: paths.runtimeDir,
     updatedAt: nowIso(),
   };
   resetSlotTransientState(slot);
@@ -2250,6 +2352,8 @@ export function buildAcpDiagnosticsBundle(backendId?: string): AcpDiagnosticsBun
       remoteSessionRestoreStatus: snapshot.remoteSessionRestoreStatus,
       commandLabel: snapshot.commandLabel,
       commandLine: snapshot.commandLine,
+      agentWorkspaceDir: snapshot.agentWorkspaceDir,
+      conversationStorageDir: snapshot.conversationStorageDir,
       sessionCwd: snapshot.sessionCwd,
       workspaceDir: snapshot.workspaceDir,
       runtimeDir: snapshot.runtimeDir,

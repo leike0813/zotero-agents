@@ -34,7 +34,7 @@ import {
 import {
   listAcpChatSessions,
   loadAcpConversationState,
-  resolveAcpStoragePaths,
+  resolveAcpChatRuntimePaths,
   resolveAcpSessionCwd,
 } from "../../src/modules/acpConversationStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
@@ -111,6 +111,8 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
       { modelId: "gpt-5.4-mini", name: "GPT-5.4 Mini", description: "Smaller model" },
     ],
   };
+  omitSessionRuntimeOptions = false;
+  emptySessionRuntimeOptions = false;
   connected = false;
   lastPermissionOutcome: RequestPermissionOutcome | null = null;
   private permissionRequestId = 0;
@@ -212,17 +214,32 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
       sessionId,
       sessionTitle: `Conversation ${this.sessionIds.length}`,
       sessionUpdatedAt: "2026-04-22T01:00:00.000Z",
-      modes: {
-        currentModeId: "plan",
-        availableModes: [
-          { id: "plan", name: "Plan", description: "Reason first" },
-          { id: "code", name: "Code", description: "Act directly" },
-        ],
-      },
-      models: {
-        currentModelId: this.modelState.currentModelId,
-        availableModels: this.modelState.availableModels,
-      },
+      ...(this.emptySessionRuntimeOptions
+        ? {
+            modes: {
+              currentModeId: "bypassPermissions",
+              availableModes: [],
+            },
+            models: {
+              currentModelId: "opus@high",
+              availableModels: [],
+            },
+          }
+        : this.omitSessionRuntimeOptions
+        ? {}
+        : {
+            modes: {
+              currentModeId: "plan",
+              availableModes: [
+                { id: "plan", name: "Plan", description: "Reason first" },
+                { id: "code", name: "Code", description: "Act directly" },
+              ],
+            },
+            models: {
+              currentModelId: this.modelState.currentModelId,
+              availableModels: this.modelState.availableModels,
+            },
+          }),
     };
   }
 
@@ -376,6 +393,10 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             sessionId: args.sessionId,
             toolCallId: "tool-1",
             toolTitle: "Inspect notes",
+            source: "acp-tool-call",
+            summary: "Read Zotero notes for the selected paper",
+            detail: '{"tool":"get_item_notes","arguments":{"key":"PAPER1"}}',
+            requestedAt: new Date().toISOString(),
             options: this.permissionOptions,
             resolve,
           });
@@ -571,6 +592,161 @@ describe("acp session manager", function () {
     assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(snapshot.backend?.id, ACP_OPENCODE_BACKEND_ID);
     assert.isNull(lastAdapter);
+  });
+
+  it("hydrates ACP chat runtime selectors from backend cache when session attach omits options", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-cache",
+            displayName: "ACP Cached",
+            type: "acp",
+            command: "node",
+            args: ["cached.js"],
+            acp: {
+              connectionTest: {
+                status: "passed",
+                testedAt: "2026-05-03T00:00:00.000Z",
+                configFingerprint: "cache-fingerprint",
+              },
+              runtimeOptionsCache: {
+                refreshedAt: "2026-05-03T00:00:00.000Z",
+                modes: [
+                  { id: "bypassPermissions", label: "Bypass permissions" },
+                  { id: "default", label: "Default" },
+                ],
+                currentModeId: "bypassPermissions",
+                rawModels: [
+                  { id: "opus@low", label: "Opus Low" },
+                  { id: "opus@high", label: "Opus High" },
+                ],
+                currentRawModelId: "opus@high",
+                displayModels: [{ id: "opus", label: "Opus" }],
+                currentDisplayModelId: "opus",
+                reasoningEfforts: [
+                  { id: "low", label: "Low" },
+                  { id: "high", label: "High" },
+                ],
+                currentReasoningEffortId: "high",
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      lastFactoryArgs = args;
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.omitSessionRuntimeOptions = true;
+      return lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-cache" });
+    let snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.backendId, "acp-cache");
+    assert.deepEqual(
+      snapshot.modeOptions.map((entry) => entry.id),
+      ["bypassPermissions", "default"],
+    );
+    assert.equal(snapshot.currentMode?.id, "bypassPermissions");
+    assert.deepEqual(
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["opus"],
+    );
+    assert.deepEqual(
+      snapshot.reasoningEffortOptions.map((entry) => entry.id),
+      ["low", "high"],
+    );
+    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+
+    await connectAcpConversation();
+    snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "connected");
+    assert.deepEqual(
+      snapshot.modeOptions.map((entry) => entry.id),
+      ["bypassPermissions", "default"],
+    );
+    assert.equal(snapshot.currentDisplayModel?.id, "opus");
+    assert.equal(snapshot.currentModel?.id, "opus@high");
+    assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
+  });
+
+  it("keeps cached ACP chat runtime selectors when session attach returns empty option lists", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-empty-options",
+            displayName: "ACP Empty Options",
+            type: "acp",
+            command: "node",
+            args: ["empty-options.js"],
+            acp: {
+              connectionTest: {
+                status: "passed",
+                testedAt: "2026-05-03T00:00:00.000Z",
+                configFingerprint: "empty-options-fingerprint",
+              },
+              runtimeOptionsCache: {
+                refreshedAt: "2026-05-03T00:00:00.000Z",
+                modes: [
+                  { id: "bypassPermissions", label: "Bypass permissions" },
+                  { id: "default", label: "Default" },
+                ],
+                currentModeId: "bypassPermissions",
+                rawModels: [
+                  { id: "opus@low", label: "Opus Low" },
+                  { id: "opus@high", label: "Opus High" },
+                ],
+                currentRawModelId: "opus@high",
+                displayModels: [{ id: "opus", label: "Opus" }],
+                currentDisplayModelId: "opus",
+                reasoningEfforts: [
+                  { id: "low", label: "Low" },
+                  { id: "high", label: "High" },
+                ],
+                currentReasoningEffortId: "high",
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      lastFactoryArgs = args;
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emptySessionRuntimeOptions = true;
+      return lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-empty-options" });
+    await connectAcpConversation();
+    const snapshot = getAcpConversationSnapshot();
+
+    assert.equal(snapshot.status, "connected");
+    assert.deepEqual(
+      snapshot.modeOptions.map((entry) => entry.id),
+      ["bypassPermissions", "default"],
+    );
+    assert.equal(snapshot.currentMode?.id, "bypassPermissions");
+    assert.deepEqual(
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["opus"],
+    );
+    assert.deepEqual(
+      snapshot.reasoningEffortOptions.map((entry) => entry.id),
+      ["low", "high"],
+    );
+    assert.equal(snapshot.currentModel?.id, "opus@high");
   });
 
   it("connects and disconnects the active ACP conversation explicitly", async function () {
@@ -965,7 +1141,14 @@ describe("acp session manager", function () {
     assert.equal(snapshot.commandLine, "npx opencode-ai@latest acp");
     assert.equal(snapshot.agentLabel, "OpenCode");
     assert.equal(snapshot.agentVersion, "1.2.3");
-    assert.equal(snapshot.sessionCwd, "D:\\ZoteroData");
+    const expectedStoragePaths = resolveAcpChatRuntimePaths(
+      ACP_OPENCODE_BACKEND_ID,
+      snapshot.conversationId,
+    );
+    assert.equal(snapshot.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(snapshot.conversationStorageDir, expectedStoragePaths.conversationStorageDir);
+    assert.equal(snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(snapshot.workspaceDir, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(snapshot.lastLifecycleEvent, "prompt_finished");
     assert.equal(snapshot.sessionId, "session-1");
     assert.equal(snapshot.remoteSessionId, "session-1");
@@ -1028,14 +1211,11 @@ describe("acp session manager", function () {
     assert.equal(lastAdapter?.initializeCalls, 1);
     assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
     assert.equal(lastAdapter?.prompts.length, 1);
-    assert.equal(lastFactoryArgs?.sessionCwd, "D:\\ZoteroData");
-    const expectedStoragePaths = resolveAcpStoragePaths(
-      ACP_OPENCODE_BACKEND_ID,
-      snapshot.conversationId,
-    );
+    assert.equal(lastFactoryArgs?.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(lastFactoryArgs?.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(
       lastFactoryArgs?.workspaceDir,
-      expectedStoragePaths.workspaceDir,
+      expectedStoragePaths.agentWorkspaceDir,
     );
     assert.equal(
       lastFactoryArgs?.runtimeDir,
@@ -1051,7 +1231,9 @@ describe("acp session manager", function () {
     assert.equal(persisted.snapshot.currentMode?.id, "code");
     assert.equal(persisted.snapshot.currentModel?.id, "gpt-5.4");
     assert.equal(persisted.snapshot.lastStopReason, "end_turn");
-    assert.equal(persisted.snapshot.sessionCwd, "D:\\ZoteroData");
+    assert.equal(persisted.snapshot.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(persisted.snapshot.conversationStorageDir, expectedStoragePaths.conversationStorageDir);
+    assert.equal(persisted.snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
     assert.isAtLeast(persisted.items.length, 5);
     assert.equal(
       persisted.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text,
@@ -1497,12 +1679,20 @@ describe("acp session manager", function () {
     const promptPromise = sendAcpConversationPrompt({
       message: "Need permission",
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 120));
 
     let snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.status, "permission-required");
     assert.isOk(snapshot.pendingPermissionRequest);
     assert.equal(snapshot.pendingPermissionRequest?.toolTitle, "Inspect notes");
+    assert.equal(
+      snapshot.pendingPermissionRequest?.summary,
+      "Read Zotero notes for the selected paper",
+    );
+    assert.include(
+      snapshot.pendingPermissionRequest?.detail || "",
+      "get_item_notes",
+    );
 
     await resolveAcpConversationPermission({
       outcome: "selected",
@@ -1546,7 +1736,7 @@ describe("acp session manager", function () {
     const promptPromise = sendAcpConversationPrompt({
       message: "Need custom permission",
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 120));
 
     const snapshot = getAcpConversationSnapshot();
     assert.deepEqual(
@@ -1873,27 +2063,48 @@ describe("acp conversation store", function () {
     );
   });
 
-  it("resolves ACP workspace and runtime paths from Zotero.DataDirectory with cwd fallback", function () {
+  it("resolves ACP chat workspace, private storage, and runtime paths from the runtime root", function () {
     const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = "D:\\ZoteroSkillsRuntime";
     try {
-      const primary = resolveAcpStoragePaths(ACP_OPENCODE_BACKEND_ID);
+      const primary = resolveAcpChatRuntimePaths(ACP_OPENCODE_BACKEND_ID);
+      assert.equal(
+        primary.agentWorkspaceDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+      );
       assert.equal(
         primary.workspaceDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspaces\\acp-opencode",
+        primary.agentWorkspaceDir,
+      );
+      assert.equal(
+        primary.conversationStorageDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\conversations\\acp-opencode",
+      );
+      assert.equal(
+        primary.storageDir,
+        primary.conversationStorageDir,
       );
       assert.equal(
         primary.runtimeDir,
         "D:\\ZoteroSkillsRuntime\\acp\\chat\\runtime\\acp-opencode",
       );
 
-      const withConversation = resolveAcpStoragePaths(
+      const withConversation = resolveAcpChatRuntimePaths(
         ACP_OPENCODE_BACKEND_ID,
         "conversation-1",
       );
       assert.equal(
-        withConversation.workspaceDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspaces\\acp-opencode\\conversation-1",
+        withConversation.agentWorkspaceDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+      );
+      assert.equal(
+        withConversation.conversationStorageDir,
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\conversations\\acp-opencode\\conversation-1",
+      );
+      assert.isFalse(
+        withConversation.conversationStorageDir.startsWith(
+          `${withConversation.agentWorkspaceDir}\\`,
+        ),
       );
     } finally {
       if (typeof previousRoot === "undefined") {
@@ -1904,13 +2115,24 @@ describe("acp conversation store", function () {
     }
   });
 
-  it("resolves ACP session cwd from Zotero.DataDirectory with process cwd fallback", function () {
+  it("resolves ACP session cwd to the shared ACP chat workspace", function () {
+    const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = "D:\\ZoteroSkillsRuntime";
     (Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }).DataDirectory = {
       dir: "D:\\ZoteroData",
     };
-    assert.equal(resolveAcpSessionCwd(), "D:\\ZoteroData");
-
-    delete (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory;
-    assert.equal(resolveAcpSessionCwd(), process.cwd());
+    try {
+      assert.equal(
+        resolveAcpSessionCwd(),
+        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+      );
+    } finally {
+      delete (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory;
+      if (typeof previousRoot === "undefined") {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
+      }
+    }
   });
 });

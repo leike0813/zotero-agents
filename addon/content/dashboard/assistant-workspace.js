@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const tabs = ["skillrunner", "acp-chat", "acp-skills"];
+  const tabs = ["acp-chat", "acp-skills", "skillrunner"];
   const state = {
     activeTab: "acp-chat",
     initializedFrames: new Set(),
@@ -145,11 +145,13 @@
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) return;
+    const normalizedPayload =
+      tab === "skillrunner" ? normalizeSkillRunnerSidebarPayload(payload) : payload || {};
     installChildBridge(tab);
     frameWindow.postMessage(
       {
         type: messageTypeForTab(tab, phase),
-        payload: payload || {},
+        payload: normalizedPayload,
       },
       "*",
     );
@@ -161,6 +163,7 @@
     current[phase || "snapshot"] =
       tab === "skillrunner" ? normalizeSkillRunnerSidebarPayload(payload) : payload || {};
     state.latestChildPayloads.set(tab, current);
+    return current[phase || "snapshot"];
   }
 
   function normalizeSkillRunnerSidebarPayload(payload) {
@@ -169,7 +172,8 @@
   }
 
   function ensureSkillRunnerSidebarLayout() {
-    if (state.latestChildPayloads.has("skillrunner")) return;
+    const cached = state.latestChildPayloads.get("skillrunner");
+    if (cached && cached.init) return;
     const payload = normalizeSkillRunnerSidebarPayload({});
     cacheChildPayload("skillrunner", "init", payload);
     postToChild("skillrunner", "init", payload);
@@ -178,6 +182,9 @@
   function replayCachedChildPayload(tab) {
     const cached = state.latestChildPayloads.get(tab);
     if (!cached) return;
+    if (tab === "skillrunner" && !cached.init) {
+      ensureSkillRunnerSidebarLayout();
+    }
     if (cached.init) postToChild(tab, "init", cached.init);
     if (cached.snapshot) postToChild(tab, "snapshot", cached.snapshot);
   }
@@ -270,8 +277,11 @@
     }
     if (data.type === "assistant-workspace:child-snapshot") {
       const payload = data.payload || {};
-      cacheChildPayload(payload.tab, payload.phase || "snapshot", payload.snapshot || {});
-      postToChild(payload.tab, payload.phase || "snapshot", payload.snapshot || {});
+      const tab = normalizeTab(payload.tab, state.activeTab);
+      const phase = payload.phase || "snapshot";
+      const snapshot = payload.snapshot || {};
+      const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
+      postToChild(tab, phase, normalizedSnapshot || snapshot);
       return;
     }
   });
