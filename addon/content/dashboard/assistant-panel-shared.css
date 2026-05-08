@@ -147,19 +147,44 @@ input {
 
 .asst-banner {
   min-width: 0;
-  padding: 9px 10px;
+  padding: 6px 10px;
 }
 
 .asst-banner .assistant-panel-managed-view {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px 10px;
+  gap: 4px 8px;
 }
 
-.asst-banner .assistant-panel-banner-meta,
+.asst-banner .assistant-panel-banner-main {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .asst-banner .assistant-panel-context-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin-top: 0;
+  align-self: start;
+}
+
+.asst-banner .assistant-panel-banner-meta {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 0;
+}
+
+.asst-banner .assistant-panel-indicators {
+  grid-column: 2;
+  grid-row: 2;
+  margin-top: 0;
+}
+
+.asst-banner .assistant-panel-context-selectors {
   grid-column: 1 / -1;
+  grid-row: 3;
+  margin-top: 0;
 }
 
 .asst-conversation-surface {
@@ -172,9 +197,11 @@ input {
 }
 
 .asst-plan-surface {
+  display: grid;
+  gap: 3px;
   max-height: min(18vh, 140px);
   overflow: auto;
-  padding: 7px 9px;
+  padding: 8px 10px;
   font-size: 12px;
   line-height: 1.25;
 }
@@ -638,8 +665,7 @@ input {
 .assistant-panel-banner-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 2px 10px;
 }
 
 .assistant-panel-context-selectors,
@@ -714,31 +740,46 @@ input {
   background: var(--asst-danger-soft);
 }
 
+.assistant-panel-meta-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--asst-muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
 .assistant-panel-meta-pill strong {
   color: var(--asst-muted);
   font-weight: 600;
+  font-size: 11px;
 }
 
 .assistant-panel-indicators {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
   gap: 6px;
-  margin-top: 8px;
   min-width: 0;
 }
 
 .assistant-panel-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  min-height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--asst-line);
-  border-radius: var(--asst-radius-sm);
+  min-height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--asst-text-soft);
-  background: var(--asst-surface-soft);
   font-size: 11px;
   white-space: nowrap;
 }

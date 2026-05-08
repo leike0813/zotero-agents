@@ -1567,8 +1567,6 @@
           metadataItem(labelFrom(panel, "fields.mode", "Mode"), run && run.acpModeId, "mode"),
           metadataItem(labelFrom(panel, "fields.model", "Model"), run && (run.acpModelId || run.acpRawModelId), "model"),
           metadataItem(labelFrom(panel, "fields.workspace", "Workspace"), run && run.workspaceDir, "workspace"),
-          metadataItem(labelFrom(panel, "fields.validation", "Validation"), run && run.validationStatus, "validation"),
-          metadataItem("Runtime deps", run && run.runtimeDependencyStatus, "deps"),
         ]),
         indicators: [
           connectionIndicator(
