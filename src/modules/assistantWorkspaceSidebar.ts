@@ -87,6 +87,7 @@ type AssistantWorkspaceHostRuntime = {
   activeTab: AssistantWorkspaceTab;
   drawerOpen: boolean;
   drawerCompletedCollapsed: boolean;
+  latestSkillRunnerSnapshot?: RunWorkspaceSnapshot | null;
   library: MountedSidebarPane;
   reader: MountedSidebarPane;
   removeMessageListener?: () => void;
@@ -305,9 +306,9 @@ function buildDecoratedSkillRunnerSnapshot(
     selectedTaskKey: String(snapshot.workspace?.selectedTaskKey || ""),
     completedCollapsed: host.drawerCompletedCollapsed,
   });
-  return {
+  const decorated: RunWorkspaceSnapshot = {
     ...snapshot,
-    hostMode: "sidebar",
+    hostMode: "sidebar" as const,
     drawer: {
       open: host.drawerOpen,
       sections: sections.map((section) => ({
@@ -324,6 +325,8 @@ function buildDecoratedSkillRunnerSnapshot(
       waitingCount: countWaitingSkillRunnerTasks(groups),
     },
   };
+  host.latestSkillRunnerSnapshot = decorated;
+  return decorated;
 }
 
 function createSkillRunnerHostActionHandler(host: AssistantWorkspaceHostRuntime) {
@@ -346,6 +349,21 @@ function createSkillRunnerHostActionHandler(host: AssistantWorkspaceHostRuntime)
         await focusSkillRunnerWorkspace();
         return true;
       }
+    }
+    if (action === "open-backend-manager") {
+      await openBackendManagerDialog({ window: host.win });
+      return true;
+    }
+    if (action === "copy-request-id") {
+      const requestId =
+        String(envelope.payload?.requestId || "").trim() ||
+        String(host.latestSkillRunnerSnapshot?.session?.requestId || "").trim();
+      copyText(requestId);
+      return true;
+    }
+    if (action === "copy-diagnostics") {
+      copyText(JSON.stringify(host.latestSkillRunnerSnapshot || {}, null, 2));
+      return true;
     }
     if (action === "close-sidebar") {
       return closeActiveSidebarHost(host);

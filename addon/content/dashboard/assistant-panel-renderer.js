@@ -40,12 +40,14 @@
     const reply = input.reply && typeof input.reply === "object" ? input.reply : {};
     const drawers = input.drawers && typeof input.drawers === "object" ? input.drawers : {};
     const actions = input.actions && typeof input.actions === "object" ? input.actions : {};
+    const labels = input.labels && typeof input.labels === "object" ? input.labels : {};
     return Object.assign({}, input, {
       kind: safeText(input.kind) || "assistant",
+      labels,
       context: Object.assign(
         {
           id: "",
-          title: "Assistant",
+          title: labelOf(input, "details.title", "Assistant"),
           subtitle: "",
           status: "idle",
           metadata: [],
@@ -83,7 +85,7 @@
           enabled: false,
           placeholder: "",
           hint: "",
-          submitLabel: "Send",
+          submitLabel: labelOf(input, "actions.send", "Send"),
           sending: false,
           action: "reply",
           controls: [],
@@ -94,7 +96,7 @@
       drawers: Object.assign(
         {
           contextTitle: "Contexts",
-          detailsTitle: "Details",
+          detailsTitle: labelOf(input, "details.title", "Details"),
           contexts: [],
           details: [],
         },
@@ -102,6 +104,23 @@
       ),
       actions: Object.assign({ toolbar: [], context: [], details: [] }, actions),
     });
+  }
+
+  function labelRoot(panel) {
+    const labels = panel && panel.labels && typeof panel.labels === "object" ? panel.labels : {};
+    return labels.assistantPanel && typeof labels.assistantPanel === "object"
+      ? labels.assistantPanel
+      : labels;
+  }
+
+  function labelOf(panel, path, fallback) {
+    const parts = safeText(path).split(".").filter(Boolean);
+    let cursor = labelRoot(panel);
+    for (let index = 0; index < parts.length; index += 1) {
+      if (!cursor || typeof cursor !== "object") return fallback;
+      cursor = cursor[parts[index]];
+    }
+    return safeText(cursor) || fallback;
   }
 
   function tone(snapshot) {
@@ -217,16 +236,52 @@
 
   function renderDetailsEntry(container, entry) {
     const row = el("div", "assistant-panel-details-row");
+    row.setAttribute("data-assistant-details-entry-kind", safeText(entry.kind || "text"));
     row.appendChild(el("div", "assistant-panel-details-label", safeText(entry.label || entry.key || "Detail")));
     const value = safeText(entry.value || entry.text || entry.message);
     if (entry.kind === "code") {
-      const pre = el("pre", "asst-code-surface assistant-panel-details-value");
-      pre.textContent = value || "-";
-      row.appendChild(pre);
+      const code = el("div", "asst-code-surface assistant-panel-details-value");
+      code.textContent = value || "-";
+      row.appendChild(code);
     } else {
       row.appendChild(el("div", "assistant-panel-details-value", value || "-"));
     }
     container.appendChild(row);
+  }
+
+  function renderDetailsSection(container, section, panel) {
+    if (!section || typeof section !== "object") return;
+    const collapsible = section.collapsible === true || section.defaultCollapsed === true;
+    const sectionNode = collapsible
+      ? el("details", "assistant-panel-details-section is-collapsible")
+      : el("section", "assistant-panel-details-section");
+    sectionNode.setAttribute("data-assistant-details-kind", safeText(section.kind || "metadata"));
+    if (section.tone) {
+      sectionNode.setAttribute("data-assistant-details-tone", safeText(section.tone));
+    }
+    if (collapsible && section.defaultCollapsed !== true) {
+      sectionNode.open = true;
+    }
+
+    const headerTag = collapsible ? "summary" : "div";
+    const header = el(headerTag, "assistant-panel-details-section-summary");
+    header.appendChild(el("span", "assistant-panel-details-section-title", section.title || "Details"));
+    const summary = safeText(section.summary);
+    if (summary) {
+      header.appendChild(el("span", "assistant-panel-details-section-subtitle", summary));
+    }
+    sectionNode.appendChild(header);
+
+    const body = el("div", "assistant-panel-details-section-body");
+    const entries = Array.isArray(section.entries) ? section.entries : [];
+    if (entries.length === 0) {
+      body.appendChild(el("div", "assistant-panel-details-empty", labelOf(panel, "details.noEntries", "No entries.")));
+    }
+    entries.forEach(function (entry) {
+      renderDetailsEntry(body, entry || {});
+    });
+    sectionNode.appendChild(body);
+    container.appendChild(sectionNode);
   }
 
   function indicatorLedClass(toneValue) {
@@ -432,12 +487,14 @@
         "span",
         "",
         safeText(interaction.title || interaction.message || interaction.label) ||
-          (kind === "running" ? "Agent is working..." : kind),
+          (kind === "running" ? labelOf(panel, "status.running", "Agent is working...") : kind),
       ),
     );
     const pending = interaction.pendingInteraction || {};
     if (kind === "waiting_user") {
-      const prompt = safeText(pending.uiHints && pending.uiHints.prompt) || "Agent is waiting for your reply.";
+      const prompt =
+        safeText(pending.uiHints && pending.uiHints.prompt) ||
+        labelOf(panel, "permission.waitingReply", "Agent is waiting for your reply.");
       row.lastChild.textContent = prompt;
     }
     target.appendChild(row);
@@ -463,7 +520,7 @@
         }
         if (detail) {
           const details = el("details", "assistant-panel-permission-details");
-          details.appendChild(el("summary", "", "View full request"));
+          details.appendChild(el("summary", "", labelOf(panel, "permission.viewFullRequest", "View full request")));
           const pre = el("pre", "asst-code-surface assistant-panel-permission-detail-code");
           pre.textContent = detail;
           details.appendChild(pre);
@@ -558,9 +615,13 @@
     const secondary = el("div", "assistant-panel-reply-secondary");
     secondary.appendChild(el("span", "assistant-panel-reply-hint", panel.reply.hint || ""));
     if (panel.reply.showUsageGauge === true) {
-      renderUsageGauge(secondary, panel.usage);
+      renderUsageGauge(secondary, panel.usage, panel);
     }
-    const button = el("button", "asst-button assistant-panel-reply-submit", panel.reply.submitLabel || "Send");
+    const button = el(
+      "button",
+      "asst-button assistant-panel-reply-submit",
+      panel.reply.submitLabel || labelOf(panel, "actions.send", "Send"),
+    );
     button.type = "button";
     const replyAction = safeText(panel.reply.action || "reply");
     const cancelAction = replyAction === "cancel" || replyAction === "cancel-run";
@@ -583,7 +644,7 @@
     target.appendChild(footer);
   }
 
-  function renderUsageGauge(container, usage) {
+  function renderUsageGauge(container, usage, panel) {
     if (!container) return;
     const source = usage && typeof usage === "object" ? usage : {};
     const total = Number(source.used || source.totalTokens || source.usedTokens || 0);
@@ -593,9 +654,11 @@
     const percent = limit > 0 ? Math.max(0, Math.min(100, Math.round((used / limit) * 100))) : 0;
     const unavailable = used <= 0 && limit <= 0;
     const gauge = el("div", "assistant-panel-usage-gauge" + (unavailable ? " is-unavailable" : ""));
-    const tokenLabel = formatUsageLabel(used, limit);
-    const centerLabel = unavailable ? "N/A" : limit > 0 ? String(percent) + "%" : formatTokenCount(used);
-    gauge.title = unavailable ? "No usage data" : tokenLabel + " tokens";
+    const tokenLabel = formatUsageLabel(used, limit, panel);
+    const centerLabel = unavailable ? labelOf(panel, "usage.unavailable", "N/A") : limit > 0 ? String(percent) + "%" : formatTokenCount(used);
+    gauge.title = unavailable
+      ? labelOf(panel, "usage.noData", "No usage data")
+      : tokenLabel + " " + labelOf(panel, "usage.tokens", "tokens");
     gauge.setAttribute("aria-label", gauge.title);
     const ring = el("span", "assistant-panel-usage-ring");
     ring.style.setProperty("--assistant-usage-percent", `${percent}%`);
@@ -604,10 +667,10 @@
     container.appendChild(gauge);
   }
 
-  function formatUsageLabel(used, limit) {
+  function formatUsageLabel(used, limit, panel) {
     const usedValue = Number(used || 0);
     const limitValue = Number(limit || 0);
-    if (usedValue <= 0 && limitValue <= 0) return "N/A";
+    if (usedValue <= 0 && limitValue <= 0) return labelOf(panel, "usage.unavailable", "N/A");
     if (limitValue > 0) return formatTokenCount(usedValue) + "/" + formatTokenCount(limitValue);
     return formatTokenCount(usedValue);
   }
@@ -762,10 +825,11 @@
       el(
         "strong",
         "",
-        safeText(drawers.contextTitle || labels.tasksToggle || labels.sessionsTitle) || "Runs",
+        safeText(drawers.contextTitle || labels.tasksToggle || labels.sessionsTitle) ||
+          labelOf(panel, "actions.runs", "Runs"),
       ),
     );
-    const close = el("button", "asst-button-compact", "Close");
+    const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
     close.addEventListener("click", function () {
       emit(options, "close-context-drawer", {});
@@ -846,7 +910,7 @@
         el(
           "div",
           "assistant-workspace-drawer-empty skillrunner-workspace-empty",
-          safeText(labels.emptyTasks) || "No SkillRunner tasks.",
+          safeText(labels.emptyTasks) || labelOf(panel, "drawer.emptyTasks", "No runs."),
         ),
       );
     }
@@ -868,8 +932,8 @@
     }
     clear(target);
     const header = el("div", "assistant-panel-context-drawer-header");
-    header.appendChild(el("strong", "", panel.drawers.contextTitle || "Contexts"));
-    const close = el("button", "asst-button-compact", "Close");
+    header.appendChild(el("strong", "", panel.drawers.contextTitle || labelOf(panel, "drawer.emptyContexts", "Contexts")));
+    const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
     close.addEventListener("click", function () {
       emit(options, "close-context-drawer", {});
@@ -920,7 +984,7 @@
     const target = managedMount(container, "details") || container;
     clear(target);
     const header = el("div", "assistant-panel-details-header");
-    header.appendChild(el("strong", "", panel.drawers.detailsTitle || "Details"));
+    header.appendChild(el("strong", "", panel.drawers.detailsTitle || labelOf(panel, "details.title", "Details")));
     const detailActions = Array.isArray(panel.actions && panel.actions.details)
       ? panel.actions.details
       : [];
@@ -931,7 +995,7 @@
       });
       header.appendChild(actionGroup);
     }
-    const close = el("button", "asst-button-compact", "Close");
+    const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
     close.addEventListener("click", function () {
       emit(options || {}, "close-details-drawer", {});
@@ -941,7 +1005,7 @@
     const details = Array.isArray(panel.drawers.details) ? panel.drawers.details : [];
     const list = el("div", "assistant-panel-details-list");
     if (details.length === 0) {
-      list.appendChild(el("div", "assistant-panel-details-empty", "No details."));
+      list.appendChild(el("div", "assistant-panel-details-empty", labelOf(panel, "details.empty", "No details.")));
     }
     details.forEach(function (section) {
       if (typeof section === "string") {
@@ -951,16 +1015,7 @@
         return;
       }
       if (!section || typeof section !== "object") return;
-      const sectionNode = el("section", "assistant-panel-details-section");
-      sectionNode.appendChild(el("h2", "assistant-panel-details-section-title", section.title || "Details"));
-      const entries = Array.isArray(section.entries) ? section.entries : [];
-      if (entries.length === 0) {
-        sectionNode.appendChild(el("div", "assistant-panel-details-empty", "No entries."));
-      }
-      entries.forEach(function (entry) {
-        renderDetailsEntry(sectionNode, entry || {});
-      });
-      list.appendChild(sectionNode);
+      renderDetailsSection(list, section, panel);
     });
     target.appendChild(list);
   }

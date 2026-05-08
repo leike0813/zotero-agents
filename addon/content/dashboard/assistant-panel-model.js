@@ -77,16 +77,35 @@
     return items.filter(Boolean);
   }
 
+  function panelLabelRoot(source) {
+    const labels = source && source.labels && typeof source.labels === "object" ? source.labels : {};
+    return labels.assistantPanel && typeof labels.assistantPanel === "object"
+      ? labels.assistantPanel
+      : labels;
+  }
+
+  function labelFrom(source, path, fallback) {
+    const root = panelLabelRoot(source);
+    const parts = safeText(path).split(".").filter(Boolean);
+    let cursor = root;
+    for (let index = 0; index < parts.length; index += 1) {
+      if (!cursor || typeof cursor !== "object") return fallback;
+      cursor = cursor[parts[index]];
+    }
+    return safeText(cursor) || fallback;
+  }
+
   function detailEntry(label, value, kind) {
     const text = safeText(value);
     if (!text) return null;
     return { label, value: text, kind: kind || "text" };
   }
 
-  function detailSection(title, entries) {
+  function detailSection(title, entries, options) {
     const rows = (Array.isArray(entries) ? entries : []).filter(Boolean);
     if (rows.length === 0) return null;
-    return { title, entries: rows };
+    const opts = options && typeof options === "object" ? options : {};
+    return Object.assign({ title, entries: rows }, opts);
   }
 
   function truncateText(value, limit) {
@@ -360,19 +379,21 @@
       kind: "permission",
       title:
         safeText(request.source) === "zotero-mcp-write"
-          ? "Zotero write approval"
-          : (snap.labels && snap.labels.permission) || "ACP tool approval",
+          ? labelFrom(snap, "permission.zoteroWriteApproval", "Zotero write approval")
+          : (snap.labels && snap.labels.permission) ||
+            labelFrom(snap, "permission.acpToolApproval", "ACP tool approval"),
       message:
         safeText(request.summary) ||
         safeText(request.title || request.toolTitle || request.command || request.commandLine) ||
-        "ACP backend requests approval.",
+        labelFrom(snap, "permission.acpBackendApproval", "ACP backend requests approval."),
       detail: safeText(request.detail),
       source: safeText(request.source),
       permission: request,
       actions: options.map(function (option) {
         return contextAction(
           "resolve-permission",
-          safeText(option.name || option.label || option.optionId) || "Approve",
+          safeText(option.name || option.label || option.optionId) ||
+            labelFrom(snap, "actions.approve", "Approve"),
           {
             outcome: "selected",
             optionId: safeText(option.optionId || option.id),
@@ -380,7 +401,13 @@
           true,
         );
       }).concat([
-        contextAction("resolve-permission", "Cancel", { outcome: "cancelled" }, true, "danger"),
+        contextAction(
+          "resolve-permission",
+          labelFrom(snap, "actions.cancel", "Cancel"),
+          { outcome: "cancelled" },
+          true,
+          "danger",
+        ),
       ]),
     };
   }
@@ -389,93 +416,125 @@
     const labels = snap.labels || {};
     const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
     return [
-      detailSection("Session", [
-        detailEntry(labels.target || "Target", snap.targetLabel),
-        detailEntry(labels.agent || "Agent", snap.agentLabel || snap.agentVersion),
-        detailEntry(labels.session || "Session", snap.sessionId || snap.remoteSessionId),
-        detailEntry(labels.remoteSession || "Remote session", snap.remoteSessionId),
-        detailEntry(labels.remoteRestore || "Remote restore", snap.remoteSessionRestoreStatus),
-        detailEntry(labels.stopReason || "Stop reason", snap.lastStopReason),
+      detailSection(labelFrom(snap, "details.session", "Session"), [
+        detailEntry(labelFrom(snap, "fields.target", labels.target || "Target"), snap.targetLabel),
+        detailEntry(labelFrom(snap, "fields.agent", labels.agent || "Agent"), snap.agentLabel || snap.agentVersion),
+        detailEntry(labelFrom(snap, "fields.session", labels.session || "Session"), snap.sessionId || snap.remoteSessionId),
+        detailEntry(labelFrom(snap, "fields.remoteSession", labels.remoteSession || "Remote session"), snap.remoteSessionId),
+        detailEntry(labelFrom(snap, "fields.remoteRestore", labels.remoteRestore || "Remote restore"), snap.remoteSessionRestoreStatus),
+        detailEntry(labelFrom(snap, "fields.stopReason", labels.stopReason || "Stop reason"), snap.lastStopReason),
       ]),
-      detailSection("Paths", [
-        detailEntry(labels.workspace || "Workspace", snap.agentWorkspaceDir || snap.sessionCwd),
-        detailEntry(labels.hostContext || "Host Context", snap.hostContextSummary),
+      detailSection(labelFrom(snap, "details.paths", "Paths"), [
+        detailEntry(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd),
+        detailEntry(labelFrom(snap, "fields.hostContext", labels.hostContext || "Host Context"), snap.hostContextSummary),
       ]),
-      detailSection(labels.diagnostics || "Diagnostics", diagnostics.slice(-12).map(function (entry) {
-        return detailEntry(
-          safeText(entry.kind || entry.level || "diagnostic"),
-          truncateText(entry.message || entry.detail || entry.error || JSON.stringify(entry), 600),
-          entry.detail ? "code" : "text",
-        );
-      }).concat([
-        detailEntry(labels.commandLine || "Command line", snap.commandLine, "code"),
-        detailEntry(labels.stderrTail || "stderr", snap.stderrTail, "code"),
-        detailEntry(labels.errorPrefix || "Error", snap.lastError || snap.prerequisiteError),
-      ])),
+      detailSection(
+        labelFrom(snap, "details.diagnostics", labels.diagnostics || "Diagnostics"),
+        diagnostics.slice(-12).map(function (entry) {
+          return detailEntry(
+            safeText(entry.kind || entry.level || "diagnostic"),
+            truncateText(entry.message || entry.detail || entry.error || JSON.stringify(entry), 600),
+            entry.detail ? "code" : "text",
+          );
+        }).concat([
+          detailEntry(labelFrom(snap, "fields.commandLine", labels.commandLine || "Command line"), snap.commandLine, "code"),
+          detailEntry(labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"), snap.stderrTail, "code"),
+          detailEntry(labelFrom(snap, "fields.error", labels.errorPrefix || "Error"), snap.lastError || snap.prerequisiteError),
+        ]),
+        {
+          kind: "diagnostics",
+          summary: labelFrom(snap, "details.recentDiagnostics", "Recent runtime diagnostics"),
+          collapsible: true,
+          defaultCollapsed: true,
+        },
+      ),
     ].filter(Boolean);
   }
 
-  function buildAcpSkillDetails(run, logs) {
+  function buildAcpSkillDetails(run, logs, source) {
     if (!run) return [];
     const revisions = Array.isArray(run.outputRevisions) ? run.outputRevisions : [];
     return [
-      detailSection("Run paths", [
-        detailEntry("Workspace", run.workspaceDir),
-        detailEntry("Runtime state", run.runtimeDir),
-        detailEntry("Audit artifact", run.inputManifestPath),
-        detailEntry("Result artifact", run.resultJsonPath),
+      detailSection(labelFrom(source, "details.runPaths", "Run paths"), [
+        detailEntry(labelFrom(source, "fields.workspace", "Workspace"), run.workspaceDir),
+        detailEntry(labelFrom(source, "fields.runtimeState", "Runtime state"), run.runtimeDir),
+        detailEntry(labelFrom(source, "fields.auditArtifact", "Audit artifact"), run.inputManifestPath),
+        detailEntry(labelFrom(source, "fields.resultArtifact", "Result artifact"), run.resultJsonPath),
       ]),
-      detailSection("Runner", [
-        detailEntry("Backend", run.backendLabel || run.backendId),
+      detailSection(labelFrom(source, "details.runner", "Runner"), [
+        detailEntry(labelFrom(source, "fields.backend", "Backend"), run.backendLabel || run.backendId),
         detailEntry("Agent family", run.agentFamily),
-        detailEntry("ACP mode", run.acpModeId),
-        detailEntry("ACP model", run.acpModelId),
-        detailEntry("Reasoning", run.acpReasoningEffort),
+        detailEntry("ACP " + labelFrom(source, "fields.mode", "mode"), run.acpModeId),
+        detailEntry("ACP " + labelFrom(source, "fields.model", "model"), run.acpModelId),
+        detailEntry(labelFrom(source, "fields.reasoning", "Reasoning"), run.acpReasoningEffort),
         detailEntry("Raw model", run.acpRawModelId),
         detailEntry("Skill", run.skillId),
         detailEntry("Skill roots", Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "", "code"),
-        detailEntry("Session", run.sessionId),
+        detailEntry(labelFrom(source, "fields.session", "Session"), run.sessionId),
       ]),
-      detailSection("Validation", [
-        detailEntry("Status", run.validationStatus),
-        detailEntry("Repair rounds", String(run.repairRounds || 0)),
-        detailEntry("Errors", Array.isArray(run.validationErrors) ? run.validationErrors.join("\n") : "", "code"),
+      detailSection(labelFrom(source, "details.validation", "Validation"), [
+        detailEntry(labelFrom(source, "fields.status", "Status"), run.validationStatus),
+        detailEntry(labelFrom(source, "fields.repairRounds", "Repair rounds"), String(run.repairRounds || 0)),
+        detailEntry(labelFrom(source, "fields.errors", "Errors"), Array.isArray(run.validationErrors) ? run.validationErrors.join("\n") : "", "code"),
         detailEntry("Run error", run.error),
-        detailEntry("Conversation", run.conversationState),
+        detailEntry(labelFrom(source, "fields.conversation", "Conversation"), run.conversationState),
         detailEntry("Conversation error", run.conversationError),
-        detailEntry("Apply result", run.applyResultState),
-        detailEntry("Applied at", run.appliedAt),
+        detailEntry(labelFrom(source, "fields.applyResult", "Apply result"), run.applyResultState),
+        detailEntry(labelFrom(source, "fields.appliedAt", "Applied at"), run.appliedAt),
       ]),
-      detailSection("Runtime Dependencies", [
-        detailEntry("Status", run.runtimeDependencyStatus),
+      detailSection(labelFrom(source, "details.runtimeDependencies", "Runtime Dependencies"), [
+        detailEntry(labelFrom(source, "fields.status", "Status"), run.runtimeDependencyStatus),
         detailEntry(
-          "Dependencies",
+          labelFrom(source, "fields.runtimeDependencies", "Runtime Dependencies"),
           Array.isArray(run.runtimeDependencies) ? run.runtimeDependencies.join("\n") : "",
           "code",
         ),
-        detailEntry("Error", run.runtimeDependencyError),
+        detailEntry(labelFrom(source, "fields.error", "Error"), run.runtimeDependencyError),
       ]),
-      detailSection("Output Revisions", revisions.slice().reverse().map(function (revision) {
-        return detailEntry(
-          "round " + String(Number(revision.repairRound || 0)) + " · " + safeText(revision.status || "unknown"),
-          [
-            Array.isArray(revision.errors) && revision.errors.length > 0 ? revision.errors.join("\n") : "",
-            revision.replacementReason || "",
-            truncateText(revision.candidateText, 600),
-          ].filter(Boolean).join("\n\n"),
-          "code",
-        );
-      })),
-      detailSection("Runtime Logs", (Array.isArray(logs) ? logs : []).slice(-20).map(function (log) {
-        return detailEntry(
-          safeText(log.level || log.stage || "log"),
-          truncateText(log.message || JSON.stringify(log), 600),
-          "code",
-        );
-      })),
-      detailSection("Result JSON", [
+      detailSection(
+        labelFrom(source, "details.outputRevisions", "Output Revisions"),
+        revisions.slice().reverse().map(function (revision) {
+          return detailEntry(
+            "round " + String(Number(revision.repairRound || 0)) + " · " + safeText(revision.status || "unknown"),
+            [
+              Array.isArray(revision.errors) && revision.errors.length > 0 ? revision.errors.join("\n") : "",
+              revision.replacementReason || "",
+              truncateText(revision.candidateText, 600),
+            ].filter(Boolean).join("\n\n"),
+            "code",
+          );
+        }),
+        {
+          kind: "revisions",
+          summary: String(revisions.length) + " " + labelFrom(source, "details.revisionCandidates", "revision candidates"),
+          collapsible: true,
+          defaultCollapsed: true,
+        },
+      ),
+      detailSection(
+        labelFrom(source, "details.runtimeLogs", "Runtime Logs"),
+        (Array.isArray(logs) ? logs : []).slice(-20).map(function (log) {
+          return detailEntry(
+            safeText(log.level || log.stage || "log"),
+            truncateText(log.message || JSON.stringify(log), 600),
+            "code",
+          );
+        }),
+        {
+          kind: "logs",
+          summary: labelFrom(source, "details.recentLogs", "Recent runtime log entries"),
+          collapsible: true,
+          defaultCollapsed: true,
+        },
+      ),
+      detailSection(labelFrom(source, "details.resultJson", "Result JSON"), [
         detailEntry("result", run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "", "code"),
-      ]),
+      ], {
+        kind: "result",
+        summary: labelFrom(source, "details.validatedOutput", "Validated workflow output"),
+        collapsible: true,
+        defaultCollapsed: true,
+      }),
     ].filter(Boolean);
   }
 
@@ -897,34 +956,82 @@
     const revisions = (Array.isArray(session && session.messages) ? session.messages : []).filter(function (entry) {
       return normalizeSkillRunnerMessageKind(entry && entry.kind) === "assistant_revision";
     });
+    const latestRevision = revisions.length > 0 ? revisions[revisions.length - 1] : null;
     return [
-      detailSection("Run", [
-        detailEntry("Request ID", session && session.requestId),
-        detailEntry("Status", session && session.status),
-        detailEntry("Backend", session && session.backendTitle),
-        detailEntry("Engine", session && session.engine),
-        detailEntry("Model", session && session.model),
-        detailEntry("Updated", session && session.updatedAt),
-        detailEntry("Error", session && session.error),
+      detailSection(labelFrom(envelope, "details.run", "Run"), [
+        detailEntry("Title", session && session.title),
+        detailEntry(labelFrom(envelope, "fields.requestId", "Request ID"), session && session.requestId),
+        detailEntry(labelFrom(envelope, "fields.taskKey", "Task key"), envelope && envelope.workspace && envelope.workspace.selectedTaskKey),
+        detailEntry(labelFrom(envelope, "fields.status", "Status"), session && session.status),
+        detailEntry(labelFrom(envelope, "fields.terminal", "Terminal"), session && session.statusSemantics ? String(Boolean(session.statusSemantics.terminal)) : ""),
+        detailEntry(labelFrom(envelope, "fields.waiting", "Waiting"), session && session.statusSemantics ? String(Boolean(session.statusSemantics.waiting)) : ""),
+        detailEntry(labelFrom(envelope, "fields.backend", "Backend"), session && session.backendTitle),
+        detailEntry(labelFrom(envelope, "fields.engine", "Engine"), session && session.engine),
+        detailEntry(labelFrom(envelope, "fields.model", "Model"), session && session.model),
+        detailEntry(labelFrom(envelope, "fields.updated", "Updated"), session && session.updatedAt),
+        detailEntry(labelFrom(envelope, "fields.loading", "Loading"), session ? String(Boolean(session.loading)) : ""),
+        detailEntry(labelFrom(envelope, "fields.error", "Error"), session && session.error),
       ]),
-      detailSection("Pending", [
+      detailSection(labelFrom(envelope, "details.pending", "Pending"), [
         detailEntry("Interaction", session && session.pendingInteractionId),
         detailEntry("Kind", session && session.pendingKind),
         detailEntry("Prompt", session && session.pendingPrompt),
+        detailEntry(
+          "Options",
+          Array.isArray(session && session.pendingOptions) ? String(session.pendingOptions.length) : "",
+        ),
+        detailEntry(
+          "Required fields",
+          Array.isArray(session && session.pendingRequiredFields)
+            ? session.pendingRequiredFields.join(", ")
+            : "",
+        ),
         detailEntry("Auth session", session && session.authSessionId),
         detailEntry("Auth provider", session && session.authProviderId),
+        detailEntry("Auth phase", session && session.authPhase),
+        detailEntry("Auth engine", session && session.authEngine),
+        detailEntry(
+          "Auth methods",
+          Array.isArray(session && session.authAvailableMethods)
+            ? session.authAvailableMethods.join(", ")
+            : "",
+        ),
+        detailEntry("Auth challenge", session && session.authChallengeKind),
         detailEntry("Auth error", session && session.authLastError),
       ]),
-      detailSection("Revisions", revisions.map(function (revision) {
-        return detailEntry(
-          "assistant_revision",
-          truncateText(skillRunnerMessageText(revision) || JSON.stringify(revision), 800),
-          "code",
-        );
-      })),
-      detailSection("Raw Snapshot", [
-        detailEntry("snapshot", JSON.stringify(envelope || {}, null, 2), "code"),
+      detailSection(labelFrom(envelope, "details.conversationSummary", "Conversation Summary"), [
+        detailEntry(
+          labelFrom(envelope, "fields.messages", "Messages"),
+          Array.isArray(session && session.messages) ? String(session.messages.length) : "",
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.latestTimestamp", "Latest timestamp"),
+          Array.isArray(session && session.messages) && session.messages.length > 0
+            ? session.messages[session.messages.length - 1].ts
+            : "",
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.latestKind", "Latest kind"),
+          Array.isArray(session && session.messages) && session.messages.length > 0
+            ? session.messages[session.messages.length - 1].kind
+            : "",
+        ),
       ]),
+      detailSection(labelFrom(envelope, "details.revisionSummary", "Revision Summary"), [
+        detailEntry(labelFrom(envelope, "fields.count", "Count"), String(revisions.length)),
+        detailEntry(
+          labelFrom(envelope, "fields.latest", "Latest"),
+          latestRevision
+            ? truncateText(skillRunnerMessageText(latestRevision) || JSON.stringify(latestRevision), 500)
+            : "",
+          latestRevision ? "code" : "text",
+        ),
+      ], {
+        kind: "revisions",
+        summary: labelFrom(envelope, "details.compactRevision", "Compact revision metadata"),
+        collapsible: true,
+        defaultCollapsed: true,
+      }),
     ].filter(Boolean);
   }
 
@@ -949,8 +1056,10 @@
     const reply = source.reply && typeof source.reply === "object" ? source.reply : {};
     const drawers = source.drawers && typeof source.drawers === "object" ? source.drawers : {};
     const actions = source.actions && typeof source.actions === "object" ? source.actions : {};
+    const labels = source.labels && typeof source.labels === "object" ? source.labels : {};
     return {
       kind,
+      labels,
       context: Object.assign(
         {
           id: "",
@@ -1131,6 +1240,7 @@
     }
     return normalizeAssistantPanelSnapshot({
       kind: "acp-chat",
+      labels: snap.labels || {},
       context: {
         id: safeText(snap.sessionId || snap.remoteSessionId || snap.activeConversationId),
         title: safeText(snap.title) || "ACP Chat",
@@ -1141,10 +1251,10 @@
         backendLabel: safeText(snap.backendLabel || snap.agentLabel),
         sessionId: safeText(snap.sessionId || snap.remoteSessionId),
         metadata: compactMetadata([
-          metadataItem("Backend", snap.backendLabel || snap.agentLabel, "backend"),
-          metadataItem("Session", snap.sessionTitle || snap.sessionId, "session"),
-          metadataItem("Workspace", snap.agentWorkspaceDir || snap.sessionCwd, "workspace"),
-          metadataItem("Updated", snap.updatedAt, "updatedAt"),
+          metadataItem(labelFrom(snap, "fields.backend", labels.backend || "Backend"), snap.backendLabel || snap.agentLabel, "backend"),
+          metadataItem(labelFrom(snap, "fields.session", labels.session || "Session"), snap.sessionTitle || snap.sessionId, "session"),
+          metadataItem(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd, "workspace"),
+          metadataItem(labelFrom(snap, "fields.updated", labels.updated || "Updated"), snap.updatedAt, "updatedAt"),
         ]),
         indicators: [
           connectionIndicator(connectionState, snap.lastError || snap.prerequisiteError),
@@ -1153,7 +1263,7 @@
         selectors: [
           contextSelector(
             "backend",
-            labels.backend || "Backend",
+            labelFrom(snap, "fields.backend", labels.backend || "Backend"),
             activeBackendId,
             backendOptions,
             "set-active-backend",
@@ -1162,7 +1272,7 @@
           ),
           contextSelector(
             "conversation",
-            labels.conversation || "Conversation",
+            labelFrom(snap, "fields.conversation", labels.conversation || "Conversation"),
             activeConversationId,
             sessionOptions.options,
             "set-active-conversation",
@@ -1209,7 +1319,10 @@
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
           "Ask the active ACP backend about the current library or item...",
-        submitLabel: snap.busy === true ? "Cancel" : "Send",
+        submitLabel:
+          snap.busy === true
+            ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
+            : labelFrom(snap, "actions.send", labels.send || "Send"),
         sending: snap.busy === true,
         action: snap.busy === true ? "cancel" : "send-prompt",
         showUsageGauge: true,
@@ -1235,13 +1348,12 @@
       actions: {
         toolbar: [
           { action: "open-context-drawer", label: labels.sessionManager || "Sessions" },
-          { action: "openDetails", label: labels.diagnostics || "Details" },
-          { action: "open-backend-manager", label: labels.manageBackends || "Manage" },
+          { action: "openDetails", label: labels.details || labelFrom(snap, "actions.details", "Details") },
+          { action: "open-backend-manager", label: labels.manageBackends || labelFrom(snap, "actions.manageBackends", "Manage") },
         ],
         context: [],
         details: [
-          { action: "copy-diagnostics", label: labels.copyDiagnostics || "Copy Diagnostics" },
-          { action: "open-backend-manager", label: labels.manageBackends || "Manage" },
+          { action: "copy-diagnostics", label: labels.copyDiagnostics || labelFrom(snap, "actions.copyDiagnostics", "Copy Diagnostics") },
         ],
       },
       drawers: {
@@ -1271,6 +1383,7 @@
 
   function projectAcpSkillRunPanelSnapshot(snapshot) {
     const panel = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const panelLabels = panel.labels && typeof panel.labels === "object" ? panel.labels : {};
     const run =
       panel.selectedRun && typeof panel.selectedRun === "object"
         ? panel.selectedRun
@@ -1395,12 +1508,12 @@
             kind: "permission",
             title:
               safeText(run.pendingPermission.source) === "zotero-mcp-write"
-                ? "Zotero write approval"
-                : "ACP tool approval",
+                ? labelFrom(panel, "permission.zoteroWriteApproval", "Zotero write approval")
+                : labelFrom(panel, "permission.acpToolApproval", "ACP tool approval"),
             message:
               safeText(run.pendingPermission.summary) ||
               safeText(run.pendingPermission.toolTitle || run.pendingPermission.requestId) ||
-              "ACP skill run requests approval.",
+              labelFrom(panel, "permission.acpSkillApproval", "ACP skill run requests approval."),
             detail: safeText(run.pendingPermission.detail),
             source: safeText(run.pendingPermission.source),
             permission: run.pendingPermission,
@@ -1408,7 +1521,8 @@
               function (option) {
                 return contextAction(
                   "resolve-permission",
-                  safeText(option.name || option.label || option.optionId) || "Approve",
+                  safeText(option.name || option.label || option.optionId) ||
+                    labelFrom(panel, "actions.approve", "Approve"),
                   {
                     requestId: safeText(run.requestId),
                     permissionRequestId: safeText(run.pendingPermission.requestId),
@@ -1421,7 +1535,7 @@
             ).concat([
               contextAction(
                 "resolve-permission",
-                "Cancel",
+                labelFrom(panel, "actions.cancel", "Cancel"),
                 {
                   requestId: safeText(run.requestId),
                   permissionRequestId: safeText(run.pendingPermission.requestId),
@@ -1435,6 +1549,7 @@
         : conversation.interaction;
     return normalizeAssistantPanelSnapshot({
       kind: "acp-skills",
+      labels: panelLabels,
       context: {
         id: safeText(run && run.requestId),
         title:
@@ -1448,11 +1563,11 @@
         sessionId: safeText(run && run.sessionId),
         workspaceDir: safeText(run && run.workspaceDir),
         metadata: compactMetadata([
-          metadataItem("Backend", run && run.backendLabel, "backend"),
-          metadataItem("Mode", run && run.acpModeId, "mode"),
-          metadataItem("Model", run && (run.acpModelId || run.acpRawModelId), "model"),
-          metadataItem("Workspace", run && run.workspaceDir, "workspace"),
-          metadataItem("Validation", run && run.validationStatus, "validation"),
+          metadataItem(labelFrom(panel, "fields.backend", "Backend"), run && run.backendLabel, "backend"),
+          metadataItem(labelFrom(panel, "fields.mode", "Mode"), run && run.acpModeId, "mode"),
+          metadataItem(labelFrom(panel, "fields.model", "Model"), run && (run.acpModelId || run.acpRawModelId), "model"),
+          metadataItem(labelFrom(panel, "fields.workspace", "Workspace"), run && run.workspaceDir, "workspace"),
+          metadataItem(labelFrom(panel, "fields.validation", "Validation"), run && run.validationStatus, "validation"),
           metadataItem("Runtime deps", run && run.runtimeDependencyStatus, "deps"),
         ]),
         indicators: [
@@ -1467,19 +1582,19 @@
           ? [
               contextAction(
                 "connect-run",
-                actionState === "connecting" ? "Connecting..." : "Connect",
+                actionState === "connecting" ? "Connecting..." : labelFrom(panel, "actions.connect", "Connect"),
                 { requestId: safeText(run.requestId) },
                 canConnect,
               ),
               contextAction(
                 "disconnect-run",
-                actionState === "disconnecting" ? "Disconnecting..." : "Disconnect",
+                actionState === "disconnecting" ? "Disconnecting..." : labelFrom(panel, "actions.disconnect", "Disconnect"),
                 { requestId: safeText(run.requestId) },
                 canDisconnect,
               ),
               contextAction(
                 "cancel-run",
-                "Cancel Run",
+                labelFrom(panel, "actions.cancelRun", "Cancel Run"),
                 { requestId: safeText(run.requestId) },
                 !isTerminalStatus(status),
                 "danger",
@@ -1506,43 +1621,44 @@
           ["active", "available", "connected"].indexOf(
             safeText(run.conversationState || run.conversationRecoveryState),
           ) >= 0,
-        placeholder: "Reply to this ACP skill conversation...",
-        submitLabel: "Send",
+        placeholder: labelFrom(panel, "reply.placeholderAcpSkill", "Reply to this ACP skill conversation..."),
+        submitLabel: labelFrom(panel, "actions.send", "Send"),
         sending: safeText(run && run.replyState) === "sending",
         action: "reply-run",
-        hint: "Ctrl+Enter / Cmd+Enter to send",
+        hint: labelFrom(panel, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
         showUsageGauge: true,
         controls: [],
       },
       drawers: {
         layout: "workspace-task-drawer",
-        contextTitle: "Runs",
-        detailsTitle: "Run Details",
+        contextTitle: labelFrom(panel, "actions.runs", "Runs"),
+        detailsTitle: labelFrom(panel, "details.title", "Run Details"),
         contexts: runContexts,
         sections: acpSkillRunDrawerSections(),
         selectedTaskKey: safeText(run && run.requestId),
-        details: buildAcpSkillDetails(run, panel.logs),
+        details: buildAcpSkillDetails(run, panel.logs, panel),
       },
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: "Runs" },
-          { action: "openDetails", label: "Details" },
+          { action: "open-context-drawer", label: labelFrom(panel, "actions.runs", "Runs") },
+          { action: "openDetails", label: labelFrom(panel, "actions.details", "Details") },
+          { action: "open-backend-manager", label: labelFrom(panel, "actions.manageBackends", "Manage Backends") },
         ],
         context: [],
         details: [
           {
             action: "copy-request-id",
-            label: "Copy ID",
+            label: labelFrom(panel, "actions.copyId", "Copy ID"),
             enabled: Boolean(run && run.requestId),
           },
           {
             action: "copy-diagnostics",
-            label: "Copy Diagnostics",
+            label: labelFrom(panel, "actions.copyDiagnostics", "Copy Diagnostics"),
             enabled: Boolean(run),
           },
           {
             action: "open-workspace",
-            label: "Open Workspace",
+            label: labelFrom(panel, "actions.openWorkspace", "Open Workspace"),
             payload: { workspaceDir: safeText(run && run.workspaceDir) },
             enabled: Boolean(run && run.workspaceDir),
           },
@@ -1561,6 +1677,7 @@
     const interaction = buildSkillRunnerPendingInteraction(session, status);
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
+      labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
       context: {
         id: safeText(session.requestId || session.id),
         title: safeText(session.title || envelope.title) || "SkillRunner Workspace",
@@ -1570,15 +1687,15 @@
         backendId: safeText(session.backendId),
         backendLabel: safeText(session.backendTitle),
         metadata: compactMetadata([
-          metadataItem("Backend", session.backendTitle, "backend"),
-          metadataItem("Engine", session.engine, "engine"),
-          metadataItem("Model", session.model, "model"),
-          metadataItem("Updated", session.updatedAt, "updatedAt"),
+          metadataItem(labelFrom(envelope, "fields.backend", "Backend"), session.backendTitle, "backend"),
+          metadataItem(labelFrom(envelope, "fields.engine", "Engine"), session.engine, "engine"),
+          metadataItem(labelFrom(envelope, "fields.model", "Model"), session.model, "model"),
+          metadataItem(labelFrom(envelope, "fields.updated", "Updated"), session.updatedAt, "updatedAt"),
         ]),
         actions: [
           contextAction(
             "cancel-run",
-            "Cancel Run",
+            labelFrom(envelope, "actions.cancelRun", "Cancel Run"),
             { requestId: safeText(session.requestId) },
             !isTerminalStatus(status),
             "danger",
@@ -1595,15 +1712,15 @@
       interaction,
       reply: {
         enabled: status === "waiting-user" || status === "waiting-auth",
-        placeholder: "Reply to the pending SkillRunner interaction...",
-        submitLabel: "Send",
+        placeholder: labelFrom(envelope, "reply.placeholderSkillRunner", "Reply to the pending SkillRunner interaction..."),
+        submitLabel: labelFrom(envelope, "actions.send", "Send"),
         action: "reply-run",
-        hint: "Ctrl+Enter / Cmd+Enter to send",
+        hint: labelFrom(envelope, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
       },
       drawers: {
         layout: "skillrunner-workspace",
-        contextTitle: "Runs",
-        detailsTitle: "SkillRunner Details",
+        contextTitle: labelFrom(envelope, "actions.runs", "Runs"),
+        detailsTitle: labelFrom(envelope, "details.title", "SkillRunner Details"),
         contexts: buildSkillRunnerContexts(envelope),
         skillrunnerSections:
           envelope.drawer && Array.isArray(envelope.drawer.sections)
@@ -1618,12 +1735,23 @@
       },
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: "Runs" },
-          { action: "openDetails", label: "Details" },
+          { action: "open-context-drawer", label: labelFrom(envelope, "actions.runs", "Runs") },
+          { action: "openDetails", label: labelFrom(envelope, "actions.details", "Details") },
+          { action: "open-backend-manager", label: labelFrom(envelope, "actions.manageBackends", "Manage Backends") },
         ],
         context: [],
         details: [
-          { action: "copy-diagnostics", label: "Copy Diagnostics" },
+          {
+            action: "copy-request-id",
+            label: labelFrom(envelope, "actions.copyId", "Copy ID"),
+            payload: { requestId: safeText(session && session.requestId) },
+            enabled: Boolean(session && session.requestId),
+          },
+          {
+            action: "copy-diagnostics",
+            label: labelFrom(envelope, "actions.copyDiagnostics", "Copy Diagnostics"),
+            payload: { requestId: safeText(session && session.requestId) },
+          },
         ],
       },
       raw: envelope,

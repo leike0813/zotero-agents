@@ -30,6 +30,7 @@ import {
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
+import { openBackendManagerDialog } from "./backendManager";
 
 type SidebarTarget = "library" | "reader";
 type SidebarButtonElement = XULElement | Element;
@@ -731,6 +732,10 @@ function createSidebarHostActionHandler(host: SidebarHostRuntime) {
         await focusSkillRunnerWorkspace();
         return true;
       }
+    }
+    if (action === "open-backend-manager") {
+      await openBackendManagerDialog({ window: host.win });
+      return true;
     }
     if (action === "close-sidebar") {
       return closeActiveSidebarHost(host);

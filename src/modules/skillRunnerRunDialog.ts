@@ -6,6 +6,8 @@ import type { BackendInstance } from "../backends/types";
 import { getStringOrFallback as localize } from "../utils/locale";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { isWindowAlive } from "../utils/window";
+import { copyText } from "../utils/ztoolkit";
+import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   type SkillRunnerManagementChatHistoryPayload,
   type SkillRunnerManagementAuthSession,
@@ -175,6 +177,7 @@ type RunDialogSnapshot = {
     correlation?: Record<string, unknown>;
   }>;
   labels: {
+    assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
     backend: string;
     requestId: string;
     status: string;
@@ -301,6 +304,7 @@ export type RunWorkspaceSnapshot = {
   title: string;
   hostMode?: "dialog" | "sidebar";
   labels: {
+    assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
     completedTasksTitle: string;
     conversationTitle: string;
     closeSidebar: string;
@@ -1607,6 +1611,7 @@ function buildRunDialogSnapshot(
         : {},
     })),
     labels: {
+      assistantPanel: buildAssistantPanelLabels(),
       backend: localize("task-dashboard-run-backend", "Backend"),
       requestId: localize("task-dashboard-run-request-id", "Request ID"),
       status: localize("task-manager-column-status", "Status"),
@@ -1822,6 +1827,7 @@ function buildRunWorkspaceSnapshot(
       session?.title ||
       resolveRunWorkspaceTitle(),
     labels: {
+      assistantPanel: buildAssistantPanelLabels(),
       completedTasksTitle: localize(
         "task-dashboard-run-completed-tasks-title",
         "Completed Tasks",
@@ -2871,6 +2877,20 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
     } else {
       await refreshWorkspaceSnapshot();
     }
+    return;
+  }
+  if (action === "copy-request-id") {
+    const requestId =
+      String(payload.requestId || "").trim() ||
+      String(runWorkspaceState.currentEntry?.requestId || "").trim();
+    copyText(requestId);
+    return;
+  }
+  if (action === "copy-diagnostics") {
+    const session = runWorkspaceState.currentEntry
+      ? buildRunDialogSnapshot(runWorkspaceState.currentEntry)
+      : null;
+    copyText(JSON.stringify(buildRunWorkspaceSnapshot(session), null, 2));
     return;
   }
   if (action === "toggle-group-collapse") {

@@ -46,6 +46,13 @@ Each panel SHALL map its visible content to the same top-to-bottom regions:
 Panels MAY hide regions that are not meaningful for the current state, but they
 SHALL keep the same semantic responsibilities.
 
+The physical DOM/grid SHOULD use a stable outer shell with three rows:
+`shell toolbar`, `banner`, and a flexible `main` region. The `main` region
+SHOULD then own the four body rows: `conversation window`, `plan widget`,
+`hint widget`, and `reply zone`. This wrapper does not change the six-region
+semantic model; it prevents ACP Chat, ACP Skills, and SkillRunner from drifting
+in body sizing, reply alignment, and plan/hint height behavior.
+
 ### Shell Toolbar
 
 The shell toolbar contains shell-level or panel-level controls that are not tied
@@ -90,6 +97,36 @@ Banner controls are split into:
 Shell close and context end/disconnect are distinct actions. Child panels SHALL
 NOT expose their own sidebar close semantics once hosted by the unified Assistant
 shell.
+
+### Details Drawer
+
+The details drawer is the right-side metadata and diagnostics surface for all
+Assistant panels. It SHALL be rendered by the shared managed renderer, with a
+fixed header and a scrollable body. Page scripts SHALL NOT maintain separate
+visible details drawer builders.
+
+Details drawer sections SHALL use the shared section model:
+
+- `title`: visible section title
+- `summary`: short section description
+- `entries`: label/value or code entries
+- `kind`: metadata, diagnostics, logs, result, revisions, or artifact category
+- `collapsible` and `defaultCollapsed`: section folding behavior
+
+Basic metadata sections SHOULD be expanded by default. Heavy diagnostics, logs,
+raw JSON, result payloads, and revision trails SHOULD be collapsible and
+collapsed by default.
+
+Diagnostic/export/artifact actions such as `Copy Diagnostics`, `Copy ID`, and
+`Open Workspace` belong inside the details drawer. Backend management actions
+belong in the outer toolbar and SHALL NOT be rendered as details actions. ACP
+Chat, ACP Skills, and SkillRunner SHALL all expose backend management from the
+toolbar when hosted by the unified Assistant shell.
+
+SkillRunner details SHALL show current run/task metadata and compact diagnostic
+summaries only. Full conversation history, complete transcript message lists,
+and full raw envelope dumps SHALL NOT be rendered directly in the visible
+details drawer body.
 
 ### Conversation Window
 

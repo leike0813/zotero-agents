@@ -1,104 +1,16 @@
 :root {
   color-scheme: light;
+  --asst-context-drawer-width: min(380px, 92vw);
+  --asst-details-drawer-width: min(520px, 94vw);
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  margin: 0;
-  overflow: hidden;
-  background: var(--asst-bg);
-  color: var(--asst-text);
-  font: 13px/1.45 var(--asst-font-sans);
-}
-
-button,
-textarea,
-select {
-  font: inherit;
-}
-
-.hidden {
-  display: none !important;
-}
-
-.acp-skill-run-shell {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 8px;
+.acp-skill-toolbar,
+.acp-skill-banner,
+.acp-skill-run-main,
+.acp-skill-plan-region,
+.acp-skill-hint-region,
+.acp-skill-reply-zone {
   min-width: 0;
-  min-height: 0;
-  padding: 10px;
-  overflow: hidden;
-}
-
-.acp-skill-toolbar {
-  border: 1px solid var(--asst-line);
-  border-radius: var(--asst-radius-md);
-  box-shadow: var(--asst-shadow-subtle);
-}
-
-.acp-skill-toolbar .assistant-panel-managed-view {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-start;
-  width: 100%;
-}
-
-.acp-skill-banner {
-  min-width: 0;
-  padding: 9px 10px;
-}
-
-.acp-skill-banner .assistant-panel-managed-view {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px 10px;
-}
-
-.acp-skill-banner .assistant-panel-banner-meta,
-.acp-skill-banner .assistant-panel-context-actions {
-  grid-column: 1 / -1;
-}
-
-.empty-state {
-  margin: 0;
-  padding: 18px;
-  border: 1px solid var(--asst-line);
-  border-radius: var(--asst-radius-md);
-  background: var(--asst-surface);
-  color: var(--asst-muted);
-}
-
-.empty-state.compact {
-  padding: 9px 10px;
-  border: 0;
-  background: transparent;
-}
-
-.acp-skill-run-main {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
-  gap: 8px;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.acp-skill-conversation-window {
-  min-height: 0;
-  padding: 0;
-  overflow: hidden;
 }
 
 .run-transcript {
@@ -108,66 +20,8 @@ select {
   overflow: auto;
 }
 
-.acp-skill-plan-region {
-  max-height: min(22vh, 180px);
-  overflow: auto;
-}
-
-.acp-skill-hint-region {
-  min-height: 42px;
-}
-
-.acp-skill-reply-zone {
-  min-height: 0;
-}
-
-.run-drawer,
-.details-drawer {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  background: rgba(15, 23, 42, 0.24);
-}
-
-.details-drawer .asst-drawer-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
-  padding: 12px;
-  overflow: auto;
-}
-
-.run-drawer .asst-drawer-panel {
-  right: auto;
-  left: 0;
-  width: min(380px, 92vw);
-  border-right: 1px solid var(--asst-line);
-  border-left: 0;
-}
-
-.details-drawer .asst-drawer-panel {
-  width: min(520px, 94vw);
-}
-
-.assistant-panel-context-list,
-.assistant-panel-details-list {
-  min-height: 0;
-  overflow: auto;
-}
-
-.assistant-panel-context-entry {
-  width: 100%;
-}
-
-.assistant-panel-details-entry {
-  max-height: 260px;
-  white-space: pre-wrap;
-}
-
-@media (max-width: 680px) {
-  .acp-skill-banner .assistant-panel-managed-view {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.hidden {
+  display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

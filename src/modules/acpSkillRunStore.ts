@@ -5,6 +5,7 @@ import {
 } from "./pluginStateStore";
 import { registerAcpSkillRunsMemoryClearer } from "./runtimePersistence";
 import { listRuntimeLogs } from "./runtimeLogManager";
+import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   listWorkflowTasks,
   type WorkflowTaskRecord,
@@ -261,6 +262,9 @@ export type AcpSkillRunPanelSnapshot = {
     message: string;
     scope: string;
   }>;
+  labels?: {
+    assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
+  };
 };
 
 type AcpSkillRunController = {
@@ -2121,6 +2125,9 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     : [];
   return {
     generatedAt: nowIso(),
+    labels: {
+      assistantPanel: buildAssistantPanelLabels(),
+    },
     selectedRequestId,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),

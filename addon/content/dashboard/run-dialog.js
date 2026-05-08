@@ -533,6 +533,14 @@
       });
       return;
     }
+    if (action === "copy-request-id" || action === "copy-diagnostics") {
+      sendAction(action, Object.assign({}, data, { requestId: safeText(data.requestId || currentRequestId()) }));
+      return;
+    }
+    if (action === "open-backend-manager") {
+      sendAction("open-backend-manager", {});
+      return;
+    }
     if (action === "reply" || action === "reply-run") {
       submitReply(data.message || data.value || "", data);
       return;
@@ -576,7 +584,11 @@
       mode: state.chatDisplayMode,
       variant: "skillrunner",
       renderMarkdown,
-      emptyText: "No chat events yet.",
+      labels: panelSnapshot.labels?.assistantPanel?.transcript || panelSnapshot.labels?.transcript || {},
+      emptyText:
+        panelSnapshot.labels?.assistantPanel?.transcript?.empty ||
+        panelSnapshot.labels?.transcript?.empty ||
+        "No chat events yet.",
       nodeMap: state.transcriptNodeMap,
       orderKey: state.transcriptOrderKey,
       modeKey: state.transcriptModeKey,

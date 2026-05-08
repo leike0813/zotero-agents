@@ -217,6 +217,10 @@
       render(state.snapshot || {});
       return;
     }
+    if (action === "open-backend-manager") {
+      sendAction("open-backend-manager", {});
+      return;
+    }
     if (
       action === "connect-run" ||
       action === "disconnect-run" ||
@@ -372,7 +376,11 @@
       expandedIds: state.toolActivityExpandedIds,
       renderMarkdown,
       formatTime,
-      emptyText: "Waiting for agent transcript...",
+      labels: state.panelSnapshot?.labels?.assistantPanel?.transcript || state.panelSnapshot?.labels?.transcript || {},
+      emptyText:
+        state.panelSnapshot?.labels?.assistantPanel?.transcript?.empty ||
+        state.panelSnapshot?.labels?.transcript?.empty ||
+        "Waiting for agent transcript...",
       onToggleExpanded: function (id) {
         if (state.toolActivityExpandedIds.has(id)) {
           state.toolActivityExpandedIds.delete(id);

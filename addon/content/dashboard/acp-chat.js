@@ -335,7 +335,12 @@
       expandedIds: state.toolActivityExpandedIds,
       renderMarkdown,
       formatTime,
-      emptyText: snapshot.labels?.empty || "No messages yet.",
+      labels: snapshot.labels?.assistantPanel?.transcript || snapshot.labels?.transcript || {},
+      emptyText:
+        snapshot.labels?.assistantPanel?.transcript?.empty ||
+        snapshot.labels?.transcript?.empty ||
+        snapshot.labels?.empty ||
+        "No messages yet.",
       onToggleExpanded: function (id) {
         if (state.toolActivityExpandedIds.has(id)) {
           state.toolActivityExpandedIds.delete(id);

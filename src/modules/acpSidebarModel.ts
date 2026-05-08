@@ -1,4 +1,5 @@
 import { getStringOrFallback } from "../utils/locale";
+import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import type {
   AcpConversationSnapshot,
   AcpFrontendSnapshot,
@@ -212,6 +213,7 @@ export function buildAcpSidebarViewSnapshot(args: {
     })),
     hostContextSummary: summarizeHostContext(args.snapshot, args.target),
     labels: {
+      assistantPanel: buildAssistantPanelLabels(),
       targetLibrary: localize("task-dashboard-acp-target-library" as any, "Library"),
       targetReader: localize("task-dashboard-acp-target-reader" as any, "Reader"),
       subtitle: localize(
@@ -231,6 +233,7 @@ export function buildAcpSidebarViewSnapshot(args: {
         "task-dashboard-acp-manage-backends" as any,
         "Manage Backends",
       ),
+      details: localize("task-dashboard-acp-details" as any, "Details"),
       newConversation: localize(
         "task-dashboard-acp-new-conversation" as any,
         "New Conversation",

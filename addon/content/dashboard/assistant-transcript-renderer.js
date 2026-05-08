@@ -47,6 +47,16 @@
     return "Tool";
   }
 
+  function transcriptLabels(options) {
+    const labels = options && options.labels && typeof options.labels === "object" ? options.labels : {};
+    return labels.transcript && typeof labels.transcript === "object" ? labels.transcript : labels;
+  }
+
+  function transcriptLabel(options, key, fallback) {
+    const labels = transcriptLabels(options);
+    return String((labels && labels[key]) || fallback || "");
+  }
+
   function compactAssistantToolSummary(tool) {
     const candidates = [
       tool && tool.inputSummary,
@@ -297,11 +307,16 @@
     if (summary) parent.appendChild(el("span", "assistant-transcript-tool-summary", summary));
   }
 
-  function renderRevisionBadge(parent, revision, className) {
+  function renderRevisionBadge(parent, revision, className, options) {
     if (!revision || Number(revision.count || 0) <= 0) return;
-    const badge = el("span", className || "assistant-transcript-revision-badge", "Revised " + String(revision.count) + "x");
+    const badge = el(
+      "span",
+      className || "assistant-transcript-revision-badge",
+      transcriptLabel(options, "revised", "Revised") + " " + String(revision.count) + "x",
+    );
     badge.title =
-      "Latest output revision: " +
+      transcriptLabel(options, "latestRevision", "Latest output revision") +
+      ": " +
       String(revision.latestStatus || "") +
       ", repair round " +
       String(Number(revision.latestRepairRound || 0));
@@ -327,20 +342,20 @@
         : null;
     if (item.kind === "message") {
       meta.appendChild(el("span", "assistant-transcript-role", String(item.role || "assistant")));
-      renderRevisionBadge(meta, item.revision);
+      renderRevisionBadge(meta, item.revision, undefined, options);
       meta.appendChild(el("span", "assistant-transcript-time", formatTime(item.createdAt)));
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
       return;
     }
     if (item.kind === "process") {
-      meta.textContent = String(item.label || "Thinking");
+      meta.textContent = String(item.label || transcriptLabel(options, "thinking", "Thinking"));
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
       return;
     }
     if (item.kind === "tool" || item.kind === "tool_call") {
-      meta.textContent = "Tool";
+      meta.textContent = transcriptLabel(options, "tool", "Tool");
       const led = el("span", "assistant-transcript-tool-led " + toolToneClass(item.state));
       led.setAttribute("aria-hidden", "true");
       body.appendChild(led);
@@ -352,9 +367,15 @@
       const summary = el("div", "assistant-transcript-tool-activity-summary");
       const led = el("span", "assistant-transcript-tool-led " + toolToneClass(summaryState));
       led.setAttribute("aria-hidden", "true");
-      meta.appendChild(el("span", "assistant-transcript-role", "Tool activity (" + String(item.items.length) + ")"));
+      meta.appendChild(
+        el(
+          "span",
+          "assistant-transcript-role",
+          transcriptLabel(options, "toolActivity", "Tool activity") + " (" + String(item.items.length) + ")",
+        ),
+      );
       summary.appendChild(led);
-      summary.appendChild(el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items)));
+      summary.appendChild(el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items, options)));
       body.appendChild(summary);
       if (item.expanded === true) {
         const list = el("div", "assistant-transcript-tool-activity-list");
@@ -370,11 +391,11 @@
       }
       return;
     }
-    meta.textContent = String(item.label || "Status");
+    meta.textContent = String(item.label || transcriptLabel(options, "status", "Status"));
     body.textContent = String(item.text || "");
   }
 
-  function toolGroupSummaryText(items) {
+  function toolGroupSummaryText(items, options) {
     const tools = Array.isArray(items) ? items : [];
     const failedCount = tools.filter(function (tool) {
       return normalizeStatusToken(tool.state) === "failed";
@@ -387,10 +408,10 @@
       return normalizeStatusToken(tool.state) === "pending";
     }).length;
     return [
-      String(tools.length) + " tools",
-      failedCount ? String(failedCount) + " failed" : "",
-      runningCount ? String(runningCount) + " running" : "",
-      pendingCount ? String(pendingCount) + " pending" : "",
+      String(tools.length) + " " + transcriptLabel(options, "tools", "tools"),
+      failedCount ? String(failedCount) + " " + transcriptLabel(options, "failed", "failed") : "",
+      runningCount ? String(runningCount) + " " + transcriptLabel(options, "running", "running") : "",
+      pendingCount ? String(pendingCount) + " " + transcriptLabel(options, "pending", "pending") : "",
     ].filter(Boolean).join(" • ");
   }
 
@@ -417,7 +438,7 @@
     if (items.length === 0) {
       clearNode(container);
       if (opts.nodeMap && typeof opts.nodeMap.clear === "function") opts.nodeMap.clear();
-      container.appendChild(el("div", "assistant-transcript-empty", opts.emptyText || "No messages yet."));
+      container.appendChild(el("div", "assistant-transcript-empty", opts.emptyText || transcriptLabel(opts, "empty", "No messages yet.")));
       return;
     }
     const orderKey = items.map(function (item) {

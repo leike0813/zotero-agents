@@ -26,6 +26,7 @@ import {
   resolveSidebarFrameWindow,
   setSidebarContainerVisible,
 } from "./sidebarBrowserHost";
+import { openBackendManagerDialog } from "./backendManager";
 
 type SidebarTarget = "library" | "reader";
 type SidebarButtonElement = XULElement | Element;
@@ -421,6 +422,10 @@ async function handleSidebarAction(
     }
     if (action === "open-workspace") {
       openFolderInSystemFileManager(String(payload.workspaceDir || "").trim());
+      return;
+    }
+    if (action === "open-backend-manager") {
+      await openBackendManagerDialog({ window: host.win });
       return;
     }
     if (action === "close-sidebar") {
