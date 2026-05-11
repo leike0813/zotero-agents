@@ -18,6 +18,7 @@ import type {
   ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
+import type { SynthesisService } from "../modules/synthesis/service";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
 export type WorkflowParameterType = "string" | "number" | "boolean";
@@ -279,6 +280,7 @@ export type WorkflowHostApi = {
       filters?: [string, string][];
     }) => Promise<string[] | null>;
   };
+  synthesis?: SynthesisService;
 };
 
 export type WorkflowRuntimeContext = {

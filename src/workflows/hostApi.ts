@@ -15,6 +15,7 @@ import {
   getAllRegularZoteroItems,
 } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
+import { getDefaultSynthesisService } from "../modules/synthesis/service";
 import {
   resolveRuntimeAddon,
   resolveRuntimeToolkit,
@@ -408,6 +409,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }) as Promise<string[] | null>;
       },
     },
+    synthesis: getDefaultSynthesisService(),
   };
   return cachedHostApi;
 }
@@ -429,6 +431,7 @@ export function summarizeWorkflowHostApiCapabilities(hostApi?: WorkflowHostApi |
     context: !!hostApi?.context,
     library: !!hostApi?.library,
     mutations: !!hostApi?.mutations,
+    synthesis: !!hostApi?.synthesis,
   };
 }
 

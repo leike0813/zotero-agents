@@ -59,7 +59,7 @@ button {
   align-items: center;
   align-self: end;
   gap: 2px;
-  width: 100%;
+  flex: 1 1 auto;
   min-width: 0;
   height: 100%;
 }

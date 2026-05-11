@@ -50,9 +50,10 @@
 - [x] 执行状态提示（和权限审批共用一个区域）
 - [x] 用量由文字提示改为类似 Codex 的转圈进度条，带tooltip，用kTokens为单位
 - [x] plain 视图改为类似 Claude Code 的左侧状态指示灯条样式
-- [ ] Skill Runner tool 消息模型调整（直接显示Tool/命令类型+摘要）
-- [ ] ACP Skills 的 Connect/Disconnect 按钮与状态失配问题
-- [ ] Skill 终态输出没有转 Markdown 的问题
+- [x] Skill Runner tool 消息模型调整（直接显示Tool/命令类型+摘要）
+- [x] ACP Skills 的 Connect/Disconnect 按钮与状态失配问题
+- [x] Skill 终态输出没有转 Markdown 的问题
+- [ ] MCP 工具似乎有些重复且说明不够清晰
 - [ ] **本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [ ] **兼容 Zotero 8**

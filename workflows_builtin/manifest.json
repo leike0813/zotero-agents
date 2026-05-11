@@ -62,6 +62,9 @@
     "tag-vocabulary-package/tag-regulator/hooks/applyResult.mjs",
     "tag-vocabulary-package/tag-regulator/hooks/buildRequest.mjs",
     "tag-vocabulary-package/tag-regulator/workflow.json",
-    "tag-vocabulary-package/tag-regulator/README.md"
+    "tag-vocabulary-package/tag-regulator/README.md",
+    "synthesis-layer/workflow-package.json",
+    "synthesis-layer/synthesize-topic/workflow.json",
+    "synthesis-layer/synthesize-topic/hooks/applyResult.mjs"
   ]
 }

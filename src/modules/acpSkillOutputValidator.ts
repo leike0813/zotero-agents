@@ -74,7 +74,7 @@ export async function validateAcpSkillFinalPayload(args: {
       ],
     };
   }
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = new Ajv({ allErrors: true, strict: false, logger: false });
   const validate = ajv.compile(schema as Parameters<typeof ajv.compile>[0]);
   if (validate(resultJson)) {
     return {

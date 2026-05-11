@@ -1,0 +1,17 @@
+{
+  "id": "synthesize-topic",
+  "name": "Synthesize Topic",
+  "description": "Generate or update a Zotero Synthesis Layer topic_synthesis artifact through MCP-backed library context.",
+  "version": "1.0.0",
+  "execution_modes": ["interactive"],
+  "max_attempt": 12,
+  "schemas": {
+    "output": "assets/output.schema.json",
+    "resolver": "assets/resolver.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Read assets/resolver.schema.json, then use Zotero MCP synthesis tools to inspect the library index, resolve the canonical resolver, and read paper artifacts. Generate a topic_synthesis result bundle for topicSeed={{ parameter.topicSeed }} with mode={{ parameter.mode }}. Write the synthesis Markdown to result/synthesis.md and return markdown_path, not the Markdown body, in the final JSON. Do not write Zotero items or canonical assets directly. Finish with exactly one JSON object matching the output schema."
+    }
+  }
+}

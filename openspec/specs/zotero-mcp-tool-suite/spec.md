@@ -85,12 +85,16 @@ The project SHALL maintain a service-level design document for the Zotero MCP to
 
 ### Requirement: Agent-facing MCP text disclosures are actionable
 
-Attachment and reading-context text disclosures SHALL include recommendation metadata and next calls.
+Zotero MCP tool results SHALL include agent-readable text that enables follow-up
+calls without relying on hidden structured fields alone.
 
-#### Scenario: Recommended reading attachment is available
+#### Scenario: Synthesis tools return DTOs
 
-- **WHEN** the service recommends an attachment for reading
-- **THEN** `content[0].text` SHALL include the attachment ref, filename/title, access path when available, content role, readability, and recommendation reason.
+- **WHEN** a Synthesis MCP tool returns topic, resolver, registry, graph, or
+  artifact DTOs
+- **THEN** `content[0].text` SHALL include actionable identifiers, counts,
+  cursor state, or paper refs relevant to follow-up calls
+- **AND** structured content SHALL contain the same DTO payload.
 
 ### Requirement: Zotero MCP v1 does not expose attachment text extraction tools
 

@@ -1,5 +1,10 @@
 import { createWorkflowHostApi } from "../workflows/hostApi";
 import { buildMarkdownBackedNoteContent } from "./notePayloadCodec";
+import type {
+  SynthesisMcpService,
+  SynthesisMcpServiceMethod,
+} from "./synthesis/mcpService";
+import { getDefaultSynthesisService } from "./synthesis/service";
 import {
   ZoteroCollectionNotFoundError,
   ZoteroItemNotFoundError,
@@ -53,6 +58,23 @@ export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
   "remove_items_from_collection";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT =
+  "synthesis.get_topic_context";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS = "synthesis.get_schemas";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX =
+  "synthesis.get_library_index";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER =
+  "synthesis.resolve_resolver";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_REGISTRY =
+  "synthesis.get_paper_registry";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH =
+  "synthesis.query_citation_graph";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST =
+  "synthesis.get_paper_artifact_manifest";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS =
+  "synthesis.read_paper_artifacts";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT =
+  "synthesis.get_review_input";
 
 export type ZoteroMcpJsonRpcId = string | number | null;
 
@@ -112,6 +134,7 @@ export type ZoteroMcpToolPermissionRequest = {
 export type ZoteroMcpHandlerOptions = {
   resolveHostContext?: () => AcpHostContext;
   resolveHostApi?: () => WorkflowHostApi;
+  resolveSynthesisService?: () => SynthesisMcpService;
   resolveMcpStatus?: () => Record<string, unknown>;
   requestToolPermission?: (
     request: ZoteroMcpToolPermissionRequest,
@@ -285,6 +308,106 @@ function buildToolResult(args: {
       tool: args.tool,
       summary: args.summary,
       ...args.structuredContent,
+    },
+  };
+}
+
+function assertKnownArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+  allowed: string[],
+) {
+  const allowedSet = new Set(allowed);
+  const unknown = Object.keys(args || {}).filter((key) => !allowedSet.has(key));
+  if (unknown.length > 0) {
+    throw new ZoteroMcpToolInputError(
+      `Unknown argument(s) for ${toolName}: ${unknown.join(", ")}`,
+      { unknown },
+    );
+  }
+}
+
+function summarizeSynthesisResult(toolName: string, result: unknown) {
+  const payload = isPlainObject(result) ? result : {};
+  const parts = [`${toolName} synthesis result.`];
+  if (Array.isArray(payload.rows)) {
+    parts.push(`rows=${payload.rows.length}`);
+  }
+  if (Array.isArray(payload.papers)) {
+    parts.push(`papers=${payload.papers.length}`);
+  }
+  if (Array.isArray(payload.nodes)) {
+    parts.push(`nodes=${payload.nodes.length}`);
+  }
+  if (Array.isArray(payload.edges)) {
+    parts.push(`edges=${payload.edges.length}`);
+  }
+  if (Array.isArray(payload.artifacts)) {
+    parts.push(`artifacts=${payload.artifacts.length}`);
+  }
+  if (payload.nextCursor) {
+    parts.push(`nextCursor=${compactText(payload.nextCursor)}`);
+  }
+  if (payload.topic_id) {
+    parts.push(`topic=${compactText(payload.topic_id)}`);
+  }
+  if (payload.paper_ref) {
+    parts.push(`paper=${compactText(payload.paper_ref)}`);
+  }
+  if (payload.total !== undefined) {
+    parts.push(`total=${compactText(payload.total)}`);
+  }
+  return parts.join(" ");
+}
+
+async function callSynthesisService(args: {
+  toolName: string;
+  method: SynthesisMcpServiceMethod;
+  toolArgs: Record<string, unknown>;
+  context: ToolContext;
+}) {
+  const service =
+    args.context.options.resolveSynthesisService?.() ||
+    (getDefaultSynthesisService() as unknown as SynthesisMcpService);
+  const method = service?.[args.method];
+  if (typeof method !== "function") {
+    throw new ZoteroMcpToolInputError(
+      `Synthesis service method is unavailable: ${String(args.method)}`,
+    );
+  }
+  const result = await method(args.toolArgs);
+  return buildToolResult({
+    tool: args.toolName,
+    summary: summarizeSynthesisResult(args.toolName, result),
+    structuredContent: {
+      result: isPlainObject(result) ? result : { value: result },
+    },
+  });
+}
+
+function synthesisTool(args: {
+  name: string;
+  title: string;
+  description: string;
+  method: SynthesisMcpServiceMethod;
+  properties?: Record<string, unknown>;
+  allowed?: string[];
+  required?: string[];
+}): ToolDefinition {
+  const allowed = args.allowed || Object.keys(args.properties || {});
+  return {
+    name: args.name,
+    title: args.title,
+    description: args.description,
+    inputSchema: objectSchema(args.properties || {}, args.required || []),
+    async handler(toolArgs, context) {
+      assertKnownArgs(args.name, toolArgs, allowed);
+      return callSynthesisService({
+        toolName: args.name,
+        method: args.method,
+        toolArgs,
+        context,
+      });
     },
   };
 }
@@ -2019,6 +2142,122 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       });
     },
   },
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT,
+    title: "Get Synthesis topic context",
+    description:
+      "Return topic seed, existing topic definition, resolver, resolved paper set, and old artifact metadata for a synthesis job.",
+    method: "getTopicContext",
+    properties: {
+      topicId: { type: "string" },
+      mode: { type: "string", enum: ["create", "update"] },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS,
+    title: "Get Synthesis schemas",
+    description:
+      "Return Synthesis Topic Definition, Resolver, Artifact, MCP, or workflow result schemas.",
+    method: "getSchemas",
+    properties: {
+      kind: { type: "string" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+    title: "Get Synthesis library index",
+    description:
+      "Return a bounded global lightweight library index page for topic resolver generation.",
+    method: "getLibraryIndex",
+    properties: {
+      libraryId: { type: ["number", "string"] },
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"] },
+      includeTags: { type: "boolean" },
+      includeCollections: { type: "boolean" },
+      includeItems: { type: "boolean" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+    title: "Resolve Synthesis resolver",
+    description:
+      "Validate and execute a canonical Topic Resolver, returning resolved papers, match reasons, coverage, and diagnostics.",
+    method: "resolveResolver",
+    properties: {
+      resolver: { type: "object" },
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"] },
+    },
+    required: ["resolver"],
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_REGISTRY,
+    title: "Get Synthesis Paper Registry",
+    description:
+      "Return Paper Registry rows or summaries for readiness and missing artifact diagnostics.",
+    method: "getPaperRegistry",
+    properties: {
+      paperRefs: { type: "array" },
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"] },
+      readiness: { type: "string" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH,
+    title: "Query Synthesis citation graph",
+    description:
+      "Return a bounded Unified Citation Graph slice for resolved papers, filters, or neighborhood queries.",
+    method: "queryCitationGraph",
+    properties: {
+      paperRefs: { type: "array" },
+      nodeIds: { type: "array" },
+      depth: { type: ["number", "string"] },
+      filters: { type: "object" },
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"] },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST,
+    title: "Get Synthesis paper artifact manifest",
+    description:
+      "Return available paper-level derived artifact refs for candidate papers.",
+    method: "getPaperArtifactManifest",
+    properties: {
+      paperRefs: { type: "array" },
+      artifactTypes: { type: "array" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS,
+    title: "Read Synthesis paper artifacts",
+    description:
+      "Read paper-level derived artifacts in bounded batches for synthesis evidence collection.",
+    method: "readPaperArtifacts",
+    properties: {
+      paperRefs: { type: "array" },
+      artifactTypes: { type: "array" },
+      maxChars: { type: ["number", "string"] },
+      cursor: { type: ["number", "string"] },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT,
+    title: "Get Synthesis review workflow input",
+    description:
+      "Return a read-only topic synthesis input package for downstream literature review workflows.",
+    method: "getReviewInput",
+    properties: {
+      topicId: { type: "string" },
+      maxGraphNodes: { type: ["number", "string"] },
+      maxGraphEdges: { type: ["number", "string"] },
+      includePaperArtifacts: { type: "boolean" },
+      maxChars: { type: ["number", "string"] },
+    },
+    required: ["topicId"],
+  }),
   {
     name: ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
     title: "Preview Zotero mutation",

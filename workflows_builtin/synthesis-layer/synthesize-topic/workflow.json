@@ -1,0 +1,42 @@
+{
+  "id": "synthesize-topic",
+  "label": "Synthesize Topic",
+  "provider": "acp",
+  "version": "0.1.0",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "parameters": {
+    "topicSeed": {
+      "type": "string",
+      "title": "Topic Seed",
+      "description": "Natural-language topic seed or existing topic id."
+    },
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "enum": ["create", "update"],
+      "default": "create"
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "synthesize-topic"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "skillrunner_mode": "interactive",
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

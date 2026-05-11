@@ -66,14 +66,20 @@
   "dependencies": {
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
+    "d3-force": "^3.0.0",
+    "graphology": "^0.26.0",
     "marked": "^16.4.2",
+    "pako": "^2.1.0",
+    "sigma": "^3.0.3",
     "zotero-plugin-toolkit": "^5.1.0-beta.13"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/chai": "^5.2.3",
+    "@types/d3-force": "^3.0.10",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.10.0",
+    "@types/pako": "^2.0.4",
     "@zotero-plugin/eslint-config": "^0.6.7",
     "chai": "^6.2.1",
     "eslint": "^9.39.2",

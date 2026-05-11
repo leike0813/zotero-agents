@@ -63,6 +63,12 @@ export default defineConfig({
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },
+      {
+        entryPoints: ["src/synthesisWorkbenchApp.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
+      },
     ],
   },
 

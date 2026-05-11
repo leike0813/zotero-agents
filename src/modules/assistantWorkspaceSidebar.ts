@@ -38,6 +38,7 @@ import {
   toggleAcpConversationStatusDetails,
 } from "./acpSessionManager";
 import { openBackendManagerDialog } from "./backendManager";
+import { openSynthesisWorkbenchDialog } from "./synthesisWorkbenchDialog";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
   archiveAcpSkillRun,
@@ -76,6 +77,7 @@ type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type SidebarButtonElement = XULElement | Element;
 type MountedSidebarPane = {
   button: SidebarButtonElement | null;
+  synthesisButton?: SidebarButtonElement | null;
   container: XULElement | null;
   frame: Element | null;
   frameWindow: Window | null;
@@ -222,6 +224,42 @@ function buildSidebarButton(
     win,
     { minIconPx: 16, insetPx: 1 },
   );
+  return button;
+}
+
+function buildSynthesisWorkbenchButton(
+  doc: Document,
+  win: _ZoteroTypes.MainWindow,
+  id: string,
+) {
+  const label = localize(
+    "menu-workflows-open-synthesis-workbench",
+    "Open Synthesis Workbench...",
+  );
+  const button = doc.createXULElement("toolbarbutton") as SidebarButtonElement;
+  button.id = id;
+  button.setAttribute(
+    "class",
+    "zotero-tb-button zs-assistant-sidebar-button zs-synthesis-workbench-button",
+  );
+  button.setAttribute("tooltiptext", label);
+  button.setAttribute("aria-label", label);
+  button.setAttribute("label", "S");
+  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+    "font-weight",
+    "700",
+  );
+  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+    "font-size",
+    "13px",
+  );
+  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+    "color",
+    "#1f7a8c",
+  );
+  button.addEventListener("command", () => {
+    void openSynthesisWorkbenchDialog({ window: win });
+  });
   return button;
 }
 
@@ -1003,6 +1041,12 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
     void openAssistantWorkspaceSidebar({ window: host.win });
   });
   roots.sidenav.appendChild(button);
+  const synthesisButton = buildSynthesisWorkbenchButton(
+    doc,
+    host.win,
+    `${config.addonRef}-library-synthesis-workbench-mode`,
+  );
+  roots.sidenav.appendChild(synthesisButton);
 
   const container = createSidebarContainer(doc);
   applySidebarPaneContainerStyles(container);
@@ -1025,13 +1069,21 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
     (event: Event) => {
       const target = event.target as Element | null;
       if (!target) return;
-      if (target === button || target.closest(`#${button.id}`)) return;
+      if (
+        target === button ||
+        target.closest(`#${button.id}`) ||
+        target === synthesisButton ||
+        target.closest(`#${synthesisButton.id}`)
+      ) {
+        return;
+      }
       if (host.activeTarget === "library") deactivateTarget(host, "library");
     },
     true,
   );
   host.library = {
     button,
+    synthesisButton,
     container,
     frame,
     frameWindow: resolveSidebarFrameWindow(frame),
@@ -1055,6 +1107,12 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
     void openAssistantWorkspaceSidebar({ window: host.win });
   });
   roots.sidenav.appendChild(button);
+  const synthesisButton = buildSynthesisWorkbenchButton(
+    doc,
+    host.win,
+    `${config.addonRef}-reader-synthesis-workbench-mode`,
+  );
+  roots.sidenav.appendChild(synthesisButton);
 
   const container = createSidebarContainer(doc);
   applySidebarPaneContainerStyles(container);
@@ -1077,13 +1135,21 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
     (event: Event) => {
       const target = event.target as Element | null;
       if (!target) return;
-      if (target === button || target.closest(`#${button.id}`)) return;
+      if (
+        target === button ||
+        target.closest(`#${button.id}`) ||
+        target === synthesisButton ||
+        target.closest(`#${synthesisButton.id}`)
+      ) {
+        return;
+      }
       if (host.activeTarget === "reader") deactivateTarget(host, "reader");
     },
     true,
   );
   host.reader = {
     button,
+    synthesisButton,
     container,
     frame,
     frameWindow: resolveSidebarFrameWindow(frame),
@@ -1185,8 +1251,10 @@ export function removeAssistantWorkspaceSidebarShell(
   clearShellBridge(host.library);
   clearShellBridge(host.reader);
   host.library.button?.remove();
+  host.library.synthesisButton?.remove();
   host.library.container?.remove();
   host.reader.button?.remove();
+  host.reader.synthesisButton?.remove();
   host.reader.container?.remove();
   updateSkillRunnerToolbarButtonBadge(typedWin, 0);
   hosts.delete(typedWin);

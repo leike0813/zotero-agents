@@ -19,6 +19,7 @@ const MENU_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon@0.5x.pn
 export type WorkflowActionPopupBuildOptions = {
   includeSkillRunnerSidebarItem?: boolean;
   includeTaskManagerItem?: boolean;
+  includeSynthesisWorkbenchItem?: boolean;
 };
 
 function getMenuLabel(id: string, fallback: string) {
@@ -56,6 +57,24 @@ function appendTaskManagerItem(win: _ZoteroTypes.MainWindow, popup: XULElement) 
   );
   item.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openDashboard", { window: win });
+  });
+  popup.appendChild(item);
+}
+
+function appendSynthesisWorkbenchItem(
+  win: _ZoteroTypes.MainWindow,
+  popup: XULElement,
+) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel(
+      "menu-workflows-open-synthesis-workbench",
+      "Open Synthesis Workbench...",
+    ),
+  );
+  item.addEventListener("command", () => {
+    void addon.hooks.onPrefsEvent("openSynthesisWorkbench", { window: win });
   });
   popup.appendChild(item);
 }
@@ -168,6 +187,8 @@ export async function rebuildWorkflowActionPopup(
   const includeTaskManagerItem = options?.includeTaskManagerItem !== false;
   const includeSkillRunnerSidebarItem =
     options?.includeSkillRunnerSidebarItem !== false;
+  const includeSynthesisWorkbenchItem =
+    options?.includeSynthesisWorkbenchItem !== false;
   clearPopupChildren(popup);
   const workflows = getVisibleLoadedWorkflowEntries();
   if (includeSkillRunnerSidebarItem) {
@@ -176,7 +197,14 @@ export async function rebuildWorkflowActionPopup(
   if (includeTaskManagerItem) {
     appendTaskManagerItem(win, popup);
   }
-  if (includeSkillRunnerSidebarItem || includeTaskManagerItem) {
+  if (includeSynthesisWorkbenchItem) {
+    appendSynthesisWorkbenchItem(win, popup);
+  }
+  if (
+    includeSkillRunnerSidebarItem ||
+    includeTaskManagerItem ||
+    includeSynthesisWorkbenchItem
+  ) {
     appendMenuSeparator(win, popup);
   }
   if (workflows.length === 0) {
