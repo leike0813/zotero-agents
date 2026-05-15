@@ -81,12 +81,12 @@ v1 作业期工具应覆盖：
 - `synthesis.get_topic_context`：返回 topic seed，或已有 Topic Definition、Resolver、Resolved Paper Set 和旧 artifact metadata；
 - `synthesis.get_schemas`：返回 Topic Definition schema、Resolver schema、Artifact schema；
 - `synthesis.get_library_index`：分页返回 global lightweight library index；
-- `synthesis.validate_resolver`：校验 resolver proposal；
-- `synthesis.resolve_resolver`：执行 resolver 并返回 resolved papers 与 diagnostics；
+- `synthesis.resolve_resolver`：校验并执行 resolver，返回 resolved papers 与 diagnostics；
 - `synthesis.get_paper_registry`：读取 Paper Registry；
-- `synthesis.query_citation_graph`：查询 Unified Citation Graph；
-- `synthesis.get_paper_artifact_manifest`：查询候选文献可用 artifacts；
-- `synthesis.read_paper_artifacts`：分批读取 paper-level derived artifacts。
+- `synthesis.get_citation_graph_slice`：只读 persisted Unified Citation Graph snapshot 的有界切片，不触发 graph rebuild 或 layout recompute；
+- `synthesis.get_review_input`：读取后续综述 workflow 输入包。
+
+Paper-level derived artifact 正文读取不再由 synthesis 专用 MCP 工具重复封装。Agent 应通过通用 Zotero note payload 工具链读取：`get_item_notes` -> `list_note_payloads` -> `get_note_payload`，并显式读取 `digest-markdown`、`references-json`、`citation-analysis-json` 等 payload。
 
 Synthesis MCP v1 不提供正式写入工具。正式写入必须走 workflow result bundle 和 applyResult。
 
@@ -98,7 +98,7 @@ ACP Skills skill 或 agent 负责：
 
 - 基于 Topic Seed、schema 和 global lightweight library index 生成 Topic Definition proposal；
 - 生成或 patch Topic Resolver；
-- 根据 resolver 结果读取必要 paper artifacts；
+- 根据 resolver 结果，通过通用 Zotero note payload MCP 工具读取必要 paper artifacts；
 - 基于 resolved evidence 生成 topic-level synthesis Markdown；
 - 在 synthesis 工件内生成 topic timeline narrative 或结构化段落；
 - 生成 sidecar metadata；
@@ -548,8 +548,8 @@ User inputs topic seed
   -> agent proposes Topic Definition + Topic Resolver
   -> plugin validates and executes resolver
   -> plugin returns resolved papers + diagnostics
-  -> agent reads Paper Registry and Unified Citation Graph
-  -> agent reads paper artifacts in batches
+  -> agent reads Paper Registry and bounded Unified Citation Graph slices
+  -> agent reads paper artifact note payloads in bounded chunks
   -> agent generates Markdown + timeline + metadata bundle
   -> applyResult validates and persists output
   -> canonical assets + Zotero anchor + UI/MCP read access
@@ -564,8 +564,8 @@ User selects existing topic
   -> agent reads current global lightweight library index
   -> agent proposes Topic Definition patch and Resolver patch, or no-op
   -> plugin executes new resolver and computes paper-set diff
-  -> agent reads updated Paper Registry and Unified Citation Graph
-  -> agent reads changed paper artifacts as needed
+  -> agent reads updated Paper Registry and bounded Unified Citation Graph slices
+  -> agent reads changed paper artifact note payloads as needed
   -> agent generates updated Markdown + timeline + metadata bundle
   -> applyResult persists new version and log
 ```

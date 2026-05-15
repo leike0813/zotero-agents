@@ -1,5 +1,6 @@
 import { JobQueueManager } from "../../jobQueue/manager";
 import { executeWithProvider } from "../../providers/registry";
+import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
@@ -103,6 +104,8 @@ export function runWorkflowExecutionSeam(
           args.prepared.workflow.manifest.execution?.skillrunner_mode;
         const isSkillRunnerJob =
           executionContext.requestKind === "skillrunner.job.v1";
+        const isAcpSkillRun =
+          executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND;
         const backendType = String(executionContext.backend.type || "").trim();
         if (
           isSkillRunnerJob &&
@@ -122,7 +125,7 @@ export function runWorkflowExecutionSeam(
             });
           }
         }
-        if (isSkillRunnerJob && backendType === "acp" && requestId) {
+        if (isAcpSkillRun && backendType === "acp" && requestId) {
           resolved.selectAcpSkillRun(requestId);
           if (skillrunnerMode === "interactive") {
             void resolved.openAssistantWorkspaceSidebar({

@@ -1,10 +1,14 @@
 export type SynthesisMcpService = {
+  listTopics?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getTopicContext?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getLibraryIndex?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   resolveResolver?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getPaperRegistry?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   queryCitationGraph?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getCitationGraphSlice?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getPaperArtifactManifest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

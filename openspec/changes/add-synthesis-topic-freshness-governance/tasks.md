@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec delta specs for topic freshness, Workbench visibility, and MCP/topic context boundaries.
+- [x] 2. Add failing synthesis service tests for apply baseline, legacy baseline initialization, stale reasons, dirty detection, and mirror shard inclusion.
+- [x] 3. Add failing UI/model and MCP/context tests for `dirty` freshness, snapshot rows, topic context freshness, and `listTopics` exclusion.
+- [x] 4. Implement artifact-state types, dependency snapshot hashing, scan logic, baseline initialization, and apply-time baseline writes.
+- [x] 5. Wire freshness into `getSynthesisSnapshot()`, `getTopicContext()`, UI DTOs, and mirror shard payloads.
+- [x] 6. Run targeted synthesis tests, builtin workflow manifest check, TypeScript check, and OpenSpec validation.

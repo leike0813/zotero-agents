@@ -32,6 +32,25 @@ expose raw Zotero objects.
 Synthesis MCP tools SHALL expose read-only host capabilities for synthesis and
 review workflow jobs.
 
+#### Scenario: Job-time synthesis tool surface is bounded
+
+- **WHEN** an MCP client lists Synthesis tools
+- **THEN** `synthesis.list_topics`, `synthesis.get_topic_context`,
+  `synthesis.get_library_index`, `synthesis.resolve_resolver`,
+  `synthesis.get_paper_registry`, `synthesis.get_citation_graph_slice`, and
+  `synthesis.get_review_input` SHALL be present
+- **AND** `synthesis.get_paper_artifact_manifest` and
+  `synthesis.read_paper_artifacts` SHALL NOT be present.
+
+#### Scenario: Paper artifact payloads are read through Zotero note tools
+
+- **WHEN** an ACP Skill agent needs digest, references, or citation-analysis
+  artifact contents for resolved papers
+- **THEN** it SHALL use generic Zotero note payload tools such as
+  `get_item_notes`, `list_note_payloads`, and `get_note_payload`
+- **AND** Synthesis MCP SHALL NOT duplicate those payload readers as public
+  paper artifact read tools.
+
 #### Scenario: Review input tool is listed
 
 - **WHEN** an MCP client lists tools
@@ -52,4 +71,3 @@ Synthesis MCP inputs SHALL reject unknown top-level fields.
 
 - **WHEN** a Synthesis tool call contains an unknown top-level argument
 - **THEN** the MCP handler SHALL reject the call with an invalid parameter error.
-

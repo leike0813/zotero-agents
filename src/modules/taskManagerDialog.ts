@@ -1,7 +1,10 @@
 import type { DialogHelper } from "zotero-plugin-toolkit";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
+import {
+  ACP_SKILL_RUN_REQUEST_KIND,
+  PASS_THROUGH_BACKEND_TYPE,
+} from "../config/defaults";
 import { getString } from "../utils/locale";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { isWindowAlive } from "../utils/window";
@@ -651,7 +654,7 @@ function isAcpSkillRunnerTask(row: {
 }) {
   return (
     String(row.backendType || "").trim() === "acp" &&
-    String(row.requestKind || "").trim() === "skillrunner.job.v1"
+    String(row.requestKind || "").trim() === ACP_SKILL_RUN_REQUEST_KIND
   );
 }
 
@@ -1497,7 +1500,7 @@ async function buildDashboardSnapshot(args: {
 
   if (isAcpBackend(selectedBackend)) {
     backendView.rows = rows.filter(
-      (row) => String(row.requestKind || "").trim() === "skillrunner.job.v1",
+      (row) => String(row.requestKind || "").trim() === ACP_SKILL_RUN_REQUEST_KIND,
     );
     backendView.emptyRowsText =
       backendView.emptyRowsText || labels.backendNoTasks || "No ACP skill runs.";

@@ -11,6 +11,7 @@ import {
 } from "../../src/workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { createUnavailableBundleReader } from "../../src/modules/workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
 import {
@@ -48,6 +49,16 @@ function parsePayloadEntryPath(noteContent: string, payloadType: string) {
   const decoded = decodeBase64Utf8(match[3]);
   const parsed = JSON.parse(decoded) as { entry?: string };
   return String(parsed.entry || "").trim();
+}
+
+function parsePayloadValue(noteContent: string, payloadType: string) {
+  const pattern = new RegExp(
+    `data-zs-payload=(["'])${payloadType}\\1[^>]*data-zs-value=(["'])([^"']+)\\2`,
+    "i",
+  );
+  const match = String(noteContent || "").match(pattern);
+  assert.isOk(match, `${payloadType} payload should exist`);
+  return JSON.parse(decodeBase64Utf8(match![3]));
 }
 
 async function mkTempRoot() {
@@ -115,6 +126,10 @@ describe("workflow: literature-digest", function () {
     assert.equal(
       workflow?.manifest.parameters?.language?.default,
       "zh-CN",
+    );
+    assert.equal(
+      workflow?.manifest.parameters?.auto_reference_matching?.default,
+      true,
     );
   });
 
@@ -361,6 +376,208 @@ describe("workflow: literature-digest", function () {
     assert.include(parentNotes, firstNote.id);
     assert.include(parentNotes, secondNote.id);
     assert.include(parentNotes, thirdNote.id);
+  });
+
+  itNodeOnly("automatically runs reference matching after writing references note", async function () {
+    this.timeout(5000);
+    const matched = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: {
+        title: "Character-level language modeling with deeper self-attention",
+        date: "2019",
+        extra: "Citation Key: AlRfou2019Character",
+      },
+    });
+    if (typeof (matched as any).setCreators === "function") {
+      (matched as any).setCreators([
+        {
+          firstName: "",
+          lastName: "Al-Rfou",
+          creatorType: "author",
+        },
+      ]);
+      await matched.saveTx();
+    }
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Auto Matching Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: new ZipBundleReader(
+        fixturePath("literature-digest", "run_bundle.zip"),
+      ),
+    })) as {
+      notes: Zotero.Item[];
+      auto_reference_matching?: {
+        enabled?: boolean;
+        attempted?: boolean;
+        matched?: number;
+        total?: number;
+      };
+    };
+
+    const referencesNote = applied.notes.find(
+      (note) => parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const payload = parsePayloadValue(
+      Zotero.Items.get(referencesNote!.id)!.getNote(),
+      "references-json",
+    ) as { references?: Array<{ citekey?: string }>; reference_matching?: unknown };
+    assert.equal(payload.references?.[0]?.citekey, "AlRfou2019Character");
+    assert.isObject(payload.reference_matching);
+    assert.equal(applied.auto_reference_matching?.enabled, true);
+    assert.equal(applied.auto_reference_matching?.attempted, true);
+    assert.isAtLeast(applied.auto_reference_matching?.matched || 0, 1);
+    assert.isAtLeast(applied.auto_reference_matching?.total || 0, 1);
+  });
+
+  itNodeOnly("skips auto reference matching when disabled", async function () {
+    this.timeout(5000);
+    await handlers.item.create({
+      itemType: "journalArticle",
+      fields: {
+        title: "Character-level language modeling with deeper self-attention",
+        date: "2019",
+        extra: "Citation Key: DisabledAutoMatching2019",
+      },
+    });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Auto Matching Disabled Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: new ZipBundleReader(
+        fixturePath("literature-digest", "run_bundle.zip"),
+      ),
+      request: {
+        parameter: {
+          auto_reference_matching: false,
+        },
+      },
+    })) as {
+      notes: Zotero.Item[];
+      auto_reference_matching?: { enabled?: boolean; attempted?: boolean };
+    };
+
+    const referencesNote = applied.notes.find(
+      (note) => parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const payload = parsePayloadValue(
+      Zotero.Items.get(referencesNote!.id)!.getNote(),
+      "references-json",
+    ) as { references?: Array<{ citekey?: string }>; reference_matching?: unknown };
+    assert.isUndefined(payload.references?.[0]?.citekey);
+    assert.isUndefined(payload.reference_matching);
+    assert.equal(applied.auto_reference_matching?.enabled, false);
+    assert.equal(applied.auto_reference_matching?.attempted, false);
+  });
+
+  itNodeOnly("runs auto reference matching again after digest updates an existing references note", async function () {
+    this.timeout(7000);
+    const matched = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: {
+        title: "Character-level language modeling with deeper self-attention",
+        date: "2019",
+        extra: "Citation Key: ReapplyAutoMatching2019",
+      },
+    });
+    if (typeof (matched as any).setCreators === "function") {
+      (matched as any).setCreators([
+        {
+          firstName: "",
+          lastName: "Al-Rfou",
+          creatorType: "author",
+        },
+      ]);
+      await matched.saveTx();
+    }
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Auto Matching Reapply Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: new ZipBundleReader(
+        fixturePath("literature-digest", "run_bundle.zip"),
+      ),
+    });
+    const second = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: new ZipBundleReader(
+        fixturePath("literature-digest", "run_bundle.zip"),
+      ),
+    })) as {
+      notes: Zotero.Item[];
+      auto_reference_matching?: { attempted?: boolean; matched?: number };
+    };
+
+    const referencesNote = second.notes.find(
+      (note) => parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const payload = parsePayloadValue(
+      Zotero.Items.get(referencesNote!.id)!.getNote(),
+      "references-json",
+    ) as { references?: Array<{ citekey?: string }>; reference_matching?: unknown };
+    assert.equal(payload.references?.[0]?.citekey, "ReapplyAutoMatching2019");
+    assert.isObject(payload.reference_matching);
+    assert.equal(second.auto_reference_matching?.attempted, true);
+  });
+
+  itNodeOnly("keeps digest apply successful when auto reference matching fails", async function () {
+    this.timeout(5000);
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Auto Matching Warning Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+    const hostApi = createWorkflowHostApi();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: new ZipBundleReader(
+        fixturePath("literature-digest", "run_bundle.zip"),
+      ),
+      runtime: {
+        hostApi: {
+          ...hostApi,
+          notes: {
+            ...hostApi.notes,
+            update: async () => {
+              throw new Error("auto matching update failed");
+            },
+          },
+        },
+      },
+    })) as {
+      notes: Zotero.Item[];
+      auto_reference_matching?: {
+        enabled?: boolean;
+        attempted?: boolean;
+        warning?: string;
+      };
+    };
+
+    assert.lengthOf(applied.notes, 3);
+    assert.equal(applied.auto_reference_matching?.enabled, true);
+    assert.equal(applied.auto_reference_matching?.attempted, true);
+    assert.match(applied.auto_reference_matching?.warning || "", /auto matching update failed/);
   });
 
   itNodeOnly("applies result when artifact paths are uploads-prefixed bundle-relative paths", async function () {

@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec delta specs for Assistant permission UI and ACP Skills transcript behavior.
+- [x] 2. Add regression tests for compact permission cards, permission bottom-sheet DTOs, permission transcript coalescing, workspace activity rendering, and hidden status noise.
+- [x] 3. Implement shared permission card rendering and `open-permission-request` DTO emission.
+- [x] 4. Implement ACP Chat / ACP Skills permission bottom-sheet handling for permission request DTOs.
+- [x] 5. Implement ACP Skills transcript permission item coalescing and workspace activity relative-path display.
+- [x] 6. Run targeted tests, `npm run check:builtin-workflow-manifest`, `npx tsc --noEmit`, and OpenSpec validation.

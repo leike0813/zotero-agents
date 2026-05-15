@@ -10,6 +10,7 @@ import {
   resolveSelectedReferenceNote,
   updatePayloadBlock,
 } from "../../lib/referencesNote.mjs";
+import { buildReferenceMatchingBaseline } from "../../lib/referenceMatchingFreshness.mjs";
 import {
   requireHostApi,
   requireHostItems,
@@ -676,7 +677,7 @@ async function syncParentRelatedItems({
   };
 }
 
-async function applyResultImpl({ runResult, runtime }) {
+export async function applyResultImpl({ runResult, runtime, manifest }) {
   const parameter = runResult?.resultJson?.parameter || {};
   const dataSource = String(parameter?.data_source || "zotero-api").trim();
   const options = resolveMatchingOptions(parameter);
@@ -731,10 +732,22 @@ async function applyResultImpl({ runResult, runtime }) {
     };
   });
 
-  const nextPayload = runtime.helpers.replacePayloadReferences(
+  const nextPayloadBase = runtime.helpers.replacePayloadReferences(
     payload,
     nextReferences,
   );
+  const nextPayload = {
+    ...(nextPayloadBase && typeof nextPayloadBase === "object"
+      ? nextPayloadBase
+      : { references: nextReferences }),
+    reference_matching: await buildReferenceMatchingBaseline({
+      inputReferences: references,
+      resultReferences: nextReferences,
+      parameter,
+      workflowVersion: manifest?.version || "0.1.0",
+      runtime,
+    }),
+  };
   const withPayload = updatePayloadBlock(
     noteContent,
     payloadTag,

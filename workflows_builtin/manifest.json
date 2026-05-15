@@ -7,6 +7,8 @@
     "literature-workbench-package/lib/literatureDigestNotes.mjs",
     "literature-workbench-package/lib/noteCodecs.mjs",
     "literature-workbench-package/lib/path.mjs",
+    "literature-workbench-package/lib/referenceMatchingFreshness.mjs",
+    "literature-workbench-package/lib/referenceMatchingApply.mjs",
     "literature-workbench-package/lib/citekeyTemplate.mjs",
     "literature-workbench-package/lib/htmlCodec.mjs",
     "literature-workbench-package/lib/referenceModel.mjs",

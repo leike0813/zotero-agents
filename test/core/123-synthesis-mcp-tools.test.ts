@@ -24,22 +24,40 @@ describe("Synthesis MCP tools", function () {
 
     const names = response.result.tools.map((tool: { name: string }) => tool.name);
     assert.includeMembers(names, [
+      "synthesis.list_topics",
       "synthesis.get_topic_context",
       "synthesis.get_schemas",
       "synthesis.get_library_index",
       "synthesis.resolve_resolver",
       "synthesis.get_paper_registry",
-      "synthesis.query_citation_graph",
-      "synthesis.get_paper_artifact_manifest",
-      "synthesis.read_paper_artifacts",
+      "synthesis.get_citation_graph_slice",
+      "synthesis.get_review_input",
     ]);
+    assert.notInclude(names, "synthesis.query_citation_graph");
+    assert.notInclude(names, "synthesis.get_paper_artifact_manifest");
+    assert.notInclude(names, "synthesis.read_paper_artifacts");
     assert.notInclude(names, "synthesis.validate_resolver");
     assert.notInclude(names, "synthesis.apply_update");
   });
 
-  it("routes schema and resolver calls through the injected synthesis service", async function () {
+  it("routes topic inventory, schema, and resolver calls through the injected synthesis service", async function () {
     const calls: string[] = [];
     const service: SynthesisMcpService = {
+      listTopics() {
+        calls.push("list_topics");
+        return {
+          topics: [
+            {
+              topic_id: "topic-alpha",
+              title: "Alpha Topic",
+              description: "Semantic scope",
+              aliases: ["Alpha"],
+              updated_at: "2026-05-12T00:00:00.000Z",
+            },
+          ],
+          diagnostics: { count: 1, source: "canonical-topic-definitions" },
+        };
+      },
       getSchemas(args) {
         calls.push(`schemas:${args.kind || "all"}`);
         return { schemas: { resolver: { type: "object" } } };
@@ -55,6 +73,10 @@ describe("Synthesis MCP tools", function () {
       },
     };
 
+    const listResponse: any = await handleZoteroMcpRequestForTests(
+      request(0, "synthesis.list_topics"),
+      { resolveSynthesisService: () => service },
+    );
     const schemaResponse: any = await handleZoteroMcpRequestForTests(
       request(1, "synthesis.get_schemas", { kind: "resolver" }),
       { resolveSynthesisService: () => service },
@@ -66,7 +88,11 @@ describe("Synthesis MCP tools", function () {
       { resolveSynthesisService: () => service },
     );
 
-    assert.deepEqual(calls, ["schemas:resolver", "resolve:tag_query"]);
+    assert.deepEqual(calls, ["list_topics", "schemas:resolver", "resolve:tag_query"]);
+    assert.equal(
+      listResponse.result.structuredContent.result.topics[0].topic_id,
+      "topic-alpha",
+    );
     assert.include(schemaResponse.result.content[0].text, "schemas");
     assert.isTrue(resolveResponse.result.structuredContent.result.ok);
     assert.equal(resolveResponse.result.structuredContent.result.papers[0].paper_ref, "1:ABCD1234");
@@ -87,34 +113,54 @@ describe("Synthesis MCP tools", function () {
     assert.equal(response.result.structuredContent.result.diagnostics.rejected, true);
   });
 
-  it("routes registry, graph, and artifact reads through the injected service", async function () {
+  it("routes registry and graph slice reads through the injected service", async function () {
     const service: SynthesisMcpService = {
       getPaperRegistry() {
         return { rows: [{ paper_ref: "1:ABCD1234" }], total: 1 };
       },
-      queryCitationGraph() {
-        return { nodes: [{ node_id: "zotero:item:ABCD1234" }], edges: [] };
-      },
-      getPaperArtifactManifest() {
-        return { paper_ref: "1:ABCD1234", artifacts: ["digest"] };
-      },
-      readPaperArtifacts() {
-        return { artifacts: [{ paper_ref: "1:ABCD1234", type: "digest", content: "# D" }] };
+      getCitationGraphSlice() {
+        return {
+          ok: true,
+          graph_hash: "sha256:graph",
+          start_node_id: "zotero:item:ABCD1234",
+          nodes: [{ node_id: "zotero:item:ABCD1234" }],
+          edges: [],
+          diagnostics: {
+            snapshot_found: true,
+            depth: 1,
+            node_count: 1,
+            edge_count: 0,
+            truncated: false,
+            limits: { maxNodes: 80, maxEdges: 160, maxDepth: 2 },
+            warnings: [],
+          },
+        };
       },
     };
 
-    for (const [id, name] of [
-      [1, "synthesis.get_paper_registry"],
-      [2, "synthesis.query_citation_graph"],
-      [3, "synthesis.get_paper_artifact_manifest"],
-      [4, "synthesis.read_paper_artifacts"],
+    for (const [id, name, args] of [
+      [1, "synthesis.get_paper_registry", { paperRefs: ["1:ABCD1234"] }],
+      [2, "synthesis.get_citation_graph_slice", { paperRef: "1:ABCD1234" }],
     ] as const) {
       const response: any = await handleZoteroMcpRequestForTests(
-        request(id, name, { paperRefs: ["1:ABCD1234"] }),
+        request(id, name, args),
         { resolveSynthesisService: () => service },
       );
       assert.equal(response.result.structuredContent.tool, name);
       assert.include(response.result.content[0].text, "synthesis");
+    }
+  });
+
+  it("rejects removed synthesis paper artifact read tools as unknown tools", async function () {
+    for (const name of [
+      "synthesis.get_paper_artifact_manifest",
+      "synthesis.read_paper_artifacts",
+    ]) {
+      const response: any = await handleZoteroMcpRequestForTests(
+        request(1, name, { paperRefs: ["1:ABCD1234"] }),
+      );
+      assert.equal(response.error.code, -32602);
+      assert.match(response.error.message, /unknown .*tool/i);
     }
   });
 

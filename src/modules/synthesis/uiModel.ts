@@ -1,8 +1,13 @@
-export type SynthesisUiTab = "overview" | "artifacts" | "registry" | "graph";
+export type SynthesisUiTab =
+  | "overview"
+  | "artifacts"
+  | "registry"
+  | "graph"
+  | "reader";
 
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
 
-export type SynthesisUiFreshness = "fresh" | "stale" | "unknown";
+export type SynthesisUiFreshness = "fresh" | "stale" | "dirty" | "unknown";
 
 export type SynthesisUiReadiness = "ready" | "partial";
 
@@ -96,6 +101,12 @@ export type SynthesisUiConflictCandidate = {
   status: "open" | "cleared";
 };
 
+export type SynthesisUiDeletedArtifactRow = {
+  topic_id: string;
+  title: string;
+  deleted_at: string;
+};
+
 export type SynthesisUiState = {
   selectedTab: SynthesisUiTab;
   artifacts: {
@@ -117,6 +128,10 @@ export type SynthesisUiState = {
     showLowSignalUnresolved: boolean;
     selectedElement?: SynthesisUiGraphElement;
   };
+  reader: {
+    topicId: string;
+    previousTab: Exclude<SynthesisUiTab, "reader">;
+  };
 };
 
 export type SynthesisUiSnapshotInput = {
@@ -125,6 +140,9 @@ export type SynthesisUiSnapshotInput = {
   preferences?: Partial<SynthesisUiPreferencesStatus>;
   sync?: Partial<SynthesisUiSyncStatus>;
   conflicts?: SynthesisUiConflictCandidate[];
+  deletedArtifacts?: {
+    rows?: SynthesisUiDeletedArtifactRow[];
+  };
   artifacts?: SynthesisUiArtifactRow[];
   registry?: {
     rows?: SynthesisUiRegistryRow[];
@@ -146,6 +164,10 @@ export type SynthesisUiSnapshot = {
   sync: SynthesisUiSyncStatus;
   conflicts: {
     candidates: SynthesisUiConflictCandidate[];
+  };
+  deletedArtifacts: {
+    count: number;
+    rows: SynthesisUiDeletedArtifactRow[];
   };
   artifacts: {
     filters: SynthesisUiState["artifacts"];
@@ -171,6 +193,7 @@ export type SynthesisUiSnapshot = {
     visibleNodes: SynthesisUiGraphNode[];
     visibleEdges: SynthesisUiGraphEdge[];
   };
+  reader: SynthesisUiState["reader"];
   hostCommands: SynthesisUiHostCommandName[];
 };
 
@@ -186,7 +209,9 @@ export type SynthesisUiHostCommandName =
   | "openZoteroItem"
   | "runMissingArtifactWorkflow"
   | "openPreferences"
-  | "manualRecomputeLayout";
+  | "manualRecomputeLayout"
+  | "deleteTopicArtifact"
+  | "purgeDeletedTopicArtifacts";
 
 export type SynthesisUiHostCommand = {
   command: SynthesisUiHostCommandName;
@@ -208,6 +233,8 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "runMissingArtifactWorkflow",
   "openPreferences",
   "manualRecomputeLayout",
+  "deleteTopicArtifact",
+  "purgeDeletedTopicArtifacts",
 ];
 
 function cleanString(value: unknown) {
@@ -233,11 +260,17 @@ function normalizeTab(value: unknown): SynthesisUiTab {
     tab === "overview" ||
     tab === "artifacts" ||
     tab === "registry" ||
-    tab === "graph"
+    tab === "graph" ||
+    tab === "reader"
   ) {
     return tab;
   }
   return "overview";
+}
+
+function normalizeNonReaderTab(value: unknown): Exclude<SynthesisUiTab, "reader"> {
+  const tab = normalizeTab(value);
+  return tab === "reader" ? "artifacts" : tab;
 }
 
 function normalizeCoverage(value: unknown): SynthesisUiCoverage {
@@ -257,6 +290,7 @@ function normalizeFreshness(value: unknown): SynthesisUiFreshness {
   if (
     normalized === "fresh" ||
     normalized === "stale" ||
+    normalized === "dirty" ||
     normalized === "unknown"
   ) {
     return normalized;
@@ -350,6 +384,32 @@ function normalizeConflictCandidates(values: unknown) {
       (left, right) =>
         right.created_at.localeCompare(left.created_at) ||
         left.id.localeCompare(right.id),
+    );
+}
+
+function normalizeDeletedArtifactRows(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const row = entry as Record<string, unknown>;
+      return {
+        topic_id: cleanString(row.topic_id),
+        title: cleanString(row.title) || cleanString(row.topic_id),
+        deleted_at: cleanString(row.deleted_at),
+      };
+    })
+    .filter((entry): entry is SynthesisUiDeletedArtifactRow =>
+      Boolean(entry?.topic_id),
+    )
+    .sort(
+      (left, right) =>
+        right.deleted_at.localeCompare(left.deleted_at) ||
+        left.topic_id.localeCompare(right.topic_id),
     );
 }
 
@@ -451,6 +511,10 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       nodeKinds: ["library_paper", "external_reference", "unresolved_reference"],
       showLowSignalUnresolved: false,
     },
+    reader: {
+      topicId: "",
+      previousTab: "artifacts",
+    },
   };
 }
 
@@ -527,6 +591,9 @@ export function buildSynthesisUiSnapshot(
   const registryRows = normalizeRegistryRows(input.registry?.rows);
   const graphNodes = normalizeGraphNodes(input.graph?.nodes);
   const graphEdges = normalizeGraphEdges(input.graph?.edges);
+  const deletedArtifactRows = normalizeDeletedArtifactRows(
+    input.deletedArtifacts?.rows,
+  );
   const filteredGraph = filterGraph(graphNodes, graphEdges, state.graph);
 
   return {
@@ -570,6 +637,10 @@ export function buildSynthesisUiSnapshot(
     conflicts: {
       candidates: normalizeConflictCandidates(input.conflicts),
     },
+    deletedArtifacts: {
+      count: deletedArtifactRows.length,
+      rows: deletedArtifactRows,
+    },
     artifacts: {
       filters: { ...state.artifacts },
       rows: artifactRows,
@@ -607,6 +678,10 @@ export function buildSynthesisUiSnapshot(
       visibleNodes: filteredGraph.visibleNodes,
       visibleEdges: filteredGraph.visibleEdges,
     },
+    reader: {
+      topicId: cleanString(state.reader.topicId),
+      previousTab: normalizeNonReaderTab(state.reader.previousTab),
+    },
     hostCommands: [...HOST_COMMANDS],
   };
 }
@@ -640,6 +715,7 @@ export function applySynthesisUiAction(
     artifacts: { ...state.artifacts },
     registry: { ...state.registry },
     graph: { ...state.graph },
+    reader: { ...state.reader },
   };
 
   if (action === "ready" || action === "refresh") {
@@ -648,6 +724,31 @@ export function applySynthesisUiAction(
 
   if (action === "selectTab") {
     next.selectedTab = normalizeTab(payload.tab);
+    if (next.selectedTab !== "reader") {
+      next.reader.previousTab = next.selectedTab;
+    }
+    return { handled: true, state: next };
+  }
+
+  if (action === "showArtifactReader") {
+    const topicId = cleanString(payload.topicId);
+    if (!topicId) {
+      return { handled: false, state: next, reason: "invalid_payload" };
+    }
+    next.reader.topicId = topicId;
+    next.reader.previousTab =
+      "previousTab" in payload
+        ? normalizeNonReaderTab(payload.previousTab)
+        : state.selectedTab === "reader"
+          ? normalizeNonReaderTab(state.reader.previousTab)
+          : normalizeNonReaderTab(state.selectedTab);
+    next.selectedTab = "reader";
+    return { handled: true, state: next };
+  }
+
+  if (action === "closeArtifactReader") {
+    next.selectedTab = normalizeNonReaderTab(state.reader.previousTab);
+    next.reader.topicId = "";
     return { handled: true, state: next };
   }
 

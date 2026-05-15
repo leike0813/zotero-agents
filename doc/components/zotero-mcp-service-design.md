@@ -15,7 +15,13 @@ The v1 contract is:
 - Large data is returned by bounded lists or chunks. Tools must not return unbounded note bodies, attachment bytes, or full-library dumps.
 - Write tools always go through preview, permission, execute, and verification guidance.
 
-The current registry contains 22 tools: 11 read/context tools, 1 diagnostic tool, and 10 permission-gated write tools. Four tools are note-payload aware: `list_note_payloads`, `get_note_payload`, `create_markdown_note`, and `update_markdown_note`. One tool is a paper-reading context aggregator: `prepare_paper_reading_context`.
+The current registry contains Zotero read/context tools, Synthesis read tools,
+one diagnostic tool, and permission-gated write tools. Four tools are
+note-payload aware: `list_note_payloads`, `get_note_payload`,
+`create_markdown_note`, and `update_markdown_note`. One tool is a paper-reading
+context aggregator: `prepare_paper_reading_context`. Synthesis MCP tools expose
+topic, resolver, registry, graph-slice, and review-input capabilities; they do
+not duplicate paper artifact payload readers.
 
 ## Agent Context Disclosure Contract
 

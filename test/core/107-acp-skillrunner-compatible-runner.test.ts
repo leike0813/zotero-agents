@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BackendInstance } from "../../src/backends/types";
-import { ACP_OPENCODE_BACKEND_ID } from "../../src/config/defaults";
+import {
+  ACP_OPENCODE_BACKEND_ID,
+  ACP_SKILL_RUN_REQUEST_KIND,
+} from "../../src/config/defaults";
 import {
   buildAcpSkillInjectionPlan,
   resolveAcpAgentFamily,
@@ -16,6 +19,8 @@ import {
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   getAcpSkillRunRecord,
+  interruptAcpSkillRunCurrentTurn,
+  listAcpSkillRuns,
   recordAcpSkillRunSessionUpdate,
   registerAcpSkillRunController,
   replyAcpSkillRun,
@@ -26,6 +31,7 @@ import {
   subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
+import { insertAcpSkillProxyPatchBlock } from "../../src/modules/acpSkillReferenceRewriter";
 import {
   buildAcpRuntimeDependencyPlan,
   defaultAcpRuntimeDependencyProbe,
@@ -35,6 +41,11 @@ import {
   executeAcpSkillRunnerJob,
   recoverAcpSkillRunConversation,
 } from "../../src/modules/acpSkillRunnerOrchestrator";
+import {
+  ACP_SKILL_PATCH_TEMPLATES,
+  loadAcpSkillPatchTemplate,
+} from "../../src/modules/acpSkillPatchTemplates";
+import { buildAcpSkillOutputRepairPrompt } from "../../src/modules/acpSkillOutputValidator";
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
@@ -70,7 +81,11 @@ function delay(ms: number) {
 
 async function createSkill(
   root: string,
-  args?: { dependencies?: string[]; executionModes?: string[] },
+  args?: {
+    dependencies?: string[];
+    executionModes?: string[];
+    declareSchemas?: boolean;
+  },
 ) {
   const skillDir = path.join(root, "skills", "demo-skill");
   await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
@@ -99,9 +114,13 @@ async function createSkill(
       runtime: {
         dependencies: args?.dependencies || [],
       },
-      schemas: {
-        output: "assets/output.schema.json",
-      },
+      ...(args?.declareSchemas === false
+        ? {}
+        : {
+            schemas: {
+              output: "assets/output.schema.json",
+            },
+          }),
     }),
     "utf8",
   );
@@ -173,6 +192,204 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.equal(plan.family, "qwen-code");
     assert.match(plan.skillRoots[0].replace(/\\/g, "/"), /\.custom\/skills$/);
+  });
+
+  it("keeps ACP skill run listing stable by creation time and interrupts without canceling the run", async function () {
+    upsertAcpSkillRun({
+      requestId: "run-old",
+      skillId: "demo-skill",
+      taskName: "Older",
+      status: "running",
+      createdAt: "2026-05-15T08:00:00.000Z",
+      updatedAt: "2026-05-15T08:10:00.000Z",
+    });
+    upsertAcpSkillRun({
+      requestId: "run-new",
+      skillId: "demo-skill",
+      taskName: "Newer",
+      status: "running",
+      createdAt: "2026-05-15T09:00:00.000Z",
+      updatedAt: "2026-05-15T09:00:00.000Z",
+    });
+    upsertAcpSkillRun({
+      requestId: "run-old",
+      updatedAt: "2026-05-15T10:00:00.000Z",
+      event: { stage: "transcript-update", message: "Updated", level: "info" },
+    });
+    assert.deepEqual(
+      listAcpSkillRuns().map((entry) => entry.requestId),
+      ["run-new", "run-old"],
+    );
+
+    let interrupted = false;
+    registerAcpSkillRunController("run-new", {
+      cancel: async () => {
+        interrupted = true;
+      },
+    });
+    await interruptAcpSkillRunCurrentTurn("run-new");
+    const interruptedRun = getAcpSkillRunRecord("run-new");
+    assert.isTrue(interrupted);
+    assert.equal(interruptedRun?.status, "running");
+    assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
+    assert.isUndefined(interruptedRun?.removedAt);
+  });
+
+  it("builds Skill-Runner-aligned ACP repair prompts with target contract details", function () {
+    const prompt = buildAcpSkillOutputRepairPrompt({
+      executionMode: "interactive",
+      previousCandidate: "{\"ui_hints\":{\"choices\":[]}}",
+      errors: ["pending output requires ui_hints object"],
+      repairRound: 1,
+      maxRepairRounds: 3,
+      outputContractDetails: [
+        "### Output Contract Details",
+        "#### Pending Branch Contract",
+        "- `ui_hints.options`: optional array for choose_one.",
+      ].join("\n"),
+    });
+    assert.include(prompt, "Your previous output did not satisfy the Skill Runner output contract.");
+    assert.include(prompt, "Previous candidate:");
+    assert.include(prompt, "{\"ui_hints\":{\"choices\":[]}}");
+    assert.include(prompt, "Validation errors:");
+    assert.include(prompt, "- pending output requires ui_hints object");
+    assert.include(prompt, "Target output contract details:");
+    assert.include(prompt, "`ui_hints.options`");
+    assert.include(prompt, "Do not output explanations.");
+    assert.include(prompt, "Do not output Markdown fences.");
+    assert.notInclude(prompt, "Repair round 1 of 3");
+    assert.notInclude(prompt, "Do not use tool calls for this repair");
+  });
+
+  it("loads ACP Skill patch templates from packaged asset files", async function () {
+    assert.isAtLeast(ACP_SKILL_PATCH_TEMPLATES.length, 9);
+    for (const template of ACP_SKILL_PATCH_TEMPLATES) {
+      const content = await loadAcpSkillPatchTemplate(template);
+      assert.isNotEmpty(content, template.filename);
+    }
+    const materializerSource = await fs.readFile(
+      path.join(process.cwd(), "src/modules/acpThinProxySkillMaterializer.ts"),
+      "utf8",
+    );
+    assert.notInclude(
+      materializerSource,
+      "This skill is running in interactive mode. A human operator is available and may respond when needed.",
+    );
+    assert.notInclude(
+      materializerSource,
+      "To ensure system compatibility, you MUST operate as a headless data provider",
+    );
+    assert.notInclude(
+      materializerSource,
+      "The directives below are injected by the runtime execution environment",
+    );
+  });
+
+  it("inserts ACP proxy patch after YAML frontmatter, including CRLF frontmatter", function () {
+    const content = [
+      "---\r\n",
+      "name: Demo Skill\r\n",
+      "---\r\n",
+      "# Demo Skill\r\n",
+      "\r\n",
+      "Return structured output.\r\n",
+    ].join("");
+    const patched = insertAcpSkillProxyPatchBlock({
+      rewrittenSkillMd: content,
+      headerPatchBlock: "<!-- zotero-skills-acp-thin-proxy:start -->\nRESOURCE\n<!-- zotero-skills-acp-thin-proxy:end -->",
+      footerPatchBlock: "<!-- zotero-skills-acp-runtime-patch:start -->\nRUNTIME\n<!-- zotero-skills-acp-runtime-patch:end -->",
+    });
+
+    assert.match(patched, /^---\r?\nname: Demo Skill\r?\n---\r?\n\r?\n<!-- zotero-skills-acp-thin-proxy:start -->/);
+    assert.isBelow(
+      patched.indexOf("<!-- zotero-skills-acp-thin-proxy:start -->"),
+      patched.indexOf("# Demo Skill"),
+    );
+    assert.isBelow(
+      patched.indexOf("# Demo Skill"),
+      patched.indexOf("<!-- zotero-skills-acp-runtime-patch:start -->"),
+    );
+  });
+
+  it("falls back to assets/output.schema.json when runner.json omits schemas.output", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, { declareSchemas: false });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-fallback-schema" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    const result = await executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "bundle",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+    const response = result.responseJson as { requestedSkillProxyPath?: string };
+    const proxySkillMd = await fs.readFile(
+      path.join(response.requestedSkillProxyPath || "", "SKILL.md"),
+      "utf8",
+    );
+    assert.include(proxySkillMd, "Output schema path:");
+    assert.include(proxySkillMd.replace(/\\/g, "/"), "/assets/output.schema.json");
+    assert.include(proxySkillMd, "| `ok` | const true | yes | Must equal true. |");
+    assert.notInclude(proxySkillMd, "Output schema path: (not declared)");
+    assert.notInclude(proxySkillMd, "| `(schema)` | object | yes | Final payload must satisfy the output schema. |");
   });
 
   it("wraps workflow ACP launch with uv only when dependencies exist", async function () {
@@ -427,9 +644,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("allows skillrunner.job.v1 to resolve to ACP provider for ACP backend", function () {
+  it("allows acp.skill.run.v1 to resolve to ACP provider for ACP backend", function () {
     const provider = resolveProvider({
-      requestKind: "skillrunner.job.v1",
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
       backend: createBackend(),
     });
     assert.equal(provider.id, "acp");
@@ -479,6 +696,12 @@ describe("ACP SkillRunner-compatible runner", function () {
     }).selectedRun;
     assert.equal(pending?.pendingPermission?.requestId, "permission-1");
     assert.equal(pending?.pendingPermission?.toolTitle, "Run shell command");
+    const pendingPermissionItems = (pending?.transcriptItems || []).filter(
+      (item: any) => item.kind === "permission",
+    );
+    assert.lengthOf(pendingPermissionItems, 1);
+    assert.equal((pendingPermissionItems[0] as any).status, "pending");
+    assert.equal((pendingPermissionItems[0] as any).summary, "Run shell command");
 
     resolveAcpSkillRunPermissionRequest({
       runRequestId: "run-permission",
@@ -494,6 +717,16 @@ describe("ACP SkillRunner-compatible runner", function () {
       selectedRequestId: "run-permission",
     }).selectedRun;
     assert.isNull(resolvedSnapshot?.pendingPermission);
+    const resolvedPermissionItems = (resolvedSnapshot?.transcriptItems || []).filter(
+      (item: any) => item.kind === "permission",
+    );
+    assert.lengthOf(resolvedPermissionItems, 1);
+    assert.equal((resolvedPermissionItems[0] as any).status, "approved");
+    assert.isFalse(
+      (resolvedSnapshot?.transcriptItems || []).some(
+        (item: any) => item.kind === "status" && item.label === "permission-resolved",
+      ),
+    );
   });
 
   it("marks tool updates with output payload as completed when ACP omits status", function () {
@@ -545,6 +778,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         stage: "workspace-activity",
         message: "Workspace file updated while agent is working: digest_payload.json",
         level: "info",
+        details: {
+          path: "D:/runtime/acp/skill-runs/run-1/result/digest_payload.json",
+          relativePath: "result/digest_payload.json",
+        },
       },
     });
 
@@ -553,8 +790,44 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.equal(statusItem?.kind, "status");
     if (statusItem?.kind === "status") {
-      assert.include(statusItem.text, "digest_payload.json");
+      assert.equal((statusItem as any).details?.relativePath, "result/digest_payload.json");
+      assert.equal(statusItem.text, "result/digest_payload.json");
     }
+  });
+
+  it("keeps low-signal ACP skill success events out of transcript", function () {
+    resetAcpSkillRunsForTests();
+    for (const stage of [
+      "acp-session-created",
+      "acp-prompt-finished",
+      "output-validation-succeeded",
+      "recovered-output-validation-succeeded",
+      "repair-validation-succeeded",
+    ]) {
+      upsertAcpSkillRun({
+        requestId: "run-noise",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        event: {
+          stage,
+          message: `${stage} message`,
+          level: "info",
+        },
+      });
+    }
+    const transcript = getAcpSkillRunRecord("run-noise")?.transcriptItems || [];
+    assert.isFalse(
+      transcript.some((item: any) =>
+        item.kind === "status" && [
+          "acp-session-created",
+          "acp-prompt-finished",
+          "output-validation-succeeded",
+          "recovered-output-validation-succeeded",
+          "repair-validation-succeeded",
+        ].includes(item.label),
+      ),
+    );
   });
 
   it("keeps ACP Skills panel run list lightweight while selectedRun stays complete", function () {
@@ -847,6 +1120,12 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(capturedMessage, "ACP Skills continuation guard");
       assert.include(capturedMessage, "same remote ACP session");
       assert.include(capturedMessage, "Do not restart the task");
+      assert.include(capturedMessage, "return exactly one JSON object");
+      assert.include(capturedMessage, "`__SKILL_DONE__: false`");
+      assert.include(capturedMessage, "`ui_hints`");
+      assert.include(capturedMessage, "`ui_hints.options`");
+      assert.include(capturedMessage, "Do not output explanations.");
+      assert.include(capturedMessage, "Do not output Markdown fences.");
       assert.include(capturedMessage, "continue from here");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -950,6 +1229,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     let newSessionCount = 0;
     let closeCount = 0;
     const promptSessionIds: string[] = [];
+    const promptMessages: string[] = [];
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     let launchedBackend: BackendInstance | null = null;
     const fakeAdapter: AcpConnectionAdapter = {
@@ -981,6 +1261,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resumeSession: async () => ({ sessionId: "resumed" }),
       prompt: async ({ sessionId, message }) => {
         promptSessionIds.push(sessionId);
+        promptMessages.push(message);
         promptCount += 1;
         await updateListener?.({
           sessionId: `session-${promptCount}`,
@@ -1041,10 +1322,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       },
     };
     const result = await executeAcpSkillRunnerJob({
-      requestKind: "skillrunner.job.v1",
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
       backend: createBackend(),
       request: {
-        kind: "skillrunner.job.v1",
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
         skill_id: "demo-skill",
         fetch_type: "bundle",
       },
@@ -1097,6 +1378,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       proxySkillCount?: number;
       proxySkillRoots?: string[];
       requestedSkillProxyPath?: string;
+      runExecutionInstructionsPath?: string;
     };
     assert.deepEqual(response.runtimeDependencies, ["pandas"]);
     assert.equal(response.resultResolution, "workflow-result-context");
@@ -1107,6 +1389,57 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(response.proxySkillCount, 2);
     assert.isAtLeast(response.proxySkillRoots?.length || 0, 1);
     assert.isString(response.requestedSkillProxyPath);
+    assert.isString(response.runExecutionInstructionsPath);
+    assert.include(promptMessages[0] || "", "$demo-skill");
+    assert.include(promptMessages[0] || "", "# Inputs");
+    assert.include(promptMessages[0] || "", "# Parameters");
+    assert.include(promptMessages[0] || "", "ACP run context:");
+    assert.include(promptMessages[0] || "", "Requested skill proxy:");
+    assert.notInclude(promptMessages[0] || "", "Target output contract details:");
+    assert.include(
+      promptMessages[1] || "",
+      "Your previous output did not satisfy the Skill Runner output contract.",
+    );
+    const runInstructions = await fs.readFile(
+      path.join(response.workspaceDir || "", "AGENTS.md"),
+      "utf8",
+    );
+    assert.include(runInstructions, "# Run Execution Instructions");
+    assert.include(runInstructions, "Engine workspace directory: `./.codex`");
+    assert.include(runInstructions, "Engine skill directory: `./.codex/skills`");
+    assert.include(runInstructions, "runtime-patched `SKILL.md`");
+    const proxySkillMd = await fs.readFile(
+      path.join(response.requestedSkillProxyPath || "", "SKILL.md"),
+      "utf8",
+    );
+    const resourceIndex = proxySkillMd.indexOf("## Zotero Skills ACP Thin Proxy Resource Mapping");
+    const originalBodyIndex = proxySkillMd.indexOf("# Demo Skill");
+    const runtimeIndex = proxySkillMd.indexOf("Runtime Enforcement");
+    const outputIndex = proxySkillMd.indexOf("## Output Format Contract");
+    const detailsIndex = proxySkillMd.indexOf("### Output Contract Details");
+    const modeIndex = proxySkillMd.indexOf("## Execution Mode: AUTO (Non-Interactive)");
+    assert.isTrue(
+      [resourceIndex, originalBodyIndex, runtimeIndex, outputIndex, detailsIndex, modeIndex].every(
+        (index) => index >= 0,
+      ),
+      proxySkillMd,
+    );
+    assert.isBelow(resourceIndex, originalBodyIndex);
+    assert.isBelow(originalBodyIndex, runtimeIndex);
+    assert.isBelow(runtimeIndex, outputIndex);
+    assert.isBelow(outputIndex, detailsIndex);
+    assert.isBelow(detailsIndex, modeIndex);
+    assert.notInclude(proxySkillMd, "Proxy mode:");
+    assert.notInclude(proxySkillMd, "Input manifest:");
+    assert.notInclude(proxySkillMd, "Runner result envelope path:");
+    assert.notInclude(proxySkillMd, "Do not write the runner result envelope yourself.");
+    assert.notInclude(proxySkillMd, "Put additional artifacts under the run workspace");
+    assert.include(proxySkillMd, "Shared catalog skill root:");
+    assert.include(proxySkillMd, "- Resource root assets: `<shared catalog skill root>/assets`");
+    assert.notInclude(proxySkillMd, "## Runtime Output Overrides");
+    assert.notInclude(proxySkillMd, "## Execution Mode: INTERACTIVE");
+    assert.include(proxySkillMd, "`__SKILL_DONE__`");
+    assert.include(proxySkillMd, "Markdown code fences");
     const panelSnapshot = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
     });
@@ -1271,10 +1604,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
     });
     const runPromise = executeAcpSkillRunnerJob({
-      requestKind: "skillrunner.job.v1",
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
       backend: createBackend(),
       request: {
-        kind: "skillrunner.job.v1",
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
         skill_id: "demo-skill",
         fetch_type: "bundle",
         runtime_options: { execution_mode: "interactive" },
@@ -1304,6 +1637,21 @@ describe("ACP SkillRunner-compatible runner", function () {
       hint: "Choose an option or type a reply.",
       options: ["Please finish."],
     });
+    const pendingResponse = result.responseJson as { requestedSkillProxyPath?: string };
+    const pendingProxySkillMd = await fs.readFile(
+      path.join(pendingResponse.requestedSkillProxyPath || "", "SKILL.md"),
+      "utf8",
+    );
+    assert.include(pendingProxySkillMd, "## Execution Mode: INTERACTIVE");
+    assert.notInclude(pendingProxySkillMd, "## Execution Mode: AUTO (Non-Interactive)");
+    assert.include(pendingProxySkillMd, "Pending Branch Contract");
+    assert.include(pendingProxySkillMd, "Supported `ui_hints.kind` values");
+    assert.include(pendingProxySkillMd, "`open_text | choose_one | confirm | upload_files`");
+    assert.include(pendingProxySkillMd, "`ui_hints.options`");
+    assert.include(pendingProxySkillMd, '"kind": "choose_one"');
+    assert.include(pendingProxySkillMd, '"label": "Continue"');
+    assert.include(pendingProxySkillMd, '"value": "continue"');
+    assert.notInclude(pendingProxySkillMd, "## Runtime Output Overrides");
     const pendingAssistantMessages = capturedWaiting?.transcriptItems.filter(
       (item) => item.kind === "message" && item.role === "assistant",
     ) || [];
@@ -1414,10 +1762,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
     });
     const result = await executeAcpSkillRunnerJob({
-      requestKind: "skillrunner.job.v1",
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
       backend: createBackend(),
       request: {
-        kind: "skillrunner.job.v1",
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
         skill_id: "demo-skill",
         fetch_type: "bundle",
         runtime_options: { execution_mode: "interactive" },

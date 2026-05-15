@@ -58,6 +58,7 @@ export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
   "remove_items_from_collection";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS = "synthesis.list_topics";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT =
   "synthesis.get_topic_context";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS = "synthesis.get_schemas";
@@ -69,6 +70,8 @@ export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_REGISTRY =
   "synthesis.get_paper_registry";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH =
   "synthesis.query_citation_graph";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE =
+  "synthesis.get_citation_graph_slice";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST =
   "synthesis.get_paper_artifact_manifest";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS =
@@ -2143,6 +2146,13 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   },
   synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+    title: "List Synthesis topics",
+    description:
+      "Return a small semantic inventory of existing Synthesis topics for create-mode duplicate checks. This tool does not return resolvers, paper sets, artifacts, or freshness data.",
+    method: "listTopics",
+  }),
+  synthesisTool({
     name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT,
     title: "Get Synthesis topic context",
     description:
@@ -2205,42 +2215,20 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH,
-    title: "Query Synthesis citation graph",
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE,
+    title: "Get Synthesis citation graph slice",
     description:
-      "Return a bounded Unified Citation Graph slice for resolved papers, filters, or neighborhood queries.",
-    method: "queryCitationGraph",
+      "Read a bounded slice from the persisted Synthesis citation graph snapshot. This tool never rebuilds the graph, recomputes layouts, or returns the full graph.",
+    method: "getCitationGraphSlice",
     properties: {
-      paperRefs: { type: "array" },
-      nodeIds: { type: "array" },
+      startNodeId: { type: "string" },
+      paperRef: { type: "string" },
       depth: { type: ["number", "string"] },
-      filters: { type: "object" },
-      cursor: { type: ["number", "string"] },
-      limit: { type: ["number", "string"] },
-    },
-  }),
-  synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST,
-    title: "Get Synthesis paper artifact manifest",
-    description:
-      "Return available paper-level derived artifact refs for candidate papers.",
-    method: "getPaperArtifactManifest",
-    properties: {
-      paperRefs: { type: "array" },
-      artifactTypes: { type: "array" },
-    },
-  }),
-  synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS,
-    title: "Read Synthesis paper artifacts",
-    description:
-      "Read paper-level derived artifacts in bounded batches for synthesis evidence collection.",
-    method: "readPaperArtifacts",
-    properties: {
-      paperRefs: { type: "array" },
-      artifactTypes: { type: "array" },
-      maxChars: { type: ["number", "string"] },
-      cursor: { type: ["number", "string"] },
+      maxNodes: { type: ["number", "string"] },
+      maxEdges: { type: ["number", "string"] },
+      direction: { type: "string", enum: ["incoming", "outgoing", "both"] },
+      includeLowSignal: { type: "boolean" },
+      roleFilter: { type: "array" },
     },
   }),
   synthesisTool({

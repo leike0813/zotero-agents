@@ -1,0 +1,5 @@
+- [x] 1. Add OpenSpec delta for literature-digest auto reference matching.
+- [x] 2. Add regression tests for manifest option, enabled path, disabled path, update path, and warning path.
+- [x] 3. Add reusable reference matching helper for a specific references note.
+- [x] 4. Wire literature-digest applyResult to run auto matching after note upsert.
+- [x] 5. Run targeted workflow tests, manifest check, TypeScript check, and OpenSpec validation.

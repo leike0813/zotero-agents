@@ -101,21 +101,30 @@ export function buildAcpSkillOutputRepairPrompt(args: {
   errors: string[];
   repairRound: number;
   maxRepairRounds: number;
+  outputContractDetails?: string;
 }) {
   const isInteractive = String(args.executionMode || "").trim().toLowerCase() === "interactive";
-  return [
-    "Your previous assistant turn did not satisfy the Skill Runner output contract.",
-    `Repair round ${args.repairRound} of ${args.maxRepairRounds}.`,
-    isInteractive
-      ? "Return exactly one JSON object matching either the pending branch (`__SKILL_DONE__ = false` with `message` and `ui_hints`) or the final branch (`__SKILL_DONE__ = true` plus the final output fields)."
-      : "Return exactly one final JSON object with `__SKILL_DONE__ = true` plus the final output fields.",
-    "Do not write result/result.json. The runner will create that file after a final payload validates.",
-    "Do not use tool calls for this repair unless absolutely required; this is a response-format repair.",
+  const lines = [
+    "Your previous output did not satisfy the Skill Runner output contract.",
     "",
     "Previous candidate:",
     args.previousCandidate || "No valid JSON object was extracted from the previous assistant turn.",
     "",
     "Validation errors:",
-    ...args.errors.map((entry) => `- ${entry}`),
-  ].join("\n");
+    ...(args.errors.length > 0 ? args.errors : ["Unknown validation error"]).map(
+      (entry) => `- ${entry}`,
+    ),
+    "",
+    isInteractive
+      ? "Return exactly one JSON object matching either the pending branch (`__SKILL_DONE__ = false` with `message` and `ui_hints`) or the final branch (`__SKILL_DONE__ = true` plus the final output fields)."
+      : "Return exactly one final JSON object with `__SKILL_DONE__ = true` plus the final output fields.",
+    "Do not write result/result.json. The runner will create that file after a final payload validates.",
+    "Do not output explanations.",
+    "Do not output Markdown fences.",
+  ];
+  const outputContractDetails = String(args.outputContractDetails || "").trim();
+  if (outputContractDetails) {
+    lines.push("", "Target output contract details:", outputContractDetails);
+  }
+  return lines.join("\n");
 }

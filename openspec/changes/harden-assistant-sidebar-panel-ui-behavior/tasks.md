@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec delta specs for assistant sidebar UI, ACP Skills runner, and SkillRunner sidebar host behavior.
+- [x] 2. Add regression tests for shared composer busy/send rendering, drawer click containment, stable ordering, and waiting indicators/toasts.
+- [x] 3. Implement shared renderer/model composer changes: `inputEnabled`, primary send styling, danger interrupt styling, and focus/draft preservation.
+- [x] 4. Implement ACP Skills interrupt-current-turn action and route it without using `cancel-run`.
+- [x] 5. Implement Assistant workspace close button and drawer propagation hardening.
+- [x] 6. Implement waiting LEDs/toasts and stable task ordering for ACP Skills and SkillRunner sidebars.
+- [x] 7. Run targeted ACP UI / SkillRunner sidebar tests, `npm run check:builtin-workflow-manifest`, `npx tsc --noEmit`, and OpenSpec validation.

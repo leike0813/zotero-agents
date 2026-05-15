@@ -1,6 +1,7 @@
 import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
+  ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
@@ -20,16 +21,6 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
   "skillrunner.job.v1": {
     providerType: DEFAULT_BACKEND_TYPE,
     backendType: DEFAULT_BACKEND_TYPE,
-    compatiblePairs: [
-      {
-        providerType: DEFAULT_BACKEND_TYPE,
-        backendType: DEFAULT_BACKEND_TYPE,
-      },
-      {
-        providerType: ACP_BACKEND_TYPE,
-        backendType: ACP_BACKEND_TYPE,
-      },
-    ],
     validatePayload: validateSkillRunnerJobPayload,
   },
   "generic-http.request.v1": {
@@ -46,6 +37,11 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
     providerType: ACP_BACKEND_TYPE,
     backendType: ACP_BACKEND_TYPE,
     validatePayload: validateAcpPromptPayload,
+  },
+  [ACP_SKILL_RUN_REQUEST_KIND]: {
+    providerType: ACP_BACKEND_TYPE,
+    backendType: ACP_BACKEND_TYPE,
+    validatePayload: validateAcpSkillRunPayload,
   },
   [PASS_THROUGH_REQUEST_KIND]: {
     providerType: PASS_THROUGH_BACKEND_TYPE,
@@ -221,6 +217,38 @@ function validateAcpPromptPayload(request: unknown) {
     !isObject(request.hostContext)
   ) {
     return "payload.hostContext must be object when provided";
+  }
+  return null;
+}
+
+function validateAcpSkillRunPayload(request: unknown) {
+  if (!isObject(request)) {
+    return "payload must be object";
+  }
+  if (String(request.kind || "").trim() !== ACP_SKILL_RUN_REQUEST_KIND) {
+    return `payload.kind must be ${ACP_SKILL_RUN_REQUEST_KIND}`;
+  }
+  if (!isNonEmptyString(request.skill_id)) {
+    return "payload.skill_id must be non-empty string";
+  }
+  if (Object.prototype.hasOwnProperty.call(request, "upload_files")) {
+    return "payload.upload_files is not allowed for acp.skill.run.v1";
+  }
+  if (!isObject(request.input)) {
+    return null;
+  }
+  for (const [key, value] of Object.entries(request.input)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\/+/, "");
+    if (
+      normalized === "inputs" ||
+      normalized.startsWith("inputs/") ||
+      normalized.startsWith("uploads/")
+    ) {
+      return `payload.input.${key} must be a local absolute path, not upload-relative path`;
+    }
   }
   return null;
 }

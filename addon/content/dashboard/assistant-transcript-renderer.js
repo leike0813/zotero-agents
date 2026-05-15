@@ -264,6 +264,7 @@
     if (item.kind === "tool" || item.kind === "tool_call" || item.kind === "tool_activity_group") {
       return "tool";
     }
+    if (item.kind === "permission") return "permission";
     if (item.kind === "process") return "process";
     return String(item.kind || "status");
   }
@@ -289,6 +290,8 @@
     row.setAttribute("data-assistant-role", role);
     row.classList.toggle("is-tool", role === "tool");
     row.classList.toggle("is-process", kind === "process");
+    row.classList.toggle("is-permission", kind === "permission");
+    row.classList.toggle("is-workspace-activity", kind === "status" && item.label === "workspace-activity");
     row.classList.toggle("is-status", kind !== "message" && kind !== "process" && role !== "tool");
     row.classList.toggle("level-warn", String(item.level || "").trim() === "warn");
     row.classList.toggle("level-error", String(item.level || "").trim() === "error");
@@ -305,6 +308,34 @@
     parent.appendChild(el("span", "assistant-transcript-tool-badge", compactAssistantToolName(tool)));
     const summary = compactAssistantToolSummary(tool);
     if (summary) parent.appendChild(el("span", "assistant-transcript-tool-summary", summary));
+  }
+
+  function permissionToneClass(status) {
+    switch (normalizeStatusToken(status)) {
+      case "approved":
+        return "is-completed";
+      case "denied":
+      case "cancelled":
+      case "canceled":
+        return "is-failed";
+      case "pending":
+      default:
+        return "is-running";
+    }
+  }
+
+  function permissionIcon(status) {
+    switch (normalizeStatusToken(status)) {
+      case "approved":
+        return "✓";
+      case "denied":
+      case "cancelled":
+      case "canceled":
+        return "×";
+      case "pending":
+      default:
+        return "!";
+    }
   }
 
   function renderRevisionBadge(parent, revision, className, options) {
@@ -354,6 +385,23 @@
       body.innerHTML = renderMarkdown(String(item.text || ""));
       return;
     }
+    if (item.kind === "permission") {
+      meta.textContent = transcriptLabel(options, "permission", "Permission");
+      const led = el("span", "assistant-transcript-tool-led " + permissionToneClass(item.status));
+      led.setAttribute("aria-hidden", "true");
+      const icon = el("span", "assistant-transcript-permission-icon", permissionIcon(item.status));
+      icon.setAttribute("aria-hidden", "true");
+      body.appendChild(led);
+      body.appendChild(icon);
+      body.appendChild(
+        el(
+          "span",
+          "assistant-transcript-permission-summary",
+          String(item.summary || item.title || "Permission request"),
+        ),
+      );
+      return;
+    }
     if (item.kind === "tool" || item.kind === "tool_call") {
       meta.textContent = transcriptLabel(options, "tool", "Tool");
       const led = el("span", "assistant-transcript-tool-led " + toolToneClass(item.state));
@@ -389,6 +437,18 @@
         });
         row.appendChild(list);
       }
+      return;
+    }
+    if (item.kind === "status" && item.label === "workspace-activity") {
+      meta.textContent = transcriptLabel(options, "workspace", "Workspace");
+      const relativePath =
+        item.details && typeof item.details === "object" && item.details.relativePath
+          ? item.details.relativePath
+          : item.text;
+      body.appendChild(el("span", "assistant-transcript-workspace-file-icon", "▣"));
+      body.appendChild(
+        el("span", "assistant-transcript-workspace-path", String(relativePath || "")),
+      );
       return;
     }
     meta.textContent = String(item.label || transcriptLabel(options, "status", "Status"));

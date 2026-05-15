@@ -1316,6 +1316,7 @@
       usage: conversation.usage || snap.usage || null,
       reply: {
         enabled: !isConnecting,
+        inputEnabled: !isConnecting && snap.busy !== true,
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
           "Ask the active ACP backend about the current library or item...",
@@ -1325,6 +1326,7 @@
             : labelFrom(snap, "actions.send", labels.send || "Send"),
         sending: snap.busy === true,
         action: snap.busy === true ? "cancel" : "send-prompt",
+        tone: snap.busy === true ? "danger" : "primary",
         showUsageGauge: true,
         controls: [
           buildReplySelectControl("mode", labels.mode || "Mode", snap.currentMode, modeOptions, "set-mode"),
@@ -1430,6 +1432,12 @@
       const backendLabel = safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
       const workflowLabel = safeText(entry && entry.skillId) || backendLabel;
       const statusText = safeText(entry && entry.status) || "unknown";
+      const needsAttention =
+        statusText === "waiting_user" ||
+        statusText === "waiting-user" ||
+        statusText === "waiting_auth" ||
+        statusText === "waiting-auth" ||
+        Boolean(entry && entry.pendingPermission);
       const terminal = isTerminalStatus(normalizeStatusToken(statusText));
       return {
         key: requestId,
@@ -1440,6 +1448,8 @@
         workflowLabel,
         status: statusText,
         stateLabel: statusText,
+        attention: needsAttention ? "warning" : "",
+        attentionLabel: needsAttention ? "Needs user interaction" : "",
         updatedAt: safeText(entry && entry.updatedAt),
         backendId: safeText(entry && entry.backendId) || backendLabel,
         backendDisplayName: backendLabel,
@@ -1547,6 +1557,13 @@
             ]),
           }
         : conversation.interaction;
+    const busyRun = ["queued", "running", "repairing"].indexOf(status) >= 0;
+    const canReply =
+      Boolean(run) &&
+      !run.pendingPermission &&
+      ["active", "available", "connected"].indexOf(
+        safeText(run && (run.conversationState || run.conversationRecoveryState)),
+      ) >= 0;
     return normalizeAssistantPanelSnapshot({
       kind: "acp-skills",
       labels: panelLabels,
@@ -1613,16 +1630,16 @@
       interaction,
       usage: conversation.usage || (run && run.usage) || null,
       reply: {
-        enabled:
-          Boolean(run) &&
-          !run.pendingPermission &&
-          ["active", "available", "connected"].indexOf(
-            safeText(run.conversationState || run.conversationRecoveryState),
-          ) >= 0,
+        enabled: busyRun || canReply,
+        inputEnabled: canReply && !busyRun,
         placeholder: labelFrom(panel, "reply.placeholderAcpSkill", "Reply to this ACP skill conversation..."),
-        submitLabel: labelFrom(panel, "actions.send", "Send"),
+        submitLabel: busyRun
+          ? labelFrom(panel, "actions.cancel", "Cancel")
+          : labelFrom(panel, "actions.send", "Send"),
         sending: safeText(run && run.replyState) === "sending",
-        action: "reply-run",
+        action: busyRun ? "interrupt-run-turn" : "reply-run",
+        tone: busyRun ? "danger" : "primary",
+        clearOnSend: !busyRun,
         hint: labelFrom(panel, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
         showUsageGauge: true,
         controls: [],
@@ -1673,6 +1690,8 @@
     const status = normalizeStatusToken(session.status || "idle");
     const conversation = buildSkillRunnerConversationView(session);
     const interaction = buildSkillRunnerPendingInteraction(session, status);
+    const skillRunnerBusy = status === "running" || status === "prompting";
+    const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
       labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
@@ -1709,10 +1728,15 @@
       plan: conversation.plan,
       interaction,
       reply: {
-        enabled: status === "waiting-user" || status === "waiting-auth",
+        enabled: skillRunnerWaiting || skillRunnerBusy,
+        inputEnabled: skillRunnerWaiting,
         placeholder: labelFrom(envelope, "reply.placeholderSkillRunner", "Reply to the pending SkillRunner interaction..."),
-        submitLabel: labelFrom(envelope, "actions.send", "Send"),
-        action: "reply-run",
+        submitLabel: skillRunnerBusy
+          ? labelFrom(envelope, "actions.cancel", "Cancel")
+          : labelFrom(envelope, "actions.send", "Send"),
+        action: skillRunnerBusy ? "cancel-run" : "reply-run",
+        tone: skillRunnerBusy ? "danger" : "primary",
+        clearOnSend: !skillRunnerBusy,
         hint: labelFrom(envelope, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
       },
       drawers: {

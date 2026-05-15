@@ -769,6 +769,10 @@ function buildNoteSelectionUnits(selection: SelectionLike) {
 async function resolveAttachmentSelectionUnits(args: {
   workflow: LoadedWorkflow;
   selectionContext: unknown;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
   const copied = copySelection(args.selectionContext);
@@ -806,6 +810,7 @@ async function resolveAttachmentSelectionUnits(args: {
         args.workflow.hooks.filterInputs!({
           selectionContext: declarativeFiltered,
           manifest: args.workflow.manifest,
+          executionOptions: args.executionOptions,
           runtime: hookRuntime,
         }),
     })) as SelectionLike;
@@ -838,6 +843,10 @@ async function resolveAttachmentSelectionUnits(args: {
 async function resolveSelectionContexts(args: {
   workflow: LoadedWorkflow;
   selectionContext: unknown;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
   const allowsEmptySelection = canWorkflowRunWithoutSelection(
@@ -862,6 +871,7 @@ async function resolveSelectionContexts(args: {
           args.workflow.hooks.filterInputs!({
             selectionContext: scopedSelection,
             manifest: args.workflow.manifest,
+            executionOptions: args.executionOptions,
             runtime: hookRuntime,
           }),
       });
@@ -907,6 +917,7 @@ async function resolveSelectionContexts(args: {
           args.workflow.hooks.filterInputs!({
             selectionContext: scopedSelection,
             manifest: args.workflow.manifest,
+            executionOptions: args.executionOptions,
             runtime: hookRuntime,
           }),
       });
@@ -971,6 +982,7 @@ export async function executeBuildRequests(args: {
       const resolved = await resolveSelectionContexts({
         workflow: args.workflow,
         selectionContext: args.selectionContext,
+        executionOptions: args.executionOptions,
         runtime,
       });
       const resolvedSelections = resolved.contexts;

@@ -179,6 +179,17 @@
         text: safeText(source.text || source.message),
       };
     }
+    if (kind === "permission") {
+      return {
+        ...source,
+        kind: "permission",
+        permissionRequestId: safeText(source.permissionRequestId || source.id),
+        status: safeText(source.status) || "pending",
+        title: safeText(source.title) || "Permission request",
+        summary: safeText(source.summary || source.text || source.message),
+        source: safeText(source.source) || undefined,
+      };
+    }
     if (kind === "message") {
       return {
         ...source,
@@ -296,6 +307,9 @@
     const status = safeText(source.status);
     const recovery = safeText(source.conversationRecoveryState);
     const terminal = ["succeeded", "failed", "canceled", "cancelled"].indexOf(status) >= 0;
+    const activeContinuation =
+      source.activePrompt === true ||
+      ["submitted", "accepted", "sending"].indexOf(safeText(source.replyState)) >= 0;
     const disconnected =
       recovery === "failed" ||
       recovery === "unsupported" ||
@@ -310,10 +324,10 @@
         errorText: disconnected ? source.lastRecoveryError || source.error : "",
         waitingUser: status === "waiting_user",
         pendingInteraction: source.pendingInteraction || null,
-        running: ["queued", "running", "repairing"].indexOf(status) >= 0,
+        running: ["queued", "running", "repairing"].indexOf(status) >= 0 || activeContinuation,
         runningLabel:
           status === "repairing" ? "Agent is repairing output..." : "Agent is working...",
-        completed: terminal,
+        completed: terminal && !activeContinuation,
         completedMessage:
           status === "succeeded"
             ? "Run completed. Workflow result is ready."

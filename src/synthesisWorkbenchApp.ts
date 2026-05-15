@@ -1,8 +1,28 @@
 import Graph from "graphology";
 import Sigma from "sigma";
 
-declare const window: Window & typeof globalThis;
+declare const window: Window &
+  typeof globalThis & {
+    markdownit?: (options?: Record<string, unknown>) => MarkdownItLike;
+    texmath?: MarkdownItPlugin;
+    katex?: unknown;
+    __zoteroSkillsSynthesisWorkbenchBridge?: SynthesisWorkbenchBridge;
+  };
 declare const document: Document;
+
+type MarkdownItPlugin = (...args: unknown[]) => unknown;
+
+type MarkdownItLike = {
+  use: (plugin: MarkdownItPlugin, options?: Record<string, unknown>) => MarkdownItLike;
+  render: (source: string) => string;
+};
+
+type SynthesisWorkbenchBridge = {
+  postMessage: (
+    action: string,
+    payload?: Record<string, unknown>,
+  ) => Promise<unknown> | unknown;
+};
 
 type GraphNodeKind =
   | "library_paper"
@@ -29,11 +49,15 @@ type GraphEdge = {
 
 type Snapshot = {
   libraryId: number;
-  selectedTab: "overview" | "artifacts" | "registry" | "graph";
+  selectedTab: "overview" | "artifacts" | "registry" | "graph" | "reader";
   storage: Record<string, string>;
   preferences: Record<string, unknown>;
   sync?: { status?: string; diagnostics?: Array<Record<string, unknown>> };
   conflicts?: { candidates?: Array<Record<string, unknown>> };
+  deletedArtifacts: {
+    count: number;
+    rows: Array<Record<string, unknown>>;
+  };
   artifacts: {
     filters: Record<string, string>;
     rows: Array<Record<string, unknown>>;
@@ -62,11 +86,26 @@ type Snapshot = {
     visibleEdges: GraphEdge[];
     diagnostics: Record<string, unknown>;
   };
+  reader?: {
+    topicId: string;
+    previousTab: "overview" | "artifacts" | "registry" | "graph";
+  };
+};
+
+type ArtifactReaderDto = {
+  topicId: string;
+  title: string;
+  markdown: string;
+  metadata?: Record<string, unknown>;
+  hash?: string;
+  updated_at?: string;
 };
 
 const state: {
   snapshot: Snapshot | null;
+  artifactReader?: ArtifactReaderDto;
   sigma?: Sigma;
+  sigmaResizeObserver?: ResizeObserver;
   graph?: Graph;
   hoveredNode?: string;
 } = {
@@ -80,6 +119,13 @@ const colors: Record<GraphNodeKind, string> = {
 };
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
+  const direct = window.__zoteroSkillsSynthesisWorkbenchBridge;
+  if (direct && typeof direct.postMessage === "function") {
+    void Promise.resolve(direct.postMessage(action, payload)).catch(() => {
+      // Fall through behavior is handled by later user actions.
+    });
+    return;
+  }
   const message = { type: "synthesis:action", action, payload };
   const targets = [window.parent, window.top, window.opener];
   const seen = new Set<Window>();
@@ -144,6 +190,7 @@ function makeButton(
 }
 
 function titleForTab(tab: Snapshot["selectedTab"]) {
+  if (tab === "reader") return state.artifactReader?.title || "Artifact Reader";
   if (tab === "artifacts") return "Synthesis Artifacts";
   if (tab === "registry") return "Paper Registry";
   if (tab === "graph") return "Citation Graph";
@@ -152,6 +199,8 @@ function titleForTab(tab: Snapshot["selectedTab"]) {
 
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
   clear(root);
+  state.sigmaResizeObserver?.disconnect();
+  state.sigmaResizeObserver = undefined;
   state.sigma?.kill();
   state.sigma = undefined;
   state.graph = undefined;
@@ -194,8 +243,28 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   root.appendChild(content);
 }
 
+function scheduleSigmaResize(renderer: Sigma, container: HTMLElement) {
+  const resize = () => {
+    if (!state.sigma || state.sigma !== renderer) {
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+    renderer.resize();
+    renderer.refresh();
+  };
+  window.requestAnimationFrame(resize);
+  window.requestAnimationFrame(() => window.requestAnimationFrame(resize));
+  setTimeout(resize, 80);
+  setTimeout(resize, 240);
+}
+
 function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
-  if (snapshot.selectedTab === "artifacts") {
+  if (snapshot.selectedTab === "reader") {
+    renderArtifactReader(main, snapshot);
+  } else if (snapshot.selectedTab === "artifacts") {
     renderArtifacts(main, snapshot);
   } else if (snapshot.selectedTab === "registry") {
     renderRegistry(main, snapshot);
@@ -213,6 +282,7 @@ function renderOverview(main: HTMLElement, snapshot: Snapshot) {
     ["Zotero anchor", snapshot.storage.anchorState],
     ["Mirror shards", snapshot.storage.mirrorState],
     ["Artifacts", snapshot.artifacts.rows.length],
+    ["Deleted artifacts", snapshot.deletedArtifacts.count],
     ["Registry rows", snapshot.registry.rows.length],
     ["Graph nodes", snapshot.graph.nodes.length],
     ["Graph layout", snapshot.graph.layoutStatus],
@@ -245,6 +315,11 @@ function renderArtifacts(main: HTMLElement, snapshot: Snapshot) {
       command: "runSynthesizeTopic",
     }),
   );
+  filters.appendChild(
+    makeButton("Purge Deleted", "hostCommand", {
+      command: "purgeDeletedTopicArtifacts",
+    }),
+  );
   header.appendChild(filters);
   panel.appendChild(header);
   panel.appendChild(
@@ -252,17 +327,160 @@ function renderArtifacts(main: HTMLElement, snapshot: Snapshot) {
       ["Title", "Coverage", "Freshness", "Updated", "Action"],
       snapshot.artifacts.visibleRows,
       (row) => [
-        row.title,
+        titleWithSummary(String(row.title || ""), String(row.markdown_preview || "")),
         badge(row.coverage, toneFor(row.coverage)),
         badge(row.freshness, toneFor(row.freshness)),
         row.updated_at || "-",
-        makeButton("Open", "hostCommand", {
-          command: "openCanonicalMarkdown",
-          args: { topicId: row.id },
-        }),
+        actionGroup([
+          makeButton("Open", "hostCommand", {
+            command: "openCanonicalMarkdown",
+            args: { topicId: row.id },
+          }),
+          makeButton("Delete", "hostCommand", {
+            command: "deleteTopicArtifact",
+            args: { topicId: row.id },
+          }),
+        ]),
       ],
     ),
   );
+  if (snapshot.deletedArtifacts.count > 0) {
+    const deleted = el(
+      "p",
+      "muted",
+      `${snapshot.deletedArtifacts.count} deleted artifact(s) waiting for purge.`,
+    );
+    panel.appendChild(deleted);
+  }
+  main.appendChild(panel);
+}
+
+function titleWithSummary(title: string, summary?: string) {
+  if (!summary) {
+    return title;
+  }
+  const wrapper = el("div", "cell-stack");
+  wrapper.appendChild(el("span", "", title));
+  wrapper.appendChild(el("span", "muted", summary));
+  return wrapper;
+}
+
+function actionGroup(buttons: HTMLElement[]) {
+  const group = el("div", "action-group");
+  buttons.forEach((button) => group.appendChild(button));
+  return group;
+}
+
+function getMarkdownParser() {
+  if (typeof window.markdownit !== "function") {
+    return null;
+  }
+  const parser = window.markdownit({
+    html: false,
+    linkify: true,
+    breaks: false,
+  });
+  if (window.texmath && window.katex) {
+    try {
+      parser.use(window.texmath, {
+        engine: window.katex,
+        delimiters: "dollars",
+        katexOptions: {
+          throwOnError: false,
+        },
+      });
+    } catch {
+      // Markdown remains usable without math support.
+    }
+  }
+  return parser;
+}
+
+function renderMarkdown(markdown: string) {
+  const parser = getMarkdownParser();
+  if (!parser) {
+    const pre = el("pre", "markdown-fallback");
+    pre.textContent = markdown;
+    return pre;
+  }
+  const body = el("article", "reader-body markdown-body");
+  body.innerHTML = sanitizeRenderedMarkdown(parser.render(markdown));
+  body.querySelectorAll("a[href]").forEach((anchor: Element) => {
+    const href = anchor.getAttribute("href") || "";
+    if (/^\s*javascript:/i.test(href)) {
+      anchor.removeAttribute("href");
+      return;
+    }
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("rel", "noreferrer noopener");
+  });
+  return body;
+}
+
+function sanitizeRenderedMarkdown(html: string) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content
+    .querySelectorAll("script, iframe, object, embed")
+    .forEach((node: Element) => {
+      node.remove();
+    });
+  template.content.querySelectorAll("*").forEach((node: Element) => {
+    Array.from(node.attributes).forEach((attribute: Attr) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value || "";
+      if (name.startsWith("on") || /^\s*javascript:/i.test(value)) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+  return template.innerHTML;
+}
+
+function renderArtifactReader(main: HTMLElement, snapshot: Snapshot) {
+  const topicId = state.artifactReader?.topicId || snapshot.reader?.topicId || "";
+  const reader = state.artifactReader;
+  const panel = el("div", "reader-panel");
+  const header = el("div", "reader-header");
+  const titleGroup = el("div", "reader-title");
+  titleGroup.appendChild(el("strong", "", reader?.title || topicId || "Artifact"));
+  const metaLine = [
+    reader?.updated_at ? `Updated ${reader.updated_at}` : "",
+    reader?.hash ? `Hash ${reader.hash}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  if (metaLine) {
+    titleGroup.appendChild(el("span", "muted", metaLine));
+  }
+  header.appendChild(titleGroup);
+  const actions = el("div", "toolbar");
+  actions.appendChild(makeButton("Back to Artifacts", "closeArtifactReader"));
+  actions.appendChild(
+    makeButton("Refresh", "hostCommand", {
+      command: "openCanonicalMarkdown",
+      args: { topicId },
+    }),
+  );
+  const copy = el("button", "", "Copy markdown");
+  copy.type = "button";
+  copy.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(reader?.markdown || "");
+  });
+  actions.appendChild(copy);
+  actions.appendChild(
+    makeButton("Open folder", "hostCommand", {
+      command: "openSynthesisFolder",
+      args: { topicId },
+    }),
+  );
+  header.appendChild(actions);
+  panel.appendChild(header);
+  if (!reader) {
+    panel.appendChild(el("div", "empty", "No artifact selected."));
+  } else {
+    panel.appendChild(renderMarkdown(reader.markdown));
+  }
   main.appendChild(panel);
 }
 
@@ -425,19 +643,23 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const visibleIds = new Set(snapshot.graph.visibleNodes.map((node) => node.id));
   for (const node of snapshot.graph.visibleNodes) {
     graph.addNode(node.id, {
-      label: node.label,
+      title: node.label,
+      label: "",
       x: typeof node.x === "number" ? node.x : 0,
       y: typeof node.y === "number" ? node.y : 0,
-      size: node.kind === "library_paper" ? 8 : 5,
+      size: node.kind === "library_paper" ? 7 : 2,
       color: colors[node.kind],
       kind: node.kind,
     });
   }
   for (const edge of snapshot.graph.visibleEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
+      const targetKind = graph.getNodeAttribute(edge.target, "kind");
       graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
         color: "#8a98a8",
-        size: Math.max(1, Math.min(5, edge.mention_count || 1)),
+        size:
+          (targetKind === "library_paper" ? 1.15 : 0.35) *
+          Math.max(1, Math.min(2, edge.mention_count || 1)),
         label: edge.primary_role || "",
       });
     }
@@ -451,11 +673,14 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       if (!state.hoveredNode) return data;
       const neighbor =
         node === state.hoveredNode || graph.areNeighbors(node, state.hoveredNode);
+      const showHoverLabel =
+        node === state.hoveredNode ||
+        (neighbor && data.kind === "library_paper");
       return {
         ...data,
         color: neighbor ? data.color : "#d3d8de",
         zIndex: neighbor ? 1 : 0,
-        label: neighbor ? data.label : "",
+        label: showHoverLabel ? data.title : "",
       };
     },
     edgeReducer(edge: string, data: Record<string, unknown>) {
@@ -470,6 +695,13 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     },
   } as any);
   state.sigma = renderer;
+  if (typeof ResizeObserver !== "undefined") {
+    state.sigmaResizeObserver = new ResizeObserver(() => {
+      scheduleSigmaResize(renderer, container);
+    });
+    state.sigmaResizeObserver.observe(container);
+  }
+  scheduleSigmaResize(renderer, container);
   renderer.on("enterNode", ({ node }: { node: string }) => {
     state.hoveredNode = node;
     renderer.refresh();
@@ -585,7 +817,13 @@ function render() {
   if (!root) return;
   if (!state.snapshot) {
     clear(root);
-    root.appendChild(el("div", "empty", "Loading Synthesis Workbench..."));
+    const loading = el("div", "loading-shell");
+    loading.appendChild(el("div", "loading-spinner"));
+    loading.appendChild(el("div", "loading-title", "Loading Synthesis Workbench"));
+    loading.appendChild(
+      el("div", "loading-subtitle", "Preparing Zotero bridge and library state..."),
+    );
+    root.appendChild(loading);
     return;
   }
   renderShell(root as HTMLElement, state.snapshot);
@@ -598,6 +836,20 @@ window.addEventListener("message", (event: MessageEvent) => {
   }
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {
     state.snapshot = data.payload || null;
+    render();
+  }
+  if (data.type === "synthesis:artifact") {
+    state.artifactReader = data.payload || undefined;
+    if (state.snapshot) {
+      state.snapshot = {
+        ...state.snapshot,
+        selectedTab: "reader",
+        reader: {
+          topicId: state.artifactReader?.topicId || "",
+          previousTab: state.snapshot.reader?.previousTab || "artifacts",
+        },
+      };
+    }
     render();
   }
 });

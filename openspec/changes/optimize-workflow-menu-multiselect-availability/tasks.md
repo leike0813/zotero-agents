@@ -1,0 +1,5 @@
+- [x] 1. Add OpenSpec delta for multi-select workflow menu availability.
+- [x] 2. Add UI regression tests for single-select precise checks.
+- [x] 3. Add UI regression tests proving multi-select skips request preflight.
+- [x] 4. Implement multi-select lazy availability in workflow menu popup build.
+- [x] 5. Run targeted UI tests, TypeScript check, and OpenSpec validation.

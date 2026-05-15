@@ -307,6 +307,9 @@
         });
       }
     });
+    $("assistant-workspace-close")?.addEventListener("click", function () {
+      void postToHost("assistant-workspace:action", { action: "close-sidebar" });
+    });
     setActiveTab(initialTab, { notify: false, fallback: "acp-chat" });
     void postToHost("assistant-workspace:action", { action: "ready" });
   });

@@ -18,6 +18,7 @@ export type AcpSkillMaterializationResult = {
   sharedSkillCatalog: AcpSharedSkillCatalog;
   proxySkillRoots: string[];
   proxySkillCount: number;
+  outputContractDetailsMarkdown?: string;
   resourceRewriteWarnings: string[];
   diagnostics: Array<{
     level: "info" | "warning" | "error";
@@ -38,6 +39,7 @@ export async function materializeAcpSkill(args: {
   resultJsonPath: string;
   inputManifestPath: string;
   catalogRootDir?: string;
+  executionMode?: string;
 }): Promise<AcpSkillMaterializationResult> {
   const catalog = await buildAcpSharedSkillCatalog({
     registry: args.registry,
@@ -54,6 +56,7 @@ export async function materializeAcpSkill(args: {
     workspaceDir: args.workspaceDir,
     resultJsonPath: args.resultJsonPath,
     inputManifestPath: args.inputManifestPath,
+    executionMode: args.executionMode,
   });
   const runnerJson = await readJsonFile(requested.runnerJsonPath);
   return {
@@ -67,6 +70,7 @@ export async function materializeAcpSkill(args: {
     sharedSkillCatalog: catalog,
     proxySkillRoots: proxy.proxySkillRoots,
     proxySkillCount: proxy.proxySkillCount,
+    outputContractDetailsMarkdown: proxy.requestedOutputContractDetailsMarkdown,
     resourceRewriteWarnings: proxy.resourceRewriteWarnings,
     diagnostics: [
       ...catalog.diagnostics,

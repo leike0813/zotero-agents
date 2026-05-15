@@ -17,6 +17,7 @@ import type { Provider } from "../../src/providers/types";
 import { workflowsPath } from "./workflow-test-utils";
 import {
   ACP_PROMPT_REQUEST_KIND,
+  ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_REQUEST_KIND,
 } from "../../src/config/defaults";
 import { resolveWorkflowExecutionContext } from "../../src/modules/workflowSettings";
@@ -402,6 +403,122 @@ describe("provider/backend registry", function () {
     assert.equal(typed.reason, "invalid_request_payload");
     assert.match(String(typed.detail || ""), /message/i);
     assert.equal(executeCalled, 0, "provider.execute should not be called");
+  });
+
+  it("does not dispatch skillrunner.job.v1 directly to ACP backends", function () {
+    assert.throws(
+      () =>
+        resolveProvider({
+          requestKind: "skillrunner.job.v1",
+          backend: {
+            id: "acp-claude",
+            type: "acp",
+            baseUrl: "local://acp-claude",
+            command: "claude",
+            args: ["acp"],
+          },
+        }),
+      /backend_type_mismatch|provider_backend_mismatch/i,
+    );
+  });
+
+  it("resolves acp.skill.run.v1 to ACP provider", function () {
+    const provider = resolveProvider({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: {
+        id: "acp-claude",
+        type: "acp",
+        baseUrl: "local://acp-claude",
+        command: "claude",
+        args: ["acp"],
+      },
+    });
+
+    assert.equal(provider.id, "acp");
+  });
+
+  it("rejects acp.skill.run.v1 payloads with upload-relative input paths", async function () {
+    const originalProvider = resolveProviderById("acp");
+    let executeCalled = 0;
+    const stubProvider: Provider = {
+      id: "acp",
+      supports: ({ requestKind, backend }) =>
+        backend.type === "acp" && requestKind === ACP_SKILL_RUN_REQUEST_KIND,
+      execute: async () => {
+        executeCalled += 1;
+        return {
+          status: "succeeded",
+          requestId: "stub-acp-skill",
+          fetchType: "result",
+          resultJson: {},
+          responseJson: {},
+        };
+      },
+    };
+    registerProvider(stubProvider);
+
+    let thrown: unknown;
+    try {
+      await executeWithProvider({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: {
+          id: "acp-claude",
+          type: "acp",
+          baseUrl: "local://acp-claude",
+          command: "claude",
+          args: ["acp"],
+        },
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "literature-digest",
+          input: {
+            source_path: "inputs/source_path/example.md",
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      registerProvider(originalProvider);
+    }
+
+    assert.instanceOf(thrown, ProviderRequestContractError);
+    const typed = thrown as ProviderRequestContractError;
+    assert.equal(typed.category, "request_payload_invalid");
+    assert.match(String(typed.detail || ""), /upload-relative|absolute path/i);
+    assert.equal(executeCalled, 0);
+  });
+
+  it("rejects acp.skill.run.v1 payloads that still carry upload_files", async function () {
+    let thrown: unknown;
+    try {
+      await executeWithProvider({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: {
+          id: "acp-claude",
+          type: "acp",
+          baseUrl: "local://acp-claude",
+          command: "claude",
+          args: ["acp"],
+        },
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "literature-digest",
+          upload_files: [{ key: "source_path", path: "D:/real/example.md" }],
+          input: {
+            source_path: "D:/real/example.md",
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, ProviderRequestContractError);
+    assert.match(
+      String((thrown as ProviderRequestContractError).detail || ""),
+      /upload_files is not allowed/i,
+    );
   });
 
   it("accepts optional inline input object for skillrunner.job.v1 payload", async function () {

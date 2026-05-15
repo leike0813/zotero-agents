@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec deltas for ACP skill run request separation.
+- [x] 2. Add `acp.skill.run.v1` provider contract and payload validation.
+- [x] 3. Implement ACP request adaptation from `skillrunner.job.v1`.
+- [x] 4. Route ACP workflow execution through `acp.skill.run.v1`.
+- [x] 5. Update ACP runner/prompt/input manifest to use adapted local paths.
+- [x] 6. Add/adjust provider, adapter, execution, and prompt tests.
+- [x] 7. Run targeted tests, manifest check, TypeScript, and OpenSpec validation.

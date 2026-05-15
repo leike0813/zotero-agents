@@ -277,4 +277,70 @@ describe("skillrunner sidebar model", function () {
       "alpha:req-2",
     );
   });
+
+  it("keeps task order stable when focus context changes", function () {
+    const groups = [
+      {
+        backendId: "alpha",
+        backendDisplayName: "Alpha",
+        disabled: false,
+        collapsed: false,
+        finishedCollapsed: true,
+        latestUpdatedAt: "2026-04-17T10:00:00.000Z",
+        activeTasks: [
+          {
+            key: "alpha:req-1",
+            backendId: "alpha",
+            backendDisplayName: "Alpha",
+            requestId: "req-1",
+            workflowLabel: "Flow A",
+            status: "running",
+            stateLabel: "Running",
+            updatedAt: "2026-04-17T09:00:00.000Z",
+            title: "Paper A",
+            selectable: true,
+            terminal: false,
+            targetParentID: 101,
+          },
+          {
+            key: "alpha:req-2",
+            backendId: "alpha",
+            backendDisplayName: "Alpha",
+            requestId: "req-2",
+            workflowLabel: "Flow B",
+            status: "waiting_user",
+            stateLabel: "Waiting User",
+            updatedAt: "2026-04-17T10:00:00.000Z",
+            title: "Paper B",
+            selectable: true,
+            terminal: false,
+            targetParentID: 202,
+          },
+        ],
+        finishedTasks: [],
+      },
+    ];
+    const first = buildSkillRunnerSidebarSections({
+      groups,
+      context: { primaryParentItemId: 101, relatedParentItemIds: [101, 202] },
+      selectedTaskKey: "alpha:req-1",
+      completedCollapsed: true,
+    });
+    const second = buildSkillRunnerSidebarSections({
+      groups,
+      context: { primaryParentItemId: 202, relatedParentItemIds: [202, 101] },
+      selectedTaskKey: "alpha:req-2",
+      completedCollapsed: true,
+    });
+    assert.deepEqual(
+      first[0].groups[0].activeTasks.map((task) => task.requestId),
+      ["req-1", "req-2"],
+    );
+    assert.deepEqual(
+      second[0].groups[0].activeTasks.map((task) => task.requestId),
+      ["req-1", "req-2"],
+    );
+    assert.equal(second[0].groups[0].activeTasks[0].relationState, "related");
+    assert.equal(second[0].groups[0].activeTasks[1].relationState, "focused");
+  });
 });

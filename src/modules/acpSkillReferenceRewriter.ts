@@ -11,20 +11,27 @@ function toPortableAbsolutePath(path: string) {
 }
 
 function splitFrontmatter(content: string) {
-  if (!content.startsWith("---\n")) {
+  const newline = content.startsWith("---\r\n")
+    ? "\r\n"
+    : content.startsWith("---\n")
+      ? "\n"
+      : "";
+  if (!newline) {
     return { frontmatter: "", body: content };
   }
-  const end = content.indexOf("\n---", 4);
+  const endMarker = `${newline}---`;
+  const end = content.indexOf(endMarker, 3 + newline.length);
   if (end < 0) {
     return { frontmatter: "", body: content };
   }
-  const closeEnd = content.indexOf("\n", end + 4);
+  const closeStart = end + newline.length;
+  const closeEnd = content.indexOf(newline, closeStart + 3);
   if (closeEnd < 0) {
     return { frontmatter: content, body: "" };
   }
   return {
-    frontmatter: content.slice(0, closeEnd + 1),
-    body: content.slice(closeEnd + 1),
+    frontmatter: content.slice(0, closeEnd + newline.length),
+    body: content.slice(closeEnd + newline.length),
   };
 }
 
@@ -121,12 +128,25 @@ export function rewriteAcpSkillReferences(args: {
 
 export function insertAcpSkillProxyPatchBlock(args: {
   rewrittenSkillMd: string;
-  patchBlock: string;
+  headerPatchBlock?: string;
+  footerPatchBlock?: string;
+  patchBlock?: string;
 }) {
   const { frontmatter, body } = splitFrontmatter(args.rewrittenSkillMd);
-  const trimmedPatch = args.patchBlock.trim();
-  if (!trimmedPatch || args.rewrittenSkillMd.includes("zotero-skills-acp-thin-proxy")) {
+  const trimmedHeader = (args.headerPatchBlock || args.patchBlock || "").trim();
+  const trimmedFooter = (args.footerPatchBlock || "").trim();
+  if (
+    (!trimmedHeader && !trimmedFooter) ||
+    args.rewrittenSkillMd.includes("zotero-skills-acp-thin-proxy")
+  ) {
     return args.rewrittenSkillMd;
   }
-  return `${frontmatter}${trimmedPatch}\n\n${body.replace(/^\s+/g, "")}`.replace(/\s+$/g, "\n");
+  const normalizedBody = body.replace(/^\s+/g, "").replace(/\s+$/g, "");
+  const sections = [
+    frontmatter.trimEnd(),
+    trimmedHeader,
+    normalizedBody,
+    trimmedFooter,
+  ].filter(Boolean);
+  return `${sections.join("\n\n")}\n`;
 }

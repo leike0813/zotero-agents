@@ -64,6 +64,26 @@ button {
   height: 100%;
 }
 
+.assistant-workspace-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin-left: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--assistant-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 20px;
+}
+
+.assistant-workspace-close:hover {
+  border-color: var(--assistant-line);
+  background: #eef7fb;
+  color: var(--assistant-text);
+}
+
 .assistant-tab {
   flex: 1 1 0;
   align-self: end;

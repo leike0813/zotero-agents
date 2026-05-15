@@ -1,11 +1,9 @@
-import type {
-  ProviderExecutionResult,
-  AcpPromptRequestV1,
-} from "../contracts";
+import type { ProviderExecutionResult, AcpPromptRequestV1 } from "../contracts";
 import type { Provider, ProviderSupportsArgs } from "../types";
 import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
+  ACP_SKILL_RUN_REQUEST_KIND,
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
@@ -15,8 +13,6 @@ import {
   normalizeAcpEffortId,
 } from "../../modules/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
-
-const SKILLRUNNER_JOB_REQUEST_KIND = "skillrunner.job.v1";
 
 export class AcpProvider implements Provider {
   readonly id = ACP_BACKEND_TYPE;
@@ -141,7 +137,7 @@ export class AcpProvider implements Provider {
     return (
       backendType === ACP_BACKEND_TYPE &&
       (requestKind === ACP_PROMPT_REQUEST_KIND ||
-        requestKind === SKILLRUNNER_JOB_REQUEST_KIND)
+        requestKind === ACP_SKILL_RUN_REQUEST_KIND)
     );
   }
 
@@ -156,7 +152,7 @@ export class AcpProvider implements Provider {
         `Unsupported request kind/backend for AcpProvider: requestKind=${args.requestKind}, backendType=${args.backend.type}`,
       );
     }
-    if (String(args.requestKind || "").trim() === SKILLRUNNER_JOB_REQUEST_KIND) {
+    if (String(args.requestKind || "").trim() === ACP_SKILL_RUN_REQUEST_KIND) {
       return executeAcpSkillRunnerJob(args);
     }
     const request = args.request as AcpPromptRequestV1;

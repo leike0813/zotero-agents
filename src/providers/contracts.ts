@@ -107,6 +107,22 @@ export type AcpPromptRequestV1 = ProviderExecutionRequestMeta & {
   hostContext?: Record<string, unknown>;
 };
 
+export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
+  kind: "acp.skill.run.v1";
+  skill_id: string;
+  input?: unknown;
+  parameter?: Record<string, unknown>;
+  runtime_options?: {
+    execution_mode?: "auto" | "interactive" | string;
+    [key: string]: unknown;
+  };
+  poll?: {
+    interval_ms?: number;
+    timeout_ms?: number;
+  };
+  fetch_type?: "bundle" | "result";
+};
+
 export type SkillRunnerBackendRunStatus = SkillRunnerProviderState;
 
 export type ProviderExecutionSucceededResult = {

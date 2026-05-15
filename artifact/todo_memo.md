@@ -53,7 +53,19 @@
 - [x] Skill Runner tool 消息模型调整（直接显示Tool/命令类型+摘要）
 - [x] ACP Skills 的 Connect/Disconnect 按钮与状态失配问题
 - [x] Skill 终态输出没有转 Markdown 的问题
-- [ ] MCP 工具似乎有些重复且说明不够清晰
+- [x] MCP 工具似乎有些重复且说明不够清晰
+- [x] 实现 get_topic_freshness 或自动 stale 检测
+- [x] acp skills 在agent执行时，用户输入框应被禁用，发送按钮应变为红色的取消按钮（发送按钮应改为蓝色。三个panel其实应该统一都是这个逻辑）
+- [x] 存在运行的 acp skills 任务时，其他acp skills 任务页面的输入框会失焦（应该是不同任务之间的界面行为不是完全隔离的）
+- [x] 已经完成的任务继续对话时，提示区不会刷新了（永远停在Run completed的提示）
+- [x] Sidebar panel 右上角应该有关闭按钮
+- [x] 任务抽屉中尝试展开/收起已完成任务区域时会导致抽屉关闭，这应该是之前的改动引入的bug
+- [x] 任务抽屉中，进入waiting_user/等待审批等状态的任务应该有个提示led，并且进入需要用户交互的状态时应该弹toast
+- [x] 任务抽屉中的任务列表应该有固定的相对顺序，不应该随着当前焦点窗口而改变，否则会反复横跳
+- [x] 权限审批时显示待审批命令摘要的功能被破坏，点击查看完整请求弹出的抽屉会莫名奇妙自动关闭，且这个完整请求居然是用户无法阅读的原始transcript...这个功能在重构后被完全破坏了，需要修复
+- [x] 移除 acp skills中的 acp-prompt-finished 和 output-validation-succeed 之类的无用系统信息
+- [x] workspace-activity 消息简化为单行，不显示文字，显示一个文件图标+文件相对于workspace的相对路径
+- [x] 权限审批信息收为一条，用图标区分待审批/批准/驳回等状态；权限审批信息也需要摘要化
 - [ ] **本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [ ] **兼容 Zotero 8**

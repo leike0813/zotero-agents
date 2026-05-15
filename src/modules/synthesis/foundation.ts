@@ -71,6 +71,7 @@ export type ShardKind =
   | "resolvers"
   | "paper_sets"
   | "artifact_index"
+  | "artifact_state"
   | "graph"
   | "layout"
   | string;
@@ -157,6 +158,7 @@ const SHARD_KIND_ORDER = [
   "resolvers",
   "paper_sets",
   "artifact_index",
+  "artifact_state",
   "graph",
   "layout",
 ];
@@ -730,6 +732,8 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
     stateRoot,
     index: joinPath(stateRoot, "index.json"),
     artifactState: joinPath(stateRoot, "artifact-state.json"),
+    deletedRoot: joinPath(synthesisRoot, "deleted"),
+    deletedArtifacts: joinPath(stateRoot, "deleted-topic-artifacts.json"),
     topicDefinitions: joinPath(stateRoot, "topic-definitions.json"),
     resolvers: joinPath(stateRoot, "resolvers.json"),
     resolvedPaperSets: joinPath(stateRoot, "resolved-paper-sets.json"),

@@ -7,6 +7,7 @@ import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
+import { __referenceMatchingFreshnessTestOnly } from "../../workflows_builtin/literature-workbench-package/lib/referenceMatchingFreshness.mjs";
 import {
   decodeBase64Utf8,
   encodeBase64Utf8,
@@ -137,6 +138,33 @@ function decodeReferencesPayloadFromNote(noteContent: string) {
   assert.isNotEmpty(encoded, "data-zs-value should not be empty");
   const parsed = JSON.parse(decodeBase64Utf8(encoded));
   return parsed as { references?: ReferenceEntry[] };
+}
+
+async function expectReferenceMatchingNoValidInputs(args: {
+  workflow: Awaited<ReturnType<typeof getReferenceMatchingWorkflow>>;
+  selectionItems: Zotero.Item[];
+  workflowParams?: Record<string, unknown>;
+}) {
+  const selection = await buildSelectionContext(args.selectionItems);
+  let thrown: unknown = null;
+  try {
+    await executeBuildRequests({
+      workflow: args.workflow,
+      selectionContext: selection,
+      executionOptions: {
+        workflowParams: args.workflowParams || {},
+      },
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  assert.isOk(thrown, "expected no valid input units");
+  assert.equal(
+    (thrown as { code?: string })?.code,
+    "NO_VALID_INPUT_UNITS",
+    "fresh reference notes should be filtered before request creation",
+  );
+  return thrown as { skippedUnits?: number; totalUnits?: number };
 }
 
 function decodeHtmlCellText(text: string) {
@@ -1470,6 +1498,279 @@ describe("workflow: reference-matching", function () {
     assert.equal(applied.related_added, 0);
     assert.equal(applied.related_existing, 0);
     assert.equal(applied.related_skipped, 1);
+  });
+
+  itNodeOnly("computes deterministic library snapshot hashes from matching metadata only", async function () {
+    const first = __referenceMatchingFreshnessTestOnly.hashLibrarySnapshotRecords([
+      {
+        libraryID: 1,
+        itemKey: "B",
+        title: "Snapshot Hash B",
+        year: "2025",
+        creators: ["Beta"],
+        doi: "10.1/b",
+        url: "https://example.test/b",
+        citekey: "Beta2025",
+        tags: ["ignored"],
+      },
+      {
+        libraryID: 1,
+        itemKey: "A",
+        title: "Snapshot Hash A",
+        year: "2024",
+        creators: ["Alpha"],
+        doi: "10.1/a",
+        url: "https://example.test/a",
+        citekey: "Alpha2024",
+      },
+    ]);
+    const reorderedAndRetagged =
+      __referenceMatchingFreshnessTestOnly.hashLibrarySnapshotRecords([
+        {
+          libraryID: 1,
+          itemKey: "A",
+          title: "Snapshot Hash A",
+          year: "2024",
+          creators: ["Alpha"],
+          doi: "10.1/a",
+          url: "https://example.test/a",
+          citekey: "Alpha2024",
+          tags: ["changed-but-ignored"],
+        },
+        {
+          libraryID: 1,
+          itemKey: "B",
+          title: "Snapshot Hash B",
+          year: "2025",
+          creators: ["Beta"],
+          doi: "10.1/b",
+          url: "https://example.test/b",
+          citekey: "Beta2025",
+        },
+      ]);
+    const changedTitle =
+      __referenceMatchingFreshnessTestOnly.hashLibrarySnapshotRecords([
+        {
+          libraryID: 1,
+          itemKey: "A",
+          title: "Snapshot Hash A Changed",
+          year: "2024",
+          creators: ["Alpha"],
+          doi: "10.1/a",
+          url: "https://example.test/a",
+          citekey: "Alpha2024",
+        },
+        {
+          libraryID: 1,
+          itemKey: "B",
+          title: "Snapshot Hash B",
+          year: "2025",
+          creators: ["Beta"],
+          doi: "10.1/b",
+          url: "https://example.test/b",
+          citekey: "Beta2025",
+        },
+      ]);
+
+    assert.equal(first, reorderedAndRetagged);
+    assert.notEqual(first, changedTitle);
+  });
+
+  itNodeOnly("writes reference matching baseline metadata after successful apply", async function () {
+    const workflow = await getReferenceMatchingWorkflow();
+    await createLibraryItem({
+      title: "Reference Matching Baseline Item",
+      year: "2042",
+      citekey: "Baseline2042",
+      firstCreator: "Baseline",
+    });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Reference Matching Baseline Parent" },
+    });
+    const referenceNote = await handlers.parent.addNote(parent, {
+      content: buildReferencesNoteContent({
+        references: [
+          {
+            title: "Reference Matching Baseline Item",
+            year: "2042",
+            author: ["Baseline"],
+          },
+        ],
+      }),
+    });
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+      runResult: await buildRunResultForNote(referenceNote, {
+        citekey_template: "{author}_{title}_{year}",
+      }),
+    });
+
+    const payload = decodeReferencesPayloadFromNote(
+      Zotero.Items.get(referenceNote.id)!.getNote(),
+    ) as {
+      reference_matching?: Record<string, string>;
+      references?: ReferenceEntry[];
+    };
+    assert.equal(payload.references?.[0]?.citekey, "Baseline2042");
+    assert.isObject(payload.reference_matching);
+    assert.match(payload.reference_matching?.input_hash || "", /^[a-f0-9]{64}$/);
+    assert.match(payload.reference_matching?.settings_hash || "", /^[a-f0-9]{64}$/);
+    assert.match(
+      payload.reference_matching?.library_snapshot_hash || "",
+      /^[a-f0-9]{64}$/,
+    );
+    assert.match(payload.reference_matching?.result_hash || "", /^[a-f0-9]{64}$/);
+  });
+
+  itNodeOnly("filters fresh reference notes before request creation", async function () {
+    const workflow = await getReferenceMatchingWorkflow();
+    await createLibraryItem({
+      title: "Reference Matching Fresh Gate",
+      year: "2043",
+      citekey: "FreshGate2043",
+      firstCreator: "Gate",
+    });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Reference Matching Fresh Gate Parent" },
+    });
+    const referenceNote = await handlers.parent.addNote(parent, {
+      content: buildReferencesNoteContent({
+        references: [
+          {
+            title: "Reference Matching Fresh Gate",
+            year: "2043",
+            author: ["Gate"],
+          },
+        ],
+      }),
+    });
+    const params = { citekey_template: "{author}_{title}_{year}" };
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+      runResult: await buildRunResultForNote(referenceNote, params),
+    });
+
+    const error = await expectReferenceMatchingNoValidInputs({
+      workflow,
+      selectionItems: [referenceNote],
+      workflowParams: params,
+    });
+    assert.equal(error.skippedUnits, 1);
+  });
+
+  itNodeOnly("keeps baseline notes executable when references, settings, or library snapshot change", async function () {
+    const workflow = await getReferenceMatchingWorkflow();
+    await createLibraryItem({
+      title: "Reference Matching Stale Gate",
+      year: "2044",
+      citekey: "StaleGate2044",
+      firstCreator: "Gate",
+    });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Reference Matching Stale Gate Parent" },
+    });
+    const referenceNote = await handlers.parent.addNote(parent, {
+      content: buildReferencesNoteContent({
+        references: [
+          {
+            title: "Reference Matching Stale Gate",
+            year: "2044",
+            author: ["Gate"],
+          },
+        ],
+      }),
+    });
+    const params = { citekey_template: "{author}_{title}_{year}" };
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+      runResult: await buildRunResultForNote(referenceNote, params),
+    });
+
+    const settingsChanged = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([referenceNote]),
+      executionOptions: {
+        workflowParams: { citekey_template: "auth.lower + '_' + year" },
+      },
+    })) as unknown[];
+    assert.lengthOf(settingsChanged, 1);
+
+    await createLibraryItem({
+      title: "Reference Matching New Library Candidate",
+      year: "2044",
+      citekey: "NewCandidate2044",
+      firstCreator: "Candidate",
+    });
+    const libraryChanged = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([referenceNote]),
+      executionOptions: {
+        workflowParams: params,
+      },
+    })) as unknown[];
+    assert.lengthOf(libraryChanged, 1);
+
+    const currentPayload = decodeReferencesPayloadFromNote(
+      Zotero.Items.get(referenceNote.id)!.getNote(),
+    ) as { references?: ReferenceEntry[] };
+    const editedContent = buildReferencesNoteContent({
+      references: [
+        {
+          ...(currentPayload.references?.[0] || {}),
+          title: "Reference Matching Stale Gate Edited",
+        },
+      ],
+    });
+    await handlers.note.update(referenceNote, { content: editedContent });
+    const referencesChanged = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([referenceNote]),
+      executionOptions: {
+        workflowParams: params,
+      },
+    })) as unknown[];
+    assert.lengthOf(referencesChanged, 1);
+  });
+
+  itNodeOnly("leaves legacy references notes without baseline executable", async function () {
+    const workflow = await getReferenceMatchingWorkflow();
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Reference Matching Legacy Gate Parent" },
+    });
+    const referenceNote = await handlers.parent.addNote(parent, {
+      content: buildReferencesNoteContent({
+        references: [
+          {
+            title: "Reference Matching Legacy Gate",
+            year: "2045",
+            author: ["Legacy"],
+          },
+        ],
+      }),
+    });
+
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([referenceNote]),
+      executionOptions: {
+        workflowParams: { citekey_template: "{author}_{title}_{year}" },
+      },
+    })) as unknown[];
+
+    assert.lengthOf(requests, 1);
   });
 
   it("runs end-to-end from references note selection to overwrite", async function () {

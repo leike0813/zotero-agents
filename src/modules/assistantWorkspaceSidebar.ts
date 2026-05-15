@@ -38,7 +38,7 @@ import {
   toggleAcpConversationStatusDetails,
 } from "./acpSessionManager";
 import { openBackendManagerDialog } from "./backendManager";
-import { openSynthesisWorkbenchDialog } from "./synthesisWorkbenchDialog";
+import { openSynthesisWorkbenchTab } from "./synthesisWorkbenchTab";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
   archiveAcpSkillRun,
@@ -47,6 +47,8 @@ import {
   connectAcpSkillRun,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
+  interruptAcpSkillRunCurrentTurn,
+  listAcpSkillRuns,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
@@ -65,6 +67,7 @@ import {
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
+import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   applySidebarPaneContainerStyles,
   createSidebarContainer,
@@ -97,6 +100,7 @@ type AssistantWorkspaceHostRuntime = {
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
+  lastAcpSkillWaitingToastKeys: Set<string>;
 };
 type AssistantWorkspaceEnvelope = {
   type?: string;
@@ -258,7 +262,7 @@ function buildSynthesisWorkbenchButton(
     "#1f7a8c",
   );
   button.addEventListener("command", () => {
-    void openSynthesisWorkbenchDialog({ window: win });
+    void openSynthesisWorkbenchTab({ window: win });
   });
   return button;
 }
@@ -287,10 +291,36 @@ function setButtonBadge(button: SidebarButtonElement | null, waitingCount: numbe
 }
 
 function countWaitingTasks() {
-  return listActiveWorkflowTasks().filter((task) => {
+  const workflowWaiting = listActiveWorkflowTasks().filter((task) => {
     const normalized = normalizeStatus(task.state, "running");
     return normalized === "waiting_user" || normalized === "waiting_auth";
   }).length;
+  const acpSkillWaiting = listAcpSkillRuns().filter((run) => {
+    const normalized = normalizeStatus(run.status, "running");
+    return normalized === "waiting_user" || normalized === "waiting_auth" || !!run.pendingPermission;
+  }).length;
+  return workflowWaiting + acpSkillWaiting;
+}
+
+function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
+  const waitingRuns = listAcpSkillRuns().filter((run) => {
+    const normalized = normalizeStatus(run.status, "running");
+    return normalized === "waiting_user" || normalized === "waiting_auth" || !!run.pendingPermission;
+  });
+  const nextKeys = new Set<string>();
+  for (const run of waitingRuns) {
+    const normalized = normalizeStatus(run.status, "running");
+    const key = `${run.requestId}:${run.pendingPermission ? "permission" : normalized}`;
+    nextKeys.add(key);
+    if (host.lastAcpSkillWaitingToastKeys.has(key)) {
+      continue;
+    }
+    showWorkflowToast({
+      text: `${run.workflowLabel || run.taskName || run.skillId || "ACP Skill"} needs your input.`,
+      type: "default",
+    });
+  }
+  host.lastAcpSkillWaitingToastKeys = nextKeys;
 }
 
 function updateSidebarBadges(host: AssistantWorkspaceHostRuntime) {
@@ -817,6 +847,10 @@ async function handleAcpSkillRunAction(
       await cancelAcpSkillRun(String(payload.requestId || "").trim());
       return;
     }
+    if (action === "interrupt-run-turn") {
+      await interruptAcpSkillRunCurrentTurn(String(payload.requestId || "").trim());
+      return;
+    }
     if (action === "archive-run") {
       archiveAcpSkillRun(String(payload.requestId || "").trim());
       return;
@@ -1211,6 +1245,7 @@ export function installAssistantWorkspaceSidebarShell(win: _ZoteroTypes.MainWind
     drawerCompletedCollapsed: true,
     library: { button: null, container: null, frame: null, frameWindow: null },
     reader: { button: null, container: null, frame: null, frameWindow: null },
+    lastAcpSkillWaitingToastKeys: new Set<string>(),
   };
   mountLibraryPane(host);
   mountReaderPane(host);
@@ -1218,7 +1253,9 @@ export function installAssistantWorkspaceSidebarShell(win: _ZoteroTypes.MainWind
     schedulePostSnapshot(host);
   });
   host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
+    maybeShowAcpSkillWaitingToasts(host);
     schedulePostSnapshot(host);
+    updateSidebarBadges(host);
   });
   host.removeTaskSubscription = subscribeWorkflowTasks(() => {
     updateSidebarBadges(host);

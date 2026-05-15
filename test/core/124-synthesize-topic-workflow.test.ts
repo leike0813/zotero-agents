@@ -53,6 +53,18 @@ function validSkillOutputBundle() {
   };
 }
 
+function canceledSkillOutputBundle() {
+  return {
+    __SKILL_DONE__: true,
+    kind: "topic_synthesis_canceled",
+    status: "canceled",
+    reason: "user_cancelled_duplicate_topic",
+    message: "User canceled after duplicate topic confirmation.",
+    duplicate_topic_id: "detr-detection-transformer",
+    topic_seed: "DETR",
+  };
+}
+
 describe("Synthesize topic workflow contract", function () {
   it("declares the builtin synthesize-topic ACP skill as its backend", async function () {
     const workflowManifest = JSON.parse(
@@ -97,6 +109,18 @@ describe("Synthesize topic workflow contract", function () {
     assert.isTrue(validation.ok, validation.errors.join("; "));
   });
 
+  it("accepts canceled synthesize-topic output without requiring a markdown artifact", async function () {
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const entry = registry.entriesById["synthesize-topic"];
+    const validation = await validateAcpSkillFinalPayload({
+      payload: canceledSkillOutputBundle(),
+      runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
+      primarySkillDir: path.dirname(path.dirname(entry.runnerJsonPath)),
+    });
+
+    assert.isTrue(validation.ok, validation.errors.join("; "));
+  });
+
   it("validates ACP skill output without relying on global console", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const entry = registry.entriesById["synthesize-topic"];
@@ -126,10 +150,23 @@ describe("Synthesize topic workflow contract", function () {
     );
 
     assert.include(skillText, "assets/resolver.schema.json");
+    assert.include(skillText, "synthesis.list_topics");
+    assert.include(skillText, "title/description/aliases");
+    assert.include(skillText, "ACP interactive");
+    assert.include(skillText, "synthesis.get_topic_context");
     assert.include(skillText, "markdown_path");
     assert.include(skillText, "result/synthesis.md");
+    assert.include(skillText, "get_item_notes");
+    assert.include(skillText, "list_note_payloads");
+    assert.include(skillText, "get_note_payload");
+    assert.include(skillText, "digest-markdown");
+    assert.include(skillText, "references-json");
+    assert.include(skillText, "citation-analysis-json");
+    assert.include(skillText, "bounded");
     assert.notInclude(skillText, "synthesis.validate_resolver");
     assert.notInclude(skillText, "synthesis.query_citation_graph");
+    assert.notInclude(skillText, "`synthesis.get_paper_artifact_manifest`");
+    assert.notInclude(skillText, "`synthesis.read_paper_artifacts`");
     assert.notInclude(skillText, "`markdown` must contain");
     assert.deepEqual(resolverSchema.required, ["mode"]);
     assert.equal(resolverSchema.oneOf.length, 4);
@@ -142,6 +179,23 @@ describe("Synthesize topic workflow contract", function () {
       manifest.files.map((file) => file.relativePath),
       "assets/resolver.schema.json",
     );
+  });
+
+  it("documents semantic duplicate detection before create-mode synthesis", async function () {
+    const skillText = await fs.readFile("skills_builtin/synthesize-topic/SKILL.md", "utf8");
+    const runner = JSON.parse(
+      await fs.readFile("skills_builtin/synthesize-topic/assets/runner.json", "utf8"),
+    );
+
+    assert.match(skillText, /mode=create[\s\S]+synthesis\.list_topics/);
+    assert.match(skillText, /title\/description\/aliases/);
+    assert.match(skillText, /suspected duplicate[\s\S]+update existing topic/i);
+    assert.match(skillText, /user chooses cancel[\s\S]+canceled final output/i);
+    assert.match(skillText, /Do not generate Markdown/i);
+    assert.match(skillText, /synthesis\.get_topic_context/);
+    assert.include(runner.entrypoint.prompts.common, "synthesis.list_topics");
+    assert.include(runner.entrypoint.prompts.common, "title/description/aliases");
+    assert.include(runner.entrypoint.prompts.common, "topic_synthesis_canceled");
   });
 
   it("rejects ACP skill output that embeds markdown in final JSON", async function () {

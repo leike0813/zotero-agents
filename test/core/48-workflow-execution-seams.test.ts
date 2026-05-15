@@ -134,6 +134,79 @@ describe("workflow execution seams", function () {
     assert.include(logs, "trigger-no-valid-input");
   });
 
+  it("adapts SkillRunner-style requests to ACP skill run requests during preparation", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-acp-adapt",
+        label: "Seam ACP Adapt",
+        request: { kind: "skillrunner.job.v1" },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "acp-local",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      requestKind: "acp.skill.run.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "acp",
+    };
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+      },
+      {
+        buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-digest",
+              taskName: "Example",
+              upload_files: [
+                { key: "source_path", path: "D:/real/example.md" },
+              ],
+              input: {
+                source_path: "inputs/source_path/example.md",
+              },
+            },
+          ] as any,
+        resolveWorkflowExecutionContext: async () => fakeExecutionContext,
+        alertWindow: () => undefined,
+        appendRuntimeLog: () => undefined,
+      },
+    );
+
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    assert.equal(result.prepared.executionContext.requestKind, "acp.skill.run.v1");
+    assert.deepEqual(result.prepared.requests, [
+      {
+        kind: "acp.skill.run.v1",
+        skill_id: "literature-digest",
+        taskName: "Example",
+        input: {
+          source_path: "D:/real/example.md",
+        },
+      },
+    ]);
+  });
+
   it("keeps request-build failure messaging parity through seam entrypoint", async function () {
     const root = await createWorkflowRoot({
       id: "seam-build-failed",
@@ -700,7 +773,7 @@ describe("workflow execution seams", function () {
           skippedByFilter: 0,
           executionContext: {
             providerId: "acp",
-            requestKind: "skillrunner.job.v1",
+            requestKind: "acp.skill.run.v1",
             providerOptions: {},
             backend: {
               id: "backend-acp",
@@ -777,7 +850,7 @@ describe("workflow execution seams", function () {
           skippedByFilter: 0,
           executionContext: {
             providerId: "acp",
-            requestKind: "skillrunner.job.v1",
+            requestKind: "acp.skill.run.v1",
             providerOptions: {},
             backend: {
               id: "backend-acp",

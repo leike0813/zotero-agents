@@ -218,6 +218,7 @@ export async function rebuildWorkflowActionPopup(
 
   const selectedItems = win.ZoteroPane?.getSelectedItems?.() || [];
   const selectionContext = await buildSelectionContext(selectedItems);
+  const shouldPreflightWorkflowInputs = selectedItems.length <= 1;
   for (const workflow of workflows) {
     const menuItem = win.document.createXULElement("menuitem");
     let disabledReason = "";
@@ -226,7 +227,7 @@ export async function rebuildWorkflowActionPopup(
       !canWorkflowRunWithoutSelection(workflow.manifest)
     ) {
       disabledReason = getMenuLabel("menu-workflow-no-selection", "no selection");
-    } else {
+    } else if (shouldPreflightWorkflowInputs) {
       try {
         const executionContext = await resolveWorkflowExecutionContext({
           workflow,

@@ -1,0 +1,44 @@
+# Run Execution Instructions
+
+You are operating inside a Zotero Skills ACP run workspace.
+Treat this file as the run-level global execution policy for the current run.
+
+## Workspace Scope
+
+- Current run root: `{run_dir}`
+- Engine workspace directory: `{engine_workspace_dir}`
+- Engine skill directory: `{engine_skills_dir}`
+- Stay grounded in the files and inputs available under this run workspace.
+- Prefer paths and artifacts that are already present in the current run instead of assuming external state.
+
+## Skill Invocation Discipline
+
+- If the environment provides a skill mechanism, prefer invoking the requested run-local skill instead of treating SKILL.md as plain reference text.
+- Treat installed skills as executable capabilities.
+- Do not bypass the runtime's skill mechanism unless the environment clearly does not expose it.
+- When a task is obviously about invoking the current skill, continue with that skill flow instead of switching to unrelated ad hoc work.
+
+## Task Focus
+
+- Focus on the requested task only. Do not expand scope, invent side quests, or perform unrelated repository exploration.
+- Do not present tentative notes, planning fragments, or scratch reasoning as the final deliverable.
+
+## File And Artifact Discipline
+
+- Prefer reading and writing within the current run workspace.
+- If the task produces files, place them in the run workspace and reference them from the final JSON payload.
+- Treat existing run-local inputs, uploaded files, and run-local skill proxies as the authoritative execution context for this run.
+- Avoid depending on files outside the run unless the task explicitly requires them and the environment already exposes them.
+
+## Execution Behavior
+
+- Use the runtime-provided workspace layout and engine-local directories as the default operating context.
+- Be careful with path handling and prefer explicit paths over vague references.
+- When information is missing, first check whether the run workspace, uploaded inputs, or installed skill assets already contain what you need.
+- If a required step fails because of environment/runtime limitations, reflect that accurately instead of pretending the task completed.
+
+## Contract Layering
+
+- The runtime-patched `SKILL.md` remains the authoritative source for skill-local instructions, output contract details, and execution-mode-specific behavior.
+- This run-level file exists to provide global execution discipline shared across attempts, resumes, and repair rounds.
+- Do not reinterpret this file as permission to ignore stricter instructions that appear in the runtime-patched `SKILL.md`.

@@ -11,6 +11,8 @@
     transcriptMode: "",
     markdownParser: undefined,
     toolActivityExpandedIds: new Set(),
+    permissionRequestDetails: null,
+    permissionRequestDrawerOpen: false,
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -201,6 +203,17 @@
       render(snapshot);
       return;
     }
+    if (action === "open-permission-request") {
+      state.permissionRequestDetails = data.permissionRequest || null;
+      state.permissionRequestDrawerOpen = true;
+      render(snapshot);
+      return;
+    }
+    if (action === "close-permission-request") {
+      state.permissionRequestDrawerOpen = false;
+      render(snapshot);
+      return;
+    }
     if (action === "close-details-drawer") {
       state.detailsDrawerOpen = false;
       render(snapshot);
@@ -283,7 +296,15 @@
   function renderPanel(snapshot) {
     const renderer = assistantPanelRenderer();
     if (!renderer || typeof renderer.renderAssistantPanelSnapshot !== "function") return;
-    renderer.renderAssistantPanelSnapshot(projectPanelSnapshot(snapshot || {}), {
+    const panelSnapshot = projectPanelSnapshot(snapshot || {});
+    if (!snapshot || !snapshot.pendingPermissionRequest) {
+      state.permissionRequestDetails = null;
+      state.permissionRequestDrawerOpen = false;
+    }
+    panelSnapshot.drawers = panelSnapshot.drawers || {};
+    panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
+    panelSnapshot.drawers.permissionRequestOpen = state.permissionRequestDrawerOpen;
+    renderer.renderAssistantPanelSnapshot(panelSnapshot, {
       managed: true,
       managedRegions: {
         toolbar: true,
@@ -293,6 +314,7 @@
         reply: true,
         drawer: true,
         details: true,
+        permission: true,
       },
       onAction: handlePanelAction,
       root: rootEl,

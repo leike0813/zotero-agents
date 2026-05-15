@@ -1,6 +1,8 @@
 import {
   upsertLiteratureDigestGeneratedNotes,
 } from "../../lib/literatureDigestNotes.mjs";
+import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
+import { applyReferenceMatchingToNote } from "../../lib/referenceMatchingApply.mjs";
 import { measureWorkflowTestSpan, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 function normalizePathForCompare(targetPath) {
@@ -79,6 +81,44 @@ function getResultArtifactPath(result, key) {
     String(result?.data?.[key] || "").trim() ||
     String(result?.result?.[key] || "").trim()
   );
+}
+
+function isExplicitFalse(value) {
+  if (value === false) {
+    return true;
+  }
+  if (typeof value === "string") {
+    return value.trim().toLowerCase() === "false";
+  }
+  return false;
+}
+
+function resolveWorkflowParameter(args) {
+  const candidates = [
+    args?.request?.parameter,
+    args?.request?.request?.json?.parameter,
+    args?.runResult?.resultJson?.parameter,
+    args?.runResult?.responseJson?.parameter,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+  return {};
+}
+
+function findReferencesNote(notes) {
+  for (const note of Array.isArray(notes) ? notes : []) {
+    try {
+      if (parseGeneratedNoteKind(note?.getNote?.() || "") === "references") {
+        return note;
+      }
+    } catch {
+      // ignore malformed note objects and continue
+    }
+  }
+  return null;
 }
 
 async function readResultJson({ resultContext, bundleReader }) {
@@ -205,8 +245,9 @@ async function resolveSourceAttachmentItemKey({ parentItem, request, runtime }) 
   return "";
 }
 
-async function applyResultImpl({ parent, bundleReader, resultContext, request, runtime }) {
+async function applyResultImpl({ parent, bundleReader, resultContext, request, runResult, runtime }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
+  const workflowParameter = resolveWorkflowParameter({ request, runResult });
   const result = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readResultJson",
     {},
@@ -283,7 +324,7 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
       }),
   );
 
-  return measureWorkflowTestSpan(
+  const applied = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:writeGeneratedNotes",
     {},
     () =>
@@ -307,6 +348,62 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
         },
       }),
   );
+  const autoReferenceMatching = {
+    enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
+    attempted: false,
+  };
+  if (!autoReferenceMatching.enabled) {
+    return {
+      ...applied,
+      auto_reference_matching: autoReferenceMatching,
+    };
+  }
+
+  const referencesNote = findReferencesNote(applied?.notes);
+  if (!referencesNote) {
+    return {
+      ...applied,
+      auto_reference_matching: {
+        ...autoReferenceMatching,
+        warning: "references note was not produced by literature-digest apply",
+      },
+    };
+  }
+
+  autoReferenceMatching.attempted = true;
+  try {
+    const matchingResult = await measureWorkflowTestSpan(
+      "executeApplyResult:literatureDigest:autoReferenceMatching",
+      {},
+      () =>
+        applyReferenceMatchingToNote({
+          noteItem: referencesNote,
+          parentItem,
+          parameter: {},
+          runtime,
+          manifest: { version: "0.1.0" },
+        }),
+    );
+    return {
+      ...applied,
+      auto_reference_matching: {
+        ...autoReferenceMatching,
+        matched: matchingResult?.matched || 0,
+        total: matchingResult?.total || 0,
+        related_added: matchingResult?.related_added || 0,
+        related_existing: matchingResult?.related_existing || 0,
+        related_skipped: matchingResult?.related_skipped || 0,
+      },
+    };
+  } catch (error) {
+    return {
+      ...applied,
+      auto_reference_matching: {
+        ...autoReferenceMatching,
+        warning: String(error?.message || error || "auto reference matching failed"),
+      },
+    };
+  }
 }
 
 export async function applyResult(args) {

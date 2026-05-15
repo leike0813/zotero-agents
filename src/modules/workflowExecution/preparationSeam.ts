@@ -21,6 +21,9 @@ import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
 import { shouldShowWorkflowNotifications } from "./feedbackPolicy";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
+import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
+import type { SkillRunnerJobRequestV1 } from "../../providers/contracts";
+import { adaptSkillRunnerJobToAcpSkillRun } from "../acpSkillRunRequestAdapter";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -32,6 +35,18 @@ function isNoValidInputUnitsError(error: unknown) {
   }
   return /has no valid input units after filtering/i.test(
     normalizeErrorMessage(error),
+  );
+}
+
+function adaptRequestsForExecutionContext(args: {
+  requests: unknown[];
+  executionContext: WorkflowExecutionContext;
+}) {
+  if (args.executionContext.requestKind !== ACP_SKILL_RUN_REQUEST_KIND) {
+    return args.requests;
+  }
+  return args.requests.map((request) =>
+    adaptSkillRunnerJobToAcpSkillRun(request as SkillRunnerJobRequestV1),
   );
 }
 
@@ -197,18 +212,25 @@ export async function runWorkflowPreparationSeam(args: {
         );
       }
       if (shouldShowWorkflowNotifications(args.workflow.manifest)) {
+        const upToDateReferenceMatching =
+          args.workflow.manifest.id === "reference-matching" && skippedUnits > 0;
         resolved.alertWindow(
           args.win,
-          buildWorkflowFinishMessage(
-            {
-              workflowLabel: args.workflow.manifest.label,
-              succeeded: 0,
-              failed: 0,
-              skipped: skippedUnits,
-              failureReasons: [],
-            },
-            args.messageFormatter,
-          ),
+          upToDateReferenceMatching
+            ? localizeWorkflowText(
+                "workflow-reference-matching-up-to-date",
+                "Reference matching results are already up to date for the selected references note(s).",
+              )
+            : buildWorkflowFinishMessage(
+                {
+                  workflowLabel: args.workflow.manifest.label,
+                  succeeded: 0,
+                  failed: 0,
+                  skipped: skippedUnits,
+                  failureReasons: [],
+                },
+                args.messageFormatter,
+              ),
         );
       }
       return {
@@ -346,7 +368,10 @@ export async function runWorkflowPreparationSeam(args: {
     status: "ready",
     prepared: {
       workflow: args.workflow,
-      requests,
+      requests: adaptRequestsForExecutionContext({
+        requests,
+        executionContext,
+      }),
       skippedByFilter,
       executionContext,
     },

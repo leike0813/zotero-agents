@@ -1,0 +1,664 @@
+import { config } from "../../package.json";
+import { getString } from "../utils/locale";
+import { resolveAddonRef } from "../utils/runtimeBridge";
+import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
+import { getLoadedWorkflowEntries } from "./workflowRuntime";
+import { alertWindow } from "./workflowExecution/feedbackSeam";
+import { getDefaultSynthesisService } from "./synthesis/service";
+import {
+  applySynthesisUiAction,
+  buildSynthesisUiSnapshot,
+  createDefaultSynthesisUiState,
+  type SynthesisUiAction,
+  type SynthesisUiSnapshotInput,
+  type SynthesisUiState,
+} from "./synthesis/uiModel";
+
+type SynthesisBridgeMessageType =
+  | "synthesis:init"
+  | "synthesis:snapshot"
+  | "synthesis:artifact";
+
+type SynthesisWorkbenchActionEnvelope = {
+  type: "synthesis:action";
+  action: string;
+  payload?: Record<string, unknown>;
+};
+
+type SynthesisArtifactReaderDto = {
+  topicId: string;
+  title: string;
+  markdown: string;
+  metadata: Record<string, unknown>;
+  hash?: string;
+  updated_at?: string;
+};
+
+type SynthesisWorkbenchBridge = {
+  postMessage: (
+    action: string,
+    payload?: Record<string, unknown>,
+  ) => Promise<void>;
+};
+
+type ZoteroTabs = {
+  add?: (options: Record<string, unknown>) => { id?: string; container?: Element };
+  select?: (id: string) => unknown;
+  close?: (id: string) => unknown;
+};
+
+const SYNTHESIS_WORKBENCH_BRIDGE_KEY =
+  "__zoteroSkillsSynthesisWorkbenchBridge";
+
+type SynthesisWorkbenchRuntime = {
+  tabId: string;
+  window: _ZoteroTypes.MainWindow;
+  frame: Element;
+  frameWindow: Window | null;
+  removeMessageListener?: () => void;
+  handshakeTimer?: ReturnType<typeof setInterval>;
+  handshakeAttemptCount: number;
+  handshakeSuccessCount: number;
+  handshakeComplete: boolean;
+  state: SynthesisUiState;
+  snapshotInput?: SynthesisUiSnapshotInput;
+};
+
+const SYNTHESIS_WORKBENCH_TAB_ID = "zotero-skills-synthesis-workbench";
+const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
+const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
+const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
+
+let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
+
+function localize(key: string, fallback: string) {
+  try {
+    const resolved = String(getString(key as any)).trim();
+    const fallbackKey = `${config.addonRef}-${key}`;
+    return resolved && resolved !== fallbackKey ? resolved : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function resolveSynthesisPageUrl() {
+  const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
+  if (!addonRef) {
+    return "about:blank";
+  }
+  return `chrome://${addonRef}/content/synthesis/index.html`;
+}
+
+function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
+  return (
+    argsWindow ||
+    synthesisWorkbenchTab?.window ||
+    ((globalThis as any).Zotero?.getMainWindow?.() as
+      | _ZoteroTypes.MainWindow
+      | undefined)
+  );
+}
+
+function resolveZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
+  return (
+    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)
+      ?.Zotero_Tabs ||
+    ((globalThis as any).Zotero_Tabs as ZoteroTabs | undefined)
+  );
+}
+
+function createSynthesisBrowser(doc: Document) {
+  const xulDocument = doc as Document & {
+    createXULElement?: (tag: string) => Element;
+  };
+  const frame =
+    typeof xulDocument.createXULElement === "function"
+      ? xulDocument.createXULElement("browser")
+      : doc.createElement("iframe");
+  frame.setAttribute("data-zs-role", "synthesis-workbench-frame");
+  frame.setAttribute("disableglobalhistory", "true");
+  frame.setAttribute("maychangeremoteness", "true");
+  frame.setAttribute("flex", "1");
+  frame.setAttribute("type", "content");
+  frame.setAttribute("transparent", "true");
+  (frame as HTMLElement).style.width = "100%";
+  (frame as HTMLElement).style.height = "100%";
+  (frame as HTMLElement).style.minHeight = "0";
+  (frame as HTMLElement).style.border = "none";
+  return frame;
+}
+
+function setSynthesisBrowserSource(frame: Element, pageUrl: string) {
+  if (
+    typeof HTMLIFrameElement !== "undefined" &&
+    frame instanceof HTMLIFrameElement
+  ) {
+    frame.src = pageUrl;
+    return;
+  }
+  frame.setAttribute("src", pageUrl);
+}
+
+function resolveFrameWindow(frame: Element | null) {
+  if (!frame) {
+    return null;
+  }
+  return (
+    (frame as Element & { contentWindow?: Window | null }).contentWindow ||
+    (frame as Element & { contentDocument?: Document | null }).contentDocument
+      ?.defaultView ||
+    null
+  );
+}
+
+function writeSynthesisWorkbenchBridgeTarget(
+  target: Record<string, unknown> | null | undefined,
+  bridge?: SynthesisWorkbenchBridge,
+) {
+  if (!target) {
+    return;
+  }
+  if (bridge) {
+    target[SYNTHESIS_WORKBENCH_BRIDGE_KEY] = bridge;
+    return;
+  }
+  delete target[SYNTHESIS_WORKBENCH_BRIDGE_KEY];
+}
+
+function installSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
+  const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
+  if (!frameWindow) {
+    return false;
+  }
+  runtime.frameWindow = frameWindow;
+  const bridge: SynthesisWorkbenchBridge = {
+    postMessage: async (action, payload) => {
+      handleAction({
+        type: "synthesis:action",
+        action,
+        payload:
+          payload && typeof payload === "object" && !Array.isArray(payload)
+            ? payload
+            : {},
+      });
+    },
+  };
+  const directTarget = frameWindow as Window & Record<string, unknown>;
+  const wrappedTarget =
+    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
+    "object"
+      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
+          .wrappedJSObject as Record<string, unknown>)
+      : null;
+  writeSynthesisWorkbenchBridgeTarget(directTarget, bridge);
+  writeSynthesisWorkbenchBridgeTarget(wrappedTarget, bridge);
+  return true;
+}
+
+function clearSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
+  const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
+  if (!frameWindow) {
+    return;
+  }
+  const directTarget = frameWindow as Window & Record<string, unknown>;
+  const wrappedTarget =
+    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
+    "object"
+      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
+          .wrappedJSObject as Record<string, unknown>)
+      : null;
+  writeSynthesisWorkbenchBridgeTarget(directTarget, undefined);
+  writeSynthesisWorkbenchBridgeTarget(wrappedTarget, undefined);
+}
+
+function openPathInSystem(pathValue: string, label: string) {
+  const normalizedPath = String(pathValue || "").trim();
+  if (!normalizedPath) {
+    throw new Error(`${label} path is empty`);
+  }
+  const pathToFile = (globalThis as any).Zotero?.File?.pathToFile;
+  if (typeof pathToFile !== "function") {
+    throw new Error("Zotero.File.pathToFile is unavailable");
+  }
+  const file = pathToFile(normalizedPath) as
+    | {
+        exists?: () => boolean;
+        launch?: () => unknown;
+        reveal?: () => unknown;
+      }
+    | undefined;
+  if (!file) {
+    throw new Error(`failed to resolve ${label} path: ${normalizedPath}`);
+  }
+  if (typeof file.exists === "function" && !file.exists()) {
+    throw new Error(`${label} path does not exist: ${normalizedPath}`);
+  }
+  if (typeof file.reveal === "function") {
+    file.reveal();
+    return;
+  }
+  if (typeof file.launch === "function") {
+    file.launch();
+    return;
+  }
+  throw new Error("nsIFile launch/reveal is unavailable");
+}
+
+function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
+  const libraryId = Number((globalThis as any).Zotero?.Libraries?.userLibraryID || 1);
+  return {
+    libraryId: Number.isFinite(libraryId) && libraryId > 0 ? libraryId : 1,
+    storage: {
+      rootState: "unbound",
+      anchorState: "missing",
+      mirrorState: "missing",
+    },
+    preferences: {
+      sourceWatchEnabled: false,
+      registryAutoRebuild: false,
+      graphRebuildMode: "off",
+      stalenessScanEnabled: false,
+      debounceMs: 0,
+      startupHashCheck: false,
+    },
+    artifacts: [],
+    deletedArtifacts: {
+      rows: [],
+    },
+    registry: {
+      rows: [],
+    },
+    graph: {
+      graph_hash: "",
+      nodes: [],
+      edges: [],
+    },
+  };
+}
+
+function findSynthesizeTopicWorkflow() {
+  return (
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === "synthesize-topic",
+    ) || null
+  );
+}
+
+async function runSynthesizeTopicFromWorkbench(args: {
+  hostWindow?: _ZoteroTypes.MainWindow;
+}) {
+  const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
+  if (!hostWindow) {
+    throw new Error("Cannot run synthesis: Zotero main window is unavailable.");
+  }
+  const workflow = findSynthesizeTopicWorkflow();
+  if (!workflow) {
+    alertWindow(
+      hostWindow,
+      "Cannot run synthesis: synthesize-topic workflow is not loaded. Rescan builtin workflows and try again.",
+    );
+    return;
+  }
+  await executeWorkflowFromCurrentSelection({
+    win: hostWindow,
+    workflow,
+    requireSettingsGate: true,
+  });
+}
+
+function postWorkbenchMessage(type: SynthesisBridgeMessageType, payload: unknown) {
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  runtime.frameWindow.postMessage(
+    {
+      type,
+      payload,
+    },
+    "*",
+  );
+}
+
+async function sendSnapshot(messageType: Extract<SynthesisBridgeMessageType, "synthesis:init" | "synthesis:snapshot">) {
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  if (messageType === "synthesis:init") {
+    postWorkbenchMessage(
+      messageType,
+      buildSynthesisUiSnapshot(
+        runtime.snapshotInput || buildDefaultSnapshotInput(),
+        runtime.state,
+      ),
+    );
+  }
+  const snapshot = runtime.snapshotInput
+    ? buildSynthesisUiSnapshot(runtime.snapshotInput, runtime.state)
+    : await getDefaultSynthesisService()
+        .getSynthesisSnapshot(runtime.state)
+        .catch(() => buildSynthesisUiSnapshot(buildDefaultSnapshotInput(), runtime.state));
+  postWorkbenchMessage(messageType, snapshot);
+}
+
+async function sendArtifactReader(topicId: string) {
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  const artifact = await getDefaultSynthesisService().readTopicArtifact({ topicId });
+  const metadata = {
+    ...((artifact.metadata || {}) as Record<string, unknown>),
+  };
+  const dto: SynthesisArtifactReaderDto = {
+    topicId,
+    title:
+      String(metadata.title || metadata.topic_title || "").trim() ||
+      topicId,
+    markdown: String(artifact.markdown || ""),
+    metadata,
+    hash: String(metadata.hash || metadata.markdown_hash || "").trim() || undefined,
+    updated_at: String(metadata.updated_at || "").trim() || undefined,
+  };
+  const result = applySynthesisUiAction(runtime.state, {
+    action: "showArtifactReader",
+    payload: { topicId },
+  });
+  runtime.state = result.state;
+  await sendSnapshot("synthesis:snapshot");
+  postWorkbenchMessage("synthesis:artifact", dto);
+}
+
+async function openSynthesisFolderFromWorkbench(args: {
+  payload?: Record<string, unknown>;
+}) {
+  const commandArgs =
+    args.payload?.args && typeof args.payload.args === "object"
+      ? (args.payload.args as Record<string, unknown>)
+      : {};
+  const topicId = String(commandArgs.topicId || "").trim();
+  if (topicId) {
+    const artifact = await getDefaultSynthesisService().readTopicArtifact({ topicId });
+    openPathInSystem(artifact.paths.topicRoot, "synthesis topic folder");
+    return;
+  }
+  const snapshot = await getDefaultSynthesisService().getSynthesisSnapshot();
+  openPathInSystem(snapshot.storage.rootPath || "", "synthesis folder");
+}
+
+function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
+  const hostWindow = resolveWorkflowHostWindow(win);
+  if (!hostWindow) {
+    return;
+  }
+  alertWindow(
+    hostWindow,
+    error instanceof Error ? error.message : String(error || "unknown error"),
+  );
+}
+
+function confirmWorkbenchAction(message: string, win?: _ZoteroTypes.MainWindow) {
+  const hostWindow = resolveWorkflowHostWindow(win);
+  const confirmFn = (hostWindow as unknown as { confirm?: (message: string) => boolean })
+    ?.confirm;
+  if (typeof confirmFn === "function") {
+    return confirmFn.call(hostWindow, message);
+  }
+  const globalConfirm = (globalThis as { confirm?: (message: string) => boolean })
+    .confirm;
+  return typeof globalConfirm === "function" ? globalConfirm(message) : true;
+}
+
+function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime) {
+    return;
+  }
+  const result = applySynthesisUiAction(runtime.state, {
+    action: envelope.action,
+    payload: envelope.payload,
+  } satisfies SynthesisUiAction);
+  if (!result.handled) {
+    void sendSnapshot("synthesis:snapshot");
+    return;
+  }
+  runtime.state = result.state;
+  if (result.hostCommand?.command === "openPreferences") {
+    void addon.hooks.onPrefsEvent("openWorkflowSettings", {
+      window: runtime.window,
+    });
+  }
+  if (result.hostCommand?.command === "runSynthesizeTopic") {
+    void runSynthesizeTopicFromWorkbench({
+      hostWindow: runtime.window,
+    })
+      .catch((error) => reportWorkbenchError(error, runtime.window))
+      .finally(() => {
+        void sendSnapshot("synthesis:snapshot");
+      });
+    return;
+  }
+  if (result.hostCommand?.command === "manualRecomputeLayout") {
+    void getDefaultSynthesisService()
+      .queryCitationGraph()
+      .finally(() => {
+        void sendSnapshot("synthesis:snapshot");
+      });
+    return;
+  }
+  if (result.hostCommand?.command === "openCanonicalMarkdown") {
+    const commandArgs =
+      envelope.payload?.args && typeof envelope.payload.args === "object"
+        ? (envelope.payload.args as Record<string, unknown>)
+        : {};
+    const topicId = String(commandArgs.topicId || "").trim();
+    void sendArtifactReader(topicId).catch((error) =>
+      reportWorkbenchError(error, runtime.window),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "openSynthesisFolder") {
+    void openSynthesisFolderFromWorkbench({
+      payload: envelope.payload,
+    }).catch((error) => reportWorkbenchError(error, runtime.window));
+    return;
+  }
+  if (result.hostCommand?.command === "deleteTopicArtifact") {
+    const commandArgs =
+      envelope.payload?.args && typeof envelope.payload.args === "object"
+        ? (envelope.payload.args as Record<string, unknown>)
+        : {};
+    const topicId = String(commandArgs.topicId || "").trim();
+    if (
+      !confirmWorkbenchAction(
+        "Delete this synthesis artifact? It will be hidden and kept for later purge.",
+        runtime.window,
+      )
+    ) {
+      void sendSnapshot("synthesis:snapshot");
+      return;
+    }
+    void getDefaultSynthesisService()
+      .deleteTopicArtifact({ topicId })
+      .then((deleteResult) => {
+        if (!deleteResult.ok) {
+          throw new Error(deleteResult.reason);
+        }
+      })
+      .catch((error) => reportWorkbenchError(error, runtime.window))
+      .finally(() => {
+        void sendSnapshot("synthesis:snapshot");
+      });
+    return;
+  }
+  if (result.hostCommand?.command === "purgeDeletedTopicArtifacts") {
+    if (
+      !confirmWorkbenchAction(
+        "Permanently purge deleted synthesis artifacts? This cannot be undone.",
+        runtime.window,
+      )
+    ) {
+      void sendSnapshot("synthesis:snapshot");
+      return;
+    }
+    void getDefaultSynthesisService()
+      .purgeDeletedTopicArtifacts()
+      .catch((error) => reportWorkbenchError(error, runtime.window))
+      .finally(() => {
+        void sendSnapshot("synthesis:snapshot");
+      });
+    return;
+  }
+  void sendSnapshot("synthesis:snapshot");
+}
+
+function cleanupSynthesisWorkbenchTab() {
+  if (synthesisWorkbenchTab) {
+    if (synthesisWorkbenchTab.handshakeTimer) {
+      clearInterval(synthesisWorkbenchTab.handshakeTimer);
+      synthesisWorkbenchTab.handshakeTimer = undefined;
+    }
+    clearSynthesisWorkbenchBridge(synthesisWorkbenchTab);
+  }
+  if (synthesisWorkbenchTab?.removeMessageListener) {
+    synthesisWorkbenchTab.removeMessageListener();
+  }
+  synthesisWorkbenchTab = undefined;
+}
+
+function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
+  const frame = runtime.frame;
+  frame.addEventListener("load", () => {
+    void ensureWorkbenchHandshake(runtime);
+  });
+  const onMessage = (event: MessageEvent) => {
+    const data = event.data as { type?: unknown };
+    if (!data || data.type !== "synthesis:action") {
+      return;
+    }
+    handleAction(data as SynthesisWorkbenchActionEnvelope);
+  };
+  runtime.window.addEventListener("message", onMessage);
+  runtime.removeMessageListener = () => {
+    runtime.window.removeEventListener("message", onMessage);
+  };
+}
+
+async function ensureWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
+  runtime.frameWindow = resolveFrameWindow(runtime.frame);
+  if (!runtime.frameWindow || !installSynthesisWorkbenchBridge(runtime)) {
+    return false;
+  }
+  return true;
+}
+
+function stopWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
+  if (!runtime.handshakeTimer) {
+    return;
+  }
+  clearInterval(runtime.handshakeTimer);
+  runtime.handshakeTimer = undefined;
+}
+
+function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.handshakeComplete) {
+    return;
+  }
+  runtime.handshakeComplete = true;
+  stopWorkbenchHandshake(runtime);
+  void sendSnapshot("synthesis:init");
+}
+
+function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.handshakeComplete || runtime.handshakeTimer) {
+    return;
+  }
+  const run = () => {
+    runtime.handshakeAttemptCount += 1;
+    void ensureWorkbenchHandshake(runtime).then((ok) => {
+      if (ok) {
+        runtime.handshakeSuccessCount += 1;
+      }
+      if (
+        runtime.handshakeSuccessCount >=
+        SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES
+      ) {
+        finalizeWorkbenchHandshake(runtime);
+        return;
+      }
+      if (runtime.handshakeAttemptCount >= SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS) {
+        stopWorkbenchHandshake(runtime);
+        if (runtime.handshakeSuccessCount > 0) {
+          finalizeWorkbenchHandshake(runtime);
+        }
+      }
+    });
+  };
+  run();
+  runtime.handshakeTimer = setInterval(
+    run,
+    SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
+  );
+}
+
+export async function openSynthesisWorkbenchTab(args: {
+  window?: _ZoteroTypes.MainWindow;
+  snapshotInput?: SynthesisUiSnapshotInput;
+} = {}) {
+  const hostWindow = resolveWorkflowHostWindow(args.window);
+  const tabs = resolveZoteroTabs(hostWindow);
+  if (!hostWindow || !tabs?.add || !tabs.select) {
+    throw new Error("Cannot open Synthesis Workbench: Zotero_Tabs is unavailable.");
+  }
+  const Zotero_Tabs = tabs as ZoteroTabs & {
+    add: NonNullable<ZoteroTabs["add"]>;
+    select: NonNullable<ZoteroTabs["select"]>;
+  };
+  if (synthesisWorkbenchTab) {
+    Zotero_Tabs.select(SYNTHESIS_WORKBENCH_TAB_ID);
+    return;
+  }
+  const result = Zotero_Tabs.add({
+    id: SYNTHESIS_WORKBENCH_TAB_ID,
+    type: "synthesis-workbench",
+    title: localize("synthesis-workbench-title", "Synthesis"),
+    data: { kind: "synthesis-workbench" },
+    select: true,
+    onClose: cleanupSynthesisWorkbenchTab,
+  });
+  const container = result?.container;
+  if (!container) {
+    throw new Error("Cannot open Synthesis Workbench: tab container is missing.");
+  }
+  const frame = createSynthesisBrowser(hostWindow.document);
+  container.appendChild(frame);
+  const runtime: SynthesisWorkbenchRuntime = {
+    tabId: SYNTHESIS_WORKBENCH_TAB_ID,
+    window: hostWindow,
+    frame,
+    frameWindow: resolveFrameWindow(frame),
+    handshakeAttemptCount: 0,
+    handshakeSuccessCount: 0,
+    handshakeComplete: false,
+    state: createDefaultSynthesisUiState(),
+    snapshotInput: args.snapshotInput,
+  };
+  synthesisWorkbenchTab = runtime;
+  attachWorkbenchBridge(runtime);
+  setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
+  scheduleWorkbenchHandshake(runtime);
+  Zotero_Tabs.select(SYNTHESIS_WORKBENCH_TAB_ID);
+}
+
+export async function resetSynthesisWorkbenchTabRuntimeForTests() {
+  cleanupSynthesisWorkbenchTab();
+}
+
+export async function closeSynthesisWorkbenchTab() {
+  const tabs = resolveZoteroTabs(synthesisWorkbenchTab?.window);
+  if (tabs?.close) {
+    tabs.close(SYNTHESIS_WORKBENCH_TAB_ID);
+  }
+  cleanupSynthesisWorkbenchTab();
+}

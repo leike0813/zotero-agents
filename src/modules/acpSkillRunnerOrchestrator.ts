@@ -1,8 +1,9 @@
 import type { BackendInstance } from "../backends/types";
 import { listBackendInstances } from "../backends/registry";
+import { ACP_SKILL_RUN_REQUEST_KIND } from "../config/defaults";
 import type {
+  AcpSkillRunRequestV1,
   ProviderExecutionResult,
-  SkillRunnerJobRequestV1,
 } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
 import { getLoadedWorkflowEntries, rescanWorkflowRegistry } from "./workflowRuntime";
@@ -33,6 +34,10 @@ import {
   type AcpSkillMaterializationResult,
 } from "./acpSkillMaterializer";
 import {
+  buildAcpSkillRunPrompt,
+  materializeAcpRunExecutionInstructions,
+} from "./acpSkillRunPromptBuilder";
+import {
   buildAcpSkillOutputRepairPrompt,
 } from "./acpSkillOutputValidator";
 import {
@@ -58,7 +63,11 @@ import {
 } from "./acpSkillRunStore";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
-import { listRuntimeChildren, statRuntimePath } from "./runtimePersistence";
+import {
+  listRuntimeChildren,
+  readRuntimeTextFile,
+  statRuntimePath,
+} from "./runtimePersistence";
 
 export type AcpSkillRunnerExecutionSnapshot = {
   requestId: string;
@@ -70,7 +79,7 @@ export type AcpSkillRunnerExecutionSnapshot = {
 };
 
 export type AcpSkillRunnerRunContext = {
-  request: SkillRunnerJobRequestV1;
+  request: AcpSkillRunRequestV1;
   backend: BackendInstance;
   workspace: AcpSkillRunnerWorkspace;
   materialization: AcpSkillMaterializationResult;
@@ -92,6 +101,25 @@ function normalizeString(value: unknown) {
 
 function basename(path: string) {
   return normalizeString(path).split(/[\\/]+/).filter(Boolean).pop() || "";
+}
+
+function pathParts(value: string) {
+  return normalizeString(value).replace(/\\/g, "/").split("/").filter(Boolean);
+}
+
+function workspaceRelativePath(rootDir: string, childPath: string) {
+  const rootParts = pathParts(rootDir);
+  const childParts = pathParts(childPath);
+  let offset = 0;
+  while (
+    offset < rootParts.length &&
+    offset < childParts.length &&
+    rootParts[offset].toLowerCase() === childParts[offset].toLowerCase()
+  ) {
+    offset += 1;
+  }
+  const relative = childParts.slice(offset).join("/");
+  return relative || basename(childPath);
 }
 
 async function findWorkspaceActivitySnapshot(rootDir: string) {
@@ -136,25 +164,26 @@ async function findWorkspaceActivitySnapshot(rootDir: string) {
   return {
     fileName: basename(best.path),
     path: best.path,
+    relativePath: workspaceRelativePath(root, best.path),
     signature: `${best.path}:${best.size}:${best.mtime}`,
   };
 }
 
-function assertSkillRunnerJobRequest(value: unknown): SkillRunnerJobRequestV1 {
+function assertAcpSkillRunRequest(value: unknown): AcpSkillRunRequestV1 {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("ACP SkillRunner-compatible runner requires object request");
+    throw new Error("ACP skill runner requires object request");
   }
-  const request = value as SkillRunnerJobRequestV1;
-  if (request.kind !== "skillrunner.job.v1") {
-    throw new Error("ACP SkillRunner-compatible runner requires skillrunner.job.v1");
+  const request = value as AcpSkillRunRequestV1;
+  if (request.kind !== ACP_SKILL_RUN_REQUEST_KIND) {
+    throw new Error(`ACP skill runner requires ${ACP_SKILL_RUN_REQUEST_KIND}`);
   }
   if (!normalizeString(request.skill_id)) {
-    throw new Error("ACP SkillRunner-compatible runner requires skill_id");
+    throw new Error("ACP skill runner requires skill_id");
   }
   return request;
 }
 
-function resolveJobId(request: SkillRunnerJobRequestV1) {
+function resolveJobId(request: AcpSkillRunRequestV1) {
   return (
     normalizeString(request.taskName) ||
     normalizeString(request.targetParentID) ||
@@ -163,37 +192,30 @@ function resolveJobId(request: SkillRunnerJobRequestV1) {
   );
 }
 
-function buildRunPrompt(args: {
+async function buildRunPrompt(args: {
   context: AcpSkillRunnerRunContext;
-  executionMode: string;
   repairPrompt?: string;
 }) {
   if (args.repairPrompt) {
     return args.repairPrompt;
   }
   const { context } = args;
-  return [
-    "Execute the run-local skill for this Zotero Skills workflow job.",
-    "",
-    `Skill id: ${context.request.skill_id}`,
-    `Run workspace: ${context.workspace.workspaceDir}`,
-    `Input manifest: ${context.workspace.inputManifestPath}`,
-    `Agent skill roots: ${context.materialization.proxySkillRoots.join(", ")}`,
-    `Requested skill proxy: ${context.materialization.requestedSkillProxyPath || "(unavailable)"}`,
-    `Shared skill catalog: ${context.materialization.sharedSkillCatalogPath}`,
-    "",
-    "Use the requested run-local thin proxy skill instructions. The proxy declares absolute paths to the shared catalog resources.",
-    "Other available skills are also injected as thin proxies in the same agent skill roots.",
-    args.executionMode === "interactive"
-      ? "At the end of each assistant turn, return exactly one JSON object. Use `__SKILL_DONE__: false` with `message` and `ui_hints` when waiting for user input; use `__SKILL_DONE__: true` with final output fields only when the skill task is complete."
-      : "At the end of the assistant turn, return exactly one final JSON object with `__SKILL_DONE__: true` plus the final output fields.",
-    "Do not write result/result.json yourself. The runner creates that file after a final JSON payload validates.",
-    "If artifacts are created, keep them under the run workspace and reference them from the final JSON payload.",
-  ].join("\n");
+  return buildAcpSkillRunPrompt({
+    context: {
+      skillId: context.request.skill_id,
+      workspace: context.workspace,
+      backend: context.backend,
+      agentFamily: context.injectionPlan.family,
+      proxySkillRoots: context.materialization.proxySkillRoots,
+      requestedSkillProxyPath: context.materialization.requestedSkillProxyPath,
+      sharedSkillCatalogPath: context.materialization.sharedSkillCatalogPath,
+    },
+    request: context.request,
+  });
 }
 
 function resolveExecutionMode(
-  request: SkillRunnerJobRequestV1,
+  request: AcpSkillRunRequestV1,
   runnerJson: Record<string, unknown>,
 ) {
   const explicit = normalizeString(request.runtime_options?.execution_mode).toLowerCase();
@@ -210,6 +232,14 @@ function resolveExecutionMode(
     return "interactive";
   }
   return "auto";
+}
+
+async function readRunnerJsonForExecutionMode(path: string) {
+  try {
+    return JSON.parse(await readRuntimeTextFile(path)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
 
 type FrozenAcpRuntimeOptions = {
@@ -536,8 +566,11 @@ function buildRecoveredContinuationPrompt(args: {
     "- Continue following the already injected SKILL.md runtime contract and output schema.",
     "- At the end of this assistant turn, return exactly one JSON object for the Skill Runner output contract.",
     executionMode === "interactive"
-      ? "- If you still need user input, return `__SKILL_DONE__: false` with `message` and `ui_hints`. If the task is complete, return `__SKILL_DONE__: true` plus the final output fields."
+      ? "- If you still need user input, return the pending branch: `__SKILL_DONE__: false` with a non-empty `message` and an object `ui_hints`. If the task is complete, return the final branch: `__SKILL_DONE__: true` plus the final output fields."
       : "- Return `__SKILL_DONE__: true` plus the final output fields.",
+    "- For quick reply controls, use `ui_hints.options` with `{ \"label\": string, \"value\": string }` entries.",
+    "- Do not output explanations.",
+    "- Do not output Markdown fences.",
     `- Do not write ${resultJsonPath}; the runner writes result/result.json after final validation succeeds.`,
     "",
     "User reply to continue with:",
@@ -1006,7 +1039,7 @@ export async function executeAcpSkillRunnerJob(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
   dependencies?: AcpSkillRunnerDependencies;
 }): Promise<ProviderExecutionResult> {
-  const request = assertSkillRunnerJobRequest(args.request);
+  const request = assertAcpSkillRunRequest(args.request);
   const workspaceFactory =
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;
   const workspace = await workspaceFactory({
@@ -1129,6 +1162,10 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
+  const runnerJsonForExecutionMode = await readRunnerJsonForExecutionMode(
+    skill.runnerJsonPath,
+  );
+  const executionMode = resolveExecutionMode(request, runnerJsonForExecutionMode);
   const materialization = await materializeAcpSkill({
     registry,
     requestedSkillId: skill.skillId,
@@ -1137,6 +1174,7 @@ export async function executeAcpSkillRunnerJob(args: {
     resultJsonPath: workspace.resultJsonPath,
     inputManifestPath: workspace.inputManifestPath,
     catalogRootDir: args.dependencies?.sharedSkillCatalogRootDir,
+    executionMode,
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
@@ -1159,7 +1197,6 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
-  const executionMode = resolveExecutionMode(request, materialization.runnerJson);
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     executionMode,
@@ -1314,10 +1351,11 @@ export async function executeAcpSkillRunnerJob(args: {
         requestId: workspace.requestId,
         event: {
           stage: "workspace-activity",
-          message: `Workspace file updated while agent is working: ${snapshot.fileName}`,
+          message: snapshot.relativePath,
           level: "info",
           details: {
             path: snapshot.path,
+            relativePath: snapshot.relativePath,
           },
         },
       });
@@ -1531,7 +1569,29 @@ export async function executeAcpSkillRunnerJob(args: {
       materialization,
       injectionPlan,
     };
-    let nextPrompt = buildRunPrompt({ context, executionMode });
+    const runExecutionInstructionsPath = await materializeAcpRunExecutionInstructions({
+      context: {
+        skillId: request.skill_id,
+        workspace,
+        backend: dependencyPlan.wrappedBackend,
+        agentFamily: injectionPlan.family,
+        proxySkillRoots: materialization.proxySkillRoots,
+        requestedSkillProxyPath: materialization.requestedSkillProxyPath,
+        sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
+      },
+    });
+    upsertAcpSkillRun({
+      requestId: workspace.requestId,
+      event: {
+        stage: "run-instructions-materialized",
+        message: "ACP run execution instructions materialized.",
+        level: "info",
+        details: {
+          path: runExecutionInstructionsPath,
+        },
+      },
+    });
+    let nextPrompt = await buildRunPrompt({ context });
     const maxRepairRounds = Math.max(0, args.dependencies?.maxRepairRounds ?? 3);
     let repairRound = 0;
     let convergence: AcpSkillOutputConvergenceResult | null = null;
@@ -1683,15 +1743,15 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         },
       });
-      nextPrompt = buildRunPrompt({
+      nextPrompt = await buildRunPrompt({
         context,
-        executionMode,
         repairPrompt: buildAcpSkillOutputRepairPrompt({
           executionMode,
           previousCandidate: convergence.candidateText,
           errors: convergence.errors,
           repairRound,
           maxRepairRounds,
+          outputContractDetails: materialization.outputContractDetailsMarkdown,
         }),
       });
     }
@@ -1740,7 +1800,7 @@ export async function executeAcpSkillRunnerJob(args: {
       fetchType: "result",
       resultJson: finalResultJson,
       responseJson: {
-        kind: "skillrunner.job.v1",
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
         provider: "acp",
         workspaceDir: workspace.workspaceDir,
         resultJsonPath: workspace.resultJsonPath,
@@ -1751,6 +1811,7 @@ export async function executeAcpSkillRunnerJob(args: {
         runtimeDependencies: dependencyPlan.dependencies,
         acpRuntimeOptions: frozenRuntimeOptions,
         sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
+        runExecutionInstructionsPath,
         proxySkillCount: materialization.proxySkillCount,
         proxySkillRoots: materialization.proxySkillRoots,
         requestedSkillProxyPath: materialization.requestedSkillProxyPath,

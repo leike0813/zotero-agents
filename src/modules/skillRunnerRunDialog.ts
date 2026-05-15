@@ -279,6 +279,7 @@ export type RunWorkspaceTaskItem = {
   workflowLabel?: string;
   status: string;
   stateLabel: string;
+  createdAt?: string;
   updatedAt: string;
   title: string;
   selectable: boolean;
@@ -1357,6 +1358,7 @@ async function buildRunWorkspaceModel() {
           undefined,
         status: normalizedStatus,
         stateLabel: resolveRunWorkspaceStatusLabel(normalizedStatus),
+        createdAt: String(row.createdAt || "").trim() || undefined,
         updatedAt: String(row.updatedAt || "").trim() || "",
         title: resolveRunWorkspaceTaskTitle({
           taskName: row.taskName,
@@ -1408,6 +1410,7 @@ async function buildRunWorkspaceModel() {
       status: "running",
       stateLabel: resolveRunWorkspaceStatusLabel("running"),
       updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       title: target.requestId,
       selectable: true,
       terminal: false,
@@ -1435,9 +1438,12 @@ async function buildRunWorkspaceModel() {
 
   const groups = Array.from(groupsMap.values())
     .map((entry) => {
-      const sorted = [...entry.rows].sort(
-        (a, b) => toTime(b.updatedAt) - toTime(a.updatedAt),
-      );
+      const sorted = [...entry.rows].sort((a, b) => {
+        const createdDiff =
+          toTime(b.createdAt || b.updatedAt) - toTime(a.createdAt || a.updatedAt);
+        if (createdDiff !== 0) return createdDiff;
+        return String(b.key || "").localeCompare(String(a.key || ""));
+      });
       const disabled = isSkillRunnerBackendReconcileFlagged(entry.backendId);
       const disabledReason = disabled
         ? resolveBackendUnavailableMessage(entry.backendDisplayName)
@@ -1458,13 +1464,7 @@ async function buildRunWorkspaceModel() {
         latestUpdatedAt: entry.latestUpdatedAt,
       } as RunWorkspaceGroup;
     })
-    .sort((a, b) => {
-      const diff = toTime(b.latestUpdatedAt) - toTime(a.latestUpdatedAt);
-      if (diff !== 0) {
-        return diff;
-      }
-      return a.backendDisplayName.localeCompare(b.backendDisplayName);
-    });
+    .sort((a, b) => a.backendDisplayName.localeCompare(b.backendDisplayName));
 
   return {
     groups,

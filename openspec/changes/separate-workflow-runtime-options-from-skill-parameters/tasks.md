@@ -1,0 +1,7 @@
+- [ ] 1. Update OpenSpec deltas for runtime-only workflow parameters and `literature-digest.auto_reference_matching`.
+- [ ] 2. Add `runtimeOnly` to workflow manifest parameter schema and TypeScript parameter types.
+- [ ] 3. Add parameter splitting in declarative request compilation so provider request `parameter` excludes runtime-only values.
+- [ ] 4. Preserve runtime-only values in execution/result context and expose them to apply hooks.
+- [ ] 5. Mark `literature-digest.auto_reference_matching` as `runtimeOnly: true` and update applyResult to read `resultContext.workflowRuntimeParams`.
+- [ ] 6. Add/update tests for schema validation, request payload filtering, apply context propagation, and literature-digest auto matching.
+- [ ] 7. Run targeted workflow tests, builtin workflow manifest check, `npx tsc --noEmit`, and `openspec validate separate-workflow-runtime-options-from-skill-parameters --strict`.

@@ -42,6 +42,12 @@
       ],
       "allowCustom": true,
       "default": "zh-CN"
+    },
+    "auto_reference_matching": {
+      "type": "boolean",
+      "title": "Auto Reference Matching",
+      "description": "Run reference matching on the generated references note after literature digest finishes.",
+      "default": true
     }
   },
   "execution": {

@@ -312,12 +312,10 @@ synthesis/
 - 实现 `synthesis.get_topic_context`。
 - 实现 `synthesis.get_schemas`。
 - 实现 `synthesis.get_library_index`，支持分页或压缩表示。
-- 实现 `synthesis.validate_resolver`。
 - 实现 `synthesis.resolve_resolver`。
 - 接入 `synthesis.get_paper_registry`。
-- 接入 `synthesis.query_citation_graph`。
-- 实现 `synthesis.get_paper_artifact_manifest`。
-- 实现 `synthesis.read_paper_artifacts`，支持分批读取和大小限制。
+- 接入 `synthesis.get_citation_graph_slice`，只读 persisted snapshot 的有界切片，不触发 graph rebuild。
+- paper-level derived artifact 正文读取走通用 Zotero note payload 工具链，不再暴露 synthesis 专用 artifact read MCP tools。
 - 明确作业期 MCP 不提供正式写入工具。
 - 作业期 MCP 连接方式参考 ACP Chat 的插件内 host capability 实现，同一 v1 不要求远程 MCP 调用。
 - MCP 实现参考现有 Zotero MCP / host capability broker：bounded read、DTO、cursor / chunked access、note payload codec、structured errors。
@@ -326,8 +324,8 @@ synthesis/
 
 - agent 可以基于 schema 和 global lightweight library index 生成 resolver。
 - resolver 必须由插件校验并执行。
-- MCP 返回 resolved papers、match reasons、coverage diagnostics 和 missing artifacts。
-- 大库 index 和 artifact 读取不会一次性塞入完整正文。
+- MCP 返回 resolved papers、match reasons、coverage diagnostics、registry readiness 和 graph slice diagnostics。
+- 大库 index、graph slice 和 note payload 读取不会一次性塞入完整正文。
 
 建议测试：
 
@@ -339,7 +337,7 @@ synthesis/
 - `explicit_paper_set` resolver execution。
 - `mixed` resolver execution。
 - mixed exclude-over-include 测试。
-- artifact batch read limit。
+- note payload chunked read guidance。
 - `npx tsc --noEmit`。
 
 ## 8. Phase 5：`synthesize-topic` workflow 与 ACP Skills 合同
@@ -354,7 +352,7 @@ synthesis/
 - 支持 update 模式：用户选择已有 Topic Definition / Artifact。
 - 为 ACP Skills skill 定义输入约束和输出 bundle。
 - workflow request 必须携带 SHA-256 base artifact hash、base metadata hash、base index hash、base resolver hash 和 base resolved paper set hash。
-- skill 通过 MCP 获取 schema、library index、registry、graph 和 paper artifacts。
+- skill 通过 MCP 获取 schema、library index、registry、bounded graph slice，并通过通用 note payload tools 读取 paper artifacts。
 - skill 输出 Markdown、metadata、Topic Definition、Resolver、Resolved Paper Set 和 diagnostics。
 - skill 输出 result bundle 必须原样带回 base hashes。
 - skill 在 Markdown 中生成 topic timeline narrative 或结构化段落。

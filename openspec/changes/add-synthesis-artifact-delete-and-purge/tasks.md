@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec delta specs for Workbench lifecycle controls and service lifecycle semantics.
+- [x] 2. Add failing service tests for soft delete, deleted listing, purge, inactive duplicate inventory, and mirror refresh.
+- [x] 3. Add failing UI/model/host/frontend tests for delete and purge commands.
+- [x] 4. Implement synthesis service delete, deleted listing, and purge lifecycle methods.
+- [x] 5. Implement UI snapshot/model fields and host command routing with confirmation.
+- [x] 6. Implement Workbench frontend Delete and Purge Deleted controls.
+- [x] 7. Run targeted tests, builtin workflow manifest check, TypeScript check, and OpenSpec validation.

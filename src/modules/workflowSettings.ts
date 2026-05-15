@@ -20,6 +20,7 @@ import { getPref, setPref } from "../utils/prefs";
 import { resolveWorkflowRequestKind } from "./workflowRequestKind";
 import {
   ACP_BACKEND_TYPE,
+  ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
@@ -120,6 +121,20 @@ function isSkillRunnerJobWorkflow(workflow: LoadedWorkflow) {
   return String(workflow.manifest.request?.kind || "").trim() === "skillrunner.job.v1";
 }
 
+function resolveEffectiveRequestKindForBackend(args: {
+  workflow: LoadedWorkflow;
+  backend: BackendInstance;
+}) {
+  const declared = resolveWorkflowRequestKind(args.workflow, args.backend.type);
+  if (
+    declared === "skillrunner.job.v1" &&
+    String(args.backend.type || "").trim() === ACP_BACKEND_TYPE
+  ) {
+    return ACP_SKILL_RUN_REQUEST_KIND;
+  }
+  return declared;
+}
+
 function resolveProviderIdForBackend(args: {
   workflow: LoadedWorkflow;
   backend?: BackendInstance;
@@ -128,7 +143,10 @@ function resolveProviderIdForBackend(args: {
   if (!backend) {
     return resolveProviderId(args.workflow);
   }
-  const requestKind = resolveWorkflowRequestKind(args.workflow, backend.type);
+  const requestKind = resolveEffectiveRequestKindForBackend({
+    workflow: args.workflow,
+    backend,
+  });
   return resolveProvider({
     requestKind,
     backend,
@@ -657,9 +675,12 @@ export async function resolveWorkflowExecutionContext(args: {
       : await resolveBackendForWorkflow(args.workflow, {
           preferredBackendId: merged.backendId,
         });
-  const requestKind = resolveWorkflowRequestKind(args.workflow, backend.type);
+  const requestKind = resolveEffectiveRequestKindForBackend({
+    workflow: args.workflow,
+    backend,
+  });
   if (
-    requestKind === "skillrunner.job.v1" &&
+    requestKind === ACP_SKILL_RUN_REQUEST_KIND &&
     String(backend.type || "").trim() === ACP_BACKEND_TYPE &&
     !isAcpBackendConnectionTestPassed(backend)
   ) {

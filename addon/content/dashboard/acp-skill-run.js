@@ -14,6 +14,10 @@
     transcriptRunId: "",
     toolActivityExpandedIds: new Set(),
     drawerCompletedCollapsed: true,
+    replyDrafts: new Map(),
+    replyFocusedRequestId: "",
+    permissionRequestDetails: null,
+    permissionRequestDrawerOpen: false,
   };
 
   function bridge() {
@@ -153,6 +157,26 @@
     return (state.snapshot && state.snapshot.selectedRun) || null;
   }
 
+  function captureReplyDraft() {
+    const run = selectedRunFromSnapshot();
+    const requestId = safeText(run && run.requestId);
+    const input = document.querySelector(".assistant-panel-reply-input");
+    if (!requestId || !input || typeof input.value !== "string") return;
+    state.replyDrafts.set(requestId, input.value);
+    if (document.activeElement === input) {
+      state.replyFocusedRequestId = requestId;
+    }
+  }
+
+  function restoreReplyFocus() {
+    const run = selectedRunFromSnapshot();
+    const requestId = safeText(run && run.requestId);
+    if (!requestId || state.replyFocusedRequestId !== requestId) return;
+    const input = document.querySelector(".assistant-panel-reply-input");
+    if (!input || input.disabled) return;
+    input.focus();
+  }
+
   function renderChatDisplayMode() {
     const plain = $("acp-skill-chat-mode-plain");
     const bubble = $("acp-skill-chat-mode-bubble");
@@ -172,6 +196,9 @@
     const data = payload && typeof payload === "object" ? payload : {};
     const run = selectedRunFromSnapshot();
     const requestId = safeText(data.requestId || (run && run.requestId));
+    if (action !== "reply" && action !== "reply-run" && action !== "interrupt-run-turn") {
+      captureReplyDraft();
+    }
     if (action === "open-context-drawer") {
       state.runDrawerOpen = true;
       render(state.snapshot || {});
@@ -194,6 +221,17 @@
       render(state.snapshot || {});
       return;
     }
+    if (action === "open-permission-request") {
+      state.permissionRequestDetails = data.permissionRequest || null;
+      state.permissionRequestDrawerOpen = true;
+      render(state.snapshot || {});
+      return;
+    }
+    if (action === "close-permission-request") {
+      state.permissionRequestDrawerOpen = false;
+      render(state.snapshot || {});
+      return;
+    }
     if (action === "close-details-drawer") {
       state.detailsOpen = false;
       render(state.snapshot || {});
@@ -209,7 +247,12 @@
     if (action === "reply" || action === "reply-run") {
       const message = safeText(data.message);
       if (!message || !requestId) return;
+      state.replyDrafts.set(requestId, "");
       sendAction("reply-run", { requestId: requestId, message: message });
+      return;
+    }
+    if (action === "interrupt-run-turn") {
+      sendAction("interrupt-run-turn", { requestId: requestId });
       return;
     }
     if (action === "set-chat-display-mode") {
@@ -224,6 +267,7 @@
     if (
       action === "connect-run" ||
       action === "disconnect-run" ||
+      action === "interrupt-run-turn" ||
       action === "cancel-run" ||
       action === "archive-run"
     ) {
@@ -241,6 +285,19 @@
     }
     try {
       const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {});
+      const rawSelectedRun = snapshot && snapshot.selectedRun;
+      if (!rawSelectedRun || !rawSelectedRun.pendingPermission) {
+        state.permissionRequestDetails = null;
+        state.permissionRequestDrawerOpen = false;
+      }
+      panelSnapshot.drawers = panelSnapshot.drawers || {};
+      panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
+      panelSnapshot.drawers.permissionRequestOpen = state.permissionRequestDrawerOpen;
+      const selectedRun = panelSnapshot && panelSnapshot.raw && panelSnapshot.raw.selectedRun;
+      const requestId = safeText(selectedRun && selectedRun.requestId);
+      if (panelSnapshot && panelSnapshot.reply && requestId) {
+        panelSnapshot.reply.value = state.replyDrafts.get(requestId) || "";
+      }
       if (
         panelSnapshot &&
         panelSnapshot.drawers &&
@@ -261,6 +318,7 @@
           reply: true,
           drawer: true,
           details: true,
+          permission: true,
         },
         onAction: handleAssistantPanelAction,
         root: document.querySelector(".acp-skill-run-shell"),
@@ -275,6 +333,7 @@
           details: $("acp-skill-run-details"),
         },
       });
+      restoreReplyFocus();
     } catch (error) {
       renderPanelRuntimeFailure(
         "ACP Skills panel renderer failed: " + (error && error.message ? error.message : String(error)),
@@ -419,6 +478,7 @@
   }
 
   function render(snapshot) {
+    captureReplyDraft();
     state.snapshot = applyPendingSelection(snapshot || {});
     renderAssistantPanelRuntime(state.snapshot);
     $("acp-skill-run-drawer").classList.toggle("hidden", !state.runDrawerOpen);

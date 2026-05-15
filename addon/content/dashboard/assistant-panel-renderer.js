@@ -5,6 +5,70 @@
     return String(value == null ? "" : value).trim();
   }
 
+  function truncateText(value, maxLength) {
+    const text = safeText(value).replace(/\s+/g, " ");
+    const limit = Math.max(0, Number(maxLength || 0) || 0);
+    if (!limit || text.length <= limit) return text;
+    return text.slice(0, Math.max(0, limit - 1)).trimEnd() + "…";
+  }
+
+  function parseJsonObject(value) {
+    const text = safeText(value);
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function compactJson(value, maxLength) {
+    if (value === null || value === undefined || value === "") return "";
+    let text = "";
+    if (typeof value === "string") {
+      text = value;
+    } else {
+      try {
+        text = JSON.stringify(value, null, 2);
+      } catch {
+        text = safeText(value);
+      }
+    }
+    return truncateText(text, maxLength || 4000);
+  }
+
+  function buildPermissionRequestDto(permission, interaction) {
+    const source = permission && typeof permission === "object" ? permission : {};
+    const actionList = interaction && Array.isArray(interaction.actions) ? interaction.actions : [];
+    const parsed = parseJsonObject(source.detail);
+    const toolCall = parsed && typeof parsed.toolCall === "object" ? parsed.toolCall : null;
+    const preview = parsed && typeof parsed.preview === "object" ? parsed.preview : null;
+    const mutation = parsed && typeof parsed.mutation === "object" ? parsed.mutation : null;
+    const commandPreview =
+      compactJson(toolCall, 4000) ||
+      compactJson(mutation, 4000) ||
+      compactJson(preview, 4000) ||
+      compactJson(parsed && (parsed.command || parsed.arguments || parsed.input || parsed.params), 4000) ||
+      truncateText(source.detail, 4000);
+    return {
+      requestId: safeText(source.requestId),
+      toolCallId: safeText(source.toolCallId),
+      toolTitle:
+        safeText(source.toolTitle) ||
+        safeText(parsed && (parsed.toolName || parsed.name)) ||
+        "Permission request",
+      source: safeText(source.source || (interaction && interaction.source)),
+      summary:
+        safeText(source.summary || (interaction && interaction.message)) ||
+        safeText(source.toolTitle) ||
+        "ACP backend requests approval.",
+      requestedAt: safeText(source.requestedAt),
+      commandPreview,
+      actions: actionList.slice(),
+    };
+  }
+
   function clear(node) {
     while (node && node.firstChild) node.removeChild(node.firstChild);
   }
@@ -83,11 +147,13 @@
       reply: Object.assign(
         {
           enabled: false,
+          inputEnabled: false,
           placeholder: "",
           hint: "",
           submitLabel: labelOf(input, "actions.send", "Send"),
           sending: false,
           action: "reply",
+          tone: "primary",
           controls: [],
           showUsageGauge: false,
         },
@@ -165,6 +231,19 @@
       mount.classList.add("asst-drawer-panel");
     }
     return mount;
+  }
+
+  function installOverlayDismiss(container, action, options) {
+    if (!container) return;
+    container.onclick = function (event) {
+      const panel = container.querySelector(":scope > .asst-drawer-panel");
+      const target = event && event.target;
+      if (panel && target && panel.contains(target)) {
+        if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+        return;
+      }
+      emit(options || {}, action, {});
+    };
   }
 
   function optionValue(option) {
@@ -513,25 +592,35 @@
       if (summary || meta || detail) {
         const box = el("div", "assistant-panel-permission-summary");
         if (summary) {
-          box.appendChild(el("div", "assistant-panel-permission-summary-text", summary));
+          const summaryNode = el("div", "assistant-panel-permission-summary-text", truncateText(summary, 180));
+          summaryNode.title = summary;
+          box.appendChild(summaryNode);
         }
         if (meta) {
           box.appendChild(el("div", "assistant-panel-permission-meta", meta));
         }
         if (detail) {
-          const details = el("details", "assistant-panel-permission-details");
-          details.appendChild(el("summary", "", labelOf(panel, "permission.viewFullRequest", "View full request")));
-          const pre = el("pre", "asst-code-surface assistant-panel-permission-detail-code");
-          pre.textContent = detail;
-          details.appendChild(pre);
-          box.appendChild(details);
+          const view = el(
+            "button",
+            "asst-button-compact assistant-panel-permission-view-full-request",
+            labelOf(panel, "permission.viewFullRequest", "View full request"),
+          );
+          view.type = "button";
+          view.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            emit(options, "open-permission-request", {
+              permissionRequest: buildPermissionRequestDto(permission, interaction),
+            });
+          });
+          box.appendChild(view);
         }
         target.appendChild(box);
       }
     }
     const actionList = Array.isArray(interaction.actions) ? interaction.actions : [];
     if ((kind === "permission" || kind === "auth") && actionList.length > 0) {
-      const actionBox = el("div", "assistant-panel-hint-options");
+      const actionBox = el("div", "assistant-panel-hint-options assistant-panel-permission-actions");
       actionList.forEach(function (action) {
         renderActionButton(actionBox, action, options || {});
       });
@@ -601,11 +690,16 @@
     if (options && options.adoptOnly) return;
     const previous = target.querySelector(".assistant-panel-reply-input");
     const previousText = previous ? previous.value : "";
+    const previousSelectionStart = previous ? previous.selectionStart : null;
+    const previousSelectionEnd = previous ? previous.selectionEnd : null;
+    const previousFocused = previous && document.activeElement === previous;
     clear(target);
     const input = el("textarea", "assistant-panel-reply-input");
     input.placeholder = panel.reply.placeholder || "";
-    input.disabled = !panel.reply.enabled || panel.reply.sending === true;
-    input.value = previousText;
+    input.disabled = panel.reply.inputEnabled === false || !panel.reply.enabled;
+    input.value = Object.prototype.hasOwnProperty.call(panel.reply, "value")
+      ? String(panel.reply.value == null ? "" : panel.reply.value)
+      : previousText;
     const footer = el("div", "assistant-panel-reply-footer");
     const primary = el("div", "assistant-panel-reply-primary");
     const controls = el("div", "assistant-panel-reply-controls");
@@ -624,11 +718,17 @@
     );
     button.type = "button";
     const replyAction = safeText(panel.reply.action || "reply");
-    const cancelAction = replyAction === "cancel" || replyAction === "cancel-run";
-    button.disabled = !panel.reply.enabled || (panel.reply.sending === true && !cancelAction);
-    button.addEventListener("click", function () {
+    const interruptAction =
+      replyAction === "cancel" ||
+      replyAction === "cancel-run" ||
+      replyAction === "interrupt-run-turn";
+    button.setAttribute("data-assistant-button-tone", safeText(panel.reply.tone) || "primary");
+    button.disabled = !panel.reply.enabled || (panel.reply.sending === true && !interruptAction);
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
       emit(options, replyAction || "reply", { message: safeText(input.value) });
-      if (panel.reply.clearOnSend !== false) input.value = "";
+      if (panel.reply.clearOnSend !== false && !interruptAction) input.value = "";
     });
     input.addEventListener("keydown", function (event) {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -642,6 +742,16 @@
     if (controls.firstChild) footer.appendChild(controls);
     footer.appendChild(secondary);
     target.appendChild(footer);
+    if (previousFocused && !input.disabled) {
+      input.focus();
+      if (
+        typeof previousSelectionStart === "number" &&
+        typeof previousSelectionEnd === "number" &&
+        typeof input.setSelectionRange === "function"
+      ) {
+        input.setSelectionRange(previousSelectionStart, previousSelectionEnd);
+      }
+    }
   }
 
   function renderUsageGauge(container, usage, panel) {
@@ -746,12 +856,19 @@
     const updatedAt = safeText(item.updatedAt);
     if (updatedAt) meta.appendChild(el("span", "", updatedAt));
     const content = el("div", "assistant-workspace-drawer-task-content");
+    if (safeText(item.attention) === "warning") {
+      const led = el("span", "assistant-workspace-drawer-task-attention asst-led is-warning", "");
+      led.title = safeText(item.attentionLabel) || "Needs user interaction";
+      content.appendChild(led);
+    }
     content.appendChild(title);
     content.appendChild(workflow);
     content.appendChild(meta);
     button.appendChild(content);
     if (selectable) {
-      button.addEventListener("click", function () {
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
         emit(options, item.action || "select-task", item.payload || { taskKey });
       });
     }
@@ -831,7 +948,9 @@
     );
     const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
-    close.addEventListener("click", function () {
+    close.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
       emit(options, "close-context-drawer", {});
     });
     header.appendChild(close);
@@ -884,7 +1003,9 @@
         );
         toggle.type = "button";
         toggle.setAttribute("aria-expanded", sectionCollapsed ? "false" : "true");
-        toggle.addEventListener("click", function () {
+        toggle.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
           emit(options, "toggle-drawer-section", { sectionId: "completed" });
         });
         sectionBox.appendChild(toggle);
@@ -921,6 +1042,7 @@
     const panel = normalize(snapshot);
     if (!container) return;
     const target = options && options.adoptOnly ? container : managedMount(container, "drawer") || container;
+    installOverlayDismiss(container, "close-context-drawer", options || {});
     container.setAttribute("data-assistant-context-count", String((panel.drawers.contexts || []).length));
     if (options && options.adoptOnly) return;
     if (
@@ -935,7 +1057,9 @@
     header.appendChild(el("strong", "", panel.drawers.contextTitle || labelOf(panel, "drawer.emptyContexts", "Contexts")));
     const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
-    close.addEventListener("click", function () {
+    close.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
       emit(options, "close-context-drawer", {});
     });
     header.appendChild(close);
@@ -982,6 +1106,7 @@
     const panel = normalize(snapshot);
     if (!container) return;
     const target = managedMount(container, "details") || container;
+    installOverlayDismiss(container, "close-details-drawer", options || {});
     clear(target);
     const header = el("div", "assistant-panel-details-header");
     header.appendChild(el("strong", "", panel.drawers.detailsTitle || labelOf(panel, "details.title", "Details")));
@@ -997,7 +1122,9 @@
     }
     const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
     close.type = "button";
-    close.addEventListener("click", function () {
+    close.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
       emit(options || {}, "close-details-drawer", {});
     });
     header.appendChild(close);
@@ -1018,6 +1145,90 @@
       renderDetailsSection(list, section, panel);
     });
     target.appendChild(list);
+  }
+
+  function renderPermissionRequestDrawer(root, snapshot, options) {
+    const panel = normalize(snapshot);
+    if (!root) return;
+    let overlay = root.querySelector(":scope > .assistant-panel-permission-drawer-overlay");
+    if (!overlay) {
+      overlay = el(
+        "section",
+        "assistant-panel-permission-drawer-overlay hidden",
+      );
+      root.appendChild(overlay);
+    }
+    const drawers = panel.drawers || {};
+    const request =
+      drawers.permissionRequest && typeof drawers.permissionRequest === "object"
+        ? drawers.permissionRequest
+        : null;
+    const open = drawers.permissionRequestOpen === true && !!request;
+    overlay.classList.toggle("hidden", !open);
+    if (!open) {
+      clear(overlay);
+      return;
+    }
+    clear(overlay);
+    overlay.onclick = function (event) {
+      const target = event && event.target;
+      const sheet = overlay.querySelector(":scope > .assistant-panel-permission-drawer-panel");
+      if (sheet && target && sheet.contains(target)) {
+        event.stopPropagation();
+        return;
+      }
+      emit(options || {}, "close-permission-request", {});
+    };
+    const sheet = el("aside", "assistant-panel-permission-drawer-panel");
+    const header = el("div", "assistant-panel-permission-drawer-header");
+    const titleStack = el("div", "assistant-panel-permission-drawer-title-stack");
+    titleStack.appendChild(
+      el(
+        "strong",
+        "",
+        safeText(request.toolTitle) || labelOf(panel, "permission.title", "Permission request"),
+      ),
+    );
+    titleStack.appendChild(
+      el(
+        "div",
+        "assistant-panel-permission-drawer-subtitle",
+        safeText(request.summary) || "Review the command before choosing.",
+      ),
+    );
+    header.appendChild(titleStack);
+    const close = el("button", "asst-button-compact", labelOf(panel, "actions.close", "Close"));
+    close.type = "button";
+    close.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      emit(options || {}, "close-permission-request", {});
+    });
+    header.appendChild(close);
+    sheet.appendChild(header);
+    const meta = [
+      safeText(request.source) ? "Source: " + safeText(request.source) : "",
+      safeText(request.requestedAt) ? "Requested: " + safeText(request.requestedAt) : "",
+    ].filter(Boolean).join(" · ");
+    if (meta) {
+      sheet.appendChild(el("div", "assistant-panel-permission-drawer-meta", meta));
+    }
+    const pre = el("pre", "assistant-panel-permission-drawer-command");
+    pre.textContent =
+      safeText(request.commandPreview) ||
+      safeText(request.summary) ||
+      safeText(request.toolTitle) ||
+      "Permission request";
+    sheet.appendChild(pre);
+    const actionList = Array.isArray(request.actions) ? request.actions : [];
+    if (actionList.length > 0) {
+      const actions = el("div", "assistant-panel-permission-drawer-actions");
+      actionList.forEach(function (action) {
+        renderActionButton(actions, action, options || {});
+      });
+      sheet.appendChild(actions);
+    }
+    overlay.appendChild(sheet);
   }
 
   function emitAssistantPanelAction(options, action, payload) {
@@ -1053,6 +1264,9 @@
     if (shouldManageRegion(opts, "details")) {
       renderDetailsDrawer(opts.regions && opts.regions.details, managedSnapshot, opts);
     }
+    if (shouldManageRegion(opts, "permission")) {
+      renderPermissionRequestDrawer(opts.root, managedSnapshot, opts);
+    }
     if (opts.managed === true) {
       return panel;
     } else {
@@ -1077,6 +1291,7 @@
     renderAssistantContextDrawer,
     renderAssistantWorkspaceTaskDrawer,
     renderDetailsDrawer,
+    renderPermissionRequestDrawer,
     emitAssistantPanelAction,
   };
 })();

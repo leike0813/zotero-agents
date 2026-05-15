@@ -18,6 +18,8 @@ export type SkillRunnerSidebarTaskItem = {
   title: string;
   selectable: boolean;
   terminal: boolean;
+  attention?: "warning" | "";
+  attentionLabel?: string;
   inputUnitIdentity?: string;
   targetParentID?: number;
   relationState?: SkillRunnerSidebarRelationState;
@@ -191,6 +193,16 @@ export function buildSkillRunnerSidebarSections<
       .filter((task) => isVisibleSidebarRunningTask(task))
       .map((task) => ({
         ...task,
+        attention:
+          normalizeIdentity(task.status) === "waiting_user" ||
+          normalizeIdentity(task.status) === "waiting_auth"
+            ? "warning"
+            : task.attention,
+        attentionLabel:
+          normalizeIdentity(task.status) === "waiting_user" ||
+          normalizeIdentity(task.status) === "waiting_auth"
+            ? "Needs user interaction"
+            : task.attentionLabel,
         relationState:
           task.key === selectedTaskKey
             ? "focused"

@@ -11,7 +11,7 @@ import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
-import { openSynthesisWorkbenchDialog } from "./modules/synthesisWorkbenchDialog";
+import { openSynthesisWorkbenchTab } from "./modules/synthesisWorkbenchTab";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
 import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflowPackageDiagnostics";
@@ -437,7 +437,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       await openTaskManagerDialog();
       break;
     case "openSynthesisWorkbench":
-      await openSynthesisWorkbenchDialog({
+      await openSynthesisWorkbenchTab({
         window: data.window,
       });
       break;

@@ -122,6 +122,18 @@ export type AcpSkillRunTranscriptItem =
       level: "info" | "warn" | "error";
       label: string;
       text: string;
+      details?: Record<string, unknown>;
+      createdAt: string;
+      updatedAt?: string;
+    }
+  | {
+      id: string;
+      kind: "permission";
+      permissionRequestId: string;
+      status: "pending" | "approved" | "denied" | "cancelled";
+      title: string;
+      summary: string;
+      source?: string;
       createdAt: string;
       updatedAt?: string;
     };
@@ -232,6 +244,7 @@ export type AcpSkillRunSummary = Pick<
   | "replyState"
   | "connectionActionState"
   | "applyResultState"
+  | "pendingPermission"
   | "activePrompt"
   | "error"
   | "removedAt"
@@ -548,12 +561,8 @@ function toolEventTime(item: { updatedAt?: string; createdAt?: string }) {
 
 function shouldShowEventInTranscript(stage: string) {
   return new Set([
-    "acp-session-created",
-    "acp-prompt-finished",
-    "output-validation-succeeded",
     "output-validation-failed",
     "repair-started",
-    "repair-validation-succeeded",
     "repair-validation-failed",
     "permission-requested",
     "permission-resolved",
@@ -572,12 +581,84 @@ function shouldShowEventInTranscript(stage: string) {
   ]).has(normalizeString(stage));
 }
 
+function permissionStatusFromResolution(details: Record<string, unknown>) {
+  const outcome = normalizeString(details.outcome);
+  const optionId = normalizeString(details.optionId).toLowerCase();
+  if (outcome === "cancelled" || outcome === "canceled") {
+    return "cancelled" as const;
+  }
+  if (optionId.includes("deny") || optionId.includes("reject") || optionId.includes("cancel")) {
+    return "denied" as const;
+  }
+  return "approved" as const;
+}
+
+function upsertPermissionTranscriptItem(
+  record: AcpSkillRunRecord,
+  event: AcpSkillRunEvent,
+) {
+  const details = event.details || {};
+  const permissionRequestId =
+    normalizeString(details.permissionRequestId) ||
+    normalizeString(details.requestId);
+  if (!permissionRequestId) {
+    return false;
+  }
+  const existingIndex = record.transcriptItems.findIndex(
+    (item) => item.kind === "permission" && item.permissionRequestId === permissionRequestId,
+  );
+  const status =
+    event.stage === "permission-resolved"
+      ? permissionStatusFromResolution(details)
+      : "pending";
+  const previous =
+    existingIndex >= 0 ? record.transcriptItems[existingIndex] : null;
+  const item: AcpSkillRunTranscriptItem = {
+    id:
+      previous?.kind === "permission"
+        ? previous.id
+        : `acp-skill-permission-${record.transcriptItems.length + 1}`,
+    kind: "permission",
+    permissionRequestId,
+    status,
+    title:
+      normalizeString(details.toolTitle) ||
+      (previous?.kind === "permission" ? previous.title : "") ||
+      "Permission request",
+    summary:
+      normalizeString(details.summary) ||
+      (previous?.kind === "permission" ? previous.summary : "") ||
+      normalizeString(event.message) ||
+      "ACP backend requests approval.",
+    source:
+      normalizeString(details.source) ||
+      (previous?.kind === "permission" ? previous.source : undefined),
+    createdAt:
+      previous?.kind === "permission" ? previous.createdAt : event.ts,
+    updatedAt: event.ts,
+  };
+  if (existingIndex >= 0) {
+    record.transcriptItems = record.transcriptItems.map((entry, index) =>
+      index === existingIndex ? item : entry,
+    );
+  } else {
+    record.transcriptItems = [...record.transcriptItems, item].slice(-200);
+  }
+  return true;
+}
+
 function appendStatusTranscriptItem(
   record: AcpSkillRunRecord,
   event: AcpSkillRunEvent,
 ) {
   const text = normalizeString(event.message);
   if (!text || !shouldShowEventInTranscript(event.stage)) {
+    return;
+  }
+  if (
+    (event.stage === "permission-requested" || event.stage === "permission-resolved") &&
+    upsertPermissionTranscriptItem(record, event)
+  ) {
     return;
   }
   const last = record.transcriptItems[record.transcriptItems.length - 1];
@@ -594,7 +675,11 @@ function appendStatusTranscriptItem(
     kind: "status",
     level: event.level,
     label: event.stage,
-    text,
+    text:
+      event.stage === "workspace-activity"
+        ? normalizeString(event.details?.relativePath) || text
+        : text,
+    details: event.details ? { ...event.details } : undefined,
     createdAt: event.ts,
   };
   record.transcriptItems = [
@@ -666,6 +751,27 @@ function parseTranscriptItems(value: unknown, updatedAt: string) {
           raw.level === "error" || raw.level === "warn" ? raw.level : "info",
         label: normalizeString(raw.label) || "Status",
         text: normalizeString(raw.text),
+        details: isRecord(raw.details) ? { ...raw.details } : undefined,
+        createdAt,
+        updatedAt: updatedAtValue,
+      });
+      return acc;
+    }
+    if (kind === "permission") {
+      const status = normalizeString(raw.status);
+      acc.push({
+        id,
+        kind,
+        permissionRequestId: normalizeString(raw.permissionRequestId),
+        status:
+          status === "approved" ||
+          status === "denied" ||
+          status === "cancelled"
+            ? status
+            : "pending",
+        title: normalizeString(raw.title) || "Permission request",
+        summary: normalizeString(raw.summary) || "ACP backend requests approval.",
+        source: normalizeString(raw.source) || undefined,
         createdAt,
         updatedAt: updatedAtValue,
       });
@@ -939,6 +1045,8 @@ export function upsertAcpSkillRun(update: {
   error?: string;
   removedAt?: string;
   archivedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
   event?: Omit<AcpSkillRunEvent, "ts"> & { ts?: string };
 }) {
   ensureHydrated();
@@ -973,6 +1081,8 @@ export function upsertAcpSkillRun(update: {
       (next as Record<string, unknown>)[key as string] = normalized;
     }
   };
+  assignString("createdAt", update.createdAt);
+  assignString("updatedAt", update.updatedAt);
   if (update.status) next.status = update.status;
   assignString("backendId", update.backendId);
   assignString("backendType", update.backendType);
@@ -1658,6 +1768,13 @@ export function setAcpSkillRunPermissionRequest(
       stage: "permission-requested",
       message: `Permission requested: ${normalizeString(request.toolTitle) || permissionRequestId}`,
       level: "warn",
+      details: {
+        permissionRequestId,
+        toolCallId: normalizeString(request.toolCallId),
+        toolTitle: normalizeString(request.toolTitle),
+        source: normalizeString(request.source) || undefined,
+        summary: normalizeString(request.summary) || normalizeString(request.toolTitle),
+      },
     },
   });
 }
@@ -1686,8 +1803,10 @@ export function resolveAcpSkillRunPermissionRequest(args: {
         } as RequestPermissionOutcome)
       : ({ outcome: "cancelled" } as RequestPermissionOutcome);
   matched.resolve(outcome);
+  let resolvedPermissionRequestId = permissionRequestId;
   for (const [requestId, entry] of permissionResolvers.entries()) {
     if (entry === matched) {
+      resolvedPermissionRequestId = requestId;
       permissionResolvers.delete(requestId);
     }
   }
@@ -1701,6 +1820,11 @@ export function resolveAcpSkillRunPermissionRequest(args: {
           ? `Permission option selected: ${outcome.optionId}`
           : "Permission request cancelled.",
       level: outcome.outcome === "selected" ? "info" : "warn",
+      details: {
+        permissionRequestId: resolvedPermissionRequestId,
+        outcome: outcome.outcome,
+        optionId: outcome.outcome === "selected" ? outcome.optionId : undefined,
+      },
     },
   });
 }
@@ -1744,6 +1868,28 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     event: {
       stage: "canceled",
       message: "ACP skill run cancellation requested.",
+      level: "warn",
+    },
+  });
+}
+
+export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId) {
+    throw new Error("requestId is required");
+  }
+  const controller = controllers.get(requestId);
+  if (!controller) {
+    throw new Error("No active ACP skill run controller is available for interruption.");
+  }
+  await controller.cancel();
+  upsertAcpSkillRun({
+    requestId,
+    activePrompt: false,
+    replyState: "idle",
+    event: {
+      stage: "interrupt-requested",
+      message: "ACP skill run current turn interruption requested.",
       level: "warn",
     },
   });
@@ -2042,7 +2188,11 @@ export function listAcpSkillRuns() {
       planEntries: entry.planEntries?.map((item) => ({ ...item })),
       events: entry.events.map((event) => ({ ...event })),
     }))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort((a, b) => {
+      const created = b.createdAt.localeCompare(a.createdAt);
+      if (created !== 0) return created;
+      return b.requestId.localeCompare(a.requestId);
+    });
 }
 
 export function getAcpSkillRunRecord(requestIdRaw: string) {
@@ -2090,6 +2240,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     replyState: run.replyState,
     connectionActionState: run.connectionActionState,
     applyResultState: run.applyResultState,
+    pendingPermission: run.pendingPermission ? { ...run.pendingPermission } : null,
     activePrompt: run.activePrompt,
     error: run.error,
     removedAt: run.removedAt,

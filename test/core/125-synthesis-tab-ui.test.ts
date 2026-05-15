@@ -40,7 +40,7 @@ describe("Synthesis tab UI model", function () {
           title: "Beta Topic",
           kind: "topic_synthesis",
           coverage: "partial",
-          freshness: "stale",
+          freshness: "dirty",
           updated_at: "2026-05-10T12:00:00.000Z",
         },
         {
@@ -66,10 +66,12 @@ describe("Synthesis tab UI model", function () {
       snapshot.artifacts.rows.map((row) => row.id),
       ["topic-a", "topic-b"],
     );
+    assert.equal(snapshot.artifacts.rows[1]?.freshness, "dirty");
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
     assert.equal(snapshot.graph.layoutPreset, "balanced");
     assert.equal(snapshot.sync.status, "mirror_degraded");
     assert.lengthOf(snapshot.sync.diagnostics, 1);
+    assert.equal(snapshot.deletedArtifacts.count, 0);
     assert.deepEqual(
       snapshot.conflicts.candidates.map((entry) => entry.id),
       ["conflict-a"],
@@ -85,6 +87,7 @@ describe("Synthesis tab UI model", function () {
         artifacts: {
           search: "graph",
           coverage: "partial",
+          freshness: "dirty",
         },
         registry: {
           readiness: "partial",
@@ -102,7 +105,7 @@ describe("Synthesis tab UI model", function () {
             title: "Graph Synthesis",
             kind: "topic_synthesis",
             coverage: "partial",
-            freshness: "stale",
+            freshness: "dirty",
           },
           {
             id: "topic-tags",
@@ -145,6 +148,7 @@ describe("Synthesis tab UI model", function () {
       snapshot.artifacts.visibleRows.map((row) => row.id),
       ["topic-graph"],
     );
+    assert.equal(snapshot.artifacts.visibleRows[0]?.freshness, "dirty");
     assert.deepEqual(
       snapshot.registry.visibleRows.map((row) => row.paper_ref),
       ["1:B"],
@@ -179,6 +183,27 @@ describe("Synthesis tab UI model", function () {
     assert.equal(next.state.graph.showLowSignalUnresolved, true);
     assert.equal(next.state.graph.role, "method");
     assert.isUndefined(next.hostCommand);
+  });
+
+  it("tracks the internal artifact reader view and selected topic", function () {
+    const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "selectTab",
+      payload: { tab: "artifacts" },
+    }).state;
+    const opened = applySynthesisUiAction(state, {
+      action: "showArtifactReader",
+      payload: { topicId: "topic-a" },
+    });
+    const closed = applySynthesisUiAction(opened.state, {
+      action: "closeArtifactReader",
+    });
+
+    assert.isTrue(opened.handled);
+    assert.equal(opened.state.selectedTab, "reader");
+    assert.equal(opened.state.reader.topicId, "topic-a");
+    assert.equal(opened.state.reader.previousTab, "artifacts");
+    assert.equal(closed.state.selectedTab, "artifacts");
+    assert.equal(closed.state.reader.topicId, "");
   });
 
   it("filters graph nodes by kind, low-signal unresolved visibility, and role", function () {
@@ -291,41 +316,145 @@ describe("Synthesis tab UI model", function () {
     });
   });
 
+  it("routes Workbench artifact delete and purge host commands", function () {
+    const deleteResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "deleteTopicArtifact",
+        args: { topicId: "topic-alpha" },
+      },
+    });
+    const purgeResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "purgeDeletedTopicArtifacts",
+        args: {},
+      },
+    });
+
+    assert.isTrue(deleteResult.handled);
+    assert.deepEqual(deleteResult.hostCommand, {
+      command: "deleteTopicArtifact",
+      args: { topicId: "topic-alpha" },
+    });
+    assert.isTrue(purgeResult.handled);
+    assert.deepEqual(purgeResult.hostCommand, {
+      command: "purgeDeletedTopicArtifacts",
+      args: {},
+    });
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
-      "src/modules/synthesisWorkbenchDialog.ts",
+      "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
 
     assert.include(source, "runSynthesizeTopicFromWorkbench");
     assert.include(source, "executeWorkflowFromCurrentSelection");
     assert.include(source, 'entry.manifest.id === "synthesize-topic"');
-    assert.include(source, "workflowParams");
-    assert.include(source, "topicSeed");
+    assert.include(source, "requireSettingsGate: true");
+    assert.notInclude(source, "executionOptionsOverride");
+    assert.notInclude(source, "promptTopicSeed");
+    assert.notInclude(source, "promptSynthesisMode");
   });
 
-  it("wires Workbench artifact open commands to host file operations", async function () {
+  it("hosts the Workbench in a singleton Zotero tab instead of a dialog", async function () {
     const source = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const dialogCompat = await fs.readFile(
       "src/modules/synthesisWorkbenchDialog.ts",
       "utf8",
     );
+    const hooks = await fs.readFile("src/hooks.ts", "utf8");
+    const sidebar = await fs.readFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+      "utf8",
+    );
+
+    assert.include(source, "Zotero_Tabs.add");
+    assert.include(source, 'type: "synthesis-workbench"');
+    assert.include(source, "createXULElement");
+    assert.include(source, "__zoteroSkillsSynthesisWorkbenchBridge");
+    assert.include(source, "scheduleWorkbenchHandshake");
+    assert.include(source, "SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5");
+    assert.include(source, "finalizeWorkbenchHandshake");
+    assert.include(source, 'sendSnapshot("synthesis:init")');
+    assert.include(source, "contentDocument");
+    assert.include(source, "Zotero_Tabs.select");
+    assert.include(source, "cleanupSynthesisWorkbenchTab");
+    assert.notInclude(source, "new ztoolkit.Dialog");
+    assert.notInclude(dialogCompat, "new ztoolkit.Dialog");
+    assert.include(hooks, "openSynthesisWorkbenchTab");
+    assert.include(sidebar, "openSynthesisWorkbenchTab");
+  });
+
+  it("opens artifacts inside the Workbench reader instead of an external editor", async function () {
+    const source = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
 
     assert.include(source, 'command === "openCanonicalMarkdown"');
     assert.include(source, 'command === "openSynthesisFolder"');
+    assert.include(source, 'command === "deleteTopicArtifact"');
+    assert.include(source, 'command === "purgeDeletedTopicArtifacts"');
+    assert.include(source, "confirmWorkbenchAction");
     assert.include(source, "readTopicArtifact");
-    assert.include(source, "openPathInSystem");
+    assert.include(source, "sendArtifactReader");
+    assert.include(source, 'postWorkbenchMessage("synthesis:artifact"');
+    assert.notInclude(source, "openPathInSystem(artifact.paths.currentMarkdown");
+    assert.include(app, "renderArtifactReader");
+    assert.include(app, "Delete");
+    assert.include(app, "Purge Deleted");
+    assert.include(app, "deletedArtifacts.count");
+    assert.include(app, "Back to Artifacts");
+    assert.include(app, "Copy markdown");
   });
 
   it("uses a bundled Sigma graph explorer as the Workbench graph renderer", async function () {
     const index = await fs.readFile("addon/content/synthesis/index.html", "utf8");
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
     const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
 
     assert.include(index, "app.bundle.js");
     assert.include(source, "from \"sigma\"");
     assert.include(source, "new Sigma");
+    assert.include(source, "ResizeObserver");
+    assert.include(source, "scheduleSigmaResize");
+    assert.include(source, "label: \"\"");
+    assert.include(source, "node.kind === \"library_paper\" ? 7 : 2");
+    assert.include(source, "targetKind === \"library_paper\" ? 1.15 : 0.35");
+    assert.include(source, "showHoverLabel");
+    assert.include(source, "node === state.hoveredNode");
     assert.notInclude(source, "renderGraphSvg");
+    assert.include(css, ".sigma-stage");
+    assert.include(css, "height: 100%;");
     assert.include(config, "src/synthesisWorkbenchApp.ts");
     assert.include(config, "addon/content/synthesis/app.bundle.js");
+  });
+
+  it("loads local Markdown renderer assets for the artifact reader", async function () {
+    const index = await fs.readFile("addon/content/synthesis/index.html", "utf8");
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+
+    assert.include(index, "vendor/markdown-it/markdown-it.min.js");
+    assert.include(index, "vendor/katex/katex.min.js");
+    assert.include(index, "vendor/markdown-it-texmath/texmath.min.js");
+    assert.include(source, "markdownit");
+    assert.include(source, "texmath");
+    assert.include(source, "sanitizeRenderedMarkdown");
+    assert.include(source, "loading-spinner");
+    assert.include(source, "reader-body markdown-body");
+    assert.include(css, ".reader-body");
+    assert.include(css, ".loading-shell");
+    assert.include(css, "@keyframes zs-spin");
+    assert.include(css, ".table-wrap");
+    assert.include(css, "overflow: auto;");
   });
 });

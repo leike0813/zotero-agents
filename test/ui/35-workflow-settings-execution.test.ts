@@ -683,7 +683,7 @@ describe("workflow settings execution", function () {
     assert.equal(context.backend.id, "acp-opencode");
     assert.equal(context.backend.type, "acp");
     assert.equal(context.providerId, "acp");
-    assert.equal(context.requestKind, "skillrunner.job.v1");
+    assert.equal(context.requestKind, "acp.skill.run.v1");
     assert.deepEqual(context.providerOptions, {
       acpModeId: "default",
       acpModelId: "qwen3",

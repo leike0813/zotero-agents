@@ -333,6 +333,10 @@ export type ApplyResultHook = (args: {
 export type FilterInputsHook = (args: {
   selectionContext: unknown;
   manifest: WorkflowManifest;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 

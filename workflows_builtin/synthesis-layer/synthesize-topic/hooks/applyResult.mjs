@@ -37,6 +37,13 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
+function isCanceledBundle(bundle) {
+  return (
+    normalizeString(bundle?.kind) === "topic_synthesis_canceled" ||
+    normalizeString(bundle?.status) === "canceled"
+  );
+}
+
 async function readMarkdownArtifact(args, bundle) {
   if (normalizeString(bundle.markdown)) {
     throw new Error(
@@ -66,6 +73,19 @@ async function readMarkdownArtifact(args, bundle) {
 
 export async function applyResult(args) {
   const bundle = requireBundleCandidate(readJsonCandidate(args));
+  if (isCanceledBundle(bundle)) {
+    return {
+      ok: true,
+      status: "canceled",
+      skipped: true,
+      reason: normalizeString(bundle.reason) || "user_cancelled",
+      message: normalizeString(bundle.message) || "synthesize-topic canceled",
+      topicId:
+        normalizeString(bundle.topic_id) ||
+        normalizeString(bundle.duplicate_topic_id) ||
+        undefined,
+    };
+  }
   const markdown = await readMarkdownArtifact(args, bundle);
   const applyTopicSynthesisResult =
     args?.runtime?.hostApi?.synthesis?.applyTopicSynthesisResult;

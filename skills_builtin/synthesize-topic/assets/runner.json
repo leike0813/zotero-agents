@@ -11,7 +11,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "Read assets/resolver.schema.json, then use Zotero MCP synthesis tools to inspect the library index, resolve the canonical resolver, and read paper artifacts. Generate a topic_synthesis result bundle for topicSeed={{ parameter.topicSeed }} with mode={{ parameter.mode }}. Write the synthesis Markdown to result/synthesis.md and return markdown_path, not the Markdown body, in the final JSON. Do not write Zotero items or canonical assets directly. Finish with exactly one JSON object matching the output schema."
+      "common": "For mode=create, first call synthesis.list_topics and compare the seed only against existing topic title/description/aliases. If a suspected duplicate exists, use ACP interactive confirmation before continuing; if the user chooses update, call synthesis.get_topic_context for that topic; if the user chooses cancel, immediately return the canceled final output kind=topic_synthesis_canceled and do not generate Markdown or placeholder artifacts. Read assets/resolver.schema.json, then use Zotero MCP synthesis tools to inspect the library index, resolve the canonical resolver, and read paper artifacts. Generate a topic_synthesis result bundle for topicSeed={{ parameter.topicSeed }} with mode={{ parameter.mode }}. Write the synthesis Markdown to result/synthesis.md and return markdown_path, not the Markdown body, in the final JSON. Do not write Zotero items or canonical assets directly. Finish with exactly one JSON object matching the output schema."
     }
   }
 }

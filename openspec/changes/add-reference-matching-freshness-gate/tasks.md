@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec delta for reference-matching freshness gating.
+- [x] 2. Add tests for deterministic library snapshot hashing.
+- [x] 3. Add tests for baseline metadata write and payload compatibility.
+- [x] 4. Add tests proving `filterInputs` receives workflow params and filters fresh notes.
+- [x] 5. Implement snapshot hash and baseline helpers in the literature workbench package.
+- [x] 6. Wire the gate into `reference-matching` filter/apply hooks.
+- [x] 7. Run targeted tests, builtin workflow manifest check, TypeScript check, and OpenSpec validation.
