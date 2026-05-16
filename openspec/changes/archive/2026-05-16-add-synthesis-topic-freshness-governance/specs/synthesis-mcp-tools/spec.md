@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Synthesis topic tools separate duplicate inventory from update context
 

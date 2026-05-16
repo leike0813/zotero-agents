@@ -4,15 +4,31 @@
 TBD - created by archiving change m2-baseline. Update Purpose after archive.
 ## Requirements
 ### Requirement: 系统必须按 requestKind 与 backend.type 解析 Provider
-系统 MUST 基于 `requestKind + backend.type` 选择可执行 Provider，避免 workflow 与后端协议强耦合。
 
-#### Scenario: Provider 解析成功
-- **WHEN** 存在匹配当前请求类型与 backend 类型的 Provider
-- **THEN** 系统使用该 Provider 执行请求
+系统 MUST 基于 `requestKind + backend.type` 选择可执行 Provider，避免
+workflow 与后端协议强耦合。
 
-#### Scenario: Provider 解析失败
-- **WHEN** 不存在匹配 Provider
-- **THEN** 系统返回明确错误并终止当前输入单元执行
+#### Scenario: SkillRunner job is remote SkillRunner only
+
+- **WHEN** request kind is `skillrunner.job.v1`
+- **THEN** the compatible provider/backend pair SHALL be `skillrunner`.
+- **AND** ACP backends SHALL NOT accept this request kind directly.
+
+#### Scenario: ACP skill run is ACP only
+
+- **WHEN** request kind is `acp.skill.run.v1`
+- **THEN** the compatible provider/backend pair SHALL be `acp`.
+- **AND** the payload SHALL use local filesystem input paths rather than
+  SkillRunner upload-relative paths.
+
+#### Scenario: ACP workflow execution adapts SkillRunner-style requests
+
+- **WHEN** a workflow declared as `skillrunner.job.v1` is executed on an ACP
+  backend
+- **THEN** workflow preparation SHALL convert each built request to
+  `acp.skill.run.v1`
+- **AND** upload-derived `input` fields SHALL contain the corresponding local
+  absolute file path.
 
 ### Requirement: 系统必须对 Provider Request Contract 做统一校验
 系统 MUST 在 runtime/provider dispatch 过程中复用同一套 Provider Request Contract 校验规则，保证请求类型、后端类型和请求负载约束一致。

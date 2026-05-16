@@ -1356,6 +1356,12 @@
         context: [],
         details: [
           { action: "copy-diagnostics", label: labels.copyDiagnostics || labelFrom(snap, "actions.copyDiagnostics", "Copy Diagnostics") },
+          {
+            action: "open-workspace",
+            label: labelFrom(snap, "actions.openWorkspace", "Open Workspace"),
+            payload: { workspaceDir: safeText(snap.agentWorkspaceDir || snap.sessionCwd) },
+            enabled: Boolean(safeText(snap.agentWorkspaceDir || snap.sessionCwd)),
+          },
         ],
       },
       drawers: {

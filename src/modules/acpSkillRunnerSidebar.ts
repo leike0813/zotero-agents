@@ -2,6 +2,7 @@ import { config } from "../../package.json";
 import { getStringOrFallback } from "../utils/locale";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { copyText } from "../utils/ztoolkit";
+import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import {
   SKILLRUNNER_ICON_URI,
   applyToolbarButtonStyling,
@@ -307,39 +308,6 @@ function installMessageBridge(host: SidebarHostRuntime) {
   host.removeMessageListener = () => {
     host.win.removeEventListener("message", onMessage);
   };
-}
-
-function openFolderInSystemFileManager(pathValue: string) {
-  const normalizedPath = String(pathValue || "").trim();
-  if (!normalizedPath) {
-    throw new Error("workspace path is empty");
-  }
-  const pathToFile = Zotero?.File?.pathToFile;
-  if (typeof pathToFile !== "function") {
-    throw new Error("Zotero.File.pathToFile is unavailable");
-  }
-  const file = pathToFile(normalizedPath) as
-    | {
-        exists?: () => boolean;
-        launch?: () => unknown;
-        reveal?: () => unknown;
-      }
-    | undefined;
-  if (!file) {
-    throw new Error(`failed to resolve workspace path: ${normalizedPath}`);
-  }
-  if (typeof file.exists === "function" && !file.exists()) {
-    throw new Error(`workspace path does not exist: ${normalizedPath}`);
-  }
-  if (typeof file.launch === "function") {
-    file.launch();
-    return;
-  }
-  if (typeof file.reveal === "function") {
-    file.reveal();
-    return;
-  }
-  throw new Error("nsIFile launch/reveal is unavailable");
 }
 
 async function handleSidebarAction(

@@ -69,6 +69,12 @@ export default defineConfig({
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/synthesis/app.bundle.js",
       },
+      {
+        entryPoints: ["src/workspaceApp.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/workspace/app.bundle.js",
+      },
     ],
   },
 

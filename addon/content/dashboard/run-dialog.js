@@ -13,6 +13,7 @@
     transcriptNodeMap: new Map(),
     transcriptOrderKey: "",
     transcriptModeKey: "",
+    toolActivityExpandedIds: new Set(),
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsSkillRunnerSidebarBridge";
@@ -289,7 +290,7 @@
   function buildSkillRunnerProcessItem(items, id) {
     const text = (Array.isArray(items) ? items : [])
       .map(function (item) {
-        return safeText(item.summary || item.displayText || item.display_text || item.text);
+        return safeText(item.displayText || item.display_text || item.text || item.summary);
       })
       .filter(Boolean)
       .join("\n");
@@ -592,6 +593,15 @@
       nodeMap: state.transcriptNodeMap,
       orderKey: state.transcriptOrderKey,
       modeKey: state.transcriptModeKey,
+      expandedIds: state.toolActivityExpandedIds,
+      onToggleExpanded: function (id) {
+        if (state.toolActivityExpandedIds.has(id)) {
+          state.toolActivityExpandedIds.delete(id);
+        } else {
+          state.toolActivityExpandedIds.add(id);
+        }
+        renderTranscript(panelSnapshot);
+      },
       onRendered: function (result) {
         state.transcriptOrderKey = result.orderKey;
         state.transcriptModeKey = result.modeKey;
@@ -644,6 +654,12 @@
     renderTranscript(panelSnapshot);
   }
 
+  function closeAllDrawers() {
+    state.drawerOpen = false;
+    state.detailsOpen = false;
+    render(state.workspaceEnvelope || {});
+  }
+
   if (plainModeEl) {
     plainModeEl.addEventListener("click", function () {
       state.chatDisplayMode = "plain";
@@ -660,6 +676,10 @@
   window.addEventListener("message", function (event) {
     const data = event.data;
     if (!data || typeof data !== "object") return;
+    if (data.type === "assistant-panel:close-drawers") {
+      closeAllDrawers();
+      return;
+    }
     if (
       data.type === "run-dialog:init" ||
       data.type === "run-dialog:snapshot" ||

@@ -488,8 +488,21 @@
     $("acp-skill-run-details").classList.toggle("hidden", !state.detailsOpen);
   }
 
+  function closeAllDrawers() {
+    captureReplyDraft();
+    state.runDrawerOpen = false;
+    state.detailsOpen = false;
+    state.permissionRequestDrawerOpen = false;
+    state.permissionRequestDetails = null;
+    render(state.snapshot || {});
+  }
+
   window.addEventListener("message", function (event) {
     const data = event.data || {};
+    if (data.type === "assistant-panel:close-drawers") {
+      closeAllDrawers();
+      return;
+    }
     if (data.type === "acp-skill-run:init" || data.type === "acp-skill-run:snapshot") {
       render(data.payload || {});
     }

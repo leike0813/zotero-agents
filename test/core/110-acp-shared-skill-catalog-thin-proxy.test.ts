@@ -134,7 +134,8 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
       assert.include(result.primarySkillDir, path.join("catalog"));
       const proxyDir = path.join(workspaceDir, ".agents", "skills", "demo");
       const proxySkill = await fs.readFile(path.join(proxyDir, "SKILL.md"), "utf8");
-      assert.include(proxySkill, "Zotero Skills ACP Thin Proxy Run Contract");
+      assert.include(proxySkill, "zotero-skills-acp-thin-proxy:start");
+      assert.include(proxySkill, "zotero-skills-acp-runtime-patch:start");
       assert.include(proxySkill, result.primarySkillDir.replace(/\\/g, "/"));
       assert.include(proxySkill, "scripts/stage_runtime.py");
       assert.isFalse(

@@ -243,7 +243,7 @@ describe("startup workflow scan + menu init", function () {
 
     popup!.dispatch("popupshowing");
     await flushTasks();
-    assert.lengthOf(popup!.children, 4);
+    assert.lengthOf(popup!.children, 5);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
       ["Open SkillRunner Sidebar...", "打开 SkillRunner 侧边栏..."],
@@ -255,10 +255,16 @@ describe("startup workflow scan + menu init", function () {
       "task-manager label",
     );
     assert.equal(popup!.children[1].getAttribute("disabled"), null);
-    assert.equal(popup!.children[2].getAttribute("label"), null);
-    assert.equal(popup!.children[3].getAttribute("disabled"), "true");
     assertMenuLabel(
-      popup!.children[3].getAttribute("label"),
+      popup!.children[2].getAttribute("label"),
+      ["Open Synthesis Workbench..."],
+      "synthesis workbench label",
+    );
+    assert.equal(popup!.children[2].getAttribute("disabled"), null);
+    assert.equal(popup!.children[3].getAttribute("label"), null);
+    assert.equal(popup!.children[4].getAttribute("disabled"), "true");
+    assertMenuLabel(
+      popup!.children[4].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "empty label",
     );

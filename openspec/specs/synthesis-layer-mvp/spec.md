@@ -124,6 +124,21 @@ the plugin-owned Synthesis service.
 - **AND** `applyResult` SHALL read the referenced Markdown file before calling
   `applyTopicSynthesisResult`.
 
+#### Scenario: Create mode checks topic duplicates semantically
+
+- **WHEN** a `synthesize-topic` ACP Skill run starts with `mode=create`
+- **THEN** it SHALL call `synthesis.list_topics` before resolver generation
+- **AND** it SHALL compare the user seed only against existing topic
+  `title/description/aliases`.
+
+#### Scenario: Duplicate candidate requires confirmation
+
+- **WHEN** a create-mode run finds a plausible existing topic duplicate
+- **THEN** the agent SHALL ask for ACP interactive user confirmation before
+  switching to update
+- **AND** it SHALL call `synthesis.get_topic_context` only after the user chooses
+  an existing topic to update.
+
 ### Requirement: Workbench can submit topic synthesis tasks
 
 The Synthesis Workbench SHALL provide a discoverable task submission action for

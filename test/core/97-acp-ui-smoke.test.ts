@@ -223,6 +223,7 @@ describe("acp ui smoke", function () {
     const model = await loadAssistantPanelModelForSmoke();
     const acpChat = model.projectAcpChatPanelSnapshot({
       labels: { manageBackends: "Manage", copyDiagnostics: "Copy Diagnostics" },
+      agentWorkspaceDir: "D:/tmp/acp-workspace",
       diagnostics: [{ kind: "info", message: "ready" }],
       chatSessions: [],
     });
@@ -231,6 +232,14 @@ describe("acp ui smoke", function () {
     assert.include(toolbarActions, "open-backend-manager");
     assert.notInclude(detailActions, "open-backend-manager");
     assert.include(detailActions, "copy-diagnostics");
+    assert.include(detailActions, "open-workspace");
+    const acpChatWorkspaceAction = acpChat.actions.details.find(
+      (entry: any) => entry.action === "open-workspace",
+    );
+    assert.isTrue(acpChatWorkspaceAction.enabled);
+    assert.deepEqual(acpChatWorkspaceAction.payload, {
+      workspaceDir: "D:/tmp/acp-workspace",
+    });
     assert.isTrue(
       acpChat.drawers.details.some(
         (section: any) =>
@@ -301,19 +310,23 @@ describe("acp ui smoke", function () {
     const sharedHost = await readProjectFile("src/modules/sidebarBrowserHost.ts");
     const skillRunnerSidebar = await readProjectFile("src/modules/skillRunnerSidebar.ts");
 
-    assert.include(dialog, "open-acp-sidebar");
+    assert.notInclude(dialog, "open-acp-sidebar");
     assert.include(dialog, "open-acp-skill-runs");
     assert.include(dialog, "DOMParser");
     assert.notInclude(dialog, "javascript:[^");
     assert.include(dialog, "openAssistantWorkspaceSidebar");
     assert.include(dialog, "buildAcpSkillRunPanelSnapshot");
+    assert.include(dialog, "listAcpSkillRuns");
+    assert.include(dialog, "mergeAcpBackendTaskRows");
+    assert.include(dialog, "!run.removedAt && !run.archivedAt");
+    assert.include(dialog, "taskMergeKey");
     assert.include(dialog, "subscribeAcpSkillRunSnapshots");
     assert.include(dialog, "isAcpSkillRunnerTask");
-    assert.include(dialog, "homeAcpEntry");
-    assert.include(dialog, "homeAcpSkillRunsEntry");
-    assert.include(app, "homeAcpEntry");
-    assert.include(app, "homeAcpSkillRunsEntry");
-    assert.include(app, 'sendAction("open-acp-sidebar"');
+    assert.notInclude(dialog, "homeAcpEntry");
+    assert.notInclude(dialog, "homeAcpSkillRunsEntry");
+    assert.notInclude(app, "homeAcpEntry");
+    assert.notInclude(app, "homeAcpSkillRunsEntry");
+    assert.notInclude(app, 'sendAction("open-acp-sidebar"');
     assert.include(app, 'sendAction("open-acp-skill-runs"');
     assert.include(app, "renderAcpSkillRunnerBackend");
     assert.include(app, "row.requestKind");
@@ -370,6 +383,9 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "function ensureSkillRunnerSidebarLayout()");
     assert.include(assistantJs, "const normalizedPayload =");
     assert.include(assistantJs, "function normalizeTab(tab, fallback)");
+    assert.include(assistantJs, "function closeDrawersForTab(tab)");
+    assert.include(assistantJs, "function closeInactiveChildDrawers(activeTab)");
+    assert.include(assistantJs, '"assistant-panel:close-drawers"');
     assert.include(assistantJs, "fallback: state.activeTab");
     assert.include(assistantJs, "actionTrace");
     assert.include(assistantJs, "function traceAction(stage, details)");
@@ -394,6 +410,12 @@ describe("acp ui smoke", function () {
     assert.notInclude(assistantCss, ".assistant-workspace-title");
     assert.include(assistantCss, ".assistant-workspace-close");
     assert.include(acpChatHtml, "./assistant-panel-shared.css");
+    assert.include(acpChatJs, '"assistant-panel:close-drawers"');
+    assert.include(acpChatJs, "function closeAllDrawers()");
+    assert.include(acpSkillRunJs, '"assistant-panel:close-drawers"');
+    assert.include(acpSkillRunJs, "function closeAllDrawers()");
+    assert.include(runDialogJs, '"assistant-panel:close-drawers"');
+    assert.include(runDialogJs, "function closeAllDrawers()");
     assert.include(acpSkillRunHtml, "./assistant-panel-shared.css");
     assert.include(runDialogHtml, "./assistant-panel-shared.css");
     assert.isBelow(
@@ -550,6 +572,9 @@ describe("acp ui smoke", function () {
     assert.include(assistantTranscriptRendererJs, "buildTranscriptRenderItems");
     assert.include(assistantTranscriptRendererJs, "assistant-transcript-revision-badge");
     assert.include(assistantTranscriptRendererJs, "tool_activity_group");
+    assert.include(assistantTranscriptRendererJs, "stableToolActivityGroupKey");
+    assert.include(assistantTranscriptRendererJs, 'summary.setAttribute("aria-expanded"');
+    assert.include(assistantTranscriptRendererJs, 'el("button", "assistant-transcript-tool-activity-summary")');
     assert.include(assistantTranscriptRendererJs, "assistant-transcript-row");
     assert.include(assistantTranscriptRendererJs, "data-assistant-panel-kind");
     assert.include(assistantTranscriptRendererJs, "function transcriptLabel(options, key, fallback)");
@@ -833,6 +858,9 @@ describe("acp ui smoke", function () {
     assert.include(runDialogJs, 'action === "copy-request-id" || action === "copy-diagnostics"');
     assert.include(runDialogJs, "managed: true");
     assert.include(runDialogJs, 'variant: "skillrunner"');
+    assert.include(runDialogJs, "toolActivityExpandedIds: new Set()");
+    assert.include(runDialogJs, "expandedIds: state.toolActivityExpandedIds");
+    assert.include(runDialogJs, "onToggleExpanded: function (id)");
     assert.include(runDialogJs, "assistant_revision");
     assert.include(runDialogHtml, 'id="skillrunner-toolbar"');
     assert.include(runDialogHtml, 'id="skillrunner-banner"');
@@ -845,6 +873,7 @@ describe("acp ui smoke", function () {
     assert.notInclude(runDialogJs, "function renderRevisionEntry");
     assert.include(assistantSidebar, "installAssistantWorkspaceSidebarShell");
     assert.include(assistantSidebar, "openAssistantWorkspaceSidebar");
+    assert.include(assistantSidebar, "isAssistantWorkspaceSidebarOpen");
     assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
     assert.include(assistantSidebar, "function installShellBridge(");
     assert.include(assistantSidebar, "function handleAssistantWorkspaceMessage(");
@@ -856,11 +885,16 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "attachSkillRunnerSidebarHost");
     assert.include(assistantSidebar, "buildDecoratedSkillRunnerSnapshot");
     assert.include(assistantSidebar, "createSkillRunnerHostActionHandler");
+    assert.include(assistantSidebar, "selectedIndex > 0");
+    assert.include(assistantSidebar, "selectedTabUsesPluginOnlyContextPane");
+    assert.include(assistantSidebar, "contextPane.collapsed = true");
     assert.include(assistantSidebar, "drawerOpen: false");
     assert.include(assistantSidebar, "drawerCompletedCollapsed: true");
     assert.include(assistantSidebar, 'open: host.drawerOpen');
     assert.include(assistantSidebar, 'action === "close-drawer"');
     assert.include(assistantSidebar, 'action === "toggle-drawer"');
+    assert.include(assistantSidebar, 'action === "open-workspace"');
+    assert.include(assistantSidebar, 'openFolderInSystemFileManager(String(payload.workspaceDir || "").trim())');
     assert.include(assistantSidebar, "await startNewAcpConversation({ backendId });");
     assert.include(assistantSidebar, "buildAcpSidebarViewSnapshot");
     assert.include(assistantSidebar, "buildAcpSkillRunPanelSnapshot");
@@ -1069,6 +1103,8 @@ describe("acp ui smoke", function () {
     assert.include(sidebarHost, "await startNewAcpConversation({ backendId });");
     assert.include(sidebarHost, "set-reasoning-effort");
     assert.include(sidebarHost, "open-backend-manager");
+    assert.include(sidebarHost, 'action === "open-workspace"');
+    assert.include(sidebarHost, "openFolderInSystemFileManager");
     assert.include(sidebarHost, "set-chat-display-mode");
     assert.include(sidebarHost, "toggle-status-details");
     assert.include(sidebarHost, 'type: "acp:snapshot"');
@@ -1117,11 +1153,9 @@ describe("acp ui smoke", function () {
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
 
-    assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
-    assert.include(en, "task-dashboard-home-acp-open = Open Chat");
     assert.include(en, "task-dashboard-sidebar-assistant = Assistant");
+    assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
     assert.include(en, "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs");
-    assert.include(en, "task-dashboard-home-acp-skill-runs-open = Open Runs");
     assert.include(en, "task-dashboard-acp-backend-title = ACP Backend");
     assert.include(en, "task-dashboard-acp-manage-backends = Manage Backends");
     assert.include(en, "task-dashboard-acp-details = Details");
@@ -1136,11 +1170,9 @@ describe("acp ui smoke", function () {
     assert.include(en, "task-dashboard-acp-archive-conversation = Archive");
     assert.include(en, "task-dashboard-acp-connect = Connect");
     assert.include(en, "task-dashboard-acp-disconnect = Disconnect");
-    assert.include(zh, "task-dashboard-home-acp-title = ACP 对话");
-    assert.include(zh, "task-dashboard-home-acp-open = 打开对话");
     assert.include(zh, "task-dashboard-sidebar-assistant = Assistant");
+    assert.include(zh, "task-dashboard-home-acp-title = ACP 对话");
     assert.include(zh, "task-dashboard-home-acp-skill-runs-title = ACP Skill 运行");
-    assert.include(zh, "task-dashboard-home-acp-skill-runs-open = 打开运行面板");
     assert.include(zh, "task-dashboard-acp-backend-title = ACP 后端");
     assert.include(zh, "task-dashboard-acp-manage-backends = 管理后端");
     assert.include(zh, "task-dashboard-acp-details = 详情");

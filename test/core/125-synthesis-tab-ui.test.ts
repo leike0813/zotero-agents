@@ -42,6 +42,9 @@ describe("Synthesis tab UI model", function () {
           coverage: "partial",
           freshness: "dirty",
           updated_at: "2026-05-10T12:00:00.000Z",
+          paper_count: 7,
+          summary: "Beta summary",
+          completion: 62,
         },
         {
           id: "topic-a",
@@ -49,6 +52,9 @@ describe("Synthesis tab UI model", function () {
           kind: "topic_synthesis",
           coverage: "complete",
           freshness: "fresh",
+          paper_count: 3,
+          summary: "Alpha summary",
+          completion: 100,
         },
       ],
       registry: {
@@ -67,6 +73,9 @@ describe("Synthesis tab UI model", function () {
       ["topic-a", "topic-b"],
     );
     assert.equal(snapshot.artifacts.rows[1]?.freshness, "dirty");
+    assert.equal(snapshot.artifacts.rows[1]?.paper_count, 7);
+    assert.equal(snapshot.artifacts.rows[1]?.summary, "Beta summary");
+    assert.equal(snapshot.artifacts.rows[1]?.completion, 62);
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
     assert.equal(snapshot.graph.layoutPreset, "balanced");
     assert.equal(snapshot.sync.status, "mirror_degraded");
@@ -77,6 +86,65 @@ describe("Synthesis tab UI model", function () {
       ["conflict-a"],
     );
     assert.isArray(snapshot.hostCommands);
+  });
+
+  it("sorts topic rows by paper count and update time for card views", function () {
+    const byPaperCount = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "setFilters",
+      payload: {
+        artifacts: {
+          sort: "paper_count",
+          viewMode: "grid",
+        },
+      },
+    }).state;
+    const byUpdatedAt = applySynthesisUiAction(byPaperCount, {
+      action: "setFilters",
+      payload: {
+        artifacts: {
+          sort: "updated_at",
+        },
+      },
+    }).state;
+
+    const input = {
+      libraryId: 1,
+      artifacts: [
+        {
+          id: "topic-small-new",
+          title: "Small New",
+          kind: "topic_synthesis" as const,
+          coverage: "complete" as const,
+          freshness: "fresh" as const,
+          updated_at: "2026-05-12T00:00:00.000Z",
+          paper_count: 1,
+          completion: 100,
+        },
+        {
+          id: "topic-large-old",
+          title: "Large Old",
+          kind: "topic_synthesis" as const,
+          coverage: "partial" as const,
+          freshness: "dirty" as const,
+          updated_at: "2026-05-10T00:00:00.000Z",
+          paper_count: 12,
+          completion: 50,
+        },
+      ],
+    };
+
+    const paperSnapshot = buildSynthesisUiSnapshot(input, byPaperCount);
+    const updatedSnapshot = buildSynthesisUiSnapshot(input, byUpdatedAt);
+
+    assert.equal(paperSnapshot.artifacts.filters.viewMode, "grid");
+    assert.deepEqual(
+      paperSnapshot.artifacts.visibleRows.map((row) => row.id),
+      ["topic-large-old", "topic-small-new"],
+    );
+    assert.deepEqual(
+      updatedSnapshot.artifacts.visibleRows.map((row) => row.id),
+      ["topic-small-new", "topic-large-old"],
+    );
   });
 
   it("filters artifacts and registry rows through host-owned state", function () {
@@ -381,14 +449,14 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "scheduleWorkbenchHandshake");
     assert.include(source, "SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5");
     assert.include(source, "finalizeWorkbenchHandshake");
-    assert.include(source, 'sendSnapshot("synthesis:init")');
+    assert.include(source, 'sendSnapshot(runtime, "synthesis:init")');
     assert.include(source, "contentDocument");
     assert.include(source, "Zotero_Tabs.select");
     assert.include(source, "cleanupSynthesisWorkbenchTab");
     assert.notInclude(source, "new ztoolkit.Dialog");
     assert.notInclude(dialogCompat, "new ztoolkit.Dialog");
     assert.include(hooks, "openSynthesisWorkbenchTab");
-    assert.include(sidebar, "openSynthesisWorkbenchTab");
+    assert.notInclude(sidebar, "openSynthesisWorkbenchTab");
   });
 
   it("opens artifacts inside the Workbench reader instead of an external editor", async function () {
@@ -405,7 +473,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "confirmWorkbenchAction");
     assert.include(source, "readTopicArtifact");
     assert.include(source, "sendArtifactReader");
-    assert.include(source, 'postWorkbenchMessage("synthesis:artifact"');
+    assert.include(source, 'postWorkbenchMessage(runtime, "synthesis:artifact"');
     assert.notInclude(source, "openPathInSystem(artifact.paths.currentMarkdown");
     assert.include(app, "renderArtifactReader");
     assert.include(app, "Delete");
@@ -413,6 +481,89 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "deletedArtifacts.count");
     assert.include(app, "Back to Artifacts");
     assert.include(app, "Copy markdown");
+  });
+
+  it("renders the redesigned Home, Topics, Index, and immersive reader views", async function () {
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+
+    assert.include(source, "renderHome");
+    assert.include(source, "renderTopics");
+    assert.include(source, "renderIndex");
+    assert.include(source, "renderTopicCard");
+    assert.include(source, "Library Insights");
+    assert.include(source, "Top Topics");
+    assert.include(source, "paper_count");
+    assert.include(source, "completion");
+    assert.include(source, "immersive-reader");
+    assert.notInclude(source, 'makeButton("Refresh", "refresh")');
+    assert.notInclude(source, 'makeButton("Preferences"');
+    assert.notInclude(source, '["artifacts", "Artifacts"]');
+    assert.include(css, ".insight-grid");
+    assert.include(css, ".topic-grid");
+    assert.include(css, ".topic-card");
+    assert.include(css, ".immersive-reader");
+    assert.include(css, ":focus-visible");
+    assert.include(css, "@media (prefers-reduced-motion: reduce)");
+  });
+
+  it("adds a unified Zotero tab workspace entry for Dashboard and Synthesis", async function () {
+    const host = await fs.readFile("src/modules/workspaceTab.ts", "utf8");
+    const app = await fs.readFile("src/workspaceApp.ts", "utf8");
+    const index = await fs.readFile("addon/content/workspace/index.html", "utf8");
+    const css = await fs.readFile("addon/content/workspace/styles.css", "utf8");
+    const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
+
+    assert.include(host, "Zotero_Tabs.add");
+    assert.include(host, 'type: "zotero-skills-workspace"');
+    assert.include(host, "mountTaskDashboardRuntime");
+    assert.include(host, "mountSynthesisWorkbenchRuntime");
+    assert.include(host, "openAssistantWorkspaceSidebar");
+    assert.include(host, "closeAssistantWorkspaceSidebar");
+    assert.include(host, "toggleAssistantWorkspaceSidebar");
+    assert.include(host, 'action === "toggle-sidebar"');
+    assert.notInclude(host, "sidebarOpen");
+    assert.notInclude(host, "openTaskManagerDialog");
+    assert.notInclude(host, 'import { openSynthesisWorkbenchTab');
+    assert.include(host, "dashboard-mount-ready");
+    assert.include(host, "synthesis-mount-ready");
+    assert.include(host, "scheduleWorkspaceHandshake");
+    assert.include(app, "Dashboard");
+    assert.include(app, "Synthesis");
+    assert.include(app, "segmented");
+    assert.include(app, "toggle-sidebar");
+    assert.include(app, "iconButton");
+    assert.include(app, "refresh-toggle");
+    assert.include(app, "refresh-icon");
+    assert.include(app, "sidebar-toggle");
+    assert.isBelow(
+      app.indexOf("refresh-toggle"),
+      app.indexOf("sidebar-toggle"),
+    );
+    assert.notInclude(app, 'button("Preferences", "open-preferences")');
+    assert.notInclude(app, '"open-preferences"');
+    assert.notInclude(app, "sidebarOpen");
+    assert.notInclude(app, "Show Sidebar");
+    assert.notInclude(app, "Hide Sidebar");
+    assert.include(app, "dashboard-mount");
+    assert.include(app, "synthesis-mount");
+    assert.include(app, "is-dashboard");
+    assert.include(app, "is-synthesis");
+    assert.notInclude(app, "Open Dashboard");
+    assert.notInclude(app, "Open Synthesis");
+    assert.notInclude(app, "open-synthesis");
+    assert.notInclude(app, "assistant-frame");
+    assert.include(css, ".dashboard-mount");
+    assert.include(css, ".synthesis-mount");
+    assert.include(css, ".toolbar .icon-button");
+    assert.include(css, ".refresh-icon::before");
+    assert.include(css, ".sidebar-icon::before");
+    assert.include(css, ".workspace-panel.is-dashboard");
+    assert.include(css, ".workspace-panel.is-synthesis");
+    assert.include(css, "grid-template-rows: minmax(0, 1fr)");
+    assert.include(index, "workspace-root");
+    assert.include(config, "src/workspaceApp.ts");
+    assert.include(config, "addon/content/workspace/app.bundle.js");
   });
 
   it("uses a bundled Sigma graph explorer as the Workbench graph renderer", async function () {

@@ -388,6 +388,14 @@
     renderTranscript(state.snapshot);
   }
 
+  function closeAllDrawers() {
+    state.sessionDrawerOpen = false;
+    state.detailsDrawerOpen = false;
+    state.permissionRequestDrawerOpen = false;
+    state.permissionRequestDetails = null;
+    render(state.snapshot || {});
+  }
+
   if (plainModeEl) {
     plainModeEl.addEventListener("click", function () {
       handlePanelAction("set-chat-display-mode", { mode: "plain" });
@@ -401,6 +409,10 @@
 
   window.addEventListener("message", function (event) {
     const data = event.data;
+    if (data && data.type === "assistant-panel:close-drawers") {
+      closeAllDrawers();
+      return;
+    }
     if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot")) return;
     const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
     render(payload);

@@ -25,6 +25,9 @@ export type SynthesisUiArtifactRow = {
   freshness: SynthesisUiFreshness;
   updated_at?: string;
   markdown_preview?: string;
+  paper_count?: number;
+  summary?: string;
+  completion?: number;
 };
 
 export type SynthesisUiRegistryRow = {
@@ -113,6 +116,8 @@ export type SynthesisUiState = {
     search: string;
     coverage: "all" | SynthesisUiCoverage;
     freshness: "all" | SynthesisUiFreshness;
+    sort: "title" | "paper_count" | "updated_at";
+    viewMode: "list" | "grid";
   };
   registry: {
     search: string;
@@ -423,6 +428,12 @@ function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
       freshness: normalizeFreshness(row.freshness),
       updated_at: cleanString(row.updated_at) || undefined,
       markdown_preview: cleanString(row.markdown_preview) || undefined,
+      paper_count: Math.max(0, Math.floor(cleanNumber(row.paper_count, 0))),
+      summary: cleanString(row.summary) || undefined,
+      completion: Math.max(
+        0,
+        Math.min(100, Math.floor(cleanNumber(row.completion, 0))),
+      ),
     }))
     .filter((row) => row.id)
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
@@ -497,6 +508,8 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       search: "",
       coverage: "all",
       freshness: "all",
+      sort: "title",
+      viewMode: "list",
     },
     registry: {
       search: "",
@@ -522,7 +535,7 @@ function filterArtifacts(
   rows: SynthesisUiArtifactRow[],
   filters: SynthesisUiState["artifacts"],
 ) {
-  return rows.filter((row) => {
+  const filtered = rows.filter((row) => {
     if (!includesText(`${row.title} ${row.id}`, filters.search)) {
       return false;
     }
@@ -533,6 +546,23 @@ function filterArtifacts(
       return false;
     }
     return true;
+  });
+  return filtered.sort((left, right) => {
+    if (filters.sort === "paper_count") {
+      return (
+        (right.paper_count || 0) - (left.paper_count || 0) ||
+        left.title.localeCompare(right.title) ||
+        left.id.localeCompare(right.id)
+      );
+    }
+    if (filters.sort === "updated_at") {
+      return (
+        String(right.updated_at || "").localeCompare(String(left.updated_at || "")) ||
+        left.title.localeCompare(right.title) ||
+        left.id.localeCompare(right.id)
+      );
+    }
+    return left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
   });
 }
 
@@ -704,6 +734,20 @@ function normalizeAllOrReadiness(value: unknown) {
   return cleanString(value) === "all" ? "all" : normalizeReadiness(value);
 }
 
+function normalizeArtifactSort(value: unknown): SynthesisUiState["artifacts"]["sort"] {
+  const normalized = cleanString(value);
+  if (normalized === "paper_count" || normalized === "updated_at") {
+    return normalized;
+  }
+  return "title";
+}
+
+function normalizeArtifactViewMode(
+  value: unknown,
+): SynthesisUiState["artifacts"]["viewMode"] {
+  return cleanString(value) === "grid" ? "grid" : "list";
+}
+
 export function applySynthesisUiAction(
   state: SynthesisUiState,
   envelope: SynthesisUiAction,
@@ -763,6 +807,12 @@ export function applySynthesisUiAction(
       }
       if ("freshness" in filters) {
         next.artifacts.freshness = normalizeAllOrFreshness(filters.freshness);
+      }
+      if ("sort" in filters) {
+        next.artifacts.sort = normalizeArtifactSort(filters.sort);
+      }
+      if ("viewMode" in filters) {
+        next.artifacts.viewMode = normalizeArtifactViewMode(filters.viewMode);
       }
     }
     if (payload.registry && typeof payload.registry === "object") {

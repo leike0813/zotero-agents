@@ -53,6 +53,7 @@ const SYNTHESIS_WORKBENCH_BRIDGE_KEY =
 type SynthesisWorkbenchRuntime = {
   tabId: string;
   window: _ZoteroTypes.MainWindow;
+  hostWindow: Window;
   frame: Element;
   frameWindow: Window | null;
   removeMessageListener?: () => void;
@@ -65,11 +66,17 @@ type SynthesisWorkbenchRuntime = {
 };
 
 const SYNTHESIS_WORKBENCH_TAB_ID = "zotero-skills-synthesis-workbench";
+const SYNTHESIS_WORKBENCH_EMBEDDED_ID = "zotero-skills-synthesis-workbench-embedded";
 const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
+
+export type MountedSynthesisWorkbenchRuntime = {
+  refresh: () => Promise<void>;
+  cleanup: () => void;
+};
 
 function localize(key: string, fallback: string) {
   try {
@@ -173,7 +180,7 @@ function installSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
   runtime.frameWindow = frameWindow;
   const bridge: SynthesisWorkbenchBridge = {
     postMessage: async (action, payload) => {
-      handleAction({
+      handleAction(runtime, {
         type: "synthesis:action",
         action,
         payload:
@@ -306,8 +313,11 @@ async function runSynthesizeTopicFromWorkbench(args: {
   });
 }
 
-function postWorkbenchMessage(type: SynthesisBridgeMessageType, payload: unknown) {
-  const runtime = synthesisWorkbenchTab;
+function postWorkbenchMessage(
+  runtime: SynthesisWorkbenchRuntime,
+  type: SynthesisBridgeMessageType,
+  payload: unknown,
+) {
   if (!runtime?.frameWindow) {
     return;
   }
@@ -320,13 +330,16 @@ function postWorkbenchMessage(type: SynthesisBridgeMessageType, payload: unknown
   );
 }
 
-async function sendSnapshot(messageType: Extract<SynthesisBridgeMessageType, "synthesis:init" | "synthesis:snapshot">) {
-  const runtime = synthesisWorkbenchTab;
+async function sendSnapshot(
+  runtime: SynthesisWorkbenchRuntime,
+  messageType: Extract<SynthesisBridgeMessageType, "synthesis:init" | "synthesis:snapshot">,
+) {
   if (!runtime?.frameWindow) {
     return;
   }
   if (messageType === "synthesis:init") {
     postWorkbenchMessage(
+      runtime,
       messageType,
       buildSynthesisUiSnapshot(
         runtime.snapshotInput || buildDefaultSnapshotInput(),
@@ -339,11 +352,13 @@ async function sendSnapshot(messageType: Extract<SynthesisBridgeMessageType, "sy
     : await getDefaultSynthesisService()
         .getSynthesisSnapshot(runtime.state)
         .catch(() => buildSynthesisUiSnapshot(buildDefaultSnapshotInput(), runtime.state));
-  postWorkbenchMessage(messageType, snapshot);
+  postWorkbenchMessage(runtime, messageType, snapshot);
 }
 
-async function sendArtifactReader(topicId: string) {
-  const runtime = synthesisWorkbenchTab;
+async function sendArtifactReader(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+) {
   if (!runtime?.frameWindow) {
     return;
   }
@@ -366,8 +381,8 @@ async function sendArtifactReader(topicId: string) {
     payload: { topicId },
   });
   runtime.state = result.state;
-  await sendSnapshot("synthesis:snapshot");
-  postWorkbenchMessage("synthesis:artifact", dto);
+  await sendSnapshot(runtime, "synthesis:snapshot");
+  postWorkbenchMessage(runtime, "synthesis:artifact", dto);
 }
 
 async function openSynthesisFolderFromWorkbench(args: {
@@ -410,8 +425,10 @@ function confirmWorkbenchAction(message: string, win?: _ZoteroTypes.MainWindow) 
   return typeof globalConfirm === "function" ? globalConfirm(message) : true;
 }
 
-function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
-  const runtime = synthesisWorkbenchTab;
+function handleAction(
+  runtime: SynthesisWorkbenchRuntime,
+  envelope: SynthesisWorkbenchActionEnvelope,
+) {
   if (!runtime) {
     return;
   }
@@ -420,7 +437,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
     payload: envelope.payload,
   } satisfies SynthesisUiAction);
   if (!result.handled) {
-    void sendSnapshot("synthesis:snapshot");
+    void sendSnapshot(runtime, "synthesis:snapshot");
     return;
   }
   runtime.state = result.state;
@@ -435,7 +452,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
     })
       .catch((error) => reportWorkbenchError(error, runtime.window))
       .finally(() => {
-        void sendSnapshot("synthesis:snapshot");
+        void sendSnapshot(runtime, "synthesis:snapshot");
       });
     return;
   }
@@ -443,7 +460,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
     void getDefaultSynthesisService()
       .queryCitationGraph()
       .finally(() => {
-        void sendSnapshot("synthesis:snapshot");
+        void sendSnapshot(runtime, "synthesis:snapshot");
       });
     return;
   }
@@ -453,7 +470,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
         ? (envelope.payload.args as Record<string, unknown>)
         : {};
     const topicId = String(commandArgs.topicId || "").trim();
-    void sendArtifactReader(topicId).catch((error) =>
+    void sendArtifactReader(runtime, topicId).catch((error) =>
       reportWorkbenchError(error, runtime.window),
     );
     return;
@@ -476,7 +493,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
         runtime.window,
       )
     ) {
-      void sendSnapshot("synthesis:snapshot");
+      void sendSnapshot(runtime, "synthesis:snapshot");
       return;
     }
     void getDefaultSynthesisService()
@@ -488,7 +505,7 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
       })
       .catch((error) => reportWorkbenchError(error, runtime.window))
       .finally(() => {
-        void sendSnapshot("synthesis:snapshot");
+        void sendSnapshot(runtime, "synthesis:snapshot");
       });
     return;
   }
@@ -499,30 +516,32 @@ function handleAction(envelope: SynthesisWorkbenchActionEnvelope) {
         runtime.window,
       )
     ) {
-      void sendSnapshot("synthesis:snapshot");
+      void sendSnapshot(runtime, "synthesis:snapshot");
       return;
     }
     void getDefaultSynthesisService()
       .purgeDeletedTopicArtifacts()
       .catch((error) => reportWorkbenchError(error, runtime.window))
       .finally(() => {
-        void sendSnapshot("synthesis:snapshot");
+        void sendSnapshot(runtime, "synthesis:snapshot");
       });
     return;
   }
-  void sendSnapshot("synthesis:snapshot");
+  void sendSnapshot(runtime, "synthesis:snapshot");
+}
+
+function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.handshakeTimer) {
+    clearInterval(runtime.handshakeTimer);
+    runtime.handshakeTimer = undefined;
+  }
+  clearSynthesisWorkbenchBridge(runtime);
+  runtime.removeMessageListener?.();
 }
 
 function cleanupSynthesisWorkbenchTab() {
   if (synthesisWorkbenchTab) {
-    if (synthesisWorkbenchTab.handshakeTimer) {
-      clearInterval(synthesisWorkbenchTab.handshakeTimer);
-      synthesisWorkbenchTab.handshakeTimer = undefined;
-    }
-    clearSynthesisWorkbenchBridge(synthesisWorkbenchTab);
-  }
-  if (synthesisWorkbenchTab?.removeMessageListener) {
-    synthesisWorkbenchTab.removeMessageListener();
+    cleanupSynthesisRuntime(synthesisWorkbenchTab);
   }
   synthesisWorkbenchTab = undefined;
 }
@@ -537,11 +556,11 @@ function attachWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
     if (!data || data.type !== "synthesis:action") {
       return;
     }
-    handleAction(data as SynthesisWorkbenchActionEnvelope);
+    handleAction(runtime, data as SynthesisWorkbenchActionEnvelope);
   };
-  runtime.window.addEventListener("message", onMessage);
+  runtime.hostWindow.addEventListener("message", onMessage);
   runtime.removeMessageListener = () => {
-    runtime.window.removeEventListener("message", onMessage);
+    runtime.hostWindow.removeEventListener("message", onMessage);
   };
 }
 
@@ -567,7 +586,7 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.handshakeComplete = true;
   stopWorkbenchHandshake(runtime);
-  void sendSnapshot("synthesis:init");
+  void sendSnapshot(runtime, "synthesis:init");
 }
 
 function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
@@ -600,6 +619,41 @@ function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
     run,
     SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
   );
+}
+
+export async function mountSynthesisWorkbenchRuntime(args: {
+  root: HTMLElement;
+  hostWindow: Window;
+  chromeWindow: _ZoteroTypes.MainWindow;
+  snapshotInput?: SynthesisUiSnapshotInput;
+}): Promise<MountedSynthesisWorkbenchRuntime> {
+  while (args.root.firstChild) {
+    args.root.removeChild(args.root.firstChild);
+  }
+  const doc = args.root.ownerDocument || args.hostWindow.document;
+  const frame = createSynthesisBrowser(doc);
+  args.root.appendChild(frame);
+  const runtime: SynthesisWorkbenchRuntime = {
+    tabId: SYNTHESIS_WORKBENCH_EMBEDDED_ID,
+    window: args.chromeWindow,
+    hostWindow: args.hostWindow,
+    frame,
+    frameWindow: resolveFrameWindow(frame),
+    handshakeAttemptCount: 0,
+    handshakeSuccessCount: 0,
+    handshakeComplete: false,
+    state: createDefaultSynthesisUiState(),
+    snapshotInput: args.snapshotInput,
+  };
+  attachWorkbenchBridge(runtime);
+  setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
+  scheduleWorkbenchHandshake(runtime);
+  return {
+    refresh: async () => {
+      await sendSnapshot(runtime, "synthesis:snapshot");
+    },
+    cleanup: () => cleanupSynthesisRuntime(runtime),
+  };
 }
 
 export async function openSynthesisWorkbenchTab(args: {
@@ -636,6 +690,7 @@ export async function openSynthesisWorkbenchTab(args: {
   const runtime: SynthesisWorkbenchRuntime = {
     tabId: SYNTHESIS_WORKBENCH_TAB_ID,
     window: hostWindow,
+    hostWindow,
     frame,
     frameWindow: resolveFrameWindow(frame),
     handshakeAttemptCount: 0,

@@ -12,6 +12,7 @@ import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegis
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
 import { openSynthesisWorkbenchTab } from "./modules/synthesisWorkbenchTab";
+import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
 import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflowPackageDiagnostics";
@@ -21,6 +22,7 @@ import {
   removeDashboardToolbarButton,
 } from "./modules/dashboardToolbarButton";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
+import { openFolderInSystemFileManager } from "./utils/fileSystem";
 import {
   startSkillRunnerModelCacheAutoRefresh,
 } from "./providers/skillrunner/modelCache";
@@ -346,39 +348,6 @@ async function resolveManagedLocalBackend() {
   return backend;
 }
 
-function openFolderInSystemFileManager(pathValue: string) {
-  const normalizedPath = String(pathValue || "").trim();
-  if (!normalizedPath) {
-    throw new Error("skills folder path is empty");
-  }
-  const pathToFile = Zotero?.File?.pathToFile;
-  if (typeof pathToFile !== "function") {
-    throw new Error("Zotero.File.pathToFile is unavailable");
-  }
-  const file = pathToFile(normalizedPath) as
-    | {
-        exists?: () => boolean;
-        launch?: () => unknown;
-        reveal?: () => unknown;
-      }
-    | undefined;
-  if (!file) {
-    throw new Error(`failed to resolve skills folder path: ${normalizedPath}`);
-  }
-  if (typeof file.exists === "function" && !file.exists()) {
-    throw new Error(`skills folder does not exist: ${normalizedPath}`);
-  }
-  if (typeof file.launch === "function") {
-    file.launch();
-    return;
-  }
-  if (typeof file.reveal === "function") {
-    file.reveal();
-    return;
-  }
-  throw new Error("nsIFile launch/reveal is unavailable");
-}
-
 /**
  * This function is just an example of dispatcher for Preference UI events.
  * Any operations should be placed in a function to keep this funcion clear.
@@ -433,8 +402,13 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "openTaskManager":
-    case "openDashboard":
       await openTaskManagerDialog();
+      break;
+    case "openDashboard":
+      await openZoteroSkillsWorkspaceTab({
+        window: data.window,
+        initialView: "dashboard",
+      });
       break;
     case "openSynthesisWorkbench":
       await openSynthesisWorkbenchTab({
@@ -478,7 +452,9 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       );
     case "openRuntimePersistenceRoot":
       try {
-        openFolderInSystemFileManager(getRuntimePersistencePaths().root);
+        openFolderInSystemFileManager(getRuntimePersistencePaths().root, {
+          label: "runtime folder",
+        });
         return {
           ok: true,
           stage: "open-runtime-persistence-root",
@@ -573,7 +549,9 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
             details: resolved.details,
           };
         }
-        openFolderInSystemFileManager(resolved.skillsFolder);
+        openFolderInSystemFileManager(resolved.skillsFolder, {
+          label: "skills folder",
+        });
         return {
           ok: true,
           stage: "open-managed-skills-folder",

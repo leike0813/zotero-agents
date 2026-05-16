@@ -50,12 +50,13 @@ import {
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
-import { getAcpFrontendSnapshot } from "./acpSessionManager";
 import {
   buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
+  listAcpSkillRuns,
   selectAcpSkillRun,
   subscribeAcpSkillRunSnapshots,
+  type AcpSkillRunRecord,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 
@@ -156,27 +157,6 @@ type DashboardSnapshot = {
     configurable: boolean;
     builtin: boolean;
   }>;
-  homeAcpEntry?: {
-    title: string;
-    subtitle: string;
-    status: string;
-    statusLabel: string;
-    messageCount: number;
-    activeBackendLabel?: string;
-    connectedCount?: number;
-    errorCount?: number;
-    totalMessageCount?: number;
-    actionLabel: string;
-    lastError?: string;
-  };
-  homeAcpSkillRunsEntry?: {
-    title: string;
-    subtitle: string;
-    activeCount: number;
-    failedCount: number;
-    recentCount: number;
-    actionLabel: string;
-  };
   acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   homeWorkflowDocView?: {
     workflowId: string;
@@ -239,6 +219,12 @@ type DashboardActionEnvelope = {
   type: "dashboard:action";
   action: string;
   payload?: Record<string, unknown>;
+};
+
+export type MountedTaskDashboardRuntime = {
+  refresh: () => void;
+  selectTab: (args: { tabKey?: string; workflowId?: string }) => void;
+  cleanup: () => void;
 };
 
 function resolveDashboardPageUrl() {
@@ -362,68 +348,6 @@ function sanitizeRenderedMarkdownHtml(html: string) {
   };
   sanitizeNode(root);
   return String(root.innerHTML || "");
-}
-
-function buildHomeAcpEntry() {
-  const frontend = getAcpFrontendSnapshot();
-  const snapshot = frontend.activeSnapshot;
-  const normalizedStatus = String(snapshot.status || "idle").trim();
-  const statusLabel =
-    normalizedStatus === "checking-command"
-      ? localize(
-          "task-dashboard-acp-status-checking-command",
-          "Checking command",
-        )
-      : normalizedStatus === "spawning"
-        ? localize("task-dashboard-acp-status-spawning", "Spawning")
-        : normalizedStatus === "initializing"
-          ? localize(
-              "task-dashboard-acp-status-initializing",
-              "Initializing",
-            )
-          : normalizedStatus === "connecting"
-            ? localize("task-dashboard-acp-status-connecting", "Connecting")
-            : normalizedStatus === "connected"
-              ? localize("task-dashboard-acp-status-connected", "Connected")
-              : normalizedStatus === "prompting"
-                ? localize("task-dashboard-acp-status-prompting", "Running")
-                : normalizedStatus === "auth-required"
-                  ? localize(
-                      "task-dashboard-acp-status-auth-required",
-                      "Authentication required",
-                    )
-                  : normalizedStatus === "permission-required"
-                    ? localize(
-                        "task-dashboard-acp-status-permission-required",
-                        "Permission required",
-                      )
-                    : normalizedStatus === "error"
-                      ? localize("task-dashboard-acp-status-error", "Error")
-                      : localize("task-dashboard-acp-status-idle", "Idle");
-  const messageCount = Array.isArray(snapshot.items)
-    ? snapshot.items.filter((entry) => entry.kind === "message").length
-    : 0;
-  return {
-    title: localize("task-dashboard-home-acp-title", "ACP Chat"),
-    subtitle: localize(
-      "task-dashboard-home-acp-subtitle",
-      "Persistent ACP chat for your Zotero workspace.",
-    ),
-    status: normalizedStatus,
-    statusLabel,
-    messageCount,
-    activeBackendLabel:
-      String(snapshot.backend?.displayName || snapshot.backendId || "").trim() ||
-      undefined,
-    connectedCount: frontend.connectedCount,
-    errorCount: frontend.errorCount,
-    totalMessageCount: frontend.totalMessageCount,
-    actionLabel: localize("task-dashboard-home-acp-open", "Open Chat"),
-    lastError:
-      String(snapshot.prerequisiteError || "").trim() ||
-      String(snapshot.lastError || "").trim() ||
-      undefined,
-  } satisfies NonNullable<DashboardSnapshot["homeAcpEntry"]>;
 }
 
 function renderInlineMarkdownFallback(value: string) {
@@ -725,6 +649,82 @@ function mapTaskRow(task: WorkflowTaskRecord): DashboardRow {
   return mapTaskRowWithMeta(task);
 }
 
+function mapAcpSkillRunToWorkflowTask(run: AcpSkillRunRecord): WorkflowTaskRecord {
+  const status =
+    run.status === "repairing"
+      ? "running"
+      : run.pendingPermission
+        ? "waiting_user"
+        : run.status;
+  return {
+    id: `acp-skill-run:${run.requestId}`,
+    runId: String(run.runId || run.requestId || "").trim() || run.requestId,
+    jobId: String(run.jobId || "").trim() || "-",
+    requestId: run.requestId,
+    workflowId: String(run.workflowId || run.skillId || "").trim() || "acp-skill-run",
+    workflowLabel:
+      String(run.workflowLabel || run.skillId || "").trim() || "ACP Skill Run",
+    taskName:
+      String(run.taskName || run.workflowLabel || run.skillId || "").trim() ||
+      "ACP Skill Run",
+    providerId: "acp",
+    requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+    backendId: run.backendId,
+    backendType: run.backendType,
+    backendBaseUrl: "",
+    engine: String(run.agentFamily || run.acpModelId || "").trim() || undefined,
+    state: normalizeStatus(status, "running") as WorkflowTaskRecord["state"],
+    error: String(run.error || run.conversationError || "").trim() || undefined,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+  };
+}
+
+function taskMergeKey(row: WorkflowTaskRecord) {
+  return String(row.requestId || "").trim() || String(row.id || "").trim();
+}
+
+function mergeAcpBackendTaskRows(args: {
+  backendId: string;
+  history: TaskDashboardHistoryRecord[];
+  active: WorkflowTaskRecord[];
+  backendMetaById: Map<
+    string,
+    {
+      type?: string;
+      displayName?: string;
+    }
+  >;
+}) {
+  const backendId = String(args.backendId || "").trim();
+  const merged = new Map<string, WorkflowTaskRecord>();
+  const accept = (row: WorkflowTaskRecord) => {
+    if (String(row.backendId || "").trim() !== backendId) {
+      return;
+    }
+    if (String(row.requestKind || "").trim() !== ACP_SKILL_RUN_REQUEST_KIND) {
+      return;
+    }
+    const key = taskMergeKey(row);
+    if (key) {
+      merged.set(key, row);
+    }
+  };
+  args.history.forEach((row) => accept({ ...row }));
+  listAcpSkillRuns()
+    .filter((run) => !run.removedAt && !run.archivedAt)
+    .map((run) => mapAcpSkillRunToWorkflowTask(run))
+    .forEach(accept);
+  args.active.forEach((row) => accept({ ...row }));
+  return Array.from(merged.values())
+    .map((entry) =>
+      mapTaskRowWithMeta(entry, {
+        backendMetaById: args.backendMetaById,
+      }),
+    )
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 function mapTaskRowWithMeta(
   task: WorkflowTaskRecord,
   options?: {
@@ -871,8 +871,13 @@ function resolveDashboardFrameWindow(frame: Element | null) {
   return candidate.contentWindow || null;
 }
 
-function clearWorkflowSettingsSaveTimer(state: DashboardState, workflowId: string) {
-  if (!taskManagerDialog?.window) {
+function clearWorkflowSettingsSaveTimer(
+  state: DashboardState,
+  workflowId: string,
+  hostWindow?: Window | null,
+) {
+  const timerWindow = hostWindow || taskManagerDialog?.window;
+  if (!timerWindow) {
     return;
   }
   const keys = Array.from(state.workflowSettingsSaveTimerById.keys()).filter(
@@ -881,7 +886,7 @@ function clearWorkflowSettingsSaveTimer(state: DashboardState, workflowId: strin
   for (const key of keys) {
     const timer = state.workflowSettingsSaveTimerById.get(key);
     if (timer) {
-      taskManagerDialog.window.clearTimeout(timer);
+      timerWindow.clearTimeout(timer);
     }
     state.workflowSettingsSaveTimerById.delete(key);
   }
@@ -1061,8 +1066,6 @@ async function buildDashboardSnapshot(args: {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   let homeWorkflows: DashboardSnapshot["homeWorkflows"] = [];
-  let homeAcpEntry: DashboardSnapshot["homeAcpEntry"] = undefined;
-  let homeAcpSkillRunsEntry: DashboardSnapshot["homeAcpSkillRunsEntry"] = undefined;
   let homeWorkflowDocView: DashboardSnapshot["homeWorkflowDocView"] = undefined;
   const selectedBackendFromRequestedTab = args.backends.find(
     (entry) => entry.id === fromBackendTabKey(selectedTabKey),
@@ -1081,25 +1084,6 @@ async function buildDashboardSnapshot(args: {
     homeWorkflows = await buildHomeWorkflowSummaries({
       backends: args.backends,
     });
-    homeAcpEntry = buildHomeAcpEntry();
-    const acpSkillRunSnapshot = buildAcpSkillRunPanelSnapshot();
-    homeAcpSkillRunsEntry = {
-      title: localize(
-        "task-dashboard-home-acp-skill-runs-title",
-        "ACP Skill Runs",
-      ),
-      subtitle: localize(
-        "task-dashboard-home-acp-skill-runs-subtitle",
-        "Observe workflow runs executed through ACP backends.",
-      ),
-      activeCount: acpSkillRunSnapshot.summary.active,
-      failedCount: acpSkillRunSnapshot.summary.failed,
-      recentCount: acpSkillRunSnapshot.summary.recent,
-      actionLabel: localize(
-        "task-dashboard-home-acp-skill-runs-open",
-        "Open Runs",
-      ),
-    };
     const requestedWorkflowId = String(
       args.state.homeWorkflowDocWorkflowId || "",
     ).trim();
@@ -1279,17 +1263,6 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-home-workflow-builtin",
       "Builtin",
     ),
-    homeAcpTitle: localize("task-dashboard-home-acp-title", "ACP Chat"),
-    homeAcpOpen: localize("task-dashboard-home-acp-open", "Open Chat"),
-    homeAcpMessages: localize("task-dashboard-home-acp-messages", "Messages"),
-    homeAcpSkillRunsTitle: localize(
-      "task-dashboard-home-acp-skill-runs-title",
-      "ACP Skill Runs",
-    ),
-    homeAcpSkillRunsOpen: localize(
-      "task-dashboard-home-acp-skill-runs-open",
-      "Open Runs",
-    ),
     homeWorkflowDocMissingReadme: localize(
       "task-dashboard-home-workflow-doc-missing-readme",
       "README.md was not found for this workflow.",
@@ -1371,8 +1344,6 @@ async function buildDashboardSnapshot(args: {
     },
     runningRows,
     homeWorkflows,
-    homeAcpEntry,
-    homeAcpSkillRunsEntry,
     homeWorkflowDocView,
     backendLoadError: args.state.backendLoadError,
   };
@@ -1499,9 +1470,12 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (isAcpBackend(selectedBackend)) {
-    backendView.rows = rows.filter(
-      (row) => String(row.requestKind || "").trim() === ACP_SKILL_RUN_REQUEST_KIND,
-    );
+    backendView.rows = mergeAcpBackendTaskRows({
+      backendId: selectedBackend.id,
+      history: args.history,
+      active: args.active,
+      backendMetaById,
+    });
     backendView.emptyRowsText =
       backendView.emptyRowsText || labels.backendNoTasks || "No ACP skill runs.";
     snapshot.backendView = backendView;
@@ -1561,8 +1535,12 @@ function normalizeFilteredActive() {
 export async function openTaskManagerDialog(args?: {
   initialTabKey?: string;
   initialWorkflowId?: string;
+  embeddedRoot?: HTMLElement;
+  hostWindow?: Window;
+  chromeWindow?: _ZoteroTypes.MainWindow;
 }) {
-  if (isWindowAlive(taskManagerDialog?.window)) {
+  const isEmbedded = !!args?.embeddedRoot && !!args.hostWindow;
+  if (!isEmbedded && isWindowAlive(taskManagerDialog?.window)) {
     if (externalSelectTab) {
       externalSelectTab({
         tabKey: args?.initialTabKey,
@@ -1598,6 +1576,16 @@ export async function openTaskManagerDialog(args?: {
   let refreshTimer: number | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
+  const getRuntimeWindow = () => args?.hostWindow || taskManagerDialog?.window || null;
+  const getChromeWindow = () =>
+    args?.chromeWindow ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  const alertRuntimeWindow = (message: string) => {
+    const win = getRuntimeWindow();
+    if (typeof win?.alert === "function") {
+      win.alert(message);
+    }
+  };
 
   const refreshConfiguredBackends = async () => {
     try {
@@ -1699,7 +1687,7 @@ export async function openTaskManagerDialog(args?: {
     ) {
       return true;
     }
-    taskManagerDialog?.window?.alert?.(
+    alertRuntimeWindow(
       resolveBackendUnavailableMessageForDialog({
         backendId: backend.id,
         backendDisplayName: resolveBackendDisplayName(
@@ -1785,7 +1773,7 @@ export async function openTaskManagerDialog(args?: {
         workflowParams: executionOptions.workflowParams || {},
         providerOptions: executionOptions.providerOptions || {},
       });
-      clearWorkflowSettingsSaveTimer(state, workflowId);
+      clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
       state.workflowSettingsSaveStateById.set(workflowId, "saving");
       state.workflowSettingsSaveErrorById.delete(workflowId);
       if (
@@ -1796,13 +1784,13 @@ export async function openTaskManagerDialog(args?: {
       ) {
         refresh("user-action");
       }
-      const timer = taskManagerDialog?.window?.setTimeout(() => {
+      const timer = getRuntimeWindow()?.setTimeout(() => {
         try {
           const draft = state.workflowSettingsDraftById.get(workflowId) || {};
           updateWorkflowSettings(workflowId, draft);
           state.workflowSettingsSaveStateById.set(workflowId, "saved");
           state.workflowSettingsSaveErrorById.delete(workflowId);
-          const idleTimer = taskManagerDialog?.window?.setTimeout(() => {
+          const idleTimer = getRuntimeWindow()?.setTimeout(() => {
             state.workflowSettingsSaveStateById.set(workflowId, "idle");
           }, 900);
           if (idleTimer) {
@@ -1850,7 +1838,7 @@ export async function openTaskManagerDialog(args?: {
           selectAcpSkillRun(requestId);
         }
         await openAssistantWorkspaceSidebar({
-          window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+          window: getChromeWindow(),
           tab: "acp-skills",
           requestId,
         });
@@ -1858,7 +1846,7 @@ export async function openTaskManagerDialog(args?: {
       }
       if (backendType === "skillrunner") {
         if (!requestId) {
-          taskManagerDialog?.window?.alert?.(
+          alertRuntimeWindow(
             localize(
               "task-dashboard-open-run-missing-request-id",
               "This run does not have a request ID yet. Try again later.",
@@ -1870,7 +1858,7 @@ export async function openTaskManagerDialog(args?: {
           return;
         }
         await openAssistantWorkspaceSidebar({
-          window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+          window: getChromeWindow(),
           tab: "skillrunner",
           backend,
           requestId,
@@ -1888,20 +1876,13 @@ export async function openTaskManagerDialog(args?: {
       }
       return;
     }
-    if (action === "open-acp-sidebar") {
-      await openAssistantWorkspaceSidebar({
-        window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
-        tab: "acp-chat",
-      });
-      return;
-    }
     if (action === "open-acp-skill-runs") {
       const requestId = String(payload.requestId || "").trim();
       if (requestId) {
         selectAcpSkillRun(requestId);
       }
       await openAssistantWorkspaceSidebar({
-        window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+        window: getChromeWindow(),
         tab: "acp-skills",
         requestId,
       });
@@ -1983,7 +1964,7 @@ export async function openTaskManagerDialog(args?: {
         const backend = state.backends.find((entry) => entry.id === backendId);
         if (backend && isSkillRunnerBackend(backend)) {
           await openAssistantWorkspaceSidebar({
-            window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+            window: getChromeWindow(),
             tab: "skillrunner",
             backend,
             requestId,
@@ -1991,7 +1972,7 @@ export async function openTaskManagerDialog(args?: {
         } else if (backend && isAcpBackend(backend)) {
           selectAcpSkillRun(requestId);
           await openAssistantWorkspaceSidebar({
-            window: Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined,
+            window: getChromeWindow(),
             tab: "acp-skills",
             requestId,
           });
@@ -2011,7 +1992,7 @@ export async function openTaskManagerDialog(args?: {
           baseUrl: backend.baseUrl,
         });
       } catch (error) {
-        taskManagerDialog?.window?.alert?.(
+        alertRuntimeWindow(
           localize("task-dashboard-open-management-failed", "Failed to open management UI: {error}", {
             args: {
               error: compactError(error),
@@ -2034,7 +2015,7 @@ export async function openTaskManagerDialog(args?: {
         if (!refreshed.ok) {
           throw new Error(String(refreshed.error || "unknown error"));
         }
-        taskManagerDialog?.window?.alert?.(
+        alertRuntimeWindow(
           localize(
             "backend-manager-refresh-model-cache-success",
             "Model cache refreshed. updatedAt={refreshedAt}",
@@ -2046,7 +2027,7 @@ export async function openTaskManagerDialog(args?: {
           ),
         );
       } catch (error) {
-        taskManagerDialog?.window?.alert?.(
+        alertRuntimeWindow(
           localize(
             "backend-manager-refresh-model-cache-failed",
             "Failed to refresh model cache: {error}",
@@ -2071,7 +2052,7 @@ export async function openTaskManagerDialog(args?: {
         try {
           await cancelAcpSkillRun(requestId);
         } catch (error) {
-          taskManagerDialog?.window?.alert?.(
+          alertRuntimeWindow(
             localize("task-dashboard-skillrunner-cancel-failed", "Failed to cancel run: {error}", {
               args: {
                 error: compactError(error),
@@ -2100,14 +2081,14 @@ export async function openTaskManagerDialog(args?: {
       try {
         const client = buildSkillRunnerManagementClient({
           backend,
-          alertWindow: taskManagerDialog?.window,
+          alertWindow: getRuntimeWindow() || undefined,
           localize,
         });
         await client.cancelRun({
           requestId,
         });
       } catch (error) {
-        taskManagerDialog?.window?.alert?.(
+        alertRuntimeWindow(
           localize("task-dashboard-skillrunner-cancel-failed", "Failed to cancel run: {error}", {
             args: {
               error: compactError(error),
@@ -2160,7 +2141,7 @@ export async function openTaskManagerDialog(args?: {
       const format = String(payload.format || "pretty-json").trim();
       const entries = listRuntimeLogs({ order: "desc" }).filter(e => state.runtimeLogSelectedIdSet.has(e.id));
       if (entries.length === 0) {
-         taskManagerDialog?.window?.alert?.(
+         alertRuntimeWindow(
            localize("task-dashboard-runtime-logs-copy-empty", "No log entries selected to copy.")
          );
          return;
@@ -2177,7 +2158,7 @@ export async function openTaskManagerDialog(args?: {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         taskManagerDialog?.window?.alert?.(
+         alertRuntimeWindow(
            localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
              args: { error: compactError(error) },
            }),
@@ -2198,7 +2179,7 @@ export async function openTaskManagerDialog(args?: {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         taskManagerDialog?.window?.alert?.(
+         alertRuntimeWindow(
            localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
              args: { error: compactError(error) },
            }),
@@ -2219,7 +2200,7 @@ export async function openTaskManagerDialog(args?: {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         taskManagerDialog?.window?.alert?.(
+         alertRuntimeWindow(
            localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
              args: { error: compactError(error) },
            }),
@@ -2228,6 +2209,135 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
   };
+
+  let mountedFrame: Element | null = null;
+  let exposesExternalSelectTab = false;
+
+  const selectDashboardTab = (next: { tabKey?: string; workflowId?: string }) => {
+    if (typeof next.tabKey === "string" && next.tabKey.trim()) {
+      const requestedTabKey = next.tabKey.trim();
+      const requestedBackendId = fromBackendTabKey(requestedTabKey);
+      if (
+        requestedBackendId &&
+        !ensureBackendInteractable(requestedBackendId)
+      ) {
+        return;
+      }
+      state.selectedTabKey = requestedTabKey;
+      if (state.selectedTabKey !== "home") {
+        state.homeWorkflowDocWorkflowId = "";
+      }
+    }
+    if (typeof next.workflowId === "string") {
+      state.selectedWorkflowOptionsWorkflowId = next.workflowId.trim();
+    }
+    refresh("user-action");
+  };
+
+  const cleanupDashboardRuntime = () => {
+    if (unsubscribeTasks) {
+      unsubscribeTasks();
+      unsubscribeTasks = undefined;
+    }
+    if (refreshTimer) {
+      getRuntimeWindow()?.clearInterval(refreshTimer);
+      refreshTimer = undefined;
+    }
+    if (unsubscribeBackendHealth) {
+      unsubscribeBackendHealth();
+      unsubscribeBackendHealth = undefined;
+    }
+    if (unsubscribeAcpSkillRuns) {
+      unsubscribeAcpSkillRuns();
+      unsubscribeAcpSkillRuns = undefined;
+    }
+    if (removeMessageListener) {
+      removeMessageListener();
+      removeMessageListener = undefined;
+    }
+    for (const workflowId of Array.from(
+      state.workflowSettingsSaveTimerById.keys(),
+    )) {
+      clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
+    }
+    state.workflowSettingsSaveTimerById.clear();
+    if (exposesExternalSelectTab) {
+      externalSelectTab = undefined;
+      exposesExternalSelectTab = false;
+    }
+    frameWindow = null;
+    mountedFrame?.remove();
+    mountedFrame = null;
+  };
+
+  const mountDashboardRuntime = (
+    root: HTMLElement,
+    hostWindow: Window,
+    options?: { exposeExternalSelectTab?: boolean },
+  ): MountedTaskDashboardRuntime => {
+    root.innerHTML = "";
+    const ownerDocument = root.ownerDocument || hostWindow.document;
+    const frame = createDashboardFrame(ownerDocument, resolveDashboardPageUrl());
+    mountedFrame = frame;
+    root.appendChild(frame);
+    frameWindow = resolveDashboardFrameWindow(frame);
+    frame.addEventListener("load", () => {
+      frameWindow = resolveDashboardFrameWindow(frame);
+      if (!frameWindow) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-open-management-failed",
+            "Dashboard host failed to resolve frame window.",
+            {
+              args: {
+                error: "frame_window_unavailable",
+              },
+            },
+          ),
+        );
+        return;
+      }
+      void enqueueRefresh("dashboard:init");
+    });
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown };
+      if (!data || data.type !== "dashboard:action") {
+        return;
+      }
+      void handleAction(data as DashboardActionEnvelope);
+    };
+    hostWindow.addEventListener("message", onMessage);
+    removeMessageListener = () => {
+      hostWindow.removeEventListener("message", onMessage);
+    };
+    if (options?.exposeExternalSelectTab) {
+      externalSelectTab = selectDashboardTab;
+      exposesExternalSelectTab = true;
+    }
+
+    refresh("init");
+    unsubscribeTasks = subscribeWorkflowTasks(() => {
+      refresh("task-update");
+    });
+    unsubscribeBackendHealth = subscribeSkillRunnerBackendHealth(() => {
+      refresh("backend-health");
+    });
+    unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
+      refresh("task-update");
+    });
+    refreshTimer = hostWindow.setInterval(() => {
+      refresh("periodic");
+    }, 1200);
+    return {
+      refresh: () => refresh("user-action"),
+      selectTab: selectDashboardTab,
+      cleanup: cleanupDashboardRuntime,
+    };
+  };
+
+  if (isEmbedded && args?.embeddedRoot && args.hostWindow) {
+    return mountDashboardRuntime(args.embeddedRoot, args.hostWindow);
+  }
 
   const dialogData: Record<string, unknown> = {
     loadCallback: () => {
@@ -2247,104 +2357,11 @@ export async function openTaskManagerDialog(args?: {
       if (!root) {
         return;
       }
-      root.innerHTML = "";
-      const frame = createDashboardFrame(doc, resolveDashboardPageUrl());
-      root.appendChild(frame);
-      frameWindow = resolveDashboardFrameWindow(frame);
-      frame.addEventListener("load", () => {
-        frameWindow = resolveDashboardFrameWindow(frame);
-        if (!frameWindow) {
-          taskManagerDialog?.window?.alert?.(
-            localize(
-              "task-dashboard-open-management-failed",
-              "Dashboard host failed to resolve frame window.",
-              {
-                args: {
-                  error: "frame_window_unavailable",
-                },
-              },
-            ),
-          );
-          return;
-        }
-        void enqueueRefresh("dashboard:init");
+      mountDashboardRuntime(root, dialogWindow, {
+        exposeExternalSelectTab: true,
       });
-      const onMessage = (event: MessageEvent) => {
-        const data = event.data as { type?: unknown };
-        if (!data || data.type !== "dashboard:action") {
-          return;
-        }
-        void handleAction(data as DashboardActionEnvelope);
-      };
-      dialogWindow.addEventListener("message", onMessage);
-      removeMessageListener = () => {
-        dialogWindow.removeEventListener("message", onMessage);
-      };
-      externalSelectTab = (next) => {
-        if (typeof next.tabKey === "string" && next.tabKey.trim()) {
-          const requestedTabKey = next.tabKey.trim();
-          const requestedBackendId = fromBackendTabKey(requestedTabKey);
-          if (
-            requestedBackendId &&
-            !ensureBackendInteractable(requestedBackendId)
-          ) {
-            return;
-          }
-          state.selectedTabKey = requestedTabKey;
-          if (state.selectedTabKey !== "home") {
-            state.homeWorkflowDocWorkflowId = "";
-          }
-        }
-        if (typeof next.workflowId === "string") {
-          state.selectedWorkflowOptionsWorkflowId = next.workflowId.trim();
-        }
-        refresh("user-action");
-      };
-
-      refresh("init");
-      unsubscribeTasks = subscribeWorkflowTasks(() => {
-        refresh("task-update");
-      });
-      unsubscribeBackendHealth = subscribeSkillRunnerBackendHealth(() => {
-        refresh("backend-health");
-      });
-      unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
-        refresh("task-update");
-      });
-      refreshTimer = dialogWindow.setInterval(() => {
-        refresh("periodic");
-      }, 1200);
     },
-    unloadCallback: () => {
-      if (unsubscribeTasks) {
-        unsubscribeTasks();
-        unsubscribeTasks = undefined;
-      }
-      if (refreshTimer) {
-        taskManagerDialog?.window?.clearInterval(refreshTimer);
-        refreshTimer = undefined;
-      }
-      if (unsubscribeBackendHealth) {
-        unsubscribeBackendHealth();
-        unsubscribeBackendHealth = undefined;
-      }
-      if (unsubscribeAcpSkillRuns) {
-        unsubscribeAcpSkillRuns();
-        unsubscribeAcpSkillRuns = undefined;
-      }
-      if (removeMessageListener) {
-        removeMessageListener();
-        removeMessageListener = undefined;
-      }
-      for (const workflowId of Array.from(
-        state.workflowSettingsSaveTimerById.keys(),
-      )) {
-        clearWorkflowSettingsSaveTimer(state, workflowId);
-      }
-      state.workflowSettingsSaveTimerById.clear();
-      externalSelectTab = undefined;
-      frameWindow = null;
-    },
+    unloadCallback: cleanupDashboardRuntime,
   };
 
   taskManagerDialog = new ztoolkit.Dialog(1, 1)
@@ -2372,6 +2389,22 @@ export async function openTaskManagerDialog(args?: {
     ?.promise;
 
   taskManagerDialog = undefined;
+}
+
+export async function mountTaskDashboardRuntime(args: {
+  root: HTMLElement;
+  hostWindow: Window;
+  chromeWindow?: _ZoteroTypes.MainWindow;
+  initialTabKey?: string;
+  initialWorkflowId?: string;
+}) {
+  return openTaskManagerDialog({
+    initialTabKey: args.initialTabKey,
+    initialWorkflowId: args.initialWorkflowId,
+    embeddedRoot: args.root,
+    hostWindow: args.hostWindow,
+    chromeWindow: args.chromeWindow,
+  }) as Promise<MountedTaskDashboardRuntime>;
 }
 
 export async function resetTaskManagerDialogRuntimeForTests() {

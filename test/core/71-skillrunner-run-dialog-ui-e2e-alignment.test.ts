@@ -166,6 +166,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
   it("uses shared transcript rendering with SkillRunner revision metadata preserved as badges/details", async function () {
     const transcriptRendererJs = await readProjectFile("addon/content/dashboard/assistant-transcript-renderer.js");
     const js = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    const thinkingCoreJs = await readProjectFile("addon/content/dashboard/chat_thinking_core.js");
     const css = await readProjectFile("addon/content/dashboard/run-dialog.css");
 
     assert.include(transcriptRendererJs, "data-assistant-panel-kind");
@@ -178,6 +179,18 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, 'kind.trim().toLowerCase() !== "assistant_revision"');
     assert.include(js, 'variant: "skillrunner"');
     assert.include(js, "renderMarkdown");
+    assert.include(
+      js,
+      "item.displayText || item.display_text || item.text || item.summary",
+    );
+    assert.include(
+      thinkingCoreJs,
+      "const displayText = safeText(event && (event.displayText || event.display_text));",
+    );
+    assert.include(thinkingCoreJs, "const rawText = safeText(event && event.text);");
+    assert.include(thinkingCoreJs, "const text = displayText || rawText || summary;");
+    assert.include(thinkingCoreJs, "normalizedText: normalizeText(text || summary),");
+    assert.notInclude(thinkingCoreJs, "const text = normalizeText(event && event.text);");
     assert.notInclude(css, ".revision-badge");
     assert.notInclude(js, "function renderRevisionEntry");
     assert.notInclude(css, ".revision-bubble");

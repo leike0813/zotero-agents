@@ -191,10 +191,10 @@ function makeButton(
 
 function titleForTab(tab: Snapshot["selectedTab"]) {
   if (tab === "reader") return state.artifactReader?.title || "Artifact Reader";
-  if (tab === "artifacts") return "Synthesis Artifacts";
-  if (tab === "registry") return "Paper Registry";
+  if (tab === "artifacts") return "Topics";
+  if (tab === "registry") return "Index";
   if (tab === "graph") return "Citation Graph";
-  return "Synthesis Overview";
+  return "Home";
 }
 
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
@@ -206,14 +206,14 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   state.graph = undefined;
 
   const sidebar = el("aside", "sidebar");
-  sidebar.appendChild(el("div", "brand", "Synthesis"));
-  sidebar.appendChild(el("div", "muted", `Library ${snapshot.libraryId}`));
+  sidebar.appendChild(el("div", "brand", "Zotero Skills"));
+  sidebar.appendChild(el("div", "muted", `Synthesis · Library ${snapshot.libraryId}`));
   const nav = el("div", "nav");
   [
-    ["overview", "Overview"],
-    ["artifacts", "Artifacts"],
-    ["registry", "Registry"],
-    ["graph", "Citation Graph"],
+    ["overview", "Home"],
+    ["artifacts", "Topics"],
+    ["graph", "Graph"],
+    ["registry", "Index"],
   ].forEach(([tab, label]) => {
     nav.appendChild(
       makeButton(
@@ -230,12 +230,6 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   const content = el("main", "content");
   const topbar = el("div", "topbar");
   topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
-  const toolbar = el("div", "toolbar");
-  toolbar.appendChild(makeButton("Refresh", "refresh"));
-  toolbar.appendChild(
-    makeButton("Preferences", "hostCommand", { command: "openPreferences" }),
-  );
-  topbar.appendChild(toolbar);
   content.appendChild(topbar);
   const main = el("section", "main");
   renderCurrentView(main, snapshot);
@@ -265,43 +259,145 @@ function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
   if (snapshot.selectedTab === "reader") {
     renderArtifactReader(main, snapshot);
   } else if (snapshot.selectedTab === "artifacts") {
-    renderArtifacts(main, snapshot);
+    renderTopics(main, snapshot);
   } else if (snapshot.selectedTab === "registry") {
-    renderRegistry(main, snapshot);
+    renderIndex(main, snapshot);
   } else if (snapshot.selectedTab === "graph") {
     renderGraph(main, snapshot);
   } else {
-    renderOverview(main, snapshot);
+    renderHome(main, snapshot);
   }
 }
 
-function renderOverview(main: HTMLElement, snapshot: Snapshot) {
-  const grid = el("div", "status-grid");
-  [
-    ["Storage root", snapshot.storage.rootState],
-    ["Zotero anchor", snapshot.storage.anchorState],
-    ["Mirror shards", snapshot.storage.mirrorState],
-    ["Artifacts", snapshot.artifacts.rows.length],
-    ["Deleted artifacts", snapshot.deletedArtifacts.count],
-    ["Registry rows", snapshot.registry.rows.length],
-    ["Graph nodes", snapshot.graph.nodes.length],
-    ["Graph layout", snapshot.graph.layoutStatus],
-    ["Sync status", snapshot.sync?.status || "ready"],
-    ["Conflict candidates", snapshot.conflicts?.candidates?.length || 0],
-    ["Graph rebuild", snapshot.preferences.graphRebuildMode],
-  ].forEach(([label, value]) => {
-    const box = el("div", "status-box");
-    box.appendChild(el("strong", "", String(label)));
-    box.appendChild(el("span", "muted", String(value || "-")));
-    grid.appendChild(box);
-  });
-  main.appendChild(grid);
+function topicPaperCount(row: Record<string, unknown>) {
+  const value = Number(row.paper_count || 0);
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
-function renderArtifacts(main: HTMLElement, snapshot: Snapshot) {
+function topicCompletion(row: Record<string, unknown>) {
+  const value = Number(row.completion || 0);
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.floor(value))) : 0;
+}
+
+function sortedTopTopics(snapshot: Snapshot) {
+  return [...snapshot.artifacts.rows]
+    .sort((left, right) =>
+      topicPaperCount(right) - topicPaperCount(left) ||
+      String(right.updated_at || "").localeCompare(String(left.updated_at || "")) ||
+      String(left.title || "").localeCompare(String(right.title || "")),
+    )
+    .slice(0, 8);
+}
+
+function renderInsightCard(label: string, value: unknown, detail: string, tone = "") {
+  const card = el("div", `insight-card ${tone}`.trim());
+  card.appendChild(el("span", "insight-label", label));
+  card.appendChild(el("strong", "insight-value", String(value || "0")));
+  card.appendChild(el("span", "insight-detail", detail));
+  return card;
+}
+
+function renderTopicCard(row: Record<string, unknown>) {
+  const card = el("button", "topic-card");
+  card.type = "button";
+  card.addEventListener("click", () =>
+    sendAction("hostCommand", {
+      command: "openCanonicalMarkdown",
+      args: { topicId: row.id },
+    }),
+  );
+  const title = String(row.title || row.id || "Untitled topic");
+  const summary = String(row.summary || row.markdown_preview || "").trim();
+  const count = topicPaperCount(row);
+  const completion = topicCompletion(row);
+  const head = el("div", "topic-card-head");
+  head.appendChild(el("strong", "", title));
+  head.appendChild(badge(row.freshness, toneFor(row.freshness)));
+  card.appendChild(head);
+  card.appendChild(
+    el(
+      "p",
+      "topic-card-summary",
+      summary || "No topic summary is available yet.",
+    ),
+  );
+  const meter = el("div", "topic-meter");
+  const fill = el("span");
+  fill.style.width = `${completion}%`;
+  meter.appendChild(fill);
+  card.appendChild(meter);
+  const meta = el("div", "topic-card-meta");
+  meta.appendChild(el("span", "", `${count} papers`));
+  meta.appendChild(el("span", "", `${completion}% complete`));
+  meta.appendChild(el("span", "", String(row.updated_at || "Not updated")));
+  card.appendChild(meta);
+  return card;
+}
+
+function renderHome(main: HTMLElement, snapshot: Snapshot) {
+  const shell = el("div", "home-shell");
+  const insights = el("section", "workspace-section");
+  const insightHeader = el("div", "section-heading");
+  insightHeader.appendChild(el("h2", "", "Library Insights"));
+  insights.appendChild(insightHeader);
+  const grid = el("div", "insight-grid");
+  grid.appendChild(
+    renderInsightCard(
+      "Registered papers",
+      snapshot.registry.rows.length,
+      "Rows available in the local registry",
+      "teal",
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Topics",
+      snapshot.artifacts.rows.length,
+      "Generated synthesis artifacts",
+      "blue",
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Graph",
+      snapshot.graph.visibleNodes.length,
+      `${snapshot.graph.visibleEdges.length} visible edges`,
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Sync",
+      snapshot.sync?.status || "ready",
+      `${snapshot.conflicts?.candidates?.length || 0} open conflicts`,
+      "orange",
+    ),
+  );
+  insights.appendChild(grid);
+  shell.appendChild(insights);
+
+  const topics = el("section", "workspace-section");
+  const topicHeader = el("div", "section-heading");
+  topicHeader.appendChild(el("h2", "", "Top Topics"));
+  topicHeader.appendChild(
+    makeButton("View All", "selectTab", { tab: "artifacts" }, false),
+  );
+  topics.appendChild(topicHeader);
+  const topicGrid = el("div", "topic-grid");
+  const rows = sortedTopTopics(snapshot);
+  if (!rows.length) {
+    topicGrid.appendChild(el("div", "empty", "No synthesis topics yet."));
+  } else {
+    rows.forEach((row) => topicGrid.appendChild(renderTopicCard(row)));
+  }
+  topics.appendChild(topicGrid);
+  shell.appendChild(topics);
+  main.appendChild(shell);
+}
+
+function renderTopics(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const header = el("div", "panel-header");
-  header.appendChild(el("strong", "", "Artifacts"));
+  header.appendChild(el("strong", "", "Topics"));
   const filters = el("div", "filters");
   const search = el("input");
   search.placeholder = "Search";
@@ -310,6 +406,27 @@ function renderArtifacts(main: HTMLElement, snapshot: Snapshot) {
     sendAction("setFilters", { artifacts: { search: search.value } }),
   );
   filters.appendChild(search);
+  filters.appendChild(
+    selectControl(["title", "paper_count", "updated_at"], snapshot.artifacts.filters.sort || "title", (value) =>
+      sendAction("setFilters", { artifacts: { sort: value } }),
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "List",
+      "setFilters",
+      { artifacts: { viewMode: "list" } },
+      snapshot.artifacts.filters.viewMode !== "grid",
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "Grid",
+      "setFilters",
+      { artifacts: { viewMode: "grid" } },
+      snapshot.artifacts.filters.viewMode === "grid",
+    ),
+  );
   filters.appendChild(
     makeButton("Run synthesis", "hostCommand", {
       command: "runSynthesizeTopic",
@@ -322,28 +439,36 @@ function renderArtifacts(main: HTMLElement, snapshot: Snapshot) {
   );
   header.appendChild(filters);
   panel.appendChild(header);
-  panel.appendChild(
-    tableView(
-      ["Title", "Coverage", "Freshness", "Updated", "Action"],
-      snapshot.artifacts.visibleRows,
-      (row) => [
-        titleWithSummary(String(row.title || ""), String(row.markdown_preview || "")),
-        badge(row.coverage, toneFor(row.coverage)),
-        badge(row.freshness, toneFor(row.freshness)),
-        row.updated_at || "-",
-        actionGroup([
-          makeButton("Open", "hostCommand", {
-            command: "openCanonicalMarkdown",
-            args: { topicId: row.id },
-          }),
-          makeButton("Delete", "hostCommand", {
-            command: "deleteTopicArtifact",
-            args: { topicId: row.id },
-          }),
-        ]),
-      ],
-    ),
-  );
+  if (snapshot.artifacts.filters.viewMode === "grid") {
+    const grid = el("div", "topic-grid panel-grid");
+    snapshot.artifacts.visibleRows.forEach((row) => grid.appendChild(renderTopicCard(row)));
+    panel.appendChild(grid);
+  } else {
+    panel.appendChild(
+      tableView(
+        ["Title", "Papers", "Completion", "Coverage", "Freshness", "Updated", "Action"],
+        snapshot.artifacts.visibleRows,
+        (row) => [
+          titleWithSummary(String(row.title || ""), String(row.summary || row.markdown_preview || "")),
+          topicPaperCount(row),
+          `${topicCompletion(row)}%`,
+          badge(row.coverage, toneFor(row.coverage)),
+          badge(row.freshness, toneFor(row.freshness)),
+          row.updated_at || "-",
+          actionGroup([
+            makeButton("Open", "hostCommand", {
+              command: "openCanonicalMarkdown",
+              args: { topicId: row.id },
+            }),
+            makeButton("Delete", "hostCommand", {
+              command: "deleteTopicArtifact",
+              args: { topicId: row.id },
+            }),
+          ]),
+        ],
+      ),
+    );
+  }
   if (snapshot.deletedArtifacts.count > 0) {
     const deleted = el(
       "p",
@@ -440,7 +565,7 @@ function sanitizeRenderedMarkdown(html: string) {
 function renderArtifactReader(main: HTMLElement, snapshot: Snapshot) {
   const topicId = state.artifactReader?.topicId || snapshot.reader?.topicId || "";
   const reader = state.artifactReader;
-  const panel = el("div", "reader-panel");
+  const panel = el("div", "reader-panel immersive-reader");
   const header = el("div", "reader-header");
   const titleGroup = el("div", "reader-title");
   titleGroup.appendChild(el("strong", "", reader?.title || topicId || "Artifact"));
@@ -484,10 +609,10 @@ function renderArtifactReader(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(panel);
 }
 
-function renderRegistry(main: HTMLElement, snapshot: Snapshot) {
+function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const header = el("div", "panel-header");
-  header.appendChild(el("strong", "", "Registry"));
+  header.appendChild(el("strong", "", "Index"));
   const filters = el("div", "filters");
   const search = el("input");
   search.placeholder = "Search";

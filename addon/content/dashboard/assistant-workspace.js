@@ -157,6 +157,19 @@
     );
   }
 
+  function closeDrawersForTab(tab) {
+    const frame = frameForTab(tab);
+    const frameWindow = frame && frame.contentWindow;
+    if (!frameWindow) return;
+    frameWindow.postMessage({ type: "assistant-panel:close-drawers" }, "*");
+  }
+
+  function closeInactiveChildDrawers(activeTab) {
+    tabs.forEach(function (entry) {
+      if (entry !== activeTab) closeDrawersForTab(entry);
+    });
+  }
+
   function cacheChildPayload(tab, phase, payload) {
     if (tabs.indexOf(tab) < 0) return;
     const current = state.latestChildPayloads.get(tab) || {};
@@ -198,7 +211,11 @@
   function setActiveTab(tab, options) {
     const fallback = options && options.fallback ? options.fallback : state.activeTab;
     const nextTab = normalizeTab(tab, fallback);
+    const previousTab = state.activeTab;
     state.activeTab = nextTab;
+    if (nextTab !== previousTab) {
+      closeInactiveChildDrawers(nextTab);
+    }
     tabs.forEach(function (entry) {
       const frame = frameForTab(entry);
       const button = $("assistant-tab-" + entry);

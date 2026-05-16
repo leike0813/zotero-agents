@@ -4,6 +4,7 @@ import type { BackendInstance } from "../backends/types";
 import { getStringOrFallback } from "../utils/locale";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { copyText } from "../utils/ztoolkit";
+import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import {
   SKILLRUNNER_ICON_URI,
   applyToolbarButtonStyling,
@@ -38,7 +39,6 @@ import {
   toggleAcpConversationStatusDetails,
 } from "./acpSessionManager";
 import { openBackendManagerDialog } from "./backendManager";
-import { openSynthesisWorkbenchTab } from "./synthesisWorkbenchTab";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
   archiveAcpSkillRun,
@@ -80,7 +80,6 @@ type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type SidebarButtonElement = XULElement | Element;
 type MountedSidebarPane = {
   button: SidebarButtonElement | null;
-  synthesisButton?: SidebarButtonElement | null;
   container: XULElement | null;
   frame: Element | null;
   frameWindow: Window | null;
@@ -139,9 +138,18 @@ function resolveSidebarPageUrl() {
 }
 
 function resolvePreferredTarget(win: _ZoteroTypes.MainWindow): AcpSidebarTarget {
-  return String((win as any).Zotero_Tabs?.selectedType || "").trim() === "reader"
+  const tabs = (win as any).Zotero_Tabs;
+  const selectedIndex = Number(tabs?.selectedIndex || 0);
+  return selectedIndex > 0 || String(tabs?.selectedType || "").trim() === "reader"
     ? "reader"
     : "library";
+}
+
+function selectedTabUsesPluginOnlyContextPane(win: _ZoteroTypes.MainWindow) {
+  const tabs = (win as any).Zotero_Tabs;
+  const selectedIndex = Number(tabs?.selectedIndex || 0);
+  const selectedType = String(tabs?.selectedType || "").trim();
+  return selectedIndex > 0 && selectedType !== "reader";
 }
 
 function waitForTimeout(delayMs: number) {
@@ -231,42 +239,6 @@ function buildSidebarButton(
   return button;
 }
 
-function buildSynthesisWorkbenchButton(
-  doc: Document,
-  win: _ZoteroTypes.MainWindow,
-  id: string,
-) {
-  const label = localize(
-    "menu-workflows-open-synthesis-workbench",
-    "Open Synthesis Workbench...",
-  );
-  const button = doc.createXULElement("toolbarbutton") as SidebarButtonElement;
-  button.id = id;
-  button.setAttribute(
-    "class",
-    "zotero-tb-button zs-assistant-sidebar-button zs-synthesis-workbench-button",
-  );
-  button.setAttribute("tooltiptext", label);
-  button.setAttribute("aria-label", label);
-  button.setAttribute("label", "S");
-  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-    "font-weight",
-    "700",
-  );
-  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-    "font-size",
-    "13px",
-  );
-  (button as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
-    "color",
-    "#1f7a8c",
-  );
-  button.addEventListener("command", () => {
-    void openSynthesisWorkbenchTab({ window: win });
-  });
-  return button;
-}
-
 function setButtonSelected(button: SidebarButtonElement | null, selected: boolean) {
   if (!button) {
     return;
@@ -342,7 +314,15 @@ function deactivateTarget(
     setButtonSelected(host.library.button, false);
   } else {
     setSidebarContainerVisible(host.reader.container, false);
-    (readerRoots.contextInner as Element | null)?.removeAttribute("hidden");
+    if (selectedTabUsesPluginOnlyContextPane(host.win)) {
+      const contextPane = (host.win as any).ZoteroContextPane;
+      if (contextPane) {
+        contextPane.collapsed = true;
+      }
+      (readerRoots.contextInner as Element | null)?.removeAttribute("hidden");
+    } else {
+      (readerRoots.contextInner as Element | null)?.removeAttribute("hidden");
+    }
     setButtonSelected(host.reader.button, false);
   }
   if (host.activeTarget === target) {
@@ -797,39 +777,6 @@ async function handleChildAction(
   postAcpChatSnapshot(target === "reader" ? host.reader : host.library, target);
 }
 
-function openFolderInSystemFileManager(pathValue: string) {
-  const normalizedPath = String(pathValue || "").trim();
-  if (!normalizedPath) {
-    throw new Error("workspace path is empty");
-  }
-  const pathToFile = Zotero?.File?.pathToFile;
-  if (typeof pathToFile !== "function") {
-    throw new Error("Zotero.File.pathToFile is unavailable");
-  }
-  const file = pathToFile(normalizedPath) as
-    | {
-        exists?: () => boolean;
-        launch?: () => unknown;
-        reveal?: () => unknown;
-      }
-    | undefined;
-  if (!file) {
-    throw new Error(`failed to resolve workspace path: ${normalizedPath}`);
-  }
-  if (typeof file.exists === "function" && !file.exists()) {
-    throw new Error(`workspace path does not exist: ${normalizedPath}`);
-  }
-  if (typeof file.launch === "function") {
-    file.launch();
-    return;
-  }
-  if (typeof file.reveal === "function") {
-    file.reveal();
-    return;
-  }
-  throw new Error("nsIFile launch/reveal is unavailable");
-}
-
 async function handleAcpSkillRunAction(
   host: AssistantWorkspaceHostRuntime,
   action: string,
@@ -1025,6 +972,10 @@ async function handleAcpChatAction(
       toggleAcpConversationDiagnostics({ visible: true });
       return;
     }
+    if (action === "open-workspace") {
+      openFolderInSystemFileManager(String(payload.workspaceDir || "").trim());
+      return;
+    }
     if (action === "send-prompt") {
       const message = String(payload.message || "").trim();
       if (!message) return;
@@ -1075,12 +1026,6 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
     void openAssistantWorkspaceSidebar({ window: host.win });
   });
   roots.sidenav.appendChild(button);
-  const synthesisButton = buildSynthesisWorkbenchButton(
-    doc,
-    host.win,
-    `${config.addonRef}-library-synthesis-workbench-mode`,
-  );
-  roots.sidenav.appendChild(synthesisButton);
 
   const container = createSidebarContainer(doc);
   applySidebarPaneContainerStyles(container);
@@ -1105,9 +1050,7 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
       if (!target) return;
       if (
         target === button ||
-        target.closest(`#${button.id}`) ||
-        target === synthesisButton ||
-        target.closest(`#${synthesisButton.id}`)
+        target.closest(`#${button.id}`)
       ) {
         return;
       }
@@ -1117,7 +1060,6 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
   );
   host.library = {
     button,
-    synthesisButton,
     container,
     frame,
     frameWindow: resolveSidebarFrameWindow(frame),
@@ -1141,12 +1083,6 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
     void openAssistantWorkspaceSidebar({ window: host.win });
   });
   roots.sidenav.appendChild(button);
-  const synthesisButton = buildSynthesisWorkbenchButton(
-    doc,
-    host.win,
-    `${config.addonRef}-reader-synthesis-workbench-mode`,
-  );
-  roots.sidenav.appendChild(synthesisButton);
 
   const container = createSidebarContainer(doc);
   applySidebarPaneContainerStyles(container);
@@ -1171,9 +1107,7 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
       if (!target) return;
       if (
         target === button ||
-        target.closest(`#${button.id}`) ||
-        target === synthesisButton ||
-        target.closest(`#${synthesisButton.id}`)
+        target.closest(`#${button.id}`)
       ) {
         return;
       }
@@ -1183,7 +1117,6 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
   );
   host.reader = {
     button,
-    synthesisButton,
     container,
     frame,
     frameWindow: resolveSidebarFrameWindow(frame),
@@ -1288,10 +1221,8 @@ export function removeAssistantWorkspaceSidebarShell(
   clearShellBridge(host.library);
   clearShellBridge(host.reader);
   host.library.button?.remove();
-  host.library.synthesisButton?.remove();
   host.library.container?.remove();
   host.reader.button?.remove();
-  host.reader.synthesisButton?.remove();
   host.reader.container?.remove();
   updateSkillRunnerToolbarButtonBadge(typedWin, 0);
   hosts.delete(typedWin);
@@ -1337,6 +1268,16 @@ export function closeAssistantWorkspaceSidebar(args?: {
   const host = hosts.get(win);
   if (!host) return false;
   return closeActiveSidebarHost(host);
+}
+
+export function isAssistantWorkspaceSidebarOpen(args?: {
+  window?: _ZoteroTypes.MainWindow;
+}) {
+  const win =
+    args?.window ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  if (!win) return false;
+  return !!hosts.get(win)?.activeTarget;
 }
 
 export async function toggleAssistantWorkspaceSidebar(args?: {

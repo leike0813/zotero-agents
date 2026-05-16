@@ -99,8 +99,10 @@
 
   function buildCanonicalAtom(event) {
     const correlation = correlationOf(event);
-    const text = normalizeText(event && event.text);
-    const summary = normalizeText(correlation.summary) || text;
+    const displayText = safeText(event && (event.displayText || event.display_text));
+    const rawText = safeText(event && event.text);
+    const summary = safeText(correlation.summary);
+    const text = displayText || rawText || summary;
     const atomKind = isAssistantProcess(event)
       ? "process"
       : isAssistantIntermediate(event)
@@ -113,7 +115,7 @@
       atomKind,
       role: normalizeText(event && event.role) || "assistant",
       attempt: toPositiveInt(event && event.attempt, 1),
-      text: text || summary,
+      text,
       summary: summary || text,
       normalizedText: normalizeText(text || summary),
       messageId: messageIdOf(event),

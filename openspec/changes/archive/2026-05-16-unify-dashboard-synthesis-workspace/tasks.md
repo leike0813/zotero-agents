@@ -1,0 +1,12 @@
+- [x] 1. Add tests for topic metrics in the Synthesis UI model and service snapshot.
+- [x] 2. Add tests for Synthesis Workbench Home/Topics/Index/immersive reader source structure.
+- [x] 3. Add tests for unified workspace tab source structure and build entry.
+- [x] 4. Implement topic metrics in `uiModel` and `service`.
+- [x] 5. Rework `synthesisWorkbenchApp.ts` navigation and rendering.
+- [x] 6. Rework `addon/content/synthesis/styles.css` for the dense workspace UI.
+- [x] 7. Add workspace tab host, web entry, and build config.
+- [x] 8. Run targeted tests and TypeScript/build checks.
+- [x] 9. Mount the existing Task Dashboard runtime inside the unified workspace tab.
+- [x] 10. Retarget the Dashboard toolbar shortcut label to the unified workspace.
+- [x] 11. Remove the temporary Synthesis Workbench button from the Assistant sidebar.
+- [x] 12. Embed the Synthesis Workbench runtime directly inside the unified workspace tab.

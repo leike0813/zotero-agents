@@ -220,12 +220,20 @@
     return "completed";
   }
 
-  function createToolActivityGroup(run, expandedIds) {
+  function stableToolActivityGroupKey(run, fallbackIndex) {
+    const first = run[0] || {};
+    const key =
+      String(first.toolCallId || "").trim() ||
+      String(first.id || "").trim() ||
+      String(first.createdAt || "").trim() ||
+      "run-" + String(fallbackIndex || 0);
+    return sanitizeToolGroupKey(key);
+  }
+
+  function createToolActivityGroup(run, expandedIds, fallbackIndex) {
     const first = run[0] || {};
     const last = run[run.length - 1] || first;
-    const id =
-      "assistant-tool-activity-" +
-      sanitizeToolGroupKey([String(first.id || ""), String(last.id || ""), String(run.length)].join("-"));
+    const id = "assistant-tool-activity-" + stableToolActivityGroupKey(run, fallbackIndex);
     return {
       id,
       kind: "tool_activity_group",
@@ -244,7 +252,7 @@
     let toolRun = [];
     function flush() {
       if (toolRun.length === 1) entries.push(toolRun[0]);
-      if (toolRun.length > 1) entries.push(createToolActivityGroup(toolRun, expandedIds));
+      if (toolRun.length > 1) entries.push(createToolActivityGroup(toolRun, expandedIds, entries.length));
       toolRun = [];
     }
     canonicalItems.forEach(function (item) {
@@ -367,10 +375,8 @@
     clearNode(meta);
     clearNode(body);
     body.className = "assistant-transcript-body";
-    row.onclick =
-      item.kind === "tool_activity_group" && typeof options.onToggleExpanded === "function"
-        ? function () { options.onToggleExpanded(item.id); }
-        : null;
+    row.onclick = null;
+    row.onkeydown = null;
     if (item.kind === "message") {
       meta.appendChild(el("span", "assistant-transcript-role", String(item.role || "assistant")));
       renderRevisionBadge(meta, item.revision, undefined, options);
@@ -412,9 +418,21 @@
     }
     if (item.kind === "tool_activity_group") {
       const summaryState = toolActivitySummaryState(item.items);
-      const summary = el("div", "assistant-transcript-tool-activity-summary");
+      const summary = el("button", "assistant-transcript-tool-activity-summary");
+      summary.type = "button";
+      summary.setAttribute("aria-expanded", item.expanded === true ? "true" : "false");
+      summary.setAttribute(
+        "aria-label",
+        (item.expanded === true
+          ? transcriptLabel(options, "collapse", "Collapse")
+          : transcriptLabel(options, "expand", "Expand")) +
+          " " +
+          transcriptLabel(options, "toolActivity", "Tool activity"),
+      );
       const led = el("span", "assistant-transcript-tool-led " + toolToneClass(summaryState));
       led.setAttribute("aria-hidden", "true");
+      const chevron = el("span", "assistant-transcript-tool-activity-chevron", item.expanded === true ? "−" : "+");
+      chevron.setAttribute("aria-hidden", "true");
       meta.appendChild(
         el(
           "span",
@@ -422,8 +440,15 @@
           transcriptLabel(options, "toolActivity", "Tool activity") + " (" + String(item.items.length) + ")",
         ),
       );
+      summary.appendChild(chevron);
       summary.appendChild(led);
       summary.appendChild(el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items, options)));
+      if (typeof options.onToggleExpanded === "function") {
+        summary.addEventListener("click", function (event) {
+          event.stopPropagation();
+          options.onToggleExpanded(item.id);
+        });
+      }
       body.appendChild(summary);
       if (item.expanded === true) {
         const list = el("div", "assistant-transcript-tool-activity-list");

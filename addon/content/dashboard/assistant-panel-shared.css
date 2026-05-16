@@ -1942,6 +1942,42 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   font-size: 12px;
 }
 
+.assistant-transcript-tool-activity-summary {
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.assistant-transcript-tool-activity-summary:hover {
+  color: var(--asst-text);
+}
+
+.assistant-transcript-tool-activity-summary:focus-visible {
+  outline: 2px solid var(--asst-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.assistant-transcript-tool-activity-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--asst-line);
+  border-radius: 4px;
+  color: var(--asst-text-soft);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .assistant-transcript-tool-activity-list {
   display: grid;
   gap: 4px;

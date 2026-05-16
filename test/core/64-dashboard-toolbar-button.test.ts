@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { promises as fs } from "fs";
 import {
   ensureDashboardToolbarButton,
   removeDashboardToolbarButton,
@@ -175,6 +176,14 @@ describe("dashboard toolbar button", function () {
     assert.lengthOf(calls, 2);
     assert.equal(calls[1].type, "openDashboard");
     assert.deepEqual(calls[1].data, { window: win });
+  });
+
+  it("labels the dashboard shortcut as the unified workspace entry", async function () {
+    const en = await fs.readFile("addon/locale/en-US/addon.ftl", "utf8");
+    const zh = await fs.readFile("addon/locale/zh-CN/addon.ftl", "utf8");
+
+    assert.include(en, "task-dashboard-toolbar-open = Open Zotero Skills Workspace");
+    assert.include(zh, "task-dashboard-toolbar-open = 打开 Zotero Skills 工作区");
   });
 
   it("removes existing toolbar button", function () {

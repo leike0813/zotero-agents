@@ -1292,6 +1292,47 @@ function coverageFromDependencies(snapshot: TopicDependencySnapshot | null): Top
   return missing >= total ? "missing" : "partial";
 }
 
+function paperCountFromTopicState(state: TopicArtifactStateRow | undefined) {
+  const savedCount = state?.baseline_dependencies?.saved_paper_refs?.length || 0;
+  const currentCount = state?.current_dependencies?.current_paper_refs?.length || 0;
+  return Math.max(savedCount, currentCount, 0);
+}
+
+function completionFromTopicState(state: TopicArtifactStateRow | undefined) {
+  if (!state) {
+    return 0;
+  }
+  const dependencies = state.current_dependencies || state.baseline_dependencies;
+  const refs = dependencies?.current_paper_refs?.length
+    ? dependencies.current_paper_refs
+    : dependencies?.saved_paper_refs || [];
+  if (!refs.length) {
+    return state.coverage === "complete" ? 100 : 0;
+  }
+  const missingPaperRefs = new Set(
+    (dependencies?.missing_artifacts || [])
+      .map((entry) => cleanString(entry).split(":")[0])
+      .filter(Boolean),
+  );
+  const completeCount = refs.filter((paperRef) => !missingPaperRefs.has(paperRef)).length;
+  return Math.max(0, Math.min(100, Math.round((completeCount / refs.length) * 100)));
+}
+
+function summaryFromTopicDefinition(
+  definition: Record<string, unknown> | undefined,
+  fallback: string,
+) {
+  if (!definition) {
+    return fallback;
+  }
+  return (
+    cleanString(definition.description) ||
+    cleanString(definition.summary) ||
+    cleanString(definition.abstract) ||
+    fallback
+  );
+}
+
 function dependencyHash(snapshot: TopicDependencySnapshot | null) {
   return snapshot ? hashCanonicalJson(snapshot) : "";
 }
@@ -2147,6 +2188,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       registryRows,
       timestamp: now(),
     });
+    const definitions = await readStateMap<Record<string, unknown>>(
+      paths.topicDefinitions,
+      "topics",
+    ).catch(() => ({} as Record<string, Record<string, unknown>>));
     const persistedGraph = await readPersistedGraphProjection(
       root,
       state.graph.layoutPreset,
@@ -2199,6 +2244,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           markdown_preview: (artifactState[row.topic_id]?.reasons || [])
             .map((entry) => entry.code)
             .join(", "),
+          paper_count: paperCountFromTopicState(artifactState[row.topic_id]),
+          summary: summaryFromTopicDefinition(
+            definitions[row.topic_id],
+            (artifactState[row.topic_id]?.reasons || [])
+              .map((entry) => entry.message || entry.code)
+              .filter(Boolean)
+              .slice(0, 2)
+              .join("; "),
+          ),
+          completion: completionFromTopicState(artifactState[row.topic_id]),
         })),
         registry: {
           rows: registryRowsToUi(registryRows),

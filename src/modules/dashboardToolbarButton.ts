@@ -209,6 +209,7 @@ function ensureExecuteWorkflowToolbarButton(
     void rebuildWorkflowActionPopup(win, popup, {
       includeSkillRunnerSidebarItem: false,
       includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
     });
   });
   button.appendChild(popup);
@@ -254,7 +255,10 @@ function ensureDashboardOnlyToolbarButton(
   }
 
   const button = doc.createXULElement("toolbarbutton");
-  const tooltip = localize("task-dashboard-toolbar-open", "Open Dashboard");
+  const tooltip = localize(
+    "task-dashboard-toolbar-open",
+    "Open Zotero Skills Workspace",
+  );
   button.id = DASHBOARD_BUTTON_ID;
   button.setAttribute("class", "zotero-tb-button");
   button.setAttribute("tooltiptext", tooltip);

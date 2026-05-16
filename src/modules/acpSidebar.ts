@@ -2,6 +2,7 @@ import { config } from "../../package.json";
 import { ACP_OPENCODE_DISPLAY_NAME } from "../config/defaults";
 import { getStringOrFallback } from "../utils/locale";
 import { copyText } from "../utils/ztoolkit";
+import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import {
   SKILLRUNNER_ICON_URI,
@@ -580,6 +581,12 @@ async function handleSidebarAction(
       toggleAcpConversationDiagnostics({
         visible: true,
       });
+      return;
+    }
+    if (action === "open-workspace") {
+      openFolderInSystemFileManager(
+        String(envelope.payload?.workspaceDir || "").trim(),
+      );
       return;
     }
     if (action === "send-prompt") {
