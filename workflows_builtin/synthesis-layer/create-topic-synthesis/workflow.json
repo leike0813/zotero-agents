@@ -1,0 +1,55 @@
+{
+  "id": "create-topic-synthesis",
+  "label": "Create Topic Synthesis",
+  "provider": "acp",
+  "version": "0.2.0",
+  "taskNameTemplate": "Create synthesis: {topic seed}",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "topicSeed": {
+      "type": "string",
+      "title": "Topic Seed",
+      "description": "Natural-language topic seed for a new synthesis topic."
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Output language, such as auto, zh-CN, or en-US.",
+      "default": "auto"
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "create-topic-synthesis"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "supportedBackends": ["acp"],
+    "mcp": {
+      "requiredTools": [
+        "synthesis.list_topics",
+        "synthesis.get_library_index",
+        "synthesis.resolve_resolver",
+        "synthesis.export_paper_artifact_bundle"
+      ]
+    },
+    "skillrunner_mode": "interactive",
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyTopicSynthesisResult.mjs"
+  }
+}

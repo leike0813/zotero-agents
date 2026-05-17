@@ -66,7 +66,8 @@
     "tag-vocabulary-package/tag-regulator/workflow.json",
     "tag-vocabulary-package/tag-regulator/README.md",
     "synthesis-layer/workflow-package.json",
-    "synthesis-layer/synthesize-topic/workflow.json",
-    "synthesis-layer/synthesize-topic/hooks/applyResult.mjs"
+    "synthesis-layer/create-topic-synthesis/workflow.json",
+    "synthesis-layer/update-topic-synthesis/workflow.json",
+    "synthesis-layer/hooks/applyTopicSynthesisResult.mjs"
   ]
 }

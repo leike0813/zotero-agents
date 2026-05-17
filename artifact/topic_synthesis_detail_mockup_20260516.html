@@ -1,0 +1,1463 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topic Synthesis Detail Mockup</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --explorer-width: 360px;
+      --pin-offset-y: -12px;
+      --bg: #eef3f8;
+      --panel: #ffffff;
+      --panel-soft: #f7fafc;
+      --blue-soft: #edf4ff;
+      --green-soft: #e7f6ed;
+      --orange-soft: #fff3e7;
+      --purple-soft: #f2ecff;
+      --border: #d6dee8;
+      --border-strong: #aebccb;
+      --text: #172033;
+      --muted: #637184;
+      --faint: #8a96a7;
+      --blue: #2563eb;
+      --blue-strong: #174ea6;
+      --green: #15803d;
+      --orange: #b45309;
+      --purple: #7c3aed;
+      --shadow: 0 18px 44px rgba(23, 32, 51, 0.16);
+      --shadow-soft: 0 8px 20px rgba(23, 32, 51, 0.08);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      min-width: 1180px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      min-height: 30px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+    }
+
+    button:hover {
+      border-color: var(--blue);
+      box-shadow: 0 1px 0 rgba(23, 32, 51, 0.06);
+    }
+
+    button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    button.icon {
+      width: 32px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+    }
+
+    button.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+      color: var(--blue-strong);
+      font-weight: 650;
+    }
+
+    svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    h1,
+    h2,
+    h3,
+    p,
+    ul {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 15px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 13px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    ul {
+      padding-left: 19px;
+    }
+
+    .muted { color: var(--muted); }
+    .faint { color: var(--faint); }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .rail {
+      background: #f8fbfd;
+      border-right: 1px solid var(--border);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      align-items: start;
+      justify-items: center;
+      padding: 10px 8px;
+      gap: 14px;
+    }
+
+    .rail-logo {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      color: var(--blue);
+    }
+
+    .rail-nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .shell {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .topbar {
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      padding: 10px 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .topic-title {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    .title-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .title-line h1 {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .badge-row,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge,
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--muted);
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .badge.blue,
+    .chip.blue {
+      border-color: rgba(37, 99, 235, 0.26);
+      background: var(--blue-soft);
+      color: var(--blue-strong);
+    }
+
+    .badge.green,
+    .chip.green {
+      border-color: rgba(21, 128, 61, 0.28);
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .badge.orange,
+    .chip.orange {
+      border-color: rgba(180, 83, 9, 0.3);
+      background: var(--orange-soft);
+      color: var(--orange);
+    }
+
+    .badge.purple,
+    .chip.purple {
+      border-color: rgba(124, 58, 237, 0.25);
+      background: var(--purple-soft);
+      color: var(--purple);
+    }
+
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(620px, 1fr) 8px minmax(300px, var(--explorer-width));
+      gap: 10px;
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      min-height: 42px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 11px;
+    }
+
+    .main-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) 178px;
+    }
+
+    .main-head {
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      display: grid;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 310px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .thesis {
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 450;
+      color: var(--muted);
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 8px;
+      display: grid;
+      gap: 2px;
+    }
+
+    .metric strong {
+      font-size: 16px;
+      line-height: 1.1;
+    }
+
+    .tabs {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+      padding: 10px;
+      border-right: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+
+    .tabs button {
+      width: 100%;
+      text-align: left;
+      justify-content: start;
+      min-height: 34px;
+      white-space: normal;
+    }
+
+    .tab-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px;
+    }
+
+    .tab-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .tab-panel {
+      display: none;
+      max-width: 980px;
+      margin: 0 auto;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .tab-panel.active {
+      display: grid;
+    }
+
+    .content-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .finding-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .finding {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .claim-list,
+    .gap-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .claim-block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 11px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .claim-block.selected {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .claim-id {
+      width: 28px;
+      height: 25px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--blue-strong);
+      font-weight: 750;
+      font-size: 12px;
+    }
+
+    .external-box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .external-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 9px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+
+    .external-content {
+      padding: 12px;
+      min-height: 260px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .external-content[hidden] {
+      display: none;
+    }
+
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .ref-table th,
+    .ref-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    .ref-table th {
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .ref-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .timeline-panel,
+    .explorer-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .timeline-panel {
+      border-top: 1px solid var(--border);
+      border-right: 0;
+      border-bottom: 0;
+      border-left: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    .timeline-panel .panel-head {
+      min-height: 38px;
+    }
+
+    .splitter {
+      min-width: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background:
+        linear-gradient(to bottom, transparent 0 42%, var(--border-strong) 42% 58%, transparent 58% 100%),
+        var(--panel-soft);
+      cursor: col-resize;
+    }
+
+    .splitter:hover,
+    .splitter.dragging {
+      border-color: var(--blue);
+      background:
+        linear-gradient(to bottom, transparent 0 40%, var(--blue) 40% 60%, transparent 60% 100%),
+        var(--blue-soft);
+    }
+
+    .explorer-panel {
+      min-width: 300px;
+    }
+
+    .timeline-head-tools {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .timeline-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding: 8px 12px 12px;
+    }
+
+    .horizontal-timeline {
+      position: relative;
+      min-width: 1080px;
+      height: 108px;
+      padding: 14px 18px 10px;
+    }
+
+    .horizontal-timeline::before {
+      content: "";
+      position: absolute;
+      left: 26px;
+      right: 26px;
+      top: 54px;
+      height: 3px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #8bb8ff 0 42%, #86d9c1 42% 65%, #d7b8ff 65% 100%);
+      box-shadow: 0 1px 0 rgba(23, 32, 51, 0.06);
+    }
+
+    .time-axis {
+      position: absolute;
+      left: 26px;
+      right: 26px;
+      top: 64px;
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      color: var(--muted);
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    .time-axis span {
+      position: relative;
+      padding-left: 5px;
+    }
+
+    .time-axis span::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: -10px;
+      width: 1px;
+      height: 10px;
+      background: var(--border-strong);
+    }
+
+    .phase {
+      position: relative;
+    }
+
+    .phase-title {
+      position: absolute;
+      display: flex;
+      top: 78px;
+      transform: translateX(-50%);
+      justify-content: center;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .phase-title strong {
+      font-size: 12px;
+    }
+
+    .marker-list {
+      display: contents;
+    }
+
+    .marker {
+      position: absolute;
+      top: calc(15px + var(--pin-offset-y));
+      width: 54px;
+      min-width: 54px;
+      max-width: 54px;
+      height: 39px;
+      min-height: 39px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--blue-strong);
+      transform: translateX(-50%);
+      display: block;
+      overflow: visible;
+    }
+
+    .marker span,
+    .marker strong {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      max-width: 70px;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1.15;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .marker span {
+      display: none;
+    }
+
+    .marker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: 14px;
+      width: 8px;
+      height: 8px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+      z-index: 2;
+    }
+
+    .marker::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      width: 22px;
+      height: 28px;
+      transform: translateX(-50%);
+      clip-path: polygon(50% 100%, 12% 60%, 7% 34%, 18% 12%, 34% 4%, 66% 4%, 82% 12%, 93% 34%, 88% 60%);
+      border: 1px solid #174ea6;
+      background: var(--blue);
+      box-shadow: 0 2px 5px rgba(23, 78, 166, 0.25);
+      z-index: 1;
+    }
+
+    .marker.too-dense strong {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .marker.warn {
+      color: var(--orange);
+    }
+
+    .marker.warn::before {
+      border-color: #92400e;
+      background: #d97706;
+    }
+
+    .marker.selected {
+      color: var(--blue-strong);
+    }
+
+    .marker.selected::before {
+      border-color: #0f3c9e;
+      background: #1d4ed8;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), 0 3px 7px rgba(23, 78, 166, 0.32);
+    }
+
+    .marker.dimmed {
+      opacity: 0.38;
+      box-shadow: none;
+    }
+
+    .marker[data-paper="frcnn"] { left: 4%; }
+    .marker[data-paper="detr"] { left: 18%; }
+    .marker[data-paper="deformable"] { left: 27%; }
+    .marker[data-paper="conditional"] { left: 30%; }
+    .marker[data-paper="efficient"] { left: 33%; }
+    .marker[data-paper="dab"] { left: 36%; }
+    .marker[data-paper="up"] { left: 39%; }
+    .marker[data-paper="det3d"] { left: 42%; }
+    .marker[data-paper="dn"] { left: 45%; }
+    .marker[data-paper="dino"] { left: 48%; }
+    .marker[data-paper="sparse"] { left: 51%; }
+    .marker[data-paper="group"] { left: 54%; }
+    .marker[data-paper="detr3d"] { left: 57%; }
+    .marker[data-paper="yolov7"] { left: 63%; }
+    .marker[data-paper="maskdino"] { left: 66%; }
+    .marker[data-paper="rank"] { left: 69%; }
+    .marker[data-paper="hybrid"] { left: 72%; }
+    .marker[data-paper="underwater"] { left: 75%; }
+    .marker[data-paper="rtdetr"] { left: 80%; }
+    .marker[data-paper="rtdetr3"] { left: 83%; }
+    .marker[data-paper="lwdetr"] { left: 86%; }
+    .marker[data-paper="enhanced"] { left: 89%; }
+    .marker[data-paper="rf"] { left: 93%; }
+    .marker[data-paper="table"] { left: 96%; }
+    .marker[data-paper="dinov3"] { left: 99%; }
+    .phase[data-phase="baseline"] .phase-title { left: 4%; }
+    .phase[data-phase="shift"] .phase-title { left: 18%; }
+    .phase[data-phase="variants"] .phase-title { left: 40%; }
+    .phase[data-phase="expansion"] .phase-title { left: 69%; }
+    .phase[data-phase="realtime"] .phase-title { left: 90%; }
+
+    .explorer-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 11px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .selected-card,
+    .evidence-row {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .evidence-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tooltip {
+      position: fixed;
+      z-index: 70;
+      display: none;
+      max-width: 320px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 8px 10px;
+      box-shadow: var(--shadow);
+      pointer-events: none;
+    }
+
+    .tooltip.open { display: block; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+      place-items: center;
+      padding: 30px;
+      background: rgba(15, 23, 42, 0.46);
+    }
+
+    .modal-backdrop.open { display: grid; }
+
+    .modal {
+      width: min(1040px, 100%);
+      max-height: min(760px, 92vh);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .modal-head {
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 14px 16px;
+    }
+
+    .modal-body {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 294px;
+    }
+
+    .digest {
+      overflow: auto;
+      padding: 17px 20px 28px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .digest h2 {
+      font-size: 17px;
+    }
+
+    .digest-side {
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      display: none;
+      z-index: 90;
+      border: 1px solid rgba(37, 99, 235, 0.28);
+      border-radius: 8px;
+      background: var(--blue-soft);
+      color: var(--blue-strong);
+      padding: 9px 12px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .toast.open { display: block; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="Zotero Skills navigation">
+      <div class="rail-logo" aria-label="Zotero Skills">ZS</div>
+      <nav class="rail-nav">
+        <button class="icon" type="button" aria-label="Dashboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4z"></path><path d="M13 4h7v4h-7z"></path><path d="M13 10h7v10h-7z"></path><path d="M4 13h7v7H4z"></path></svg>
+        </button>
+        <button class="icon active" type="button" aria-label="Synthesis">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17V7"></path><path d="M12 20V4"></path><path d="M20 15V9"></path><path d="M4 12h16"></path><path d="M7 7H1"></path><path d="M15 4H9"></path><path d="M23 9h-6"></path></svg>
+        </button>
+        <button class="icon" type="button" aria-label="Graph">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="7" r="3"></circle><circle cx="12" cy="18" r="3"></circle><path d="m8.6 7.2 6.8-.4"></path><path d="m7.5 8.7 3 6.8"></path><path d="m16.5 9.5-3 6"></path></svg>
+        </button>
+      </nav>
+      <button class="icon" type="button" aria-label="Open settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"></path><path d="M19.4 15a1.8 1.8 0 0 0 .3 2l.1.1a2.1 2.1 0 0 1-3 3l-.1-.1a1.8 1.8 0 0 0-2-.3 1.8 1.8 0 0 0-1.1 1.6V22a2.1 2.1 0 0 1-4.2 0v-.2a1.8 1.8 0 0 0-1.1-1.6 1.8 1.8 0 0 0-2 .3l-.1.1a2.1 2.1 0 0 1-3-3l.1-.1a1.8 1.8 0 0 0 .3-2 1.8 1.8 0 0 0-1.6-1.1H2a2.1 2.1 0 0 1 0-4.2h.2a1.8 1.8 0 0 0 1.6-1.1 1.8 1.8 0 0 0-.3-2l-.1-.1a2.1 2.1 0 0 1 3-3l.1.1a1.8 1.8 0 0 0 2 .3 1.8 1.8 0 0 0 1.1-1.6V2a2.1 2.1 0 0 1 4.2 0v.2a1.8 1.8 0 0 0 1.1 1.6 1.8 1.8 0 0 0 2-.3l.1-.1a2.1 2.1 0 0 1 3 3l-.1.1a1.8 1.8 0 0 0-.3 2 1.8 1.8 0 0 0 1.6 1.1H22a2.1 2.1 0 0 1 0 4.2h-.2a1.8 1.8 0 0 0-1.6 1.1Z"></path></svg>
+      </button>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div class="topic-title">
+          <div class="title-line">
+            <h1>Object Detection: A Synthesis of the DETR Revolution</h1>
+            <span class="badge orange">legacy markdown-only topic</span>
+            <span class="badge blue">zh-CN</span>
+          </div>
+          <div class="badge-row">
+            <span class="badge">28 metadata papers</span>
+            <span class="badge">25 markdown citations</span>
+            <span class="badge green">2017-2026</span>
+            <span class="badge purple">digest + citation analysis</span>
+          </div>
+        </div>
+        <div class="toolbar" aria-label="Topic actions">
+          <button type="button" class="primary">Update</button>
+          <button type="button" id="copySummary">Copy Summary</button>
+          <button type="button">Export Markdown</button>
+          <button class="icon" type="button" aria-label="Open topic folder">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"></path></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Topic synthesis detail">
+        <section class="panel main-panel">
+          <header class="main-head">
+            <div class="summary-row">
+              <div>
+                <h2>Synthesis Summary</h2>
+                <p class="thesis">Object detection is traced from Faster R-CNN's anchor-based two-stage pipeline through DETR's end-to-end set prediction shift, then through convergence fixes, real-time DETR variants, and specialized domains such as 3D detection, segmentation, underwater detection, and table structure recognition.</p>
+              </div>
+              <aside class="metric-grid" aria-label="Synthesis status">
+                <div class="metric"><span class="muted">Evidence</span><strong>28</strong><span>metadata papers</span></div>
+                <div class="metric"><span class="muted">Cited</span><strong>25</strong><span>markdown rows</span></div>
+                <div class="metric"><span class="muted">Range</span><strong>2017-26</strong><span>timeline span</span></div>
+                <div class="metric"><span class="muted">Source</span><strong>v1</strong><span>Markdown-only</span></div>
+              </aside>
+            </div>
+          </header>
+
+          <div class="tab-shell">
+            <nav class="tabs" role="tablist" aria-label="Topic synthesis tabs" aria-orientation="vertical">
+              <button type="button" class="active" data-main-tab="overview" role="tab" aria-selected="true">Overview</button>
+              <button type="button" data-main-tab="claims" role="tab" aria-selected="false">Claims</button>
+              <button type="button" data-main-tab="external" role="tab" aria-selected="false">External Literature</button>
+              <button type="button" data-main-tab="coverage" role="tab" aria-selected="false">Coverage & Gaps</button>
+            </nav>
+
+            <div class="tab-body">
+              <article class="tab-panel active" data-main-panel="overview" role="tabpanel">
+              <section class="content-card">
+                <h2>Core Findings</h2>
+                <div class="finding-grid">
+                  <div class="finding">
+                    <span class="chip green">strong</span>
+                    <h3>DETR paradigm shift</h3>
+                    <p>DETR reformulates detection as direct set prediction with transformer encoder-decoder architecture and bipartite matching, removing anchors and NMS while exposing slow convergence and small-object limitations.</p>
+                  </div>
+                  <div class="finding">
+                    <span class="chip orange">partial</span>
+                    <h3>Convergence fixes</h3>
+                    <p>Deformable attention, DAB-style anchor queries, DN-DETR denoising, DINO, Sparse DETR, and Group DETR form a dense cluster of 2021-2022 responses to DETR's training cost.</p>
+                  </div>
+                  <div class="finding">
+                    <span class="chip purple">context</span>
+                    <h3>Real-time and expansion</h3>
+                    <p>RT-DETR, LW-DETR, RF-DETR, and DINOv3 move DETR-style detection toward real-time and edge deployment, while Mask DINO, DETR3D, underwater detection, and table recognition show domain expansion.</p>
+                  </div>
+                </div>
+              </section>
+              <section class="content-card">
+                <h2>Recommended Reading Path</h2>
+                <p>Start with C1 to understand the DETR break from Faster R-CNN. Then use C2 to inspect the dense 2021-2022 convergence cluster, and C3 to compare how DETR variants entered real-time detection and specialized domains.</p>
+                <div class="chip-row">
+                  <span class="chip blue">C1: DETR shift</span>
+                  <span class="chip orange">C2: convergence</span>
+                  <span class="chip purple">C3: real-time/domain</span>
+                </div>
+              </section>
+              </article>
+
+              <article class="tab-panel" data-main-panel="claims" role="tabpanel">
+              <section class="claim-list">
+                <div class="claim-block selected" data-claim-card="c1">
+                  <span class="claim-id">C1</span>
+                  <div>
+                    <h3>DETR redefined object detection as end-to-end set prediction.</h3>
+                    <p>DETR achieved comparable COCO performance to Faster R-CNN while eliminating anchors, NMS, and hand-crafted proposal mechanisms. The tradeoff was clear: much slower convergence and weaker small-object performance.</p>
+                    <div class="chip-row"><span class="chip green">strong</span><span class="chip">FRCNN</span><span class="chip">DETR</span></div>
+                  </div>
+                  <button type="button" data-claim="c1">Inspect</button>
+                </div>
+                <div class="claim-block" data-claim-card="c2">
+                  <span class="claim-id">C2</span>
+                  <div>
+                    <h3>DETR's convergence problem became the core research driver.</h3>
+                    <p>Deformable attention, DAB-style anchor queries, denoising training, DINO, Sparse DETR, and Group DETR can be read as complementary attempts to stabilize matching and accelerate training.</p>
+                    <div class="chip-row"><span class="chip green">strong</span><span class="chip">DefD</span><span class="chip">DAB</span><span class="chip">DN</span><span class="chip">DINO</span></div>
+                  </div>
+                  <button type="button" data-claim="c2">Inspect</button>
+                </div>
+                <div class="claim-block" data-claim-card="c3">
+                  <span class="claim-id">C3</span>
+                  <div>
+                    <h3>Real-time DETRs now challenge YOLO while expanding beyond standard 2D detection.</h3>
+                    <p>RT-DETR, LW-DETR, RF-DETR, and DINOv3 move the lineage toward real-time deployment. Mask DINO, DETR3D, underwater detection, and table structure recognition show the topic extending into adjacent tasks.</p>
+                    <div class="chip-row"><span class="chip purple">broad</span><span class="chip">RTD</span><span class="chip">LWD</span><span class="chip">RFD</span><span class="chip">D3D</span></div>
+                  </div>
+                  <button type="button" data-claim="c3">Inspect</button>
+                </div>
+              </section>
+              </article>
+
+              <article class="tab-panel" data-main-panel="external" role="tabpanel">
+              <section class="external-box">
+                <div class="external-tabs" role="tablist" aria-label="External literature views">
+                  <button type="button" class="active" data-external-tab="themes" role="tab" aria-selected="true">Themes</button>
+                  <button type="button" data-external-tab="references" role="tab" aria-selected="false">References</button>
+                  <button type="button" data-external-tab="limits" role="tab" aria-selected="false">Limitations</button>
+                </div>
+                <section class="external-content" data-external-panel="themes" role="tabpanel">
+                  <h2>External Literature Analysis</h2>
+                  <p>The current real artifact is Markdown-only and does not yet contain a dedicated structured external literature chapter. The legacy synthesis still implies external context through COCO baselines, Faster R-CNN, YOLO comparisons, and missing-family diagnostics.</p>
+                  <h3>Method ancestry</h3>
+                  <p>Faster R-CNN, RPNs, anchors, NMS, COCO AP, and YOLO define the comparison vocabulary used to explain why DETR's set-prediction formulation mattered.</p>
+                  <h3>Benchmark and deployment context</h3>
+                  <p>RT-DETR, LW-DETR, RF-DETR, YOLOv7, and DINOv3 references make the real-time and deployment axis visible. A structured v2 artifact should separate this context from primary library-paper evidence.</p>
+                </section>
+                <section class="external-content" data-external-panel="references" role="tabpanel" hidden>
+                  <table class="ref-table">
+                    <thead><tr><th>Reference</th><th>Cited by</th><th>Context</th><th>Completeness</th></tr></thead>
+                    <tbody>
+                      <tr><td>COCO benchmark</td><td>DETR, Faster R-CNN, RT-DETR, RF-DETR</td><td>Shared AP comparison ground for accuracy and real-time claims.</td><td><span class="badge orange">implicit</span></td></tr>
+                      <tr><td>Faster R-CNN / RPN</td><td>DETR lineage</td><td>Anchor-based two-stage baseline that makes DETR's end-to-end shift interpretable.</td><td><span class="badge green">library paper</span></td></tr>
+                      <tr><td>YOLO family</td><td>YOLOv7, RT-DETR, LW-DETR, RF-DETR</td><td>Real-time baseline family used to frame DETR's deployment competitiveness.</td><td><span class="badge orange">partly missing</span></td></tr>
+                    </tbody>
+                  </table>
+                </section>
+                <section class="external-content" data-external-panel="limits" role="tabpanel" hidden>
+                  <h2>Limitations</h2>
+                  <p>The old artifact does not expose external references as a structured section, so this mock intentionally treats the external literature panel as a v2 preview rather than a faithful current-field rendering.</p>
+                  <p>Missing families from the real synthesis include early R-CNN / Fast R-CNN / SSD / YOLO v1-v3, anchor-free detectors such as FCOS and CenterNet, open-vocabulary detectors such as GroundingDINO and YOLO-World, and standardized latency comparisons.</p>
+                </section>
+              </section>
+              </article>
+
+              <article class="tab-panel" data-main-panel="coverage" role="tabpanel">
+              <section class="gap-list">
+                <div class="content-card">
+                  <h2>Strong Coverage</h2>
+                  <p>The real artifact has strong coverage of the DETR evolution lineage from original DETR through Deformable DETR, DAB-DETR, DN-DETR, DINO, RT-DETR, and RF-DETR.</p>
+                </div>
+                <div class="content-card">
+                  <h2>Weak Coverage</h2>
+                  <p>Early CNN detectors, anchor-free detectors, vision-language/open-vocabulary detectors, detailed ablation data, unified quantitative tables, and standardized latency measurements remain weak or missing.</p>
+                </div>
+                <div class="content-card">
+                  <h2>Update Recommendation</h2>
+                  <p>This topic is a good candidate for update-to-structured: preserve the Markdown export, but materialize claims, dense timeline events, paper evidence, external-literature context, and coverage diagnostics as structured sections.</p>
+                </div>
+              </section>
+              </article>
+            </div>
+          </div>
+
+          <section class="panel timeline-panel" aria-label="Topic timeline">
+            <header class="panel-head">
+              <div>
+                <h2>Timeline</h2>
+                <p class="muted">Bottom horizontal pin timeline. Labels collapse when density is high.</p>
+              </div>
+              <div class="timeline-head-tools">
+                <span class="badge blue">pin mode</span>
+                <span class="badge orange">hover for dense labels</span>
+              </div>
+            </header>
+            <div class="timeline-scroll">
+              <div class="horizontal-timeline" id="timeline">
+                <div class="time-axis" aria-hidden="true">
+                  <span>2017</span>
+                  <span>2018</span>
+                  <span>2019</span>
+                  <span>2020</span>
+                  <span>2021</span>
+                  <span>2022</span>
+                  <span>2023</span>
+                  <span>2024</span>
+                  <span>2025</span>
+                  <span>2026</span>
+                </div>
+                <section class="phase" data-phase="baseline">
+                  <div class="phase-title">
+                    <strong>2017 · Two-stage baseline</strong>
+                  </div>
+                  <div class="marker-list">
+                    <button class="marker" type="button" data-paper="frcnn" data-claims="c1" aria-label="Open digest for Faster R-CNN"><strong>FRC</strong><span>Faster R-CNN</span></button>
+                  </div>
+                </section>
+                <section class="phase" data-phase="shift">
+                  <div class="phase-title">
+                    <strong>2020 · DETR shift</strong>
+                  </div>
+                  <div class="marker-list">
+                    <button class="marker selected" type="button" data-paper="detr" data-claims="c1" aria-label="Open digest for DETR"><strong>DETR</strong><span>End-to-end object detection with transformers</span></button>
+                  </div>
+                </section>
+                <section class="phase" data-phase="variants">
+                  <div class="phase-title">
+                    <strong>2021-2022 · convergence cluster</strong>
+                  </div>
+                  <div class="marker-list">
+                    <button class="marker" type="button" data-paper="deformable" data-claims="c2" aria-label="Open digest for Deformable DETR"><strong>DefD</strong><span>Deformable DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="conditional" data-claims="c2" aria-label="Open digest for Conditional DETR"><strong>Cond</strong><span>Conditional DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="efficient" data-claims="c2" aria-label="Open digest for Efficient DETR"><strong>Eff</strong><span>Efficient DETR</span></button>
+                    <button class="marker" type="button" data-paper="dab" data-claims="c2" aria-label="Open digest for DAB-DETR"><strong>DAB</strong><span>DAB-DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="up" data-claims="c2" aria-label="Open digest for UP-DETR"><strong>UP</strong><span>UP-DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="det3d" data-claims="c3" aria-label="Open digest for 3D-DETR"><strong>3DD</strong><span>3D-DETR</span></button>
+                    <button class="marker" type="button" data-paper="dn" data-claims="c2" aria-label="Open digest for DN-DETR"><strong>DN</strong><span>DN-DETR</span></button>
+                    <button class="marker" type="button" data-paper="dino" data-claims="c2" aria-label="Open digest for DINO"><strong>DINO</strong><span>DINO</span></button>
+                    <button class="marker too-dense" type="button" data-paper="sparse" data-claims="c2" aria-label="Open digest for Sparse DETR"><strong>SpD</strong><span>Sparse DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="group" data-claims="c2" aria-label="Open digest for Group DETR"><strong>Grp</strong><span>Group DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="detr3d" data-claims="c3" aria-label="Open digest for DETR3D"><strong>D3D</strong><span>DETR3D</span></button>
+                  </div>
+                </section>
+                <section class="phase" data-phase="expansion">
+                  <div class="phase-title">
+                    <strong>2023 · expansion</strong>
+                  </div>
+                  <div class="marker-list">
+                    <button class="marker too-dense" type="button" data-paper="yolov7" data-claims="c3" aria-label="Open digest for YOLOv7"><strong>Y7</strong><span>YOLOv7</span></button>
+                    <button class="marker" type="button" data-paper="maskdino" data-claims="c3" aria-label="Open digest for Mask DINO"><strong>Mask</strong><span>Mask DINO</span></button>
+                    <button class="marker too-dense" type="button" data-paper="rank" data-claims="c3" aria-label="Open digest for Rank-DETR"><strong>Rank</strong><span>Rank-DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="hybrid" data-claims="c2" aria-label="Open digest for collaborative hybrid assignments"><strong>HyA</strong><span>Collaborative Hybrid Assignments</span></button>
+                    <button class="marker too-dense" type="button" data-paper="underwater" data-claims="c3" aria-label="Open digest for underwater detection"><strong>UW</strong><span>Underwater Detection</span></button>
+                  </div>
+                </section>
+                <section class="phase" data-phase="realtime">
+                  <div class="phase-title">
+                    <strong>2024-2026 · real-time and deployment</strong>
+                  </div>
+                  <div class="marker-list">
+                    <button class="marker" type="button" data-paper="rtdetr" data-claims="c3" aria-label="Open digest for DETRs beat YOLOs"><strong>RTD</strong><span>DETRs beat YOLOs</span></button>
+                    <button class="marker too-dense" type="button" data-paper="rtdetr3" data-claims="c3" aria-label="Open digest for RT-DETRv3"><strong>RT3</strong><span>RT-DETRv3</span></button>
+                    <button class="marker too-dense" type="button" data-paper="lwdetr" data-claims="c3" aria-label="Open digest for LW-DETR"><strong>LW</strong><span>LW-DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="enhanced" data-claims="c2" aria-label="Open digest for enhanced DETR variants"><strong>EnD</strong><span>Enhanced DETR variants</span></button>
+                    <button class="marker" type="button" data-paper="rf" data-claims="c3" aria-label="Open digest for RF-DETR"><strong>RF</strong><span>RF-DETR</span></button>
+                    <button class="marker too-dense" type="button" data-paper="table" data-claims="c3" aria-label="Open digest for table structure recognition"><strong>TSR</strong><span>Table Structure Recognition</span></button>
+                    <button class="marker" type="button" data-paper="dinov3" data-claims="c3" aria-label="Open digest for DINOv3 real-time detection"><strong>D3</strong><span>DINOv3 real-time detection</span></button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <div class="splitter" id="splitter" role="separator" aria-label="Resize evidence explorer" aria-orientation="vertical" tabindex="0"></div>
+
+        <aside class="panel explorer-panel" aria-label="Evidence explorer">
+            <header class="panel-head">
+              <h2>Evidence Explorer</h2>
+              <span class="badge blue">resizable</span>
+            </header>
+            <div class="explorer-body">
+              <div class="selected-card" id="selectedCard">
+                <div class="chip-row">
+                  <span class="chip blue">selected paper</span>
+                  <span class="chip orange">digest changed</span>
+                </div>
+                <h2>End-to-end object detection with transformers</h2>
+                <p class="muted">This paper supports C1 and the DETR shift phase. The modal opens the original digest artifact.</p>
+                <button type="button" class="primary" data-open-selected>Open Digest Artifact</button>
+              </div>
+              <div class="evidence-stack" id="evidenceStack">
+                <div class="evidence-row">
+                  <strong>C1</strong>
+                  <span class="muted">Claim supported by P03, P07, P11.</span>
+                </div>
+              </div>
+            </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div id="tooltip" class="tooltip" role="tooltip"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="modalBackdrop" class="modal-backdrop" role="presentation">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-head">
+        <div>
+          <h2 id="modalTitle">Paper Digest</h2>
+          <p id="modalSubtitle" class="muted"></p>
+        </div>
+        <button id="closeModal" type="button" aria-label="Close digest modal">Close</button>
+      </header>
+      <div class="modal-body">
+        <article id="digestBody" class="digest"></article>
+        <aside class="digest-side">
+          <div>
+            <h3>Related Claims</h3>
+            <div class="chip-row" id="relatedClaims"></div>
+          </div>
+          <div>
+            <h3>Source Status</h3>
+            <p id="sourceStatus" class="muted"></p>
+          </div>
+          <div>
+            <h3>Digest Locator</h3>
+            <p id="digestLocator" class="muted"></p>
+          </div>
+          <button type="button" class="primary">Open Zotero Item</button>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const claims = {
+      c1: {
+        label: "C1",
+        title: "DETR redefined object detection as direct set prediction.",
+        papers: ["frcnn", "detr"],
+        narrative: "DETR achieved Faster R-CNN-level COCO AP while removing anchors, NMS, and hand-crafted proposal machinery.",
+        limitation: "The legacy artifact emphasizes the tradeoff: 500-epoch convergence and weak small-object AP.",
+        strength: "strong"
+      },
+      c2: {
+        label: "C2",
+        title: "Convergence acceleration became the central DETR variant theme.",
+        papers: ["deformable", "dab", "dn", "dino", "sparse", "group"],
+        narrative: "Deformable attention, anchor-as-query designs, denoising training, DINO, Sparse DETR, and Group DETR all attack the matching and convergence bottleneck.",
+        limitation: "Some citation-analysis artifacts are missing, so detailed cross-paper ablations remain weaker than the architectural storyline.",
+        strength: "strong"
+      },
+      c3: {
+        label: "C3",
+        title: "The DETR lineage now competes in real-time detection and adjacent domains.",
+        papers: ["rtdetr", "lwdetr", "rf", "dinov3", "maskdino", "detr3d", "underwater", "table"],
+        narrative: "RT-DETR, LW-DETR, RF-DETR, and DINOv3 show real-time pressure against YOLO, while Mask DINO, DETR3D, underwater detection, and table recognition show domain expansion.",
+        limitation: "Standardized latency measurements and open-vocabulary detectors are still weak or missing in the current library evidence.",
+        strength: "broad"
+      }
+    };
+
+    const papers = {
+      frcnn: { title: "Faster R-CNN", short: "FRC", year: "2017", claims: ["C1"], source: "Legacy markdown citation row: 1:M3AU5AC9. Region Proposal Network with anchor mechanism.", locator: "paper_ref: 1:M3AU5AC9", tooltip: "Two-stage anchor/RPN baseline.", digest: `<h2>Faster R-CNN</h2><p>Region Proposal Network with anchor mechanism; unified two-stage detection framework.</p>` },
+      detr: { title: "End-to-end object detection with transformers", short: "DETR", year: "2020", claims: ["C1"], source: "Legacy markdown citation row: 1:EIMSDEU3. First transformer-based end-to-end detector.", locator: "paper_ref: 1:EIMSDEU3", tooltip: "Introduces bipartite matching set loss and eliminates anchors/NMS.", digest: `<h2>DETR</h2><p>Direct set prediction with a transformer encoder-decoder and bipartite matching. Comparable to Faster R-CNN on COCO, but slow to converge and weak on small objects.</p>` },
+      deformable: { title: "Deformable DETR", short: "DefD", year: "2021", claims: ["C2"], source: "Legacy markdown citation row: 1:5HBHAWIV.", locator: "paper_ref: 1:5HBHAWIV", tooltip: "10x faster convergence through sparse deformable attention.", digest: `<h2>Deformable DETR</h2><p>Replaces global attention with sparse deformable attention and multi-scale feature fusion, reducing convergence cost.</p>` },
+      conditional: { title: "Conditional DETR", short: "Cond", year: "2021", claims: ["C2"], source: "Legacy markdown citation row: 1:W4CDLU28.", locator: "paper_ref: 1:W4CDLU28", tooltip: "Conditional spatial queries improve query-feature similarity.", digest: `<h2>Conditional DETR</h2><p>Improves decoder query localization through conditional spatial queries.</p>` },
+      efficient: { title: "Efficient DETR", short: "Eff", year: "2021", claims: ["C2"], source: "Legacy markdown citation row: 1:VHBU3NI6.", locator: "paper_ref: 1:VHBU3NI6", tooltip: "Dense prior for improving end-to-end detection.", digest: `<h2>Efficient DETR</h2><p>Uses dense priors to improve end-to-end object detection efficiency.</p>` },
+      dab: { title: "DAB-DETR", short: "DAB", year: "2022", claims: ["C2"], source: "Legacy markdown citation row: 1:IY3FMWQM.", locator: "paper_ref: 1:IY3FMWQM", tooltip: "Dynamic anchor boxes as 4D queries.", digest: `<h2>DAB-DETR</h2><p>Uses explicit 4D anchor coordinates as decoder queries, revealing DETR queries as soft ROI pooling.</p>` },
+      up: { title: "UP-DETR", short: "UP", year: "2021", claims: ["C2"], source: "Legacy markdown citation row: 1:P5NLH47E.", locator: "paper_ref: 1:P5NLH47E", tooltip: "Unsupervised pre-training for object detection transformers.", digest: `<h2>UP-DETR</h2><p>Applies unsupervised pre-training to transformer-based object detection.</p>` },
+      det3d: { title: "3D-DETR", short: "3DD", year: "2021", claims: ["C3"], source: "Legacy markdown citation row: 1:JMWG9XVD.", locator: "paper_ref: 1:JMWG9XVD", tooltip: "End-to-end transformer for 3D object detection.", digest: `<h2>3D-DETR</h2><p>Extends end-to-end transformer detection to 3D object detection.</p>` },
+      dn: { title: "DN-DETR", short: "DN", year: "2022", claims: ["C2"], source: "Legacy markdown citation row: 1:NXLIGKF5.", locator: "paper_ref: 1:NXLIGKF5", tooltip: "Denoising training stabilizes matching.", digest: `<h2>DN-DETR</h2><p>Identifies bipartite matching instability as a convergence bottleneck and adds denoising training.</p>` },
+      dino: { title: "DINO", short: "DINO", year: "2022", claims: ["C2"], source: "Legacy markdown citation row: 1:HPLZ65Z2.", locator: "paper_ref: 1:HPLZ65Z2", tooltip: "Improved denoising anchor boxes for end-to-end detection.", digest: `<h2>DINO</h2><p>Combines improved denoising anchor boxes and contrastive learning for further DETR gains.</p>` },
+      sparse: { title: "Sparse DETR", short: "SpD", year: "2022", claims: ["C2"], source: "Legacy markdown citation row: 1:29IBKEUR.", locator: "paper_ref: 1:29IBKEUR", tooltip: "Learnable sparsity for efficient end-to-end detection.", digest: `<h2>Sparse DETR</h2><p>Introduces learnable sparsity for more efficient end-to-end detection.</p>` },
+      group: { title: "Group DETR", short: "Grp", year: "2023", claims: ["C2"], source: "Legacy markdown citation row: 1:DBYQ4LWE.", locator: "paper_ref: 1:DBYQ4LWE", tooltip: "Group-wise one-to-many assignment for fast training.", digest: `<h2>Group DETR</h2><p>Uses group-wise one-to-many assignment to speed DETR training.</p>` },
+      detr3d: { title: "DETR3D", short: "D3D", year: "2022", claims: ["C3"], source: "Legacy markdown citation row: 1:3JUY9GBQ.", locator: "paper_ref: 1:3JUY9GBQ", tooltip: "3D object detection via 3D-to-2D queries.", digest: `<h2>DETR3D</h2><p>Uses 3D-to-2D queries from multi-view images for 3D object detection.</p>` },
+      yolov7: { title: "YOLOv7", short: "Y7", year: "2023", claims: ["C3"], source: "Legacy markdown citation row: 1:ABTG2CFC.", locator: "paper_ref: 1:ABTG2CFC", tooltip: "CNN real-time detection baseline.", digest: `<h2>YOLOv7</h2><p>Trainable bag-of-freebies real-time detector used as a CNN baseline.</p>` },
+      maskdino: { title: "Mask DINO", short: "Mask", year: "2023", claims: ["C3"], source: "Legacy markdown citation row: 1:VQ2WLIDR.", locator: "paper_ref: 1:VQ2WLIDR", tooltip: "Unifies detection and segmentation.", digest: `<h2>Mask DINO</h2><p>Unified transformer framework for detection and segmentation.</p>` },
+      rank: { title: "Rank-DETR", short: "Rank", year: "2023", claims: ["C3"], source: "Legacy markdown citation row: 1:3YG8UNCI.", locator: "paper_ref: 1:3YG8UNCI", tooltip: "Ranking-based high quality object detection.", digest: `<h2>Rank-DETR</h2><p>High quality object detection through a ranking-based approach.</p>` },
+      hybrid: { title: "DETRs with collaborative hybrid assignments", short: "HyA", year: "2023", claims: ["C2"], source: "Legacy markdown citation row: 1:7AERRYC7.", locator: "paper_ref: 1:7AERRYC7", tooltip: "Hybrid assignment training for DETRs.", digest: `<h2>Collaborative Hybrid Assignments</h2><p>Uses hybrid assignment training to improve DETR optimization.</p>` },
+      underwater: { title: "Underwater detection", short: "UW", year: "2023", claims: ["C3"], source: "Legacy markdown citation row: 1:4IUAXCCZ.", locator: "paper_ref: 1:4IUAXCCZ", tooltip: "Joint perceptual learning for enhancement and detection.", digest: `<h2>Underwater Detection</h2><p>Combines underwater image enhancement with object detection.</p>` },
+      rtdetr: { title: "DETRs beat YOLOs", short: "RTD", year: "2024", claims: ["C3"], source: "Legacy markdown citation row: 1:CBJWE4JX.", locator: "paper_ref: 1:CBJWE4JX", tooltip: "Real-time DETR benchmark against YOLOs.", digest: `<h2>DETRs beat YOLOs</h2><p>RT-DETR-R50 reaches 53.1 AP at 108 FPS on T4, surpassing multiple YOLO baselines.</p>` },
+      rtdetr3: { title: "RT-DETRv3", short: "RT3", year: "2024", claims: ["C3"], source: "Legacy markdown citation row: 1:GHWYS7AF.", locator: "paper_ref: 1:GHWYS7AF", tooltip: "Hierarchical dense positive supervision for real-time detection.", digest: `<h2>RT-DETRv3</h2><p>Uses hierarchical dense positive supervision for real-time detection.</p>` },
+      lwdetr: { title: "LW-DETR", short: "LW", year: "2024", claims: ["C3"], source: "Legacy markdown citation row: 1:8838AH6P.", locator: "paper_ref: 1:8838AH6P", tooltip: "Transformer replacement to YOLO for real-time detection.", digest: `<h2>LW-DETR</h2><p>Optimizes a transformer detector as a practical replacement for YOLO in real-time settings.</p>` },
+      enhanced: { title: "Enhanced DETR variants", short: "EnD", year: "2024", claims: ["C2"], source: "Legacy markdown citation row: 1:CGJBFE6C.", locator: "paper_ref: 1:CGJBFE6C", tooltip: "Improved content query and similar query aggregation.", digest: `<h2>Enhanced DETR variants</h2><p>Improves content queries and aggregates similar queries.</p>` },
+      rf: { title: "RF-DETR", short: "RF", year: "2025", claims: ["C3"], source: "Legacy markdown citation row: 1:SZ3GNWT9.", locator: "paper_ref: 1:SZ3GNWT9", tooltip: "Weight-sharing NAS and foundation model pretraining.", digest: `<h2>RF-DETR</h2><p>Uses weight-sharing NAS and DINOv2 pretraining; first real-time detector to exceed 60 AP on COCO in the synthesis.</p>` },
+      table: { title: "Table structure recognition", short: "TSR", year: "2025", claims: ["C3"], source: "Legacy markdown citation row: 1:VI9JURUB.", locator: "paper_ref: 1:VI9JURUB", tooltip: "Detection-based table structure recognition.", digest: `<h2>Table Structure Recognition</h2><p>Applies detection-based approaches to document image table structure recognition.</p>` },
+      dinov3: { title: "DINOv3 real-time detection", short: "D3", year: "2026", claims: ["C3"], source: "Legacy markdown citation row: 1:8YS3DEMI.", locator: "paper_ref: 1:8YS3DEMI", tooltip: "DINOv3 enables real-time edge detection.", digest: `<h2>DINOv3 real-time detection</h2><p>Real-time object detection with DINOv3 for edge deployment.</p>` }
+    };
+
+    let selectedPaperId = "detr";
+
+    const markers = Array.from(document.querySelectorAll(".marker"));
+    const tooltip = document.getElementById("tooltip");
+    const toast = document.getElementById("toast");
+    const selectedCard = document.getElementById("selectedCard");
+    const evidenceStack = document.getElementById("evidenceStack");
+    const modal = document.getElementById("modalBackdrop");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalSubtitle = document.getElementById("modalSubtitle");
+    const digestBody = document.getElementById("digestBody");
+    const relatedClaims = document.getElementById("relatedClaims");
+    const sourceStatus = document.getElementById("sourceStatus");
+    const digestLocator = document.getElementById("digestLocator");
+    const closeModal = document.getElementById("closeModal");
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("open");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("open"), 1600);
+    }
+
+    function selectPaper(id) {
+      const paper = papers[id];
+      if (!paper) return;
+      selectedPaperId = id;
+      markers.forEach((marker) => marker.classList.toggle("selected", marker.dataset.paper === id));
+      selectedCard.innerHTML = `
+        <div class="chip-row">
+          <span class="chip blue">selected paper</span>
+          ${paper.source.includes("differs") || paper.source.includes("changed") ? '<span class="chip orange">source changed</span>' : '<span class="chip green">source fresh</span>'}
+        </div>
+        <h2>${paper.title}</h2>
+        <p class="muted">${paper.source}</p>
+        <button type="button" class="primary" data-open-selected>Open Digest Artifact</button>
+      `;
+      evidenceStack.innerHTML = `
+        <div class="evidence-row">
+          <strong>${paper.claims.join(", ")}</strong>
+          <span class="muted">This paper is linked to ${paper.claims.length} topic section${paper.claims.length > 1 ? "s" : ""}.</span>
+        </div>
+      `;
+    }
+
+    function openPaper(id) {
+      const paper = papers[id];
+      if (!paper) return;
+      selectPaper(id);
+      modalTitle.textContent = paper.title;
+      modalSubtitle.textContent = `${paper.year} · original digest-markdown · ${paper.short}`;
+      digestBody.innerHTML = paper.digest;
+      relatedClaims.innerHTML = "";
+      paper.claims.forEach((claim) => {
+        const chip = document.createElement("span");
+        chip.className = "chip blue";
+        chip.textContent = claim;
+        relatedClaims.appendChild(chip);
+      });
+      sourceStatus.textContent = paper.source;
+      digestLocator.textContent = paper.locator;
+      modal.classList.add("open");
+      closeModal.focus();
+    }
+
+    function highlightClaim(claimId) {
+      const claim = claims[claimId];
+      if (!claim) return;
+      document.querySelectorAll("[data-claim-card]").forEach((card) => {
+        card.classList.toggle("selected", card.dataset.claimCard === claimId);
+      });
+      markers.forEach((marker) => {
+        marker.classList.toggle("dimmed", !claim.papers.includes(marker.dataset.paper));
+      });
+      selectedCard.innerHTML = `
+        <div class="chip-row">
+          <span class="chip blue">selected claim</span>
+          <span class="chip">${claim.strength}</span>
+        </div>
+        <h2>${claim.label} · ${claim.title}</h2>
+        <p>${claim.narrative}</p>
+        <p class="muted">${claim.limitation}</p>
+      `;
+      evidenceStack.innerHTML = `
+        <div class="evidence-row">
+          <strong>${claim.label}</strong>
+          <span class="muted">${claim.papers.length} linked papers are highlighted on the timeline.</span>
+        </div>
+      `;
+      showToast(`${claim.label} highlighted on timeline`);
+    }
+
+    document.querySelectorAll("[data-main-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.mainTab;
+        document.querySelectorAll("[data-main-tab]").forEach((tab) => {
+          tab.classList.toggle("active", tab === button);
+          tab.setAttribute("aria-selected", String(tab === button));
+        });
+        document.querySelectorAll("[data-main-panel]").forEach((panel) => {
+          panel.classList.toggle("active", panel.dataset.mainPanel === target);
+        });
+      });
+    });
+
+    document.querySelectorAll("[data-external-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.externalTab;
+        document.querySelectorAll("[data-external-tab]").forEach((tab) => {
+          tab.classList.toggle("active", tab === button);
+          tab.setAttribute("aria-selected", String(tab === button));
+        });
+        document.querySelectorAll("[data-external-panel]").forEach((panel) => {
+          panel.hidden = panel.dataset.externalPanel !== target;
+        });
+      });
+    });
+
+    document.querySelectorAll("[data-claim]").forEach((button) => {
+      button.addEventListener("click", () => highlightClaim(button.dataset.claim));
+    });
+
+    markers.forEach((marker) => {
+      marker.addEventListener("click", () => openPaper(marker.dataset.paper));
+      marker.addEventListener("mouseenter", (event) => {
+        const paper = papers[marker.dataset.paper];
+        tooltip.textContent = `${paper.year} · ${paper.title}. ${paper.tooltip}`;
+        tooltip.style.left = `${event.clientX + 12}px`;
+        tooltip.style.top = `${event.clientY + 12}px`;
+        tooltip.classList.add("open");
+      });
+      marker.addEventListener("mousemove", (event) => {
+        tooltip.style.left = `${event.clientX + 12}px`;
+        tooltip.style.top = `${event.clientY + 12}px`;
+      });
+      marker.addEventListener("mouseleave", () => tooltip.classList.remove("open"));
+    });
+
+    const splitter = document.getElementById("splitter");
+    let resizing = false;
+
+    splitter.addEventListener("pointerdown", (event) => {
+      resizing = true;
+      splitter.classList.add("dragging");
+      splitter.setPointerCapture(event.pointerId);
+    });
+
+    splitter.addEventListener("pointermove", (event) => {
+      if (!resizing) return;
+      const width = Math.min(Math.max(window.innerWidth - event.clientX - 10, 300), 560);
+      document.documentElement.style.setProperty("--explorer-width", `${width}px`);
+    });
+
+    splitter.addEventListener("pointerup", (event) => {
+      resizing = false;
+      splitter.classList.remove("dragging");
+      splitter.releasePointerCapture(event.pointerId);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (event.target.matches("[data-open-selected]")) {
+        openPaper(selectedPaperId);
+      }
+    });
+
+    document.getElementById("copySummary").addEventListener("click", () => {
+      showToast("Summary copied in this mock interaction");
+    });
+
+    closeModal.addEventListener("click", () => modal.classList.remove("open"));
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        modal.classList.remove("open");
+      }
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        modal.classList.remove("open");
+      }
+    });
+
+    selectPaper("detr");
+  </script>
+</body>
+</html>

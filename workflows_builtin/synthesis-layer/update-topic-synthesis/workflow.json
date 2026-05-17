@@ -1,0 +1,72 @@
+{
+  "id": "update-topic-synthesis",
+  "label": "Update Topic Synthesis",
+  "provider": "acp",
+  "version": "0.2.0",
+  "taskNameTemplate": "Update synthesis: {topicId}",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "topicId": {
+      "type": "string",
+      "title": "Topic ID",
+      "description": "Existing synthesis topic id."
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Output language, such as auto, zh-CN, or en-US.",
+      "default": "auto"
+    },
+    "updateScope": {
+      "type": "string",
+      "title": "Update Scope",
+      "description": "auto, claims, timeline, external_literature, coverage, or full.",
+      "default": "auto"
+    },
+    "updateMode": {
+      "type": "string",
+      "title": "Update Mode",
+      "description": "auto, update_patch, or update_full.",
+      "default": "auto"
+    },
+    "updateReason": {
+      "type": "string",
+      "title": "Update Reason",
+      "description": "Host-derived stale, incomplete, or dirty reason.",
+      "default": "manual"
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "update-topic-synthesis"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "supportedBackends": ["acp"],
+    "mcp": {
+      "requiredTools": [
+        "synthesis.get_topic_context",
+        "synthesis.resolve_resolver",
+        "synthesis.export_paper_artifact_bundle"
+      ]
+    },
+    "skillrunner_mode": "interactive",
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyTopicSynthesisResult.mjs"
+  }
+}

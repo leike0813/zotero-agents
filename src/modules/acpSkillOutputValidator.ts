@@ -118,7 +118,7 @@ export function buildAcpSkillOutputRepairPrompt(args: {
     isInteractive
       ? "Return exactly one JSON object matching either the pending branch (`__SKILL_DONE__ = false` with `message` and `ui_hints`) or the final branch (`__SKILL_DONE__ = true` plus the final output fields)."
       : "Return exactly one final JSON object with `__SKILL_DONE__ = true` plus the final output fields.",
-    "Do not write result/result.json. The runner will create that file after a final payload validates.",
+    "Do not hand-write result/result.json. If the active SKILL.md explicitly requires a package-local runtime render action to create result/result.json, that runtime-generated file is allowed; otherwise the runner creates result/result.json after final payload validation succeeds.",
     "Do not output explanations.",
     "Do not output Markdown fences.",
   ];

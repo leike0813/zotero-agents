@@ -48,7 +48,11 @@ import {
 import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
+  type AcpConnectionInitializeResult,
 } from "./acpConnectionAdapter";
+import type { AcpDiagnosticsEntry } from "./acpTypes";
+import { ensureZoteroMcpServer } from "./zoteroMcpServer";
+import { listZoteroMcpTools } from "./zoteroMcpProtocol";
 import {
   appendAcpSkillRunUserReply,
   getAcpSkillRunRecord,
@@ -91,12 +95,50 @@ export type AcpSkillRunnerDependencies = {
   createWorkspace?: typeof createAcpSkillRunnerWorkspace;
   createAdapter?: typeof createAcpConnectionAdapter;
   dependencyProbe?: AcpRuntimeDependencyProbe;
+  mcpPreflight?: AcpRequiredMcpPreflightProbe;
+  mcpCallableSmoke?: AcpCallableMcpSmokeProbe;
   maxRepairRounds?: number;
   sharedSkillCatalogRootDir?: string;
 };
 
+export type AcpRequiredMcpPreflightProbe = (args: {
+  requiredTools: string[];
+  initialized: AcpConnectionInitializeResult;
+  requestId: string;
+  backend: BackendInstance;
+  workspace: AcpSkillRunnerWorkspace;
+}) => Promise<{
+  ok: boolean;
+  availableTools?: string[];
+  missingTools?: string[];
+  message?: string;
+}>;
+
+export type AcpCallableMcpSmokeProbe = (args: {
+  requiredTools: string[];
+  requestId: string;
+  backend: BackendInstance;
+  workspace: AcpSkillRunnerWorkspace;
+  adapter: AcpConnectionAdapter;
+  sessionId: string;
+}) => Promise<{
+  ok: boolean;
+  reachedTools?: string[];
+  missingTools?: string[];
+  message?: string;
+}>;
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+  return Array.from(
+    new Set(value.map((entry) => normalizeString(entry)).filter(Boolean)),
+  );
 }
 
 function basename(path: string) {
@@ -242,6 +284,340 @@ async function readRunnerJsonForExecutionMode(path: string) {
   }
 }
 
+function resolveRunnerRequiredMcpTools(runnerJson: Record<string, unknown>) {
+  const mcp = runnerJson.mcp;
+  if (!mcp || typeof mcp !== "object" || Array.isArray(mcp)) {
+    return [] as string[];
+  }
+  const tools = (mcp as { required_tools?: unknown; requiredTools?: unknown });
+  return normalizeStringArray(tools.required_tools || tools.requiredTools);
+}
+
+function resolveWorkflowRequiredMcpTools(request: AcpSkillRunRequestV1) {
+  const workflowMcp = request.runtime_options?.workflow_mcp;
+  if (!workflowMcp || typeof workflowMcp !== "object" || Array.isArray(workflowMcp)) {
+    return [] as string[];
+  }
+  const tools = workflowMcp as { required_tools?: unknown; requiredTools?: unknown };
+  return normalizeStringArray(tools.required_tools || tools.requiredTools);
+}
+
+function resolveRequiredMcpTools(args: {
+  request: AcpSkillRunRequestV1;
+  runnerJson: Record<string, unknown>;
+}) {
+  const workflowTools = resolveWorkflowRequiredMcpTools(args.request);
+  if (workflowTools.length > 0) {
+    return workflowTools;
+  }
+  return resolveRunnerRequiredMcpTools(args.runnerJson);
+}
+
+async function defaultRequiredMcpPreflight(args: {
+  requiredTools: string[];
+  initialized: AcpConnectionInitializeResult;
+}) {
+  if (!args.requiredTools.length) {
+    return {
+      ok: true,
+      availableTools: [] as string[],
+      missingTools: [] as string[],
+    };
+  }
+  if (!args.initialized.canUseHttpMcp) {
+    return {
+      ok: false,
+      availableTools: [] as string[],
+      missingTools: args.requiredTools,
+      message: "ACP backend did not advertise HTTP MCP support.",
+    };
+  }
+  try {
+    await ensureZoteroMcpServer();
+  } catch (error) {
+    return {
+      ok: false,
+      availableTools: [] as string[],
+      missingTools: args.requiredTools,
+      message:
+        error instanceof Error
+          ? `Embedded Zotero MCP server is unavailable: ${error.message}`
+          : `Embedded Zotero MCP server is unavailable: ${String(error || "unknown error")}`,
+    };
+  }
+  const availableTools = listZoteroMcpTools()
+    .map((tool) => normalizeString(tool.name))
+    .filter(Boolean);
+  const available = new Set(availableTools);
+  const missingTools = args.requiredTools.filter((tool) => !available.has(tool));
+  return {
+    ok: missingTools.length === 0,
+    availableTools,
+    missingTools,
+    message: missingTools.length
+      ? `Required Zotero MCP tools are missing: ${missingTools.join(", ")}`
+      : "Required Zotero MCP tools are available.",
+  };
+}
+
+async function preflightRequiredMcpTools(args: {
+  requestId: string;
+  backend: BackendInstance;
+  workspace: AcpSkillRunnerWorkspace;
+  adapter: AcpConnectionAdapter;
+  requiredTools: string[];
+  probe?: AcpRequiredMcpPreflightProbe;
+}) {
+  const requiredTools = args.requiredTools;
+  if (!requiredTools.length) {
+    return;
+  }
+  const initialized = await args.adapter.initialize();
+  const result = await (args.probe || defaultRequiredMcpPreflight)({
+    requiredTools,
+    initialized,
+    requestId: args.requestId,
+    backend: args.backend,
+    workspace: args.workspace,
+  });
+  upsertAcpSkillRun({
+    requestId: args.requestId,
+    event: {
+      stage: result.ok ? "mcp-preflight-ok" : "mcp-preflight-failed",
+      message:
+        result.message ||
+        (result.ok
+          ? "Required Zotero MCP tools are available."
+          : "Required Zotero MCP tools are unavailable."),
+      level: result.ok ? "info" : "error",
+      details: {
+        requiredTools,
+        availableTools: result.availableTools || [],
+        missingTools: result.missingTools || [],
+      },
+    },
+  });
+  appendRuntimeLog({
+    level: result.ok ? "info" : "error",
+    scope: "provider",
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    providerId: "acp",
+    requestId: args.requestId,
+    component: "acp-skillrunner",
+    operation: "mcp-preflight",
+    phase: result.ok ? "complete" : "terminal",
+    stage: result.ok ? "mcp-preflight-ok" : "mcp-preflight-failed",
+    message:
+      result.message ||
+      (result.ok
+        ? "Required Zotero MCP tools are available."
+        : "Required Zotero MCP tools are unavailable."),
+    details: {
+      requiredTools,
+      availableTools: result.availableTools || [],
+      missingTools: result.missingTools || [],
+    },
+  });
+  if (!result.ok) {
+    const missing = result.missingTools?.length
+      ? ` Missing tools: ${result.missingTools.join(", ")}.`
+      : "";
+    throw new Error(
+      `${result.message || "Required Zotero MCP preflight failed."}${missing}`,
+    );
+  }
+}
+
+function extractMcpToolNameFromDiagnostic(entry: AcpDiagnosticsEntry) {
+  if (entry.kind === "zotero_mcp_response") {
+    const raw = entry.raw as { jsonrpcToolName?: unknown } | null | undefined;
+    const fromRaw = normalizeString(raw?.jsonrpcToolName);
+    if (fromRaw) {
+      return fromRaw;
+    }
+    try {
+      const parsed = JSON.parse(normalizeString(entry.detail));
+      return normalizeString(parsed?.jsonrpcToolName);
+    } catch {
+      return "";
+    }
+  }
+  if (entry.kind !== "zotero_mcp_tool_call") {
+    return "";
+  }
+  const message = normalizeString(entry.message);
+  const match = message.match(/Zotero MCP tool call(?: failed)?\s+(.+)$/i);
+  return normalizeString(match?.[1]);
+}
+
+function buildMcpCallableSmokePrompt(requiredTools: string[]) {
+  const toolList = requiredTools.map((tool) => `- ${tool}`).join("\n");
+  return [
+    "这是一次由 host 发起的 MCP callable smoke，不是用户任务。",
+    "请对下列 Zotero MCP tools 各发起一次最小调用，用于证明这些 tool 已经暴露给当前 ACP session：",
+    toolList,
+    "",
+    "你可以根据 tool schema 自行选择最小参数；对于参数复杂或有副作用风险的 tool，允许使用明显非法的 probe 参数触发 validation error。",
+    "判定目标只是让请求到达 Zotero MCP。业务成功不是必需条件。",
+    "不要读取项目文件，不要初始化 runtime DB，不要执行 skill 正式步骤。完成后用一句话报告 smoke done。",
+  ].join("\n");
+}
+
+function buildRequiredMcpGuardPrompt(requiredTools: string[]) {
+  if (!requiredTools.length) {
+    return "";
+  }
+  return [
+    "Host 已完成 MCP availability check 和 callable smoke。",
+    "不要自行搜索 MCP 配置或测试工具注入状态。",
+    "如果正式执行中某个必需 MCP tool call 返回 unavailable/no such tool，立即输出合法 canceled，不要自行排查环境。",
+    `必需 MCP tools: ${requiredTools.join(", ")}`,
+  ].join("\n");
+}
+
+function withRequiredMcpGuard(message: string, requiredTools: string[]) {
+  const guard = buildRequiredMcpGuardPrompt(requiredTools);
+  if (!guard) {
+    return message;
+  }
+  return `${guard}\n\n${message}`;
+}
+
+async function defaultCallableMcpSmoke(args: {
+  requiredTools: string[];
+  requestId: string;
+  backend: BackendInstance;
+  workspace: AcpSkillRunnerWorkspace;
+  adapter: AcpConnectionAdapter;
+  sessionId: string;
+}) {
+  const required = new Set(args.requiredTools);
+  const reached = new Set<string>();
+  const unsubscribe = args.adapter.onDiagnostics((entry) => {
+    const toolName = extractMcpToolNameFromDiagnostic(entry);
+    if (required.has(toolName)) {
+      reached.add(toolName);
+    }
+  });
+  try {
+    await args.adapter.prompt({
+      sessionId: args.sessionId,
+      message: buildMcpCallableSmokePrompt(args.requiredTools),
+    });
+  } finally {
+    unsubscribe();
+  }
+  const reachedTools = args.requiredTools.filter((tool) => reached.has(tool));
+  const missingTools = args.requiredTools.filter((tool) => !reached.has(tool));
+  return {
+    ok: missingTools.length === 0,
+    reachedTools,
+    missingTools,
+    message: missingTools.length
+      ? `ACP callable smoke did not observe required Zotero MCP tools: ${missingTools.join(", ")}`
+      : "ACP callable smoke observed all required Zotero MCP tools.",
+  };
+}
+
+async function runCallableMcpSmoke(args: {
+  requestId: string;
+  backend: BackendInstance;
+  workspace: AcpSkillRunnerWorkspace;
+  adapter: AcpConnectionAdapter;
+  sessionId: string;
+  requiredTools: string[];
+  probe?: AcpCallableMcpSmokeProbe;
+}) {
+  if (!args.requiredTools.length) {
+    return;
+  }
+  upsertAcpSkillRun({
+    requestId: args.requestId,
+    activePrompt: true,
+    event: {
+      stage: "mcp-smoke-started",
+      message: "ACP callable MCP smoke started.",
+      level: "info",
+      details: {
+        requiredTools: args.requiredTools,
+      },
+    },
+  });
+  appendRuntimeLog({
+    level: "info",
+    scope: "provider",
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    providerId: "acp",
+    requestId: args.requestId,
+    component: "acp-skillrunner",
+    operation: "mcp-callable-smoke",
+    phase: "start",
+    stage: "mcp-smoke-started",
+    message: "ACP callable MCP smoke started.",
+    details: {
+      requiredTools: args.requiredTools,
+    },
+  });
+  const result = await (args.probe || defaultCallableMcpSmoke)({
+    requiredTools: args.requiredTools,
+    requestId: args.requestId,
+    backend: args.backend,
+    workspace: args.workspace,
+    adapter: args.adapter,
+    sessionId: args.sessionId,
+  });
+  upsertAcpSkillRun({
+    requestId: args.requestId,
+    activePrompt: false,
+    event: {
+      stage: result.ok ? "mcp-smoke-ok" : "mcp-smoke-failed",
+      message:
+        result.message ||
+        (result.ok
+          ? "ACP callable MCP smoke succeeded."
+          : "ACP callable MCP smoke failed."),
+      level: result.ok ? "info" : "error",
+      details: {
+        requiredTools: args.requiredTools,
+        reachedTools: result.reachedTools || [],
+        missingTools: result.missingTools || [],
+      },
+    },
+  });
+  appendRuntimeLog({
+    level: result.ok ? "info" : "error",
+    scope: "provider",
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    providerId: "acp",
+    requestId: args.requestId,
+    component: "acp-skillrunner",
+    operation: "mcp-callable-smoke",
+    phase: result.ok ? "complete" : "terminal",
+    stage: result.ok ? "mcp-smoke-ok" : "mcp-smoke-failed",
+    message:
+      result.message ||
+      (result.ok
+        ? "ACP callable MCP smoke succeeded."
+        : "ACP callable MCP smoke failed."),
+    details: {
+      requiredTools: args.requiredTools,
+      reachedTools: result.reachedTools || [],
+      missingTools: result.missingTools || [],
+    },
+  });
+  if (!result.ok) {
+    const missing = result.missingTools?.length
+      ? ` Missing callable tools: ${result.missingTools.join(", ")}.`
+      : "";
+    throw new Error(
+      `${result.message || "ACP callable MCP smoke failed."}${missing}`,
+    );
+  }
+}
+
 type FrozenAcpRuntimeOptions = {
   modeId?: string;
   modelId?: string;
@@ -282,6 +658,7 @@ async function runPrompt(args: {
   message: string;
   runtimeOptions?: FrozenAcpRuntimeOptions;
   sessionId?: string;
+  prepareSession?: (sessionId: string) => Promise<void>;
 }): Promise<{ sessionId: string; stopReason: string }> {
   let sessionId = String(args.sessionId || "").trim();
   if (!sessionId) {
@@ -314,6 +691,15 @@ async function runPrompt(args: {
       });
     }
   } else {
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      sessionId,
+      conversationState: "active",
+      activePrompt: true,
+    });
+  }
+  if (args.prepareSession) {
+    await args.prepareSession(sessionId);
     upsertAcpSkillRun({
       requestId: args.requestId,
       sessionId,
@@ -571,7 +957,7 @@ function buildRecoveredContinuationPrompt(args: {
     "- For quick reply controls, use `ui_hints.options` with `{ \"label\": string, \"value\": string }` entries.",
     "- Do not output explanations.",
     "- Do not output Markdown fences.",
-    `- Do not write ${resultJsonPath}; the runner writes result/result.json after final validation succeeds.`,
+    `- Do not hand-write ${resultJsonPath}. If the active SKILL.md explicitly requires a package-local runtime render action to create result/result.json, that runtime-generated file is allowed; otherwise the runner writes result/result.json after final validation succeeds.`,
     "",
     "User reply to continue with:",
     args.userMessage,
@@ -617,7 +1003,10 @@ async function applyRecoveredRuntimeOptions(args: {
 export async function recoverAcpSkillRunConversation(args: {
   requestId: string;
   reason?: "connect" | "reply";
-  dependencies?: Pick<AcpSkillRunnerDependencies, "createAdapter" | "dependencyProbe">;
+  dependencies?: Pick<
+    AcpSkillRunnerDependencies,
+    "createAdapter" | "dependencyProbe" | "mcpPreflight" | "mcpCallableSmoke"
+  >;
 }) {
   const requestId = normalizeString(args.requestId);
   if (!requestId) {
@@ -628,6 +1017,20 @@ export async function recoverAcpSkillRunConversation(args: {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
   const recoveredRuntimeOptions = resolveRecoveredRuntimeOptions(record);
+  const recoveredRequest =
+    record.requestPayload &&
+    typeof record.requestPayload === "object" &&
+    !Array.isArray(record.requestPayload) &&
+    (record.requestPayload as { kind?: unknown }).kind === ACP_SKILL_RUN_REQUEST_KIND
+      ? (record.requestPayload as AcpSkillRunRequestV1)
+      : null;
+  const requiredMcpTools = recoveredRequest
+    ? resolveRequiredMcpTools({
+        request: recoveredRequest,
+        runnerJson: (record.runnerJson || {}) as Record<string, unknown>,
+      })
+    : resolveRunnerRequiredMcpTools((record.runnerJson || {}) as Record<string, unknown>);
+  let mcpSmokeCompleted = requiredMcpTools.length === 0;
   const sessionId = normalizeString(record.sessionId);
   if (!sessionId) {
     upsertAcpSkillRun({
@@ -724,8 +1127,49 @@ export async function recoverAcpSkillRunConversation(args: {
       const result = await runPrompt({
         adapter,
         requestId,
-        message,
+        message: mcpSmokeCompleted
+          ? message
+          : withRequiredMcpGuard(message, requiredMcpTools),
         sessionId: liveSessionId,
+        prepareSession: async (sessionId) => {
+          if (mcpSmokeCompleted) {
+            return;
+          }
+          await preflightRequiredMcpTools({
+            requestId,
+            backend: dependencyPlan.wrappedBackend,
+            workspace: {
+              requestId,
+              workspaceDir,
+              runtimeDir,
+              resultDir: "",
+              auditDir: "",
+              inputManifestPath: normalizeString(record.inputManifestPath),
+              resultJsonPath: normalizeString(record.resultJsonPath),
+            },
+            adapter,
+            requiredTools: requiredMcpTools,
+            probe: args.dependencies?.mcpPreflight,
+          });
+          await runCallableMcpSmoke({
+            requestId,
+            backend: dependencyPlan.wrappedBackend,
+            workspace: {
+              requestId,
+              workspaceDir,
+              runtimeDir,
+              resultDir: "",
+              auditDir: "",
+              inputManifestPath: normalizeString(record.inputManifestPath),
+              resultJsonPath: normalizeString(record.resultJsonPath),
+            },
+            adapter,
+            sessionId,
+            requiredTools: requiredMcpTools,
+            probe: args.dependencies?.mcpCallableSmoke,
+          });
+          mcpSmokeCompleted = true;
+        },
       });
       liveSessionId = result.sessionId;
       return currentTurnAssistantText;
@@ -1283,7 +1727,12 @@ export async function executeAcpSkillRunnerJob(args: {
     });
     throw error;
   }
+  const requiredMcpTools = resolveRequiredMcpTools({
+    request,
+    runnerJson: materialization.runnerJson,
+  });
   let liveSessionId = "";
+  let mcpSmokeCompleted = requiredMcpTools.length === 0;
   let keepConversationAlive = false;
   let cleanupDone = false;
   let cancellationRequested = false;
@@ -1389,9 +1838,26 @@ export async function executeAcpSkillRunnerJob(args: {
       const result = await runPrompt({
         adapter,
         requestId: workspace.requestId,
-        message,
+        message: mcpSmokeCompleted
+          ? message
+          : withRequiredMcpGuard(message, requiredMcpTools),
         runtimeOptions: frozenRuntimeOptions,
         sessionId: liveSessionId,
+        prepareSession: async (sessionId) => {
+          if (mcpSmokeCompleted) {
+            return;
+          }
+          await runCallableMcpSmoke({
+            requestId: workspace.requestId,
+            backend: dependencyPlan.wrappedBackend,
+            workspace,
+            adapter,
+            sessionId,
+            requiredTools: requiredMcpTools,
+            probe: args.dependencies?.mcpCallableSmoke,
+          });
+          mcpSmokeCompleted = true;
+        },
       });
       liveSessionId = result.sessionId;
       return {
@@ -1569,6 +2035,14 @@ export async function executeAcpSkillRunnerJob(args: {
       materialization,
       injectionPlan,
     };
+    await preflightRequiredMcpTools({
+      requestId: workspace.requestId,
+      backend: dependencyPlan.wrappedBackend,
+      workspace,
+      adapter,
+      requiredTools: requiredMcpTools,
+      probe: args.dependencies?.mcpPreflight,
+    });
     const runExecutionInstructionsPath = await materializeAcpRunExecutionInstructions({
       context: {
         skillId: request.skill_id,

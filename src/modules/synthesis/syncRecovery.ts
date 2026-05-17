@@ -1,4 +1,4 @@
-import type { MirrorManifest, ShardKind } from "./foundation";
+import type { MirrorAssetContentType, MirrorManifest, ShardKind } from "./foundation";
 
 export type SynthesisSyncAction =
   | "rebind_root"
@@ -28,6 +28,13 @@ export type SynthesisSyncDiagnostic = {
     | "encoded_hash_mismatch"
     | "note_key_mismatch"
     | "title_mismatch"
+    | "unsafe_asset_path"
+    | "duplicate_asset_id"
+    | "asset_identity_mismatch"
+    | "asset_content_type_mismatch"
+    | "asset_not_recoverable"
+    | "duplicate_shard"
+    | "ambiguous_manifest"
     | "missing_shard"
     | "mirror_id_mismatch"
     | "library_id_mismatch"
@@ -48,6 +55,9 @@ export type DecodedMirrorShardSummary = {
   library_id: number;
   mirror_id: string;
   kind: ShardKind;
+  asset_id?: string;
+  asset_path?: string;
+  content_type?: MirrorAssetContentType;
   seq: number;
   total: number;
   note_key: string;
@@ -111,6 +121,16 @@ export type ConflictCandidateAction = {
   localOnly: true;
 };
 
+export type CanonicalRecoveryPlan = {
+  status: "ready" | "missing_root" | "degraded";
+  executable: boolean;
+  requiresConfirmation: boolean;
+  writeMode: "temporary_then_promote";
+  diagnostics: SynthesisSyncDiagnostic[];
+  manifest?: MirrorManifest;
+  payloadsByAssetPath: Record<string, string>;
+};
+
 function cleanString(value: unknown) {
   return String(value || "").trim();
 }
@@ -120,8 +140,8 @@ function cleanPositiveInteger(value: unknown) {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
-function shardKey(kind: ShardKind, seq: number) {
-  return `${kind}:${seq}`;
+function shardKey(kind: ShardKind, assetId: string | undefined, seq: number) {
+  return `${assetId || kind}:${seq}`;
 }
 
 function diagnostic(
@@ -152,11 +172,116 @@ function addAction(actions: SynthesisSyncAction[], action: SynthesisSyncAction) 
   }
 }
 
+const RECOVERABLE_STATE_ASSETS = new Map<string, string>([
+  ["state:index", "state/index.json"],
+  ["state:topic-definitions", "state/topic-definitions.json"],
+  ["state:resolvers", "state/resolvers.json"],
+  ["state:resolved-paper-sets", "state/resolved-paper-sets.json"],
+  ["state:artifact-state", "state/artifact-state.json"],
+  ["state:deleted-topic-artifacts", "state/deleted-topic-artifacts.json"],
+]);
+
+function contentTypeForPath(path: string): MirrorAssetContentType {
+  if (path.endsWith(".json")) {
+    return "json";
+  }
+  if (path.endsWith(".md")) {
+    return "markdown";
+  }
+  return "text";
+}
+
+function isUnsafeAssetPath(path: string) {
+  if (!path) {
+    return true;
+  }
+  if (path.includes("\\") || path.startsWith("/") || path.startsWith("//")) {
+    return true;
+  }
+  if (/^[A-Za-z]:/.test(path)) {
+    return true;
+  }
+  const parts = path.split("/");
+  return parts.some((part) => !part || part === "." || part === "..");
+}
+
+function expectedPathForAssetId(assetId: string) {
+  const statePath = RECOVERABLE_STATE_ASSETS.get(assetId);
+  if (statePath) {
+    return statePath;
+  }
+  let match = assetId.match(/^topic:([^:]+):current-manifest$/);
+  if (match) {
+    return `topics/${match[1]}/current/manifest.json`;
+  }
+  match = assetId.match(/^topic:([^:]+):current-metadata$/);
+  if (match) {
+    return `topics/${match[1]}/current/metadata.json`;
+  }
+  match = assetId.match(/^topic:([^:]+):current-artifact$/);
+  if (match) {
+    return `topics/${match[1]}/current/artifact.json`;
+  }
+  match = assetId.match(/^topic:([^:]+):current-export$/);
+  if (match) {
+    return `topics/${match[1]}/current/export.md`;
+  }
+  match = assetId.match(/^topic:([^:]+):section:([^:]+)$/);
+  if (match) {
+    return `topics/${match[1]}/current/sections/${match[2]}.json`;
+  }
+  return "";
+}
+
+function validateAssetIdentity(args: {
+  assetId: string;
+  assetPath: string;
+  contentType: string;
+}) {
+  const diagnostics: SynthesisSyncDiagnostic[] = [];
+  if (!args.assetId && !args.assetPath) {
+    return diagnostics;
+  }
+  if (isUnsafeAssetPath(args.assetPath)) {
+    diagnostics.push(
+      diagnostic("unsafe_asset_path", `Unsafe mirror asset path: ${args.assetPath}`, "error"),
+    );
+  }
+  const expectedPath = expectedPathForAssetId(args.assetId);
+  if (!expectedPath) {
+    diagnostics.push(
+      diagnostic("asset_not_recoverable", `Mirror asset is not recoverable: ${args.assetId}`, "error"),
+    );
+  } else if (expectedPath !== args.assetPath) {
+    diagnostics.push(
+      diagnostic(
+        "asset_identity_mismatch",
+        `Mirror asset ${args.assetId} maps to ${args.assetPath}, expected ${expectedPath}`,
+        "error",
+      ),
+    );
+  }
+  const expectedContentType = contentTypeForPath(args.assetPath);
+  if (args.contentType && args.contentType !== expectedContentType) {
+    diagnostics.push(
+      diagnostic(
+        "asset_content_type_mismatch",
+        `Mirror asset ${args.assetId} content type ${args.contentType} does not match ${expectedContentType}`,
+        "error",
+      ),
+    );
+  }
+  return diagnostics;
+}
+
 function normalizeShard(shard: DecodedMirrorShardSummary): DecodedMirrorShardSummary {
   return {
     library_id: cleanPositiveInteger(shard.library_id),
     mirror_id: cleanString(shard.mirror_id),
     kind: cleanString(shard.kind),
+    asset_id: cleanString(shard.asset_id),
+    asset_path: cleanString(shard.asset_path),
+    content_type: cleanString(shard.content_type) as MirrorAssetContentType,
     seq: cleanPositiveInteger(shard.seq),
     total: cleanPositiveInteger(shard.total),
     note_key: cleanString(shard.note_key),
@@ -192,12 +317,46 @@ export function validateMirrorManifestAgainstShards(args: {
     };
   }
   const diagnostics: SynthesisSyncDiagnostic[] = [];
-  const shardByKey = new Map(shards.map((shard) => [shardKey(shard.kind, shard.seq), shard]));
+  const shardByKey = new Map<string, DecodedMirrorShardSummary>();
+  for (const shard of shards) {
+    const key = shardKey(shard.kind, shard.asset_id, shard.seq);
+    if (shardByKey.has(key)) {
+      diagnostics.push(
+        diagnostic("duplicate_shard", `Duplicate mirror shard ${key}`, "error", {
+          kind: shard.kind,
+          seq: shard.seq,
+          total: shard.total,
+          note_key: shard.note_key,
+        }),
+      );
+    }
+    shardByKey.set(key, shard);
+  }
   const manifestShardKeys = new Set<string>();
+  const seenAssetIds = new Map<string, string>();
 
   for (const entry of manifest.shards) {
-    const key = shardKey(entry.kind, entry.seq);
+    const entryAssetId = cleanString(entry.asset_id);
+    const entryAssetPath = cleanString(entry.asset_path);
+    const entryContentType = cleanString(entry.content_type);
+    const key = shardKey(entry.kind, entryAssetId, entry.seq);
     manifestShardKeys.add(key);
+    if (entryAssetId) {
+      const previousPath = seenAssetIds.get(entryAssetId);
+      if (previousPath && previousPath !== entryAssetPath) {
+        diagnostics.push(
+          diagnostic("duplicate_asset_id", `Duplicate mirror asset id: ${entryAssetId}`, "error"),
+        );
+      }
+      seenAssetIds.set(entryAssetId, entryAssetPath);
+    }
+    diagnostics.push(
+      ...validateAssetIdentity({
+        assetId: entryAssetId,
+        assetPath: entryAssetPath,
+        contentType: entryContentType,
+      }),
+    );
     const shard = shardByKey.get(key);
     const shardRef = {
       kind: entry.kind,
@@ -208,6 +367,25 @@ export function validateMirrorManifestAgainstShards(args: {
     if (!shard) {
       diagnostics.push(diagnostic("missing_shard", `Missing mirror shard ${key}`, "error", shardRef));
       continue;
+    }
+    const shardAssetId = cleanString(shard.asset_id);
+    const shardAssetPath = cleanString(shard.asset_path);
+    const shardContentType = cleanString(shard.content_type);
+    const hasIdentity = Boolean(entryAssetId || entryAssetPath || shardAssetId || shardAssetPath);
+    if (hasIdentity && (entryAssetId !== shardAssetId || entryAssetPath !== shardAssetPath)) {
+      diagnostics.push(
+        diagnostic("asset_identity_mismatch", `Shard ${key} asset identity mismatch`, "error", shardRef),
+      );
+    }
+    if (hasIdentity && entryContentType !== shardContentType) {
+      diagnostics.push(
+        diagnostic(
+          "asset_content_type_mismatch",
+          `Shard ${key} content type mismatch`,
+          "error",
+          shardRef,
+        ),
+      );
     }
     if (shard.library_id !== manifest.library_id) {
       diagnostics.push(
@@ -246,17 +424,20 @@ export function validateMirrorManifestAgainstShards(args: {
     }
   }
 
-  const totalsByKind = new Map<ShardKind, number>();
+  const totalEntriesByKey = new Map<string, number>();
   for (const entry of manifest.shards) {
-    totalsByKind.set(entry.kind, Math.max(totalsByKind.get(entry.kind) || 0, entry.total));
+    const key = cleanString(entry.asset_id) || entry.kind;
+    totalEntriesByKey.set(key, Math.max(totalEntriesByKey.get(key) || 0, entry.total));
   }
-  for (const [kind, total] of totalsByKind.entries()) {
+  for (const entry of manifest.shards) {
+    const assetGroupKey = cleanString(entry.asset_id) || entry.kind;
+    const total = totalEntriesByKey.get(assetGroupKey) || entry.total;
     for (let seq = 1; seq <= total; seq += 1) {
-      const key = shardKey(kind, seq);
+      const key = shardKey(entry.kind, cleanString(entry.asset_id), seq);
       if (!manifestShardKeys.has(key)) {
         diagnostics.push(
           diagnostic("missing_shard", `Manifest missing shard sequence ${key}`, "error", {
-            kind,
+            kind: entry.kind,
             seq,
             total,
           }),
@@ -427,6 +608,96 @@ export function assessSynthesisSyncRecovery(
     autoOverwriteCanonical: false,
     conflictCandidates: conflicts,
     mirrorValidation,
+  };
+}
+
+export function planCanonicalRecoveryFromMirror(args: {
+  canonicalRoot: { state: "missing" | "ready" | "unbound" };
+  manifests: MirrorManifest[];
+  shards: DecodedMirrorShardSummary[];
+  confirm: boolean;
+}): CanonicalRecoveryPlan {
+  const diagnostics: SynthesisSyncDiagnostic[] = [];
+  if ((args.manifests || []).length > 1) {
+    diagnostics.push(
+      diagnostic(
+        "ambiguous_manifest",
+        "Multiple distinct Zotero mirror manifests are present",
+        "error",
+      ),
+    );
+    return {
+      status: "degraded",
+      executable: false,
+      requiresConfirmation: true,
+      writeMode: "temporary_then_promote",
+      diagnostics: sortDiagnostics(diagnostics),
+      payloadsByAssetPath: {},
+    };
+  }
+  const manifest = args.manifests[0];
+  const validation = validateMirrorManifestAgainstShards({
+    manifest,
+    shards: args.shards,
+  });
+  if (!manifest || !validation.ok) {
+    return {
+      status: "degraded",
+      executable: false,
+      requiresConfirmation: true,
+      writeMode: "temporary_then_promote",
+      diagnostics: sortDiagnostics([
+        ...diagnostics,
+        ...(validation.ok ? [] : validation.diagnostics),
+      ]),
+      payloadsByAssetPath: {},
+    };
+  }
+  if (args.canonicalRoot.state !== "missing") {
+    diagnostics.push(
+      diagnostic(
+        "root_missing",
+        "Canonical root already exists; shard recovery will not overwrite it",
+        "warning",
+      ),
+    );
+    return {
+      status: "ready",
+      executable: false,
+      requiresConfirmation: true,
+      writeMode: "temporary_then_promote",
+      diagnostics: sortDiagnostics(diagnostics),
+      manifest,
+      payloadsByAssetPath: {},
+    };
+  }
+  const payloadsByAssetPath: Record<string, string> = {};
+  const shardsByKey = new Map(
+    args.shards.map((shard) => [shardKey(shard.kind, shard.asset_id, shard.seq), shard]),
+  );
+  const assetPaths = new Set<string>();
+  for (const entry of manifest.shards) {
+    if (!entry.asset_path || assetPaths.has(entry.asset_path)) {
+      continue;
+    }
+    assetPaths.add(entry.asset_path);
+    const total = cleanPositiveInteger(entry.total);
+    const chunks: string[] = [];
+    for (let seq = 1; seq <= total; seq += 1) {
+      chunks.push(
+        shardsByKey.get(shardKey(entry.kind, entry.asset_id, seq))?.payload || "",
+      );
+    }
+    payloadsByAssetPath[entry.asset_path] = chunks.join("");
+  }
+  return {
+    status: "missing_root",
+    executable: Boolean(args.confirm),
+    requiresConfirmation: true,
+    writeMode: "temporary_then_promote",
+    diagnostics: [],
+    manifest,
+    payloadsByAssetPath,
   };
 }
 

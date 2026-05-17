@@ -17,7 +17,9 @@ import {
 type SynthesisBridgeMessageType =
   | "synthesis:init"
   | "synthesis:snapshot"
-  | "synthesis:artifact";
+  | "synthesis:artifact"
+  | "synthesis:topic-detail"
+  | "synthesis:digest";
 
 type SynthesisWorkbenchActionEnvelope = {
   type: "synthesis:action";
@@ -33,6 +35,8 @@ type SynthesisArtifactReaderDto = {
   hash?: string;
   updated_at?: string;
 };
+
+type SynthesisTopicDetailDto = Record<string, unknown>;
 
 type SynthesisWorkbenchBridge = {
   postMessage: (
@@ -283,26 +287,26 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
   };
 }
 
-function findSynthesizeTopicWorkflow() {
+function findCreateTopicSynthesisWorkflow() {
   return (
     getLoadedWorkflowEntries().find(
-      (entry) => entry.manifest.id === "synthesize-topic",
+      (entry) => entry.manifest.id === "create-topic-synthesis",
     ) || null
   );
 }
 
-async function runSynthesizeTopicFromWorkbench(args: {
+async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
 }) {
   const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
   if (!hostWindow) {
     throw new Error("Cannot run synthesis: Zotero main window is unavailable.");
   }
-  const workflow = findSynthesizeTopicWorkflow();
+  const workflow = findCreateTopicSynthesisWorkflow();
   if (!workflow) {
     alertWindow(
       hostWindow,
-      "Cannot run synthesis: synthesize-topic workflow is not loaded. Rescan builtin workflows and try again.",
+      "Cannot run synthesis: create-topic-synthesis workflow is not loaded. Rescan builtin workflows and try again.",
     );
     return;
   }
@@ -328,6 +332,12 @@ function postWorkbenchMessage(
     },
     "*",
   );
+}
+
+function commandArgsFromPayload(payload?: Record<string, unknown>) {
+  return payload?.args && typeof payload.args === "object"
+    ? (payload.args as Record<string, unknown>)
+    : {};
 }
 
 async function sendSnapshot(
@@ -385,13 +395,38 @@ async function sendArtifactReader(
   postWorkbenchMessage(runtime, "synthesis:artifact", dto);
 }
 
+async function sendTopicDetail(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+) {
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  const detail = await getDefaultSynthesisService().readTopicDetail({ topicId });
+  const result = applySynthesisUiAction(runtime.state, {
+    action: "showArtifactReader",
+    payload: { topicId },
+  });
+  runtime.state = result.state;
+  await sendSnapshot(runtime, "synthesis:snapshot");
+  postWorkbenchMessage(runtime, "synthesis:topic-detail", detail as SynthesisTopicDetailDto);
+}
+
+async function sendTopicDigest(
+  runtime: SynthesisWorkbenchRuntime,
+  args: Record<string, unknown>,
+) {
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  const digest = await getDefaultSynthesisService().resolveTopicPaperDigest(args);
+  postWorkbenchMessage(runtime, "synthesis:digest", digest);
+}
+
 async function openSynthesisFolderFromWorkbench(args: {
   payload?: Record<string, unknown>;
 }) {
-  const commandArgs =
-    args.payload?.args && typeof args.payload.args === "object"
-      ? (args.payload.args as Record<string, unknown>)
-      : {};
+  const commandArgs = commandArgsFromPayload(args.payload);
   const topicId = String(commandArgs.topicId || "").trim();
   if (topicId) {
     const artifact = await getDefaultSynthesisService().readTopicArtifact({ topicId });
@@ -447,7 +482,7 @@ function handleAction(
     });
   }
   if (result.hostCommand?.command === "runSynthesizeTopic") {
-    void runSynthesizeTopicFromWorkbench({
+    void runCreateTopicSynthesisFromWorkbench({
       hostWindow: runtime.window,
     })
       .catch((error) => reportWorkbenchError(error, runtime.window))
@@ -464,13 +499,36 @@ function handleAction(
       });
     return;
   }
+  if (result.hostCommand?.command === "openTopicArtifact") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const topicId = String(commandArgs.topicId || "").trim();
+    void sendTopicDetail(runtime, topicId).catch((error) =>
+      reportWorkbenchError(error, runtime.window),
+    );
+    return;
+  }
   if (result.hostCommand?.command === "openCanonicalMarkdown") {
-    const commandArgs =
-      envelope.payload?.args && typeof envelope.payload.args === "object"
-        ? (envelope.payload.args as Record<string, unknown>)
-        : {};
+    const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
     void sendArtifactReader(runtime, topicId).catch((error) =>
+      reportWorkbenchError(error, runtime.window),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "copyTopicMarkdownExport") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const topicId = String(commandArgs.topicId || "").trim();
+    void getDefaultSynthesisService()
+      .readTopicArtifact({ topicId })
+      .then((artifact) =>
+        runtime.hostWindow.navigator?.clipboard?.writeText?.(artifact.markdown),
+      )
+      .catch((error) => reportWorkbenchError(error, runtime.window));
+    return;
+  }
+  if (result.hostCommand?.command === "resolveTopicPaperDigest") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    void sendTopicDigest(runtime, commandArgs).catch((error) =>
       reportWorkbenchError(error, runtime.window),
     );
     return;
@@ -482,10 +540,7 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "deleteTopicArtifact") {
-    const commandArgs =
-      envelope.payload?.args && typeof envelope.payload.args === "object"
-        ? (envelope.payload.args as Record<string, unknown>)
-        : {};
+    const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
     if (
       !confirmWorkbenchAction(

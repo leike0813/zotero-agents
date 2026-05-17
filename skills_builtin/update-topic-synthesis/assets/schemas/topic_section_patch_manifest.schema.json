@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis Section Patch Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_id", "schema_version", "operation", "language", "base", "patch"],
+  "properties": {
+    "schema_id": { "const": "synthesis.topic_section_patch_manifest" },
+    "schema_version": { "type": "string" },
+    "operation": { "const": "update_patch" },
+    "topic_id": { "type": "string" },
+    "language": { "type": "string", "minLength": 1 },
+    "base": {
+      "type": "object",
+      "required": [
+        "current_manifest_hash",
+        "current_artifact_hash",
+        "read_section_hashes",
+        "replace_section_hashes"
+      ],
+      "properties": {
+        "current_manifest_hash": { "type": "string" },
+        "current_artifact_hash": { "type": "string" },
+        "read_section_hashes": { "type": "object" },
+        "replace_section_hashes": { "type": "object" }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "required": [
+        "mode",
+        "changed_sections",
+        "unchanged_section_policy",
+        "sections"
+      ],
+      "properties": {
+        "mode": { "const": "section_replace" },
+        "changed_sections": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "unchanged_section_policy": { "const": "inherit_current" },
+        "sections": { "type": "object" }
+      }
+    }
+  },
+  "not": { "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }] }
+}

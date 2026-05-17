@@ -17,6 +17,17 @@ export type SynthesisUiGraphElement =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string };
 
+export type SynthesisUiTopicUpdateIntent = {
+  topicId: string;
+  language: string;
+  updateScope: string;
+  updateMode: "auto" | "update_patch" | "update_full";
+  updateReason: string;
+  actionLabel: "Update" | "Complete" | "Repair/Rebuild";
+  changedSections: string[];
+  blocked?: boolean;
+};
+
 export type SynthesisUiArtifactRow = {
   id: string;
   title: string;
@@ -28,6 +39,14 @@ export type SynthesisUiArtifactRow = {
   paper_count?: number;
   summary?: string;
   completion?: number;
+  status?: string;
+  readerMode?: string;
+  language?: string;
+  external_literature_count?: number;
+  stale_reasons?: string[];
+  dirty_reasons?: string[];
+  missing_sections?: string[];
+  updateIntent?: SynthesisUiTopicUpdateIntent;
 };
 
 export type SynthesisUiRegistryRow = {
@@ -208,7 +227,9 @@ export type SynthesisUiAction = {
 };
 
 export type SynthesisUiHostCommandName =
+  | "openTopicArtifact"
   | "openCanonicalMarkdown"
+  | "copyTopicMarkdownExport"
   | "openSynthesisFolder"
   | "runSynthesizeTopic"
   | "openZoteroItem"
@@ -216,7 +237,11 @@ export type SynthesisUiHostCommandName =
   | "openPreferences"
   | "manualRecomputeLayout"
   | "deleteTopicArtifact"
-  | "purgeDeletedTopicArtifacts";
+  | "purgeDeletedTopicArtifacts"
+  | "submitTopicSynthesisUpdate"
+  | "resolveTopicPaperDigest"
+  | "rebuildSynthesisMirror"
+  | "recoverSynthesisFromMirror";
 
 export type SynthesisUiHostCommand = {
   command: SynthesisUiHostCommandName;
@@ -231,7 +256,9 @@ export type SynthesisUiActionResult = {
 };
 
 const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
+  "openTopicArtifact",
   "openCanonicalMarkdown",
+  "copyTopicMarkdownExport",
   "openSynthesisFolder",
   "runSynthesizeTopic",
   "openZoteroItem",
@@ -240,6 +267,10 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "manualRecomputeLayout",
   "deleteTopicArtifact",
   "purgeDeletedTopicArtifacts",
+  "submitTopicSynthesisUpdate",
+  "resolveTopicPaperDigest",
+  "rebuildSynthesisMirror",
+  "recoverSynthesisFromMirror",
 ];
 
 function cleanString(value: unknown) {
@@ -418,23 +449,97 @@ function normalizeDeletedArtifactRows(values: unknown) {
     );
 }
 
+function deriveUpdateIntent(row: {
+  id: string;
+  coverage: SynthesisUiCoverage;
+  freshness: SynthesisUiFreshness;
+  language?: string;
+  stale_reasons?: string[];
+  dirty_reasons?: string[];
+  missing_sections?: string[];
+  status?: string;
+}): SynthesisUiTopicUpdateIntent | undefined {
+  const language = cleanString(row.language) || "auto";
+  const staleReasons = normalizeStringList(row.stale_reasons);
+  const dirtyReasons = normalizeStringList(row.dirty_reasons);
+  const missingSections = normalizeStringList(row.missing_sections);
+  if (
+    row.freshness === "dirty" ||
+    row.status === "legacy_invalid" ||
+    dirtyReasons.length > 0
+  ) {
+    return {
+      topicId: row.id,
+      language,
+      updateScope: "repair",
+      updateMode: "update_full",
+      updateReason: dirtyReasons[0] || row.status || "dirty",
+      actionLabel: "Repair/Rebuild",
+      changedSections: [],
+    };
+  }
+  if (row.coverage !== "complete" || missingSections.length > 0) {
+    const section = missingSections[0] || "coverage";
+    return {
+      topicId: row.id,
+      language,
+      updateScope:
+        section === "external_literature_analysis"
+          ? "external_literature"
+          : section,
+      updateMode: "update_patch",
+      updateReason: missingSections.length ? "incomplete_sections" : "coverage_incomplete",
+      actionLabel: "Complete",
+      changedSections: missingSections.length ? missingSections : ["coverage", "diagnostics"],
+    };
+  }
+  if (row.freshness === "stale" || staleReasons.length > 0) {
+    return {
+      topicId: row.id,
+      language,
+      updateScope: "auto",
+      updateMode: "auto",
+      updateReason: staleReasons[0] || "stale",
+      actionLabel: "Update",
+      changedSections: [],
+    };
+  }
+  return undefined;
+}
+
 function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
   return [...(rows || [])]
-    .map((row) => ({
-      id: cleanString(row.id),
-      title: cleanString(row.title) || cleanString(row.id),
-      kind: "topic_synthesis" as const,
-      coverage: normalizeCoverage(row.coverage),
-      freshness: normalizeFreshness(row.freshness),
-      updated_at: cleanString(row.updated_at) || undefined,
-      markdown_preview: cleanString(row.markdown_preview) || undefined,
-      paper_count: Math.max(0, Math.floor(cleanNumber(row.paper_count, 0))),
-      summary: cleanString(row.summary) || undefined,
-      completion: Math.max(
-        0,
-        Math.min(100, Math.floor(cleanNumber(row.completion, 0))),
-      ),
-    }))
+    .map((row) => {
+      const normalized = {
+        id: cleanString(row.id),
+        title: cleanString(row.title) || cleanString(row.id),
+        kind: "topic_synthesis" as const,
+        coverage: normalizeCoverage(row.coverage),
+        freshness: normalizeFreshness(row.freshness),
+        updated_at: cleanString(row.updated_at) || undefined,
+        markdown_preview: cleanString(row.markdown_preview) || undefined,
+        paper_count: Math.max(0, Math.floor(cleanNumber(row.paper_count, 0))),
+        summary: cleanString(row.summary) || undefined,
+        status: cleanString(row.status) || undefined,
+        readerMode: cleanString(row.readerMode) || undefined,
+        language: cleanString(row.language) || undefined,
+        external_literature_count: Math.max(
+          0,
+          Math.floor(cleanNumber(row.external_literature_count, 0)),
+        ),
+        stale_reasons: normalizeStringList(row.stale_reasons),
+        dirty_reasons: normalizeStringList(row.dirty_reasons),
+        missing_sections: normalizeStringList(row.missing_sections),
+        completion: Math.max(
+          0,
+          Math.min(100, Math.floor(cleanNumber(row.completion, 0))),
+        ),
+      };
+      return {
+        ...normalized,
+        updateIntent: row.updateIntent || deriveUpdateIntent(normalized),
+      };
+    })
     .filter((row) => row.id)
     .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
 }

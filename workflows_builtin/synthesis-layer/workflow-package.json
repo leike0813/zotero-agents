@@ -1,5 +1,8 @@
 {
   "id": "synthesis-layer",
   "version": "1.0.0",
-  "workflows": ["synthesize-topic/workflow.json"]
+  "workflows": [
+    "create-topic-synthesis/workflow.json",
+    "update-topic-synthesis/workflow.json"
+  ]
 }

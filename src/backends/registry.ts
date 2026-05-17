@@ -704,7 +704,17 @@ function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
     types.add("skillrunner");
     types.add(ACP_BACKEND_TYPE);
   }
-  return Array.from(types.values());
+  const inferredTypes = Array.from(types.values());
+  const supportedTypes = normalizeStringArray(
+    workflow.manifest.execution?.supportedBackends,
+  );
+  if (supportedTypes.length === 0) {
+    return inferredTypes;
+  }
+  if (inferredTypes.length === 0) {
+    return supportedTypes;
+  }
+  return inferredTypes.filter((type) => supportedTypes.includes(type));
 }
 
 export async function listBackendsForProvider(providerType: string) {

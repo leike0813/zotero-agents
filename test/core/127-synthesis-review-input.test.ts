@@ -68,7 +68,7 @@ const graph: CitationGraph = {
   },
 };
 
-describe("Synthesis review workflow input", function () {
+describe("Synthesis review input workflow DTO", function () {
   it("builds a normalized review input DTO from topic synthesis assets", function () {
     const input = buildReviewWorkflowInput({
       topic: {
@@ -79,6 +79,28 @@ describe("Synthesis review workflow input", function () {
         metadata: { artifact_hash: "sha256:topic" },
         topic_definition: { id: "topic-alpha" },
         resolver: { mode: "tag_query", query: "topic:alpha" },
+        structured_topic: {
+          artifact: {
+            schema_id: "synthesis.topic_synthesis_artifact",
+            claims: [{ id: "claim-1", text: "Alpha claim", evidence_refs: ["ev-a"] }],
+            timeline_events: [{ id: "event-1", year: "2024", evidence_refs: ["ev-a"] }],
+            paper_evidence: [
+              {
+                id: "ev-a",
+                paper_ref: "1:A",
+                digest_ref: {
+                  payload_type: "digest-markdown",
+                  payload_hash: "sha256:digest-a",
+                },
+              },
+            ],
+            external_literature_analysis: { summary: "External context." },
+            coverage: { status: "partial" },
+            gaps: [{ id: "gap-1", description: "Gap." }],
+          },
+          manifest: { schema_id: "synthesis.topic_analysis_manifest" },
+          metadata: { artifact_hash: "sha256:topic" },
+        },
       },
       resolved_paper_set: {
         papers: [
@@ -120,6 +142,29 @@ describe("Synthesis review workflow input", function () {
       ["edge-a-b"],
     );
     assert.equal(input.topic_timeline.content, "Timeline section");
+    assert.equal(input.topic.markdown, "# Alpha\n\nTimeline section");
+    assert.deepEqual(
+      input.structured_topic?.claims.map((claim: any) => claim.id),
+      ["claim-1"],
+    );
+    assert.deepEqual(
+      input.structured_topic?.timeline_events.map((event: any) => event.id),
+      ["event-1"],
+    );
+    assert.deepEqual(
+      input.structured_topic?.paper_evidence.map((evidence: any) => evidence.id),
+      ["ev-a"],
+    );
+    assert.equal(
+      (input.structured_topic?.external_literature_analysis as any).summary,
+      "External context.",
+    );
+    assert.equal((input.structured_topic?.coverage as any).status, "partial");
+    assert.deepEqual(
+      input.structured_topic?.gaps.map((gap: any) => gap.id),
+      ["gap-1"],
+    );
+    assert.notInclude(JSON.stringify(input.structured_topic), "digest_markdown");
   });
 
   it("reports missing artifacts as diagnostics without blocking DTO construction", function () {

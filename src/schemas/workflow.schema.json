@@ -17,6 +17,9 @@
     "version": {
       "$ref": "#/$defs/nonEmptyString"
     },
+    "taskNameTemplate": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
     "parameters": {
       "type": "object",
       "additionalProperties": {
@@ -178,7 +181,7 @@
       "properties": {
         "unit": {
           "type": "string",
-          "enum": ["attachment", "parent", "note"]
+          "enum": ["attachment", "parent", "note", "workflow"]
         },
         "accepts": {
           "type": "object",
@@ -219,14 +222,34 @@
     "executionSpec": {
       "type": "object",
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": ["auto", "sync", "async"]
-        },
-        "skillrunner_mode": {
-          "type": "string",
-          "enum": ["auto", "interactive"]
-        },
+          "mode": {
+            "type": "string",
+            "enum": ["auto", "sync", "async"]
+          },
+          "supportedBackends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "uniqueItems": true
+          },
+          "mcp": {
+            "type": "object",
+            "properties": {
+              "requiredTools": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "skillrunner_mode": {
+            "type": "string",
+            "enum": ["auto", "interactive"]
+          },
         "poll_interval_ms": {
           "type": "number"
         },

@@ -87,46 +87,44 @@ reference/citation-analysis payloads using deterministic plugin code.
 - **THEN** the service SHALL persist the graph snapshot and compact, balanced,
   and expanded layout snapshots.
 
-### Requirement: Synthesize-topic workflow has a real ACP Skill backend
+### Requirement: Topic synthesis workflows have real ACP Skill backends
 
-The `synthesize-topic` workflow SHALL declare a builtin ACP Skill backend that
-can produce a validated `topic_synthesis` result bundle.
-The ACP Skill final JSON SHALL reference the Markdown artifact by
-`markdown_path`; it SHALL NOT embed the full Markdown body in the final JSON.
-The workflow `applyResult` hook SHALL resolve `markdown_path`, inject the
-Markdown text into the host-side persistence bundle, and delegate persistence to
+The `create-topic-synthesis` and `update-topic-synthesis` workflows SHALL
+declare builtin ACP Skill backends that can produce validated topic synthesis
+result bundles. The workflow `applyResult` hook SHALL delegate persistence to
 the plugin-owned Synthesis service.
 
 #### Scenario: Workflow request is compiled
 
 - **WHEN** the workflow request is inspected
-- **THEN** it SHALL declare `request.create.skill_id` as `synthesize-topic`.
+- **THEN** create workflow SHALL declare `request.create.skill_id` as
+  `create-topic-synthesis`
+- **AND** update workflow SHALL declare `request.create.skill_id` as
+  `update-topic-synthesis`.
 
 #### Scenario: Builtin workflow package is loaded
 
 - **WHEN** builtin workflow manifests are loaded from `workflows_builtin`
-- **THEN** `synthesize-topic` SHALL be discovered from the `synthesis-layer`
-  workflow package.
+- **THEN** `create-topic-synthesis` SHALL be discovered from the
+  `synthesis-layer` workflow package
+- **AND** `update-topic-synthesis` SHALL be discovered
+- **AND** `synthesize-topic` SHALL NOT be discovered.
 
 #### Scenario: Skill output is validated
 
 - **WHEN** the builtin skill registry is scanned
-- **THEN** a `synthesize-topic` skill SHALL be registered
-- **AND** its runner metadata SHALL point to an output schema for the result
-  bundle.
+- **THEN** `create-topic-synthesis` SHALL be registered
+- **AND** `update-topic-synthesis` SHALL be registered
+- **AND** both runner metadata files SHALL point to output schemas.
 
-#### Scenario: Skill output references a Markdown artifact
+#### Scenario: Skill output delegates canonical persistence
 
 - **WHEN** the ACP Skill produces its final JSON result
-- **THEN** the JSON SHALL include `markdown_path`
-- **AND** it SHALL NOT include a `markdown` field containing the full Markdown
-  body.
-- **AND** `applyResult` SHALL read the referenced Markdown file before calling
-  `applyTopicSynthesisResult`.
+- **THEN** `applyResult` SHALL call `applyTopicSynthesisResult`.
 
-#### Scenario: Create mode checks topic duplicates semantically
+#### Scenario: Create workflow checks topic duplicates semantically
 
-- **WHEN** a `synthesize-topic` ACP Skill run starts with `mode=create`
+- **WHEN** a `create-topic-synthesis` ACP Skill run starts
 - **THEN** it SHALL call `synthesis.list_topics` before resolver generation
 - **AND** it SHALL compare the user seed only against existing topic
   `title/description/aliases`.
@@ -147,9 +145,8 @@ The Synthesis Workbench SHALL provide a discoverable task submission action for
 #### Scenario: User runs synthesis from the Workbench
 
 - **WHEN** the user activates `Run synthesis`
-- **THEN** the host SHALL collect `topicSeed` and `mode`
-- **AND** it SHALL execute the loaded `synthesize-topic` workflow through the
-  standard workflow execution pipeline.
+- **THEN** the host SHALL execute the loaded `create-topic-synthesis` workflow
+  through the standard workflow execution pipeline.
 
 ### Requirement: Workbench can browse the citation graph
 
@@ -168,4 +165,3 @@ using persisted layout coordinates.
 - **WHEN** no persisted graph snapshot exists
 - **THEN** the Workbench SHALL show diagnostics and a rebuild action instead of
   a fake graph or silent blank canvas.
-

@@ -46,7 +46,7 @@
 - [x] ACP 权限审批消息区域超限问题（改为摘要+可展开抽屉的形式），此外权限审批选项是否简化了？需要复核
 - [x] ACP chat 和 ACP skills 的视觉统一
 - [x] ACP 聊天区的滚动条锁定与解除问题
-- [ ] ACP 本地已归档 transcript 的自动清理功
+- [ ] ACP 本地已归档 transcript 的自动清理功能
 - [x] 执行状态提示（和权限审批共用一个区域）
 - [x] 用量由文字提示改为类似 Codex 的转圈进度条，带tooltip，用kTokens为单位
 - [x] plain 视图改为类似 Claude Code 的左侧状态指示灯条样式
@@ -66,6 +66,14 @@
 - [x] 移除 acp skills中的 acp-prompt-finished 和 output-validation-succeed 之类的无用系统信息
 - [x] workspace-activity 消息简化为单行，不显示文字，显示一个文件图标+文件相对于workspace的相对路径
 - [x] 权限审批信息收为一条，用图标区分待审批/批准/驳回等状态；权限审批信息也需要摘要化
+- [ ] synthesis页面中的run synthesis按钮还绑定的是旧的workflow入口
+- [ ] 三个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮
+- [ ] **Topic graph**
+- [ ] 常见 ACP backend 的快捷添加
+- [ ] **MCP 服务公开化，MCP插件调用能力**
+- [ ] **文献搜索入库 workflow**
+- [ ] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
+- [ ] Dashboard 以及 Sidebar panels 与 synthesis workbench 的视觉风格统一（包括亮/暗主题切换）
 - [ ] **本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [ ] **兼容 Zotero 8**

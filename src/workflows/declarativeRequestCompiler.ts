@@ -195,6 +195,71 @@ function getFileStem(filePath: string) {
   return name.replace(/\.[^.]+$/, "");
 }
 
+function normalizeTemplateKey(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function compactRenderedTaskName(value: string) {
+  return String(value || "")
+    .replace(/\s+([:：])/g, "$1")
+    .replace(/([:：])\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function renderTaskNameTemplate(args: {
+  manifest: WorkflowManifest;
+  workflowParams: Record<string, unknown>;
+  sourceAttachmentPaths: string[];
+  targetParentID: number | null;
+}) {
+  const template = String(args.manifest.taskNameTemplate || "").trim();
+  if (!template) {
+    return "";
+  }
+  const sourceAttachmentPath = args.sourceAttachmentPaths[0] || "";
+  const values: Record<string, unknown> = {
+    workflowId: args.manifest.id,
+    workflowLabel: args.manifest.label,
+    targetParentID: args.targetParentID || "",
+    sourceAttachmentPath,
+    sourceAttachmentName: sourceAttachmentPath ? getBaseName(sourceAttachmentPath) : "",
+    sourceAttachmentStem: sourceAttachmentPath ? getFileStem(sourceAttachmentPath) : "",
+    ...args.workflowParams,
+  };
+  const normalizedValues = new Map<string, string>();
+  for (const [key, value] of Object.entries(values)) {
+    const normalizedKey = normalizeTemplateKey(key);
+    if (!normalizedKey) {
+      continue;
+    }
+    const renderedValue =
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+        ? String(value).trim()
+        : "";
+    normalizedValues.set(normalizedKey, renderedValue);
+  }
+  return compactRenderedTaskName(
+    template.replace(/\{([^{}]+)\}/g, (_matched, rawKey) => {
+      const key = String(rawKey || "").trim();
+      if (Object.prototype.hasOwnProperty.call(values, key)) {
+        const value = values[key];
+        return typeof value === "string" ||
+          typeof value === "number" ||
+          typeof value === "boolean"
+          ? String(value).trim()
+          : "";
+      }
+      return normalizedValues.get(normalizeTemplateKey(key)) || "";
+    }),
+  );
+}
+
 function normalizeUploadRelativePath(value: string) {
   return String(value || "")
     .trim()
@@ -230,7 +295,13 @@ function resolveTaskName(args: {
   sourceAttachmentPaths: string[];
   selectionContext: unknown;
   targetParentID: number | null;
+  manifest: WorkflowManifest;
+  workflowParams: Record<string, unknown>;
 }) {
+  const templated = renderTaskNameTemplate(args);
+  if (templated) {
+    return templated;
+  }
   if (args.sourceAttachmentPaths.length > 0) {
     return getBaseName(args.sourceAttachmentPaths[0]);
   }
@@ -310,14 +381,16 @@ function buildSkillRunnerJobRequest(args: {
   });
 
   const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
-  const taskName = resolveTaskName({
-    sourceAttachmentPaths,
-    selectionContext: args.selectionContext,
-    targetParentID,
-  });
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
+  });
+  const taskName = resolveTaskName({
+    manifest: args.manifest,
+    workflowParams,
+    sourceAttachmentPaths,
+    selectionContext: args.selectionContext,
+    targetParentID,
   });
   const fetchType = args.manifest.result?.fetch?.type || "bundle";
   const requestPayload: SkillRunnerJobRequestV1 = {
@@ -345,6 +418,9 @@ function buildSkillRunnerJobRequest(args: {
 function buildGenericHttpRequest(args: {
   selectionContext: unknown;
   manifest: WorkflowManifest;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+  };
 }) {
   const requestSpec = args.manifest.request as {
     http?: {
@@ -367,7 +443,13 @@ function buildGenericHttpRequest(args: {
   const attachments = resolveSelectionAttachments(args.selectionContext);
   const targetParentID = resolveDeclarativeTargetParentID(args);
   const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const workflowParams = resolveWorkflowParams({
+    manifest: args.manifest,
+    executionOptions: args.executionOptions,
+  });
   const taskName = resolveTaskName({
+    manifest: args.manifest,
+    workflowParams,
     sourceAttachmentPaths,
     selectionContext: args.selectionContext,
     targetParentID,
@@ -431,14 +513,16 @@ function buildPassThroughRequest(args: {
   const attachments = resolveSelectionAttachments(args.selectionContext);
   const targetParentID = resolveOptionalTargetParentID(args.selectionContext);
   const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
-  const taskName = resolveTaskName({
-    sourceAttachmentPaths,
-    selectionContext: args.selectionContext,
-    targetParentID,
-  });
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
+  });
+  const taskName = resolveTaskName({
+    manifest: args.manifest,
+    workflowParams,
+    sourceAttachmentPaths,
+    selectionContext: args.selectionContext,
+    targetParentID,
   });
 
   const requestPayload: PassThroughRunRequestV1 = {
@@ -481,14 +565,16 @@ function buildGenericHttpStepsRequest(args: {
   const attachments = resolveSelectionAttachments(args.selectionContext);
   const targetParentID = resolveDeclarativeTargetParentID(args);
   const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
-  const taskName = resolveTaskName({
-    sourceAttachmentPaths,
-    selectionContext: args.selectionContext,
-    targetParentID,
-  });
   const workflowParams = resolveWorkflowParams({
     manifest: args.manifest,
     executionOptions: args.executionOptions,
+  });
+  const taskName = resolveTaskName({
+    manifest: args.manifest,
+    workflowParams,
+    sourceAttachmentPaths,
+    selectionContext: args.selectionContext,
+    targetParentID,
   });
   const sourceAttachment = resolveSingleSourceAttachment(
     attachments,

@@ -25,8 +25,8 @@ result bundles and persists accepted results as canonical assets.
 
 ### Requirement: Workflow hooks delegate formal persistence to hostApi
 
-The builtin `synthesize-topic` workflow hook SHALL delegate formal persistence
-to `runtime.hostApi.synthesis.applyTopicSynthesisResult`.
+The builtin topic synthesis workflow hook SHALL delegate formal persistence to
+`runtime.hostApi.synthesis.applyTopicSynthesisResult`.
 
 #### Scenario: Host synthesis service is available
 
@@ -153,4 +153,3 @@ plugin-owned deterministic dependency snapshots.
 - **WHEN** the Synthesis mirror is refreshed
 - **THEN** artifact freshness state SHALL be included in mirror shards
 - **AND** mirror failures SHALL NOT change the computed freshness result.
-

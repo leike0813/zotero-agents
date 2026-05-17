@@ -13,6 +13,12 @@ export type SynthesisMcpService = {
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   readPaperArtifacts?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  exportPaperArtifactBundle?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
+  resolveTopicPaperDigest?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getReviewInput?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 };
 

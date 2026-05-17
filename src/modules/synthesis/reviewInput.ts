@@ -31,6 +31,18 @@ export type ReviewCitationGraphSlice = {
   edges: CitationGraphEdge[];
 };
 
+export type ReviewStructuredTopicInput = {
+  artifact: Record<string, unknown>;
+  manifest?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  claims: unknown[];
+  timeline_events: unknown[];
+  paper_evidence: unknown[];
+  external_literature_analysis: Record<string, unknown>;
+  coverage: Record<string, unknown>;
+  gaps: unknown[];
+};
+
 export type ReviewWorkflowInput = {
   kind: "synthesis.review_workflow_input";
   schema_version: "1.0.0";
@@ -46,6 +58,7 @@ export type ReviewWorkflowInput = {
   topic_timeline: {
     content: string | Record<string, unknown> | unknown[];
   };
+  structured_topic?: ReviewStructuredTopicInput;
   resolved_paper_set: {
     papers: ReviewResolvedPaper[];
     snapshot: Record<string, unknown>;
@@ -70,6 +83,11 @@ export type ReviewWorkflowInputArgs = {
     metadata?: Record<string, unknown>;
     topic_definition?: Record<string, unknown>;
     resolver?: Record<string, unknown>;
+    structured_topic?: {
+      artifact?: Record<string, unknown>;
+      manifest?: Record<string, unknown> | null;
+      metadata?: Record<string, unknown>;
+    };
   };
   resolved_paper_set: Record<string, unknown>;
   registry_rows: Array<{
@@ -84,6 +102,56 @@ export type ReviewWorkflowInputArgs = {
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizeStructuredValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeStructuredValue(entry));
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "digest_markdown" && key !== "digest")
+      .map(([key, entry]) => [key, sanitizeStructuredValue(entry)]),
+  );
+}
+
+function buildStructuredTopicInput(
+  value: ReviewWorkflowInputArgs["topic"]["structured_topic"],
+): ReviewStructuredTopicInput | undefined {
+  const artifact = isRecord(value?.artifact)
+    ? (sanitizeStructuredValue(value.artifact) as Record<string, unknown>)
+    : null;
+  if (!artifact) {
+    return undefined;
+  }
+  return {
+    artifact,
+    ...(isRecord(value?.manifest)
+      ? { manifest: sanitizeStructuredValue(value.manifest) as Record<string, unknown> }
+      : {}),
+    ...(isRecord(value?.metadata)
+      ? { metadata: sanitizeStructuredValue(value.metadata) as Record<string, unknown> }
+      : {}),
+    claims: Array.isArray(artifact.claims) ? artifact.claims : [],
+    timeline_events: Array.isArray(artifact.timeline_events)
+      ? artifact.timeline_events
+      : [],
+    paper_evidence: Array.isArray(artifact.paper_evidence)
+      ? artifact.paper_evidence
+      : [],
+    external_literature_analysis: isRecord(artifact.external_literature_analysis)
+      ? artifact.external_literature_analysis
+      : {},
+    coverage: isRecord(artifact.coverage) ? artifact.coverage : {},
+    gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
+  };
 }
 
 function normalizeStringList(values: unknown) {
@@ -234,6 +302,7 @@ export function buildReviewWorkflowInput(
   const paperRefs = resolvedPapers.map((paper) => paper.paper_ref);
   const registryRows = normalizeRegistryRows(args.registry_rows, paperRefs);
   const missingArtifacts = buildMissingArtifactDiagnostics(registryRows);
+  const structuredTopic = buildStructuredTopicInput(args.topic.structured_topic);
   const base = {
     kind: "synthesis.review_workflow_input" as const,
     schema_version: "1.0.0" as const,
@@ -248,6 +317,7 @@ export function buildReviewWorkflowInput(
     topic_timeline: {
       content: args.topic.timeline || "",
     },
+    ...(structuredTopic ? { structured_topic: structuredTopic } : {}),
     resolved_paper_set: {
       papers: resolvedPapers,
       snapshot: {

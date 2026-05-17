@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis Analysis Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_id", "schema_version", "operation", "language", "sections"],
+  "properties": {
+    "schema_id": { "const": "synthesis.topic_analysis_manifest" },
+    "schema_version": { "type": "string" },
+    "operation": { "enum": ["create", "update_full"] },
+    "topic_id": { "type": "string" },
+    "language": { "type": "string", "minLength": 1 },
+    "sections": {
+      "type": "object",
+      "required": [
+        "topic",
+        "summary",
+        "claims",
+        "timeline_events",
+        "paper_evidence",
+        "external_literature_analysis",
+        "coverage",
+        "gaps",
+        "source_artifacts",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "object",
+          "required": ["path", "hash", "content_type"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "hash": { "type": "string", "minLength": 1 },
+            "content_type": { "const": "json" }
+          }
+        }
+      }
+    },
+    "markdown_path": { "type": "string" }
+  },
+  "not": { "required": ["markdown"] }
+}

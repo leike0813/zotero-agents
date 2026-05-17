@@ -7,7 +7,10 @@ import {
   resolvePluginSkillRoots,
   setPluginSkillRegistryRuntimeRootURI,
 } from "../../src/modules/pluginSkillRegistry";
-import { copyRuntimeDirectory } from "../../src/modules/runtimePersistence";
+import {
+  collectRuntimeFiles,
+  copyRuntimeDirectory,
+} from "../../src/modules/runtimePersistence";
 
 async function makeTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-plugin-skills-"));
@@ -179,6 +182,49 @@ describe("plugin skill registry", function () {
     );
   });
 
+  it("ignores helper directories marked with skill ignore files", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    const helperDir = path.join(builtinRoot, "runtime-helper");
+    const packagedHelperDir = path.join(builtinRoot, "packaged-runtime-helper");
+    await fs.mkdir(helperDir, { recursive: true });
+    await fs.mkdir(packagedHelperDir, { recursive: true });
+    await fs.writeFile(
+      path.join(helperDir, ".skillignore"),
+      "not a runnable skill\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(packagedHelperDir, "skill.ignore"),
+      "not a runnable skill\n",
+      "utf8",
+    );
+    await fs.writeFile(path.join(helperDir, "README.md"), "# helper\n", "utf8");
+    await fs.writeFile(
+      path.join(packagedHelperDir, "README.md"),
+      "# packaged helper\n",
+      "utf8",
+    );
+
+    const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+
+    assert.lengthOf(registry.entries, 0);
+    assert.isFalse(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_candidate_invalid" &&
+          entry.path === helperDir,
+      ),
+    );
+    assert.isFalse(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_candidate_invalid" &&
+          entry.path === packagedHelperDir,
+      ),
+    );
+  });
+
   it("computes stable checksums and changes when content changes", async function () {
     const builtinRoot = path.join(tempRoot, "skills_builtin");
     const userRoot = path.join(tempRoot, "skills");
@@ -201,6 +247,44 @@ describe("plugin skill registry", function () {
     assert.notEqual(
       first.entriesById["checksum-demo"].checksum,
       changed.entriesById["checksum-demo"].checksum,
+    );
+  });
+
+  it("ignores generated Python cache files when scanning skills", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    const skillDir = await writeSkill({
+      root: builtinRoot,
+      dirName: "python-cache-demo",
+      skillId: "python-cache-demo",
+      skillMd: "# python cache demo\n",
+    });
+    const cacheDir = path.join(skillDir, "scripts", "__pycache__");
+    await fs.mkdir(cacheDir, { recursive: true });
+    await fs.writeFile(
+      path.join(cacheDir, "runtime_db.cpython-311.pyc"),
+      Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x02, 0x03]),
+    );
+
+    const first = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+    const files = await collectRuntimeFiles(skillDir);
+
+    assert.property(first.entriesById, "python-cache-demo");
+    assert.isFalse(
+      files.some((file) => file.replace(/\\/g, "/").includes("__pycache__")),
+      "runtime file collection should ignore __pycache__ directories",
+    );
+
+    await fs.writeFile(
+      path.join(cacheDir, "runtime_db.cpython-311.pyc"),
+      Buffer.from([0x00, 0x01, 0x02, 0x03, 0xff, 0xfe]),
+    );
+    const second = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+
+    assert.equal(
+      first.entriesById["python-cache-demo"].checksum,
+      second.entriesById["python-cache-demo"].checksum,
+      "generated Python cache bytes must not affect skill checksum or ACP dispatch",
     );
   });
 

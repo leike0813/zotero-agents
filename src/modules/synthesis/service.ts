@@ -1,6 +1,7 @@
 import { joinPath } from "../../utils/path";
 import {
   ensureRuntimeDirectory,
+  getRuntimePersistencePaths,
   listRuntimeChildren,
   copyRuntimeDirectory,
   readRuntimeTextFile,
@@ -20,6 +21,7 @@ import {
   LibraryWriteLock,
   SYNTHESIS_ANCHOR_TITLE,
   type CanonicalEnvelope,
+  type MirrorAssetContentType,
   type MirrorManifest,
   type MirrorManifestShard,
   type ShardKind,
@@ -51,6 +53,7 @@ import {
 } from "./reviewInput";
 import {
   assessSynthesisSyncRecovery,
+  planCanonicalRecoveryFromMirror,
   type DecodedMirrorShardSummary,
   type SynthesisConflictCandidate,
 } from "./syncRecovery";
@@ -65,6 +68,16 @@ import {
   validateSynthesisResultBundle,
   type SynthesisResultBundle,
 } from "./workflow";
+import {
+  assembleTopicArtifact,
+  applyTopicSectionPatch,
+  canonicalJsonText,
+  canonicalSectionFileName,
+  computeTopicCurrentHashes,
+  renderTopicMarkdownExport,
+  validateTopicAnalysisManifest,
+  validateTopicSynthesisArtifact,
+} from "./topicStructuredArtifact";
 
 export type SynthesisMirrorAdapter = {
   ensureAnchor: (args: {
@@ -78,6 +91,9 @@ export type SynthesisMirrorAdapter = {
     title: string;
     html: string;
     kind: ShardKind;
+    assetId: string;
+    assetPath: string;
+    contentType: MirrorAssetContentType;
     seq: number;
     total: number;
   }) => Promise<{ noteKey: string }>;
@@ -185,6 +201,13 @@ type TopicIndexRow = {
   markdown_hash: string;
   metadata_hash: string;
   bundle_hash: string;
+  structured_hash?: string;
+  manifest_hash?: string;
+  language?: string;
+  operation?: string;
+  paper_count?: number;
+  external_literature_count?: number;
+  coverage_summary?: Record<string, unknown>;
 };
 
 type TopicInventoryRow = {
@@ -217,6 +240,17 @@ type TopicArtifactMetadata = {
   timeline: SynthesisResultBundle["timeline"];
   artifact_metadata: Record<string, unknown>;
   updated_at: string;
+  operation?: string;
+  language?: string;
+  manifest_hash?: string;
+  structured_hash?: string;
+  artifact_hash?: string;
+  export_hash?: string;
+  section_hashes?: Record<string, string>;
+  paper_count?: number;
+  external_literature_count?: number;
+  coverage_summary?: Record<string, unknown>;
+  metadata_hash?: string;
 };
 
 type TopicFreshness = "fresh" | "stale" | "dirty" | "unknown";
@@ -228,6 +262,22 @@ type TopicFreshnessReason = {
   severity: "info" | "warning" | "error";
   message: string;
   details?: Record<string, unknown>;
+};
+
+type TopicUpdateIntent = {
+  allowed: boolean;
+  reason: string;
+  scope: string;
+  mode: "auto" | "update_patch" | "update_full";
+  changed_sections: string[];
+  prefill: {
+    topicId: string;
+    language: string;
+    updateScope: string;
+    updateMode: "auto" | "update_patch" | "update_full";
+    updateReason: string;
+  };
+  diagnostics: TopicFreshnessReason[];
 };
 
 type TopicArtifactDependency = {
@@ -272,12 +322,93 @@ const REGISTRY_ARTIFACT_TYPES: RegistryArtifactType[] = [
   "references",
   "citation_analysis",
 ];
+const LIBRARY_INDEX_PAGE_LIMIT_DEFAULT = 100;
+const LIBRARY_INDEX_PAGE_LIMIT_MAX = 250;
+const ACP_SKILL_RUN_ID_RE = /^acp-skill-[A-Za-z0-9._-]+$/;
 
 const defaultLock = new LibraryWriteLock();
 let defaultService: SynthesisService | null = null;
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizePathForContainment(path: string) {
+  const raw = cleanString(path).replace(/\\/g, "/");
+  const driveMatch = raw.match(/^([A-Za-z]:)(\/|$)/);
+  const drive = driveMatch?.[1].toLowerCase() || "";
+  const isAbsolute = Boolean(drive || raw.startsWith("/"));
+  const withoutDrive = drive ? raw.slice(drive.length) : raw;
+  const parts: string[] = [];
+  for (const part of withoutDrive.split("/")) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  const prefix = drive ? `${drive}/` : isAbsolute ? "/" : "";
+  return `${prefix}${parts.join("/")}`.replace(/\/+$/g, "");
+}
+
+function pathContains(parent: string, child: string) {
+  const base = normalizePathForContainment(parent).toLowerCase();
+  const target = normalizePathForContainment(child).toLowerCase();
+  return target === base || target.startsWith(`${base}/`);
+}
+
+function safeFileSegment(value: unknown, fallback: string) {
+  return cleanString(value)
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || fallback;
+}
+
+function baseNameFromPath(path: string) {
+  const normalized = cleanString(path).replace(/\\/g, "/").replace(/\/+$/g, "");
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(index + 1) : normalized;
+}
+
+function validateAcpSkillRunRoot(runRoot: string) {
+  const root = cleanString(runRoot);
+  if (!root) {
+    throw new Error("run_root is required");
+  }
+  const acpSkillRunsDir = getRuntimePersistencePaths().acpSkillRunsDir;
+  if (!pathContains(acpSkillRunsDir, root)) {
+    throw new Error("run_root must be inside the ACP skill-runs directory");
+  }
+  const base = baseNameFromPath(root);
+  if (!ACP_SKILL_RUN_ID_RE.test(base)) {
+    throw new Error("run_root must point to an ACP skill run directory");
+  }
+  return root;
+}
+
+function parseNonNegativeInteger(value: unknown, fallback: number) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
+function parsePositiveInteger(value: unknown, fallback: number, max: number) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(number), max);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown) {
@@ -454,11 +585,23 @@ async function fileHash(path: string) {
 
 async function currentHashes(root: string, topicId: string) {
   const paths = buildSynthesisStoragePaths(root, topicPathId(topicId));
-  return {
-    artifact: await fileHash(paths.currentMarkdown),
+  const result: Record<string, string> = {
+    manifest: await fileHash(paths.currentManifest),
+    artifact: await fileHash(paths.currentArtifact),
+    export: await fileHash(paths.currentExportMarkdown),
     metadata: await fileHash(paths.currentMetadata),
     index: await fileHash(paths.index),
   };
+  const manifest = await readJson<Record<string, unknown>>(paths.currentManifest).catch(
+    () => null,
+  );
+  const sectionHashes = isObject(manifest?.section_hashes)
+    ? (manifest!.section_hashes as Record<string, unknown>)
+    : {};
+  for (const [section, hash] of Object.entries(sectionHashes)) {
+    result[`section:${section}`] = cleanString(hash);
+  }
+  return result;
 }
 
 async function readIndexRows(root: string): Promise<TopicIndexRow[]> {
@@ -1318,6 +1461,71 @@ function completionFromTopicState(state: TopicArtifactStateRow | undefined) {
   return Math.max(0, Math.min(100, Math.round((completeCount / refs.length) * 100)));
 }
 
+function changedSectionsForReason(reasonCode: string) {
+  if (reasonCode === "paper_set_changed") {
+    return [];
+  }
+  if (reasonCode === "graph_changed") {
+    return ["coverage", "source_artifacts"];
+  }
+  if (reasonCode === "artifact_available" || reasonCode === "artifact_missing") {
+    return ["coverage", "diagnostics"];
+  }
+  if (reasonCode === "artifact_changed") {
+    return ["claims", "paper_evidence", "timeline_events"];
+  }
+  return [];
+}
+
+function deriveTopicUpdateIntent(args: {
+  topicId: string;
+  language?: string;
+  state?: TopicArtifactStateRow;
+  row?: TopicIndexRow;
+}): TopicUpdateIntent {
+  const language = cleanString(args.language) || cleanString(args.row?.language) || "auto";
+  const reasons = args.state?.reasons || [];
+  const firstReason = reasons[0];
+  const reasonCode = cleanString(firstReason?.code) || cleanString(args.state?.freshness) || "manual";
+  let mode: TopicUpdateIntent["mode"] = "auto";
+  let scope = "auto";
+  let changedSections = changedSectionsForReason(reasonCode);
+  if (args.state?.freshness === "dirty") {
+    mode = "update_full";
+    scope = "repair";
+    changedSections = [];
+  } else if (args.state?.coverage && args.state.coverage !== "complete") {
+    mode = "update_patch";
+    scope = "coverage";
+    changedSections = ["coverage", "diagnostics"];
+  } else if (reasonCode === "paper_set_changed") {
+    mode = "update_full";
+    scope = "paper_set";
+  } else if (changedSections.length) {
+    mode = "update_patch";
+    scope =
+      changedSections.includes("external_literature_analysis")
+        ? "external_literature"
+        : changedSections[0];
+  }
+  const allowed = Boolean(args.state && args.state.freshness !== "fresh") || mode !== "auto";
+  return {
+    allowed,
+    reason: reasonCode,
+    scope,
+    mode,
+    changed_sections: changedSections,
+    prefill: {
+      topicId: args.topicId,
+      language,
+      updateScope: scope,
+      updateMode: mode,
+      updateReason: reasonCode,
+    },
+    diagnostics: reasons,
+  };
+}
+
 function summaryFromTopicDefinition(
   definition: Record<string, unknown> | undefined,
   fallback: string,
@@ -1535,9 +1743,9 @@ async function buildTopicDependencySnapshot(args: {
     );
   }
   const markdownHash = await safeFileHash(
-    paths.currentMarkdown,
+    paths.currentExportMarkdown,
     dirtyReasons,
-    "missing_current_markdown",
+    "missing_current_export",
   );
   const metadataHash = await safeFileHash(
     paths.currentMetadata,
@@ -1549,7 +1757,7 @@ async function buildTopicDependencySnapshot(args: {
       reason({
         code: "index_hash_mismatch",
         severity: "error",
-        message: "Artifact index markdown hash no longer matches current.md.",
+        message: "Artifact index Markdown hash no longer matches current/export.md.",
       }),
     );
   }
@@ -1558,7 +1766,7 @@ async function buildTopicDependencySnapshot(args: {
       reason({
         code: "index_hash_mismatch",
         severity: "error",
-        message: "Artifact index metadata hash no longer matches current.metadata.json.",
+        message: "Artifact index metadata hash no longer matches current/metadata.json.",
       }),
     );
   }
@@ -1695,11 +1903,394 @@ function chunkText(input: string, size: number) {
 
 async function readExistingTopic(root: string, topicId: string) {
   const paths = buildSynthesisStoragePaths(root, topicPathId(topicId));
-  const markdown = await readRuntimeTextFile(paths.currentMarkdown);
+  const markdown = await readRuntimeTextFile(paths.currentExportMarkdown);
   const metadata = await readJson<CanonicalEnvelope<TopicArtifactMetadata>>(
     paths.currentMetadata,
   );
-  return { paths, markdown, metadata };
+  const artifact = await readJson<Record<string, unknown>>(paths.currentArtifact).catch(
+    () => null,
+  );
+  const manifest = await readJson<Record<string, unknown>>(paths.currentManifest).catch(
+    () => null,
+  );
+  return { paths, markdown, metadata, artifact, manifest };
+}
+
+type MirrorPayloadSource = {
+  kind: ShardKind;
+  assetId: string;
+  assetPath: string;
+  contentType: MirrorAssetContentType;
+  path: string;
+};
+
+async function buildMirrorPayloadSources(root: string): Promise<MirrorPayloadSource[]> {
+  const paths = buildSynthesisStoragePaths(root);
+  const sources: MirrorPayloadSource[] = [
+    {
+      kind: "artifact_index",
+      assetId: "state:index",
+      assetPath: "state/index.json",
+      contentType: "json",
+      path: paths.index,
+    },
+    {
+      kind: "topics",
+      assetId: "state:topic-definitions",
+      assetPath: "state/topic-definitions.json",
+      contentType: "json",
+      path: paths.topicDefinitions,
+    },
+    {
+      kind: "resolvers",
+      assetId: "state:resolvers",
+      assetPath: "state/resolvers.json",
+      contentType: "json",
+      path: paths.resolvers,
+    },
+    {
+      kind: "paper_sets",
+      assetId: "state:resolved-paper-sets",
+      assetPath: "state/resolved-paper-sets.json",
+      contentType: "json",
+      path: paths.resolvedPaperSets,
+    },
+    {
+      kind: "artifact_state",
+      assetId: "state:artifact-state",
+      assetPath: "state/artifact-state.json",
+      contentType: "json",
+      path: paths.artifactState,
+    },
+    {
+      kind: "artifact_state",
+      assetId: "state:deleted-topic-artifacts",
+      assetPath: "state/deleted-topic-artifacts.json",
+      contentType: "json",
+      path: paths.deletedArtifacts,
+    },
+  ];
+  for (const row of await readIndexRows(root)) {
+    const topicPath = topicPathId(row.path_id || row.topic_id);
+    if (!topicPath) {
+      continue;
+    }
+    const topicPaths = buildSynthesisStoragePaths(root, topicPath);
+    if (!(await runtimePathExists(topicPaths.currentManifest))) {
+      continue;
+    }
+    sources.push(
+      {
+        kind: "topic_current",
+        assetId: `topic:${topicPath}:current-manifest`,
+        assetPath: `topics/${topicPath}/current/manifest.json`,
+        contentType: "json",
+        path: topicPaths.currentManifest,
+      },
+      {
+        kind: "topic_current",
+        assetId: `topic:${topicPath}:current-metadata`,
+        assetPath: `topics/${topicPath}/current/metadata.json`,
+        contentType: "json",
+        path: topicPaths.currentMetadata,
+      },
+      {
+        kind: "topic_current",
+        assetId: `topic:${topicPath}:current-artifact`,
+        assetPath: `topics/${topicPath}/current/artifact.json`,
+        contentType: "json",
+        path: topicPaths.currentArtifact,
+      },
+      {
+        kind: "topic_current",
+        assetId: `topic:${topicPath}:current-export`,
+        assetPath: `topics/${topicPath}/current/export.md`,
+        contentType: "markdown",
+        path: topicPaths.currentExportMarkdown,
+      },
+    );
+    for (const sectionPath of await listRuntimeChildren(topicPaths.currentSectionsRoot)) {
+      if (!sectionPath.endsWith(".json")) {
+        continue;
+      }
+      const sectionName = sectionPath.replace(/\\/g, "/").split("/").pop()?.replace(/\.json$/, "");
+      if (!sectionName) {
+        continue;
+      }
+      sources.push({
+        kind: "topic_current",
+        assetId: `topic:${topicPath}:section:${sectionName}`,
+        assetPath: `topics/${topicPath}/current/sections/${sectionName}.json`,
+        contentType: "json",
+        path: sectionPath,
+      });
+    }
+  }
+  return sources.sort(
+    (left, right) =>
+      left.assetId.localeCompare(right.assetId) ||
+      left.assetPath.localeCompare(right.assetPath),
+  );
+}
+
+async function readLegacyTopicRows(root: string): Promise<Array<TopicIndexRow & { status: string }>> {
+  const paths = buildSynthesisStoragePaths(root);
+  const children = await listRuntimeChildren(paths.topicsRoot).catch(() => []);
+  const rows: Array<TopicIndexRow & { status: string }> = [];
+  for (const child of children) {
+    const topicPathIdValue = cleanString(child).split(/[\\/]/).pop() || "";
+    if (!topicPathIdValue) {
+      continue;
+    }
+    const topicPaths = buildSynthesisStoragePaths(root, topicPathIdValue);
+    const hasV2 = await runtimePathExists(topicPaths.currentManifest);
+    const hasLegacy =
+      (await runtimePathExists(topicPaths.legacyCurrentMarkdown)) ||
+      (await runtimePathExists(topicPaths.legacyCurrentMetadata));
+    if (hasV2 || !hasLegacy) {
+      continue;
+    }
+    rows.push({
+      topic_id: topicPathIdValue,
+      path_id: topicPathIdValue,
+      title: topicPathIdValue,
+      updated_at: "",
+      markdown_hash: "",
+      metadata_hash: "",
+      bundle_hash: "",
+      status: "legacy_invalid",
+    });
+  }
+  return rows;
+}
+
+type ApplyContext = {
+  resultContext?: {
+    resolveArtifact?: (args: {
+      fieldName: string;
+      rawPath: string;
+      fallbackPath: string;
+    }) => Promise<{ text: string }>;
+  };
+  bundleReader?: {
+    readText?: (path: string) => Promise<string> | string;
+  };
+};
+
+async function readRunWorkspaceText(
+  context: ApplyContext | undefined,
+  fieldName: string,
+  rawPath: string,
+) {
+  const pathValue = cleanString(rawPath);
+  if (!pathValue) {
+    throw new Error(`${fieldName} is required`);
+  }
+  if (typeof context?.resultContext?.resolveArtifact === "function") {
+    const artifact = await context.resultContext.resolveArtifact({
+      fieldName,
+      rawPath: pathValue,
+      fallbackPath: pathValue,
+    });
+    return artifact.text;
+  }
+  if (typeof context?.bundleReader?.readText === "function") {
+    return context.bundleReader.readText(pathValue);
+  }
+  throw new Error(`cannot read run workspace artifact: ${pathValue}`);
+}
+
+async function readRunWorkspaceJson(
+  context: ApplyContext | undefined,
+  fieldName: string,
+  rawPath: string,
+) {
+  return JSON.parse(await readRunWorkspaceText(context, fieldName, rawPath));
+}
+
+function sectionNameFromPath(pathValue: string) {
+  const name = cleanString(pathValue).split(/[\\/]/).pop() || "";
+  return name.replace(/\.json$/i, "").replace(/-/g, "_");
+}
+
+function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
+  return {
+    topic: bundle.topic_definition || {},
+    summary: {
+      brief: cleanString(bundle.artifact_metadata.summary) || cleanString(bundle.artifact_metadata.description),
+    },
+    claims: [],
+    timeline_events: Array.isArray(bundle.timeline) ? bundle.timeline : [],
+    paper_evidence: [],
+    external_literature_analysis: {
+      summary: "",
+      themes: [],
+      representative_references: [],
+      citation_contexts: [],
+      contribution_to_topic: "",
+      limitations: "",
+    },
+    coverage: {
+      paper_count: Array.isArray((bundle.resolved_paper_set as any)?.papers)
+        ? (bundle.resolved_paper_set as any).papers.length
+        : 0,
+      external_literature_count: 0,
+    },
+    gaps: [],
+    source_artifacts: [],
+    diagnostics: { warnings: [] },
+  };
+}
+
+async function loadCompleteManifestAndSections(args: {
+  bundle: SynthesisResultBundle;
+  context?: ApplyContext;
+}) {
+  let manifest: Record<string, unknown>;
+  let sections: Record<string, unknown>;
+  if (args.context) {
+    manifest = await readRunWorkspaceJson(
+      args.context,
+      "analysis_manifest_path",
+      args.bundle.analysis_manifest_path || "",
+    );
+    const validation = validateTopicAnalysisManifest(manifest);
+    if (!validation.ok) {
+      throw new Error(`invalid topic analysis manifest: ${validation.errors.join("; ")}`);
+    }
+    const manifestSections = isObject(manifest.sections)
+      ? (manifest.sections as Record<string, unknown>)
+      : {};
+    sections = {};
+    for (const [section, entry] of Object.entries(manifestSections)) {
+      if (!isObject(entry)) {
+        continue;
+      }
+      sections[section] = await readRunWorkspaceJson(
+        args.context,
+        `sections.${section}.path`,
+        cleanString(entry.path),
+      );
+    }
+  } else {
+    sections = fallbackSectionsFromBundle(args.bundle);
+    const manifestSections = Object.fromEntries(
+      Object.entries(sections).map(([section, value]) => [
+        section,
+        {
+          path: `result/sections/${canonicalSectionFileName(section)}`,
+          hash: hashCanonicalJson(value),
+          content_type: "json",
+        },
+      ]),
+    );
+    manifest = {
+      schema_id: "synthesis.topic_analysis_manifest",
+      schema_version: "2.0.0",
+      operation: args.bundle.operation || "create",
+      topic_id: topicIdFromBundle(args.bundle),
+      language: args.bundle.language || "auto",
+      sections: manifestSections,
+      ...(args.bundle.markdown_path ? { markdown_path: args.bundle.markdown_path } : {}),
+    };
+  }
+  return { manifest, sections };
+}
+
+async function loadPatchManifestAndChangedSections(args: {
+  bundle: SynthesisResultBundle;
+  context?: ApplyContext;
+}) {
+  if (!args.context) {
+    return {
+      patchManifest: {
+        schema_id: "synthesis.topic_section_patch_manifest",
+        schema_version: "2.0.0",
+        operation: "update_patch",
+        language: args.bundle.language || "auto",
+        base: {
+          current_manifest_hash: "",
+          current_artifact_hash: "",
+          read_section_hashes: args.bundle.read_section_hashes || {},
+          replace_section_hashes: args.bundle.read_section_hashes || {},
+        },
+        patch: {
+          mode: "section_replace",
+          changed_sections: Object.keys(args.bundle.read_section_hashes || {}),
+          unchanged_section_policy: "inherit_current",
+          sections: {},
+        },
+        diagnostics: { requires_full_update: false },
+      },
+      changedSections: {},
+    };
+  }
+  const patchManifest = await readRunWorkspaceJson(
+    args.context,
+    "analysis_manifest_path",
+    args.bundle.analysis_manifest_path || "",
+  );
+  const validation = validateTopicAnalysisManifest(patchManifest);
+  if (!validation.ok) {
+    throw new Error(`invalid topic section patch manifest: ${validation.errors.join("; ")}`);
+  }
+  const changedSections: Record<string, unknown> = {};
+  const sections = isObject(patchManifest.patch) && isObject(patchManifest.patch.sections)
+    ? (patchManifest.patch.sections as Record<string, unknown>)
+    : {};
+  for (const [section, entry] of Object.entries(sections)) {
+    if (!isObject(entry)) {
+      continue;
+    }
+    changedSections[section] = await readRunWorkspaceJson(
+      args.context,
+      `patch.sections.${section}.path`,
+      cleanString(entry.path),
+    );
+  }
+  return { patchManifest, changedSections };
+}
+
+async function writeV2Current(args: {
+  paths: ReturnType<typeof buildSynthesisStoragePaths>;
+  manifest: Record<string, unknown>;
+  sections: Record<string, unknown>;
+  artifact: Record<string, unknown>;
+  metadata: TopicArtifactMetadata;
+  exportMarkdown: string;
+}) {
+  await ensureRuntimeDirectory(args.paths.currentRoot);
+  await ensureRuntimeDirectory(args.paths.currentSectionsRoot);
+  for (const [section, value] of Object.entries(args.sections)) {
+    await writeRuntimeTextFile(
+      joinPath(args.paths.currentSectionsRoot, canonicalSectionFileName(section)),
+      canonicalJsonText(value),
+    );
+  }
+  await writeRuntimeTextFile(args.paths.currentArtifact, canonicalJsonText(args.artifact));
+  await writeRuntimeTextFile(args.paths.currentExportMarkdown, args.exportMarkdown);
+  await writeRuntimeTextFile(args.paths.currentManifest, canonicalJsonText(args.manifest));
+  await writeJson(
+    args.paths.currentMetadata,
+    createCanonicalEnvelope({
+      schemaId: "synthesis.topic_artifact_metadata",
+      data: args.metadata,
+      now: args.metadata.updated_at,
+    }),
+  );
+}
+
+function paperCountFromArtifact(artifact: Record<string, unknown>) {
+  return Array.isArray(artifact.paper_evidence) ? artifact.paper_evidence.length : 0;
+}
+
+function externalLiteratureCountFromArtifact(artifact: Record<string, unknown>) {
+  const external = isObject(artifact.external_literature_analysis)
+    ? artifact.external_literature_analysis
+    : {};
+  return Array.isArray(external.representative_references)
+    ? external.representative_references.length
+    : 0;
 }
 
 export function createSynthesisService(options: SynthesisServiceOptions) {
@@ -1757,13 +2348,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (!anchorKey) {
       throw new Error("Synthesis mirror adapter returned empty anchorKey");
     }
-    const payloadSources: Array<{ kind: ShardKind; path: string }> = [
-      { kind: "topics", path: paths.topicDefinitions },
-      { kind: "resolvers", path: paths.resolvers },
-      { kind: "paper_sets", path: paths.resolvedPaperSets },
-      { kind: "artifact_index", path: paths.index },
-      { kind: "artifact_state", path: paths.artifactState },
-    ];
+    const payloadSources = await buildMirrorPayloadSources(root);
     const manifestShards: MirrorManifestShard[] = [];
     const keepNoteKeys: string[] = [];
     for (const source of payloadSources) {
@@ -1777,6 +2362,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           libraryId,
           anchorKey,
           kind: source.kind,
+          assetId: source.assetId,
+          assetPath: source.assetPath,
+          contentType: source.contentType,
           seq: index + 1,
           total: chunks.length,
           payload: chunk,
@@ -1789,6 +2377,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           title: shard.title,
           html: shard.html,
           kind: source.kind,
+          assetId: source.assetId,
+          assetPath: source.assetPath,
+          contentType: source.contentType,
           seq: index + 1,
           total: chunks.length,
         });
@@ -1796,6 +2387,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         keepNoteKeys.push(noteKey);
         manifestShards.push({
           kind: source.kind,
+          asset_id: source.assetId,
+          asset_path: source.assetPath,
+          content_type: source.contentType,
           seq: index + 1,
           total: chunks.length,
           note_key: noteKey,
@@ -1817,6 +2411,35 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       shards: manifestShards,
     });
     await writeJson(joinPath(paths.stateRoot, "mirror-manifest.json"), manifest);
+    const manifestShard = encodeNoteShard({
+      libraryId,
+      anchorKey,
+      kind: "manifest",
+      assetId: "mirror:manifest",
+      assetPath: "state/mirror-manifest.json",
+      contentType: "json",
+      seq: 1,
+      total: 1,
+      payload: canonicalText(manifest),
+      compression: "gzip",
+      updatedAt: now(),
+    });
+    const writtenManifest = await options.mirrorAdapter.upsertShard({
+      libraryId,
+      anchorKey,
+      title: manifestShard.title,
+      html: manifestShard.html,
+      kind: "manifest",
+      assetId: "mirror:manifest",
+      assetPath: "state/mirror-manifest.json",
+      contentType: "json",
+      seq: 1,
+      total: 1,
+    });
+    const manifestNoteKey = cleanString(writtenManifest.noteKey);
+    if (manifestNoteKey) {
+      keepNoteKeys.push(manifestNoteKey);
+    }
     await options.mirrorAdapter.deleteShardsNotIn?.({
       libraryId,
       anchorKey,
@@ -1825,8 +2448,83 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return { anchorKey, manifest, shards: manifestShards };
   }
 
+  async function rebuildMirrorFromCanonical(): Promise<SynthesisMirrorRefreshResult | undefined> {
+    return lock.runExclusive(libraryId, async () => {
+      const paths = buildSynthesisStoragePaths(root);
+      if (!(await runtimePathExists(paths.synthesisRoot))) {
+        throw new Error("Cannot rebuild synthesis mirror because canonical root is missing");
+      }
+      return refreshMirror();
+    });
+  }
+
+  async function recoverCanonicalFromMirror(args: { confirm: true }) {
+    return lock.runExclusive(libraryId, async () => {
+      if (!args?.confirm) {
+        throw new Error("recoverCanonicalFromMirror requires confirm: true");
+      }
+      if (!options.mirrorAdapter?.listShards) {
+        throw new Error("Synthesis mirror adapter cannot list shards");
+      }
+      const paths = buildSynthesisStoragePaths(root);
+      if (await runtimePathExists(paths.synthesisRoot)) {
+        throw new Error("Canonical synthesis root already exists; refusing shard recovery");
+      }
+      const anchor = await options.mirrorAdapter.ensureAnchor({
+        libraryId,
+        title: SYNTHESIS_ANCHOR_TITLE,
+        root,
+      });
+      const anchorKey = cleanString(anchor.anchorKey);
+      const shards = await options.mirrorAdapter.listShards({ libraryId, anchorKey });
+      const manifests = shards
+        .filter((shard) => shard.kind === "manifest")
+        .map((shard) => {
+          try {
+            return JSON.parse(shard.payload || "") as MirrorManifest;
+          } catch {
+            return null;
+          }
+        })
+        .filter((entry): entry is MirrorManifest => Boolean(entry));
+      const dataShards = shards.filter((shard) => shard.kind !== "manifest");
+      const plan = planCanonicalRecoveryFromMirror({
+        canonicalRoot: { state: "missing" },
+        manifests,
+        shards: dataShards,
+        confirm: true,
+      });
+      if (!plan.executable) {
+        throw new Error(
+          `Synthesis mirror recovery is not executable: ${plan.diagnostics.map((entry) => entry.code).join(", ")}`,
+        );
+      }
+      const tempRoot = joinPath(root, `synthesis-restore-tmp-${Date.now()}`);
+      try {
+        for (const [assetPath, payload] of Object.entries(plan.payloadsByAssetPath)) {
+          await writeRuntimeTextFile(joinPath(tempRoot, assetPath), payload);
+        }
+        await copyRuntimeDirectory({
+          sourceDir: tempRoot,
+          targetDir: paths.synthesisRoot,
+        });
+      } finally {
+        await removeRuntimePath(tempRoot);
+      }
+      return {
+        ok: true as const,
+        status: "recovered" as const,
+        manifest: plan.manifest,
+        restoredAssets: Object.keys(plan.payloadsByAssetPath).sort((left, right) =>
+          left.localeCompare(right),
+        ),
+      };
+    });
+  }
+
   async function applyTopicSynthesisResult(
     rawBundle: unknown,
+    context?: ApplyContext,
   ): Promise<SynthesisApplyResult> {
     return lock.runExclusive(libraryId, async () => {
       const { bundle } = validateSynthesisResultBundle(rawBundle);
@@ -1856,25 +2554,154 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
       await ensureRuntimeDirectory(paths.topicRoot);
       await ensureRuntimeDirectory(paths.stateRoot);
-      const markdownHash = hashMarkdown(bundle.markdown);
+      let manifest: Record<string, unknown>;
+      let sections: Record<string, unknown>;
+      if (bundle.operation === "update_patch") {
+        const currentManifest = (await readJson<Record<string, unknown>>(
+          paths.currentManifest,
+        )) as Record<string, any>;
+        const currentSections: Record<string, unknown> = {};
+        const manifestSections = isObject(currentManifest.sections)
+          ? (currentManifest.sections as Record<string, unknown>)
+          : {};
+        for (const [section, entry] of Object.entries(manifestSections)) {
+          const fileName = canonicalSectionFileName(section);
+          currentSections[section] = await readJson(
+            joinPath(paths.currentSectionsRoot, fileName),
+          );
+          if (isObject(entry)) {
+            currentManifest.section_hashes = {
+              ...(isObject(currentManifest.section_hashes)
+                ? currentManifest.section_hashes
+                : {}),
+              [section]: cleanString(entry.hash),
+            };
+          }
+        }
+        const patch = await loadPatchManifestAndChangedSections({ bundle, context });
+        const applied = applyTopicSectionPatch({
+          currentManifest,
+          currentSections,
+          patchManifest: patch.patchManifest,
+          changedSections: patch.changedSections,
+        }) as any;
+        if (applied.status !== "applied") {
+          throw new Error(`topic section patch failed: ${JSON.stringify(applied)}`);
+        }
+        sections = applied.sections;
+        manifest = {
+          ...currentManifest,
+          operation: "update_patch",
+          language: bundle.language || currentManifest.language || "auto",
+          sections: Object.fromEntries(
+            Object.entries(sections).map(([section, value]) => [
+              section,
+              {
+                path: `current/sections/${canonicalSectionFileName(section)}`,
+                hash:
+                  applied.nextManifest?.section_hashes?.[section] ||
+                  hashCanonicalJson(value),
+                content_type: "json",
+              },
+            ]),
+          ),
+        };
+      } else if (bundle.operation) {
+        ({ manifest, sections } = await loadCompleteManifestAndSections({
+          bundle,
+          context,
+        }));
+      } else {
+        sections = fallbackSectionsFromBundle(bundle);
+        manifest = {
+          schema_id: "synthesis.topic_analysis_manifest",
+          schema_version: "2.0.0",
+          operation: bundle.mode === "create" ? "create" : "update_full",
+          topic_id: topicId,
+          language: "auto",
+          sections: Object.fromEntries(
+            Object.entries(sections).map(([section, value]) => [
+              section,
+              {
+                path: `result/sections/${canonicalSectionFileName(section)}`,
+                hash: hashCanonicalJson(value),
+                content_type: "json",
+              },
+            ]),
+          ),
+        };
+      }
+      const artifact = assembleTopicArtifact({ manifest, sections }) as Record<string, unknown>;
+      const artifactValidation = validateTopicSynthesisArtifact(artifact, {
+        expectedLanguage: bundle.language,
+      });
+      if (!artifactValidation.ok) {
+        throw new Error(
+          `invalid topic synthesis artifact: ${artifactValidation.errors.join("; ")}`,
+        );
+      }
+      await validateDigestRefsAgainstCurrentArtifacts(artifact);
+      const exportMarkdown = renderTopicMarkdownExport(artifact);
+      const hashes = computeTopicCurrentHashes({
+        manifest,
+        artifact,
+        metadata: {},
+        exportMarkdown,
+        sections,
+      });
+      const markdownHash = hashes.markdown_hash;
       const bundleHash = hashCanonicalJson(bundle);
+      const paperCount = paperCountFromArtifact(artifact);
+      const externalLiteratureCount = externalLiteratureCountFromArtifact(artifact);
       const metadataData: TopicArtifactMetadata = {
         topic_id: topicId,
         title: titleFromDefinition(bundle.topic_definition, topicId),
         mode: bundle.mode,
         markdown_hash: markdownHash,
         bundle_hash: bundleHash,
-        timeline: bundle.timeline,
+        timeline: artifact.timeline_events as SynthesisResultBundle["timeline"],
         artifact_metadata: bundle.artifact_metadata,
         updated_at: timestamp,
+        operation: bundle.operation || bundle.mode,
+        language: bundle.language,
+        manifest_hash: hashes.manifest_hash,
+        structured_hash: hashes.structured_hash,
+        artifact_hash: hashes.artifact_hash,
+        export_hash: hashes.export_hash,
+        section_hashes: hashes.section_hashes,
+        paper_count: paperCount,
+        external_literature_count: externalLiteratureCount,
+        coverage_summary: isObject(artifact.coverage)
+          ? artifact.coverage
+          : {},
       };
-      const metadataEnvelope = createCanonicalEnvelope({
-        schemaId: "synthesis.topic_artifact_metadata",
-        data: metadataData,
-        now: timestamp,
+      const finalHashes = computeTopicCurrentHashes({
+        manifest,
+        artifact,
+        metadata: metadataData,
+        exportMarkdown,
+        sections,
       });
-      await writeRuntimeTextFile(paths.currentMarkdown, bundle.markdown);
-      await writeJson(paths.currentMetadata, metadataEnvelope);
+      metadataData.metadata_hash = finalHashes.metadata_hash;
+      metadataData.manifest_hash = finalHashes.manifest_hash;
+      metadataData.structured_hash = finalHashes.structured_hash;
+      metadataData.artifact_hash = finalHashes.artifact_hash;
+      metadataData.export_hash = finalHashes.export_hash;
+      metadataData.section_hashes = finalHashes.section_hashes;
+      await writeV2Current({
+        paths,
+        manifest: {
+          ...manifest,
+          section_hashes: finalHashes.section_hashes,
+          artifact_hash: finalHashes.artifact_hash,
+          export_hash: finalHashes.export_hash,
+          metadata_hash: finalHashes.metadata_hash,
+        },
+        sections,
+        artifact,
+        metadata: metadataData,
+        exportMarkdown,
+      });
       await upsertStateMap({
         path: paths.topicDefinitions,
         schemaId: "synthesis.topic_definitions",
@@ -1899,7 +2726,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         value: bundle.resolved_paper_set,
         now: timestamp,
       });
-      const metadataHash = hashMarkdown(canonicalText(metadataEnvelope));
       const rows = (await readIndexRows(root)).filter(
         (row) => row.topic_id !== topicId,
       );
@@ -1909,8 +2735,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         title: metadataData.title,
         updated_at: timestamp,
         markdown_hash: markdownHash,
-        metadata_hash: metadataHash,
+        metadata_hash: finalHashes.metadata_hash,
         bundle_hash: bundleHash,
+        structured_hash: finalHashes.structured_hash,
+        manifest_hash: finalHashes.manifest_hash,
+        language: metadataData.language,
+        operation: metadataData.operation,
+        paper_count: paperCount,
+        external_literature_count: externalLiteratureCount,
+        coverage_summary: metadataData.coverage_summary,
       });
       await writeIndexRows(root, rows, timestamp);
       await scanTopicFreshness({
@@ -2157,8 +2990,72 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return {
       topicId,
       markdown: topic.markdown,
+      artifact: topic.artifact,
+      manifest: topic.manifest,
       metadata: topic.metadata.data,
       metadataEnvelope: topic.metadata,
+      paths: topic.paths,
+    };
+  }
+
+  async function readTopicDetail(args: { topicId: string }) {
+    const topic = await readTopicArtifact(args);
+    const artifact = isObject(topic.artifact)
+      ? (topic.artifact as Record<string, unknown>)
+      : {};
+    const metadata = isObject(topic.metadata)
+      ? (topic.metadata as TopicArtifactMetadata)
+      : ({} as TopicArtifactMetadata);
+    const topicSection = isObject(artifact.topic)
+      ? (artifact.topic as Record<string, unknown>)
+      : {};
+    const summarySection = isObject(artifact.summary)
+      ? (artifact.summary as Record<string, unknown>)
+      : {};
+    const paperEvidence = Array.isArray(artifact.paper_evidence)
+      ? artifact.paper_evidence.filter(isObject)
+      : [];
+    const externalAnalysis = isObject(artifact.external_literature_analysis)
+      ? (artifact.external_literature_analysis as Record<string, unknown>)
+      : {};
+    return {
+      ok: true,
+      status: "ready",
+      topicId: topic.topicId,
+      title:
+        cleanString(topicSection.title) ||
+        cleanString(metadata.title) ||
+        topic.topicId,
+      language: cleanString(artifact.language || metadata.language) || "auto",
+      updated_at: cleanString(metadata.updated_at) || undefined,
+      markdown_export: topic.markdown,
+      markdown_hash:
+        cleanString(metadata.export_hash || metadata.markdown_hash) || undefined,
+      artifact_hash:
+        cleanString(metadata.artifact_hash || metadata.structured_hash) || undefined,
+      paper_count: paperEvidence.length || metadata.paper_count || 0,
+      external_literature_count:
+        metadata.external_literature_count ||
+        (Array.isArray(externalAnalysis.representative_references)
+          ? externalAnalysis.representative_references.length
+          : 0),
+      topic: topicSection,
+      summary: summarySection,
+      claims: Array.isArray(artifact.claims) ? artifact.claims : [],
+      timeline_events: Array.isArray(artifact.timeline_events)
+        ? artifact.timeline_events
+        : [],
+      paper_evidence: paperEvidence,
+      external_literature_analysis: externalAnalysis,
+      coverage: isObject(artifact.coverage) ? artifact.coverage : {},
+      gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
+      source_artifacts: isObject(artifact.source_artifacts)
+        ? artifact.source_artifacts
+        : {},
+      diagnostics: artifact.diagnostics,
+      artifact,
+      manifest: topic.manifest,
+      metadata,
       paths: topic.paths,
     };
   }
@@ -2182,6 +3079,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const rootReady = await runtimePathExists(paths.synthesisRoot);
     const registryInputs = await registryInputsForService(options);
     const registryRows = registryRowsForInputs(registryInputs);
+    const legacyRows = await readLegacyTopicRows(root);
     const artifactState = await scanTopicFreshness({
       root,
       rows,
@@ -2234,17 +3132,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             deleted_at: row.deleted_at,
           })),
         },
-        artifacts: rows.map((row) => ({
+        artifacts: [...rows, ...legacyRows].map((row) => ({
           id: row.topic_id,
           title: row.title,
           kind: "topic_synthesis",
           coverage: artifactState[row.topic_id]?.coverage || "missing",
-          freshness: artifactState[row.topic_id]?.freshness || "unknown",
+          freshness:
+            (row as any).status === "legacy_invalid"
+              ? "dirty"
+              : artifactState[row.topic_id]?.freshness || "unknown",
           updated_at: row.updated_at,
           markdown_preview: (artifactState[row.topic_id]?.reasons || [])
             .map((entry) => entry.code)
             .join(", "),
-          paper_count: paperCountFromTopicState(artifactState[row.topic_id]),
+          paper_count:
+            row.paper_count ?? paperCountFromTopicState(artifactState[row.topic_id]),
           summary: summaryFromTopicDefinition(
             definitions[row.topic_id],
             (artifactState[row.topic_id]?.reasons || [])
@@ -2254,6 +3156,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               .join("; "),
           ),
           completion: completionFromTopicState(artifactState[row.topic_id]),
+          status: (row as any).status,
+          readerMode: (row as any).status === "legacy_invalid" ? "needs_recreate" : "structured",
+          language: row.language,
+          external_literature_count: row.external_literature_count,
+          stale_reasons:
+            artifactState[row.topic_id]?.freshness === "stale"
+              ? (artifactState[row.topic_id]?.reasons || []).map((entry) => entry.code)
+              : [],
+          dirty_reasons:
+            artifactState[row.topic_id]?.freshness === "dirty"
+              ? (artifactState[row.topic_id]?.reasons || []).map((entry) => entry.code)
+              : (row as any).status === "legacy_invalid"
+                ? ["legacy_invalid"]
+                : [],
         })),
         registry: {
           rows: registryRowsToUi(registryRows),
@@ -2304,6 +3220,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         metadata: metadata.artifact_metadata,
         topic_definition: definitions[args.topicId] || {},
         resolver: resolvers[args.topicId] || {},
+        structured_topic: {
+          artifact: isObject(artifact.artifact) ? artifact.artifact : {},
+          manifest: isObject(artifact.manifest) ? artifact.manifest : {},
+          metadata: artifact.metadata,
+        },
       },
       resolved_paper_set: paperSets[args.topicId] || {},
       registry_rows: registryRows,
@@ -2466,10 +3387,188 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       timestamp: now(),
     });
     const artifact = await readTopicArtifact({ topicId });
+    const paths = buildSynthesisStoragePaths(root);
+    const definitions = await readStateMap<Record<string, unknown>>(
+      paths.topicDefinitions,
+      "topics",
+    ).catch(() => ({} as Record<string, Record<string, unknown>>));
+    const resolvers = await readStateMap<Record<string, unknown>>(
+      paths.resolvers,
+      "resolvers",
+    ).catch(() => ({} as Record<string, Record<string, unknown>>));
+    const paperSets = await readStateMap<Record<string, unknown>>(
+      paths.resolvedPaperSets,
+      "paper_sets",
+    ).catch(() => ({} as Record<string, Record<string, unknown>>));
+    const topicRow = rows.find((row) => row.topic_id === topicId);
+    const currentManifest = (artifact.manifest || {}) as Record<string, unknown>;
+    const sectionHashes = isObject(currentManifest.section_hashes)
+      ? (currentManifest.section_hashes as Record<string, unknown>)
+      : {};
+    const hashes = await currentHashes(root, topicId);
+    const freshness = artifactState[topicId] || null;
+    const metadata = artifact.metadata as TopicArtifactMetadata;
     return {
       ...artifact,
-      freshness: artifactState[topicId] || null,
+      topic_id: topicId,
+      language: metadata.language || topicRow?.language || "auto",
+      current_artifact: artifact.artifact,
+      current_metadata: artifact.metadata,
+      current_manifest: artifact.manifest,
+      current_hashes: hashes,
+      section_hashes: Object.fromEntries(
+        Object.entries(sectionHashes).map(([section, hash]) => [section, cleanString(hash)]),
+      ),
+      topic_definition: definitions[topicId] || {},
+      topic_resolver: resolvers[topicId] || {},
+      resolved_paper_set: paperSets[topicId] || {},
+      freshness,
+      recommended_update: deriveTopicUpdateIntent({
+        topicId,
+        language: metadata.language || topicRow?.language,
+        state: freshness || undefined,
+        row: topicRow,
+      }),
+      request: {
+        mode: cleanString(args.mode) || "read",
+        language: cleanString(args.language) || undefined,
+        updateScope: cleanString(args.updateScope || args.update_scope) || undefined,
+        updateMode: cleanString(args.updateMode || args.update_mode) || undefined,
+        updateReason: cleanString(args.updateReason || args.update_reason) || undefined,
+      },
     };
+  }
+
+  async function resolveTopicPaperDigest(args: Record<string, unknown> = {}) {
+    const digestRef = isObject(args.digest_ref)
+      ? (args.digest_ref as Record<string, unknown>)
+      : isObject(args.digestRef)
+        ? (args.digestRef as Record<string, unknown>)
+        : {};
+    const libraryId = cleanString(digestRef.library_id || digestRef.libraryId);
+    const itemKey = cleanString(digestRef.item_key || digestRef.itemKey);
+    const paperRef =
+      cleanString(args.paper_ref || args.paperRef || digestRef.paper_ref || digestRef.paperRef) ||
+      (libraryId && itemKey ? `${libraryId}:${itemKey}` : "");
+    const recordedHash = cleanString(digestRef.payload_hash || digestRef.payloadHash);
+    if (!paperRef) {
+      return {
+        ok: false,
+        status: "unavailable",
+        paper_ref: "",
+        digest_markdown: "",
+        recorded_hash: recordedHash,
+        current_hash: "",
+        source_changed: false,
+        diagnostics: ["digest_ref_missing_paper_ref"],
+      };
+    }
+    const result = await readPaperArtifacts({
+      paper_refs: [paperRef],
+      artifact_types: ["digest"],
+    });
+    const noteKey = cleanString(digestRef.note_key || digestRef.noteKey);
+    const artifact =
+      result.artifacts.find(
+        (entry) => noteKey && cleanString(entry.note_key) === noteKey,
+      ) ||
+      result.artifacts.find((entry) => entry.payload_type === "digest-markdown");
+    if (!artifact) {
+      return {
+        ok: false,
+        status: "unavailable",
+        paper_ref: paperRef,
+        digest_markdown: "",
+        recorded_hash: recordedHash,
+        current_hash: "",
+        source_changed: false,
+        diagnostics: result.diagnostics.length ? result.diagnostics : ["digest_unavailable"],
+      };
+    }
+    const markdown =
+      cleanString(artifact.markdown) ||
+      cleanString(artifact.decoded_text) ||
+      (typeof artifact.payload === "string" ? artifact.payload : "");
+    const currentHash = cleanString(artifact.hash);
+    return {
+      ok: Boolean(markdown),
+      status: markdown ? "available" : "unavailable",
+      paper_ref: artifact.paper_ref || paperRef,
+      note_key: artifact.note_key,
+      note_title: artifact.note_title,
+      digest_markdown: markdown,
+      recorded_hash: recordedHash,
+      current_hash: currentHash,
+      source_changed: Boolean(recordedHash && currentHash && recordedHash !== currentHash),
+      diagnostics: artifact.diagnostics || [],
+    };
+  }
+
+  async function validateDigestRefsAgainstCurrentArtifacts(
+    artifact: Record<string, unknown>,
+  ) {
+    const rows = Array.isArray(artifact.paper_evidence)
+      ? artifact.paper_evidence.filter(isObject)
+      : [];
+    if (!rows.length) {
+      return;
+    }
+    const paperRefs = Array.from(
+      new Set(
+        rows
+          .map((entry) => {
+            const digestRef = isObject(entry.digest_ref)
+              ? (entry.digest_ref as Record<string, unknown>)
+              : {};
+            return cleanString(entry.paper_ref || digestRef.paper_ref || digestRef.paperRef);
+          })
+          .filter(Boolean),
+      ),
+    );
+    const result = await readPaperArtifacts({
+      paper_refs: paperRefs,
+      artifact_types: ["digest"],
+    });
+    const availableDigestByPaper = new Map<string, Record<string, unknown>>();
+    for (const artifactRow of Array.isArray(result.artifacts) ? result.artifacts : []) {
+      if (!isObject(artifactRow)) {
+        continue;
+      }
+      if (
+        cleanString(artifactRow.artifact_type) === "digest" &&
+        cleanString(artifactRow.payload_type) === "digest-markdown" &&
+        cleanString(artifactRow.status || "available") === "available"
+      ) {
+        availableDigestByPaper.set(
+          cleanString(artifactRow.paper_ref),
+          artifactRow,
+        );
+      }
+    }
+    const errors: string[] = [];
+    for (const entry of rows) {
+      const digestRef = isObject(entry.digest_ref)
+        ? (entry.digest_ref as Record<string, unknown>)
+        : {};
+      const paperRef = cleanString(entry.paper_ref || digestRef.paper_ref || digestRef.paperRef);
+      const expectedHash = cleanString(digestRef.payload_hash || digestRef.payloadHash);
+      const current = availableDigestByPaper.get(paperRef);
+      const currentHash = cleanString(current?.payload_hash || current?.hash);
+      if (!current) {
+        errors.push(
+          `paper_evidence ${paperRef} digest_ref does not resolve to an available digest artifact`,
+        );
+        continue;
+      }
+      if (expectedHash && currentHash && expectedHash !== currentHash) {
+        errors.push(
+          `paper_evidence ${paperRef} digest_ref payload_hash mismatch: expected ${expectedHash}, current ${currentHash}`,
+        );
+      }
+    }
+    if (errors.length) {
+      throw new Error(`invalid topic synthesis artifact digest refs: ${errors.join("; ")}`);
+    }
   }
 
   async function getSchemas() {
@@ -2481,15 +3580,54 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function getLibraryIndex() {
+  async function getLibraryIndex(args: Record<string, unknown> = {}) {
     const inputs = await registryInputsForService(options);
     const base = options.libraryAdapter
       ? await options.libraryAdapter.getLibraryIndex()
       : buildLibraryIndexFromRegistryInputs(libraryId, inputs);
+    const topics = await readIndexRows(root);
+    const registry = registryRowsForInputs(inputs);
+    const cursor = parseNonNegativeInteger(args.cursor, 0);
+    const limit = parsePositiveInteger(
+      args.limit,
+      LIBRARY_INDEX_PAGE_LIMIT_DEFAULT,
+      LIBRARY_INDEX_PAGE_LIMIT_MAX,
+    );
+    const papers = base.papers.slice(cursor, cursor + limit);
+    const nextCursor = cursor + papers.length;
+    const hasMore = nextCursor < base.papers.length;
+    const completeIndexIdentity = {
+      libraryId: base.libraryId,
+      papers: base.papers,
+      tags: base.tags,
+      collections: base.collections,
+      topics,
+      registry,
+    };
+    const pageIdentity = {
+      libraryId: base.libraryId,
+      cursor: String(cursor),
+      limit,
+      papers,
+      tags: base.tags,
+      collections: base.collections,
+      topics,
+      registry,
+      index_hash: hashCanonicalJson(completeIndexIdentity),
+    };
     return {
       ...base,
-      topics: await readIndexRows(root),
-      registry: registryRowsForInputs(inputs),
+      papers,
+      topics,
+      registry,
+      cursor: String(cursor),
+      next_cursor: hasMore ? String(nextCursor) : "",
+      has_more: hasMore,
+      returned: papers.length,
+      total_papers: base.papers.length,
+      limit,
+      index_hash: pageIdentity.index_hash,
+      page_hash: hashCanonicalJson(pageIdentity),
     };
   }
 
@@ -2533,28 +3671,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function getPaperArtifactManifest(args: Record<string, unknown> = {}) {
-    const rows = registryRowsForInputs(await registryInputsForService(options));
-    const refs = new Set(
-      [
-        ...normalizeArray(args.paper_refs),
-        ...normalizeArray(args.paperRefs),
-        args.paper_ref,
-        args.paperRef,
-      ]
-        .map(cleanString)
-        .filter(Boolean),
-    );
-    const filtered = rows.filter(
-      (row) => !refs.size || refs.has(row.paper_ref) || refs.has(row.item_key),
+    const result = await readPaperArtifacts(args);
+    const artifacts = (Array.isArray(result.artifacts) ? result.artifacts : []).map(
+      (entry) => {
+        const { payload, markdown, decoded_text, ...manifestEntry } = entry as any;
+        return manifestEntry;
+      },
     );
     return {
-      papers: filtered.map((row) => ({
-        paper_ref: row.paper_ref,
-        title: row.title,
-        artifacts: row.artifacts,
-        diagnostics: row.diagnostics,
-      })),
-      total: filtered.length,
+      artifacts,
+      diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics : [],
+      total: artifacts.length,
     };
   }
 
@@ -2574,6 +3701,92 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
+  async function exportPaperArtifactBundle(args: Record<string, unknown> = {}) {
+    const runRoot = validateAcpSkillRunRoot(
+      cleanString(args.run_root || args.runRoot),
+    );
+    const paperRefs = [
+      ...normalizeArray(args.paper_refs || args.paperRefs),
+      ...normalizeArray(args.paper_ref || args.paperRef),
+    ]
+      .map(cleanString)
+      .filter(Boolean);
+    const uniquePaperRefs = Array.from(new Set(paperRefs));
+    if (!uniquePaperRefs.length) {
+      throw new Error("paper_ref or paper_refs is required");
+    }
+    const result = await readPaperArtifacts({
+      paper_refs: uniquePaperRefs,
+      artifact_types: (args.artifact_types || args.artifactTypes) as
+        | RegistryArtifactType[]
+        | undefined,
+    });
+    const artifacts = Array.isArray(result.artifacts)
+      ? result.artifacts.filter(isObject)
+      : [];
+    const diagnostics = Array.isArray(result.diagnostics) ? result.diagnostics : [];
+    const exportedAt = new Date().toISOString();
+    const payloadFiles: Array<{ paper_ref: string; payload_file: string }> = [];
+    for (const paperRef of uniquePaperRefs) {
+      const safeRef = safeFileSegment(paperRef, "paper");
+      const payloadRelativePath = `runtime/payloads/paper-artifacts-${safeRef}.json`;
+      const payloadPath = joinPath(runRoot, payloadRelativePath);
+      const paperArtifacts = artifacts.filter((entry) => {
+        const row = entry as Record<string, unknown>;
+        return cleanString(row.paper_ref || row.paperRef) === paperRef;
+      });
+      const paperDiagnostics = diagnostics.filter((entry) =>
+        cleanString(entry).startsWith(`${paperRef}:`),
+      );
+      const payload = {
+        paper_ref: paperRef,
+        artifacts: paperArtifacts,
+        diagnostics: paperDiagnostics,
+        exported_by: "synthesis.export_paper_artifact_bundle",
+        exported_at: exportedAt,
+      };
+      await writeRuntimeTextFile(payloadPath, JSON.stringify(payload, null, 2));
+      payloadFiles.push({ paper_ref: paperRef, payload_file: payloadRelativePath });
+    }
+    const manifestRelativePath = "runtime/payloads/paper-artifact-bundles-batch.json";
+    await writeRuntimeTextFile(
+      joinPath(runRoot, manifestRelativePath),
+      JSON.stringify(
+        {
+          exported_by: "synthesis.export_paper_artifact_bundle",
+          exported_at: exportedAt,
+          paper_refs: uniquePaperRefs,
+          payload_files: payloadFiles,
+          diagnostics,
+        },
+        null,
+        2,
+      ),
+    );
+    const artifact_statuses = artifacts.map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        paper_ref: cleanString(row.paper_ref || row.paperRef),
+        artifact_type: cleanString(row.artifact_type || row.artifactType),
+        payload_type: cleanString(row.payload_type || row.payloadType),
+        status: cleanString(row.status || "available"),
+        missing_reason: cleanString(row.missing_reason || row.missingReason),
+      };
+    });
+    const response: Record<string, unknown> = {
+      paper_refs: uniquePaperRefs,
+      manifest_file: manifestRelativePath,
+      payload_files: payloadFiles,
+      artifact_statuses,
+      diagnostics,
+    };
+    if (uniquePaperRefs.length === 1) {
+      response.paper_ref = uniquePaperRefs[0];
+      response.payload_file = payloadFiles[0]?.payload_file || "";
+    }
+    return response;
+  }
+
   return {
     applyTopicSynthesisResult,
     deleteTopicArtifact,
@@ -2581,10 +3794,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     purgeDeletedTopicArtifacts,
     getSynthesisSnapshot,
     refreshMirror,
+    rebuildMirrorFromCanonical,
+    recoverCanonicalFromMirror,
     readTopicArtifact,
+    readTopicDetail,
     getReviewInput,
     listTopics,
     getTopicContext,
+    resolveTopicPaperDigest,
     getSchemas,
     getLibraryIndex,
     resolveResolver,
@@ -2593,6 +3810,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     queryCitationGraph,
     getPaperArtifactManifest,
     readPaperArtifacts,
+    exportPaperArtifactBundle,
   };
 }
 
@@ -2626,8 +3844,35 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
       .filter(Boolean);
   }
 
-  function noteTitle(note: any) {
-    return cleanString(note?.getField?.("title")) || cleanString(note?.getDisplayTitle?.());
+  function decodedManagedShard(note: any) {
+    try {
+      const decoded = decodeNoteShard(note?.getNote?.() || "");
+      return decoded.envelope.anchor_key === cleanString(note?.parentKey || "")
+        ? decoded
+        : decoded;
+    } catch {
+      return null;
+    }
+  }
+
+  function shardIdentityMatches(note: any, args: {
+    libraryId: number;
+    anchorKey: string;
+    kind: ShardKind;
+    assetId: string;
+    seq: number;
+    total: number;
+  }) {
+    const decoded = decodedManagedShard(note);
+    return Boolean(
+      decoded &&
+        decoded.envelope.library_id === args.libraryId &&
+        decoded.envelope.anchor_key === args.anchorKey &&
+        decoded.envelope.kind === args.kind &&
+        decoded.envelope.asset_id === args.assetId &&
+        decoded.envelope.seq === args.seq &&
+        decoded.envelope.total === args.total,
+    );
   }
 
   return {
@@ -2640,7 +3885,8 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
       }
       const anchor = new zotero.Item("document");
       anchor.libraryID = args.libraryId;
-      anchor.setField?.("title", args.title);
+      const titleField = "title";
+      anchor.setField?.(titleField, args.title);
       anchor.setField?.("extra", `Synthesis root: ${args.root}`);
       await anchor.saveTx();
       zotero.Prefs?.set?.(prefKey(args.libraryId), anchor.key, true);
@@ -2652,13 +3898,14 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
       if (!anchor) {
         throw new Error(`Synthesis mirror anchor not found: ${args.anchorKey}`);
       }
-      let note = childNotes(anchor).find((entry: any) => noteTitle(entry) === args.title);
+      let note = childNotes(anchor).find((entry: any) =>
+        shardIdentityMatches(entry, args),
+      );
       if (!note) {
         note = new zotero.Item("note");
         note.libraryID = args.libraryId;
         note.parentItemID = anchor.id;
       }
-      note.setField?.("title", args.title);
       note.setNote(args.html);
       await note.saveTx();
       return { noteKey: note.key };
@@ -2671,7 +3918,7 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
       }
       const keep = new Set(args.keepNoteKeys);
       const removals = childNotes(anchor)
-        .filter((note: any) => noteTitle(note).startsWith("ZS Synthesis Mirror "))
+        .filter((note: any) => Boolean(decodedManagedShard(note)))
         .filter((note: any) => !keep.has(cleanString(note.key)))
         .map((note: any) => Number(note.id || 0))
         .filter(Boolean);
@@ -2695,7 +3942,10 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
               seq: decoded.envelope.seq,
               total: decoded.envelope.total,
               note_key: cleanString(note.key),
-              title: noteTitle(note),
+              title: `ZS Synthesis Mirror ${decoded.envelope.asset_id || decoded.envelope.kind}`,
+              asset_id: decoded.envelope.asset_id,
+              asset_path: decoded.envelope.asset_path,
+              content_type: decoded.envelope.content_type,
               payload_hash: decoded.envelope.payload_hash,
               encoded_hash: decoded.envelope.encoded_hash,
               payload: decoded.payload,

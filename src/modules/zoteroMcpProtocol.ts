@@ -76,6 +76,10 @@ export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST =
   "synthesis.get_paper_artifact_manifest";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS =
   "synthesis.read_paper_artifacts";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_PAPER_ARTIFACT_BUNDLE =
+  "synthesis.export_paper_artifact_bundle";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST =
+  "synthesis.resolve_topic_paper_digest";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT =
   "synthesis.get_review_input";
 
@@ -348,8 +352,17 @@ function summarizeSynthesisResult(toolName: string, result: unknown) {
   if (Array.isArray(payload.artifacts)) {
     parts.push(`artifacts=${payload.artifacts.length}`);
   }
-  if (payload.nextCursor) {
-    parts.push(`nextCursor=${compactText(payload.nextCursor)}`);
+  if (payload.nextCursor || payload.next_cursor) {
+    parts.push(`nextCursor=${compactText(payload.nextCursor || payload.next_cursor)}`);
+  }
+  if (payload.has_more !== undefined) {
+    parts.push(`hasMore=${Boolean(payload.has_more)}`);
+  }
+  if (payload.returned !== undefined) {
+    parts.push(`returned=${compactText(payload.returned)}`);
+  }
+  if (payload.total_papers !== undefined) {
+    parts.push(`totalPapers=${compactText(payload.total_papers)}`);
   }
   if (payload.topic_id) {
     parts.push(`topic=${compactText(payload.topic_id)}`);
@@ -2161,6 +2174,10 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     properties: {
       topicId: { type: "string" },
       mode: { type: "string", enum: ["create", "update"] },
+      language: { type: "string" },
+      updateScope: { type: "string" },
+      updateMode: { type: "string" },
+      updateReason: { type: "string" },
     },
   }),
   synthesisTool({
@@ -2177,7 +2194,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
     title: "Get Synthesis library index",
     description:
-      "Return a bounded global lightweight library index page for topic resolver generation.",
+      "Return one deterministic page of the global lightweight library index for topic resolver generation. Iterate cursor until has_more=false; index_hash must stay stable across pages.",
     method: "getLibraryIndex",
     properties: {
       libraryId: { type: ["number", "string"] },
@@ -2215,6 +2232,37 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST,
+    title: "Get Synthesis paper artifact manifest",
+    description:
+      "Return host-computed availability for digest, references, and citation-analysis artifacts for topic synthesis papers. Missing artifacts are reported as status rows, not errors.",
+    method: "getPaperArtifactManifest",
+    properties: {
+      paper_refs: { type: "array" },
+      paperRefs: { type: "array" },
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_PAPER_ARTIFACT_BUNDLE,
+    title: "Export Synthesis paper artifact bundle",
+    description:
+      "Read one or more papers' digest, references, and citation-analysis artifacts through the host decoder and write full bundles directly into the ACP skill run payload directory. The tool response intentionally omits payload hashes and payload bodies.",
+    method: "exportPaperArtifactBundle",
+    properties: {
+      run_root: { type: "string" },
+      runRoot: { type: "string" },
+      paper_refs: { type: "array" },
+      paperRefs: { type: "array" },
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+      artifact_types: { type: "array" },
+      artifactTypes: { type: "array" },
+    },
+    required: ["run_root"],
+  }),
+  synthesisTool({
     name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE,
     title: "Get Synthesis citation graph slice",
     description:
@@ -2229,6 +2277,21 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       direction: { type: "string", enum: ["incoming", "outgoing", "both"] },
       includeLowSignal: { type: "boolean" },
       roleFilter: { type: "array" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST,
+    title: "Resolve topic paper digest",
+    description:
+      "Resolve the original digest-markdown payload for a structured topic paper evidence digest_ref and report source hash freshness.",
+    method: "resolveTopicPaperDigest",
+    properties: {
+      topicId: { type: "string" },
+      paperEvidenceId: { type: "string" },
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+      digest_ref: { type: "object" },
+      digestRef: { type: "object" },
     },
   }),
   synthesisTool({

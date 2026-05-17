@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
 import {
+  listBackendsForWorkflow,
   loadBackendsRegistry,
   resolveBackendForWorkflow,
 } from "../../src/backends/registry";
@@ -26,6 +27,7 @@ function buildWorkflow(args: {
   id: string;
   provider?: string;
   requestKind: string;
+  supportedBackends?: string[];
 }): LoadedWorkflow {
   return {
     manifest: {
@@ -35,6 +37,11 @@ function buildWorkflow(args: {
       request: {
         kind: args.requestKind,
       },
+      execution: args.supportedBackends
+        ? {
+            supportedBackends: args.supportedBackends,
+          }
+        : undefined,
       hooks: {
         applyResult: "hooks/applyResult.js",
       },
@@ -763,6 +770,52 @@ describe("provider/backend registry", function () {
     }
     assert.isOk(thrown);
     assert.match(String(thrown), /Invalid backends JSON/);
+  });
+
+  it("filters compatible backends by workflow execution.supportedBackends", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "acp-only-skillrunner-request",
+      provider: "acp",
+      requestKind: "skillrunner.job.v1",
+      supportedBackends: ["acp"],
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.sameMembers(Array.from(new Set(backends.map((entry) => entry.type))), [
+      "acp",
+    ]);
+    assert.include(backends.map((entry) => entry.id), "acp-local");
+    assert.notInclude(backends.map((entry) => entry.id), "skillrunner-primary");
+
+    let thrown: unknown;
+    try {
+      await resolveBackendForWorkflow(workflow, {
+        preferredBackendId: "skillrunner-primary",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.isOk(thrown);
+    assert.match(String(thrown), /incompatible backendId/);
   });
 
   it("only disables workflows that bind to invalid backend entries", async function () {

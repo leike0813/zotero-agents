@@ -72,9 +72,12 @@ export type ShardKind =
   | "paper_sets"
   | "artifact_index"
   | "artifact_state"
+  | "topic_current"
   | "graph"
   | "layout"
   | string;
+
+export type MirrorAssetContentType = "json" | "markdown" | "text";
 
 export type NoteShardEnvelope = {
   schema_id: "synthesis.note_shard";
@@ -83,6 +86,9 @@ export type NoteShardEnvelope = {
   anchor_key: string;
   mirror_id: string;
   kind: ShardKind;
+  asset_id: string;
+  asset_path: string;
+  content_type: MirrorAssetContentType;
   seq: number;
   total: number;
   encoding: "base64";
@@ -105,6 +111,9 @@ export type DecodedNoteShard = {
 
 export type MirrorManifestShard = {
   kind: ShardKind;
+  asset_id: string;
+  asset_path: string;
+  content_type: MirrorAssetContentType;
   seq: number;
   total: number;
   note_key: string;
@@ -159,6 +168,7 @@ const SHARD_KIND_ORDER = [
   "paper_sets",
   "artifact_index",
   "artifact_state",
+  "topic_current",
   "graph",
   "layout",
 ];
@@ -483,6 +493,9 @@ function createMirrorId(args: { libraryId: number; anchorKey: string }) {
 export function renderNoteShardHtml(args: {
   libraryId: number;
   kind: ShardKind;
+  assetId: string;
+  assetPath: string;
+  contentType: MirrorAssetContentType;
   seq: number;
   total: number;
   updatedAt: string;
@@ -492,6 +505,9 @@ export function renderNoteShardHtml(args: {
     "<h2>Zotero-Skills Synthesis Mirror</h2>",
     `<p>Library: ${escapeHtml(args.libraryId)}</p>`,
     `<p>Kind: ${escapeHtml(args.kind)}</p>`,
+    `<p>Asset: ${escapeHtml(args.assetId)}</p>`,
+    `<p>Path: ${escapeHtml(args.assetPath)}</p>`,
+    `<p>Content: ${escapeHtml(args.contentType)}</p>`,
     `<p>Shard: ${String(args.seq).padStart(3, "0")}/${String(args.total).padStart(3, "0")}</p>`,
     `<p>Updated: ${escapeHtml(args.updatedAt)}</p>`,
     "<p>This note is managed by Zotero-Skills. Do not edit manually.</p>",
@@ -521,6 +537,12 @@ export function encodeNoteShard(args: {
   libraryId: number;
   anchorKey: string;
   kind: ShardKind;
+  assetId?: string;
+  asset_id?: string;
+  assetPath?: string;
+  asset_path?: string;
+  contentType?: MirrorAssetContentType;
+  content_type?: MirrorAssetContentType;
   seq: number;
   total: number;
   payload: string;
@@ -532,6 +554,9 @@ export function encodeNoteShard(args: {
   const total = normalizePositiveInteger(args.total);
   const compression = args.compression || "gzip";
   const payload = normalizeMarkdown(args.payload);
+  const assetId = String(args.assetId ?? args.asset_id ?? args.kind ?? "").trim();
+  const assetPath = String(args.assetPath ?? args.asset_path ?? "").trim();
+  const contentType = (args.contentType ?? args.content_type ?? "json") as MirrorAssetContentType;
   const encodedPayload = encodePayload(payload, compression);
   const envelope: NoteShardEnvelope = {
     schema_id: "synthesis.note_shard",
@@ -543,6 +568,9 @@ export function encodeNoteShard(args: {
       anchorKey: String(args.anchorKey || "").trim(),
     }),
     kind: args.kind,
+    asset_id: assetId,
+    asset_path: assetPath,
+    content_type: contentType,
     seq,
     total,
     encoding: "base64",
@@ -555,6 +583,9 @@ export function encodeNoteShard(args: {
   const html = renderNoteShardHtml({
     libraryId,
     kind: args.kind,
+    assetId,
+    assetPath,
+    contentType,
     seq,
     total,
     updatedAt: args.updatedAt || nowIso(),
@@ -588,6 +619,12 @@ function shardKindRank(kind: string) {
 
 function normalizeManifestShard(input: {
   kind: ShardKind;
+  assetId?: string;
+  asset_id?: string;
+  assetPath?: string;
+  asset_path?: string;
+  contentType?: MirrorAssetContentType;
+  content_type?: MirrorAssetContentType;
   seq: number;
   total: number;
   noteKey?: string;
@@ -600,6 +637,9 @@ function normalizeManifestShard(input: {
 }): MirrorManifestShard {
   return {
     kind: input.kind,
+    asset_id: String(input.assetId ?? input.asset_id ?? "").trim(),
+    asset_path: String(input.assetPath ?? input.asset_path ?? "").trim(),
+    content_type: (input.contentType ?? input.content_type ?? "json") as MirrorAssetContentType,
     seq: normalizePositiveInteger(input.seq),
     total: normalizePositiveInteger(input.total),
     note_key: String(input.noteKey ?? input.note_key ?? "").trim(),
@@ -727,8 +767,14 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
     synthesisRoot,
     topicsRoot: joinPath(synthesisRoot, "topics"),
     topicRoot,
-    currentMarkdown: topicId ? joinPath(topicRoot, "current.md") : "",
-    currentMetadata: topicId ? joinPath(topicRoot, "current.json") : "",
+    legacyCurrentMarkdown: topicId ? joinPath(topicRoot, "current.md") : "",
+    legacyCurrentMetadata: topicId ? joinPath(topicRoot, "current.json") : "",
+    currentRoot: topicId ? joinPath(topicRoot, "current") : "",
+    currentManifest: topicId ? joinPath(topicRoot, "current", "manifest.json") : "",
+    currentArtifact: topicId ? joinPath(topicRoot, "current", "artifact.json") : "",
+    currentMetadata: topicId ? joinPath(topicRoot, "current", "metadata.json") : "",
+    currentExportMarkdown: topicId ? joinPath(topicRoot, "current", "export.md") : "",
+    currentSectionsRoot: topicId ? joinPath(topicRoot, "current", "sections") : "",
     stateRoot,
     index: joinPath(stateRoot, "index.json"),
     artifactState: joinPath(stateRoot, "artifact-state.json"),

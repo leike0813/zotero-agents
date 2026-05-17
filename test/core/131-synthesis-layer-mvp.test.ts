@@ -171,6 +171,14 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
 
     const index = await service.getLibraryIndex();
+    const firstIndexPage = await service.getLibraryIndex({ limit: 1 });
+    const secondIndexPage = await service.getLibraryIndex({
+      cursor: firstIndexPage.next_cursor,
+      limit: 1,
+    });
+    const artifactManifest = await service.getPaperArtifactManifest({
+      paper_ref: `${alpha.libraryID}:${alpha.key}`,
+    });
     const registry = await service.getPaperRegistry();
 
     assert.deepEqual(
@@ -185,6 +193,22 @@ describe("Synthesis Layer MVP real-data closure", function () {
       index.collections.map((entry) => entry.name),
       "Topic Alpha",
     );
+    assert.equal(firstIndexPage.returned, 1);
+    assert.equal(firstIndexPage.total_papers, 2);
+    assert.equal(firstIndexPage.has_more, true);
+    assert.equal(secondIndexPage.has_more, false);
+    assert.equal(secondIndexPage.returned, 1);
+    assert.equal(secondIndexPage.index_hash, firstIndexPage.index_hash);
+    assert.match(firstIndexPage.page_hash || "", /^sha256:/);
+    assert.lengthOf(artifactManifest.artifacts, 3);
+    assert.deepInclude(artifactManifest.artifacts[0], {
+      paper_ref: `${alpha.libraryID}:${alpha.key}`,
+      artifact_type: "digest",
+      status: "available",
+      payload_type: "digest-markdown",
+    });
+    assert.notProperty(artifactManifest.artifacts[0], "markdown");
+    assert.notProperty(artifactManifest.artifacts[0], "payload");
     assert.equal(registry.total, 2);
     const alphaRow = registry.rows.find((row) => row.item_key === alpha.key);
     assert.equal(alphaRow?.artifacts.digest.status, "available");
@@ -240,7 +264,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
     const artifacts = await service.readPaperArtifacts({
       paper_refs: [`${alpha.libraryID}:${alpha.key}`],
-      artifact_types: ["references", "citation_analysis"],
+      artifact_types: ["references-json", "citation-analysis-json"] as any,
     });
     const graph = await service.queryCitationGraph();
 
@@ -253,6 +277,16 @@ describe("Synthesis Layer MVP real-data closure", function () {
       artifacts.artifacts.map((artifact) => artifact.artifact_type).sort(),
       ["citation_analysis", "references"],
     );
+    assert.equal(
+      artifacts.artifacts.every(
+        (artifact) => artifact.probe_source === "synthesis.read_paper_artifacts",
+      ),
+      true,
+    );
+    assert.includeMembers(artifacts.artifacts[0].payload_types_seen || [], [
+      "references-json",
+      "citation-analysis-json",
+    ]);
     assert.equal(
       graph.nodes.some((node) => node.node_id === `zotero:item:${beta.key}`),
       true,

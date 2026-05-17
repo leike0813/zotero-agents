@@ -30,6 +30,8 @@ const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN);
 
 export default defineConfig({
   source: ["src", "addon"],
+  // 关闭开发模式下的热重载，避免大文件变更导致频繁 rebuild + reload
+  watchIgnore: ["**/*"],
   dist: ".scaffold/build",
   name: pkg.config.addonName,
   id: pkg.config.addonID,

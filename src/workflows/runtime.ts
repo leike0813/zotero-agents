@@ -188,6 +188,23 @@ function resolveSkillRunnerExecutionMode(manifest: LoadedWorkflow["manifest"]) {
   return String(manifest.execution?.skillrunner_mode || "").trim();
 }
 
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function resolveWorkflowRequiredMcpTools(manifest: LoadedWorkflow["manifest"]) {
+  return normalizeStringArray(manifest.execution?.mcp?.requiredTools);
+}
+
 function withInjectedSkillRunnerExecutionMode(args: {
   workflow: LoadedWorkflow;
   requestKind: string;
@@ -197,7 +214,8 @@ function withInjectedSkillRunnerExecutionMode(args: {
     return args.request;
   }
   const executionMode = resolveSkillRunnerExecutionMode(args.workflow.manifest);
-  if (!executionMode) {
+  const requiredTools = resolveWorkflowRequiredMcpTools(args.workflow.manifest);
+  if (!executionMode && requiredTools.length === 0) {
     return args.request;
   }
   if (!isObjectRecord(args.request)) {
@@ -211,7 +229,14 @@ function withInjectedSkillRunnerExecutionMode(args: {
         ...next.runtime_options,
       }
     : {};
-  runtimeOptions.execution_mode = executionMode;
+  if (executionMode) {
+    runtimeOptions.execution_mode = executionMode;
+  }
+  if (requiredTools.length > 0) {
+    runtimeOptions.workflow_mcp = {
+      required_tools: requiredTools,
+    };
+  }
   next.runtime_options = runtimeOptions;
   return next;
 }
@@ -944,6 +969,13 @@ async function resolveSelectionContexts(args: {
   }
 
   const unit = args.workflow.manifest.inputs?.unit || "attachment";
+  if (unit === "workflow") {
+    const context = copySelection(args.selectionContext);
+    return {
+      contexts: [context],
+      totalUnits: 1,
+    };
+  }
   if (unit === "parent") {
     const contexts = buildParentSelectionUnits(copySelection(args.selectionContext));
     return {

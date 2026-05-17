@@ -1,12 +1,15 @@
 # synthesize-topic-workflow Specification
 
 ## Purpose
-TBD - created by archiving change add-synthesize-topic-workflow. Update Purpose after archive.
+Defines the active topic synthesis workflow contract. The legacy single
+`synthesize-topic` workflow is removed; current entrypoints are
+`create-topic-synthesis` and `update-topic-synthesis`.
+
 ## Requirements
 ### Requirement: Topic synthesis workflow result bundles are validated
 
-The `synthesize-topic` workflow SHALL produce a verifiable result bundle before
-formal persistence.
+Topic synthesis workflows SHALL produce a verifiable result bundle before formal
+persistence.
 
 #### Scenario: Valid bundle is received
 
@@ -44,3 +47,32 @@ Workflow apply decisions SHALL use optimistic base-hash checks.
 - **THEN** apply decision SHALL be `conflict`
 - **AND** it SHALL return mismatch details without auto-merging Markdown.
 
+### Requirement: Topic synthesis workflows use split create/update entrypoints
+
+Topic synthesis workflow execution SHALL use `create-topic-synthesis` and
+`update-topic-synthesis` as builtin entrypoints. The legacy single
+`synthesize-topic` workflow and skill SHALL NOT be published.
+
+#### Scenario: Builtin workflow package is loaded
+
+- **WHEN** builtin workflow manifests are loaded from `workflows_builtin`
+- **THEN** `create-topic-synthesis` SHALL be discovered
+- **AND** `update-topic-synthesis` SHALL be discovered
+- **AND** `synthesize-topic` SHALL NOT be discovered as a workflow.
+
+#### Scenario: Builtin skill registry is scanned
+
+- **WHEN** builtin skills are scanned
+- **THEN** `create-topic-synthesis` SHALL be registered
+- **AND** `update-topic-synthesis` SHALL be registered
+- **AND** `synthesize-topic` SHALL NOT be registered.
+
+### Requirement: Topic synthesis apply hook is shared by current workflows
+
+The topic synthesis apply hook SHALL be owned by the synthesis-layer package
+rather than by a legacy workflow directory.
+
+#### Scenario: Create and update workflows declare applyResult
+
+- **WHEN** create/update topic synthesis workflow manifests are inspected
+- **THEN** both SHALL reference the neutral synthesis-layer apply hook.

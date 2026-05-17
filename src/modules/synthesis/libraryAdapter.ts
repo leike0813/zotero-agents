@@ -37,6 +37,13 @@ export type SynthesisLibraryIndex = {
     item_count: number;
   }>;
   diagnostics: string[];
+  cursor?: string;
+  next_cursor?: string;
+  has_more?: boolean;
+  returned?: number;
+  total_papers?: number;
+  index_hash?: string;
+  page_hash?: string;
 };
 
 export type PaperArtifactReadRequest = {
@@ -51,13 +58,21 @@ export type PaperArtifactReadRequest = {
 export type PaperArtifactReadResult = {
   paper_ref: string;
   artifact_type: RegistryArtifactType;
+  status: "available" | "missing" | "decode_error" | "unsupported";
   payload_type: string;
-  note_key: string;
-  note_title: string;
-  hash: string;
-  payload: unknown;
+  probe_source?: string;
+  item_found?: boolean;
+  child_note_count?: number;
+  note_keys_seen?: string[];
+  payload_types_seen?: string[];
+  note_key?: string;
+  note_title?: string;
+  hash?: string;
+  payload_hash?: string;
+  payload?: unknown;
   markdown?: string;
   decoded_text?: string;
+  missing_reason?: string;
   diagnostics: string[];
 };
 
@@ -75,6 +90,24 @@ const PAYLOAD_TYPES: Record<RegistryArtifactType, string> = {
   references: "references-json",
   citation_analysis: "citation-analysis-json",
 };
+
+const ARTIFACT_TYPE_ALIASES: Record<string, RegistryArtifactType> = {
+  digest: "digest",
+  "digest-markdown": "digest",
+  references: "references",
+  reference: "references",
+  "references-json": "references",
+  citation_analysis: "citation_analysis",
+  citationAnalysis: "citation_analysis",
+  "citation-analysis": "citation_analysis",
+  "citation-analysis-json": "citation_analysis",
+};
+
+const DEFAULT_ARTIFACT_TYPES: RegistryArtifactType[] = [
+  "digest",
+  "references",
+  "citation_analysis",
+];
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -306,22 +339,87 @@ export function buildLibraryIndexFromRegistryInputs(
   };
 }
 
-function firstPayloadBlock(
-  input: PaperRegistryInput,
-  artifactType: RegistryArtifactType,
-) {
-  const payloadType = PAYLOAD_TYPES[artifactType];
-  for (const note of [...(input.notes || [])].sort((left, right) =>
+function normalizeArtifactType(value: unknown): RegistryArtifactType | null {
+  const text = cleanString(value);
+  return ARTIFACT_TYPE_ALIASES[text] || null;
+}
+
+function normalizeArtifactTypes(values: unknown): RegistryArtifactType[] {
+  const rawValues = Array.isArray(values) ? values : [];
+  const normalized = rawValues
+    .map(normalizeArtifactType)
+    .filter((entry): entry is RegistryArtifactType => !!entry);
+  const source = normalized.length ? normalized : DEFAULT_ARTIFACT_TYPES;
+  return Array.from(new Set(source));
+}
+
+function payloadBlocksForInput(input: PaperRegistryInput) {
+  const noteRows = [...(input.notes || [])].sort((left, right) =>
     cleanString(left.key).localeCompare(cleanString(right.key)),
-  )) {
-    const block = listNotePayloadBlocks(note.html).find(
-      (entry) => entry.payloadType === payloadType && !entry.errors?.length,
-    );
-    if (block) {
-      return { note, block };
+  );
+  const rows: Array<{
+    note: PaperRegistryInputNote;
+    block: ZoteroNotePayloadBlock;
+  }> = [];
+  const payloadTypesSeen: string[] = [];
+  const decodeErrors: string[] = [];
+  for (const note of noteRows) {
+    for (const block of listNotePayloadBlocks(note.html)) {
+      const payloadType = cleanString(block.payloadType);
+      if (payloadType) {
+        payloadTypesSeen.push(payloadType);
+      }
+      if (block.errors?.length) {
+        decodeErrors.push(
+          `${cleanString(note.key) || "unknown-note"}:${payloadType}:${block.errors.join("; ")}`,
+        );
+      }
+      rows.push({ note, block });
     }
   }
-  return null;
+  return {
+    rows,
+    noteKeysSeen: noteRows.map((note) => cleanString(note.key)).filter(Boolean),
+    childNoteCount: noteRows.length,
+    payloadTypesSeen: Array.from(new Set(payloadTypesSeen)).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    decodeErrors,
+  };
+}
+
+function payloadProbeFields(args: {
+  inputFound: boolean;
+  childNoteCount?: number;
+  noteKeysSeen?: string[];
+  payloadTypesSeen?: string[];
+}) {
+  return {
+    probe_source: "synthesis.read_paper_artifacts",
+    item_found: args.inputFound,
+    child_note_count: args.childNoteCount || 0,
+    note_keys_seen: [...(args.noteKeysSeen || [])],
+    payload_types_seen: [...(args.payloadTypesSeen || [])],
+  };
+}
+
+function firstPayloadBlock(args: {
+  input: PaperRegistryInput;
+  scan: ReturnType<typeof payloadBlocksForInput>;
+  artifactType: RegistryArtifactType;
+}) {
+  const payloadType = PAYLOAD_TYPES[args.artifactType];
+  let decodeError: { note: PaperRegistryInputNote; block: ZoteroNotePayloadBlock } | null = null;
+  for (const row of args.scan.rows) {
+    if (row.block.payloadType !== payloadType) {
+      continue;
+    }
+    if (!row.block.errors?.length) {
+      return { ...row, decodeError: false };
+    }
+    decodeError ||= row;
+  }
+  return decodeError ? { ...decodeError, decodeError: true } : null;
 }
 
 function asArray(value: unknown): unknown[] {
@@ -370,11 +468,20 @@ function rolesByReference(payload: unknown) {
 }
 
 function extractReferences(input: PaperRegistryInput): CitationGraphReferenceInput[] {
-  const referencesBlock = firstPayloadBlock(input, "references");
+  const scan = payloadBlocksForInput(input);
+  const referencesBlock = firstPayloadBlock({
+    input,
+    scan,
+    artifactType: "references",
+  });
   if (!referencesBlock) {
     return [];
   }
-  const citationBlock = firstPayloadBlock(input, "citation_analysis");
+  const citationBlock = firstPayloadBlock({
+    input,
+    scan,
+    artifactType: "citation_analysis",
+  });
   const roleMaps = rolesByReference(citationBlock?.block.payload);
   const payload = referencesBlock.block.payload as any;
   const references = asArray(payload?.references || payload?.items || payload);
@@ -448,37 +555,95 @@ export function readArtifactsFromRegistryInputs(
       .map(cleanString)
       .filter(Boolean),
   );
-  const types = new Set<RegistryArtifactType>(
-    (args.artifact_types || args.artifactTypes || [
-      "digest",
-      "references",
-      "citation_analysis",
-    ]) as RegistryArtifactType[],
-  );
+  const requestedTypes = normalizeArtifactTypes(args.artifact_types || args.artifactTypes);
   const artifacts: PaperArtifactReadResult[] = [];
   const diagnostics: string[] = [];
+  const matchedRefs = new Set<string>();
   for (const input of inputs) {
     const paperRef = `${input.libraryId}:${input.itemKey}`;
     if (refs.size && !refs.has(paperRef) && !refs.has(input.itemKey)) {
       continue;
     }
-    for (const type of types) {
-      const found = firstPayloadBlock(input, type);
+    matchedRefs.add(paperRef);
+    matchedRefs.add(input.itemKey);
+    const scan = payloadBlocksForInput(input);
+    const baseProbe = payloadProbeFields({
+      inputFound: true,
+      childNoteCount: scan.childNoteCount,
+      noteKeysSeen: scan.noteKeysSeen,
+      payloadTypesSeen: scan.payloadTypesSeen,
+    });
+    diagnostics.push(
+      `${paperRef}:probe:notes=${scan.childNoteCount}:payloads=${scan.payloadTypesSeen.join(",") || "none"}`,
+    );
+    diagnostics.push(...scan.decodeErrors.map((entry) => `${paperRef}:decode_error:${entry}`));
+    for (const type of requestedTypes) {
+      const found = firstPayloadBlock({ input, scan, artifactType: type });
       if (!found) {
-        diagnostics.push(`${paperRef}:${type}:missing`);
+        diagnostics.push(`${paperRef}:${PAYLOAD_TYPES[type]}:missing`);
+        artifacts.push({
+          ...baseProbe,
+          paper_ref: paperRef,
+          artifact_type: type,
+          status: "missing",
+          payload_type: PAYLOAD_TYPES[type],
+          missing_reason: "payload_not_found",
+          diagnostics: [
+            `${paperRef}:${PAYLOAD_TYPES[type]}:missing`,
+            `child_note_count=${scan.childNoteCount}`,
+            `payload_types_seen=${scan.payloadTypesSeen.join(",") || "none"}`,
+          ],
+        });
         continue;
       }
+      if (found.decodeError) {
+        const errors = found.block.errors || ["decode_error"];
+        diagnostics.push(`${paperRef}:${PAYLOAD_TYPES[type]}:decode_error:${errors.join("; ")}`);
+        artifacts.push({
+          ...baseProbe,
+          paper_ref: paperRef,
+          artifact_type: type,
+          status: "decode_error",
+          payload_type: PAYLOAD_TYPES[type],
+          note_key: found.note.key,
+          note_title: cleanString(found.note.title),
+          missing_reason: "payload_decode_error",
+          diagnostics: errors,
+        });
+        continue;
+      }
+      const payloadHash = artifactHash(found.block);
       artifacts.push({
+        ...baseProbe,
         paper_ref: paperRef,
         artifact_type: type,
+        status: "available",
         payload_type: PAYLOAD_TYPES[type],
         note_key: found.note.key,
         note_title: cleanString(found.note.title),
-        hash: artifactHash(found.block),
+        hash: payloadHash,
+        payload_hash: payloadHash,
         payload: found.block.payload,
         markdown: found.block.markdown,
         decoded_text: found.block.decodedText,
         diagnostics: [],
+      });
+    }
+  }
+  for (const ref of refs) {
+    if (matchedRefs.has(ref)) {
+      continue;
+    }
+    diagnostics.push(`${ref}:paper_not_found`);
+    for (const type of requestedTypes) {
+      artifacts.push({
+        ...payloadProbeFields({ inputFound: false }),
+        paper_ref: ref,
+        artifact_type: type,
+        status: "missing",
+        payload_type: PAYLOAD_TYPES[type],
+        missing_reason: "paper_not_found",
+        diagnostics: [`${ref}:paper_not_found`],
       });
     }
   }

@@ -580,8 +580,22 @@ export async function listRuntimeChildDirectories(pathRaw: string) {
 export async function collectRuntimeFiles(rootRaw: string) {
   const root = normalizeString(rootRaw);
   const files: string[] = [];
+  function shouldSkip(childPath: string) {
+    const normalized = normalizeSlashes(childPath);
+    const name = normalized.split("/").filter(Boolean).pop() || "";
+    return (
+      name === "__pycache__" ||
+      name === ".pytest_cache" ||
+      name === ".mypy_cache" ||
+      name.endsWith(".pyc") ||
+      name.endsWith(".pyo")
+    );
+  }
   async function visit(dir: string) {
     for (const child of await listRuntimeChildren(dir)) {
+      if (shouldSkip(child)) {
+        continue;
+      }
       const stat = await statRuntimePath(child);
       if (!stat.exists) {
         continue;

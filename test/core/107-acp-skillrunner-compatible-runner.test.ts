@@ -85,6 +85,7 @@ async function createSkill(
     dependencies?: string[];
     executionModes?: string[];
     declareSchemas?: boolean;
+    mcpRequiredTools?: string[];
   },
 ) {
   const skillDir = path.join(root, "skills", "demo-skill");
@@ -114,6 +115,13 @@ async function createSkill(
       runtime: {
         dependencies: args?.dependencies || [],
       },
+      ...(args?.mcpRequiredTools
+        ? {
+            mcp: {
+              required_tools: args.mcpRequiredTools,
+            },
+          }
+        : {}),
       ...(args?.declareSchemas === false
         ? {}
         : {
@@ -255,6 +263,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(prompt, "- pending output requires ui_hints object");
     assert.include(prompt, "Target output contract details:");
     assert.include(prompt, "`ui_hints.options`");
+    assert.include(prompt, "Do not hand-write result/result.json.");
+    assert.include(prompt, "runtime-generated file is allowed");
     assert.include(prompt, "Do not output explanations.");
     assert.include(prompt, "Do not output Markdown fences.");
     assert.notInclude(prompt, "Repair round 1 of 3");
@@ -437,6 +447,292 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.probeRequired, false);
     assert.equal(plan.diagnostic?.code, "runtime_dependencies_wrapper_disabled");
     assert.equal(plan.wrappedBackend.command, "npx");
+  });
+
+  it("fails required MCP preflight before creating an ACP session when HTTP MCP is unavailable", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      mcpRequiredTools: ["synthesis.list_topics"],
+    });
+    let newSessionCount = 0;
+    let promptCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: false,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => {
+        newSessionCount += 1;
+        return { sessionId: "session-should-not-start" };
+      },
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        promptCount += 1;
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      assert.fail("expected required MCP preflight to fail");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "HTTP MCP support",
+      );
+    }
+    assert.equal(newSessionCount, 0);
+    assert.equal(promptCount, 0);
+    const run = listAcpSkillRuns()[0];
+    assert.equal(run.status, "failed");
+    assert.include(run.error || "", "HTTP MCP support");
+    assert.isTrue(
+      run.events.some((event) => event.stage === "mcp-preflight-failed"),
+    );
+  });
+
+  it("fails required MCP preflight before prompt when a declared tool is missing", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      mcpRequiredTools: ["synthesis.missing_tool"],
+    });
+    let newSessionCount = 0;
+    let promptCount = 0;
+    let observedRequiredTools: string[] = [];
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => {
+        newSessionCount += 1;
+        return { sessionId: "session-should-not-start" };
+      },
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        promptCount += 1;
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          mcpPreflight: async ({ requiredTools }) => {
+            observedRequiredTools = requiredTools;
+            return {
+              ok: false,
+              availableTools: ["synthesis.list_topics"],
+              missingTools: ["synthesis.missing_tool"],
+              message: "Required Zotero MCP tools are missing: synthesis.missing_tool",
+            };
+          },
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      assert.fail("expected required MCP preflight to fail");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "synthesis.missing_tool",
+      );
+    }
+    assert.deepEqual(observedRequiredTools, ["synthesis.missing_tool"]);
+    assert.equal(newSessionCount, 0);
+    assert.equal(promptCount, 0);
+    const run = listAcpSkillRuns()[0];
+    assert.equal(run.status, "failed");
+    assert.include(run.error || "", "synthesis.missing_tool");
+  });
+
+  it("uses workflow-declared MCP tools for preflight, callable smoke, and the guarded business prompt", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const promptMessages: string[] = [];
+    const order: string[] = [];
+    let observedPreflightTools: string[] = [];
+    let observedSmokeTools: string[] = [];
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-workflow-mcp" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId, message }) => {
+        order.push("prompt");
+        promptMessages.push(message);
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    const result = await executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "bundle",
+        runtime_options: {
+          workflow_mcp: {
+            required_tools: [
+              "synthesis.list_topics",
+              "synthesis.export_paper_artifact_bundle",
+            ],
+          },
+        },
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        mcpPreflight: async ({ requiredTools }) => {
+          observedPreflightTools = requiredTools;
+          return {
+            ok: true,
+            availableTools: requiredTools,
+            missingTools: [],
+          };
+        },
+        mcpCallableSmoke: async ({ requiredTools }) => {
+          order.push("smoke");
+          observedSmokeTools = requiredTools;
+          return {
+            ok: true,
+            reachedTools: requiredTools,
+            missingTools: [],
+          };
+        },
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(observedPreflightTools, [
+      "synthesis.list_topics",
+      "synthesis.export_paper_artifact_bundle",
+    ]);
+    assert.deepEqual(observedSmokeTools, observedPreflightTools);
+    assert.deepEqual(order, ["smoke", "prompt"]);
+    assert.lengthOf(promptMessages, 1);
+    assert.include(
+      promptMessages[0],
+      "Host 已完成 MCP availability check 和 callable smoke",
+    );
+    assert.include(promptMessages[0], "不要自行搜索 MCP 配置或测试工具注入状态");
+    assert.include(promptMessages[0], "demo-skill");
   });
 
   it("fails dependency plan when explicit uv probe-and-wrap mode fails", async function () {
@@ -1124,6 +1420,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(capturedMessage, "`__SKILL_DONE__: false`");
       assert.include(capturedMessage, "`ui_hints`");
       assert.include(capturedMessage, "`ui_hints.options`");
+      assert.include(capturedMessage, "Do not hand-write");
+      assert.include(capturedMessage, "runtime render action");
       assert.include(capturedMessage, "Do not output explanations.");
       assert.include(capturedMessage, "Do not output Markdown fences.");
       assert.include(capturedMessage, "continue from here");

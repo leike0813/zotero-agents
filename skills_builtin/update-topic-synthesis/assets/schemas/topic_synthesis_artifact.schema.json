@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis Structured Artifact",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "language",
+    "topic",
+    "summary",
+    "claims",
+    "timeline_events",
+    "paper_evidence",
+    "external_literature_analysis",
+    "coverage",
+    "gaps",
+    "source_artifacts",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_id": { "const": "synthesis.topic_synthesis_artifact" },
+    "schema_version": { "type": "string" },
+    "language": { "type": "string" },
+    "topic": { "type": "object" },
+    "summary": { "type": "object" },
+    "claims": { "type": "array" },
+    "timeline_events": { "type": "array" },
+    "paper_evidence": { "type": "array" },
+    "external_literature_analysis": { "type": "object" },
+    "coverage": { "type": "object" },
+    "gaps": { "type": "array" },
+    "source_artifacts": { "type": "array" },
+    "diagnostics": { "type": "object" }
+  },
+  "not": { "required": ["markdown"] }
+}

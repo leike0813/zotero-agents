@@ -32,6 +32,14 @@ describe("Synthesis review input MCP tool", function () {
         return {
           kind: "synthesis.review_workflow_input",
           topic: { topic_id: args.topicId },
+          structured_topic: {
+            claims: [{ id: "claim-1" }],
+            timeline_events: [{ id: "event-1" }],
+            paper_evidence: [{ id: "ev-a" }],
+            external_literature_analysis: { summary: "External context." },
+            coverage: { status: "partial" },
+            gaps: [],
+          },
         };
       },
     };
@@ -48,6 +56,14 @@ describe("Synthesis review input MCP tool", function () {
     assert.equal(
       response.result.structuredContent.result.kind,
       "synthesis.review_workflow_input",
+    );
+    assert.deepEqual(
+      response.result.structuredContent.result.structured_topic.claims,
+      [{ id: "claim-1" }],
+    );
+    assert.equal(
+      response.result.structuredContent.result.structured_topic.external_literature_analysis.summary,
+      "External context.",
     );
   });
 });

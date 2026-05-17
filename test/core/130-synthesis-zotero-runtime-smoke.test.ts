@@ -7,7 +7,6 @@ import { readRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import {
   buildSynthesisStoragePaths,
   decodeNoteShard,
-  parseShardTitle,
 } from "../../src/modules/synthesis/foundation";
 import {
   createSynthesisService,
@@ -111,10 +110,7 @@ describe("Synthesis Zotero runtime smoke", function () {
     assert.isOk(result.mirror?.anchorKey);
 
     const paths = buildSynthesisStoragePaths(root, "topic-runtime-smoke");
-    assert.equal(
-      await readRuntimeTextFile(paths.currentMarkdown),
-      "# Runtime Smoke Topic\n\n## Timeline\n\n2026: Smoke test.",
-    );
+    assert.include(await readRuntimeTextFile(paths.currentExportMarkdown), "# Runtime Smoke Topic");
 
     const anchor = Zotero.Items.getByLibraryAndKey(
       libraryId,
@@ -127,12 +123,18 @@ describe("Synthesis Zotero runtime smoke", function () {
     const notes = childNotes(anchor);
     notes.forEach(registerZoteroTestObjectForCleanup);
     assert.isAtLeast(notes.length, 3);
-    const shardNotes = notes.filter((note) =>
-      Boolean(parseShardTitle(String(note.getField("title") || ""))),
-    );
+    const shardNotes = notes.filter((note) => {
+      try {
+        decodeNoteShard(note.getNote());
+        return true;
+      } catch {
+        return false;
+      }
+    });
     assert.isAtLeast(shardNotes.length, 3);
     const decoded = decodeNoteShard(shardNotes[0].getNote());
     assert.equal(decoded.envelope.anchor_key, anchor.key);
+    assert.isOk(decoded.envelope.asset_id);
 
     const hostApi = createWorkflowHostApi();
     assert.isFunction(hostApi.synthesis?.applyTopicSynthesisResult);
@@ -140,9 +142,16 @@ describe("Synthesis Zotero runtime smoke", function () {
     await shardNotes[0].eraseTx();
     const snapshot = await service.getSynthesisSnapshot();
     assert.equal(snapshot.sync.status, "mirror_degraded");
-    assert.equal(
-      await readRuntimeTextFile(paths.currentMarkdown),
-      "# Runtime Smoke Topic\n\n## Timeline\n\n2026: Smoke test.",
-    );
+    assert.include(await readRuntimeTextFile(paths.currentExportMarkdown), "# Runtime Smoke Topic");
+  });
+
+  it("does not identify or mutate Zotero note shards through invalid note title fields", async function () {
+    const source = await fs.readFile("src/modules/synthesis/service.ts", "utf8");
+
+    assert.notInclude(source, 'note?.getField?.("title")');
+    assert.notInclude(source, 'note.setField?.("title"');
+    assert.notInclude(source, "noteTitle(entry) === args.title");
+    assert.include(source, "decodeNoteShard");
+    assert.include(source, "asset_id");
   });
 });

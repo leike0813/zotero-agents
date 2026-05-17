@@ -2,16 +2,20 @@ import { checkBaseHashes } from "./foundation";
 
 export type SynthesisResultBundle = {
   kind: "topic_synthesis";
+  operation?: "create" | "update_full" | "update_patch";
   mode: "create" | "update";
+  language?: string;
   base_hashes: Record<string, string>;
+  read_section_hashes?: Record<string, string>;
   topic_definition: Record<string, unknown>;
   topic_resolver: Record<string, unknown>;
   resolved_paper_set: Record<string, unknown>;
   resolver_diagnostics: Record<string, unknown>;
   artifact_metadata: Record<string, unknown>;
+  analysis_manifest_path?: string;
   markdown: string;
   markdown_path?: string;
-  timeline: string | Record<string, unknown> | unknown[];
+  timeline?: string | Record<string, unknown> | unknown[];
 };
 
 const DIRECT_WRITE_KEYS = new Set([
@@ -24,6 +28,10 @@ const DIRECT_WRITE_KEYS = new Set([
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cleanString(value: unknown) {
+  return String(value || "").trim();
 }
 
 function requireObject(source: Record<string, unknown>, key: string) {
@@ -56,6 +64,65 @@ export function validateSynthesisResultBundle(input: unknown): {
   }
   if (input.kind !== "topic_synthesis") {
     throw new Error("synthesis result bundle kind must be topic_synthesis");
+  }
+  if (typeof input.operation === "string") {
+    const operation = input.operation;
+    if (
+      operation !== "create" &&
+      operation !== "update_full" &&
+      operation !== "update_patch"
+    ) {
+      throw new Error("synthesis result bundle operation must be create, update_full, or update_patch");
+    }
+    if (cleanString(input.markdown)) {
+      throw new Error("synthesis result bundle must not embed markdown");
+    }
+    const analysisManifestPath = requireString(input, "analysis_manifest_path");
+    const baseHashes = requireObject(input, "base_hashes") as Record<string, string>;
+    const artifactMetadata = requireObject(input, "artifact_metadata");
+    const language = requireString(input, "language");
+    if (operation === "update_patch") {
+      if (cleanString(input.markdown_path)) {
+        throw new Error("update_patch bundle must not depend on markdown_path");
+      }
+      return {
+        ok: true,
+        bundle: {
+          kind: "topic_synthesis",
+          operation,
+          mode: "update",
+          language,
+          base_hashes: baseHashes,
+          read_section_hashes: requireObject(input, "read_section_hashes") as Record<string, string>,
+          topic_definition: {},
+          topic_resolver: {},
+          resolved_paper_set: {},
+          resolver_diagnostics: {},
+          artifact_metadata: artifactMetadata,
+          analysis_manifest_path: analysisManifestPath,
+          markdown: "",
+        },
+      };
+    }
+    return {
+      ok: true,
+        bundle: {
+          kind: "topic_synthesis",
+          operation,
+          mode: operation === "create" ? "create" : "update",
+          language,
+          base_hashes: baseHashes,
+          topic_definition: requireObject(input, "topic_definition"),
+          topic_resolver: requireObject(input, "topic_resolver"),
+        resolved_paper_set: requireObject(input, "resolved_paper_set"),
+        resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
+          artifact_metadata: artifactMetadata,
+          analysis_manifest_path: analysisManifestPath,
+          markdown: "",
+          markdown_path:
+            typeof input.markdown_path === "string" ? input.markdown_path.trim() : undefined,
+        },
+    };
   }
   if (input.mode !== "create" && input.mode !== "update") {
     throw new Error("synthesis result bundle mode must be create or update");
@@ -98,6 +165,30 @@ export function decideSynthesisApply(args: {
       mismatches: Array<{ name: string; base: string; current: string }>;
     } {
   const { bundle } = validateSynthesisResultBundle(args.bundle);
+  if (bundle.operation === "update_patch") {
+    const readSectionHashes = bundle.read_section_hashes || {};
+    const currentSectionHashes = Object.fromEntries(
+      Object.entries(args.currentHashes || {})
+        .filter(([name]) => name.startsWith("section:"))
+        .map(([name, value]) => [name.slice("section:".length), value]),
+    );
+    const cas = checkBaseHashes({
+      current: currentSectionHashes,
+      base: readSectionHashes,
+    });
+    if (cas.ok) {
+      return { action: "persist", bundle, mismatches: [] };
+    }
+    return {
+      action: "conflict",
+      bundle,
+      mismatches: cas.mismatches.map((mismatch) => ({
+        name: `section:${mismatch.name}`,
+        base: mismatch.base,
+        current: mismatch.current,
+      })),
+    };
+  }
   const cas = checkBaseHashes({
     current: args.currentHashes,
     base: bundle.base_hashes,

@@ -297,11 +297,22 @@ async function collectCandidates(args: {
     return { candidates: [] as Candidate[], diagnostics };
   }
   try {
-    return {
-      candidates: (await listDirectories(args.root)).map((sourceDir: string) => ({
+    const sourceDirs = await listDirectories(args.root);
+    const candidates: Candidate[] = [];
+    for (const sourceDir of sourceDirs) {
+      if (
+        (await pathExists(joinPath(sourceDir, ".skillignore"))) ||
+        (await pathExists(joinPath(sourceDir, "skill.ignore")))
+      ) {
+        continue;
+      }
+      candidates.push({
         sourceKind: args.sourceKind,
         sourceDir,
-      })),
+      });
+    }
+    return {
+      candidates,
       diagnostics,
     };
   } catch (error) {

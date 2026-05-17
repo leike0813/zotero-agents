@@ -418,9 +418,9 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
 
-    assert.include(source, "runSynthesizeTopicFromWorkbench");
+    assert.include(source, "runCreateTopicSynthesisFromWorkbench");
     assert.include(source, "executeWorkflowFromCurrentSelection");
-    assert.include(source, 'entry.manifest.id === "synthesize-topic"');
+    assert.include(source, 'entry.manifest.id === "create-topic-synthesis"');
     assert.include(source, "requireSettingsGate: true");
     assert.notInclude(source, "executionOptionsOverride");
     assert.notInclude(source, "promptTopicSeed");
@@ -459,28 +459,37 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(sidebar, "openSynthesisWorkbenchTab");
   });
 
-  it("opens artifacts inside the Workbench reader instead of an external editor", async function () {
+  it("opens structured Topic Detail inside the Workbench and keeps Markdown as a secondary export", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
     const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
 
+    assert.include(source, 'command === "openTopicArtifact"');
     assert.include(source, 'command === "openCanonicalMarkdown"');
+    assert.include(source, 'command === "copyTopicMarkdownExport"');
+    assert.include(source, 'command === "resolveTopicPaperDigest"');
     assert.include(source, 'command === "openSynthesisFolder"');
     assert.include(source, 'command === "deleteTopicArtifact"');
     assert.include(source, 'command === "purgeDeletedTopicArtifacts"');
     assert.include(source, "confirmWorkbenchAction");
+    assert.include(source, "readTopicDetail");
     assert.include(source, "readTopicArtifact");
+    assert.include(source, "sendTopicDetail");
     assert.include(source, "sendArtifactReader");
+    assert.include(source, 'postWorkbenchMessage(runtime, "synthesis:topic-detail"');
     assert.include(source, 'postWorkbenchMessage(runtime, "synthesis:artifact"');
     assert.notInclude(source, "openPathInSystem(artifact.paths.currentMarkdown");
+    assert.include(app, "renderTopicDetail");
     assert.include(app, "renderArtifactReader");
+    assert.include(app, 'command: "openTopicArtifact"');
+    assert.include(app, "Markdown export");
     assert.include(app, "Delete");
     assert.include(app, "Purge Deleted");
     assert.include(app, "deletedArtifacts.count");
-    assert.include(app, "Back to Artifacts");
-    assert.include(app, "Copy markdown");
+    assert.include(app, "Back to Topics");
+    assert.include(app, "Copy Markdown");
   });
 
   it("renders the redesigned Home, Topics, Index, and immersive reader views", async function () {
@@ -505,6 +514,34 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".immersive-reader");
     assert.include(css, ":focus-visible");
     assert.include(css, "@media (prefers-reduced-motion: reduce)");
+  });
+
+  it("renders structured Topic Detail with design-token timeline and evidence interactions", async function () {
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+
+    assert.include(source, "renderTopicDetail");
+    assert.include(source, "renderTopicTabs");
+    assert.include(source, "renderEvidenceExplorer");
+    assert.include(source, "renderTopicTimeline");
+    assert.include(source, "renderDigestModal");
+    assert.include(source, "openDigestModal");
+    assert.include(source, "Evidence Explorer");
+    assert.include(source, "External Literature Analysis");
+    assert.include(source, 'command: "resolveTopicPaperDigest"');
+    assert.include(css, "--topic-bg: #eef3f8");
+    assert.include(css, "--topic-text: #172033");
+    assert.include(css, "--topic-pin-fill: #2563eb");
+    assert.include(css, "--topic-pin-offset-y: -12px");
+    assert.include(css, "--topic-explorer-width: 360px");
+    assert.include(css, "--topic-timeline-height: 108px");
+    assert.include(css, ".topic-detail-tabs");
+    assert.include(css, ".evidence-explorer");
+    assert.include(css, "resize: horizontal");
+    assert.include(css, ".timeline-marker");
+    assert.include(css, ".timeline-pin-body");
+    assert.include(css, "clip-path: polygon");
+    assert.include(css, ".paper-digest-modal");
   });
 
   it("adds a unified Zotero tab workspace entry for Dashboard and Synthesis", async function () {
@@ -607,5 +644,107 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "@keyframes zs-spin");
     assert.include(css, ".table-wrap");
     assert.include(css, "overflow: auto;");
+  });
+
+  it("derives TopicUpdateIntent for stale, incomplete, and dirty topic rows", function () {
+    const snapshot = normalizeSynthesisUiSnapshot({
+      libraryId: 1,
+      artifacts: [
+        {
+          id: "topic-stale",
+          title: "Stale Topic",
+          kind: "topic_synthesis",
+          coverage: "complete",
+          freshness: "stale",
+          language: "zh-CN",
+          stale_reasons: ["artifact_changed:digest-markdown"],
+        },
+        {
+          id: "topic-incomplete",
+          title: "Incomplete Topic",
+          kind: "topic_synthesis",
+          coverage: "partial",
+          freshness: "fresh",
+          language: "en-US",
+          missing_sections: ["external_literature_analysis"],
+        },
+        {
+          id: "topic-dirty",
+          title: "Dirty Topic",
+          kind: "topic_synthesis",
+          coverage: "missing",
+          freshness: "dirty",
+          language: "zh-CN",
+          dirty_reasons: ["legacy_invalid"],
+        },
+      ] as any,
+    });
+
+    const intents = Object.fromEntries(
+      snapshot.artifacts.rows.map((row: any) => [row.id, row.updateIntent]),
+    );
+
+    assert.deepInclude(intents["topic-stale"], {
+      topicId: "topic-stale",
+      language: "zh-CN",
+      updateScope: "auto",
+      updateMode: "auto",
+      actionLabel: "Update",
+    });
+    assert.deepInclude(intents["topic-incomplete"], {
+      topicId: "topic-incomplete",
+      language: "en-US",
+      updateScope: "external_literature",
+      actionLabel: "Complete",
+    });
+    assert.deepInclude(intents["topic-dirty"], {
+      topicId: "topic-dirty",
+      updateMode: "update_full",
+      actionLabel: "Repair/Rebuild",
+    });
+  });
+
+  it("exposes rebuild and confirmed recovery actions for mirror states", function () {
+    const degraded = normalizeSynthesisUiSnapshot({
+      libraryId: 1,
+      sync: {
+        status: "mirror_degraded",
+        allowedActions: ["rebuild_mirror_from_canonical"],
+        diagnostics: [],
+        requiresConfirmation: false,
+      },
+    });
+    const recoverable = normalizeSynthesisUiSnapshot({
+      libraryId: 1,
+      sync: {
+        status: "missing_root",
+        allowedActions: ["recover_from_shards"],
+        diagnostics: [],
+        requiresConfirmation: true,
+      },
+    });
+    const rebuild = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "rebuildSynthesisMirror",
+        args: {},
+      },
+    });
+    const recover = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "recoverSynthesisFromMirror",
+        args: { confirm: true },
+      },
+    });
+
+    assert.include(degraded.hostCommands, "rebuildSynthesisMirror");
+    assert.include(recoverable.hostCommands, "recoverSynthesisFromMirror");
+    assert.isTrue(rebuild.handled);
+    assert.isTrue(recover.handled);
+    assert.deepEqual(recover.hostCommand, {
+      command: "recoverSynthesisFromMirror",
+      args: { confirm: true },
+    });
   });
 });

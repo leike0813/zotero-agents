@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Update Topic Synthesis Result",
+  "type": "object",
+  "additionalProperties": true,
+  "not": { "required": ["markdown"] },
+  "oneOf": [
+    {
+      "title": "Full update topic synthesis",
+      "type": "object",
+      "required": [
+        "kind",
+        "operation",
+        "language",
+        "base_hashes",
+        "topic_definition",
+        "topic_resolver",
+        "resolved_paper_set",
+        "resolver_diagnostics",
+        "artifact_metadata",
+        "analysis_manifest_path"
+      ],
+      "properties": {
+        "__SKILL_DONE__": { "type": "boolean" },
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "const": "update_full" },
+        "language": { "type": "string", "minLength": 1 },
+        "base_hashes": { "type": "object" },
+        "topic_definition": { "type": "object" },
+        "topic_resolver": { "type": "object" },
+        "resolved_paper_set": { "type": "object" },
+        "resolver_diagnostics": { "type": "object" },
+        "artifact_metadata": { "type": "object" },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "markdown_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    {
+      "title": "Patch update topic synthesis",
+      "type": "object",
+      "required": [
+        "kind",
+        "operation",
+        "language",
+        "base_hashes",
+        "read_section_hashes",
+        "artifact_metadata",
+        "analysis_manifest_path"
+      ],
+      "properties": {
+        "__SKILL_DONE__": { "type": "boolean" },
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "const": "update_patch" },
+        "language": { "type": "string", "minLength": 1 },
+        "base_hashes": { "type": "object" },
+        "read_section_hashes": { "type": "object" },
+        "artifact_metadata": { "type": "object" },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 }
+      },
+      "not": { "required": ["markdown_path"] }
+    },
+    {
+      "title": "Canceled topic synthesis",
+      "type": "object",
+      "required": ["kind", "status", "reason", "message"],
+      "properties": {
+        "__SKILL_DONE__": { "type": "boolean" },
+        "kind": { "const": "topic_synthesis_canceled" },
+        "status": { "const": "canceled" },
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "topic_id": { "type": "string" }
+      }
+    }
+  ]
+}

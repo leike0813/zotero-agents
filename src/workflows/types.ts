@@ -42,7 +42,7 @@ export type WorkflowHooksSpec = {
 };
 
 export type WorkflowInputsSpec = {
-  unit: "attachment" | "parent" | "note";
+  unit: "attachment" | "parent" | "note" | "workflow";
   accepts?: {
     mime?: string[];
   };
@@ -58,6 +58,10 @@ export type WorkflowTriggerSpec = {
 
 export type WorkflowExecutionSpec = {
   mode?: "auto" | "sync" | "async";
+  supportedBackends?: string[];
+  mcp?: {
+    requiredTools?: string[];
+  };
   skillrunner_mode?: "auto" | "interactive";
   poll_interval_ms?: number;
   timeout_ms?: number;
@@ -103,6 +107,7 @@ export type WorkflowManifest = {
   debug_only?: boolean;
   provider?: string;
   version?: string;
+  taskNameTemplate?: string;
   parameters?: Record<string, WorkflowParameterSchema>;
   inputs?: WorkflowInputsSpec;
   trigger?: WorkflowTriggerSpec;

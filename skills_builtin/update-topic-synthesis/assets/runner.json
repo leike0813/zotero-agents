@@ -1,0 +1,23 @@
+{
+  "id": "update-topic-synthesis",
+  "name": "Update Topic Synthesis",
+  "description": "Update a structured Zotero Synthesis Layer topic_synthesis artifact from host-provided topic context.",
+  "version": "2.0.0",
+  "execution_modes": ["interactive"],
+  "max_attempt": 12,
+  "mcp": {
+    "required_tools": [
+      "synthesis.get_topic_context",
+      "synthesis.resolve_resolver",
+      "synthesis.export_paper_artifact_bundle"
+    ]
+  },
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "使用中文指令执行 update-topic-synthesis。输入 topicId={{ parameter.topicId }}，language={{ parameter.language }}，updateScope={{ parameter.updateScope }}，updateMode={{ parameter.updateMode }}，updateReason={{ parameter.updateReason }}。Host 已完成 MCP availability check 和 callable smoke；不要自行搜索 MCP 配置或测试工具注入状态。如果正式执行中某个必需 MCP tool 返回 unavailable/no such tool，立即输出合法 canceled，不要排查环境。必须使用本 skill 包内 scripts/gate_runtime.py、scripts/stage_runtime.py、scripts/runtime_db.py 和 references/update_workflow_playbook.md。每一步先运行 gate，并只执行 gate 返回的 next_action 与 command_example；语义状态通过 stage_runtime.py 的 persist_topic_intent、persist_resolver、persist_paper_workset、persist_paper_artifact_bundles、persist_paper_analyses、export_cross_paper_context、persist_cross_paper_synthesis 写入 SQLite，单篇 persist_paper_artifact_bundle/persist_paper_analysis 只用于 repair。必须调用 synthesis.get_topic_context({ topicId, mode: \"update\" }) 并遵循 recommended_update，根据 resolver/paper set/language/schema major change 选择 update_full，否则优先 section_patch/update_patch。Stage 4 必须按 gate 给出的 paper_refs 批量调用 synthesis.export_paper_artifact_bundle({ run_root: 当前 ACP run workspace 绝对路径, paper_refs })，由 host 直接写入 paper-artifacts payload 和 batch manifest，再执行 persist_paper_artifact_bundles；不要手写 paper-artifacts JSON，不要读取/复制/改写 payload_hash；缺 artifact 不阻断，但必须记录 host missing receipt，然后才允许写 batch per-paper analysis。Stage 5 必须先 export_cross_paper_context，读取 runtime/views/cross-paper-context.json；该 context 不暴露 payload_hash，cross-paper payload 不要写 digest_ref，paper_evidence 只需要稳定 paper_ref，runtime 会自动注入 evidence id 和 digest_ref。render 只能在 gate 允许时执行；update_full 输出 result/topic-analysis.json 和 preview，update_patch 输出 result/topic-analysis.patch.json 且不得包含 markdown_path；禁止 agent 手写 result/result.json，但这个 render 生成文件是唯一例外。最终只返回一个 JSON object，不得内嵌 markdown，不得写 canonical assets 或 Zotero shards。"
+    }
+  }
+}
