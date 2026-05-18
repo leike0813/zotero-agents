@@ -208,3 +208,226 @@ The Zotero MCP service SHALL classify attachments for reading recommendation wit
 - **THEN** the result SHALL disclose local path/access metadata only
 - **AND** it SHALL explicitly state that attachment file content was not returned.
 
+### Requirement: MCP callable smoke failures are diagnosable across backends
+
+ACP SkillRunner-compatible runs with required MCP tools SHALL persist a
+backend-agnostic diagnostic bundle when callable smoke fails.
+
+#### Scenario: Smoke failure records context injection diagnostics
+
+- **GIVEN** a workflow declares required Zotero MCP tools
+- **AND** host MCP availability preflight succeeds
+- **WHEN** callable smoke fails
+- **THEN** the run SHALL record a diagnostic classification
+- **AND** the run SHALL persist a redacted diagnostic JSON file
+- **AND** the run SHALL persist a backend evidence log.
+
+#### Scenario: Backend-specific evidence remains optional
+
+- **GIVEN** a backend does not provide Claude Code debug files
+- **WHEN** callable smoke fails
+- **THEN** the diagnostic bundle SHALL still be generated from backend-neutral
+  host evidence.
+
+### Requirement: MCP context diagnostics do not leak credentials
+
+MCP context diagnostics SHALL redact bearer tokens and authorization headers.
+
+#### Scenario: Descriptor contains authorization
+
+- **WHEN** the host persists MCP context diagnostics
+- **THEN** the diagnostic JSON and evidence log SHALL NOT contain the raw bearer
+  token or full Authorization header value.
+
+### Requirement: ACP callable smoke has a hard timeout
+
+ACP SkillRunner-compatible runs with workflow-declared required MCP tools SHALL
+bound callable smoke with a hard timeout before sending any business skill
+prompt.
+
+#### Scenario: Smoke times out
+
+- **GIVEN** a workflow declares required MCP tools
+- **AND** host MCP availability preflight succeeds
+- **WHEN** ACP callable smoke does not complete before the timeout
+- **THEN** the business prompt SHALL NOT be sent
+- **AND** the run SHALL fail with a clear MCP callable smoke timeout error.
+
+### Requirement: Smoke prompt forbids alternate tool-access attempts
+
+The callable smoke prompt SHALL instruct the agent to use only the declared MCP
+callables for the smoke and SHALL forbid shell/config/file searches or alternate
+bridges during smoke.
+
+#### Scenario: Smoke prompt is bounded to callable exposure
+
+- **WHEN** the ACP runner sends a callable smoke prompt
+- **THEN** the prompt SHALL state that the agent must not search MCP config,
+  read project files, use shell commands, guess tool names, initialize runtime
+  DB, or execute skill steps.
+
+### Requirement: ACP runtime prompts are packaged separately from skill patch templates
+
+ACP MCP smoke and required-MCP guard prompt bodies SHALL be loaded from ACP
+runtime prompt template assets, not hardcoded in orchestration business logic and
+not mixed with ACP skill patch templates.
+
+#### Scenario: Runtime smoke prompt is rendered from runtime templates
+
+- **GIVEN** the ACP runner needs to send a callable smoke prompt
+- **WHEN** it builds the smoke message
+- **THEN** it SHALL load the `mcp_callable_smoke` ACP runtime prompt template
+- **AND** render declared required tools and timeout values into that template
+- **AND** the template SHALL reside outside `addon/content/acp-skill-patches/templates`.
+
+#### Scenario: Required MCP guard is rendered from runtime templates
+
+- **GIVEN** a workflow declares required MCP tools
+- **WHEN** the ACP runner sends the business skill prompt after smoke
+- **THEN** it SHALL prepend the `mcp_required_guard` ACP runtime prompt template
+- **AND** the template SHALL reside outside `addon/content/acp-skill-patches/templates`.
+
+#### Scenario: Recovered continuation guard is rendered from runtime templates
+
+- **GIVEN** the ACP runner recovers a previous ACP Skill run session
+- **WHEN** it sends a continuation prompt
+- **THEN** it SHALL render the `recovered_continuation_guard` ACP runtime prompt template
+- **AND** the template SHALL reside outside `addon/content/acp-skill-patches/templates`.
+
+### Requirement: ACP runtime prompt templates use English wording
+
+ACP runtime orchestration prompt templates SHALL use English wording to stay
+consistent with the rest of the ACP execution prompt surface.
+
+#### Scenario: Runtime prompt family stays language-consistent
+
+- **WHEN** ACP runtime prompt templates are packaged
+- **THEN** the MCP smoke, required-MCP guard, and recovered continuation guard
+  templates SHALL be written in English.
+
+### Requirement: ACP required MCP tools are callable-smoked
+
+ACP SkillRunner-compatible runs with workflow-declared required MCP tools SHALL
+verify that the current ACP session exposes the required Zotero MCP callables
+before sending the business skill prompt.
+
+#### Scenario: Callable smoke succeeds
+
+- **GIVEN** required MCP tools are declared
+- **AND** host MCP availability preflight succeeds
+- **WHEN** the ACP session is created or recovered
+- **THEN** the runner SHALL send a smoke prompt before the business prompt
+- **AND** the run SHALL continue only after each required tool reaches Zotero MCP
+  as a `tools/call`.
+
+#### Scenario: Callable smoke fails
+
+- **GIVEN** required MCP tools are declared
+- **AND** the ACP session does not expose one required callable
+- **WHEN** smoke runs
+- **THEN** the business prompt SHALL NOT be sent
+- **AND** the run SHALL record a clear MCP callable smoke failure.
+
+### Requirement: Required-MCP runs receive an MCP guard
+
+ACP business prompts for required-MCP workflows SHALL include a short guard
+stating that host MCP checks already ran and that agents must not search MCP
+configuration or diagnose tool injection manually.
+
+#### Scenario: Guard is injected
+
+- **GIVEN** a required-MCP workflow
+- **WHEN** the business prompt or recovered continuation prompt is sent
+- **THEN** it SHALL include the MCP guard before user/skill task content.
+
+### Requirement: ACP required MCP tools are preflighted before prompting
+
+The ACP SkillRunner-compatible runner SHALL preflight runner-declared MCP tools
+before sending the first prompt to an ACP agent.
+
+#### Scenario: HTTP MCP is unavailable
+
+- **GIVEN** a skill runner manifest declares `mcp.required_tools`
+- **AND** the ACP backend does not advertise HTTP MCP support
+- **WHEN** the ACP skill run starts
+- **THEN** the run SHALL fail before `newSession` or `prompt`
+- **AND** the failure SHALL list the required MCP tools.
+
+#### Scenario: Required tool is missing
+
+- **GIVEN** a skill runner manifest declares `mcp.required_tools`
+- **AND** the embedded Zotero MCP tool registry does not contain one required
+  tool
+- **WHEN** the ACP skill run starts
+- **THEN** the run SHALL fail before the first prompt
+- **AND** the error SHALL name the missing tool.
+
+### Requirement: High-risk artifact read tool is not public
+
+The Zotero MCP tool registry SHALL NOT expose
+`synthesis.read_paper_artifacts` as a public tool.
+
+#### Scenario: Tool listing excludes read_paper_artifacts
+
+- **WHEN** an MCP client calls `tools/list`
+- **THEN** the returned tool names SHALL NOT include
+  `synthesis.read_paper_artifacts`.
+
+#### Scenario: Direct call is rejected
+
+- **WHEN** an MCP client calls `tools/call` with
+  `synthesis.read_paper_artifacts`
+- **THEN** the response SHALL be an unknown-tool JSON-RPC error.
+
+### Requirement: Synthesis tool suite supports review-ready topic artifacts
+
+The Zotero MCP tool suite SHALL expose topic synthesis artifacts that contain
+review-ready evidence structures without adding new write tools.
+
+#### Scenario: Topic detail is read after synthesis
+
+- **WHEN** a topic synthesis artifact contains review-oriented sections
+- **THEN** read-only synthesis tools SHALL return those sections as structured
+  JSON-safe values
+- **AND** no tool SHALL expose raw full paper artifact payloads for this
+  purpose.
+
+### Requirement: Zotero MCP tool listing exposes current synthesis tools
+
+The Zotero MCP server SHALL list only the current public synthesis tools.
+
+#### Scenario: Filtered artifact export replaces bundle export
+
+- **WHEN** an MCP client calls `tools/list`
+- **THEN** the returned tool names SHALL include
+  `synthesis.export_filtered_paper_artifacts`
+- **AND** SHALL NOT include `synthesis.export_paper_artifact_bundle`.
+
+#### Scenario: Unknown old export tool is rejected
+
+- **WHEN** an MCP client calls `synthesis.export_paper_artifact_bundle`
+- **THEN** the MCP protocol SHALL return a tool-not-found error.
+
+### Requirement: Tool contracts include enforceable validation metadata
+
+Public Zotero MCP tool definitions SHALL include schema constraints that the
+server enforces before executing handlers.
+
+#### Scenario: Tool list exposes bounded schemas
+
+- **WHEN** an MCP client calls `tools/list`
+- **THEN** tool schemas SHALL include `additionalProperties=false`
+- **AND** bounded fields SHALL declare applicable enum, length, item, or numeric
+  constraints.
+
+### Requirement: Tool results expose stable error metadata
+
+Known tool execution failures SHALL expose stable error fields for agent retry
+and correction decisions.
+
+#### Scenario: Tool returns recoverable failure
+
+- **WHEN** a tool returns `isError=true`
+- **THEN** structured content SHALL include the tool name, stable error code,
+  retryable flag, and optional retry-after milliseconds.
+

@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change harden-workflow-loader-contracts. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Loader SHALL enforce explicit manifest and hook contracts
 Workflow loading MUST validate manifest and required hooks through explicit contract checks before exposing loaded entries.
 
@@ -27,11 +25,23 @@ Hardening changes MUST NOT alter successful load behavior for valid workflow pac
 - **AND** scan integration consumers (startup/menu) receive equivalent ready-state outcomes
 
 ### Requirement: Loader outputs SHALL be deterministic for diagnostics and tests
-Warnings/errors and loaded entries MUST be emitted in deterministic order.
 
-#### Scenario: Repeated scan returns stable ordering
-- **WHEN** the same workflow directory is scanned repeatedly without file changes
-- **THEN** ordering of loaded entries and diagnostics remains stable across runs
+Warnings/errors, loaded entries, and startup-adjacent workflow diagnostics MUST
+be emitted in deterministic order and include enough context to distinguish
+loader failures from packaged built-in sync failures.
+
+#### Scenario: Debug probe reports workflow source counts
+
+- **WHEN** a workflow debug probe runs after startup
+- **THEN** it SHALL report builtin workflow count and user workflow count
+- **AND** it SHALL include latest built-in sync status when available.
+
+#### Scenario: Empty workflow list preserves cause
+
+- **WHEN** no workflows are loaded because built-in sync failed
+- **THEN** diagnostics SHALL include the built-in sync failure details
+- **AND** the user-facing debug path SHALL not require inspecting console logs
+  alone.
 
 ### Requirement: Loader hardening SHALL support seam-level testing
 Validation and classification logic MUST be testable independently from scan-side effects.
@@ -39,3 +49,4 @@ Validation and classification logic MUST be testable independently from scan-sid
 #### Scenario: Contract helper test without runtime scan
 - **WHEN** contract-level tests run against fixture manifests/hooks
 - **THEN** classification and normalization are asserted without requiring full startup/menu initialization
+

@@ -5,16 +5,24 @@ TBD - created by archiving change add-synthesis-review-input-contract. Update Pu
 ## Requirements
 ### Requirement: Review workflows consume stable Synthesis Layer inputs
 
-Synthesis Layer SHALL expose a stable JSON-safe input DTO for future literature
-review workflows.
+Review workflow input SHALL remain compatible with Markdown-consuming workflows
+while exposing structured topic synthesis content for future workflows.
 
-#### Scenario: Review input is built for a topic synthesis artifact
+#### Scenario: Review input is requested for a structured topic
 
-- **WHEN** a topic synthesis artifact, metadata, resolved paper set, registry
-  rows, and citation graph slice are available
-- **THEN** the DTO SHALL include topic Markdown, metadata, resolved papers,
-  registry readiness, graph slice, missing artifact diagnostics, and timeline
-  content.
+- **WHEN** a review workflow input is requested for a topic with a structured
+  artifact
+- **THEN** the response SHALL include the Markdown export for compatibility
+- **AND** it SHALL include structured topic content with claims, timeline,
+  evidence, coverage, gaps, and external literature analysis.
+
+#### Scenario: Review input is requested for a legacy Markdown topic
+
+- **WHEN** a review workflow input is requested for a topic without a structured
+  artifact
+- **THEN** the response SHALL fail with or return a bounded `needs_recreate`
+  state
+- **AND** it SHALL NOT silently use old `current.md` as a v2 review source.
 
 ### Requirement: Review input does not redefine topic scope
 
@@ -46,4 +54,29 @@ diagnostics.
 
 - **WHEN** registry readiness rows show `citation_analysis` is missing
 - **THEN** the DTO SHALL include a missing artifact diagnostic for that paper.
+
+### Requirement: Topic Detail Consumes Current Structured Review Sections
+
+The UI SHALL consume the structured sections already returned by
+`readTopicDetail` without requiring persistence or DTO contract changes.
+
+#### Scenario: Optional review-oriented section is missing
+
+- **GIVEN** a topic detail DTO omits an optional structured section
+- **WHEN** Topic Detail renders the corresponding tab
+- **THEN** the tab SHALL show a compact empty state
+- **AND** it SHALL NOT render raw JSON as the primary user experience.
+
+### Requirement: Review input exposes review-oriented synthesis structures
+
+The review workflow input SHALL expose structures needed by future literature
+review workflows.
+
+#### Scenario: Review input includes synthesis structures
+
+- **WHEN** `synthesis.get_review_input` returns a complete topic synthesis
+  artifact
+- **THEN** it SHALL include positioning, taxonomy, comparison matrix, debates,
+  review outline, and evidence map
+- **AND** it SHALL mark the input incomplete when these structures are missing.
 

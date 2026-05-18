@@ -37,31 +37,12 @@ review workflow jobs.
 - **WHEN** an MCP client lists Synthesis tools
 - **THEN** `synthesis.list_topics`, `synthesis.get_topic_context`,
   `synthesis.get_library_index`, `synthesis.resolve_resolver`,
-  `synthesis.get_paper_registry`, `synthesis.get_citation_graph_slice`, and
-  `synthesis.get_review_input` SHALL be present
-- **AND** `synthesis.get_paper_artifact_manifest` and
-  `synthesis.read_paper_artifacts` SHALL NOT be present.
-
-#### Scenario: Paper artifact payloads are read through Zotero note tools
-
-- **WHEN** an ACP Skill agent needs digest, references, or citation-analysis
-  artifact contents for resolved papers
-- **THEN** it SHALL use generic Zotero note payload tools such as
-  `get_item_notes`, `list_note_payloads`, and `get_note_payload`
-- **AND** Synthesis MCP SHALL NOT duplicate those payload readers as public
-  paper artifact read tools.
-
-#### Scenario: Review input tool is listed
-
-- **WHEN** an MCP client lists tools
-- **THEN** `synthesis.get_review_input` SHALL be present
-- **AND** no formal write tool SHALL be added.
-
-#### Scenario: Review input tool is called
-
-- **WHEN** an MCP client calls `synthesis.get_review_input`
-- **THEN** the MCP layer SHALL route to the injected Synthesis service
-- **AND** it SHALL return structured content without writing assets.
+  `synthesis.get_paper_registry`, `synthesis.get_citation_graph_slice`,
+  `synthesis.get_review_input`, and
+  `synthesis.export_filtered_paper_artifacts` SHALL be present
+- **AND** `synthesis.get_paper_artifact_manifest`,
+  `synthesis.read_paper_artifacts`, and
+  `synthesis.export_paper_artifact_bundle` SHALL NOT be present.
 
 ### Requirement: Synthesis MCP inputs are strict
 
@@ -125,3 +106,129 @@ SHALL expose deterministic freshness for update workflows.
 - **WHEN** `synthesis.list_topics` is called
 - **THEN** the returned topic entries SHALL NOT include freshness, resolver,
   resolved paper set, artifact hashes, or markdown excerpts.
+
+### Requirement: Citation graph metrics are available through bounded MCP
+
+The embedded Zotero MCP protocol SHALL expose a read-only
+`synthesis.get_citation_graph_metrics` tool for bounded library-paper graph
+metrics.
+
+#### Scenario: Metrics tool is listed
+
+- **WHEN** an MCP client calls `tools/list`
+- **THEN** `synthesis.get_citation_graph_metrics` SHALL be present.
+
+#### Scenario: Metrics tool is called
+
+- **WHEN** an MCP client calls `synthesis.get_citation_graph_metrics`
+- **THEN** the MCP layer SHALL route to the Synthesis service
+- **AND** return a bounded DTO without returning the full citation graph.
+
+#### Scenario: Metrics are filtered by paper refs
+
+- **WHEN** a caller supplies `paperRefs`
+- **THEN** the result SHALL include metrics rows only for matching library paper
+  nodes.
+
+### Requirement: Review input returns structured topic synthesis content
+
+`synthesis.get_review_input` SHALL return the review-oriented topic synthesis
+sections when present.
+
+#### Scenario: Structured review input is requested
+
+- **WHEN** a caller requests review input for a topic with a current structured
+  artifact
+- **THEN** the response SHALL include the current artifact sections, including
+  positioning, taxonomy, comparison matrix, debates, review outline, and
+  evidence map.
+
+### Requirement: Filtered paper artifacts are exported as manifest plus content files
+
+The Synthesis MCP export tool SHALL write a compact manifest and filtered
+artifact content files into the current ACP skill run workspace.
+
+#### Scenario: Filtered artifact export writes only bounded files
+
+- **WHEN** an agent calls `synthesis.export_filtered_paper_artifacts` with
+  `run_root` and `paper_refs`
+- **THEN** the host SHALL write
+  `runtime/payloads/paper-artifacts-manifest.json`
+- **AND** for each available artifact it SHALL write one filtered content file
+  under `runtime/payloads/artifacts/<safe-paper-ref>/`
+- **AND** the manifest SHALL include status, provenance, `payload_hash`,
+  `content_file`, `content_hash`, and diagnostics
+- **AND** neither the manifest nor the MCP response SHALL contain
+  `decoded_text`, raw payload bodies, raw note HTML, or references parser
+  internals.
+
+#### Scenario: Citation analysis trailing section is removed by position
+
+- **WHEN** citation analysis report Markdown contains at least two same-level
+  report sections after wrapper removal
+- **THEN** the exported citation-analysis Markdown SHALL omit the final report
+  section by position
+- **AND** the removal decision SHALL NOT depend on matching a translated
+  heading string.
+
+### Requirement: Synthesis registry reads are paged
+
+`synthesis.get_paper_registry` SHALL support bounded paper registry reads.
+
+#### Scenario: Registry page is requested
+
+- **WHEN** a client calls `synthesis.get_paper_registry` with `cursor` and
+  `limit`
+- **THEN** the result SHALL include a bounded row page, `cursor`,
+  `next_cursor`, `has_more`, `returned`, and `total`.
+
+#### Scenario: Registry refs filter is requested
+
+- **WHEN** a client passes `paperRefs`
+- **THEN** the result SHALL include only matching registry rows.
+
+### Requirement: Resolver results are paged
+
+`synthesis.resolve_resolver` SHALL return bounded resolved paper pages.
+
+#### Scenario: Resolver matches many papers
+
+- **WHEN** a resolver matches more papers than the requested `limit`
+- **THEN** the response SHALL include only the requested page
+- **AND** it SHALL include `next_cursor`, `has_more`, `returned`, and `total`.
+
+### Requirement: Library index pages are compact by default
+
+`synthesis.get_library_index` SHALL avoid returning unnecessary large sections
+unless explicitly requested.
+
+#### Scenario: Compact index page is requested
+
+- **WHEN** include flags are omitted
+- **THEN** the result SHALL include a bounded papers page
+- **AND** it SHALL omit full tags, collections, registry, and topics unless their
+  include flags request them.
+
+### Requirement: Topic context is summary-first
+
+`synthesis.get_topic_context` SHALL return compact update context by default.
+
+#### Scenario: Default topic context is requested
+
+- **WHEN** a client calls `synthesis.get_topic_context` without full include
+  flags
+- **THEN** the response SHALL include identifiers, definitions, resolver,
+  paper-set metadata, hashes, freshness, and recommended update information
+- **AND** it SHALL omit full markdown and full structured artifact bodies.
+
+### Requirement: Review input is bounded
+
+`synthesis.get_review_input` SHALL honor graph, artifact, and text limits.
+
+#### Scenario: Review input exceeds limits
+
+- **WHEN** review input content exceeds requested or default limits
+- **THEN** the response SHALL truncate bounded sections
+- **AND** diagnostics SHALL state what was truncated and how to request more
+  specific context.
+
