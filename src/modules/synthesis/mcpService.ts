@@ -9,11 +9,14 @@ export type SynthesisMcpService = {
   getCitationGraphSlice?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
+  getCitationGraphMetrics?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getPaperArtifactManifest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   readPaperArtifacts?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  exportPaperArtifactBundle?: (
+  exportFilteredPaperArtifacts?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   resolveTopicPaperDigest?: (

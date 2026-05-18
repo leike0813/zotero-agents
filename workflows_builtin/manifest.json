@@ -68,6 +68,8 @@
     "synthesis-layer/workflow-package.json",
     "synthesis-layer/create-topic-synthesis/workflow.json",
     "synthesis-layer/update-topic-synthesis/workflow.json",
-    "synthesis-layer/hooks/applyTopicSynthesisResult.mjs"
+    "synthesis-layer/manuscript-literature-framing/workflow.json",
+    "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    "synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs"
   ]
 }

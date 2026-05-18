@@ -6,6 +6,7 @@ import {
   resolveTrustedPathSearchResult,
   resolveWindowsCommandFromPowerShell,
 } from "./windowsCommandResolution";
+import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -456,25 +457,6 @@ async function isTcpPortAvailable(host: string, port: number) {
     });
   } catch {
     return false;
-  }
-}
-
-function getMozillaSubprocessModule() {
-  const runtime = globalThis as {
-    ChromeUtils?: {
-      import?: (url: string) => { Subprocess?: unknown };
-    };
-  };
-  if (typeof runtime.ChromeUtils?.import !== "function") {
-    return null;
-  }
-  try {
-    const imported = runtime.ChromeUtils.import(
-      "resource://gre/modules/Subprocess.jsm",
-    ) as { Subprocess?: unknown };
-    return imported?.Subprocess || null;
-  } catch {
-    return null;
   }
 }
 

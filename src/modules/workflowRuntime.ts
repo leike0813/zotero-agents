@@ -3,9 +3,20 @@ import { joinPath } from "../utils/path";
 import { resolveRuntimeAddon } from "../utils/runtimeBridge";
 import { loadWorkflowManifests } from "../workflows/loader";
 import type { LoadedWorkflow, LoadedWorkflows } from "../workflows/types";
-import { getBuiltinWorkflowTargetDir } from "./builtinWorkflowSync";
+import {
+  getBuiltinWorkflowTargetDir,
+  getLatestBuiltinWorkflowSyncResult,
+  type BuiltinWorkflowSyncResult,
+} from "./builtinWorkflowSync";
 
 type WorkflowSourceKind = "builtin" | "user";
+
+type DynamicImport = (specifier: string) => Promise<any>;
+
+const dynamicImport: DynamicImport = new Function(
+  "specifier",
+  "return import(specifier)",
+) as DynamicImport;
 
 type WorkflowRuntimeState = {
   workflowsDir: string;
@@ -14,6 +25,7 @@ type WorkflowRuntimeState = {
   loaded: LoadedWorkflows;
   loadedFromBuiltin: LoadedWorkflows;
   loadedFromUser: LoadedWorkflows;
+  latestBuiltinSync: BuiltinWorkflowSyncResult | null;
 };
 
 export function getDefaultWorkflowDir() {
@@ -80,6 +92,7 @@ function emptyWorkflowRuntimeState(): WorkflowRuntimeState {
     loaded: emptyLoadedWorkflows(),
     loadedFromBuiltin: emptyLoadedWorkflows(),
     loadedFromUser: emptyLoadedWorkflows(),
+    latestBuiltinSync: null,
   };
 }
 
@@ -98,6 +111,9 @@ function ensureRuntimeStateShape(value: unknown): WorkflowRuntimeState {
     loaded: state.loaded || emptyLoadedWorkflows(),
     loadedFromBuiltin: state.loadedFromBuiltin || emptyLoadedWorkflows(),
     loadedFromUser: state.loadedFromUser || emptyLoadedWorkflows(),
+    latestBuiltinSync:
+      (state.latestBuiltinSync as BuiltinWorkflowSyncResult | null | undefined) ||
+      null,
   };
 }
 
@@ -124,6 +140,112 @@ function sortWorkflows(workflows: LoadedWorkflow[]) {
   return [...workflows].sort((left, right) =>
     left.manifest.id.localeCompare(right.manifest.id),
   );
+}
+
+function getZoteroVersion() {
+  const runtime = globalThis as {
+    Zotero?: { version?: string };
+  };
+  return String(runtime.Zotero?.version || "");
+}
+
+function getWorkflowRegistryStatusFilePath() {
+  const runtime = globalThis as {
+    Zotero?: { DataDirectory?: { dir?: string } };
+  };
+  const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
+  if (!dataDir) {
+    return "";
+  }
+  return joinPath(dataDir, "zotero-skills", "workflow-registry-status.json");
+}
+
+function getDirectoryName(targetPath: string) {
+  const normalized = String(targetPath || "").replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 1) {
+    return "";
+  }
+  const first = normalized.startsWith("/") ? "/" : "";
+  const driveMatch = normalized.match(/^([A-Za-z]:)\//);
+  const drivePrefix = driveMatch?.[1] || "";
+  const parentParts = parts.slice(0, -1);
+  if (drivePrefix) {
+    return joinPath(drivePrefix, ...parentParts.slice(1));
+  }
+  if (first) {
+    return joinPath(first, ...parentParts);
+  }
+  return joinPath(...parentParts);
+}
+
+async function ensureDirectoryExists(targetDir: string) {
+  const runtime = globalThis as {
+    IOUtils?: {
+      makeDirectory?: (
+        path: string,
+        options?: { createAncestors?: boolean },
+      ) => Promise<void>;
+    };
+  };
+  if (typeof runtime.IOUtils?.makeDirectory === "function") {
+    await runtime.IOUtils.makeDirectory(targetDir, { createAncestors: true });
+    return;
+  }
+  const fs = await dynamicImport("fs/promises");
+  await fs.mkdir(targetDir, { recursive: true });
+}
+
+async function writeTextFile(filePath: string, content: string) {
+  const runtime = globalThis as {
+    IOUtils?: { writeUTF8?: (path: string, data: string) => Promise<unknown> };
+  };
+  if (typeof runtime.IOUtils?.writeUTF8 === "function") {
+    await runtime.IOUtils.writeUTF8(filePath, content);
+    return;
+  }
+  const fs = await dynamicImport("fs/promises");
+  await fs.writeFile(filePath, content, "utf8");
+}
+
+function summarizeLoadedWorkflows(loaded: LoadedWorkflows) {
+  return loaded.workflows.map((entry) => ({
+    id: entry.manifest.id,
+    label: entry.manifest.label,
+    provider: entry.manifest.provider || "",
+    packageId: entry.packageId,
+    sourceKind: entry.workflowSourceKind || "",
+    hookExecutionMode: entry.hookExecutionMode || "",
+    rootDir: entry.rootDir,
+    manifestPath: entry.manifestPath,
+  }));
+}
+
+async function persistWorkflowRegistryStatus(state: WorkflowRuntimeState) {
+  const statusPath = getWorkflowRegistryStatusFilePath();
+  if (!statusPath) {
+    return;
+  }
+  const status = {
+    schema_id: "zotero-skills.workflow_registry_status",
+    schema_version: "1.0.0",
+    written_at: new Date().toISOString(),
+    zotero_version: getZoteroVersion(),
+    workflows_dir: state.workflowsDir,
+    builtin_workflows_dir: state.builtinWorkflowsDir,
+    loaded_workflow_count: state.loaded.workflows.length,
+    loaded_builtin_workflow_count: state.loadedFromBuiltin.workflows.length,
+    loaded_user_workflow_count: state.loadedFromUser.workflows.length,
+    workflows: summarizeLoadedWorkflows(state.loaded),
+    builtin_workflows: summarizeLoadedWorkflows(state.loadedFromBuiltin),
+    user_workflows: summarizeLoadedWorkflows(state.loadedFromUser),
+    warnings: state.loaded.warnings,
+    errors: state.loaded.errors,
+    diagnostics: state.loaded.diagnostics || [],
+    latest_builtin_sync: state.latestBuiltinSync,
+  };
+  await ensureDirectoryExists(getDirectoryName(statusPath));
+  await writeTextFile(statusPath, `${JSON.stringify(status, null, 2)}\n`);
 }
 
 async function loadMergedWorkflowManifests(args: {
@@ -276,6 +398,12 @@ export async function rescanWorkflowRegistry(args?: { workflowsDir?: string }) {
   state.loadedFromBuiltin = loadedFromBuiltin;
   state.loadedFromUser = loadedFromUser;
   state.workflowSourceById = workflowSourceById;
+  state.latestBuiltinSync = getLatestBuiltinWorkflowSyncResult();
+  try {
+    await persistWorkflowRegistryStatus(state);
+  } catch {
+    // Registry scans must not fail just because diagnostics cannot be written.
+  }
   return state;
 }
 
@@ -296,3 +424,7 @@ export function getLoadedWorkflowSourceById(
   }
   return getState().workflowSourceById[normalizedId] || "";
 }
+
+export const __workflowRuntimeTestOnly = {
+  getWorkflowRegistryStatusFilePath,
+};

@@ -65,7 +65,10 @@
 在 resolver 设计前，应先按 `SKILL.md` 主流程读取完整 library index receipt。
 `synthesis.get_library_index` 是分页工具，`limit` 只是单页大小。不要只读第一页就
 生成 resolver；应按 `next_cursor` 继续，直到 `has_more=false`，并确认 gate 已经
-接受全部 `library_index_pages`。
+接受全部 `library_index_pages`。分页默认返回 compact page，核心依据是每页
+`papers[]`、`cursor/next_cursor/has_more` 和稳定 `index_hash`；只有 resolver 明确需要
+全局 tag 或 collection 统计时，才请求 `includeTags: true` 或
+`includeCollections: true`，不要常规开启 `includeItems`。
 
 优先级：
 
@@ -89,7 +92,12 @@ resolver 示例：
 
 ```json
 {
-  "resolved_paper_set": {
+  "resolver": {
+    "mode": "tag_query",
+    "query": {"and": ["topic:object-detection"]}
+  },
+  "resolution_result": {
+    "ok": true,
     "papers": [
       {"paper_ref": "1:DETR2020", "match_reasons": ["tag:topic:object-detection"]}
     ]
@@ -101,6 +109,11 @@ resolver 示例：
   }
 }
 ```
+
+完整 resolver 结果只写入 `runtime/payloads/resolver.json`。最终
+`result/result.json` 只返回 `resolver_manifest_path`、轻量
+`resolver_diagnostics` 和 `topic_definition`，不要内嵌 `topic_resolver`、
+`resolution_result` 或 `resolved_paper_set`。
 
 ## 4. paper workset
 

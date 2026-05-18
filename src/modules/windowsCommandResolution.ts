@@ -1,13 +1,8 @@
+import { runtimeFileExists } from "../utils/runtimeCompatibility";
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
-
-type DynamicImport = (specifier: string) => Promise<any>;
-
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 function detectWindowsHost(platform?: string) {
   const runtime = globalThis as {
@@ -116,33 +111,8 @@ async function pathExists(targetPath: string) {
   if (!normalized) {
     return false;
   }
-  const runtime = globalThis as {
-    IOUtils?: { exists?: (path: string) => Promise<boolean> };
-    OS?: { File?: { exists?: (path: string) => Promise<boolean> } };
-  };
-  try {
-    if (typeof runtime.IOUtils?.exists === "function") {
-      return !!(await runtime.IOUtils.exists(normalized));
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    if (typeof runtime.OS?.File?.exists === "function") {
-      return !!(await runtime.OS.File.exists(normalized));
-    }
-  } catch {
-    // ignore
-  }
-  try {
-    const fs = await dynamicImport("node:fs");
-    if (typeof fs.existsSync === "function") {
-      return !!fs.existsSync(normalized);
-    }
-  } catch {
-    // ignore
-  }
-  return false;
+  const runtimeExists = await runtimeFileExists(normalized);
+  return runtimeExists;
 }
 
 export async function isTrustedResolvedCommandPath(

@@ -369,12 +369,12 @@ describe("Synthesis Layer v1 integration service", function () {
 
     const result = await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentMarkdown, "utf8");
+    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
     const metadata = JSON.parse(await fs.readFile(paths.currentMetadata, "utf8"));
     const index = JSON.parse(await fs.readFile(paths.index, "utf8"));
 
     assert.equal(result.status, "persisted");
-    assert.equal(markdown, "# Alpha Topic\n\n## Timeline\n\n2024: Alpha begins.");
+    assert.equal(markdown, "# Alpha Topic\n");
     assert.equal(metadata.schema_id, "synthesis.topic_artifact_metadata");
     assert.equal(metadata.data.topic_id, "topic-alpha");
     assert.equal(index.data.topics[0].topic_id, "topic-alpha");
@@ -556,7 +556,7 @@ describe("Synthesis Layer v1 integration service", function () {
 
     await service.applyTopicSynthesisResult(validBundle());
     await fs.writeFile(
-      buildSynthesisStoragePaths(root, "topic-alpha").currentMarkdown,
+      buildSynthesisStoragePaths(root, "topic-alpha").currentExportMarkdown,
       "# Tampered",
     );
     const snapshot = await service.getSynthesisSnapshot();
@@ -584,11 +584,11 @@ describe("Synthesis Layer v1 integration service", function () {
 
     const result = await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentMarkdown, "utf8");
+    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "persisted");
-    assert.equal(markdown, "# Alpha Topic\n\n## Timeline\n\n2024: Alpha begins.");
+    assert.equal(markdown, "# Alpha Topic\n");
     if (result.ok) {
       assert.match(result.mirrorError || "", /zotero anchor unavailable/);
       assert.include(result.warnings || [], "mirror_refresh_failed");
@@ -619,12 +619,12 @@ describe("Synthesis Layer v1 integration service", function () {
       }),
     );
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentMarkdown, "utf8");
+    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
     const snapshot = await service.getSynthesisSnapshot();
 
     assert.equal(conflict.status, "conflict");
     assert.match(conflict.conflictCandidate?.bundle_hash || "", /^sha256:/);
-    assert.equal(markdown, "# Alpha Topic\n\n## Timeline\n\n2024: Alpha begins.");
+    assert.equal(markdown, "# Alpha Topic\n");
     assert.equal(mirror.upserts.length, beforeUpserts);
     assert.deepEqual(
       snapshot.conflicts.candidates.map((candidate) => candidate.topic_id),
@@ -786,7 +786,7 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "deleted");
-    assert.equal(await exists(paths.currentMarkdown), false);
+    assert.equal(await exists(paths.currentExportMarkdown), false);
     assert.deepEqual(snapshot.artifacts.rows, []);
     assert.deepEqual(inventory.topics, []);
     assert.deepEqual(
@@ -979,8 +979,10 @@ describe("Synthesis Layer v1 integration service", function () {
     const root = await makeRoot();
     const paths = await writeGraphSnapshot(root);
     await fs.writeFile(paths.unifiedCitationLayouts, "layout sentinel\n");
+    await fs.writeFile(paths.unifiedCitationGraphMetrics, "metrics sentinel\n");
     const beforeGraph = await fs.readFile(paths.unifiedCitationGraph, "utf8");
     const beforeLayout = await fs.readFile(paths.unifiedCitationLayouts, "utf8");
+    const beforeMetrics = await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8");
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -999,6 +1001,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(slice.ok, true);
     assert.equal(await fs.readFile(paths.unifiedCitationGraph, "utf8"), beforeGraph);
     assert.equal(await fs.readFile(paths.unifiedCitationLayouts, "utf8"), beforeLayout);
+    assert.equal(await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"), beforeMetrics);
   });
 
   it("serves Workbench graph snapshots from persisted graph and layout assets", async function () {
@@ -1028,6 +1031,72 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(snapshot.graph.nodes.some((node) => node.id.startsWith("ref:raw:")), true);
     assert.isNumber(snapshot.graph.nodes.find((node) => node.id === "zotero:item:A")?.x);
     assert.equal(snapshot.graph.layoutStatus, "ready");
+  });
+
+  it("persists and reads citation graph metrics with graph rebuilds", async function () {
+    const root = await makeRoot();
+    const paths = buildSynthesisStoragePaths(root);
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          year: "2020",
+          references: [{ title: "Beta Paper", year: "2024", authors: ["Beta"] }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+          year: "2024",
+          authors: ["Beta"],
+        },
+      ],
+    });
+
+    await service.queryCitationGraph();
+    const metricsEnvelope = JSON.parse(
+      await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"),
+    );
+    const metrics = await service.getCitationGraphMetrics({ limit: 2 });
+    const byPaper = await service.getCitationGraphMetrics({ paperRefs: ["1:B"] });
+    const slice = await service.getCitationGraphSlice({ paperRef: "1:B", direction: "incoming" });
+
+    assert.equal(metricsEnvelope.data.schema_id, "synthesis.unified_citation_graph_metrics");
+    assert.equal(metrics.ok, true);
+    assert.equal(metrics.items[0].node_id, "zotero:item:B");
+    assert.equal(byPaper.items[0].paper_ref, "1:B");
+    assert.isAtLeast(byPaper.items[0].internal_in_degree, 1);
+    assert.equal(
+      slice.nodes.find((node: any) => node.node_id === "zotero:item:B")?.metrics?.internal_in_degree,
+      1,
+    );
+  });
+
+  it("marks citation graph metrics stale when graph hash changes", async function () {
+    const root = await makeRoot();
+    const paths = buildSynthesisStoragePaths(root);
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        { libraryId: 1, itemKey: "A", title: "Alpha", year: "2020" },
+      ],
+    });
+
+    await service.queryCitationGraph();
+    const graphEnvelope = JSON.parse(await fs.readFile(paths.unifiedCitationGraph, "utf8"));
+    graphEnvelope.data.graph_hash = "sha256:changed";
+    await fs.writeFile(paths.unifiedCitationGraph, `${JSON.stringify(graphEnvelope, null, 2)}\n`);
+
+    const metrics = await service.getCitationGraphMetrics();
+
+    assert.equal(metrics.ok, false);
+    assert.equal(metrics.status, "stale");
+    assert.equal(metrics.diagnostics.stale, true);
   });
 });
 
@@ -1216,15 +1285,10 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
       id: "object-detection",
       title: "Object Detection",
     },
-    topic_resolver: {
-      mode: "tag_query",
-      query: { and: ["topic:object-detection"] },
-    },
-    resolved_paper_set: {
-      papers: [{ paper_ref: "1:DETR", match_reasons: ["tag"] }],
-    },
+    resolver_manifest_path: "runtime/payloads/resolver.json",
     resolver_diagnostics: {
       final_count: 1,
+      manifest_hash: "sha256:resolver",
     },
     artifact_metadata: {
       topic_id: "object-detection",
@@ -1259,6 +1323,21 @@ function v2SectionContext(sections: Record<string, unknown>) {
   };
   const files = new Map<string, string>([
     ["result/topic-analysis.json", JSON.stringify(manifest)],
+    [
+      "runtime/payloads/resolver.json",
+      JSON.stringify({
+        resolver: {
+          mode: "tag_query",
+          query: { and: ["topic:object-detection"] },
+        },
+        resolved_paper_set: {
+          papers: [{ paper_ref: "1:DETR", match_reasons: ["tag"] }],
+        },
+        resolver_diagnostics: {
+          final_count: 1,
+        },
+      }),
+    ],
     ...Object.entries(sections).map(([section, value]) => [
       `result/sections/${section.replace(/_/g, "-")}.json`,
       JSON.stringify(value),
@@ -1281,11 +1360,27 @@ function v2SectionsWithEvidence(payloadHash: string) {
   return {
     topic: { id: "object-detection", title: "Object Detection" },
     summary: { brief: "structured summary" },
+    positioning: {
+      importance: "Object detection is a core perception task.",
+      timeliness: "Recent detector families require structured comparison.",
+      scope_boundary: { include: ["DETR"], exclude: [] },
+      review_position: "Review-ready synthesis fixture.",
+    },
+    taxonomy: {
+      primary_axis: "method_route",
+      axis_rationale: "Fixture has one route.",
+      nodes: [{ id: "tax:detr", title: "DETR", evidence_map_refs: ["tax:detr"] }],
+    },
+    comparison_matrix: {
+      dimensions: ["problem addressed"],
+      rows: [{ id: "cmp:detr", evidence_map_refs: ["cmp:detr"] }],
+    },
     claims: [
       {
         id: "claim:detr",
         text: "DETR introduced end-to-end detection.",
         evidence_refs: ["paper:1:DETR"],
+        evidence_map_refs: ["claim:detr"],
       },
     ],
     timeline_events: [
@@ -1317,8 +1412,20 @@ function v2SectionsWithEvidence(payloadHash: string) {
       contribution_to_topic: "",
       limitations: "",
     },
+    debates: [{ id: "debate:detr", evidence_type: "methodological_tradeoff", evidence_map_refs: ["debate:detr"] }],
     coverage: { paper_count: 1, external_literature_count: 0 },
-    gaps: [],
+    gaps: [{ id: "gap:coverage", gap_type: "library_coverage_gap", evidence_map_refs: ["gap:coverage"] }],
+    review_outline: {
+      introduction_logic: [{ id: "intro:why", evidence_map_refs: ["claim:detr"] }],
+      related_work_logic: [],
+      body_sections: [],
+    },
+    evidence_map: {
+      path: "runtime/payloads/cross-paper-evidence-map.json",
+      hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      candidate_counts: {},
+      candidate_ids: ["tax:detr", "cmp:detr", "claim:detr", "debate:detr", "gap:coverage"],
+    },
     source_artifacts: [],
     diagnostics: { warnings: [] },
   };
@@ -1368,9 +1475,20 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       libraryId: 1,
       now: () => "2026-05-16T00:00:00.000Z",
       mirrorAdapter: mirror.adapter,
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
     });
 
-    const result = await service.applyTopicSynthesisResult(v2TopicBundle());
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle(),
+      v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
+    );
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
     const reviewInput = await service.getReviewInput({ topicId: "object-detection" });
 
@@ -1433,6 +1551,33 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     );
 
     assert.equal(result.status, "persisted");
+  });
+
+  it("rejects path-based structured topic results when the resolver manifest is missing", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+    });
+    const context = v2SectionContext(v2SectionsWithEvidence("sha256:unused"));
+    const originalReadText = context.bundleReader.readText;
+    context.bundleReader.readText = async (pathValue: string) => {
+      if (pathValue === "runtime/payloads/resolver.json") {
+        throw new Error("missing test run artifact: runtime/payloads/resolver.json");
+      }
+      return originalReadText(pathValue);
+    };
+
+    try {
+      await service.applyTopicSynthesisResult(v2TopicBundle(), context);
+      assert.fail("expected missing resolver manifest to be rejected");
+    } catch (error) {
+      assert.match(
+        error instanceof Error ? error.message : String(error),
+        /resolver\.json|resolver_manifest_path|missing test run artifact/i,
+      );
+    }
   });
 
   it("rejects structured paper evidence when digest_ref hash differs from current Zotero artifact", async function () {

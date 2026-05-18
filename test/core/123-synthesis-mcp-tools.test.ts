@@ -1,6 +1,12 @@
 import { assert } from "chai";
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
+import { createSynthesisService } from "../../src/modules/synthesis/service";
 import type { SynthesisMcpService } from "../../src/modules/synthesis/mcpService";
+import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 
 function request(id: number, name: string, args: Record<string, unknown> = {}) {
   return {
@@ -12,6 +18,20 @@ function request(id: number, name: string, args: Record<string, unknown> = {}) {
       arguments: args,
     },
   };
+}
+
+async function makeRoot() {
+  return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-mcp-"));
+}
+
+async function makeAcpRunRoot() {
+  const runsDir = getRuntimePersistencePaths().acpSkillRunsDir;
+  const runRoot = path.join(
+    runsDir,
+    `acp-skill-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  await fs.mkdir(runRoot, { recursive: true });
+  return runRoot;
 }
 
 describe("Synthesis MCP tools", function () {
@@ -31,11 +51,13 @@ describe("Synthesis MCP tools", function () {
       "synthesis.resolve_resolver",
       "synthesis.get_paper_registry",
       "synthesis.get_citation_graph_slice",
+      "synthesis.get_citation_graph_metrics",
       "synthesis.get_paper_artifact_manifest",
-      "synthesis.export_paper_artifact_bundle",
+      "synthesis.export_filtered_paper_artifacts",
       "synthesis.resolve_topic_paper_digest",
       "synthesis.get_review_input",
     ]);
+    assert.notInclude(names, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(names, "synthesis.query_citation_graph");
     assert.notInclude(names, "synthesis.read_paper_artifacts");
     assert.notInclude(names, "synthesis.validate_resolver");
@@ -163,11 +185,41 @@ describe("Synthesis MCP tools", function () {
           },
         };
       },
+      getCitationGraphMetrics() {
+        return {
+          ok: true,
+          graph_hash: "sha256:graph",
+          metrics_hash: "sha256:metrics",
+          status: "ready",
+          items: [
+            {
+              node_id: "zotero:item:ABCD1234",
+              paper_ref: "1:ABCD1234",
+              internal_in_degree: 1,
+              internal_out_degree: 0,
+              internal_pagerank: 1,
+              foundation_score: 1,
+              frontier_score: 0.2,
+              synthesis_role_hints: ["foundation"],
+            },
+          ],
+          diagnostics: {
+            snapshot_found: true,
+            metrics_found: true,
+            stale: false,
+            total_library_nodes: 1,
+            returned_count: 1,
+            limits: { limit: 25, maxLimit: 100 },
+            warnings: [],
+          },
+        };
+      },
     };
 
     for (const [id, name, args] of [
       [1, "synthesis.get_paper_registry", { paperRefs: ["1:ABCD1234"] }],
       [2, "synthesis.get_citation_graph_slice", { paperRef: "1:ABCD1234" }],
+      [3, "synthesis.get_citation_graph_metrics", { paperRefs: ["1:ABCD1234"] }],
     ] as const) {
       const response: any = await handleZoteroMcpRequestForTests(
         request(id, name, args),
@@ -214,14 +266,15 @@ describe("Synthesis MCP tools", function () {
     assert.include(readResponse.error.message, "Unknown Zotero MCP tool");
   });
 
-  it("routes paper artifact bundle export without returning hashes to the LLM", async function () {
+  it("routes filtered paper artifact export without returning hashes to the LLM", async function () {
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisMcpService = {
-      exportPaperArtifactBundle(args) {
+      exportFilteredPaperArtifacts(args) {
         calls.push(args);
         return {
           paper_ref: args.paper_ref,
-          payload_file: "runtime/payloads/paper-artifacts-1_ABCD1234.json",
+          paper_refs: [args.paper_ref],
+          manifest_file: "runtime/payloads/paper-artifacts-manifest.json",
           artifact_statuses: [
             {
               paper_ref: args.paper_ref,
@@ -236,7 +289,7 @@ describe("Synthesis MCP tools", function () {
     };
 
     const response: any = await handleZoteroMcpRequestForTests(
-      request(12, "synthesis.export_paper_artifact_bundle", {
+      request(12, "synthesis.export_filtered_paper_artifacts", {
         run_root: ".",
         paper_ref: "1:ABCD1234",
       }),
@@ -245,29 +298,21 @@ describe("Synthesis MCP tools", function () {
 
     assert.deepEqual(calls, [{ run_root: ".", paper_ref: "1:ABCD1234" }]);
     const result = response.result.structuredContent.result;
-    assert.equal(result.payload_file, "runtime/payloads/paper-artifacts-1_ABCD1234.json");
+    assert.equal(result.manifest_file, "runtime/payloads/paper-artifacts-manifest.json");
+    assert.notProperty(result, "payload_file");
+    assert.notProperty(result, "payload_files");
     assert.notProperty(result, "payload_hash");
     assert.notInclude(JSON.stringify(result), "sha256:");
   });
 
-  it("routes batched paper artifact bundle export without returning payload bodies or hashes", async function () {
+  it("routes batched filtered paper artifact export without returning payload bodies or hashes", async function () {
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisMcpService = {
-      exportPaperArtifactBundle(args) {
+      exportFilteredPaperArtifacts(args) {
         calls.push(args);
         return {
           paper_refs: args.paper_refs,
-          manifest_file: "runtime/payloads/paper-artifact-bundles-batch.json",
-          payload_files: [
-            {
-              paper_ref: "1:AAAA1111",
-              payload_file: "runtime/payloads/paper-artifacts-1_AAAA1111.json",
-            },
-            {
-              paper_ref: "1:BBBB2222",
-              payload_file: "runtime/payloads/paper-artifacts-1_BBBB2222.json",
-            },
-          ],
+          manifest_file: "runtime/payloads/paper-artifacts-manifest.json",
           artifact_statuses: [
             {
               paper_ref: "1:AAAA1111",
@@ -282,7 +327,7 @@ describe("Synthesis MCP tools", function () {
     };
 
     const response: any = await handleZoteroMcpRequestForTests(
-      request(13, "synthesis.export_paper_artifact_bundle", {
+      request(13, "synthesis.export_filtered_paper_artifacts", {
         run_root: ".",
         paper_refs: ["1:AAAA1111", "1:BBBB2222"],
       }),
@@ -293,11 +338,139 @@ describe("Synthesis MCP tools", function () {
       { run_root: ".", paper_refs: ["1:AAAA1111", "1:BBBB2222"] },
     ]);
     const result = response.result.structuredContent.result;
-    assert.equal(result.manifest_file, "runtime/payloads/paper-artifact-bundles-batch.json");
-    assert.lengthOf(result.payload_files, 2);
+    assert.equal(result.manifest_file, "runtime/payloads/paper-artifacts-manifest.json");
+    assert.notProperty(result, "payload_files");
+    assert.notProperty(result, "payload_file");
     assert.notInclude(JSON.stringify(result), "payload_hash");
     assert.notInclude(JSON.stringify(result), "sha256:");
     assert.notInclude(JSON.stringify(result), "decoded_text");
+  });
+
+  it("default export writes only filtered manifest and content files", async function () {
+    const root = await makeRoot();
+    const runRoot = await makeAcpRunRoot();
+    const digest = [
+      "## Digest One",
+      "Intro",
+      "### Detail",
+      "Detail text",
+      "## Digest Two",
+      "Two",
+      "## Digest Three",
+      "Three",
+      "## Digest Four",
+      "Four",
+      "## Digest Five",
+      "Should be removed",
+    ].join("\n");
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "ABCD1234",
+          title: "Alpha Paper",
+          notes: [
+            {
+              key: "N1",
+              title: "Digest",
+              html: renderPayloadBlock({
+                payloadType: "digest-markdown",
+                payload: digest,
+                payloadFormat: "text",
+              }),
+            },
+            {
+              key: "N2",
+              title: "References",
+              html: renderPayloadBlock({
+                payloadType: "references-json",
+                payload: {
+                  references: [
+                    {
+                      id: "r1",
+                      year: "2024",
+                      authors: ["Alice", "Bob"],
+                      title: "Reference One",
+                      confidence: 0.9,
+                    },
+                  ],
+                  parser_metadata: { raw: true },
+                },
+              }),
+            },
+            {
+              key: "N3",
+              title: "Citation Analysis",
+              html: renderPayloadBlock({
+                payloadType: "citation-analysis-json",
+                payload: {
+                  citation_analysis: {
+                    report_md: [
+                      "## Citation Wrapper",
+                      "",
+                      "### Mapped Citations",
+                      "Mapped body",
+                      "",
+                      "### Trailing Section",
+                      "Trailing body",
+                    ].join("\n"),
+                  },
+                },
+              }),
+            },
+          ],
+        },
+      ],
+    });
+
+    try {
+      const response: any = await handleZoteroMcpRequestForTests(
+        request(30, "synthesis.export_filtered_paper_artifacts", {
+          run_root: runRoot,
+          paper_refs: ["1:ABCD1234"],
+          artifact_types: ["digest", "references", "citation_analysis"],
+        }),
+        { resolveSynthesisService: () => service },
+      );
+      const result = response.result.structuredContent.result;
+      assert.equal(result.manifest_file, "runtime/payloads/paper-artifacts-manifest.json");
+      assert.notProperty(result, "payload_file");
+      assert.notProperty(result, "payload_files");
+
+      const manifestPath = path.join(runRoot, result.manifest_file);
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      const manifestText = JSON.stringify(manifest);
+      assert.equal(manifest.schema_id, "synthesis.filtered_paper_artifacts_manifest");
+      assert.equal(manifest.exported_by, "synthesis.export_filtered_paper_artifacts");
+      assert.notInclude(manifestText, "decoded_text");
+      assert.notInclude(manifestText, "content\":\"");
+      assert.notInclude(manifestText, "\"markdown\":");
+      assert.notInclude(manifestText, "parser_metadata");
+
+      const paper = manifest.papers[0];
+      const digestEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "digest");
+      const refsEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "references");
+      const citationEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "citation_analysis");
+      const digestMd = await fs.readFile(path.join(runRoot, digestEntry.content_file), "utf8");
+      const refs = JSON.parse(await fs.readFile(path.join(runRoot, refsEntry.content_file), "utf8"));
+      const citationMd = await fs.readFile(path.join(runRoot, citationEntry.content_file), "utf8");
+
+      assert.include(digestMd, "#### Digest One");
+      assert.include(digestMd, "##### Detail");
+      assert.notInclude(digestMd, "Digest Five");
+      assert.deepEqual(refs.references, [
+        { id: "r1", year: "2024", authors: "Alice; Bob", title: "Reference One" },
+      ]);
+      assert.notInclude(JSON.stringify(refs), "confidence");
+      assert.include(citationMd, "#### Mapped Citations");
+      assert.notInclude(citationMd, "Citation Wrapper");
+      assert.notInclude(citationMd, "Trailing Section");
+      assert.equal(citationEntry.removed_trailing_section_heading, "Trailing Section");
+    } finally {
+      await fs.rm(runRoot, { recursive: true, force: true });
+    }
   });
 
   it("rejects unknown synthesis tool arguments", async function () {
@@ -401,5 +574,140 @@ describe("Synthesis MCP tools", function () {
     assert.equal(calls.length, 1);
     assert.equal(response.result.structuredContent.result.digest_markdown, "# Digest");
     assert.isTrue(response.result.structuredContent.result.source_changed);
+  });
+
+  it("returns paged paper registry rows from the default synthesis service", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAAA1111", title: "Alpha", tags: ["a"] },
+        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["b"] },
+        { libraryId: 1, itemKey: "CCCC3333", title: "Gamma", tags: ["c"] },
+      ],
+    });
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      request(20, "synthesis.get_paper_registry", {
+        paperRefs: ["1:BBBB2222", "1:CCCC3333"],
+        cursor: "1",
+        limit: 1,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+    const result = response.result.structuredContent.result;
+
+    assert.lengthOf(result.rows, 1);
+    assert.equal(result.rows[0].paper_ref, "1:CCCC3333");
+    assert.equal(result.cursor, "1");
+    assert.equal(result.next_cursor, "");
+    assert.isFalse(result.has_more);
+    assert.equal(result.returned, 1);
+    assert.equal(result.total, 2);
+  });
+
+  it("returns paged resolver matches from the default synthesis service", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAAA1111", title: "Alpha", tags: ["topic:x"] },
+        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["topic:x"] },
+        { libraryId: 1, itemKey: "CCCC3333", title: "Gamma", tags: ["topic:x"] },
+      ],
+    });
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      request(21, "synthesis.resolve_resolver", {
+        resolver: { mode: "tag_query", query: { and: ["topic:x"] } },
+        cursor: "1",
+        limit: 1,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+    const result = response.result.structuredContent.result;
+
+    assert.isTrue(result.ok);
+    assert.lengthOf(result.papers, 1);
+    assert.equal(result.cursor, "1");
+    assert.equal(result.next_cursor, "2");
+    assert.isTrue(result.has_more);
+    assert.equal(result.returned, 1);
+    assert.equal(result.total, 3);
+  });
+
+  it("returns compact library index pages unless include flags request larger sections", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAAA1111", title: "Alpha", tags: ["topic:x"] },
+        { libraryId: 1, itemKey: "BBBB2222", title: "Beta", tags: ["topic:y"] },
+      ],
+    });
+
+    const compact: any = await handleZoteroMcpRequestForTests(
+      request(22, "synthesis.get_library_index", { limit: 1 }),
+      { resolveSynthesisService: () => service },
+    );
+    const expanded: any = await handleZoteroMcpRequestForTests(
+      request(23, "synthesis.get_library_index", {
+        limit: 1,
+        includeTags: true,
+        includeItems: true,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+
+    const compactResult = compact.result.structuredContent.result;
+    const expandedResult = expanded.result.structuredContent.result;
+    assert.lengthOf(compactResult.papers, 1);
+    assert.notProperty(compactResult, "tags");
+    assert.notProperty(compactResult, "registry");
+    assert.isArray(expandedResult.tags);
+    assert.isArray(expandedResult.registry);
+  });
+
+  it("routes bounded review input arguments through the synthesis MCP service", async function () {
+    const calls: Record<string, unknown>[] = [];
+    const service: SynthesisMcpService = {
+      getReviewInput(args) {
+        calls.push(args);
+        return {
+          topic: { topic_id: args.topicId, markdown: "# Topic" },
+          diagnostics: {
+            warnings: ["topic markdown truncated to 120 chars"],
+          },
+        };
+      },
+    };
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      request(24, "synthesis.get_review_input", {
+        topicId: "topic-alpha",
+        maxGraphNodes: 10,
+        maxGraphEdges: 20,
+        maxChars: 120,
+        includePaperArtifacts: false,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        topicId: "topic-alpha",
+        maxGraphNodes: 10,
+        maxGraphEdges: 20,
+        maxChars: 120,
+        includePaperArtifacts: false,
+      },
+    ]);
+    assert.include(
+      response.result.structuredContent.result.diagnostics.warnings.join("\n"),
+      "truncated",
+    );
   });
 });

@@ -14,8 +14,7 @@
         "language",
         "base_hashes",
         "topic_definition",
-        "topic_resolver",
-        "resolved_paper_set",
+        "resolver_manifest_path",
         "resolver_diagnostics",
         "artifact_metadata",
         "analysis_manifest_path"
@@ -26,9 +25,15 @@
         "operation": { "const": "create" },
         "language": { "type": "string", "minLength": 1 },
         "base_hashes": { "type": "object" },
-        "topic_definition": { "type": "object" },
-        "topic_resolver": { "type": "object" },
-        "resolved_paper_set": { "type": "object" },
+        "topic_definition": {
+          "type": "object",
+          "required": ["id", "title"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "resolver_manifest_path": { "type": "string", "minLength": 1 },
         "resolver_diagnostics": { "type": "object" },
         "artifact_metadata": { "type": "object" },
         "analysis_manifest_path": { "type": "string", "minLength": 1 },

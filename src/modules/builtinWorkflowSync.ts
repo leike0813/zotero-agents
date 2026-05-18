@@ -17,6 +17,40 @@ type BuiltinWorkflowManifest = {
   files: string[];
 };
 
+export type BuiltinWorkflowResourceFailure = {
+  label: string;
+  source: string;
+  reason: string;
+};
+
+export type BuiltinWorkflowResourceDiagnostics = {
+  relativePath: string;
+  failures: BuiltinWorkflowResourceFailure[];
+};
+
+export type BuiltinWorkflowSyncResult = {
+  ok: boolean;
+  version?: number;
+  targetRoot: string;
+  files?: number;
+  rootURI?: string;
+  resourceURI?: string;
+  zoteroVersion?: string;
+  diagnostics?: BuiltinWorkflowResourceDiagnostics;
+  error?: string;
+};
+
+type PackagedTextReadResult = {
+  text: string;
+  source: {
+    label: string;
+    source: string;
+  };
+  diagnostics: BuiltinWorkflowResourceDiagnostics;
+};
+
+let latestBuiltinWorkflowSyncResult: BuiltinWorkflowSyncResult | null = null;
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -104,12 +138,39 @@ function isNestedFsPath(parent: string, child: string) {
   return normalizedChild.startsWith(`${normalizedParent}/`);
 }
 
-function getPackagedBuiltinSourceDir() {
-  const cwd = getRuntimeCwd();
+function getPackagedBuiltinSourceDir(devCwd?: string) {
+  const cwd = normalizeString(devCwd) || getRuntimeCwd();
   if (!cwd) {
     return "";
   }
   return joinPath(cwd, BUILTIN_WORKFLOW_ROOT);
+}
+
+function getZoteroVersion() {
+  const runtime = globalThis as {
+    Zotero?: { version?: unknown };
+  };
+  return normalizeString(runtime.Zotero?.version);
+}
+
+export function getLatestBuiltinWorkflowSyncResult() {
+  return latestBuiltinWorkflowSyncResult
+    ? {
+        ...latestBuiltinWorkflowSyncResult,
+        diagnostics: latestBuiltinWorkflowSyncResult.diagnostics
+          ? {
+              ...latestBuiltinWorkflowSyncResult.diagnostics,
+              failures: [
+                ...latestBuiltinWorkflowSyncResult.diagnostics.failures,
+              ],
+            }
+          : undefined,
+      }
+    : null;
+}
+
+export function clearLatestBuiltinWorkflowSyncResultForTests() {
+  latestBuiltinWorkflowSyncResult = null;
 }
 
 export function getBuiltinWorkflowTargetDir() {
@@ -216,7 +277,13 @@ async function pathExists(targetPath: string) {
 
 async function movePathNode(sourcePath: string, targetPath: string) {
   const fs = await dynamicImport("fs/promises");
-  await fs.rename(sourcePath, targetPath);
+  try {
+    await fs.rename(sourcePath, targetPath);
+  } catch (error) {
+    await fs.rm(targetPath, { recursive: true, force: true });
+    await fs.cp(sourcePath, targetPath, { recursive: true, force: true });
+    await fs.rm(sourcePath, { recursive: true, force: true });
+  }
 }
 
 async function movePathZotero(sourcePath: string, targetPath: string) {
@@ -251,32 +318,71 @@ async function writeTextFileZotero(filePath: string, content: string) {
   await writeUTF8(filePath, content);
 }
 
-async function readPackagedTextFromNode(relativePath: string) {
-  const cwd = getRuntimeCwd() || ".";
+async function readPackagedTextFromNode(relativePath: string, cwdRaw?: string) {
+  const cwd = normalizeString(cwdRaw) || getRuntimeCwd() || ".";
   const sourcePath = joinPath(cwd, BUILTIN_WORKFLOW_ROOT, relativePath);
   return readTextFileNode(sourcePath);
 }
 
-async function readPackagedTextFromRuntime(args: {
-  rootURI?: string;
-  relativePath: string;
-}) {
-  const addonRef = resolveAddonRef("zotero-skills");
-  const rootURI = ensureTrailingSlash(
-    normalizeString(args.rootURI) || `chrome://${addonRef}/`,
-  );
-  const posixRelative = toPosixRelativePath(args.relativePath);
-  const fetchUri = `${rootURI}${BUILTIN_WORKFLOW_ROOT}/${posixRelative}`;
-  if (typeof fetch !== "function") {
+function buildPackagedResourceUri(baseURI: string, relativePath: string) {
+  const rootURI = ensureTrailingSlash(baseURI);
+  const posixRelative = toPosixRelativePath(relativePath);
+  return `${rootURI}${BUILTIN_WORKFLOW_ROOT}/${posixRelative}`;
+}
+
+async function readPackagedTextFromFetch(uri: string) {
+  const runtime = globalThis as {
+    fetch?: (input: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
+  };
+  if (typeof runtime.fetch !== "function") {
     throw new Error("fetch is unavailable in current runtime");
   }
-  const response = await fetch(fetchUri);
+  const response = await runtime.fetch(uri);
   if (!response.ok) {
-    throw new Error(
-      `failed to load packaged builtin workflow resource: ${fetchUri} (${response.status})`,
-    );
+    throw new Error(`HTTP ${response.status}`);
   }
   return response.text();
+}
+
+async function readPackagedTextFromPrivilegedRequest(uri: string) {
+  const runtime = globalThis as {
+    XMLHttpRequest?: new () => {
+      open: (method: string, url: string, async: boolean) => void;
+      overrideMimeType?: (mimeType: string) => void;
+      send: () => void;
+      status: number;
+      responseText: string;
+      onload: (() => void) | null;
+      onerror: (() => void) | null;
+      ontimeout?: (() => void) | null;
+    };
+  };
+  const Xhr = runtime.XMLHttpRequest;
+  if (typeof Xhr !== "function") {
+    throw new Error("XMLHttpRequest is unavailable in current runtime");
+  }
+  return new Promise<string>((resolve, reject) => {
+    const request = new Xhr();
+    request.open("GET", uri, true);
+    request.overrideMimeType?.("text/plain; charset=utf-8");
+    request.onload = () => {
+      if (request.status === 0 || (request.status >= 200 && request.status < 300)) {
+        resolve(request.responseText);
+        return;
+      }
+      reject(new Error(`HTTP ${request.status}`));
+    };
+    request.onerror = () => reject(new Error("request failed"));
+    if ("ontimeout" in request) {
+      request.ontimeout = () => reject(new Error("request timed out"));
+    }
+    request.send();
+  });
+}
+
+function resolveDefaultRootURI(rootURI?: string) {
+  const addonRef = resolveAddonRef("zotero-skills");
+  return normalizeString(rootURI) || `chrome://${addonRef}/`;
 }
 
 function getZoteroCurrentWorkingDir() {
@@ -315,21 +421,130 @@ async function readPackagedTextFromZoteroWorkingDir(relativePath: string) {
   return readUTF8(sourcePath);
 }
 
-async function readPackagedText(args: { rootURI?: string; relativePath: string }) {
-  if (detectZoteroRuntime()) {
+async function readPackagedTextWithDiagnostics(args: {
+  rootURI?: string;
+  resourceURI?: string;
+  relativePath: string;
+  devCwd?: string;
+}): Promise<PackagedTextReadResult> {
+  const relativePath = toPosixRelativePath(args.relativePath);
+  const diagnostics: BuiltinWorkflowResourceDiagnostics = {
+    relativePath,
+    failures: [],
+  };
+  const recordFailure = (label: string, source: string, error: unknown) => {
+    diagnostics.failures.push({
+      label,
+      source,
+      reason: compactError(error),
+    });
+  };
+  const tryCandidate = async (
+    label: string,
+    source: string,
+    reader: () => Promise<string>,
+  ) => {
     try {
-      return await readPackagedTextFromRuntime(args);
-    } catch (runtimeError) {
-      try {
-        return await readPackagedTextFromZoteroWorkingDir(args.relativePath);
-      } catch (fallbackError) {
-        throw new Error(
-          `failed to read packaged builtin workflow resource: runtime=${compactError(runtimeError)}; cwd_fallback=${compactError(fallbackError)}`,
-        );
+      const text = await reader();
+      return {
+        text,
+        source: { label, source },
+        diagnostics,
+      };
+    } catch (error) {
+      recordFailure(label, source, error);
+      return null;
+    }
+  };
+
+  const shouldTryRuntimeUris =
+    detectZoteroRuntime() ||
+    normalizeString(args.rootURI) ||
+    normalizeString(args.resourceURI);
+  if (shouldTryRuntimeUris) {
+    const rootURI = resolveDefaultRootURI(args.rootURI);
+    const rootFetchUri = buildPackagedResourceUri(rootURI, relativePath);
+    const rootFetch = await tryCandidate(
+      "rootURI-fetch",
+      rootFetchUri,
+      () => readPackagedTextFromFetch(rootFetchUri),
+    );
+    if (rootFetch) {
+      return rootFetch;
+    }
+
+    const resourceURI = normalizeString(args.resourceURI);
+    if (resourceURI && resourceURI !== rootURI) {
+      const resourceFetchUri = buildPackagedResourceUri(resourceURI, relativePath);
+      const resourceFetch = await tryCandidate(
+        "resourceURI-fetch",
+        resourceFetchUri,
+        () => readPackagedTextFromFetch(resourceFetchUri),
+      );
+      if (resourceFetch) {
+        return resourceFetch;
+      }
+    }
+
+    for (const [label, baseURI] of [
+      ["rootURI-xhr", rootURI],
+      ["resourceURI-xhr", resourceURI],
+    ] as const) {
+      if (!baseURI) {
+        continue;
+      }
+      const requestUri = buildPackagedResourceUri(baseURI, relativePath);
+      const requestResult = await tryCandidate(label, requestUri, () =>
+        readPackagedTextFromPrivilegedRequest(requestUri),
+      );
+      if (requestResult) {
+        return requestResult;
       }
     }
   }
-  return readPackagedTextFromNode(args.relativePath);
+
+  if (detectZoteroRuntime()) {
+    const cwd = getZoteroCurrentWorkingDir();
+    const sourcePath = cwd
+      ? joinPath(cwd, BUILTIN_WORKFLOW_ROOT, relativePath)
+      : "(zotero working directory unavailable)";
+    const workingDirResult = await tryCandidate(
+      "zotero-working-directory",
+      sourcePath,
+      () => readPackagedTextFromZoteroWorkingDir(relativePath),
+    );
+    if (workingDirResult) {
+      return workingDirResult;
+    }
+  }
+
+  const devCwd = normalizeString(args.devCwd) || getRuntimeCwd() || ".";
+  const devPath = joinPath(devCwd, BUILTIN_WORKFLOW_ROOT, relativePath);
+  const devResult = await tryCandidate("dev-cwd", devPath, () =>
+    readPackagedTextFromNode(relativePath, devCwd),
+  );
+  if (devResult) {
+    return devResult;
+  }
+
+  const detail = diagnostics.failures
+    .map((failure) => `${failure.label}=${failure.reason}`)
+    .join("; ");
+  const error = new Error(
+    `failed to read packaged builtin workflow resource: ${relativePath}; ${detail}`,
+  );
+  (error as { diagnostics?: BuiltinWorkflowResourceDiagnostics }).diagnostics =
+    diagnostics;
+  throw error;
+}
+
+async function readPackagedText(args: {
+  rootURI?: string;
+  resourceURI?: string;
+  relativePath: string;
+  devCwd?: string;
+}) {
+  return (await readPackagedTextWithDiagnostics(args)).text;
 }
 
 function parseBuiltinManifest(rawText: string): BuiltinWorkflowManifest {
@@ -403,10 +618,14 @@ async function writeTargetFile(args: {
   targetPath: string;
   relativePath: string;
   rootURI?: string;
+  resourceURI?: string;
+  devCwd?: string;
 }) {
   const content = await readPackagedText({
     rootURI: args.rootURI,
+    resourceURI: args.resourceURI,
     relativePath: args.relativePath,
+    devCwd: args.devCwd,
   });
   if (detectZoteroRuntime()) {
     const relativeDir = toPosixRelativePath(args.relativePath)
@@ -425,15 +644,41 @@ async function writeTargetFile(args: {
 
 export async function syncBuiltinWorkflowsOnStartup(args?: {
   rootURI?: string;
+  resourceURI?: string;
+  devCwd?: string;
 }) {
-  const manifestText = await readPackagedText({
-    rootURI: args?.rootURI,
-    relativePath: BUILTIN_MANIFEST_FILE,
-  });
-  const manifest = parseBuiltinManifest(manifestText);
   const targetRoot = getBuiltinWorkflowTargetDir();
-  const sourceRoot = getPackagedBuiltinSourceDir();
+  const sourceRoot = getPackagedBuiltinSourceDir(args?.devCwd);
   const stagingRoot = `${targetRoot}.staging`;
+  const syncBase = {
+    targetRoot,
+    rootURI: normalizeString(args?.rootURI),
+    resourceURI: normalizeString(args?.resourceURI),
+    zoteroVersion: getZoteroVersion(),
+  };
+
+  let manifest: BuiltinWorkflowManifest;
+  try {
+    const manifestRead = await readPackagedTextWithDiagnostics({
+      rootURI: args?.rootURI,
+      resourceURI: args?.resourceURI,
+      relativePath: BUILTIN_MANIFEST_FILE,
+      devCwd: args?.devCwd,
+    });
+    manifest = parseBuiltinManifest(manifestRead.text);
+  } catch (error) {
+    latestBuiltinWorkflowSyncResult = {
+      ok: false,
+      ...syncBase,
+      error: compactError(error),
+      diagnostics:
+        error && typeof error === "object" && "diagnostics" in error
+          ? (error as { diagnostics?: BuiltinWorkflowResourceDiagnostics })
+              .diagnostics
+          : undefined,
+    };
+    throw error;
+  }
 
   if (
     sourceRoot &&
@@ -441,9 +686,15 @@ export async function syncBuiltinWorkflowsOnStartup(args?: {
       isNestedFsPath(sourceRoot, targetRoot) ||
       isNestedFsPath(targetRoot, sourceRoot))
   ) {
-    throw new Error(
+    const error = new Error(
       "refusing to sync builtin workflows when source and target are same or nested",
     );
+    latestBuiltinWorkflowSyncResult = {
+      ok: false,
+      ...syncBase,
+      error: error.message,
+    };
+    throw error;
   }
 
   await clearAndPrepareTargetDirectory(stagingRoot);
@@ -456,6 +707,8 @@ export async function syncBuiltinWorkflowsOnStartup(args?: {
         targetPath,
         relativePath,
         rootURI: args?.rootURI,
+        resourceURI: args?.resourceURI,
+        devCwd: args?.devCwd,
       });
     }
     await replaceTargetDirectory({
@@ -464,13 +717,30 @@ export async function syncBuiltinWorkflowsOnStartup(args?: {
     });
   } catch (error) {
     await removeDirectory(stagingRoot);
+    latestBuiltinWorkflowSyncResult = {
+      ok: false,
+      ...syncBase,
+      version: manifest.version,
+      error: compactError(error),
+      diagnostics:
+        error && typeof error === "object" && "diagnostics" in error
+          ? (error as { diagnostics?: BuiltinWorkflowResourceDiagnostics })
+              .diagnostics
+          : undefined,
+    };
     throw error;
   }
 
-  return {
+  latestBuiltinWorkflowSyncResult = {
     ok: true,
+    ...syncBase,
     version: manifest.version,
     targetRoot,
     files: manifest.files.length,
   };
+  return latestBuiltinWorkflowSyncResult;
 }
+
+export const __builtinWorkflowSyncTestOnly = {
+  readPackagedTextForTests: readPackagedTextWithDiagnostics,
+};

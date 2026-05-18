@@ -1177,6 +1177,152 @@
     main.appendChild(shell);
   }
 
+  function renderProductFileTree(product, selectedAssetId) {
+    const wrap = el("div", "product-file-tree");
+    (product.assets || []).forEach(function (asset) {
+      const btn = el("button", "product-file-node", asset.label || asset.path || asset.assetId);
+      if (asset.assetId === selectedAssetId) {
+        btn.classList.add("active");
+      }
+      btn.appendChild(el("span", "product-file-path", asset.path || asset.relativePath || ""));
+      btn.addEventListener("click", function () {
+        sendAction("select-product-asset", {
+          productId: product.productId,
+          assetId: asset.assetId,
+        });
+      });
+      wrap.appendChild(btn);
+    });
+    if (!product.assets || product.assets.length === 0) {
+      wrap.appendChild(el("div", "empty", "No product files."));
+    }
+    return wrap;
+  }
+
+  function renderProductCode(text, language) {
+    const pre = el("pre", "product-preview-code");
+    pre.classList.add("lang-" + String(language || "text").replace(/[^a-z0-9_-]/gi, ""));
+    pre.textContent = text || "";
+    return pre;
+  }
+
+  function renderProductMarkdown(text) {
+    const wrap = el("div", "product-preview-markdown");
+    if (typeof window.markdownit === "function") {
+      const parser = window.markdownit({ html: false, linkify: true, breaks: false });
+      wrap.innerHTML = parser.render(text || "");
+    } else {
+      wrap.appendChild(renderProductCode(text || "", "markdown"));
+    }
+    return wrap;
+  }
+
+  function renderProductPreview(preview) {
+    const wrap = el("div", "product-preview");
+    if (!preview) {
+      wrap.appendChild(el("div", "empty", "Select a file to preview."));
+      return wrap;
+    }
+    const meta = el("div", "product-preview-meta");
+    meta.textContent = [
+      preview.path || "",
+      preview.kind || "text",
+      typeof preview.size === "number" ? preview.size + " bytes" : "",
+    ].filter(Boolean).join(" · ");
+    wrap.appendChild(meta);
+    if (!preview.previewable) {
+      wrap.appendChild(el("div", "empty", preview.error || "Preview unavailable."));
+      return wrap;
+    }
+    if (preview.kind === "markdown") {
+      wrap.appendChild(renderProductMarkdown(preview.text || ""));
+      const raw = el("details", "product-preview-raw");
+      raw.appendChild(el("summary", "", "Raw Markdown"));
+      raw.appendChild(renderProductCode(preview.text || "", "markdown"));
+      wrap.appendChild(raw);
+      return wrap;
+    }
+    wrap.appendChild(
+      renderProductCode(preview.formattedText || preview.text || "", preview.language || preview.kind),
+    );
+    return wrap;
+  }
+
+  function renderProducts(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const view = snapshot.productStorageView || {};
+    const products = Array.isArray(view.products) ? view.products : [];
+    const selected = view.selectedProduct;
+    const toolbar = el("div", "toolbar");
+    toolbar.appendChild(el("h2", "page-title", labels.tabProducts || "Products"));
+    if (selected) {
+      const actions = el("div", "toolbar-actions");
+      const openFolder = el("button", "btn", labels.productsOpenWorkspace || "Open Folder");
+      openFolder.addEventListener("click", function () {
+        sendAction("open-product-folder", { productId: selected.productId });
+      });
+      actions.appendChild(openFolder);
+      if (selected.requestId && selected.backendId) {
+        const openRun = el("button", "btn", labels.productsOpenRun || "Open Run");
+        openRun.addEventListener("click", function () {
+          sendAction("open-run", {
+            backendId: selected.backendId,
+            requestId: selected.requestId,
+          });
+        });
+        actions.appendChild(openRun);
+      }
+      const remove = el("button", "btn danger", labels.productsRemove || "Remove");
+      remove.addEventListener("click", function () {
+        sendAction("remove-product", { productId: selected.productId });
+      });
+      actions.appendChild(remove);
+      toolbar.appendChild(actions);
+    }
+    main.appendChild(toolbar);
+    if (products.length === 0) {
+      main.appendChild(el("div", "empty", labels.productsEmpty || "No workflow products have been registered yet."));
+      return;
+    }
+    const layout = el("div", "products-layout");
+    const list = el("div", "product-list");
+    products.forEach(function (product) {
+      const btn = el("button", "product-card");
+      if (selected && product.productId === selected.productId) {
+        btn.classList.add("active");
+      }
+      btn.appendChild(el("strong", "", product.title || product.productId));
+      btn.appendChild(el("span", "product-card-meta", [
+        product.workflowLabel || product.workflowId,
+        product.storageMode,
+        formatTime(product.updatedAt),
+      ].filter(Boolean).join(" · ")));
+      btn.addEventListener("click", function () {
+        sendAction("select-product", { productId: product.productId });
+      });
+      list.appendChild(btn);
+    });
+    layout.appendChild(list);
+    const detail = el("div", "product-detail");
+    if (selected) {
+      detail.appendChild(el("h3", "panel-title", selected.title || selected.productId));
+      const meta = el("div", "product-meta");
+      meta.textContent = [
+        selected.kind,
+        selected.workflowLabel || selected.workflowId,
+        selected.backendType,
+        selected.storageMode,
+      ].filter(Boolean).join(" · ");
+      detail.appendChild(meta);
+      const body = el("div", "product-detail-body");
+      body.appendChild(renderProductFileTree(selected, view.selectedAssetId));
+      body.appendChild(renderProductPreview(view.selectedPreview));
+      detail.appendChild(body);
+    }
+    layout.appendChild(detail);
+    main.appendChild(layout);
+  }
+
   function renderRuntimeLogs(main, snapshot) {
     const labels = snapshot.labels || {};
     const view = snapshot.runtimeLogsView;
@@ -1734,6 +1880,23 @@
         });
         sidebar.appendChild(btn);
       }
+      const productsTab = tabs.find((tab) => tab.key === "products");
+      if (productsTab) {
+        const btn = el(
+          "button",
+          "tab-btn",
+          productsTab.label || productsTab.key,
+        );
+        if (productsTab.key === snapshot.selectedTabKey) {
+          btn.classList.add("active");
+        }
+        btn.addEventListener("click", function () {
+          sendAction("select-tab", {
+            tabKey: productsTab.key,
+          });
+        });
+        sidebar.appendChild(btn);
+      }
       const runtimeLogsTab = tabs.find(
         (tab) => tab.key === "runtime-logs",
       );
@@ -1759,7 +1922,7 @@
         el("h3", "sidebar-title", snapshot.labels.tabBackends || "Backends"),
       );
       tabs
-        .filter((tab) => tab.key !== "home" && tab.key !== "workflow-options" && tab.key !== "runtime-logs")
+        .filter((tab) => tab.key !== "home" && tab.key !== "workflow-options" && tab.key !== "products" && tab.key !== "runtime-logs")
         .forEach(function (tab) {
           const isDisabled = tab.disabled === true;
           const btn = el("button", "tab-btn", tab.label || tab.key);
@@ -1805,6 +1968,9 @@
       }
     } else if (snapshot.selectedTabKey === "workflow-options") {
       renderWorkflowOptions(main, snapshot);
+    } else if (snapshot.selectedTabKey === "products") {
+      main.classList.add("skillrunner-fill");
+      renderProducts(main, snapshot);
     } else if (snapshot.selectedTabKey === "runtime-logs") {
       main.classList.add("skillrunner-fill"); // reuse the full-height flex config
       renderRuntimeLogs(main, snapshot);

@@ -1,0 +1,90 @@
+{
+  "id": "manuscript-literature-framing",
+  "label": "Manuscript Literature Framing",
+  "provider": "acp",
+  "version": "0.1.0",
+  "taskNameTemplate": "Frame manuscript literature: {paperTitle}",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "paperTitle": {
+      "type": "string",
+      "title": "Paper Title",
+      "description": "Working manuscript title used to frame the Introduction and Related Work."
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Output language, such as auto, zh-CN, or en-US.",
+      "default": "auto"
+    },
+    "targetVenue": {
+      "type": "string",
+      "title": "Target Venue",
+      "description": "Target journal, conference, or style family.",
+      "default": ""
+    },
+    "articleType": {
+      "type": "string",
+      "title": "Article Type",
+      "description": "Manuscript type. v1 is optimized for original research.",
+      "default": "original research"
+    },
+    "stylePreference": {
+      "type": "string",
+      "title": "Style Preference",
+      "description": "Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.",
+      "default": ""
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "manuscript-literature-framing"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "supportedBackends": ["acp"],
+    "mcp": {
+      "requiredTools": [
+        "synthesis.list_topics",
+        "synthesis.get_review_input",
+        "synthesis.get_paper_registry",
+        "synthesis.get_citation_graph_metrics",
+        "synthesis.get_citation_graph_slice",
+        "synthesis.resolve_topic_paper_digest",
+        "list_library_items",
+        "search_items",
+        "get_item_detail",
+        "get_item_notes",
+        "list_note_payloads",
+        "get_note_payload",
+        "get_item_attachments",
+        "prepare_paper_reading_context"
+      ]
+    },
+    "skillrunner_mode": "interactive",
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json",
+      "artifacts": [
+        "result/introduction.tex",
+        "result/related-work.tex",
+        "result/writing-plan.json",
+        "result/citation-map.json",
+        "result/diagnostics.json"
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyManuscriptLiteratureFramingResult.mjs"
+  }
+}

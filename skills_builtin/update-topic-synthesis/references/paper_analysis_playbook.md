@@ -3,6 +3,41 @@
 > 本文件是可选扩展材料，不是执行硬约束。硬约束以 `SKILL.md` 为准。需要提升逐篇
 > paper analysis 质量、处理 payload 缺失或提取外部文献语境时再读取本文件。
 
+## 增强 paper unit 要求
+
+`persist_paper_analyses` 现在要求每篇 paper 写成可复用 paper unit。除既有
+`findings`、`timeline_candidates`、`claim_support_candidates` 外，必须包含：
+
+```json
+{
+  "bibliographic": {"title": "...", "year": "unknown", "authors": []},
+  "topic_relevance": {"level": "core", "reason": "..."},
+  "research_problem": {"text": "...", "scope": "..."},
+  "method_contribution": {
+    "route": "...",
+    "mechanism": "...",
+    "claimed_advantage": "...",
+    "target_bottleneck": "..."
+  },
+  "evaluation_context": {
+    "datasets": [],
+    "metrics": [],
+    "baselines": [],
+    "setting": "unknown"
+  },
+  "graph_metrics_interpretation": {
+    "role_hints": ["frontier"],
+    "structural_position": "当前库内引用图中更接近近期 frontier paper。",
+    "synthesis_use": "用于调整更新后的叙述顺序和 coverage caveat，不作为 claim/timeline 的直接证据。",
+    "caveat": "图指标只反映当前库内引用结构，结论仍以 digest evidence 为准。"
+  },
+  "taxonomy_hints": [],
+  "comparison_facts": []
+}
+```
+
+`comparison_facts` 只能记录本 paper 自身可比事实，不能和其他 paper 做跨文献结论。
+
 ## 1. 更新场景中的分析 row
 
 update 不一定重读全部 paper。每个受影响 paper 建议形成如下结构：
@@ -84,5 +119,6 @@ patch 中发现外部文献 payload 缺失：
 - 是否说明 `change_reason`。
 - 是否列出 `affected_sections`。
 - 是否避免替换未读取 section。
+- 是否有 `graph_metrics_interpretation`，并明确 metrics 只是辅助结构信号。
 - 新增 claim/timeline 是否仍引用库内 paper evidence。
 - payload 缺失是否进入 coverage/diagnostics，而不是被忽略。

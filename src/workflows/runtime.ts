@@ -33,6 +33,7 @@ import type {
   WorkflowResultContext,
   WorkflowRuntimeContext,
 } from "./types";
+import { createProductStorageApi } from "../modules/workflowProductStore";
 
 type AttachmentLike = {
   item?: {
@@ -1138,6 +1139,12 @@ export async function executeApplyResult(args: {
     },
     async () => {
       const runtime = createRuntimeContext(args.runtime);
+      const productStorage = createProductStorageApi({
+        manifest: args.workflow.manifest,
+        resultContext: args.resultContext,
+        request: args.request,
+        runResult: args.runResult,
+      });
       const hookResult = await measureAsyncTestPerformanceSpan(
         "executeApplyResult:hook",
         {
@@ -1157,6 +1164,7 @@ export async function executeApplyResult(args: {
                 parent: args.parent,
                 bundleReader: args.bundleReader,
                 resultContext: args.resultContext,
+                productStorage,
                 request: args.request,
                 runResult: args.runResult,
                 manifest: args.workflow.manifest,

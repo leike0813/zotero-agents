@@ -355,7 +355,12 @@ export async function runWorkflowApplySeam(args: {
         bundleReader,
         resultContext,
         request: args.runState.requests[i],
-        runResult: job.result,
+        runResult: {
+          ...(job.result as Record<string, unknown>),
+          backendId: String(job.meta.backendId || "").trim() || undefined,
+          backendType: String(job.meta.backendType || "").trim() || undefined,
+          runId: String(job.meta.runId || "").trim() || undefined,
+        },
       });
       if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
         markAcpSkillRunApplyResult({

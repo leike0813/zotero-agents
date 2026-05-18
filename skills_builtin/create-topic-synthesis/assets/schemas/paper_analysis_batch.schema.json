@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis Paper Analysis Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["analyses"],
+  "properties": {
+    "analyses": {
+      "type": "array",
+      "items": { "$ref": "paper_analysis_row.schema.json" }
+    }
+  }
+}

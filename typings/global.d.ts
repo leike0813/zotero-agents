@@ -12,6 +12,8 @@ declare type ZToolkit = ReturnType<
 declare const ztoolkit: ZToolkit;
 
 declare const rootURI: string;
+declare const resourceURI: string;
+declare const rootPath: string;
 
 declare const addon: import("../src/addon").default;
 

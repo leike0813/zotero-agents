@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cross-Paper Evidence Map",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "evidence_limits",
+    "taxonomy_candidates",
+    "comparison_dimensions",
+    "claim_candidates",
+    "debate_candidates",
+    "gap_candidates",
+    "review_outline_seeds",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_id": { "const": "synthesis.cross_paper_evidence_map" },
+    "schema_version": { "type": "string" },
+    "evidence_limits": { "type": "object" },
+    "taxonomy_candidates": { "type": "array" },
+    "comparison_dimensions": { "type": "array" },
+    "claim_candidates": { "type": "array" },
+    "debate_candidates": { "type": "array" },
+    "gap_candidates": { "type": "array" },
+    "review_outline_seeds": { "type": "array" },
+    "diagnostics": { "type": "array" }
+  }
+}

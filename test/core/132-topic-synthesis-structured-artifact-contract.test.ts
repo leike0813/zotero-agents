@@ -48,6 +48,36 @@ function completeSectionManifest(overrides: Record<string, unknown> = {}) {
         hash: "sha256:claims",
         content_type: "json",
       },
+      positioning: {
+        path: "result/sections/positioning.json",
+        hash: "sha256:positioning",
+        content_type: "json",
+      },
+      taxonomy: {
+        path: "result/sections/taxonomy.json",
+        hash: "sha256:taxonomy",
+        content_type: "json",
+      },
+      comparison_matrix: {
+        path: "result/sections/comparison-matrix.json",
+        hash: "sha256:comparison",
+        content_type: "json",
+      },
+      debates: {
+        path: "result/sections/debates.json",
+        hash: "sha256:debates",
+        content_type: "json",
+      },
+      review_outline: {
+        path: "result/sections/review-outline.json",
+        hash: "sha256:outline",
+        content_type: "json",
+      },
+      evidence_map: {
+        path: "result/sections/evidence-map.json",
+        hash: "sha256:evidence-map",
+        content_type: "json",
+      },
       timeline_events: {
         path: "result/sections/timeline-events.json",
         hash: "sha256:timeline",
@@ -144,6 +174,7 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
         id: "claim:detector-evolution",
         text: "检测器从手工 proposal 走向端到端集合预测。",
         evidence_refs: ["paper:1:DETR"],
+        evidence_map_refs: ["claim:detector-evolution"],
       },
     ],
     timeline_events: [
@@ -154,6 +185,64 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
         evidence_refs: ["paper:1:DETR"],
       },
     ],
+    positioning: {
+      thesis: "对象检测方法演化体现了从 proposal pipeline 到集合预测的建模迁移。",
+      evidence_map_refs: ["claim:detector-evolution"],
+    },
+    taxonomy: {
+      axis: "method route",
+      nodes: [
+        {
+          id: "tax:end-to-end",
+          label: "End-to-end set prediction",
+          paper_refs: ["1:DETR"],
+          evidence_map_refs: ["tax:end-to-end"],
+        },
+      ],
+    },
+    comparison_matrix: {
+      dimensions: ["problem addressed", "core mechanism"],
+      rows: [
+        {
+          id: "cmp:detr",
+          paper_ref: "1:DETR",
+          values: {
+            "problem addressed": "object detection pipeline",
+            "core mechanism": "set prediction with transformers",
+          },
+          evidence_map_refs: ["cmp:detr"],
+        },
+      ],
+    },
+    debates: [],
+    review_outline: {
+      sections: [
+        {
+          id: "outline:intro",
+          title: "Introduction",
+          purpose: "定位对象检测方法迁移。",
+          source_section_refs: ["claim:detector-evolution"],
+          evidence_map_refs: ["claim:detector-evolution"],
+        },
+      ],
+    },
+    evidence_map: {
+      path: "runtime/payloads/cross-paper-evidence-map.json",
+      hash: "sha256:evidence-map",
+      candidate_counts: {
+        taxonomy_candidates: 1,
+        comparison_dimensions: 1,
+        claim_candidates: 1,
+        debate_candidates: 0,
+        gap_candidates: 0,
+        review_outline_seeds: 1,
+      },
+      candidate_ids: [
+        "claim:detector-evolution",
+        "tax:end-to-end",
+        "cmp:detr",
+      ],
+    },
     paper_evidence: [
       {
         id: "paper:1:DETR",

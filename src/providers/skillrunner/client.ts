@@ -11,6 +11,7 @@ import {
   normalizeStatus,
   normalizeStatusWithGuard,
 } from "../../modules/skillRunnerProviderStateMachine";
+import { delay } from "../../utils/runtimeCompatibility";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -311,17 +312,7 @@ async function readFileBytes(filePath: string) {
 }
 
 async function sleep(ms: number) {
-  if (ms <= 0) {
-    return;
-  }
-  const runtime = globalThis as {
-    Zotero?: { Promise?: { delay?: (delayMs: number) => Promise<void> } };
-  };
-  if (typeof runtime.Zotero?.Promise?.delay === "function") {
-    await runtime.Zotero.Promise.delay(ms);
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await delay(ms);
 }
 
 async function readJsonOrThrow(response: Response) {

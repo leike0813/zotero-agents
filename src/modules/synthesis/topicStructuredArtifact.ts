@@ -7,12 +7,18 @@ import {
 const COMPLETE_SECTIONS = [
   "topic",
   "summary",
+  "positioning",
+  "taxonomy",
+  "comparison_matrix",
   "claims",
   "timeline_events",
   "paper_evidence",
   "external_literature_analysis",
+  "debates",
   "coverage",
   "gaps",
+  "review_outline",
+  "evidence_map",
   "source_artifacts",
   "diagnostics",
 ] as const;
@@ -190,6 +196,7 @@ export function validateTopicSynthesisArtifact(
     }
   }
   const knownEvidence = evidenceIds(input);
+  const knownEvidenceMap = evidenceMapIds(input);
   errors.push(
     ...validateEvidenceRefs({
       label: "claim",
@@ -200,6 +207,21 @@ export function validateTopicSynthesisArtifact(
       label: "timeline",
       rows: input.timeline_events,
       knownEvidence,
+    }),
+    ...validateEvidenceMapRefs({
+      label: "claim",
+      rows: input.claims,
+      knownEvidenceMap,
+    }),
+    ...validateEvidenceMapRefs({
+      label: "debate",
+      rows: input.debates,
+      knownEvidenceMap,
+    }),
+    ...validateEvidenceMapRefs({
+      label: "gap",
+      rows: input.gaps,
+      knownEvidenceMap,
     }),
   );
   const paperEvidence = Array.isArray(input.paper_evidence) ? input.paper_evidence : [];
@@ -225,9 +247,89 @@ export function validateTopicSynthesisArtifact(
   if (!("summary" in external)) {
     errors.push("external_literature_analysis summary is required");
   }
+  errors.push(
+    ...validateNestedEvidenceMapRefs("taxonomy", input.taxonomy, knownEvidenceMap),
+    ...validateNestedEvidenceMapRefs("comparison_matrix", input.comparison_matrix, knownEvidenceMap),
+    ...validateNestedEvidenceMapRefs("review_outline", input.review_outline, knownEvidenceMap),
+  );
   return errors.length
     ? { ok: false, errors, artifact: input }
     : { ok: true, errors: [], artifact: input };
+}
+
+function evidenceMapIds(artifact: Record<string, unknown>) {
+  const evidenceMap = isObject(artifact.evidence_map)
+    ? artifact.evidence_map
+    : {};
+  const direct = Array.isArray(evidenceMap.candidate_ids)
+    ? evidenceMap.candidate_ids.map(cleanString)
+    : [];
+  const candidates = isObject(evidenceMap.candidates)
+    ? Object.keys(evidenceMap.candidates)
+    : [];
+  return new Set([...direct, ...candidates].filter(Boolean));
+}
+
+function validateEvidenceMapRefs(args: {
+  label: string;
+  rows: unknown;
+  knownEvidenceMap: Set<string>;
+}) {
+  const errors: string[] = [];
+  for (const row of Array.isArray(args.rows) ? args.rows : []) {
+    if (!isObject(row)) {
+      continue;
+    }
+    const refs = Array.isArray(row.evidence_map_refs)
+      ? row.evidence_map_refs.map(cleanString).filter(Boolean)
+      : [];
+    if (!refs.length) {
+      errors.push(`${args.label} ${cleanString(row.id)} requires evidence_map_refs`);
+    }
+    for (const ref of refs) {
+      if (!args.knownEvidenceMap.has(ref)) {
+        errors.push(`${args.label} ${cleanString(row.id)} references missing evidence_map ${ref}`);
+      }
+    }
+  }
+  return errors;
+}
+
+function validateNestedEvidenceMapRefs(
+  label: string,
+  value: unknown,
+  knownEvidenceMap: Set<string>,
+) {
+  const errors: string[] = [];
+  const walk = (entry: unknown) => {
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        walk(item);
+      }
+      return;
+    }
+    if (!isObject(entry)) {
+      return;
+    }
+    if ("evidence_map_refs" in entry) {
+      const refs = Array.isArray(entry.evidence_map_refs)
+        ? entry.evidence_map_refs.map(cleanString).filter(Boolean)
+        : [];
+      if (!refs.length) {
+        errors.push(`${label} ${cleanString(entry.id || entry.title)} requires evidence_map_refs`);
+      }
+      for (const ref of refs) {
+        if (!knownEvidenceMap.has(ref)) {
+          errors.push(`${label} ${cleanString(entry.id || entry.title)} references missing evidence_map ${ref}`);
+        }
+      }
+    }
+    for (const item of Object.values(entry)) {
+      walk(item);
+    }
+  };
+  walk(value);
+  return errors;
 }
 
 export function assembleTopicArtifact(args: {
@@ -244,6 +346,23 @@ export function assembleTopicArtifact(args: {
 }
 
 export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
+  const hasRenderableObjectContent = (value: Record<string, unknown>) => {
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "schema_id" || key === "schema_version") {
+        continue;
+      }
+      if (Array.isArray(entry) && entry.length) {
+        return true;
+      }
+      if (isObject(entry) && Object.keys(entry).length) {
+        return true;
+      }
+      if (cleanString(entry)) {
+        return true;
+      }
+    }
+    return false;
+  };
   const topic = isObject(artifact.topic) ? artifact.topic : {};
   const summary = isObject(artifact.summary) ? artifact.summary : {};
   const title = cleanString(topic.title) || cleanString(topic.id) || "Topic Synthesis";
@@ -261,6 +380,16 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
       }
     }
     lines.push("");
+  }
+  const taxonomy = isObject(artifact.taxonomy) ? artifact.taxonomy : {};
+  if (hasRenderableObjectContent(taxonomy)) {
+    lines.push("## Taxonomy", "", "```json", canonicalizeJson(taxonomy), "```", "");
+  }
+  const comparison = isObject(artifact.comparison_matrix)
+    ? artifact.comparison_matrix
+    : {};
+  if (hasRenderableObjectContent(comparison)) {
+    lines.push("## Comparison Matrix", "", "```json", canonicalizeJson(comparison), "```", "");
   }
   const events = Array.isArray(artifact.timeline_events) ? artifact.timeline_events : [];
   if (events.length) {
@@ -280,6 +409,26 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
   const externalSummary = cleanString(external.summary);
   if (externalSummary) {
     lines.push("## External Literature Analysis", "", externalSummary, "");
+  }
+  const debates = Array.isArray(artifact.debates) ? artifact.debates : [];
+  if (debates.length) {
+    lines.push("## Debates", "");
+    for (const debate of debates) {
+      if (isObject(debate)) {
+        lines.push(`- ${cleanString(debate.title || debate.text || debate.id)}`);
+      }
+    }
+    lines.push("");
+  }
+  const gaps = Array.isArray(artifact.gaps) ? artifact.gaps : [];
+  if (gaps.length) {
+    lines.push("## Gaps", "");
+    for (const gap of gaps) {
+      if (isObject(gap)) {
+        lines.push(`- ${cleanString(gap.title || gap.text || gap.id)}`);
+      }
+    }
+    lines.push("");
   }
   return `${lines.join("\n").replace(/\n+$/g, "")}\n`;
 }

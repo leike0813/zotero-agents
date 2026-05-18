@@ -59,6 +59,14 @@ import {
   type AcpSkillRunRecord,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
+import {
+  getWorkflowProduct,
+  listWorkflowProducts,
+  readProductAssetPreview,
+  removeWorkflowProduct,
+  type WorkflowProductPreview,
+} from "./workflowProductStore";
+import { openFolderInSystemFileManager } from "../utils/fileSystem";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -83,6 +91,8 @@ type DashboardState = {
   };
   runtimeLogSelectedIdSet: Set<string>;
   homeWorkflowDocWorkflowId: string;
+  selectedProductId: string;
+  selectedProductAssetId: string;
   homeWorkflowDocCacheByWorkflowId: Map<
     string,
     {
@@ -158,6 +168,12 @@ type DashboardSnapshot = {
     builtin: boolean;
   }>;
   acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
+  productStorageView?: {
+    products: ReturnType<typeof listWorkflowProducts>;
+    selectedProduct?: ReturnType<typeof getWorkflowProduct>;
+    selectedAssetId?: string;
+    selectedPreview?: WorkflowProductPreview;
+  };
   homeWorkflowDocView?: {
     workflowId: string;
     workflowLabel: string;
@@ -1105,6 +1121,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-tab-workflow-options",
       "Workflow Options",
     ),
+    tabProducts: localize("task-dashboard-tab-products", "Products"),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
     runningTitle: localize("task-dashboard-running-title", "Active Tasks"),
     summaryTotal: localize("task-dashboard-summary-total", "Total"),
@@ -1243,6 +1260,26 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-select-to-view",
       "Select a log entry to view details.",
     ),
+    productsEmpty: localize(
+      "task-dashboard-products-empty",
+      "No workflow products have been registered yet.",
+    ),
+    productsOpenWorkspace: localize(
+      "task-dashboard-products-open-workspace",
+      "Open Folder",
+    ),
+    productsOpenRun: localize(
+      "task-dashboard-products-open-run",
+      "Open Run",
+    ),
+    productsRemove: localize(
+      "task-dashboard-products-remove",
+      "Remove From Products",
+    ),
+    productsPreviewUnavailable: localize(
+      "task-dashboard-products-preview-unavailable",
+      "Select a file to preview.",
+    ),
     runtimeLogsContextScope: localize(
       "task-dashboard-runtime-logs-context-scope",
       "Active Context Filters: "
@@ -1293,6 +1330,10 @@ async function buildDashboardSnapshot(args: {
     {
       key: "workflow-options",
       label: labels.tabWorkflowOptions,
+    },
+    {
+      key: "products",
+      label: labels.tabProducts,
     },
     {
       key: "runtime-logs",
@@ -1353,6 +1394,36 @@ async function buildDashboardSnapshot(args: {
       state: args.state,
       backends: args.backends,
     });
+    return snapshot;
+  }
+
+  if (resolvedSelectedTabKey === "products") {
+    const products = listWorkflowProducts();
+    const selectedProduct =
+      products.find((entry) => entry.productId === args.state.selectedProductId) ||
+      products[0] ||
+      null;
+    args.state.selectedProductId = selectedProduct?.productId || "";
+    const selectedAsset =
+      selectedProduct?.assets.find(
+        (entry) => entry.assetId === args.state.selectedProductAssetId,
+      ) ||
+      selectedProduct?.assets[0] ||
+      null;
+    args.state.selectedProductAssetId = selectedAsset?.assetId || "";
+    let selectedPreview: WorkflowProductPreview | undefined;
+    if (selectedProduct && selectedAsset) {
+      selectedPreview = await readProductAssetPreview(
+        selectedProduct.productId,
+        selectedAsset.assetId,
+      );
+    }
+    snapshot.productStorageView = {
+      products,
+      selectedProduct: selectedProduct || undefined,
+      selectedAssetId: selectedAsset?.assetId,
+      selectedPreview,
+    };
     return snapshot;
   }
 
@@ -1565,6 +1636,8 @@ export async function openTaskManagerDialog(args?: {
     runtimeLogFilters: {},
     runtimeLogSelectedIdSet: new Set(),
     homeWorkflowDocWorkflowId: "",
+    selectedProductId: "",
+    selectedProductAssetId: "",
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
 
@@ -1720,6 +1793,40 @@ export async function openTaskManagerDialog(args?: {
         state.homeWorkflowDocWorkflowId = "";
       }
       refresh("user-action");
+      return;
+    }
+    if (action === "select-product") {
+      state.selectedTabKey = "products";
+      state.selectedProductId = String(payload.productId || "").trim();
+      state.selectedProductAssetId = "";
+      refresh("user-action");
+      return;
+    }
+    if (action === "select-product-asset") {
+      state.selectedTabKey = "products";
+      state.selectedProductId = String(payload.productId || "").trim();
+      state.selectedProductAssetId = String(payload.assetId || "").trim();
+      refresh("user-action");
+      return;
+    }
+    if (action === "open-product-folder") {
+      const product = getWorkflowProduct(String(payload.productId || "").trim());
+      const folder = String(product?.workspaceDir || product?.cacheDir || "").trim();
+      if (folder) {
+        openFolderInSystemFileManager(folder, { label: "product folder" });
+      }
+      return;
+    }
+    if (action === "remove-product") {
+      const productId = String(payload.productId || "").trim();
+      if (productId) {
+        removeWorkflowProduct(productId);
+        if (state.selectedProductId === productId) {
+          state.selectedProductId = "";
+          state.selectedProductAssetId = "";
+        }
+        refresh("user-action");
+      }
       return;
     }
     if (action === "select-workflow-settings-workflow") {

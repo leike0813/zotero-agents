@@ -3,6 +3,10 @@
 The SQLite database is the only run-local process state. Prompt memory and
 loose files are not valid state. This runtime never writes plugin canonical
 assets or Zotero note shards.
+SQLite stores control state, receipts, lightweight manifests, artifact_registry
+rows, and hashes. export_cross_paper_context reads filtered content files from
+manifest rows, writes Markdown views outside SQLite, and records
+source_context_hash / external_context_hash metadata.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-SCHEMA_VERSION = "topic-synthesis-skill-runtime/3"
+SCHEMA_VERSION = "topic-synthesis-skill-runtime/6"
 SHA256_HASH_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 STAGE_STATES = (
@@ -41,17 +45,30 @@ STAGES = (
 REQUIRED_FULL_SECTIONS = (
     "topic",
     "summary",
+    "positioning",
+    "taxonomy",
+    "comparison_matrix",
     "claims",
     "timeline_events",
     "paper_evidence",
     "external_literature_analysis",
+    "debates",
     "coverage",
     "gaps",
+    "review_outline",
+    "evidence_map",
     "source_artifacts",
     "diagnostics",
 )
 
 ARTIFACT_TYPES = ("digest", "references", "citation_analysis")
+GAP_TYPES = {
+    "library_coverage_gap",
+    "evidence_gap",
+    "method_gap",
+    "evaluation_gap",
+    "review_gap",
+}
 
 PAYLOAD_TYPES = {
     "digest": "digest-markdown",
@@ -98,6 +115,18 @@ def assert_valid_sha256_hash(value: str, label: str) -> None:
 
 def read_json_file(path: str | Path) -> object:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def read_text_file(path: str | Path) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def resolve_run_relative_path(run_root: str | Path, relative_path: str) -> Path:
+    root = Path(run_root).resolve()
+    target = (root / str(relative_path)).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError(f"artifact content path escapes run root: {relative_path}")
+    return target
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
@@ -162,13 +191,15 @@ def initialize(conn: sqlite3.Connection) -> None:
           bundle_json text not null,
           created_at text not null
         );
+        create table if not exists citation_graph_metrics (
+          paper_ref text primary key,
+          metrics_json text not null,
+          status text not null,
+          created_at text not null
+        );
         create table if not exists paper_analysis (
           paper_ref text primary key,
           analysis_json text not null
-        );
-        create table if not exists section_payloads (
-          section_name text primary key,
-          value_json text not null
         );
         create table if not exists section_outputs (
           section_name text primary key,
@@ -326,6 +357,15 @@ def record_action_receipt(
 
 
 def persist_topic_intent(conn: sqlite3.Connection, payload: dict) -> dict:
+    topic_definition = payload.get("topic_definition")
+    if not isinstance(topic_definition, dict):
+        raise ValueError(
+            "persist_topic_intent payload must contain topic_definition; map any legacy intent object to topic_definition"
+        )
+    if not str(topic_definition.get("id") or "").strip():
+        raise ValueError("persist_topic_intent topic_definition.id is required")
+    if not str(topic_definition.get("title") or "").strip():
+        raise ValueError("persist_topic_intent topic_definition.title is required")
     put_key_value(conn, "topic_intent", "payload", payload)
     for key in (
         "topic_id",
@@ -362,8 +402,16 @@ def persist_resolver(conn: sqlite3.Connection, payload: dict) -> dict:
     for meta_key in ("operation", "base_hashes", "read_section_hashes", "recommended_update", "changed_sections"):
         if meta_key in payload:
             set_meta(conn, meta_key, payload[meta_key])
+    resolved = payload.get("resolved_paper_set")
+    if not isinstance(resolved, dict) and isinstance(payload.get("resolution_result"), dict):
+        result = payload["resolution_result"]
+        if isinstance(result.get("papers"), list):
+            resolved = {"papers": result["papers"]}
+            put_key_value(conn, "topic_resolver", "resolved_paper_set", resolved)
+    if isinstance(resolved, dict) and isinstance(resolved.get("papers"), list):
+        derive_paper_workset(conn, {"papers": resolved["papers"]})
     conn.commit()
-    return {"stored_keys": sorted(payload.keys())}
+    return {"stored_keys": sorted(payload.keys()), "paper_refs": paper_refs(conn)}
 
 
 def _paper_ref_from_value(value: object) -> str:
@@ -377,17 +425,18 @@ def _paper_ref_from_value(value: object) -> str:
     raise ValueError(f"paper entry does not contain a stable paper_ref: {value!r}")
 
 
-def persist_paper_workset(conn: sqlite3.Connection, payload: dict) -> dict:
+def derive_paper_workset(conn: sqlite3.Connection, payload: dict) -> dict:
     papers = payload.get("papers")
     if papers is None:
         resolved = payload.get("resolved_paper_set", {})
         papers = resolved.get("papers") if isinstance(resolved, dict) else None
     if not isinstance(papers, list):
-        raise ValueError("persist_paper_workset payload must contain papers[] or resolved_paper_set.papers[]")
+        raise ValueError("derive_paper_workset payload must contain papers[] or resolved_paper_set.papers[]")
 
     conn.execute("delete from paper_workset")
     conn.execute("delete from paper_artifact_locators")
     conn.execute("delete from paper_artifact_bundles")
+    conn.execute("delete from citation_graph_metrics")
     conn.execute("delete from paper_analysis")
     for paper in papers:
         paper_ref = _paper_ref_from_value(paper)
@@ -435,9 +484,19 @@ def artifact_bundle_refs(conn: sqlite3.Connection) -> list[str]:
     return [row["paper_ref"] for row in rows]
 
 
+def citation_graph_metric_refs(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute("select paper_ref from citation_graph_metrics order by paper_ref").fetchall()
+    return [row["paper_ref"] for row in rows]
+
+
 def missing_paper_artifact_bundle_refs(conn: sqlite3.Connection) -> list[str]:
     bundled = set(artifact_bundle_refs(conn))
     return [ref for ref in paper_refs(conn) if ref not in bundled]
+
+
+def missing_citation_graph_metric_refs(conn: sqlite3.Connection) -> list[str]:
+    metric_refs = set(citation_graph_metric_refs(conn))
+    return [ref for ref in paper_refs(conn) if ref not in metric_refs]
 
 
 def missing_paper_analysis_refs(conn: sqlite3.Connection) -> list[str]:
@@ -473,9 +532,18 @@ def missing_paper_artifact_bundle_receipt_refs(conn: sqlite3.Connection) -> list
     bundled = set(artifact_bundle_refs(conn))
     receipted = action_receipt_paper_refs(
         conn,
-        ("persist_paper_artifact_bundle", "persist_paper_artifact_bundles"),
+        ("persist_filtered_artifact_manifest",),
     )
     return [ref for ref in paper_refs(conn) if ref not in bundled or ref not in receipted]
+
+
+def missing_citation_graph_metric_receipt_refs(conn: sqlite3.Connection) -> list[str]:
+    metric_refs = set(citation_graph_metric_refs(conn))
+    receipted = action_receipt_paper_refs(
+        conn,
+        ("persist_citation_graph_metrics",),
+    )
+    return [ref for ref in paper_refs(conn) if ref not in metric_refs or ref not in receipted]
 
 
 def missing_paper_analysis_receipt_refs(conn: sqlite3.Connection) -> list[str]:
@@ -488,9 +556,12 @@ def missing_paper_analysis_receipt_refs(conn: sqlite3.Connection) -> list[str]:
 
 
 def require_stage4_action_receipts_complete(conn: sqlite3.Connection) -> None:
+    missing_metrics = missing_citation_graph_metric_receipt_refs(conn)
     missing_bundles = missing_paper_artifact_bundle_receipt_refs(conn)
     missing_analysis = missing_paper_analysis_receipt_refs(conn)
     errors: list[str] = []
+    if missing_metrics:
+        errors.append("missing_citation_graph_metrics_action_receipts: " + ", ".join(missing_metrics))
     if missing_bundles:
         errors.append("missing_paper_artifact_bundle_action_receipts: " + ", ".join(missing_bundles))
     if missing_analysis:
@@ -499,31 +570,36 @@ def require_stage4_action_receipts_complete(conn: sqlite3.Connection) -> None:
         raise ValueError("; ".join(errors))
 
 
-def _artifact_rows_from_payload(payload: dict) -> list[dict]:
-    result = payload.get("result")
-    if isinstance(result, dict) and isinstance(result.get("artifacts"), list):
-        return [entry for entry in result["artifacts"] if isinstance(entry, dict)]
-    structured = payload.get("structuredContent")
-    if isinstance(structured, dict):
-        structured_result = structured.get("result")
-        if isinstance(structured_result, dict) and isinstance(structured_result.get("artifacts"), list):
-            return [entry for entry in structured_result["artifacts"] if isinstance(entry, dict)]
-    artifacts = payload.get("artifacts")
-    if isinstance(artifacts, list):
-        return [entry for entry in artifacts if isinstance(entry, dict)]
-    raise ValueError("paper artifact bundle payload must contain artifacts[] from synthesis.read_paper_artifacts")
+def _manifest_paper_entries(payload: dict) -> list[dict]:
+    papers = payload.get("papers")
+    if isinstance(papers, list):
+        return [entry for entry in papers if isinstance(entry, dict)]
+    raise ValueError("filtered artifact manifest must contain papers[] from synthesis.export_filtered_paper_artifacts")
 
 
-def _normalize_artifact_bundle(paper_ref: str, payload: dict) -> dict:
+def _normalize_artifact_manifest_entry(paper_ref: str, payload: dict) -> dict:
     exported_by = str(payload.get("exported_by") or payload.get("exportedBy") or "").strip()
-    if exported_by and exported_by != "synthesis.export_paper_artifact_bundle":
-        raise ValueError("paper artifact bundle must be exported by synthesis.export_paper_artifact_bundle")
-    rows = _artifact_rows_from_payload(payload)
+    if exported_by and exported_by != "synthesis.export_filtered_paper_artifacts":
+        raise ValueError("artifact manifest must be exported by synthesis.export_filtered_paper_artifacts")
+    paper_entries = _manifest_paper_entries(payload)
+    paper_entry = next(
+        (
+            entry for entry in paper_entries
+            if str(entry.get("paper_ref") or entry.get("paperRef") or "").strip() == paper_ref
+        ),
+        None,
+    )
+    if not paper_entry:
+        raise ValueError(f"filtered artifact manifest does not contain paper_ref: {paper_ref}")
+    rows = [entry for entry in paper_entry.get("artifacts", []) if isinstance(entry, dict)]
     by_type: dict[str, dict] = {}
     diagnostics: list[str] = []
     payload_diagnostics = payload.get("diagnostics")
     if isinstance(payload_diagnostics, list):
         diagnostics.extend(str(entry) for entry in payload_diagnostics)
+    paper_diagnostics = paper_entry.get("diagnostics")
+    if isinstance(paper_diagnostics, list):
+        diagnostics.extend(str(entry) for entry in paper_diagnostics)
     for row in rows:
         raw_artifact_type = str(row.get("artifact_type") or row.get("artifactType") or "").strip()
         artifact_type = ARTIFACT_TYPE_ALIASES.get(raw_artifact_type, "")
@@ -532,11 +608,7 @@ def _normalize_artifact_bundle(paper_ref: str, payload: dict) -> dict:
         row_ref = str(row.get("paper_ref") or row.get("paperRef") or "").strip()
         if row_ref and row_ref != paper_ref:
             continue
-        probe_source = str(row.get("probe_source") or row.get("probeSource") or "").strip()
-        if probe_source != "synthesis.read_paper_artifacts":
-            raise ValueError(
-                f"paper artifact row for {paper_ref}:{artifact_type} must come from synthesis.read_paper_artifacts"
-            )
+        probe_source = "synthesis.export_filtered_paper_artifacts"
         expected_payload_type = PAYLOAD_TYPES[artifact_type]
         status = str(row.get("status") or "").strip()
         payload_hash = str(row.get("payload_hash") or row.get("hash") or "").strip()
@@ -563,6 +635,8 @@ def _normalize_artifact_bundle(paper_ref: str, payload: dict) -> dict:
             "note_title": str(row.get("note_title") or row.get("noteTitle") or "").strip(),
             "payload_hash": payload_hash,
             "hash": payload_hash,
+            "content_file": str(row.get("content_file") or row.get("contentFile") or "").strip(),
+            "content_hash": str(row.get("content_hash") or row.get("contentHash") or "").strip(),
             "missing_reason": str(row.get("missing_reason") or row.get("missingReason") or "").strip(),
             "diagnostics": row.get("diagnostics") if isinstance(row.get("diagnostics"), list) else [],
         }
@@ -580,9 +654,13 @@ def _normalize_artifact_bundle(paper_ref: str, payload: dict) -> dict:
             )
         if status != "available" and not normalized["missing_reason"]:
             normalized["missing_reason"] = "payload_not_available"
-        for content_key in ("payload", "markdown", "decoded_text", "decodedText"):
-            if content_key in row:
-                normalized[content_key] = row[content_key]
+        if status == "available":
+            if not normalized["content_file"]:
+                raise ValueError(f"available artifact {paper_ref}:{artifact_type} requires content_file")
+            assert_valid_sha256_hash(
+                str(normalized["content_hash"]),
+                f"artifact {paper_ref}:{artifact_type} content_hash",
+            )
         by_type[artifact_type] = normalized
     missing_types = [artifact_type for artifact_type in ARTIFACT_TYPES if artifact_type not in by_type]
     if missing_types:
@@ -592,50 +670,114 @@ def _normalize_artifact_bundle(paper_ref: str, payload: dict) -> dict:
         )
     return {
         "paper_ref": paper_ref,
-        "source_tool": "synthesis.export_paper_artifact_bundle",
-        "probe_source_tool": "synthesis.read_paper_artifacts",
+        "source_tool": "synthesis.export_filtered_paper_artifacts",
         "artifacts": [by_type[artifact_type] for artifact_type in ARTIFACT_TYPES],
         "diagnostics": diagnostics,
     }
 
 
-def persist_paper_artifact_bundle(conn: sqlite3.Connection, paper_ref: str, payload: dict) -> dict:
-    if paper_ref not in set(paper_refs(conn)):
-        raise ValueError(f"paper_ref is not in paper_workset: {paper_ref}")
-    payload_ref = payload.get("paper_ref") or payload.get("paperRef")
-    if payload_ref and payload_ref != paper_ref:
-        raise ValueError(f"payload paper_ref {payload_ref!r} does not match --paper-ref {paper_ref!r}")
-    bundle = _normalize_artifact_bundle(paper_ref, payload)
-    conn.execute(
-        """
-        insert or replace into paper_artifact_bundles(paper_ref, bundle_json, created_at)
-        values (?, ?, ?)
-        """,
-        (paper_ref, json.dumps(bundle, ensure_ascii=False, sort_keys=True), now_iso()),
-    )
-    conn.commit()
-    return {
-        "paper_ref": paper_ref,
-        "bundle_count": len(artifact_bundle_refs(conn)),
-        "paper_count": len(paper_refs(conn)),
-        "missing_bundle_refs": missing_paper_artifact_bundle_refs(conn),
-        "artifact_statuses": {
-            entry["artifact_type"]: entry["status"] for entry in bundle["artifacts"]
-        },
-    }
-
-
-def _manifest_payload_entries(payload: dict) -> list[dict]:
-    entries = payload.get("payload_files")
-    if isinstance(entries, list):
-        return [entry for entry in entries if isinstance(entry, dict)]
-    bundles = payload.get("bundles")
-    if isinstance(bundles, list):
-        return [entry for entry in bundles if isinstance(entry, dict)]
+def _analysis_payload_entries(payload: dict) -> list[dict]:
     analyses = payload.get("analyses")
     if isinstance(analyses, list):
         return [entry for entry in analyses if isinstance(entry, dict)]
     raise ValueError("batch payload must contain payload_files[], bundles[], or analyses[]")
+
+
+def _metrics_result_from_payload(payload: dict) -> dict:
+    for key in ("metrics_result", "result", "citation_graph_metrics"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            return value
+    return payload
+
+
+def _metric_payload_paper_refs(payload: dict, result: dict) -> list[str]:
+    for source in (payload, result):
+        for key in ("paper_refs", "paperRefs", "requested_paper_refs", "requestedPaperRefs"):
+            value = source.get(key) if isinstance(source, dict) else None
+            if isinstance(value, list):
+                refs = [str(ref).strip() for ref in value if str(ref).strip()]
+                if refs:
+                    return refs
+    items = result.get("items") if isinstance(result, dict) else []
+    if isinstance(items, list):
+        refs = [str(item.get("paper_ref") or "").strip() for item in items if isinstance(item, dict)]
+        return [ref for ref in refs if ref]
+    return []
+
+
+def _compact_metric_row(row: dict, status: str, diagnostics: object) -> dict:
+    allowed = (
+        "node_id",
+        "paper_ref",
+        "item_key",
+        "title",
+        "year",
+        "internal_in_degree",
+        "internal_out_degree",
+        "external_reference_count",
+        "unresolved_reference_count",
+        "internal_pagerank",
+        "component_id",
+        "component_size",
+        "is_isolated",
+        "foundation_score",
+        "frontier_score",
+        "synthesis_role_hints",
+    )
+    value = {key: row.get(key) for key in allowed if key in row}
+    value["status"] = status
+    value["diagnostics"] = diagnostics if isinstance(diagnostics, dict) else {}
+    return value
+
+
+def persist_citation_graph_metrics(conn: sqlite3.Connection, payload: dict) -> dict:
+    result = _metrics_result_from_payload(payload)
+    if not isinstance(result, dict):
+        raise ValueError("citation graph metrics payload must contain a metrics result object")
+    requested_refs = _metric_payload_paper_refs(payload, result)
+    known_refs = set(paper_refs(conn))
+    if not requested_refs:
+        raise ValueError("persist_citation_graph_metrics requires paper_refs for the requested batch")
+    for paper_ref in requested_refs:
+        if paper_ref not in known_refs:
+            raise ValueError(f"paper_ref is not in paper_workset: {paper_ref}")
+    items = result.get("items") if isinstance(result.get("items"), list) else []
+    by_ref = {
+        str(item.get("paper_ref") or "").strip(): item
+        for item in items
+        if isinstance(item, dict) and str(item.get("paper_ref") or "").strip()
+    }
+    status = str(result.get("status") or ("ready" if result.get("ok") else "missing")).strip() or "missing"
+    diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
+    graph_hash = str(result.get("graph_hash") or "").strip()
+    metrics_hash = str(result.get("metrics_hash") or "").strip()
+    now = now_iso()
+    persisted: list[dict] = []
+    for paper_ref in requested_refs:
+        item = by_ref.get(paper_ref)
+        row_status = "ready" if item else status
+        row = _compact_metric_row(item or {"paper_ref": paper_ref}, row_status, diagnostics)
+        row["graph_hash"] = graph_hash
+        row["metrics_hash"] = metrics_hash
+        conn.execute(
+            """
+            insert or replace into citation_graph_metrics(paper_ref, metrics_json, status, created_at)
+            values (?, ?, ?, ?)
+            """,
+            (paper_ref, json.dumps(row, ensure_ascii=False, sort_keys=True), row_status, now),
+        )
+        persisted.append(row)
+    conn.commit()
+    return {
+        "paper_refs": requested_refs,
+        "metrics_count": len(citation_graph_metric_refs(conn)),
+        "paper_count": len(paper_refs(conn)),
+        "missing_metric_refs": missing_citation_graph_metric_refs(conn),
+        "statuses": sorted({str(row.get("status") or "missing") for row in persisted}),
+        "graph_hash": graph_hash,
+        "metrics_hash": metrics_hash,
+    }
 
 
 def _load_payload_entry(run_root: str | Path, entry: dict) -> tuple[str, dict]:
@@ -650,25 +792,25 @@ def _load_payload_entry(run_root: str | Path, entry: dict) -> tuple[str, dict]:
     return paper_ref, entry
 
 
-def persist_paper_artifact_bundles(
+def persist_filtered_artifact_manifest(
     conn: sqlite3.Connection,
     payload: dict,
     *,
     run_root: str | Path = ".",
 ) -> dict:
-    entries = _manifest_payload_entries(payload)
+    entries = _manifest_paper_entries(payload)
     known_refs = set(paper_refs(conn))
+    missing_metrics = set(missing_citation_graph_metric_receipt_refs(conn))
     normalized: list[dict] = []
     for entry in entries:
-        paper_ref, value = _load_payload_entry(run_root, entry)
+        paper_ref = str(entry.get("paper_ref") or entry.get("paperRef") or "").strip()
         if paper_ref not in known_refs:
             raise ValueError(f"paper_ref is not in paper_workset: {paper_ref}")
-        payload_ref = value.get("paper_ref") or value.get("paperRef")
-        if payload_ref and payload_ref != paper_ref:
-            raise ValueError(f"payload paper_ref {payload_ref!r} does not match manifest paper_ref {paper_ref!r}")
-        normalized.append(_normalize_artifact_bundle(paper_ref, value))
+        if paper_ref in missing_metrics:
+            raise ValueError(f"citation_graph_metrics receipt is required before artifact manifest: {paper_ref}")
+        normalized.append(_normalize_artifact_manifest_entry(paper_ref, payload))
     if not normalized:
-        raise ValueError("persist_paper_artifact_bundles requires at least one payload")
+        raise ValueError("persist_filtered_artifact_manifest requires at least one paper")
     now = now_iso()
     for bundle in normalized:
         conn.execute(
@@ -692,7 +834,13 @@ def persist_paper_artifact_bundles(
     }
 
 
-def persist_paper_analysis(conn: sqlite3.Connection, paper_ref: str, payload: dict) -> dict:
+def persist_paper_analysis(
+    conn: sqlite3.Connection,
+    paper_ref: str,
+    payload: dict,
+    *,
+    run_root: str | Path = ".",
+) -> dict:
     if paper_ref not in set(paper_refs(conn)):
         raise ValueError(f"paper_ref is not in paper_workset: {paper_ref}")
     if paper_ref in set(missing_paper_artifact_bundle_receipt_refs(conn)):
@@ -709,12 +857,15 @@ def persist_paper_analysis(conn: sqlite3.Connection, paper_ref: str, payload: di
         (paper_ref, json.dumps(value, ensure_ascii=False, sort_keys=True)),
     )
     conn.commit()
+    index = write_cross_paper_evidence_index(conn, run_root)
     missing = missing_paper_analysis_refs(conn)
     return {
         "paper_ref": paper_ref,
         "analyzed_count": len(analyzed_paper_refs(conn)),
         "paper_count": len(paper_refs(conn)),
         "missing_paper_refs": missing,
+        "evidence_index_path": index["path"],
+        "evidence_index_hash": index["hash"],
     }
 
 
@@ -739,7 +890,7 @@ def persist_paper_analyses(
     *,
     run_root: str | Path = ".",
 ) -> dict:
-    entries = _manifest_payload_entries(payload)
+    entries = _analysis_payload_entries(payload)
     normalized: list[tuple[str, dict]] = []
     for entry in entries:
         paper_ref, value = _load_payload_entry(run_root, entry)
@@ -752,50 +903,15 @@ def persist_paper_analyses(
             (paper_ref, json.dumps(value, ensure_ascii=False, sort_keys=True)),
         )
     conn.commit()
+    index = write_cross_paper_evidence_index(conn, run_root)
     return {
         "paper_refs": [paper_ref for paper_ref, _ in normalized],
         "analyzed_count": len(analyzed_paper_refs(conn)),
         "paper_count": len(paper_refs(conn)),
         "missing_paper_refs": missing_paper_analysis_refs(conn),
+        "evidence_index_path": index["path"],
+        "evidence_index_hash": index["hash"],
     }
-
-
-def _section_payloads_from_input(payload: dict) -> dict:
-    if isinstance(payload.get("sections"), dict):
-        return payload["sections"]
-    return {key: payload[key] for key in REQUIRED_FULL_SECTIONS if key in payload}
-
-
-def persist_cross_paper_synthesis(conn: sqlite3.Connection, payload: dict) -> dict:
-    require_stage4_action_receipts_complete(conn)
-    expected_path = get_meta(conn, "source_context_path", "")
-    expected_hash = get_meta(conn, "source_context_hash", "")
-    source_path = str(payload.get("source_context_path") or "").strip()
-    source_hash = str(payload.get("source_context_hash") or "").strip()
-    if not expected_path or not expected_hash:
-        raise ValueError("export_cross_paper_context must run before persist_cross_paper_synthesis")
-    if source_path != expected_path:
-        raise ValueError(f"source_context_path mismatch: expected {expected_path}, got {source_path}")
-    if source_hash != expected_hash:
-        raise ValueError(f"source_context_hash mismatch: expected {expected_hash}, got {source_hash}")
-    sections = inject_section_digest_refs(conn, _section_payloads_from_input(payload))
-    if not sections:
-        raise ValueError("persist_cross_paper_synthesis requires a sections object or section keys")
-    validate_topic_section_contract(
-        conn,
-        sections,
-        require_complete=all(section in sections for section in REQUIRED_FULL_SECTIONS),
-    )
-    for section_name, value in sections.items():
-        conn.execute(
-            "insert or replace into section_payloads(section_name, value_json) values (?, ?)",
-            (section_name, json.dumps(value, ensure_ascii=False, sort_keys=True)),
-        )
-    for meta_key in ("artifact_metadata", "base_hashes", "read_section_hashes", "changed_sections", "operation"):
-        if meta_key in payload:
-            set_meta(conn, meta_key, payload[meta_key])
-    conn.commit()
-    return {"section_names": sorted(sections.keys())}
 
 
 def paper_artifact_bundle_values(conn: sqlite3.Connection) -> list[dict]:
@@ -811,6 +927,19 @@ def paper_artifact_bundle_value(conn: sqlite3.Connection, paper_ref: str) -> dic
     if not row:
         raise ValueError(f"paper_artifact_bundle receipt is required before paper_analysis: {paper_ref}")
     return json.loads(row["bundle_json"])
+
+
+def citation_graph_metric_values(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute("select metrics_json from citation_graph_metrics order by paper_ref").fetchall()
+    return [json.loads(row["metrics_json"]) for row in rows]
+
+
+def citation_graph_metric_value(conn: sqlite3.Connection, paper_ref: str) -> dict:
+    row = conn.execute(
+        "select metrics_json from citation_graph_metrics where paper_ref = ?",
+        (paper_ref,),
+    ).fetchone()
+    return json.loads(row["metrics_json"]) if row else {"paper_ref": paper_ref, "status": "missing"}
 
 
 def _artifact_for_type(bundle: dict, artifact_type: str) -> dict:
@@ -832,6 +961,7 @@ def validate_paper_analysis_against_bundle(
 ) -> None:
     """Stage 4 gate: single-paper analysis cannot invent unavailable artifacts."""
 
+    validate_paper_unit_contract(paper_ref, analysis)
     bundle = paper_artifact_bundle_value(conn, paper_ref)
     digest = _artifact_for_type(bundle, "digest")
     references = _artifact_for_type(bundle, "references")
@@ -868,6 +998,101 @@ def validate_paper_analysis_against_bundle(
         raise ValueError(f"paper_analysis must not include citation_contexts when citation-analysis-json is missing: {paper_ref}")
 
 
+def _require_object(value: dict, key: str, paper_ref: str) -> dict:
+    entry = value.get(key)
+    if not isinstance(entry, dict):
+        raise ValueError(f"paper_analysis.{key} must be an object for {paper_ref}")
+    return entry
+
+
+def _require_array(value: dict, key: str, paper_ref: str) -> list:
+    entry = value.get(key)
+    if not isinstance(entry, list):
+        raise ValueError(f"paper_analysis.{key} must be an array for {paper_ref}")
+    return entry
+
+
+def _require_non_empty_text(value: dict, key: str, label: str, paper_ref: str) -> None:
+    if not str(value.get(key) or "").strip():
+        raise ValueError(f"{label}.{key} is required for {paper_ref}")
+
+
+def _contains_foreign_paper_ref(value: object, paper_ref: str) -> str:
+    if isinstance(value, dict):
+        for key, entry in value.items():
+            if key in {"paper_ref", "citing_paper_ref"}:
+                text = str(entry or "").strip()
+                if text and text != paper_ref:
+                    return text
+            if key == "paper_refs" and isinstance(entry, list):
+                for item in entry:
+                    text = str(item or "").strip()
+                    if text and text != paper_ref:
+                        return text
+            found = _contains_foreign_paper_ref(entry, paper_ref)
+            if found:
+                return found
+    if isinstance(value, list):
+        for entry in value:
+            found = _contains_foreign_paper_ref(entry, paper_ref)
+            if found:
+                return found
+    return ""
+
+
+def validate_paper_unit_contract(paper_ref: str, analysis: dict) -> None:
+    if "payload_hash" in analysis:
+        raise ValueError(f"paper_analysis.payload_hash is runtime-managed; remove payload_hash for {paper_ref}")
+    bibliographic = _require_object(analysis, "bibliographic", paper_ref)
+    _require_non_empty_text(bibliographic, "title", "paper_analysis.bibliographic", paper_ref)
+    if not str(bibliographic.get("year") or "").strip():
+        raise ValueError(f"paper_analysis.bibliographic.year must be a value or 'unknown' for {paper_ref}")
+    if not isinstance(bibliographic.get("authors"), list):
+        raise ValueError(f"paper_analysis.bibliographic.authors must be an array for {paper_ref}")
+    relevance = _require_object(analysis, "topic_relevance", paper_ref)
+    if str(relevance.get("level") or "").strip() not in {"core", "related", "peripheral", "excluded"}:
+        raise ValueError(f"paper_analysis.topic_relevance.level is invalid for {paper_ref}")
+    _require_non_empty_text(relevance, "reason", "paper_analysis.topic_relevance", paper_ref)
+    research = _require_object(analysis, "research_problem", paper_ref)
+    _require_non_empty_text(research, "text", "paper_analysis.research_problem", paper_ref)
+    if "scope" not in research:
+        raise ValueError(f"paper_analysis.research_problem.scope is required for {paper_ref}")
+    method = _require_object(analysis, "method_contribution", paper_ref)
+    for key in ("route", "mechanism", "claimed_advantage", "target_bottleneck"):
+        if key not in method:
+            raise ValueError(f"paper_analysis.method_contribution.{key} is required for {paper_ref}")
+    evaluation = _require_object(analysis, "evaluation_context", paper_ref)
+    for key in ("datasets", "metrics", "baselines"):
+        if not isinstance(evaluation.get(key), list):
+            raise ValueError(f"paper_analysis.evaluation_context.{key} must be an array for {paper_ref}")
+    if "setting" not in evaluation:
+        raise ValueError(f"paper_analysis.evaluation_context.setting is required for {paper_ref}")
+    graph_interpretation = _require_object(analysis, "graph_metrics_interpretation", paper_ref)
+    _require_non_empty_text(
+        graph_interpretation,
+        "synthesis_use",
+        "paper_analysis.graph_metrics_interpretation",
+        paper_ref,
+    )
+    for key in (
+        "findings",
+        "limitations",
+        "taxonomy_hints",
+        "timeline_candidates",
+        "claim_support_candidates",
+        "comparison_facts",
+        "external_references",
+        "citation_contexts",
+        "missing_payloads",
+    ):
+        _require_array(analysis, key, paper_ref)
+    foreign_ref = _contains_foreign_paper_ref(analysis.get("comparison_facts", []), paper_ref)
+    if foreign_ref:
+        raise ValueError(
+            f"paper_analysis.comparison_facts must stay paper-local for {paper_ref}; found foreign paper_ref {foreign_ref}"
+        )
+
+
 def inject_digest_locator_from_bundle(
     conn: sqlite3.Connection,
     paper_ref: str,
@@ -875,20 +1100,14 @@ def inject_digest_locator_from_bundle(
 ) -> None:
     bundle = paper_artifact_bundle_value(conn, paper_ref)
     digest = _artifact_for_type(bundle, "digest")
+    if analysis.get("digest_locator"):
+        raise ValueError(
+            f"paper_analysis.digest_locator is runtime-managed; remove digest_locator from agent input for {paper_ref}"
+        )
     if digest.get("status") != "available":
-        if analysis.get("digest_locator"):
-            raise ValueError(f"paper_analysis must not include digest_locator when digest is missing: {paper_ref}")
         return
     expected_hash = str(digest.get("payload_hash") or "").strip()
     assert_valid_sha256_hash(expected_hash, f"artifact {paper_ref}:digest payload_hash")
-    locator = analysis.get("digest_locator")
-    if isinstance(locator, dict):
-        supplied_type = str(locator.get("payload_type") or "digest-markdown").strip()
-        supplied_hash = str(locator.get("payload_hash") or "").strip()
-        if supplied_type != "digest-markdown":
-            raise ValueError(f"paper_analysis.digest_locator.payload_type must be digest-markdown: {paper_ref}")
-        if supplied_hash and supplied_hash != expected_hash:
-            raise ValueError(f"paper_analysis.digest_locator.payload_hash mismatch: {paper_ref}")
     analysis["digest_locator"] = {
         "paper_ref": paper_ref,
         "payload_type": "digest-markdown",
@@ -911,6 +1130,72 @@ def _digest_ref_for_bundle(bundle: dict) -> dict | None:
 def evidence_id_for_paper_ref(paper_ref: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9]+", "_", str(paper_ref or "").strip()).strip("_").lower()
     return f"pe:{safe or 'unknown'}"
+
+
+def paper_unit_id_for_paper_ref(paper_ref: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", str(paper_ref or "").strip()).strip("_").lower()
+    return f"pu:{safe or 'unknown'}"
+
+
+def strip_runtime_managed_fields(value: object) -> object:
+    if isinstance(value, list):
+        return [strip_runtime_managed_fields(entry) for entry in value]
+    if isinstance(value, dict):
+        return {
+            key: strip_runtime_managed_fields(entry)
+            for key, entry in value.items()
+            if key not in {"digest_locator", "payload_hash", "hash"}
+        }
+    return value
+
+
+def write_cross_paper_evidence_index(
+    conn: sqlite3.Connection,
+    run_root: str | Path = ".",
+) -> dict:
+    root = Path(run_root)
+    analyses = paper_analysis_values(conn)
+    bundles_by_ref = {bundle.get("paper_ref"): bundle for bundle in paper_artifact_bundle_values(conn)}
+    units = []
+    for analysis in analyses:
+        paper_ref = str(analysis.get("paper_ref") or "").strip()
+        bundle = bundles_by_ref.get(paper_ref, {"artifacts": []})
+        artifacts = _artifact_map(bundle)
+        units.append({
+            "id": paper_unit_id_for_paper_ref(paper_ref),
+            "paper_ref": paper_ref,
+            "artifact_status": {
+                "digest": artifacts.get("digest", {}).get("status", "missing"),
+                "references": artifacts.get("references", {}).get("status", "missing"),
+                "citation_analysis": artifacts.get("citation_analysis", {}).get("status", "missing"),
+            },
+            "analysis": strip_runtime_managed_fields(analysis),
+        })
+    index = {
+        "schema_id": "synthesis.cross_paper_evidence_index",
+        "schema_version": "1.0.0",
+        "paper_count": len(paper_refs(conn)),
+        "paper_unit_count": len(units),
+        "paper_units": units,
+        "diagnostics": {
+            "missing_paper_refs": missing_paper_analysis_refs(conn),
+        },
+    }
+    relative_path = "runtime/views/cross-paper-evidence-index.json"
+    target = root / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(pretty_json(index), encoding="utf-8")
+    hash_value = sha256_file(target)
+    register_artifact(
+        conn,
+        path=relative_path,
+        hash_value=hash_value,
+        content_type="json",
+        schema_id="synthesis.cross_paper_evidence_index",
+        stage="stage_4_per_paper_analysis",
+        validated=True,
+    )
+    return {"path": relative_path, "hash": hash_value, "paper_unit_count": len(units)}
 
 
 def inject_paper_evidence_ids_and_refs(sections: dict) -> dict:
@@ -1037,6 +1322,199 @@ def _clean_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _candidate_ids(rows: object) -> set[str]:
+    return {
+        _clean_text(row.get("id"))
+        for row in rows
+        if isinstance(row, dict) and _clean_text(row.get("id"))
+    } if isinstance(rows, list) else set()
+
+
+def _validate_unit_refs(
+    rows: object,
+    *,
+    key: str,
+    known_units: set[str],
+    label: str,
+    require_non_empty: bool,
+) -> None:
+    if not isinstance(rows, list):
+        raise ValueError(f"cross_paper_evidence_map.{label} must be an array")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError(f"cross_paper_evidence_map.{label} entries must be objects")
+        row_id = _clean_text(row.get("id"))
+        refs = row.get(key)
+        if not isinstance(refs, list):
+            raise ValueError(f"cross_paper_evidence_map.{label}.{row_id}.{key} must be an array")
+        cleaned = [_clean_text(ref) for ref in refs if _clean_text(ref)]
+        if require_non_empty and not cleaned:
+            raise ValueError(f"cross_paper_evidence_map.{label}.{row_id}.{key} must not be empty")
+        for ref in cleaned:
+            if ref not in known_units:
+                raise ValueError(f"cross_paper_evidence_map.{label}.{row_id} references unknown paper unit {ref}")
+
+
+def validate_cross_paper_evidence_map(
+    conn: sqlite3.Connection,
+    evidence_map: dict,
+) -> dict:
+    if evidence_map.get("schema_id") != "synthesis.cross_paper_evidence_map":
+        raise ValueError("cross_paper_evidence_map.schema_id must be synthesis.cross_paper_evidence_map")
+    required = (
+        "schema_version",
+        "evidence_limits",
+        "taxonomy_candidates",
+        "comparison_dimensions",
+        "claim_candidates",
+        "debate_candidates",
+        "gap_candidates",
+        "review_outline_seeds",
+        "diagnostics",
+    )
+    for key in required:
+        if key not in evidence_map:
+            raise ValueError(f"cross_paper_evidence_map.{key} is required")
+    known_units = {paper_unit_id_for_paper_ref(ref) for ref in paper_refs(conn)}
+    _validate_unit_refs(
+        evidence_map.get("taxonomy_candidates"),
+        key="paper_unit_refs",
+        known_units=known_units,
+        label="taxonomy_candidates",
+        require_non_empty=True,
+    )
+    _validate_unit_refs(
+        evidence_map.get("claim_candidates"),
+        key="supporting_paper_unit_refs",
+        known_units=known_units,
+        label="claim_candidates",
+        require_non_empty=True,
+    )
+    _validate_unit_refs(
+        evidence_map.get("comparison_dimensions"),
+        key="coverage_refs",
+        known_units=known_units,
+        label="comparison_dimensions",
+        require_non_empty=False,
+    )
+    debates = evidence_map.get("debate_candidates")
+    if not isinstance(debates, list):
+        raise ValueError("cross_paper_evidence_map.debate_candidates must be an array")
+    for row in debates:
+        if not isinstance(row, dict):
+            raise ValueError("cross_paper_evidence_map.debate_candidates entries must be objects")
+        if not _clean_text(row.get("evidence_type")):
+            raise ValueError(f"cross_paper_evidence_map.debate_candidates.{_clean_text(row.get('id'))}.evidence_type is required")
+    gaps = evidence_map.get("gap_candidates")
+    if not isinstance(gaps, list):
+        raise ValueError("cross_paper_evidence_map.gap_candidates must be an array")
+    for row in gaps:
+        if not isinstance(row, dict):
+            raise ValueError("cross_paper_evidence_map.gap_candidates entries must be objects")
+        if _clean_text(row.get("gap_type")) not in GAP_TYPES:
+            raise ValueError(f"cross_paper_evidence_map.gap_candidates.{_clean_text(row.get('id'))}.gap_type is invalid")
+    candidate_ids = set()
+    for key in (
+        "taxonomy_candidates",
+        "claim_candidates",
+        "comparison_dimensions",
+        "debate_candidates",
+        "gap_candidates",
+        "review_outline_seeds",
+    ):
+        candidate_ids.update(_candidate_ids(evidence_map.get(key)))
+    if not candidate_ids:
+        raise ValueError("cross_paper_evidence_map must contain at least one candidate id")
+    return {
+        "candidate_ids": sorted(candidate_ids),
+        "candidate_counts": {
+            key: len(evidence_map.get(key, [])) if isinstance(evidence_map.get(key), list) else 0
+            for key in (
+                "taxonomy_candidates",
+                "comparison_dimensions",
+                "claim_candidates",
+                "debate_candidates",
+                "gap_candidates",
+                "review_outline_seeds",
+            )
+        },
+    }
+
+
+def persist_cross_paper_evidence_map(
+    conn: sqlite3.Connection,
+    payload: dict,
+    *,
+    run_root: str | Path = ".",
+) -> dict:
+    validated = validate_cross_paper_evidence_map(conn, payload)
+    relative_path = "runtime/payloads/cross-paper-evidence-map.json"
+    target = Path(run_root) / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(pretty_json(payload), encoding="utf-8")
+    hash_value = sha256_file(target)
+    register_artifact(
+        conn,
+        path=relative_path,
+        hash_value=hash_value,
+        content_type="json",
+        schema_id="synthesis.cross_paper_evidence_map",
+        stage="stage_5_cross_paper_synthesis",
+        validated=True,
+    )
+    set_meta(conn, "cross_paper_evidence_map_path", relative_path)
+    set_meta(conn, "cross_paper_evidence_map_hash", hash_value)
+    set_meta(conn, "cross_paper_evidence_map_candidate_ids", sorted(validated["candidate_ids"]))
+    set_meta(conn, "cross_paper_evidence_map_candidate_counts", validated["candidate_counts"])
+    return {
+        "evidence_map_path": relative_path,
+        "evidence_map_hash": hash_value,
+        "candidate_ids": validated["candidate_ids"],
+        "candidate_counts": validated["candidate_counts"],
+    }
+
+
+def _evidence_map_candidate_ids(conn: sqlite3.Connection) -> set[str]:
+    ids = get_meta(conn, "cross_paper_evidence_map_candidate_ids", [])
+    if isinstance(ids, list):
+        return {_clean_text(value) for value in ids if _clean_text(value)}
+    return set()
+
+
+def _validate_evidence_map_refs(section_name: str, rows: object, known_candidates: set[str]) -> None:
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = _clean_text(row.get("id") or row.get("title") or row.get("text"))
+        refs = row.get("evidence_map_refs")
+        if not isinstance(refs, list) or not [_clean_text(ref) for ref in refs if _clean_text(ref)]:
+            raise ValueError(f"{section_name} {row_id} requires evidence_map_refs")
+        for ref in refs:
+            cleaned = _clean_text(ref)
+            if cleaned not in known_candidates:
+                raise ValueError(f"{section_name} {row_id} references missing evidence_map candidate {cleaned}")
+
+
+def _validate_nested_evidence_map_refs(section_name: str, value: object, known_candidates: set[str]) -> None:
+    if isinstance(value, dict):
+        if "evidence_map_refs" in value:
+            refs = value.get("evidence_map_refs")
+            row_id = _clean_text(value.get("id") or value.get("title") or section_name)
+            if not isinstance(refs, list) or not [_clean_text(ref) for ref in refs if _clean_text(ref)]:
+                raise ValueError(f"{section_name} {row_id} requires evidence_map_refs")
+            for ref in refs:
+                cleaned = _clean_text(ref)
+                if cleaned not in known_candidates:
+                    raise ValueError(f"{section_name} {row_id} references missing evidence_map candidate {cleaned}")
+        for entry in value.values():
+            _validate_nested_evidence_map_refs(section_name, entry, known_candidates)
+    elif isinstance(value, list):
+        for entry in value:
+            _validate_nested_evidence_map_refs(section_name, entry, known_candidates)
+
+
 def validate_topic_section_contract(
     conn: sqlite3.Connection,
     sections: dict,
@@ -1049,6 +1527,8 @@ def validate_topic_section_contract(
         missing = [name for name in REQUIRED_FULL_SECTIONS if name not in sections]
         if missing:
             raise ValueError("missing_required_sections: " + ", ".join(missing))
+        if not _evidence_map_candidate_ids(conn):
+            raise ValueError("cross_paper_evidence_map must be validated before final sections")
 
     paper_evidence = sections.get("paper_evidence", [])
     if "paper_evidence" in sections or require_complete:
@@ -1100,6 +1580,31 @@ def validate_topic_section_contract(
         if "summary" not in external:
             raise ValueError("external_literature_analysis summary is required")
 
+    known_candidates = _evidence_map_candidate_ids(conn)
+    if known_candidates:
+        evidence_map_section = sections.get("evidence_map", {})
+        if isinstance(evidence_map_section, dict):
+            section_ids = {
+                _clean_text(value)
+                for value in evidence_map_section.get("candidate_ids", [])
+                if _clean_text(value)
+            } if isinstance(evidence_map_section.get("candidate_ids"), list) else set()
+            if section_ids and not known_candidates.issubset(section_ids):
+                missing_ids = sorted(known_candidates - section_ids)
+                raise ValueError("evidence_map.candidate_ids missing validated candidates: " + ", ".join(missing_ids))
+        _validate_evidence_map_refs("claims", sections.get("claims", []), known_candidates)
+        _validate_nested_evidence_map_refs("taxonomy", sections.get("taxonomy", {}), known_candidates)
+        _validate_nested_evidence_map_refs("comparison_matrix", sections.get("comparison_matrix", {}), known_candidates)
+        _validate_evidence_map_refs("debates", sections.get("debates", []), known_candidates)
+        _validate_evidence_map_refs("gaps", sections.get("gaps", []), known_candidates)
+        _validate_nested_evidence_map_refs("review_outline", sections.get("review_outline", {}), known_candidates)
+    for gap in sections.get("gaps", []) if isinstance(sections.get("gaps"), list) else []:
+        if isinstance(gap, dict) and _clean_text(gap.get("gap_type")) not in GAP_TYPES:
+            raise ValueError(f"gaps {_clean_text(gap.get('id'))} requires a valid gap_type")
+    for event in sections.get("timeline_events", []) if isinstance(sections.get("timeline_events"), list) else []:
+        if isinstance(event, dict) and _clean_text(event.get("year")).lower() == "unknown" and _clean_text(event.get("time_basis")) != "inferred_phase":
+            raise ValueError(f"timeline {_clean_text(event.get('id'))} with unknown year must use time_basis=inferred_phase")
+
 
 def artifact_status_counts(bundles: list[dict]) -> dict:
     counts = {
@@ -1127,52 +1632,347 @@ def strip_hash_fields(value: object) -> object:
     return value
 
 
-def build_cross_paper_context(conn: sqlite3.Connection) -> dict:
+def _artifact_map(bundle: dict) -> dict[str, dict]:
+    return {
+        artifact.get("artifact_type"): artifact
+        for artifact in bundle.get("artifacts", [])
+        if isinstance(artifact, dict) and artifact.get("artifact_type")
+    }
+
+
+def _paper_title_year(workset_row: dict) -> tuple[str, str]:
+    source = workset_row.get("source") if isinstance(workset_row.get("source"), dict) else {}
+    title = _clean_text(workset_row.get("title") or source.get("title"))
+    year = _clean_text(workset_row.get("year") or source.get("year"))
+    return title, year
+
+
+def _markdown_escape_cell(value: object) -> str:
+    text = _clean_text(value).replace("\r", " ").replace("\n", " ")
+    return text.replace("|", "\\|")
+
+
+def _compact_authors(value: object) -> str:
+    if isinstance(value, list):
+        authors = [_clean_text(entry) for entry in value if _clean_text(entry)]
+        if len(authors) > 2:
+            return "; ".join(authors[:2]) + "; et al."
+        return "; ".join(authors)
+    return _clean_text(value)
+
+
+def _artifact_text_from_file(run_root: str | Path, artifact: dict) -> str:
+    if artifact.get("status") != "available":
+        return ""
+    content_file = str(artifact.get("content_file") or "").strip()
+    if not content_file:
+        return ""
+    path = resolve_run_relative_path(run_root, content_file)
+    expected_hash = str(artifact.get("content_hash") or "").strip()
+    if expected_hash:
+        actual_hash = sha256_file(path)
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"artifact content_hash mismatch for {content_file}: expected {expected_hash}, got {actual_hash}"
+            )
+    return read_text_file(path)
+
+
+def filter_digest_for_cross_paper_context(markdown: str) -> tuple[str, dict]:
+    """Keep the first four top-level ## sections without truncation.
+
+    The filter is heading-order based rather than title based so multilingual
+    digest headings remain stable. It deliberately drops later sections such as
+    limitations/reproducibility clues and chapter-by-chapter summaries.
+    """
+
+    lines = str(markdown or "").splitlines()
+    kept: list[str] = []
+    kept_headings: list[str] = []
+    dropped_headings: list[str] = []
+    top_level_index = 0
+    keep_current = True
+    for line in lines:
+        if re.match(r"^##\s+", line):
+            top_level_index += 1
+            keep_current = top_level_index <= 4
+            if keep_current:
+                kept_headings.append(line.strip())
+            else:
+                dropped_headings.append(line.strip())
+        if keep_current:
+            kept.append(line)
+    return "\n".join(kept).strip(), {
+        "kept_top_level_sections": kept_headings,
+        "dropped_top_level_sections": dropped_headings,
+        "policy": "keep first four top-level ## sections without truncation",
+    }
+
+
+def compact_reference_row(reference: dict) -> str:
+    """Render one external reference with only id/year/authors/title.
+
+    references raw fields, parser internals, confidence scores, and matching
+    metadata are intentionally excluded from LLM-facing contexts.
+    """
+
+    ref_id = _markdown_escape_cell(reference.get("id"))
+    year = _markdown_escape_cell(reference.get("year"))
+    authors = _markdown_escape_cell(_compact_authors(reference.get("author") or reference.get("authors")))
+    title = _markdown_escape_cell(reference.get("title"))
+    return f"| {ref_id} | {year} | {authors} | {title} |"
+
+
+def _artifact_references(run_root: str | Path, artifact: dict) -> list[dict]:
+    if artifact.get("status") != "available":
+        return []
+    content_file = str(artifact.get("content_file") or "").strip()
+    if not content_file:
+        return []
+    payload = read_json_file(resolve_run_relative_path(run_root, content_file))
+    if not isinstance(payload, dict):
+        return []
+    refs = payload.get("references")
+    return [entry for entry in refs if isinstance(entry, dict)] if isinstance(refs, list) else []
+
+
+def _citation_report_md(run_root: str | Path, artifact: dict) -> str:
+    return _artifact_text_from_file(run_root, artifact).strip()
+
+
+def _analysis_markdown(analysis: dict) -> str:
+    lines = [
+        "### Per-Paper Analysis",
+        f"- Topic relevance: {_clean_text(analysis.get('topic_relevance')) or 'unknown'}",
+        f"- Method contribution: {_clean_text(analysis.get('method_contribution')) or 'unknown'}",
+        f"- Evidence available: {str(bool(analysis.get('evidence_available'))).lower()}",
+    ]
+    graph_interpretation = analysis.get("graph_metrics_interpretation")
+    if isinstance(graph_interpretation, dict):
+        synthesis_use = _clean_text(graph_interpretation.get("synthesis_use"))
+        caveat = _clean_text(graph_interpretation.get("caveat"))
+        if synthesis_use:
+            lines.append(f"- Graph metrics use: {synthesis_use}")
+        if caveat:
+            lines.append(f"- Graph metrics caveat: {caveat}")
+    for label, key in (
+        ("Findings", "findings"),
+        ("Limitations", "limitations"),
+    ):
+        value = _clean_text(analysis.get(key))
+        if value:
+            lines.append(f"- {label}: {value}")
+    return "\n".join(lines)
+
+
+def _paper_heading(paper_ref: str, title: str, year: str) -> str:
+    suffix = f" — {title}" if title else ""
+    year_part = f" ({year})" if year else ""
+    return f"## Paper {paper_ref}{year_part}{suffix}"
+
+
+def _metric_number(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{value:.6g}"
+    return "unknown"
+
+
+def _metric_role_hints(metric: dict) -> list[str]:
+    hints = metric.get("synthesis_role_hints")
+    return [str(hint) for hint in hints if str(hint).strip()] if isinstance(hints, list) else []
+
+
+def _metric_markdown(metric: dict) -> str:
+    if not metric or metric.get("status") != "ready":
+        return f"- Metrics status: {_clean_text(metric.get('status')) or 'missing'}"
+    hints = _metric_role_hints(metric)
+    return "\n".join([
+        "- Metrics status: ready",
+        f"- Role hints: {', '.join(hints) if hints else 'none'}",
+        f"- Internal degree: in={metric.get('internal_in_degree', 0)}, out={metric.get('internal_out_degree', 0)}",
+        f"- PageRank: {_metric_number(metric.get('internal_pagerank'))}",
+        f"- Scores: foundation={_metric_number(metric.get('foundation_score'))}, frontier={_metric_number(metric.get('frontier_score'))}",
+        f"- Component: {metric.get('component_id', 'unknown')} size={metric.get('component_size', 'unknown')} isolated={str(bool(metric.get('is_isolated'))).lower()}",
+        f"- External/unresolved references: external={metric.get('external_reference_count', 0)}, unresolved={metric.get('unresolved_reference_count', 0)}",
+    ])
+
+
+def _top_metric_refs(metrics: list[dict], role: str, score_key: str, limit: int = 8) -> list[str]:
+    rows = [
+        metric
+        for metric in metrics
+        if metric.get("status") == "ready" and role in _metric_role_hints(metric)
+    ]
+    rows.sort(key=lambda row: (float(row.get(score_key) or 0), str(row.get("paper_ref") or "")), reverse=True)
+    return [str(row.get("paper_ref") or "").strip() for row in rows[:limit] if str(row.get("paper_ref") or "").strip()]
+
+
+def _metrics_summary_markdown(metrics: list[dict]) -> list[str]:
+    status_counts: dict[str, int] = {}
+    for metric in metrics:
+        status = str(metric.get("status") or "missing")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    return [
+        "",
+        "## Citation Graph Metrics Summary",
+        "",
+        "Use these graph-derived metrics only as auxiliary structure signals; they are not evidence for claims or timeline events.",
+        f"- Status counts: {json.dumps(status_counts, ensure_ascii=False, sort_keys=True)}",
+        f"- Core candidates: {', '.join(_top_metric_refs(metrics, 'core', 'foundation_score')) or 'none'}",
+        f"- Foundation candidates: {', '.join(_top_metric_refs(metrics, 'foundation', 'foundation_score')) or 'none'}",
+        f"- Frontier candidates: {', '.join(_top_metric_refs(metrics, 'frontier', 'frontier_score')) or 'none'}",
+        f"- Isolated papers: {', '.join(_top_metric_refs(metrics, 'isolated', 'foundation_score', 12)) or 'none'}",
+        f"- External-heavy papers: {', '.join(_top_metric_refs(metrics, 'external-heavy', 'foundation_score', 12)) or 'none'}",
+    ]
+
+
+def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Path = ".") -> dict:
+    """Build filtered LLM-facing Markdown contexts and a small manifest.
+
+    The Markdown views are allowlist renderings. They must not expose raw payload
+    bodies, raw HTML, note HTML, full artifact payload objects, or references raw
+    fields to the agent.
+    """
+
     require_stage4_action_receipts_complete(conn)
     bundles = paper_artifact_bundle_values(conn)
     analyses = paper_analysis_values(conn)
-    return {
-        "schema_id": "synthesis.cross_paper_context",
+    metrics = citation_graph_metric_values(conn)
+    workset = paper_workset_values(conn)
+    bundles_by_ref = {bundle.get("paper_ref"): bundle for bundle in bundles}
+    analyses_by_ref = {analysis.get("paper_ref"): analysis for analysis in analyses}
+    metrics_by_ref = {metric.get("paper_ref"): metric for metric in metrics}
+    workset_by_ref = {row.get("paper_ref"): row for row in workset}
+    paper_manifest: list[dict] = []
+    main_lines = [
+        "# Cross-Paper Synthesis Context",
+        "",
+        "Use this context for overview, claims, timeline, paper evidence, coverage, and gaps.",
+        "External references and citation reports are intentionally separated into external-literature-context.md.",
+    ]
+    main_lines.extend(_metrics_summary_markdown(metrics))
+    external_lines = [
+        "# External Literature Context",
+        "",
+        "Use this context only for external_literature_analysis.",
+        "Each paper groups compact references with that paper's citation analysis report.",
+    ]
+
+    for paper_ref in paper_refs(conn):
+        bundle = bundles_by_ref.get(paper_ref, {"artifacts": []})
+        analysis = analyses_by_ref.get(paper_ref, {"paper_ref": paper_ref})
+        title, year = _paper_title_year(workset_by_ref.get(paper_ref, {"paper_ref": paper_ref}))
+        artifacts = _artifact_map(bundle)
+        digest = artifacts.get("digest", {})
+        references = artifacts.get("references", {})
+        citation = artifacts.get("citation_analysis", {})
+        metric = metrics_by_ref.get(paper_ref, {"paper_ref": paper_ref, "status": "missing"})
+
+        digest_markdown = _artifact_text_from_file(run_root, digest)
+        digest_filter = {
+            "policy": "host exported filtered digest content with demoted headings",
+        }
+        main_lines.extend([
+            "",
+            _paper_heading(paper_ref, title, year),
+            "",
+            f"- Paper ref: {paper_ref}",
+            f"- Title: {title or 'unknown'}",
+            f"- Year: {year or 'unknown'}",
+            "",
+            "### Citation Graph Metrics",
+            _metric_markdown(metric),
+            "",
+            _analysis_markdown(analysis),
+            "",
+            "### Filtered Digest",
+            digest_markdown or "_Digest artifact missing or empty._",
+        ])
+
+        refs = _artifact_references(run_root, references)
+        report_md = _citation_report_md(run_root, citation)
+        external_lines.extend([
+            "",
+            _paper_heading(paper_ref, title, year),
+            "",
+            f"- Paper ref: {paper_ref}",
+            f"- Title: {title or 'unknown'}",
+            f"- Year: {year or 'unknown'}",
+            "",
+        ])
+        if metric.get("status") == "ready" and (
+            "external-heavy" in _metric_role_hints(metric)
+            or int(metric.get("external_reference_count") or 0) > 0
+            or int(metric.get("unresolved_reference_count") or 0) > 0
+        ):
+            external_lines.extend([
+                "### Citation Graph External Dependency Hint",
+                f"- Role hints: {', '.join(_metric_role_hints(metric)) or 'none'}",
+                f"- External/unresolved references: external={metric.get('external_reference_count', 0)}, unresolved={metric.get('unresolved_reference_count', 0)}",
+                "",
+            ])
+        external_lines.append("### Compact References")
+        if refs:
+            external_lines.extend([
+                "| id | year | authors | title |",
+                "| --- | --- | --- | --- |",
+                *[compact_reference_row(ref) for ref in refs],
+            ])
+        else:
+            external_lines.append("_No references artifact rows available._")
+        external_lines.extend([
+            "",
+            "### Citation Analysis Report",
+            report_md or "_No citation analysis report available._",
+        ])
+
+        paper_manifest.append({
+            "paper_ref": paper_ref,
+            "title": title,
+            "year": year,
+            "digest_status": digest.get("status", "missing"),
+            "references_status": references.get("status", "missing"),
+            "citation_analysis_status": citation.get("status", "missing"),
+            "reference_count": len(refs),
+            "citation_report_present": bool(report_md),
+            "digest_filter": digest_filter,
+            "citation_graph_metrics_status": metric.get("status", "missing"),
+            "citation_graph_role_hints": _metric_role_hints(metric),
+        })
+
+    manifest = {
+        "schema_id": "synthesis.cross_paper_context_manifest",
         "schema_version": "1.0.0",
         "paper_count": len(paper_refs(conn)),
         "bundle_receipt_count": len(bundles),
         "analysis_count": len(analyses),
         "artifact_counts": artifact_status_counts(bundles),
-        "paper_workset": strip_hash_fields(paper_workset_values(conn)),
-        "paper_artifact_bundles": strip_hash_fields(bundles),
-        "paper_analysis": strip_hash_fields(analyses),
+        "context_paths": {
+            "main": "runtime/views/cross-paper-context.md",
+            "external_literature": "runtime/views/external-literature-context.md",
+            "manifest": "runtime/views/cross-paper-context.manifest.json",
+        },
+        "filtering": {
+            "digest": "Keep the first four top-level ## sections without truncation.",
+            "references": "Keep only id/year/authors/title; exclude references raw fields and parser internals.",
+            "citation_analysis": "Keep only citation_analysis.report_md without truncation.",
+            "security": "Expose only renderer allowlist fields; exclude raw note bodies and artifact internals.",
+        },
+        "papers": paper_manifest,
         "diagnostics": {
             "missing_bundle_refs": missing_paper_artifact_bundle_refs(conn),
             "missing_analysis_refs": missing_paper_analysis_refs(conn),
+            "missing_citation_graph_metric_refs": missing_citation_graph_metric_refs(conn),
+            "missing_citation_graph_metric_action_receipt_refs": missing_citation_graph_metric_receipt_refs(conn),
             "missing_bundle_action_receipt_refs": missing_paper_artifact_bundle_receipt_refs(conn),
             "missing_analysis_action_receipt_refs": missing_paper_analysis_receipt_refs(conn),
         },
     }
-
-
-def section_names(conn: sqlite3.Connection) -> list[str]:
-    rows = conn.execute("select section_name from section_payloads order by section_name").fetchall()
-    return [row["section_name"] for row in rows]
-
-
-def section_payload(conn: sqlite3.Connection, section_name: str) -> object:
-    row = conn.execute(
-        "select value_json from section_payloads where section_name = ?",
-        (section_name,),
-    ).fetchone()
-    if not row:
-        raise KeyError(section_name)
-    return json.loads(row["value_json"])
-
-
-def missing_required_sections(conn: sqlite3.Connection, *, operation: str) -> list[str]:
-    present = set(section_names(conn))
-    if operation == "update_patch":
-        changed = get_meta(conn, "changed_sections", None)
-        if not changed:
-            changed = section_names(conn)
-        return [section for section in changed if section not in present]
-    return [section for section in REQUIRED_FULL_SECTIONS if section not in present]
+    return {
+        "main_markdown": "\n".join(main_lines).strip() + "\n",
+        "external_markdown": "\n".join(external_lines).strip() + "\n",
+        "manifest": manifest,
+    }
 
 
 def register_artifact(

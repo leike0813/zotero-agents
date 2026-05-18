@@ -12,7 +12,9 @@
   "tool": "synthesis.get_topic_context",
   "arguments": {
     "topicId": "object-detection",
-    "mode": "update"
+    "mode": "update",
+    "includeArtifact": true,
+    "includeManifest": true
   }
 }
 ```
@@ -23,7 +25,7 @@
 {
   "topic_id": "object-detection",
   "language": "zh-CN",
-  "base_hashes": {
+  "current_hashes": {
     "manifest": "sha256:manifest",
     "artifact": "sha256:artifact",
     "export": "sha256:export",
@@ -42,7 +44,8 @@
 }
 ```
 
-如果 context 缺少 base hashes、section hashes 或 current sections，优先取消，不要猜测。
+将 `current_hashes` 作为本次 update 的 `base_hashes` 写入 runtime。如果 context
+缺少 `current_hashes`、section hashes 或 current artifact sections，优先取消，不要猜测。
 
 ## 2. full / patch 决策表
 

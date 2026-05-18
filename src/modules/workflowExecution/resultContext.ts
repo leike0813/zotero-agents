@@ -36,6 +36,8 @@ export type WorkflowResolvedArtifact = {
 export type WorkflowResultContext = {
   resultJson: unknown;
   resultJsonSource: WorkflowResultJsonSource;
+  workspaceDir?: string;
+  resultJsonPath?: string;
   bundleReader: BundleReader;
   warnings: WorkflowResultResolutionWarning[];
   errors: WorkflowResultResolutionWarning[];
@@ -322,6 +324,7 @@ export async function createWorkflowResultContext(args: {
   const warnings: WorkflowResultResolutionWarning[] = [];
   const errors: WorkflowResultResolutionWarning[] = [];
   const workspaceDir = resolveWorkspaceDir(args.runResult);
+  const resultJsonPath = resolveResultJsonPath(args.runResult);
   const resolvedResultJson = await tryReadResultJson({
     runResult: args.runResult,
     bundleReader: args.bundleReader,
@@ -390,6 +393,8 @@ export async function createWorkflowResultContext(args: {
   return {
     resultJson: resolvedResultJson.resultJson,
     resultJsonSource: resolvedResultJson.source,
+    workspaceDir: workspaceDir || undefined,
+    resultJsonPath: resultJsonPath || undefined,
     bundleReader: args.bundleReader,
     warnings,
     errors,

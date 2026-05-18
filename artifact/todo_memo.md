@@ -66,20 +66,25 @@
 - [x] 移除 acp skills中的 acp-prompt-finished 和 output-validation-succeed 之类的无用系统信息
 - [x] workspace-activity 消息简化为单行，不显示文字，显示一个文件图标+文件相对于workspace的相对路径
 - [x] 权限审批信息收为一条，用图标区分待审批/批准/驳回等状态；权限审批信息也需要摘要化
-- [ ] synthesis页面中的run synthesis按钮还绑定的是旧的workflow入口
-- [ ] 三个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮
+- [x] synthesis页面中的run synthesis按钮还绑定的是旧的workflow入口
+- [ ] workspace activity 有时会打断完整信息（当流式输出未结束时）
+- [ ] synthesis页面中的run synthesis按钮语义应该改为create topic
+- [ ] 四个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮；活动中的acp skills任务如果有新动作，会话抽屉中的任务卡片的更新时间会刷新，在刷新时会导致抽屉无法交互
 - [ ] **Topic graph**
+- [x] **Citation graph增强**，图论算法引入，更多分析维度和数据，最终用于增强synthesis质量
 - [ ] 常见 ACP backend 的快捷添加
 - [ ] **MCP 服务公开化，MCP插件调用能力**
 - [ ] **文献搜索入库 workflow**
+- [ ] Dashboard 的正在运行任务列表，点击无法直接打开侧栏并跳转至任务页面
 - [ ] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
 - [ ] Dashboard 以及 Sidebar panels 与 synthesis workbench 的视觉风格统一（包括亮/暗主题切换）
+- [ ] **工具栏上的快捷任务观察窗（hover展开）**
 - [ ] **本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
-- [ ] **兼容 Zotero 8**
+- [p] **兼容 Zotero 9**
 - [ ] workflow 多语言文案机制
 - [ ] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
-- [ ] broad cache 治理
+- [ ] broad cache 治理，去除非必要的静态断言
 - [ ] 更详细的前后端通讯状态机
 - [ ] 进一步抽出所有可复用的手搓 UI 控件（例如之前已经实现的下拉菜单等，统一搜索并抽出），尤其是带 scroll 的控件，每次加入新的该类控件都会遇到重置 scroll 位置的问题，最好直接抽成通用控件
 - [ ] 进一步升级到各 workflow 可通用的 html 组件，原来基于原生控件的 helper 整体升级（可选）

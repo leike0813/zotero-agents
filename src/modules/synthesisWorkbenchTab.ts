@@ -295,6 +295,14 @@ function findCreateTopicSynthesisWorkflow() {
   );
 }
 
+function findUpdateTopicSynthesisWorkflow() {
+  return (
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === "update-topic-synthesis",
+    ) || null
+  );
+}
+
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
 }) {
@@ -314,6 +322,39 @@ async function runCreateTopicSynthesisFromWorkbench(args: {
     win: hostWindow,
     workflow,
     requireSettingsGate: true,
+  });
+}
+
+async function runUpdateTopicSynthesisFromWorkbench(args: {
+  hostWindow?: _ZoteroTypes.MainWindow;
+  topicId: string;
+  language?: string;
+}) {
+  const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
+  if (!hostWindow) {
+    throw new Error("Cannot update synthesis: Zotero main window is unavailable.");
+  }
+  const workflow = findUpdateTopicSynthesisWorkflow();
+  if (!workflow) {
+    alertWindow(
+      hostWindow,
+      "Cannot update synthesis: update-topic-synthesis workflow is not loaded. Rescan builtin workflows and try again.",
+    );
+    return;
+  }
+  await executeWorkflowFromCurrentSelection({
+    win: hostWindow,
+    workflow,
+    requireSettingsGate: true,
+    executionOptionsOverride: {
+      workflowParams: {
+        topicId: args.topicId,
+        language: args.language || "auto",
+        updateMode: "update_full",
+        updateScope: "refresh",
+        updateReason: "Workbench Topic Detail update action",
+      },
+    },
   });
 }
 
@@ -484,6 +525,21 @@ function handleAction(
   if (result.hostCommand?.command === "runSynthesizeTopic") {
     void runCreateTopicSynthesisFromWorkbench({
       hostWindow: runtime.window,
+    })
+      .catch((error) => reportWorkbenchError(error, runtime.window))
+      .finally(() => {
+        void sendSnapshot(runtime, "synthesis:snapshot");
+      });
+    return;
+  }
+  if (result.hostCommand?.command === "submitTopicSynthesisUpdate") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const topicId = String(commandArgs.topicId || "").trim();
+    const language = String(commandArgs.language || "auto").trim();
+    void runUpdateTopicSynthesisFromWorkbench({
+      hostWindow: runtime.window,
+      topicId,
+      language,
     })
       .catch((error) => reportWorkbenchError(error, runtime.window))
       .finally(() => {

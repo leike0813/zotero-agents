@@ -16,10 +16,31 @@
     "authors": ["Carion et al."]
   },
   "evidence_available": true,
-  "topic_relevance": "该文把 object detection 表述为 set prediction，是检测 transformer 路线的关键起点。",
+  "topic_relevance": {
+    "level": "core",
+    "reason": "该文把 object detection 表述为 set prediction，是检测 transformer 路线的关键起点。"
+  },
+  "research_problem": {
+    "text": "能否把目标检测改写为端到端集合预测任务",
+    "scope": "2D object detection"
+  },
   "method_contribution": {
-    "role": "method",
-    "summary": "提出 DETR，用 transformer encoder-decoder 和 bipartite matching 取代传统手工 anchor/NMS 流程。"
+    "route": "set_prediction_detector",
+    "mechanism": "transformer encoder-decoder + bipartite matching",
+    "claimed_advantage": "减少 anchor/NMS 等手工流程",
+    "target_bottleneck": "传统检测 pipeline 的人工先验和后处理"
+  },
+  "evaluation_context": {
+    "datasets": ["COCO"],
+    "metrics": ["AP"],
+    "baselines": ["Faster R-CNN"],
+    "setting": "2D detection"
+  },
+  "graph_metrics_interpretation": {
+    "role_hints": ["core", "foundation"],
+    "structural_position": "library-only citation graph 中 PageRank 与入度较高，适合放在方法脉络的起点。",
+    "synthesis_use": "用于决定叙述顺序和 coverage 说明，不作为 claim/timeline 的直接证据。",
+    "caveat": "图指标只反映当前库内引用结构，结论仍以 digest evidence 为准。"
   },
   "findings": [
     {
@@ -38,6 +59,16 @@
     {
       "claim_seed": "Transformer-based detectors shifted object detection toward set prediction.",
       "stance": "supports"
+    }
+  ],
+  "taxonomy_hints": [
+    {"axis": "method_route", "value": "set_prediction_detector"}
+  ],
+  "comparison_facts": [
+    {
+      "dimension": "post-processing",
+      "value": "NMS-free set prediction",
+      "basis": "digest method summary"
     }
   ],
   "citation_contexts": [
@@ -113,6 +144,10 @@
 
 - 是否有 `paper_ref`。
 - 是否记录 `evidence_available`，并在缺 digest 时清空主证据候选。
+- 是否有 `bibliographic`、`topic_relevance`、`research_problem`、
+  `method_contribution` 和 `evaluation_context`。
+- 是否有 `graph_metrics_interpretation`，并明确 metrics 只是辅助结构信号。
+- `comparison_facts` 是否只记录本 paper 自身可比事实，不和其他 paper 下结论。
 - findings 是否都能回到 digest。
 - timeline candidates 是否有 year 或 phase。
 - external references 是否只用于外部文献分析。

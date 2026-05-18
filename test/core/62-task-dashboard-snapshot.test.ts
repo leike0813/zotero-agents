@@ -169,6 +169,14 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "workflow-options");
   });
 
+  it("keeps products tab key when requested", function () {
+    const normalized = normalizeDashboardTabKey({
+      requestedTabKey: "products",
+      backends: [makeBackend("skillrunner-primary", "skillrunner")],
+    });
+    assert.equal(normalized, "products");
+  });
+
   it("maps managed local backend id to localized display name", function () {
     const displayName = resolveBackendDisplayName("local-skillrunner-backend");
     assert.notEqual(displayName, "local-skillrunner-backend");

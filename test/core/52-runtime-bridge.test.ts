@@ -143,6 +143,38 @@ describe("runtime bridge", function () {
     assert.notStrictEqual(hostCapabilities.console, null);
   });
 
+  it("does not require hiddenDOMWindow during startup capability resolution", function () {
+    const runtime = globalThis as typeof globalThis & {
+      Services?: unknown;
+    };
+    const previousServices = Object.getOwnPropertyDescriptor(runtime, "Services");
+    try {
+      Object.defineProperty(runtime, "Services", {
+        configurable: true,
+        writable: true,
+        value: {
+          appShell: Object.defineProperty({}, "hiddenDOMWindow", {
+            configurable: true,
+            get() {
+              throw new Error("hiddenDOMWindow unavailable during startup");
+            },
+          }),
+        },
+      });
+
+      const runtimeConsole = resolveRuntimeConsole();
+      const hostCapabilities = resolveRuntimeHostCapabilities();
+      assert.notStrictEqual(runtimeConsole, null);
+      assert.notStrictEqual(hostCapabilities.console, null);
+    } finally {
+      if (previousServices) {
+        Object.defineProperty(runtime, "Services", previousServices);
+      } else {
+        delete runtime.Services;
+      }
+    }
+  });
+
   it("resolves alert capability with window -> toolkit -> global fallback order", function () {
     const calls: string[] = [];
     const previousGlobalAlert = (globalThis as { alert?: (message: string) => void })

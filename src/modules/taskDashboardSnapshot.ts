@@ -110,7 +110,12 @@ export function normalizeDashboardTabKey(args: {
   backends: BackendInstance[];
 }) {
   const requested = String(args.requestedTabKey || "").trim();
-  if (requested === "home" || requested === "workflow-options" || requested === "runtime-logs") {
+  if (
+    requested === "home" ||
+    requested === "products" ||
+    requested === "workflow-options" ||
+    requested === "runtime-logs"
+  ) {
     return requested;
   }
   if (requested.startsWith("backend:")) {

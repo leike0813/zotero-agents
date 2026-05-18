@@ -51,21 +51,17 @@ const dynamicImport: DynamicImport = new Function(
 function isZoteroRuntime() {
   const runtime = globalThis as {
     IOUtils?: unknown;
-    PathUtils?: unknown;
+    PathUtils?: { tempDir?: unknown };
     Services?: {
       io?: { newFileURI?: unknown };
       scriptloader?: { loadSubScript?: unknown };
     };
-    Cc?: unknown;
-    Ci?: unknown;
   };
   return (
     typeof runtime.IOUtils !== "undefined" &&
-    typeof runtime.PathUtils !== "undefined" &&
+    typeof runtime.PathUtils?.tempDir === "string" &&
     typeof runtime.Services?.io?.newFileURI === "function" &&
-    typeof runtime.Services?.scriptloader?.loadSubScript === "function" &&
-    typeof runtime.Cc !== "undefined" &&
-    typeof runtime.Ci !== "undefined"
+    typeof runtime.Services?.scriptloader?.loadSubScript === "function"
   );
 }
 
@@ -976,3 +972,7 @@ export async function loadWorkflowManifests(
     diagnostics: sortedDiagnostics,
   };
 }
+
+export const __workflowLoaderTestOnly = {
+  isZoteroRuntime,
+};

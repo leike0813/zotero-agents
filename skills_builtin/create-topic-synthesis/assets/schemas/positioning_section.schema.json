@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Positioning Section",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["importance", "timeliness", "scope_boundary", "review_position"],
+  "properties": {
+    "importance": { "type": "string" },
+    "timeliness": { "type": "string" },
+    "scope_boundary": { "type": "object" },
+    "review_position": { "type": "string" }
+  }
+}

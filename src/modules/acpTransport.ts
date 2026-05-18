@@ -8,6 +8,7 @@ import {
   resolveWindowsCommandFromPowerShell,
   resolveWindowsCommandFromUserLocalBin,
 } from "./windowsCommandResolution";
+import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -264,22 +265,7 @@ function encodeUint8Chunk(value: unknown, encoder: InstanceType<ReturnType<typeo
 }
 
 function getMozillaSubprocessModule() {
-  const runtime = globalThis as {
-    ChromeUtils?: {
-      import?: (url: string) => { Subprocess?: unknown };
-    };
-  };
-  if (typeof runtime.ChromeUtils?.import !== "function") {
-    return null;
-  }
-  try {
-    const imported = runtime.ChromeUtils.import(
-      "resource://gre/modules/Subprocess.jsm",
-    ) as { Subprocess?: unknown };
-    return (imported?.Subprocess || null) as MozillaSubprocessModule | null;
-  } catch {
-    return null;
-  }
+  return getCompatMozillaSubprocessModule() as MozillaSubprocessModule | null;
 }
 
 function createReadableStreamFromMozillaPipe(pipe: {

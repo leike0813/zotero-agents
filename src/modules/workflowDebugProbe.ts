@@ -62,6 +62,10 @@ export type WorkflowDebugProbeResult = {
     builtinWorkflowsDir: string;
     workflowsDir: string;
     loadedWorkflowCount: number;
+    loadedBuiltinWorkflowCount: number;
+    loadedUserWorkflowCount: number;
+    zoteroVersion?: string;
+    latestBuiltinSync?: unknown;
   };
   workflowChecks: WorkflowDebugProbeCheck[];
 };
@@ -79,6 +83,14 @@ function compactError(error: unknown) {
     return "unknown error";
   }
   return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+}
+
+function escapeHtml(input: string) {
+  return String(input || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function isNoValidInputUnitsError(error: unknown) {
@@ -326,6 +338,12 @@ function buildProbeRenderer(
         `<div><strong>Workflows Root:</strong> ${result.runtimeSummary.workflowsDir || "-"}</div>`,
         `<div><strong>Builtin Root:</strong> ${result.runtimeSummary.builtinWorkflowsDir || "-"}</div>`,
         `<div><strong>Loaded Workflows:</strong> ${String(result.runtimeSummary.loadedWorkflowCount || 0)}</div>`,
+        `<div><strong>Loaded Builtin:</strong> ${String(result.runtimeSummary.loadedBuiltinWorkflowCount || 0)}</div>`,
+        `<div><strong>Loaded User:</strong> ${String(result.runtimeSummary.loadedUserWorkflowCount || 0)}</div>`,
+        `<div><strong>Zotero Version:</strong> ${escapeHtml(result.runtimeSummary.zoteroVersion || "-")}</div>`,
+        result.runtimeSummary.latestBuiltinSync
+          ? `<pre>${escapeHtml(JSON.stringify(result.runtimeSummary.latestBuiltinSync, null, 2))}</pre>`
+          : "",
       ].join("");
       root.appendChild(summary);
 
@@ -447,6 +465,13 @@ export async function runWorkflowDebugProbe(args: {
       builtinWorkflowsDir: registryState.builtinWorkflowsDir,
       workflowsDir: registryState.workflowsDir,
       loadedWorkflowCount: registryState.loaded.workflows.length,
+      loadedBuiltinWorkflowCount:
+        registryState.loadedFromBuiltin.workflows.length,
+      loadedUserWorkflowCount: registryState.loadedFromUser.workflows.length,
+      zoteroVersion: String(
+        (globalThis as { Zotero?: { version?: unknown } }).Zotero?.version || "",
+      ),
+      latestBuiltinSync: registryState.latestBuiltinSync,
     },
     workflowChecks,
   };

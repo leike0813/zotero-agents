@@ -60,8 +60,13 @@ The embedded Zotero MCP server is Streamable HTTP-only. It supports stateless `P
 Transport rules:
 
 - ACP MCP descriptors for Zotero must use `type: "http"`.
+- Authorized MCP requests must use the descriptor-provided bearer header.
+  Query-string token authentication is not accepted for `POST /mcp`.
+- Requests with an `Origin` header must come from localhost-compatible origins.
 - `GET /mcp` is not a receive stream and should return `405 Method Not Allowed`.
 - `/mcp/message` is not supported and should return `404 not_found`.
+- Oversized or malformed requests should receive structured HTTP/JSON-RPC
+  failures before tool handlers run.
 - Backends that advertise only SSE MCP capability should not receive the Zotero MCP descriptor; diagnostics should report HTTP MCP as unavailable.
 
 This boundary exists because real agent transcripts showed successful Zotero MCP injection followed by tool-call failures in the legacy SSE path. Future compatibility work should improve Streamable HTTP behavior rather than reintroduce SSE transport state.
@@ -87,6 +92,9 @@ The MCP queue policy protects Zotero native APIs from concurrent entry, but it d
 Reliability rules:
 
 - A running `tools/call` has a separate timeout from pending queue wait. Running timeout returns JSON-RPC error `zotero_mcp_tool_timeout`.
+- A running timeout does not release the single Zotero host-call slot until the
+  underlying handler settles; this preserves non-reentrant host API protection
+  even after the caller has received a timeout response.
 - Repeated native/runtime failures for the same tool should open a short-lived circuit breaker. Open circuits return `zotero_mcp_tool_circuit_open` with retry guidance instead of executing the tool again.
 - Request listener failures should attempt a JSON-RPC fallback response before closing the transport, so clients do not only see `fetch failed` or `terminated`.
 - Watchdog restarts should be diagnosable. If a restart changes the endpoint, diagnostics must mark the descriptor as stale because the active ACP agent session may need to reconnect to receive the new descriptor.
@@ -137,6 +145,10 @@ Avoid names like:
 Read-only tools may be enabled by default when they return bounded, JSON-safe data. Write tools must require user confirmation, configured allow policy, or another explicit permission gate.
 
 MCP tool calls that enter Zotero native APIs should be serialized by the embedded server. Concurrent agent requests must still receive JSON-RPC responses, but they should not concurrently execute unsafe Zotero host operations.
+
+MCP tool input schemas are enforced centrally before handlers run. Public tools
+should declare `additionalProperties=false` and bounded fields where practical.
+Business validation still belongs in the broker or service layer.
 
 Large MCP responses are not reliable across all ACP backends. Tools that can return unbounded data must default to paged or chunked summaries:
 

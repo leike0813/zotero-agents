@@ -422,7 +422,6 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "executeWorkflowFromCurrentSelection");
     assert.include(source, 'entry.manifest.id === "create-topic-synthesis"');
     assert.include(source, "requireSettingsGate: true");
-    assert.notInclude(source, "executionOptionsOverride");
     assert.notInclude(source, "promptTopicSeed");
     assert.notInclude(source, "promptSynthesisMode");
   });
@@ -481,9 +480,11 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'postWorkbenchMessage(runtime, "synthesis:topic-detail"');
     assert.include(source, 'postWorkbenchMessage(runtime, "synthesis:artifact"');
     assert.notInclude(source, "openPathInSystem(artifact.paths.currentMarkdown");
+    assert.include(app, "renderTopicDetailShell");
     assert.include(app, "renderTopicDetail");
     assert.include(app, "renderArtifactReader");
     assert.include(app, 'command: "openTopicArtifact"');
+    assert.include(app, 'command: "submitTopicSynthesisUpdate"');
     assert.include(app, "Markdown export");
     assert.include(app, "Delete");
     assert.include(app, "Purge Deleted");
@@ -499,6 +500,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderHome");
     assert.include(source, "renderTopics");
     assert.include(source, "renderIndex");
+    assert.include(source, "renderPanelToolbar");
     assert.include(source, "renderTopicCard");
     assert.include(source, "Library Insights");
     assert.include(source, "Top Topics");
@@ -508,9 +510,12 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, 'makeButton("Refresh", "refresh")');
     assert.notInclude(source, 'makeButton("Preferences"');
     assert.notInclude(source, '["artifacts", "Artifacts"]');
+    assert.notInclude(source, 'header.appendChild(el("strong", "", "Topics"))');
+    assert.notInclude(source, 'header.appendChild(el("strong", "", "Index"))');
     assert.include(css, ".insight-grid");
     assert.include(css, ".topic-grid");
     assert.include(css, ".topic-card");
+    assert.include(css, ".panel-toolbar");
     assert.include(css, ".immersive-reader");
     assert.include(css, ":focus-visible");
     assert.include(css, "@media (prefers-reduced-motion: reduce)");
@@ -520,8 +525,24 @@ describe("Synthesis tab UI model", function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
+    assert.include(source, "renderTopicDetailShell");
     assert.include(source, "renderTopicDetail");
     assert.include(source, "renderTopicTabs");
+    assert.include(source, '["taxonomy", "Taxonomy"]');
+    assert.include(source, '["compare", "Compare"]');
+    assert.include(source, "renderTopicOverviewSection");
+    assert.include(source, "renderTopicTaxonomySection");
+    assert.include(source, "renderTopicClaimsSection");
+    assert.include(source, "renderTopicCompareSection");
+    assert.include(source, "renderTopicExternalSection");
+    assert.include(source, "renderTopicCoverageSection");
+    assert.include(source, "renderTopicDetailToolbar");
+    assert.include(source, "renderSelectedEvidenceCard");
+    assert.include(source, "renderTimelineClusters");
+    assert.include(source, "comparisonRows");
+    assert.include(source, "renderMethodComparisonCard");
+    assert.include(source, "renderEvidenceMapSummary");
+    assert.include(source, "renderEmptyStructuredState");
     assert.include(source, "renderEvidenceExplorer");
     assert.include(source, "renderTopicTimeline");
     assert.include(source, "renderDigestModal");
@@ -531,17 +552,67 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command: "resolveTopicPaperDigest"');
     assert.include(css, "--topic-bg: #eef3f8");
     assert.include(css, "--topic-text: #172033");
+    assert.include(css, "--topic-accent-green: #15803d");
+    assert.include(css, "--topic-soft-purple: #f2ecff");
+    assert.include(css, "--topic-border-strong: #aebccb");
     assert.include(css, "--topic-pin-fill: #2563eb");
     assert.include(css, "--topic-pin-offset-y: -12px");
     assert.include(css, "--topic-explorer-width: 360px");
     assert.include(css, "--topic-timeline-height: 108px");
+    assert.include(css, ".topic-detail-shell");
+    assert.include(css, ".detail-shell-in-workbench");
+    assert.include(css, ".topic-detail-layout");
+    assert.include(css, ".splitter");
+    assert.include(css, ".explorer-empty");
+    assert.include(css, ".selected-evidence-card");
+    assert.include(css, ".horizontal-timeline");
+    assert.include(css, ".time-axis");
+    assert.include(css, ".timeline-phase");
+    assert.include(css, ".marker-list");
+    assert.include(css, ".topic-workspace");
     assert.include(css, ".topic-detail-tabs");
     assert.include(css, ".evidence-explorer");
-    assert.include(css, "resize: horizontal");
     assert.include(css, ".timeline-marker");
     assert.include(css, ".timeline-pin-body");
     assert.include(css, "clip-path: polygon");
     assert.include(css, ".paper-digest-modal");
+    assert.include(source, "Select evidence from a claim, taxonomy node, comparison row, or timeline marker.");
+    assert.include(source, "state.selectedEvidenceId");
+    assert.include(source, "openDigestModal(selected)");
+    assert.include(source, "selected evidence");
+    assert.include(source, 'firstText(gap, ["text", "description", "impact", "summary"');
+    assert.include(source, 'firstText(debate, ["name", "title", "text", "debate"');
+    assert.include(source, 'firstText(event, ["event", "title", "label", "summary"]');
+    assert.include(source, "matrix.dimensions");
+    assert.notInclude(source, "Library-paper evidence markers");
+    assert.notInclude(source, 'badge("resizable"');
+    assert.include(source, '["registry", "Index"]');
+    assert.notInclude(source, "renderTopicDetailRail");
+    assert.notInclude(source, "topic-detail-rail");
+    assert.notInclude(source, "rail-nav");
+    assert.notInclude(source, "rows.forEach((evidence, index) =>");
+    assert.notInclude(css, ".topic-detail-rail");
+    assert.notInclude(css, ".rail-nav");
+    assert.notInclude(css, "resize: horizontal");
+    assert.notInclude(css, ".timeline-track");
+    assert.include(css, "top: 40px");
+    assert.include(css, "top: 52px");
+    assert.notInclude(source, "reader-panel topic-detail-panel");
+  });
+
+  it("wires structured Topic Detail update through the update-topic-synthesis workflow", async function () {
+    const source = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const uiModel = await fs.readFile("src/modules/synthesis/uiModel.ts", "utf8");
+
+    assert.include(uiModel, '"submitTopicSynthesisUpdate"');
+    assert.include(source, "findUpdateTopicSynthesisWorkflow");
+    assert.include(source, 'entry.manifest.id === "update-topic-synthesis"');
+    assert.include(source, 'command === "submitTopicSynthesisUpdate"');
+    assert.include(source, "runUpdateTopicSynthesisFromWorkbench");
+    assert.include(source, "Cannot update synthesis: update-topic-synthesis workflow is not loaded");
   });
 
   it("adds a unified Zotero tab workspace entry for Dashboard and Synthesis", async function () {

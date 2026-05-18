@@ -67,6 +67,7 @@ import {
   scanRuntimePersistenceUsage,
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistence";
+import { delay } from "./utils/runtimeCompatibility";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -120,14 +121,7 @@ export function setSkillRunnerStartupBackendReconcileRunnerForTests(
 }
 
 async function delayMs(ms: number) {
-  const runtime = globalThis as {
-    Zotero?: { Promise?: { delay?: (delayMs: number) => Promise<void> } };
-  };
-  if (typeof runtime.Zotero?.Promise?.delay === "function") {
-    await runtime.Zotero.Promise.delay(ms);
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await delay(ms);
 }
 
 function getRuntimeToolkit() {
@@ -212,10 +206,16 @@ async function onStartup() {
     typeof rootURI === "string" && rootURI
       ? rootURI
       : `chrome://${addon.data.config.addonRef}/`;
+  const runtimeResourceURI =
+    typeof resourceURI === "string" && resourceURI ? resourceURI : "";
+  const runtimeRootPath =
+    typeof rootPath === "string" && rootPath ? rootPath : "";
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   try {
     await syncBuiltinWorkflowsOnStartup({
       rootURI: runtimeRootURI,
+      resourceURI: runtimeResourceURI,
+      devCwd: runtimeRootPath,
     });
   } catch (error) {
     if (typeof console !== "undefined") {
@@ -270,7 +270,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     : null;
 
   if (popupWin) {
-    await Zotero.Promise.delay(1000);
+    await delay(1000);
     popupWin.changeLine({
       progress: 30,
       text: `[30%] ${getString("startup-begin")}`,
@@ -282,7 +282,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   }
 
   if (popupWin) {
-    await Zotero.Promise.delay(1000);
+    await delay(1000);
 
     popupWin.changeLine({
       progress: 100,

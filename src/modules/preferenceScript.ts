@@ -7,6 +7,7 @@ import {
 import { getString } from "../utils/locale";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
+import { runtimeFileExists } from "../utils/runtimeCompatibility";
 
 let unbindManagedLocalRuntimeStateChange: (() => void) | null = null;
 
@@ -908,29 +909,8 @@ function bindPrefEvents() {
       return false;
     }
 
-    const runtime = globalThis as {
-      IOUtils?: { exists?: (path: string) => Promise<boolean> };
-      OS?: { File?: { exists?: (path: string) => Promise<boolean> } };
-    };
-
-    if (typeof runtime.IOUtils?.exists === "function") {
-      try {
-        return await runtime.IOUtils.exists(candidate);
-      } catch {
-        return false;
-      }
-    }
-
-    if (typeof runtime.OS?.File?.exists === "function") {
-      try {
-        return await runtime.OS.File.exists(candidate);
-      } catch {
-        return false;
-      }
-    }
-
-    // If existence APIs are unavailable (e.g., lightweight tests), keep the first candidate.
-    return true;
+    const exists = await runtimeFileExists(candidate);
+    return exists;
   };
 
   const getHomeDir = () => {

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Evidence Map Section",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["path", "hash", "candidate_counts", "candidate_ids"],
+  "properties": {
+    "path": { "type": "string" },
+    "hash": { "type": "string" },
+    "candidate_counts": { "type": "object" },
+    "candidate_ids": { "type": "array" }
+  }
+}

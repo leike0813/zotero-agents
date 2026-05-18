@@ -15,12 +15,18 @@
       "required": [
         "topic",
         "summary",
+        "positioning",
+        "taxonomy",
+        "comparison_matrix",
         "claims",
         "timeline_events",
         "paper_evidence",
         "external_literature_analysis",
+        "debates",
         "coverage",
         "gaps",
+        "review_outline",
+        "evidence_map",
         "source_artifacts",
         "diagnostics"
       ],

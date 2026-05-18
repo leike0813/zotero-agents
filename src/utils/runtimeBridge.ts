@@ -94,20 +94,36 @@ function readWindowFromGlobalVar() {
   return runtimeWindow as RuntimeWindowLike;
 }
 
-function resolveRuntimeWindow() {
-  const runtimeGlobal = resolveRuntimeGlobal();
-  const runtimeAddon = resolveRuntimeAddon();
-  const runtimeZotero = resolveRuntimeZotero();
-  const globalWindow = readWindowFromGlobalVar();
-  const hiddenDomWindow = (
-    runtimeGlobal as typeof globalThis & {
-      Services?: {
-        appShell?: {
-          hiddenDOMWindow?: Window;
-        };
+function readHiddenDomWindow() {
+  const runtimeGlobal = resolveRuntimeGlobal() as typeof globalThis & {
+    Services?: {
+      appShell?: {
+        hiddenDOMWindow?: Window;
       };
-    }
-  ).Services?.appShell?.hiddenDOMWindow;
+    };
+  };
+  try {
+    return runtimeGlobal.Services?.appShell?.hiddenDOMWindow as
+      | RuntimeWindowLike
+      | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readMainWindow() {
+  try {
+    return resolveRuntimeZotero()?.getMainWindow?.() as
+      | RuntimeWindowLike
+      | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRuntimeWindow() {
+  const runtimeAddon = resolveRuntimeAddon();
+  const globalWindow = readWindowFromGlobalVar();
   return (
     (runtimeAddon?.data as
       | {
@@ -122,8 +138,8 @@ function resolveRuntimeWindow() {
         }
       | undefined)?.prefs?.window ||
     globalWindow ||
-    runtimeZotero?.getMainWindow?.() ||
-    hiddenDomWindow ||
+    readMainWindow() ||
+    readHiddenDomWindow() ||
     undefined
   ) as RuntimeWindowLike | undefined;
 }
@@ -176,12 +192,12 @@ function clearExternalRuntimeBridgeOverrideSlots() {
           [EXTERNAL_RUNTIME_BRIDGE_OVERRIDE_KEY]?: RuntimeBridgeOverride;
         })
       | undefined,
-    resolveRuntimeZotero()?.getMainWindow?.() as
+    readMainWindow() as
       | (Window & {
           [EXTERNAL_RUNTIME_BRIDGE_OVERRIDE_KEY]?: RuntimeBridgeOverride;
         })
       | undefined,
-    runtimeGlobal.Services?.appShell?.hiddenDOMWindow as
+    readHiddenDomWindow() as
       | (Window & {
           [EXTERNAL_RUNTIME_BRIDGE_OVERRIDE_KEY]?: RuntimeBridgeOverride;
         })

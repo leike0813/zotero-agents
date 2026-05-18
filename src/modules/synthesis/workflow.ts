@@ -8,8 +8,9 @@ export type SynthesisResultBundle = {
   base_hashes: Record<string, string>;
   read_section_hashes?: Record<string, string>;
   topic_definition: Record<string, unknown>;
-  topic_resolver: Record<string, unknown>;
-  resolved_paper_set: Record<string, unknown>;
+  topic_resolver?: Record<string, unknown>;
+  resolved_paper_set?: Record<string, unknown>;
+  resolver_manifest_path?: string;
   resolver_diagnostics: Record<string, unknown>;
   artifact_metadata: Record<string, unknown>;
   analysis_manifest_path?: string;
@@ -48,6 +49,17 @@ function requireString(source: Record<string, unknown>, key: string) {
     throw new Error(`synthesis result bundle requires string field: ${key}`);
   }
   return value;
+}
+
+function requireTopicDefinition(source: Record<string, unknown>) {
+  const definition = requireObject(source, "topic_definition");
+  if (!cleanString(definition.id)) {
+    throw new Error("synthesis result bundle requires topic_definition.id");
+  }
+  if (!cleanString(definition.title)) {
+    throw new Error("synthesis result bundle requires topic_definition.title");
+  }
+  return definition;
 }
 
 export function validateSynthesisResultBundle(input: unknown): {
@@ -95,8 +107,6 @@ export function validateSynthesisResultBundle(input: unknown): {
           base_hashes: baseHashes,
           read_section_hashes: requireObject(input, "read_section_hashes") as Record<string, string>,
           topic_definition: {},
-          topic_resolver: {},
-          resolved_paper_set: {},
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
@@ -112,10 +122,9 @@ export function validateSynthesisResultBundle(input: unknown): {
           mode: operation === "create" ? "create" : "update",
           language,
           base_hashes: baseHashes,
-          topic_definition: requireObject(input, "topic_definition"),
-          topic_resolver: requireObject(input, "topic_resolver"),
-        resolved_paper_set: requireObject(input, "resolved_paper_set"),
-        resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
+          topic_definition: requireTopicDefinition(input),
+          resolver_manifest_path: requireString(input, "resolver_manifest_path"),
+          resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
           markdown: "",
@@ -141,7 +150,7 @@ export function validateSynthesisResultBundle(input: unknown): {
     kind: "topic_synthesis",
     mode: input.mode,
     base_hashes: requireObject(input, "base_hashes") as Record<string, string>,
-    topic_definition: requireObject(input, "topic_definition"),
+    topic_definition: requireTopicDefinition(input),
     topic_resolver: requireObject(input, "topic_resolver"),
     resolved_paper_set: requireObject(input, "resolved_paper_set"),
     resolver_diagnostics: requireObject(input, "resolver_diagnostics"),

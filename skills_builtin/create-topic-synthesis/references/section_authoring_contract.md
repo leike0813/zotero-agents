@@ -9,12 +9,18 @@ create 输出应覆盖：
 
 - `topic`
 - `summary`
+- `positioning`
+- `taxonomy`
+- `comparison_matrix`
 - `claims`
 - `timeline_events`
 - `paper_evidence`
 - `external_literature_analysis`
+- `debates`
 - `coverage`
 - `gaps`
+- `review_outline`
+- `evidence_map`
 - `source_artifacts`
 - `diagnostics`
 
@@ -61,6 +67,8 @@ manifest section entry 示例：
 ```
 
 `evidence_refs` 只能引用 `paper_evidence[*].id`，不能引用库外 reference。
+每条 claim 还必须包含 `evidence_map_refs`，引用
+`runtime/payloads/cross-paper-evidence-map.json` 中的 candidate id。
 
 ## 4. timeline_events 示例
 
@@ -111,7 +119,19 @@ timeline marker 只代表库内 paper 或主题 phase/event，不直接代表库
 }
 ```
 
-## 6. coverage 与 diagnostics
+## 6. review-oriented sections
+
+新增 sections 必须面向后续文献综述 workflow：
+
+- `positioning`：topic 重要性、时效性、范围边界、review 增量定位。
+- `taxonomy`：稳定分类轴与节点，每个节点引用 `evidence_map_refs`。
+- `comparison_matrix`：统一比较维度和 rows，每行引用 `evidence_map_refs`。
+- `debates`：争议/张力/评价口径不一致，必须有 `evidence_map_refs`。
+- `gaps`：每项必须有 `gap_type`，区分 `library_coverage_gap` 与真实研究 gap。
+- `review_outline`：Introduction / Related Work / body 的写作骨架。
+- `evidence_map`：记录 evidence map 的 path/hash/candidate_counts/candidate_ids，不展开长正文。
+
+## 7. coverage 与 diagnostics
 
 coverage 示例：
 

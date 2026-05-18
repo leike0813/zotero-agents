@@ -39,8 +39,15 @@ export type ReviewStructuredTopicInput = {
   timeline_events: unknown[];
   paper_evidence: unknown[];
   external_literature_analysis: Record<string, unknown>;
+  positioning: Record<string, unknown>;
+  taxonomy: Record<string, unknown>;
+  comparison_matrix: Record<string, unknown>;
+  debates: unknown[];
   coverage: Record<string, unknown>;
   gaps: unknown[];
+  review_outline: Record<string, unknown>;
+  evidence_map: Record<string, unknown>;
+  incomplete_sections: string[];
 };
 
 export type ReviewWorkflowInput = {
@@ -149,8 +156,26 @@ function buildStructuredTopicInput(
     external_literature_analysis: isRecord(artifact.external_literature_analysis)
       ? artifact.external_literature_analysis
       : {},
+    positioning: isRecord(artifact.positioning) ? artifact.positioning : {},
+    taxonomy: isRecord(artifact.taxonomy) ? artifact.taxonomy : {},
+    comparison_matrix: isRecord(artifact.comparison_matrix)
+      ? artifact.comparison_matrix
+      : {},
+    debates: Array.isArray(artifact.debates) ? artifact.debates : [],
     coverage: isRecord(artifact.coverage) ? artifact.coverage : {},
     gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
+    review_outline: isRecord(artifact.review_outline)
+      ? artifact.review_outline
+      : {},
+    evidence_map: isRecord(artifact.evidence_map) ? artifact.evidence_map : {},
+    incomplete_sections: [
+      "positioning",
+      "taxonomy",
+      "comparison_matrix",
+      "debates",
+      "review_outline",
+      "evidence_map",
+    ].filter((section) => !(section in artifact)),
   };
 }
 

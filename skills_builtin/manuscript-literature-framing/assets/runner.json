@@ -1,0 +1,34 @@
+{
+  "id": "manuscript-literature-framing",
+  "name": "Manuscript Literature Framing",
+  "description": "Draft LaTeX Introduction and Related Work from manuscript context and confirmed Topic Synthesis evidence.",
+  "version": "0.1.0",
+  "execution_modes": ["interactive"],
+  "max_attempt": 12,
+  "mcp": {
+    "required_tools": [
+      "synthesis.list_topics",
+      "synthesis.get_review_input",
+      "synthesis.get_paper_registry",
+      "synthesis.get_citation_graph_metrics",
+      "synthesis.get_citation_graph_slice",
+      "synthesis.resolve_topic_paper_digest",
+      "list_library_items",
+      "search_items",
+      "get_item_detail",
+      "get_item_notes",
+      "list_note_payloads",
+      "get_note_payload",
+      "get_item_attachments",
+      "prepare_paper_reading_context"
+    ]
+  },
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Use manuscript-literature-framing for paperTitle={{ parameter.paperTitle }}, language={{ parameter.language }}, targetVenue={{ parameter.targetVenue }}, articleType={{ parameter.articleType }}, stylePreference={{ parameter.stylePreference }}. Host has completed MCP availability check and callable smoke; do not search MCP configuration or test tool injection status. If a required MCP tool returns unavailable/no such tool during real execution, return the legal canceled branch. Use package-local scripts/gate_runtime.py, scripts/stage_runtime.py, scripts/runtime_state.py, and references/scientific_introduction_related_work_writing_guide_zh.md. Every step starts with gate and follows only its next_action and command_example. Required MCP tools include synthesis.list_topics, synthesis.get_review_input, synthesis.get_paper_registry, synthesis.get_citation_graph_metrics, synthesis.get_citation_graph_slice, synthesis.resolve_topic_paper_digest, list_library_items, search_items, get_item_detail, get_item_notes, list_note_payloads, get_note_payload, get_item_attachments, prepare_paper_reading_context. First collect manuscript context: problem, target object/scenario, method/system, main contributions, target venue/style, whether Related Work is separate, and preferred organization mode. Then recommend 1-5 Topic Synthesis topics and require confirmed topics before reading synthesis.get_review_input. Before drafting the writing plan, read references/scientific_introduction_related_work_writing_guide_zh.md. Build and confirm a structured writing plan before final LaTeX; it must cover the Introduction functional chain, Related Work taxonomy/method lines/benchmark dimensions/debates, whether survey-of-surveys is needed, evidence/citation candidates, topic provenance, and contribution alignment. Render only after the confirmed writing plan is recorded. Use Zotero citekeys as \\cite{zotero_citekey}; never fabricate missing citekeys, use % TODO citation: paper_ref and diagnostics instead. Final artifacts are result/introduction.tex, result/related-work.tex, result/writing-plan.json, result/citation-map.json, result/diagnostics.json, result/result.json. Final result kind must be writing.manuscript_literature_framing and include product-storage-ready metadata."
+    }
+  }
+}

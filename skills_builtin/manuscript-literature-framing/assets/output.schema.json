@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Manuscript Literature Framing Result",
+  "type": "object",
+  "additionalProperties": true,
+  "oneOf": [
+    {
+      "title": "Completed manuscript literature framing",
+      "type": "object",
+      "required": [
+        "__SKILL_DONE__",
+        "kind",
+        "status",
+        "title",
+        "language",
+        "assets",
+        "topic_ids",
+        "diagnostics_summary"
+      ],
+      "properties": {
+        "__SKILL_DONE__": { "const": true },
+        "kind": { "const": "writing.manuscript_literature_framing" },
+        "status": { "const": "completed" },
+        "title": { "type": "string", "minLength": 1 },
+        "language": { "type": "string", "minLength": 1 },
+        "assets": {
+          "type": "object",
+          "required": [
+            "introduction_tex",
+            "related_work_tex",
+            "writing_plan",
+            "citation_map",
+            "diagnostics"
+          ],
+          "properties": {
+            "introduction_tex": { "type": "string", "minLength": 1 },
+            "related_work_tex": { "type": "string", "minLength": 1 },
+            "writing_plan": { "type": "string", "minLength": 1 },
+            "citation_map": { "type": "string", "minLength": 1 },
+            "diagnostics": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        },
+        "topic_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "diagnostics_summary": { "type": "object" }
+      }
+    },
+    {
+      "title": "Canceled manuscript literature framing",
+      "type": "object",
+      "required": ["__SKILL_DONE__", "kind", "status", "reason", "message"],
+      "properties": {
+        "__SKILL_DONE__": { "const": true },
+        "kind": { "const": "manuscript_literature_framing_canceled" },
+        "status": { "const": "canceled" },
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "paperTitle": { "type": "string" }
+      }
+    }
+  ]
+}

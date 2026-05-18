@@ -18,6 +18,7 @@ import type {
   ZoteroHostNotePayloadSummaryDto,
 } from "../modules/zoteroHostCapabilityBroker";
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
+import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type { SynthesisService } from "../modules/synthesis/service";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
@@ -329,6 +330,7 @@ export type ApplyResultHook = (args: {
     getExtractedDir?: () => Promise<string>;
   };
   resultContext?: WorkflowResultContext;
+  productStorage?: ProductStorageApi;
   request?: unknown;
   runResult?: unknown;
   manifest: WorkflowManifest;

@@ -7,6 +7,10 @@ import {
 import {
   handleZoteroMcpJsonRpc,
   ZOTERO_MCP_TOOL_GET_MCP_STATUS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+  ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
   type ZoteroMcpHandlerOptions,
   type ZoteroMcpJsonRpcId,
   type ZoteroMcpToolPermissionDecision,
@@ -69,6 +73,9 @@ export type ZoteroMcpGuardState = {
   activeTool: string;
   runningStartedAt: string;
   runningTimeoutMs: number;
+  timedOutButStillRunning: boolean;
+  runningTimedOutAt: string;
+  retryGuidance: string;
   circuitBreakers: ZoteroMcpCircuitBreakerSnapshot[];
 };
 
@@ -178,6 +185,7 @@ type HttpRequest = {
   query: Record<string, string>;
   headers: Record<string, string>;
   body: string;
+  parseError?: string;
 };
 
 const HOST = "127.0.0.1";
@@ -187,6 +195,7 @@ const MAX_RECENT_REQUESTS = 16;
 const DEFAULT_TOOL_QUEUE_PENDING_LIMIT = 8;
 const DEFAULT_TOOL_QUEUE_TIMEOUT_MS = 30000;
 const DEFAULT_TOOL_RUNNING_TIMEOUT_MS = 45000;
+const MAX_MCP_REQUEST_BODY_BYTES = 1024 * 1024;
 const CIRCUIT_FAILURE_THRESHOLD = 3;
 const CIRCUIT_FAILURE_WINDOW_MS = 5 * 60 * 1000;
 const CIRCUIT_OPEN_MS = 60 * 1000;
@@ -252,6 +261,8 @@ let descriptorInjected = false;
 let descriptorInjectedAt = "";
 let activeTool = "";
 let runningStartedAt = "";
+let activeToolTimedOut = false;
+let runningTimedOutAt = "";
 let intentionalShutdown = false;
 let mcpRequestSequence = 0;
 
@@ -373,25 +384,34 @@ class ZoteroMcpToolCallQueue {
     const queueWaitMs = Date.now() - item.queuedAt;
     activeTool = item.toolName;
     runningStartedAt = nowIso();
+    activeToolTimedOut = false;
+    runningTimedOutAt = "";
     const timeoutMs = this.policy.runningTimeoutMs;
     let runningTimeout: ReturnType<typeof setTimeout> | undefined;
+    let returnedTimeout = false;
     const runPromise = Promise.resolve().then(() => item.run());
     runPromise.catch(() => {
       // The queue may already have returned a timeout; suppress late rejections.
     });
-    const guardedRun =
-      timeoutMs >= 0
-        ? Promise.race([
-            runPromise,
-            new Promise<never>((_resolve, reject) => {
-              runningTimeout = setTimeout(() => {
-                reject(new ZoteroMcpToolTimeoutError(item.toolName, timeoutMs));
-              }, timeoutMs);
-            }),
-          ])
-        : runPromise;
-    void guardedRun
+    if (timeoutMs >= 0) {
+      runningTimeout = setTimeout(() => {
+        returnedTimeout = true;
+        activeToolTimedOut = true;
+        runningTimedOutAt = nowIso();
+        item.resolve({
+          kind: "tool_timeout",
+          queueDepthAtAccept: item.queueDepthAtAccept,
+          queuePosition: item.queuePosition,
+          queueWaitMs,
+          limitReason: "tool_timeout",
+        });
+      }, timeoutMs);
+    }
+    void runPromise
       .then((value) => {
+        if (returnedTimeout) {
+          return;
+        }
         item.resolve({
           kind: "ok",
           value,
@@ -402,14 +422,7 @@ class ZoteroMcpToolCallQueue {
         });
       })
       .catch((error) => {
-        if (error instanceof ZoteroMcpToolTimeoutError) {
-          item.resolve({
-            kind: "tool_timeout",
-            queueDepthAtAccept: item.queueDepthAtAccept,
-            queuePosition: item.queuePosition,
-            queueWaitMs,
-            limitReason: "tool_timeout",
-          });
+        if (returnedTimeout) {
           return;
         }
         item.reject(error);
@@ -421,6 +434,8 @@ class ZoteroMcpToolCallQueue {
         this.running = 0;
         activeTool = "";
         runningStartedAt = "";
+        activeToolTimedOut = false;
+        runningTimedOutAt = "";
         this.startNext();
       });
   }
@@ -473,6 +488,11 @@ function getGuardStateSnapshot(): ZoteroMcpGuardState {
     activeTool,
     runningStartedAt,
     runningTimeoutMs: toolCallQueue.getPolicy().runningTimeoutMs,
+    timedOutButStillRunning: activeToolTimedOut,
+    runningTimedOutAt,
+    retryGuidance: activeToolTimedOut
+      ? "The timed-out Zotero MCP tool may still be running. Please wait before retrying or call get_mcp_status again."
+      : "",
     circuitBreakers: snapshotCircuitBreakers(),
   };
 }
@@ -742,7 +762,7 @@ function generateToken() {
       .map((value) => value.toString(16).padStart(2, "0"))
       .join("");
   }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  throw new Error("Secure random source is unavailable for Zotero MCP token generation");
 }
 
 function getComponents() {
@@ -847,6 +867,14 @@ function tryParseHeaders(text: string) {
   };
 }
 
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 function parseHttpRequest(raw: string): HttpRequest {
   const splitIndex = raw.indexOf("\r\n\r\n");
   const head = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
@@ -857,6 +885,7 @@ function parseHttpRequest(raw: string): HttpRequest {
   const queryIndex = rawPath.indexOf("?");
   const path = queryIndex >= 0 ? rawPath.slice(0, queryIndex) : rawPath;
   const queryText = queryIndex >= 0 ? rawPath.slice(queryIndex + 1) : "";
+  let parseError = "";
   for (const part of queryText.split("&")) {
     if (!part) {
       continue;
@@ -864,7 +893,13 @@ function parseHttpRequest(raw: string): HttpRequest {
     const separator = part.indexOf("=");
     const name = separator >= 0 ? part.slice(0, separator) : part;
     const value = separator >= 0 ? part.slice(separator + 1) : "";
-    query[decodeURIComponent(name)] = decodeURIComponent(value);
+    const decodedName = safeDecodeURIComponent(name);
+    const decodedValue = safeDecodeURIComponent(value);
+    if (decodedName === null || decodedValue === null) {
+      parseError = "malformed_query_encoding";
+      continue;
+    }
+    query[decodedName] = decodedValue;
   }
   const headers: Record<string, string> = {};
   for (const line of lines.slice(1)) {
@@ -882,7 +917,14 @@ function parseHttpRequest(raw: string): HttpRequest {
     query,
     headers,
     body,
+    parseError,
   };
+}
+
+function utf8ByteLength(text: string) {
+  return typeof TextEncoder === "function"
+    ? new TextEncoder().encode(text).length
+    : text.length;
 }
 
 function writeOutputStream(outputStream: any, response: string) {
@@ -896,10 +938,11 @@ function writeOutputStream(outputStream: any, response: string) {
     converter.init(outputStream, "UTF-8");
     converter.writeString(response);
     converter.close();
-    return;
+    return "converter-output-stream";
   }
   outputStream.write(response, response.length);
   outputStream.close?.();
+  return "raw-output-stream";
 }
 
 function buildHttpResponse(args: {
@@ -912,9 +955,7 @@ function buildHttpResponse(args: {
   const bodyText =
     typeof args.body === "string" ? args.body : JSON.stringify(args.body);
   const bodyLength =
-    typeof TextEncoder === "function"
-      ? new TextEncoder().encode(bodyText).length
-      : bodyText.length;
+    utf8ByteLength(bodyText);
   return [
     `HTTP/1.1 ${args.status} ${args.reason}`,
     `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
@@ -943,10 +984,29 @@ function buildNoContentResponse(args: {
 
 function isAuthorized(request: HttpRequest) {
   const expected = `bearer ${state.token}`.toLowerCase();
-  return (
-    String(request.headers.authorization || "").trim().toLowerCase() === expected ||
-    String(request.query.token || "").trim() === state.token
-  );
+  return String(request.headers.authorization || "").trim().toLowerCase() === expected;
+}
+
+function isOriginAllowed(request: HttpRequest) {
+  const origin = String(request.headers.origin || "").trim();
+  if (!origin) {
+    return true;
+  }
+  try {
+    const parsed = new URL(origin);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      ["127.0.0.1", "localhost", "[::1]", "::1"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function bodyByteLength(text: string) {
+  return typeof TextEncoder === "function"
+    ? new TextEncoder().encode(text).length
+    : text.length;
 }
 
 function stringifyJsonRpcId(value: unknown) {
@@ -1032,6 +1092,10 @@ function summarizeJsonRpcPayload(body: string) {
 
 function summarizeJsonRpcPayloadValue(payload: unknown) {
   return summarizeJsonRpcPayload(JSON.stringify(payload || ""));
+}
+
+function payloadSummaryMethod(payload: unknown) {
+  return summarizeJsonRpcPayloadValue(payload).method;
 }
 
 function summarizeJsonRpcResponse(body: unknown) {
@@ -1120,6 +1184,70 @@ function safeRuntimeLogError(error: unknown) {
   return new Error(String(error));
 }
 
+const REQUIRED_SYNTHESIS_SMOKE_TOOLS = [
+  ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+  ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+  ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+];
+
+function requestHeaderFacts(request?: HttpRequest) {
+  if (!request) {
+    return {};
+  }
+  const userAgent = String(request.headers["user-agent"] || "").trim();
+  return {
+    accept: String(request.headers.accept || "").trim(),
+    contentType: String(request.headers["content-type"] || "").trim(),
+    userAgentFamily: userAgent.split(/[\/\s]/)[0] || "",
+    hasMcpSessionId: !!String(request.headers["mcp-session-id"] || "").trim(),
+    hasMcpProtocolVersion: !!String(
+      request.headers["mcp-protocol-version"] || "",
+    ).trim(),
+    hasAuthorization: !!String(request.headers.authorization || "").trim(),
+  };
+}
+
+function responseFacts(response: string) {
+  const splitIndex = response.indexOf("\r\n\r\n");
+  const head = splitIndex >= 0 ? response.slice(0, splitIndex) : response;
+  const contentLengthLine = head
+    .split("\r\n")
+    .find((line) => /^content-length\s*:/i.test(line));
+  const contentLength = Number(
+    contentLengthLine?.slice(contentLengthLine.indexOf(":") + 1).trim() || 0,
+  );
+  return {
+    responseChars: response.length,
+    responseBytes: utf8ByteLength(response),
+    contentLength,
+  };
+}
+
+function toolsListFacts(response: unknown) {
+  const entry = Array.isArray(response) ? response[0] : response;
+  const tools =
+    entry && typeof entry === "object"
+      ? ((entry as { result?: { tools?: unknown[] } }).result?.tools || [])
+      : [];
+  const names = Array.isArray(tools)
+    ? tools
+        .map((tool) =>
+          tool && typeof tool === "object"
+            ? String((tool as { name?: unknown }).name || "").trim()
+            : "",
+        )
+        .filter(Boolean)
+    : [];
+  return {
+    toolCount: names.length,
+    requiredSynthesisToolsPresent: REQUIRED_SYNTHESIS_SMOKE_TOOLS.every((tool) =>
+      names.includes(tool),
+    ),
+    requiredSynthesisTools: REQUIRED_SYNTHESIS_SMOKE_TOOLS,
+  };
+}
+
 function appendMcpRuntimeLog(args: {
   requestId: string;
   stage: string;
@@ -1174,6 +1302,7 @@ function appendMcpRuntimeLog(args: {
       jsonrpcId: payloadSummary.id,
       toolName: payloadSummary.toolName,
       protocolVersion: payloadSummary.protocolVersion,
+      requestHeaders: requestHeaderFacts(args.request),
       ...args.details,
     },
     error,
@@ -1769,6 +1898,25 @@ async function handleHttpRequest(
     message: `Zotero MCP request ${request.method} ${request.path}`,
   });
 
+  if (request.parseError) {
+    const responseBody = {
+      error: "bad_request",
+      reason: request.parseError,
+    };
+    recordMcpRequest({
+      request,
+      status: 400,
+      authorized,
+      responseBody,
+      error: "bad_request",
+    });
+    return buildHttpResponse({
+      status: 400,
+      reason: "Bad Request",
+      body: responseBody,
+    });
+  }
+
   if (request.path === "/health" && request.method === "GET") {
     recordMcpRequest({
       request,
@@ -1824,6 +1972,23 @@ async function handleHttpRequest(
       },
     });
   }
+  if (!isOriginAllowed(request)) {
+    const responseBody = {
+      error: "origin_not_allowed",
+    };
+    recordMcpRequest({
+      request,
+      status: 403,
+      authorized,
+      responseBody,
+      error: "origin_not_allowed",
+    });
+    return buildHttpResponse({
+      status: 403,
+      reason: "Forbidden",
+      body: responseBody,
+    });
+  }
   if (request.method === "GET") {
     const responseBody = {
       error: "streamable_http_get_not_supported",
@@ -1839,6 +2004,9 @@ async function handleHttpRequest(
       status: 405,
       reason: "Method Not Allowed",
       body: responseBody,
+      headers: {
+        Allow: "POST",
+      },
     });
   }
   if (request.method !== "POST") {
@@ -1857,6 +2025,25 @@ async function handleHttpRequest(
       body: {
         error: "method_not_allowed",
       },
+    });
+  }
+  if (bodyByteLength(request.body || "") > MAX_MCP_REQUEST_BODY_BYTES) {
+    const responseBody = {
+      error: "request_body_too_large",
+      maxBytes: MAX_MCP_REQUEST_BODY_BYTES,
+    };
+    recordMcpRequest({
+      request,
+      status: 413,
+      authorized,
+      responseBody,
+      error: "request_body_too_large",
+      limitReason: "request_body_too_large",
+    });
+    return buildHttpResponse({
+      status: 413,
+      reason: "Payload Too Large",
+      body: responseBody,
     });
   }
   let payload: unknown;
@@ -1942,6 +2129,7 @@ async function handleHttpRequest(
       payload,
       status: 202,
       responseBytes: noContentResponse.length,
+      details: responseFacts(noContentResponse),
     });
     return noContentResponse;
   }
@@ -1980,6 +2168,12 @@ async function handleHttpRequest(
       payload,
       status: 200,
       responseBytes: rawResponse.length,
+      details: {
+        ...responseFacts(rawResponse),
+        ...(payloadSummaryMethod(payload) === "tools/list"
+          ? toolsListFacts(response)
+          : {}),
+      },
     });
     return rawResponse;
   } catch (error) {
@@ -2022,6 +2216,8 @@ function scheduleWatchdogRestart(reason: string) {
   toolCallQueue.reset();
   activeTool = "";
   runningStartedAt = "";
+  activeToolTimedOut = false;
+  runningTimedOutAt = "";
   emit({
     kind: "zotero_mcp_error",
     level: "warn",
@@ -2082,15 +2278,23 @@ function listen(serverSocket: any) {
             phase: "response",
             request,
             responseBytes: response.length,
+            details: responseFacts(response),
           });
           try {
-            writeOutputStream(output, response);
+            const writeStartedAt = Date.now();
+            const writerType = writeOutputStream(output, response);
             appendMcpRuntimeLog({
               requestId,
               stage: "response.write.finished",
               phase: "response",
               request,
               responseBytes: response.length,
+              durationMs: Date.now() - writeStartedAt,
+              details: {
+                ...responseFacts(response),
+                writerType,
+                closeOutcome: "closed",
+              },
             });
           } catch (error) {
             appendMcpRuntimeLog({
@@ -2100,6 +2304,7 @@ function listen(serverSocket: any) {
               level: "error",
               request,
               responseBytes: response.length,
+              details: responseFacts(response),
               error,
             });
             throw error;
@@ -2272,6 +2477,8 @@ export async function shutdownZoteroMcpServer() {
   toolCallQueue.reset();
   activeTool = "";
   runningStartedAt = "";
+  activeToolTimedOut = false;
+  runningTimedOutAt = "";
   descriptorInjected = false;
   descriptorInjectedAt = "";
   intentionalShutdown = false;
@@ -2290,6 +2497,8 @@ export function resetZoteroMcpServerForTests() {
   descriptorInjectedAt = "";
   activeTool = "";
   runningStartedAt = "";
+  activeToolTimedOut = false;
+  runningTimedOutAt = "";
 }
 
 export async function handleZoteroMcpRequestForTests(
@@ -2416,6 +2625,7 @@ function parseTestPath(rawPath: string) {
   const queryIndex = rawPath.indexOf("?");
   const path = queryIndex >= 0 ? rawPath.slice(0, queryIndex) : rawPath;
   const queryText = queryIndex >= 0 ? rawPath.slice(queryIndex + 1) : "";
+  let parseError = "";
   for (const part of queryText.split("&")) {
     if (!part) {
       continue;
@@ -2423,11 +2633,18 @@ function parseTestPath(rawPath: string) {
     const separator = part.indexOf("=");
     const name = separator >= 0 ? part.slice(0, separator) : part;
     const value = separator >= 0 ? part.slice(separator + 1) : "";
-    query[decodeURIComponent(name)] = decodeURIComponent(value);
+    const decodedName = safeDecodeURIComponent(name);
+    const decodedValue = safeDecodeURIComponent(value);
+    if (decodedName === null || decodedValue === null) {
+      parseError = "malformed_query_encoding";
+      continue;
+    }
+    query[decodedName] = decodedValue;
   }
   return {
     path: path || "/",
     query,
+    parseError,
   };
 }
 
@@ -2445,6 +2662,7 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
     query: parsedPath.query,
     headers: normalizeTestHeaders(args.headers),
     body: args.body || "",
+    parseError: parsedPath.parseError,
   };
   const response = await handleHttpRequest(request, requestId);
   appendMcpRuntimeLog({

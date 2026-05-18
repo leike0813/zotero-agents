@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "workflows": [
     "create-topic-synthesis/workflow.json",
-    "update-topic-synthesis/workflow.json"
+    "update-topic-synthesis/workflow.json",
+    "manuscript-literature-framing/workflow.json"
   ]
 }

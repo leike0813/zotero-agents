@@ -12,6 +12,7 @@ import {
   markSkillRunnerBackendHealthSuccess,
 } from "./skillRunnerBackendHealthRegistry";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
+import { delay } from "../utils/runtimeCompatibility";
 
 type SessionLoopState = {
   requestId: string;
@@ -95,18 +96,7 @@ async function sleep(ms: number) {
   if (ms <= 0) {
     return;
   }
-  const runtime = globalThis as {
-    Zotero?: {
-      Promise?: {
-        delay?: (value: number) => Promise<void>;
-      };
-    };
-  };
-  if (typeof runtime.Zotero?.Promise?.delay === "function") {
-    await runtime.Zotero.Promise.delay(ms);
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await delay(ms);
 }
 
 function toSessionKey(backendId: string, requestId: string) {

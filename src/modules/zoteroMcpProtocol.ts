@@ -72,12 +72,14 @@ export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH =
   "synthesis.query_citation_graph";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE =
   "synthesis.get_citation_graph_slice";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_METRICS =
+  "synthesis.get_citation_graph_metrics";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST =
   "synthesis.get_paper_artifact_manifest";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS =
   "synthesis.read_paper_artifacts";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_PAPER_ARTIFACT_BUNDLE =
-  "synthesis.export_paper_artifact_bundle";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS =
+  "synthesis.export_filtered_paper_artifacts";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST =
   "synthesis.resolve_topic_paper_digest";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT =
@@ -178,6 +180,7 @@ type ZoteroMcpToolResult = {
     text: string;
   }>;
   structuredContent: Record<string, unknown>;
+  isError?: boolean;
 };
 
 class ZoteroMcpToolInputError extends Error {
@@ -212,16 +215,19 @@ function normalizeRequest(value: unknown): ZoteroMcpJsonRpcRequest | null {
   if (request.jsonrpc !== "2.0" || !String(request.method || "").trim()) {
     return null;
   }
-  return {
+  const normalized: ZoteroMcpJsonRpcRequest = {
     jsonrpc: "2.0",
-    id: request.id === undefined ? null : request.id,
     method: String(request.method || "").trim(),
     params: request.params,
   };
+  if ("id" in request) {
+    normalized.id = request.id as ZoteroMcpJsonRpcId;
+  }
+  return normalized;
 }
 
 function isNotification(request: ZoteroMcpJsonRpcRequest) {
-  return request.id === undefined || request.id === null;
+  return !("id" in request);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -260,6 +266,10 @@ function objectSchema(
     schema.required = required;
   }
   return schema;
+}
+
+function validateJsonRpcId(id: unknown) {
+  return typeof id === "string" || typeof id === "number";
 }
 
 const itemRefProperties = {
@@ -303,6 +313,7 @@ function buildToolResult(args: {
   tool: string;
   summary: string;
   structuredContent: Record<string, unknown>;
+  isError?: boolean;
 }) {
   return {
     content: [
@@ -316,7 +327,32 @@ function buildToolResult(args: {
       summary: args.summary,
       ...args.structuredContent,
     },
+    ...(args.isError ? { isError: true } : {}),
   };
+}
+
+function buildToolErrorResult(args: {
+  tool: string;
+  message: string;
+  errorCode: string;
+  retryable?: boolean;
+  retryAfterMs?: number;
+  details?: unknown;
+}) {
+  return buildToolResult({
+    tool: args.tool,
+    summary: args.message,
+    isError: true,
+    structuredContent: {
+      error_code: args.errorCode,
+      retryable: Boolean(args.retryable),
+      retry_after_ms:
+        Number.isFinite(Number(args.retryAfterMs)) && Number(args.retryAfterMs) > 0
+          ? Math.floor(Number(args.retryAfterMs))
+          : 0,
+      details: args.details,
+    },
+  });
 }
 
 function assertKnownArgs(
@@ -330,6 +366,156 @@ function assertKnownArgs(
     throw new ZoteroMcpToolInputError(
       `Unknown argument(s) for ${toolName}: ${unknown.join(", ")}`,
       { unknown },
+    );
+  }
+}
+
+function describeSchemaPath(path: string, message: string) {
+  return path ? `${path}: ${message}` : message;
+}
+
+function schemaTypes(schema: Record<string, unknown>) {
+  return Array.isArray(schema.type)
+    ? schema.type.map((entry) => String(entry))
+    : schema.type
+      ? [String(schema.type)]
+      : [];
+}
+
+function valueMatchesSchemaType(value: unknown, type: string) {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "array":
+      return Array.isArray(value);
+    case "object":
+      return isPlainObject(value);
+    case "null":
+      return value === null;
+    default:
+      return true;
+  }
+}
+
+function validateAgainstSchema(
+  value: unknown,
+  schema: unknown,
+  path: string,
+  errors: string[],
+) {
+  if (!isPlainObject(schema)) {
+    return;
+  }
+  const types = schemaTypes(schema);
+  if (
+    types.length > 0 &&
+    !types.some((type) => valueMatchesSchemaType(value, type))
+  ) {
+    errors.push(
+      describeSchemaPath(
+        path,
+        `expected ${types.join("|")}, got ${Array.isArray(value) ? "array" : typeof value}`,
+      ),
+    );
+    return;
+  }
+  if (schema.enum !== undefined && Array.isArray(schema.enum)) {
+    if (!schema.enum.includes(value)) {
+      errors.push(describeSchemaPath(path, `must be one of ${schema.enum.join(", ")}`));
+    }
+  }
+  if (typeof value === "string") {
+    const minLength = Number(schema.minLength);
+    const maxLength = Number(schema.maxLength);
+    if (Number.isFinite(minLength) && value.length < minLength) {
+      errors.push(describeSchemaPath(path, `must be at least ${minLength} chars`));
+    }
+    if (Number.isFinite(maxLength) && value.length > maxLength) {
+      errors.push(describeSchemaPath(path, `must be at most ${maxLength} chars`));
+    }
+    if (schema.pattern) {
+      try {
+        if (!new RegExp(String(schema.pattern)).test(value)) {
+          errors.push(describeSchemaPath(path, "does not match required pattern"));
+        }
+      } catch {
+        // Ignore malformed local schema patterns instead of breaking tools/list.
+      }
+    }
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const minimum = Number(schema.minimum);
+    const maximum = Number(schema.maximum);
+    if (Number.isFinite(minimum) && value < minimum) {
+      errors.push(describeSchemaPath(path, `must be >= ${minimum}`));
+    }
+    if (Number.isFinite(maximum) && value > maximum) {
+      errors.push(describeSchemaPath(path, `must be <= ${maximum}`));
+    }
+  }
+  if (Array.isArray(value)) {
+    const minItems = Number(schema.minItems);
+    const maxItems = Number(schema.maxItems);
+    if (Number.isFinite(minItems) && value.length < minItems) {
+      errors.push(describeSchemaPath(path, `must contain at least ${minItems} item(s)`));
+    }
+    if (Number.isFinite(maxItems) && value.length > maxItems) {
+      errors.push(describeSchemaPath(path, `must contain at most ${maxItems} item(s)`));
+    }
+    if (schema.items) {
+      value.forEach((entry, index) =>
+        validateAgainstSchema(entry, schema.items, `${path}[${index}]`, errors),
+      );
+    }
+  }
+  if (isPlainObject(value)) {
+    const properties = isPlainObject(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required)
+      ? schema.required.map((entry) => String(entry))
+      : [];
+    for (const key of required) {
+      if (!(key in value)) {
+        errors.push(describeSchemaPath(path ? `${path}.${key}` : key, "is required"));
+      }
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!(key in properties)) {
+          errors.push(
+            describeSchemaPath(
+              path ? `${path}.${key}` : key,
+              "unknown argument",
+            ),
+          );
+        }
+      }
+    }
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (key in value) {
+        validateAgainstSchema(
+          value[key],
+          childSchema,
+          path ? `${path}.${key}` : key,
+          errors,
+        );
+      }
+    }
+  }
+}
+
+function validateToolArguments(tool: ToolDefinition, args: Record<string, unknown>) {
+  const errors: string[] = [];
+  validateAgainstSchema(args, tool.inputSchema, "", errors);
+  if (errors.length > 0) {
+    throw new ZoteroMcpToolInputError(
+      `Invalid arguments for ${tool.name}: ${errors.join("; ")}`,
+      { errors },
     );
   }
 }
@@ -1878,9 +2064,13 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       {
         query: {
           type: "string",
+          minLength: 1,
+          maxLength: 500,
         },
         limit: {
           type: "number",
+          minimum: 1,
+          maximum: MCP_LIBRARY_LIST_LIMIT_MAX,
         },
         libraryId: {
           type: ["number", "string"],
@@ -1940,6 +2130,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
       limit: {
         type: ["number", "string"],
+        minimum: 1,
       },
       cursor: {
         type: ["number", "string"],
@@ -1990,6 +2181,8 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
       maxExcerptChars: {
         type: ["number", "string"],
+        minimum: 1,
+        maximum: 16000,
       },
     }),
     handler: async (args, context) => {
@@ -2022,9 +2215,12 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
       offset: {
         type: ["number", "string"],
+        minimum: 0,
       },
       maxChars: {
         type: ["number", "string"],
+        minimum: 1,
+        maximum: 16000,
       },
     }),
     handler: async (args, context) => {
@@ -2074,9 +2270,12 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
       offset: {
         type: ["number", "string"],
+        minimum: 0,
       },
       maxChars: {
         type: ["number", "string"],
+        minimum: 1,
+        maximum: 16000,
       },
     }),
     handler: async (args, context) => {
@@ -2134,9 +2333,13 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
       maxNotes: {
         type: ["number", "string"],
+        minimum: 1,
+        maximum: 50,
       },
       maxPayloadsPerNote: {
         type: ["number", "string"],
+        minimum: 1,
+        maximum: 20,
       },
     }),
     handler: (args, context) => preparePaperReadingContextTool(args, context),
@@ -2178,6 +2381,10 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       updateScope: { type: "string" },
       updateMode: { type: "string" },
       updateReason: { type: "string" },
+      includeFull: { type: "boolean" },
+      includeMarkdown: { type: "boolean" },
+      includeArtifact: { type: "boolean" },
+      includeManifest: { type: "boolean" },
     },
   }),
   synthesisTool({
@@ -2199,7 +2406,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     properties: {
       libraryId: { type: ["number", "string"] },
       cursor: { type: ["number", "string"] },
-      limit: { type: ["number", "string"] },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
       includeTags: { type: "boolean" },
       includeCollections: { type: "boolean" },
       includeItems: { type: "boolean" },
@@ -2214,7 +2421,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     properties: {
       resolver: { type: "object" },
       cursor: { type: ["number", "string"] },
-      limit: { type: ["number", "string"] },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
     },
     required: ["resolver"],
   }),
@@ -2225,9 +2432,9 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       "Return Paper Registry rows or summaries for readiness and missing artifact diagnostics.",
     method: "getPaperRegistry",
     properties: {
-      paperRefs: { type: "array" },
+      paperRefs: { type: "array", maxItems: 250 },
       cursor: { type: ["number", "string"] },
-      limit: { type: ["number", "string"] },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
       readiness: { type: "string" },
     },
   }),
@@ -2245,11 +2452,11 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_PAPER_ARTIFACT_BUNDLE,
-    title: "Export Synthesis paper artifact bundle",
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+    title: "Export filtered Synthesis paper artifacts",
     description:
-      "Read one or more papers' digest, references, and citation-analysis artifacts through the host decoder and write full bundles directly into the ACP skill run payload directory. The tool response intentionally omits payload hashes and payload bodies.",
-    method: "exportPaperArtifactBundle",
+      "Read one or more papers' digest, references, and citation-analysis artifacts through the host decoder and write a filtered manifest plus bounded content files into the ACP skill run workspace.",
+    method: "exportFilteredPaperArtifacts",
     properties: {
       run_root: { type: "string" },
       runRoot: { type: "string" },
@@ -2280,6 +2487,26 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_METRICS,
+    title: "Get Synthesis citation graph metrics",
+    description:
+      "Read bounded library-paper graph metrics from the persisted Synthesis citation graph metrics snapshot. This tool never rebuilds the graph or returns the full graph.",
+    method: "getCitationGraphMetrics",
+    properties: {
+      paperRefs: { type: "array", maxItems: 250 },
+      paper_refs: { type: "array", maxItems: 250 },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
+      sortBy: {
+        type: "string",
+        enum: ["foundation", "frontier", "pagerank", "in_degree"],
+      },
+      sort_by: {
+        type: "string",
+        enum: ["foundation", "frontier", "pagerank", "in_degree"],
+      },
+    },
+  }),
+  synthesisTool({
     name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST,
     title: "Resolve topic paper digest",
     description:
@@ -2302,10 +2529,10 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     method: "getReviewInput",
     properties: {
       topicId: { type: "string" },
-      maxGraphNodes: { type: ["number", "string"] },
-      maxGraphEdges: { type: ["number", "string"] },
+      maxGraphNodes: { type: ["number", "string"], minimum: 1, maximum: 1000 },
+      maxGraphEdges: { type: ["number", "string"], minimum: 0, maximum: 2000 },
       includePaperArtifacts: { type: "boolean" },
-      maxChars: { type: ["number", "string"] },
+      maxChars: { type: ["number", "string"], minimum: 1, maximum: 200000 },
     },
     required: ["topicId"],
   }),
@@ -2548,6 +2775,9 @@ export async function handleZoteroMcpJsonRpc(
   if (!request) {
     return jsonRpcError(null, -32600, "Invalid JSON-RPC request");
   }
+  if ("id" in request && !validateJsonRpcId(request.id)) {
+    return jsonRpcError(null, -32600, "Invalid JSON-RPC id");
+  }
   switch (request.method) {
     case "notifications/initialized":
       return null;
@@ -2594,6 +2824,17 @@ export async function handleZoteroMcpJsonRpc(
       }
       const toolArguments = resolveToolArguments(request.params);
       try {
+        validateToolArguments(tool, toolArguments);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error || "Invalid params");
+        return jsonRpcError(request.id ?? null, -32602, message, {
+          toolName,
+          errorName: error instanceof Error ? error.name : "Error",
+          details: error instanceof ZoteroMcpToolInputError ? error.details : undefined,
+        });
+      }
+      try {
         const hostApi = resolveHostApi(options);
         const result = await tool.handler(toolArguments, {
           options,
@@ -2634,22 +2875,26 @@ export async function handleZoteroMcpJsonRpc(
             message,
           },
         });
+        if (structuredCode) {
+          return {
+            jsonrpc: "2.0",
+            id: request.id ?? null,
+            result: buildToolErrorResult({
+              tool: toolName,
+              message,
+              errorCode: structuredCode,
+              retryable: false,
+              details:
+                error instanceof Error && "ref" in error
+                  ? (error as { ref?: unknown }).ref
+                  : undefined,
+            }),
+          };
+        }
         return jsonRpcError(request.id ?? null, -32602, message, {
-          code: structuredCode,
           toolName,
-          errorName: structuredCode
-            ? error instanceof Error
-              ? error.name
-              : "Error"
-            : error instanceof Error
-              ? error.name
-              : "Error",
-          details:
-            error instanceof ZoteroMcpToolInputError
-              ? error.details
-              : structuredCode && error instanceof Error && "ref" in error
-                ? (error as { ref?: unknown }).ref
-                : undefined,
+          errorName: error instanceof Error ? error.name : "Error",
+          details: error instanceof ZoteroMcpToolInputError ? error.details : undefined,
         });
       }
     }

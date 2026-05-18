@@ -54,7 +54,8 @@
       "requiredTools": [
         "synthesis.get_topic_context",
         "synthesis.resolve_resolver",
-        "synthesis.export_paper_artifact_bundle"
+        "synthesis.get_citation_graph_metrics",
+        "synthesis.export_filtered_paper_artifacts"
       ]
     },
     "skillrunner_mode": "interactive",

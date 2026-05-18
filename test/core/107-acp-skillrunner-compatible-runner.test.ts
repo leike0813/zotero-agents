@@ -45,11 +45,20 @@ import {
   ACP_SKILL_PATCH_TEMPLATES,
   loadAcpSkillPatchTemplate,
 } from "../../src/modules/acpSkillPatchTemplates";
+import {
+  ACP_RUNTIME_PROMPT_TEMPLATES,
+  ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID,
+  loadAcpRuntimePromptTemplate,
+  renderAcpRuntimePromptTemplate,
+} from "../../src/modules/acpRuntimePromptTemplates";
 import { buildAcpSkillOutputRepairPrompt } from "../../src/modules/acpSkillOutputValidator";
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  writeMcpContextInjectionDiagnostics,
+} from "../../src/modules/mcpContextDiagnostics";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-skillrunner-"));
@@ -293,6 +302,77 @@ describe("ACP SkillRunner-compatible runner", function () {
       materializerSource,
       "The directives below are injected by the runtime execution environment",
     );
+  });
+
+  it("loads ACP runtime prompt templates separately from ACP Skill patch templates", async function () {
+    assert.sameMembers(
+      ACP_RUNTIME_PROMPT_TEMPLATES.map((template) => template.id),
+      [
+        "mcp_callable_smoke",
+        "mcp_required_guard",
+        "recovered_continuation_guard",
+      ],
+    );
+    for (const template of ACP_RUNTIME_PROMPT_TEMPLATES) {
+      const content = await loadAcpRuntimePromptTemplate(template);
+      assert.isNotEmpty(content, template.filename);
+    }
+
+    const smokePrompt = renderAcpRuntimePromptTemplate({
+      template: await loadAcpRuntimePromptTemplate(
+        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.mcp_callable_smoke,
+      ),
+      replacements: {
+        REQUIRED_TOOLS: "- synthesis.list_topics",
+        TIMEOUT_SECONDS: "60",
+      },
+      requiredPlaceholders: ["REQUIRED_TOOLS", "TIMEOUT_SECONDS"],
+    });
+    assert.include(smokePrompt, "hard timeout of 60 seconds");
+    assert.include(smokePrompt, "- synthesis.list_topics");
+    assert.include(smokePrompt, "Do not read project files");
+    assert.include(smokePrompt, "search MCP configuration");
+    assert.include(smokePrompt, "use shell commands");
+    assert.include(smokePrompt, "try CLI/HTTP/file bridge alternatives");
+
+    const guardPrompt = renderAcpRuntimePromptTemplate({
+      template: await loadAcpRuntimePromptTemplate(
+        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.mcp_required_guard,
+      ),
+      replacements: {
+        REQUIRED_TOOLS_INLINE: "synthesis.list_topics",
+      },
+      requiredPlaceholders: ["REQUIRED_TOOLS_INLINE"],
+    });
+    assert.include(guardPrompt, "The host has already completed MCP availability checks");
+    assert.include(guardPrompt, "Required MCP tools: synthesis.list_topics");
+
+    const continuationPrompt = renderAcpRuntimePromptTemplate({
+      template: await loadAcpRuntimePromptTemplate(
+        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.recovered_continuation_guard,
+      ),
+      replacements: {
+        EXECUTION_MODE: "interactive",
+        INPUT_MANIFEST_PATH: "input.json",
+        OUTPUT_BRANCH_INSTRUCTION: "- Return the pending or final branch.",
+        REQUESTED_SKILL_ID: "demo-skill",
+        RESULT_JSON_PATH: "result/result.json",
+        USER_MESSAGE: "continue",
+        WORKSPACE_DIR: "workspace",
+      },
+      requiredPlaceholders: [
+        "EXECUTION_MODE",
+        "INPUT_MANIFEST_PATH",
+        "OUTPUT_BRANCH_INSTRUCTION",
+        "REQUESTED_SKILL_ID",
+        "RESULT_JSON_PATH",
+        "USER_MESSAGE",
+        "WORKSPACE_DIR",
+      ],
+    });
+    assert.include(continuationPrompt, "ACP Skills continuation guard");
+    assert.include(continuationPrompt, "same remote ACP session");
+    assert.include(continuationPrompt, "continue");
   });
 
   it("inserts ACP proxy patch after YAML frontmatter, including CRLF frontmatter", function () {
@@ -682,7 +762,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           workflow_mcp: {
             required_tools: [
               "synthesis.list_topics",
-              "synthesis.export_paper_artifact_bundle",
+              "synthesis.export_filtered_paper_artifacts",
             ],
           },
         },
@@ -722,17 +802,243 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(result.status, "succeeded");
     assert.deepEqual(observedPreflightTools, [
       "synthesis.list_topics",
-      "synthesis.export_paper_artifact_bundle",
+      "synthesis.export_filtered_paper_artifacts",
     ]);
     assert.deepEqual(observedSmokeTools, observedPreflightTools);
     assert.deepEqual(order, ["smoke", "prompt"]);
     assert.lengthOf(promptMessages, 1);
     assert.include(
       promptMessages[0],
-      "Host 已完成 MCP availability check 和 callable smoke",
+      "The host has already completed MCP availability checks",
     );
-    assert.include(promptMessages[0], "不要自行搜索 MCP 配置或测试工具注入状态");
+    assert.include(promptMessages[0], "Do not search MCP configuration");
     assert.include(promptMessages[0], "demo-skill");
+  });
+
+  it("fails required MCP runs when callable smoke exceeds the hard timeout", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let promptCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-workflow-mcp-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        promptCount += 1;
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            workflow_mcp: {
+              required_tools: ["synthesis.list_topics"],
+            },
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          mcpPreflight: async ({ requiredTools }) => ({
+            ok: true,
+            availableTools: requiredTools,
+            missingTools: [],
+          }),
+          mcpCallableSmoke: async () => new Promise(() => undefined),
+          mcpCallableSmokeTimeoutMs: 5,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      assert.fail("expected MCP callable smoke timeout to fail the run");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "timed out",
+      );
+    }
+    assert.equal(promptCount, 0, "business prompt should not be sent after smoke timeout");
+    const run = listAcpSkillRuns()[0];
+    assert.equal(run.status, "failed");
+    assert.include(run.error || "", "timed out");
+    assert.include(run.error || "", "Diagnostic classification");
+    const failedEvent = run.events.find((event) => event.stage === "mcp-smoke-failed");
+    assert.equal(
+      failedEvent?.details?.diagnosticClassification,
+      "descriptor_not_injected",
+    );
+    assert.isString(failedEvent?.details?.diagnosticFile);
+    assert.isString(failedEvent?.details?.evidenceFile);
+  });
+
+  it("writes backend-agnostic MCP diagnostics from provider discovery evidence", async function () {
+    const root = await mkTempRoot();
+    const workspaceDir = path.join(root, "run");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    upsertAcpSkillRun({
+      requestId: "run-mcp-diagnostics",
+      backendId: "backend-claude",
+      backendType: "acp",
+      agentFamily: "claude-code",
+      workspaceDir,
+      event: {
+        stage: "acp-mcp_server_injected",
+        message: "Injected embedded Zotero MCP server",
+        level: "info",
+        details: {
+          detail: JSON.stringify({
+            name: "zotero",
+            type: "http",
+            url: "http://127.0.0.1:26531/mcp",
+            headers: [{ name: "Authorization", value: "Bearer secret-token" }],
+          }),
+        },
+      },
+    });
+
+    const result = await writeMcpContextInjectionDiagnostics({
+      backend: createBackend({
+        id: "backend-claude",
+        type: "acp",
+      }),
+      requestId: "run-mcp-diagnostics",
+      sessionId: "session-1",
+      workspaceDir,
+      preflight: {
+        ok: true,
+        availableTools: ["synthesis.list_topics"],
+        missingTools: [],
+      },
+      smoke: {
+        ok: false,
+        reachedTools: [],
+        missingTools: ["synthesis.list_topics"],
+      },
+      timeoutMs: 60000,
+      adapterDiagnostics: [
+        {
+          id: "diag-1",
+          ts: new Date().toISOString(),
+          kind: "backend-debug",
+          level: "error",
+          message: 'MCP server "zotero" Failed to fetch tools: terminated',
+          detail: 'HTTP connection dropped after 0s uptime Authorization: Bearer secret-token',
+        },
+      ],
+    });
+
+    assert.equal(
+      result.diagnostics.classification,
+      "backend_mcp_discovery_failed",
+    );
+    const diagnosticText = await fs.readFile(result.diagnosticFile, "utf8");
+    const evidenceText = await fs.readFile(result.evidenceFile, "utf8");
+    assert.notInclude(diagnosticText, "secret-token");
+    assert.notInclude(evidenceText, "secret-token");
+    assert.include(diagnosticText, "backend_mcp_discovery_failed");
+  });
+
+  it("classifies backend tool absence from transcript evidence", async function () {
+    const root = await mkTempRoot();
+    const workspaceDir = path.join(root, "run");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    upsertAcpSkillRun({
+      requestId: "run-mcp-absent",
+      backendId: "backend-any",
+      backendType: "acp",
+      workspaceDir,
+      event: {
+        stage: "acp-mcp_server_injected",
+        message: "Injected embedded Zotero MCP server",
+        level: "info",
+      },
+    });
+    upsertAcpSkillRun({
+      requestId: "run-mcp-absent",
+      event: {
+        stage: "transcript-observed",
+        message:
+          "No such tool available: mcp__zotero__synthesis_list_topics",
+        level: "error",
+      },
+    });
+
+    const result = await writeMcpContextInjectionDiagnostics({
+      backend: createBackend({ id: "backend-any" }),
+      requestId: "run-mcp-absent",
+      sessionId: "session-absent",
+      workspaceDir,
+      preflight: {
+        ok: true,
+        availableTools: ["synthesis.list_topics"],
+        missingTools: [],
+      },
+      smoke: {
+        ok: false,
+        reachedTools: [],
+        missingTools: ["synthesis.list_topics"],
+      },
+      timeoutMs: 60000,
+    });
+
+    assert.equal(result.diagnostics.classification, "backend_mcp_tools_absent");
+  });
+
+  it("documents bounded MCP callable smoke behavior in the smoke prompt", async function () {
+    const smokePrompt = await loadAcpRuntimePromptTemplate(
+      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.mcp_callable_smoke,
+    );
+    const orchestratorSource = await fs.readFile(
+      "src/modules/acpSkillRunnerOrchestrator.ts",
+      "utf8",
+    );
+
+    assert.include(orchestratorSource, "MCP_CALLABLE_SMOKE_TIMEOUT_MS = 60_000");
+    assert.include(orchestratorSource, "loadAcpRuntimePromptTemplate");
+    assert.notInclude(
+      orchestratorSource,
+      "try CLI/HTTP/file bridge alternatives.",
+    );
+    assert.include(smokePrompt, "hard timeout");
+    assert.include(smokePrompt, "Only try the listed tool callables");
+    assert.include(smokePrompt, "search MCP configuration");
+    assert.include(smokePrompt, "use shell commands");
+    assert.include(smokePrompt, "try CLI/HTTP/file bridge alternatives");
+    assert.include(smokePrompt, "repeatedly try alternate access paths");
   });
 
   it("fails dependency plan when explicit uv probe-and-wrap mode fails", async function () {

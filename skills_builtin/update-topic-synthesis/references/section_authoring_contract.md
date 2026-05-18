@@ -9,12 +9,18 @@
 
 - `topic`
 - `summary`
+- `positioning`
+- `taxonomy`
+- `comparison_matrix`
 - `claims`
 - `timeline_events`
 - `paper_evidence`
 - `external_literature_analysis`
+- `debates`
 - `coverage`
 - `gaps`
+- `review_outline`
+- `evidence_map`
 - `source_artifacts`
 - `diagnostics`
 
@@ -99,10 +105,16 @@ patch manifest 示例：
     "id": "claim:training-difficulty",
     "text": "Early detection transformers simplified post-processing but exposed training convergence challenges.",
     "evidence_refs": ["pe:detr2020"],
+    "evidence_map_refs": ["claim:training-difficulty"],
     "confidence": 0.78
   }
 ]
 ```
+
+新增或替换 `claims`、`taxonomy`、`comparison_matrix`、`debates`、`gaps`、
+`review_outline` 时，必须引用 validated evidence map candidate ids。
+`gaps` 必须包含 `gap_type`，不能把 `library_coverage_gap` 写成 field-wide gap。
+`evidence_map` section 记录 evidence map 的 path/hash/candidate_counts/candidate_ids，不展开长正文。
 
 新增 timeline event 示例：
 

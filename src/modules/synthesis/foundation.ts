@@ -785,6 +785,10 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
     resolvedPaperSets: joinPath(stateRoot, "resolved-paper-sets.json"),
     unifiedCitationGraph: joinPath(stateRoot, "unified-citation-graph.json"),
     unifiedCitationLayouts: joinPath(stateRoot, "unified-citation-layouts.json"),
+    unifiedCitationGraphMetrics: joinPath(
+      stateRoot,
+      "unified-citation-graph-metrics.json",
+    ),
     log: joinPath(stateRoot, "log.jsonl"),
   };
 }

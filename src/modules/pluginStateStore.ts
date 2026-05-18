@@ -19,10 +19,11 @@ type SqlAdapter = {
   transaction: <T>(fn: () => T) => T;
 };
 
-type PluginTaskScope = "active" | "history" | "skill-runs";
+type PluginTaskScope = "active" | "history" | "skill-runs" | "products";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
+export const PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS = "workflow-products";
 
 export type PluginTaskRequestEntry = {
   requestId: string;
@@ -1424,6 +1425,29 @@ export function clearPluginTaskRowEntries(domainRaw: string, scopeRaw: PluginTas
     domain,
     scope,
   });
+}
+
+export function deletePluginTaskRowEntry(
+  domainRaw: string,
+  taskIdRaw: string,
+  scopeRaw: PluginTaskScope = "products",
+) {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  const taskId = normalizeString(taskIdRaw);
+  if (!domain || !scope || !taskId) {
+    return false;
+  }
+  const db = getAdapter();
+  db.run(
+    "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope AND task_id=@task_id",
+    {
+      domain,
+      scope,
+      task_id: taskId,
+    },
+  );
+  return true;
 }
 
 export function deletePluginTaskRowEntriesByBackend(

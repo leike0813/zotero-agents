@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Taxonomy Section",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["primary_axis", "axis_rationale", "nodes"],
+  "properties": {
+    "primary_axis": { "type": "string" },
+    "axis_rationale": { "type": "string" },
+    "nodes": { "type": "array" }
+  }
+}

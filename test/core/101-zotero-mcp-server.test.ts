@@ -33,6 +33,10 @@ import {
   ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
   ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
   ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+  ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+  ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
   ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
 } from "../../src/modules/zoteroMcpProtocol";
 
@@ -426,6 +430,61 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.isNull(response);
   });
 
+  it("rejects null JSON-RPC ids instead of treating them as notifications", async function () {
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: null,
+      method: "tools/list",
+    });
+
+    assert.strictEqual(response.error.code, -32600);
+    assert.match(response.error.message, /id/i);
+  });
+
+  it("rejects tool calls with unknown or invalid typed arguments before handlers run", async function () {
+    let called = false;
+    const unknown: any = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "schema-unknown",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+          arguments: {
+            unexpected: true,
+          },
+        },
+      },
+      {
+        resolveHostContext: () => {
+          called = true;
+          return {
+            target: "library",
+            libraryId: "1",
+            selectionEmpty: true,
+          };
+        },
+      },
+    );
+    const wrongType: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "schema-type",
+      method: "tools/call",
+      params: {
+        name: ZOTERO_MCP_TOOL_SEARCH_ITEMS,
+        arguments: {
+          query: 123,
+        },
+      },
+    });
+
+    assert.isFalse(called);
+    assert.strictEqual(unknown.error.code, -32602);
+    assert.match(unknown.error.message, /unknown|additional/i);
+    assert.strictEqual(wrongType.error.code, -32602);
+    assert.match(wrongType.error.message, /query/i);
+  });
+
   it("returns 202 with no body for Streamable HTTP notifications", async function () {
     const token = configureZoteroMcpServerForTests();
     const raw = await handleZoteroMcpHttpRequestForTests({
@@ -463,6 +522,86 @@ describe("embedded Zotero MCP server protocol", function () {
     const status = getZoteroMcpServerStatus();
     assert.strictEqual(status.lastResponseStatus, 405);
     assert.strictEqual(status.recentRequests[0].error, "streamable_http_get_not_supported");
+  });
+
+  it("rejects query-token authentication for MCP POST requests", async function () {
+    const token = configureZoteroMcpServerForTests();
+    const raw = await handleZoteroMcpHttpRequestForTests({
+      method: "POST",
+      path: `/mcp?token=${encodeURIComponent(token)}`,
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "query-token",
+        method: "tools/list",
+      }),
+    });
+    const response = parseRawHttpResponse(raw);
+
+    assert.strictEqual(response.status, 401);
+    assert.include(response.body, "unauthorized");
+  });
+
+  it("rejects untrusted Origin headers before JSON-RPC handling", async function () {
+    const token = configureZoteroMcpServerForTests();
+    const raw = await handleZoteroMcpHttpRequestForTests({
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        authorization: `Bearer ${token}`,
+        origin: "https://evil.example",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "origin",
+        method: "tools/list",
+      }),
+    });
+    const response = parseRawHttpResponse(raw);
+
+    assert.strictEqual(response.status, 403);
+    assert.include(response.body, "origin_not_allowed");
+  });
+
+  it("rejects oversized MCP HTTP request bodies", async function () {
+    const token = configureZoteroMcpServerForTests();
+    const raw = await handleZoteroMcpHttpRequestForTests({
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: "x".repeat(2 * 1024 * 1024),
+    });
+    const response = parseRawHttpResponse(raw);
+
+    assert.strictEqual(response.status, 413);
+    assert.include(response.body, "request_body_too_large");
+  });
+
+  it("returns a structured bad request for malformed query encoding", async function () {
+    const token = configureZoteroMcpServerForTests();
+    const raw = await handleZoteroMcpHttpRequestForTests({
+      method: "POST",
+      path: "/mcp?bad=%E0%A4%A",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "bad-query",
+        method: "tools/list",
+      }),
+    });
+    const response = parseRawHttpResponse(raw);
+
+    assert.strictEqual(response.status, 400);
+    assert.include(response.body, "bad_request");
   });
 
   it("rejects the legacy SSE message endpoint", async function () {
@@ -1152,7 +1291,7 @@ describe("embedded Zotero MCP server protocol", function () {
     );
   });
 
-  it("returns structured item-not-found errors for broker read tools", async function () {
+  it("returns structured item-not-found tool results for broker read tools", async function () {
     const response = await handleZoteroMcpRequestForTests({
       jsonrpc: "2.0",
       id: "missing-notes",
@@ -1165,12 +1304,11 @@ describe("embedded Zotero MCP server protocol", function () {
       },
     });
 
-    assert.strictEqual((response as any).error.code, -32602);
-    assert.strictEqual((response as any).error.data.code, "zotero_item_not_found");
-    assert.strictEqual(
-      (response as any).error.data.errorName,
-      "ZoteroItemNotFoundError",
-    );
+    const result = (response as any).result;
+    assert.strictEqual(result.isError, true);
+    assert.strictEqual(result.structuredContent.error_code, "zotero_item_not_found");
+    assert.strictEqual(result.structuredContent.retryable, false);
+    assert.strictEqual(result.structuredContent.tool, ZOTERO_MCP_TOOL_GET_ITEM_NOTES);
   });
 
   it("lists and reads Zotero note payloads for workflow notes", async function () {
@@ -2107,6 +2245,58 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(timeoutLog?.toolErrorName, "ZoteroMcpToolTimeoutError");
   });
 
+  it("retains the single host-call slot until a timed-out tool really settles", async function () {
+    let releaseFirst!: () => void;
+    let shouldBlock = true;
+    const token = configureZoteroMcpServerForTests({
+      runningTimeoutMs: 10,
+      beforeToolCallForTests: async () => {
+        if (!shouldBlock) {
+          return;
+        }
+        shouldBlock = false;
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      },
+    });
+    const makeRequest = (id: string) =>
+      handleZoteroMcpHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: {
+            name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+            arguments: {},
+          },
+        }),
+      });
+
+    const first = makeRequest("retained-timeout-first");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const firstResponse = parseJsonBody(await first);
+    const second = makeRequest("retained-timeout-second");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const retainedStatus = getZoteroMcpServerStatus();
+
+    assert.strictEqual(firstResponse.error.data.code, "zotero_mcp_tool_timeout");
+    assert.strictEqual(retainedStatus.queueState.running, 1);
+    assert.strictEqual(retainedStatus.queueState.pending, 1);
+    assert.isTrue(retainedStatus.guardState.timedOutButStillRunning);
+    assert.include(retainedStatus.guardState.retryGuidance, "wait");
+
+    releaseFirst();
+    const secondResponse = parseJsonBody(await second);
+    assert.notProperty(secondResponse, "error");
+  });
+
   it("opens a per-tool circuit after repeated runtime failures", async function () {
     let failures = 0;
     const token = configureZoteroMcpServerForTests({
@@ -2291,6 +2481,86 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(health.lastLogStage, "response.write.failed");
     assert.strictEqual(health.lastLogErrorName, "Error");
     assert.include(health.tooltip.join("\n"), "lastRuntimeFailure=response.write.failed");
+  });
+
+  it("records transport diagnostics for tools/list discovery", async function () {
+    const token = configureZoteroMcpServerForTests();
+    await handleZoteroMcpHttpRequestForTests({
+      method: "POST",
+      path: "/mcp",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "user-agent": "claude-code/2.1.44",
+        "mcp-protocol-version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "tools-list-diagnostics",
+        method: "tools/list",
+      }),
+    });
+
+    const logs = listRuntimeLogs({
+      scopes: ["system"],
+      component: "zotero-mcp",
+      order: "asc",
+    });
+    const serialized = JSON.stringify(logs);
+    assert.notInclude(serialized, token);
+    const finished = logs.find(
+      (entry) => entry.stage === "response.serialize.finished",
+    );
+    assert.include(
+      JSON.stringify(finished?.details || {}),
+      '"requiredSynthesisToolsPresent":true',
+    );
+    assert.include(
+      JSON.stringify(finished?.details || {}),
+      ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+    );
+    assert.include(
+      JSON.stringify(finished?.details || {}),
+      ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+    );
+    assert.include(
+      JSON.stringify(finished?.details || {}),
+      ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+    );
+    assert.include(
+      JSON.stringify(finished?.details || {}),
+      ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+    );
+    assert.match(JSON.stringify(finished?.details || {}), /"responseBytes":\d+/);
+    assert.match(JSON.stringify(finished?.details || {}), /"contentLength":\d+/);
+  });
+
+  it("records unsupported streamable HTTP GET diagnostics", async function () {
+    const token = configureZoteroMcpServerForTests();
+    const raw = await handleZoteroMcpHttpRequestForTests({
+      method: "GET",
+      path: "/mcp",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "text/event-stream",
+        "user-agent": "claude-code/2.1.44",
+      },
+    });
+    const parsed = parseRawHttpResponse(raw);
+    assert.strictEqual(parsed.status, 405);
+    assert.strictEqual(parsed.headers.Allow, "POST");
+
+    const logs = listRuntimeLogs({
+      scopes: ["system"],
+      component: "zotero-mcp",
+      order: "asc",
+    });
+    const accepted = logs.find((entry) => entry.stage === "request.accepted");
+    const serialized = JSON.stringify(accepted?.details || {});
+    assert.include(serialized, "text/event-stream");
+    assert.include(serialized, "claude-code");
+    assert.notInclude(JSON.stringify(logs), token);
   });
 
   it("builds a JSON-RPC fallback response for request-level listener failures", function () {

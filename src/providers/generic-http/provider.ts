@@ -6,6 +6,7 @@ import type {
 } from "../contracts";
 import type { Provider, ProviderSupportsArgs } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { delay } from "../../utils/runtimeCompatibility";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -126,18 +127,7 @@ function resolveFetchImpl() {
 }
 
 async function sleep(ms: number) {
-  const wait = Math.max(0, ms);
-  if (wait === 0) {
-    return;
-  }
-  const runtime = globalThis as {
-    Zotero?: { Promise?: { delay?: (delayMs: number) => Promise<void> } };
-  };
-  if (typeof runtime.Zotero?.Promise?.delay === "function") {
-    await runtime.Zotero.Promise.delay(wait);
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, wait));
+  await delay(ms);
 }
 
 async function readFileBytes(filePath: string) {

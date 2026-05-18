@@ -33,6 +33,7 @@ import {
   normalizeStatusWithGuard,
   type SkillRunnerStateMachineViolation,
 } from "./skillRunnerProviderStateMachine";
+import { delay } from "../utils/runtimeCompatibility";
 import {
   listActiveWorkflowTasks,
   subscribeWorkflowTasks,
@@ -636,17 +637,7 @@ function applyRunDialogSessionStatus(args: {
 }
 
 async function sleep(ms: number) {
-  if (ms <= 0) {
-    return;
-  }
-  const runtime = globalThis as {
-    Zotero?: { Promise?: { delay?: (delayMs: number) => Promise<void> } };
-  };
-  if (typeof runtime.Zotero?.Promise?.delay === "function") {
-    await runtime.Zotero.Promise.delay(ms);
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await delay(ms);
 }
 
 function formatSkillRunnerEventText(event: Record<string, unknown>) {

@@ -14,6 +14,12 @@ The v1 contract is:
 - `content[].text` is the agent-readable navigation layer. It must contain key identifiers, paging/chunking hints, and recommended next calls.
 - Large data is returned by bounded lists or chunks. Tools must not return unbounded note bodies, attachment bytes, or full-library dumps.
 - Write tools always go through preview, permission, execute, and verification guidance.
+- Tool `inputSchema` is enforced by the server before handlers run. Unknown
+  top-level fields, missing required fields, wrong types, invalid enum values,
+  and declared size/range violations are rejected without entering Zotero host
+  APIs.
+- Local HTTP MCP requests must use `Authorization: Bearer ...`; query-string
+  token authentication is intentionally not accepted.
 
 The current registry contains Zotero read/context tools, Synthesis read tools,
 one diagnostic tool, and permission-gated write tools. Four tools are
@@ -22,6 +28,35 @@ note-payload aware: `list_note_payloads`, `get_note_payload`,
 context aggregator: `prepare_paper_reading_context`. Synthesis MCP tools expose
 topic, resolver, registry, graph-slice, and review-input capabilities; they do
 not duplicate paper artifact payload readers.
+
+## Protocol And Transport Baseline
+
+The local MCP transport is Streamable HTTP over `127.0.0.1`. It is stateless and
+does not use MCP session ids as business state.
+
+Stability rules:
+
+- Only requests without an `id` are notifications. `id: null` is invalid.
+- `tools/list` is generated from the registry, and `tools/call` validates the
+  selected tool schema before invoking its handler.
+- `GET /mcp` and legacy `/mcp/message` are not supported.
+- Requests with untrusted `Origin` headers are rejected before JSON-RPC
+  handling.
+- Oversized request bodies are rejected before JSON parsing.
+- Secure random token generation is required; the server fails closed if it
+  cannot create a bearer token safely.
+
+## Queue And Timeout Semantics
+
+All Zotero host API `tools/call` work, except `get_mcp_status`, enters a single
+FIFO worker. A running timeout returns a structured JSON-RPC timeout to the
+caller, but the worker slot remains occupied until the underlying handler
+settles. This prevents a timed-out Zotero call from overlapping with the next
+host call.
+
+`get_mcp_status` exposes `timedOutButStillRunning`, active tool, start time,
+timeout threshold, queue state, and retry guidance without exposing bearer
+tokens.
 
 ## Agent Context Disclosure Contract
 
@@ -582,8 +617,28 @@ Text disclosure requirements:
 - server state
 - endpoint/transport type without bearer token
 - queue state and limits
+- whether a timed-out tool is still occupying the single host-call slot
 - recent failure or circuit-breaker summary when present
 - retry guidance for queue/timeout/circuit errors
+
+## Synthesis MCP Boundaries
+
+Synthesis tools are job-time host capabilities. They should return compact
+navigation and diagnostics to the agent, while large paper artifacts flow through
+run-workspace bundle files.
+
+Bounded behavior:
+
+- `synthesis.get_paper_registry` supports `paperRefs`, `cursor`, and `limit`.
+- `synthesis.resolve_resolver` supports `cursor` and `limit` and returns
+  `next_cursor`, `has_more`, `returned`, and `total`.
+- `synthesis.get_library_index` returns a bounded paper page by default.
+  `includeTags`, `includeCollections`, and `includeItems` opt into larger
+  sections.
+- `synthesis.get_topic_context` is summary-first. Full markdown, manifest, or
+  structured artifact bodies require explicit include flags.
+- `synthesis.get_review_input` enforces graph/text bounds and records truncation
+  diagnostics.
 
 ## Permission-Gated Write Tools
 

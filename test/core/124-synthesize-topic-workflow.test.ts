@@ -89,12 +89,14 @@ describe("Synthesize topic workflow contract", function () {
       "synthesis.list_topics",
       "synthesis.get_library_index",
       "synthesis.resolve_resolver",
-      "synthesis.export_paper_artifact_bundle",
+      "synthesis.get_citation_graph_metrics",
+      "synthesis.export_filtered_paper_artifacts",
     ]);
     assert.sameMembers(updateWorkflow.execution?.mcp?.requiredTools || [], [
       "synthesis.get_topic_context",
       "synthesis.resolve_resolver",
-      "synthesis.export_paper_artifact_bundle",
+      "synthesis.get_citation_graph_metrics",
+      "synthesis.export_filtered_paper_artifacts",
     ]);
   });
 
@@ -145,7 +147,8 @@ describe("Synthesize topic workflow contract", function () {
         "synthesis.list_topics",
         "synthesis.get_library_index",
         "synthesis.resolve_resolver",
-        "synthesis.export_paper_artifact_bundle",
+        "synthesis.get_citation_graph_metrics",
+        "synthesis.export_filtered_paper_artifacts",
       ],
     });
     assert.equal(requests[0].targetParentID, 8);
@@ -312,16 +315,24 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "ACP interactive confirmation");
     assert.include(skillText, "analysis_manifest_path");
     assert.include(skillText, "result/topic-analysis.json");
-    assert.include(skillText, "synthesis.export_paper_artifact_bundle");
-    assert.include(skillText, "persist_paper_artifact_bundle");
+    assert.include(skillText, "synthesis.get_citation_graph_metrics");
+    assert.include(skillText, "persist_citation_graph_metrics");
+    assert.include(skillText, "synthesis.export_filtered_paper_artifacts");
+    assert.include(skillText, "persist_filtered_artifact_manifest");
     assert.include(skillText, "export_cross_paper_context");
+    assert.include(skillText, "cross-paper-context.md");
+    assert.include(skillText, "external-literature-context.md");
+    assert.include(skillText, "result/sections/*.json");
     assert.include(skillText, "digest-markdown");
     assert.include(skillText, "references-json");
     assert.include(skillText, "citation-analysis-json");
+    assert.include(skillText, "graph_metrics_interpretation");
+    assert.include(skillText, "不能替代 digest evidence");
     assert.include(skillText, "bounded");
     assert.notInclude(skillText, "synthesis.validate_resolver");
     assert.notInclude(skillText, "synthesis.query_citation_graph");
-    assert.include(skillText, "`synthesis.export_paper_artifact_bundle`");
+    assert.include(skillText, "`synthesis.export_filtered_paper_artifacts`");
+    assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(skillText, "synthesis.read_paper_artifacts");
     assert.notInclude(skillText, "`markdown` must contain");
     assert.include(resolverSchema.required, "sections");
@@ -350,6 +361,8 @@ describe("Synthesize topic workflow contract", function () {
     assert.match(skillText, /不得内嵌 `markdown`/);
     assert.match(skillText, /synthesis\.resolve_resolver/);
     assert.include(runner.entrypoint.prompts.common, "synthesis.list_topics");
+    assert.include(runner.entrypoint.prompts.common, "synthesis.get_citation_graph_metrics");
+    assert.include(runner.entrypoint.prompts.common, "persist_citation_graph_metrics");
     assert.include(runner.entrypoint.prompts.common, "title/description/aliases");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
     assert.include(runner.entrypoint.prompts.common, "references/create_workflow_playbook.md");
@@ -434,6 +447,9 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "artifact_registry");
       assert.include(skillText, "partial/unregistered output");
       assert.include(skillText, "只执行 gate 返回的 `next_action`");
+      assert.include(skillText, "synthesis.get_citation_graph_metrics");
+      assert.include(skillText, "persist_citation_graph_metrics");
+      assert.include(skillText, "graph_metrics_interpretation");
       assert.include(skillText, "可选扩展");
       assert.include(skillText, "不是执行硬约束");
       assert.notInclude(skillText, "references/runtime_contract.md");
@@ -450,13 +466,14 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(createSkill, "synthesis.list_topics");
     assert.include(createSkill, "synthesis.resolve_resolver");
     assert.include(createSkill, "synthesis.get_library_index");
+    assert.include(createSkill, "synthesis.get_citation_graph_metrics");
     assert.include(createSkill, "persist_library_index_page");
     assert.include(createSkill, "has_more");
     assert.include(createSkill, "index_hash");
     assert.include(createSkill, "references/create_workflow_playbook.md");
     assert.include(
       createSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation create --language \"zh-CN\" --action render",
+      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation create --language \"zh-CN\" --action validate_final_artifacts",
     );
 
     assert.include(updateSkill, "topicId");
@@ -469,11 +486,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(updateSkill, "references/update_workflow_playbook.md");
     assert.include(
       updateSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_full --language \"zh-CN\" --action render",
+      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_full --language \"zh-CN\" --action validate_final_artifacts",
     );
     assert.include(
       updateSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_patch --language \"zh-CN\" --action render",
+      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_patch --language \"zh-CN\" --action validate_final_artifacts",
     );
   });
 
@@ -492,6 +509,8 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "result/topic-analysis.patch.json");
     assert.match(skillText, /不得内嵌 `markdown`/);
     assert.include(runner.entrypoint.prompts.common, "synthesis.get_topic_context");
+    assert.include(runner.entrypoint.prompts.common, "synthesis.get_citation_graph_metrics");
+    assert.include(runner.entrypoint.prompts.common, "persist_citation_graph_metrics");
     assert.include(runner.entrypoint.prompts.common, "recommended_update");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
     assert.include(runner.entrypoint.prompts.common, "references/update_workflow_playbook.md");
@@ -615,15 +634,10 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
       title: "Object Detection",
       description: "Object detection synthesis",
     },
-    topic_resolver: {
-      mode: "tag_query",
-      query: { and: ["topic:object-detection"] },
-    },
-    resolved_paper_set: {
-      papers: [{ paper_ref: "1:DETR", match_reasons: ["tag"] }],
-    },
+    resolver_manifest_path: "runtime/payloads/resolver.json",
     resolver_diagnostics: {
       final_count: 1,
+      manifest_hash: "sha256:resolver",
     },
     artifact_metadata: {
       depends_on: {
@@ -692,8 +706,32 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       assert.isTrue(result.ok);
       assert.equal((result.bundle as any).operation, operation);
       assert.equal((result.bundle as any).analysis_manifest_path, "result/topic-analysis.json");
+      assert.equal((result.bundle as any).resolver_manifest_path, "runtime/payloads/resolver.json");
       assert.equal((result.bundle as any).language, "zh-CN");
+      assert.notProperty(result.bundle, "topic_resolver");
+      assert.notProperty(result.bundle, "resolved_paper_set");
     }
+  });
+
+  it("rejects v2 final bundles without topic_definition.id or resolver manifest path", function () {
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle(
+          v2CompleteBundle({
+            topic_definition: { title: "Object Detection" },
+          }),
+        ),
+      /topic_definition\.id/i,
+    );
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle(
+          v2CompleteBundle({
+            resolver_manifest_path: "",
+          }),
+        ),
+      /resolver_manifest_path/i,
+    );
   });
 
   it("accepts update patch bundles with read section hashes and no markdown dependency", function () {

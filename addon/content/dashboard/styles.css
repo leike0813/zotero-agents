@@ -964,3 +964,122 @@ tr.clickable {
   color: #742a2a;
   background: #fff0f0;
 }
+
+.products-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.product-list,
+.product-detail,
+.product-file-tree,
+.product-preview {
+  min-height: 0;
+}
+
+.product-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.product-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.product-card.active {
+  border-color: var(--accent);
+  background: #f4f8ff;
+}
+
+.product-card-meta,
+.product-meta,
+.product-preview-meta,
+.product-file-path {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.product-detail {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.product-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.product-file-tree {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfcfe;
+}
+
+.product-file-node {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.product-file-node.active,
+.product-file-node:hover {
+  background: #eef5ff;
+}
+
+.product-preview {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 10px;
+}
+
+.product-preview-code {
+  margin: 8px 0 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.product-preview-markdown {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.product-preview-raw {
+  margin-top: 12px;
+}
+
+.btn.danger {
+  color: var(--danger);
+  border-color: #fed7d7;
+}

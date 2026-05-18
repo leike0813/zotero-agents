@@ -93,6 +93,54 @@ export type CitationGraph = {
   graph_hash: string;
 };
 
+export type CitationGraphLibraryNodeMetrics = {
+  node_id: string;
+  paper_ref?: string;
+  item_key?: string;
+  title?: string;
+  year?: string;
+  internal_in_degree: number;
+  internal_out_degree: number;
+  external_reference_count: number;
+  unresolved_reference_count: number;
+  internal_pagerank: number;
+  component_id: string;
+  component_size: number;
+  is_isolated: boolean;
+  age_norm: number;
+  recency_norm: number;
+  in_degree_norm: number;
+  out_degree_norm: number;
+  pagerank_norm: number;
+  foundation_score: number;
+  frontier_score: number;
+  synthesis_role_hints: string[];
+};
+
+export type CitationGraphMetrics = {
+  schema_id: "synthesis.unified_citation_graph_metrics";
+  schema_version: "1.0.0";
+  graph_hash: string;
+  metrics_version: 1;
+  params: {
+    pagerank_damping: number;
+    pagerank_iterations: number;
+    foundation_formula: string;
+    frontier_formula: string;
+  };
+  graph_year: number | null;
+  library_node_metrics: CitationGraphLibraryNodeMetrics[];
+  diagnostics: {
+    library_node_count: number;
+    external_reference_count: number;
+    unresolved_reference_count: number;
+    component_count: number;
+    isolated_library_node_count: number;
+    missing_year_count: number;
+  };
+  metrics_hash: string;
+};
+
 export type CitationLayoutPreset = "compact" | "balanced" | "expanded";
 
 export type CitationGraphLayout = {
@@ -564,6 +612,319 @@ function coordinateSeed(nodeId: string, preset: CitationLayoutPreset, axis: "x" 
 
 function roundCoordinate(value: number) {
   return Math.round(value * 1000) / 1000;
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function normalizeMetric(value: number, max: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) {
+    return 0;
+  }
+  return roundMetric(Math.max(0, value) / max);
+}
+
+function parseYear(value: unknown) {
+  const match = normalizeText(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function paperRefFromLibraryNode(node: CitationGraphNode) {
+  return node.library_id && node.item_key ? `${node.library_id}:${node.item_key}` : undefined;
+}
+
+function computeLibraryPagerank(args: {
+  libraryNodeIds: string[];
+  internalEdges: CitationGraphEdge[];
+  damping: number;
+  iterations: number;
+}) {
+  const nodes = [...args.libraryNodeIds].sort((left, right) => left.localeCompare(right));
+  const nodeSet = new Set(nodes);
+  const count = nodes.length;
+  const ranks = new Map<string, number>();
+  if (!count) {
+    return ranks;
+  }
+  const outgoing = new Map<string, Array<{ target: string; weight: number }>>();
+  for (const node of nodes) {
+    ranks.set(node, 1 / count);
+    outgoing.set(node, []);
+  }
+  for (const edge of args.internalEdges) {
+    if (nodeSet.has(edge.source) && nodeSet.has(edge.target)) {
+      outgoing.get(edge.source)!.push({
+        target: edge.target,
+        weight: Math.max(1, Number(edge.mention_count) || 1),
+      });
+    }
+  }
+  for (let iteration = 0; iteration < args.iterations; iteration += 1) {
+    const next = new Map<string, number>();
+    const base = (1 - args.damping) / count;
+    for (const node of nodes) {
+      next.set(node, base);
+    }
+    let dangling = 0;
+    for (const node of nodes) {
+      const rank = ranks.get(node) || 0;
+      const links = outgoing.get(node) || [];
+      const totalWeight = links.reduce((sum, link) => sum + link.weight, 0);
+      if (!links.length || totalWeight <= 0) {
+        dangling += rank;
+        continue;
+      }
+      for (const link of links) {
+        next.set(
+          link.target,
+          (next.get(link.target) || 0) + args.damping * rank * (link.weight / totalWeight),
+        );
+      }
+    }
+    const danglingShare = args.damping * dangling / count;
+    for (const node of nodes) {
+      ranks.set(node, (next.get(node) || 0) + danglingShare);
+    }
+  }
+  for (const node of nodes) {
+    ranks.set(node, roundMetric(ranks.get(node) || 0));
+  }
+  return ranks;
+}
+
+function computeWeakComponents(args: {
+  libraryNodeIds: string[];
+  internalEdges: CitationGraphEdge[];
+}) {
+  const nodes = [...args.libraryNodeIds].sort((left, right) => left.localeCompare(right));
+  const adjacency = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    adjacency.set(node, new Set());
+  }
+  for (const edge of args.internalEdges) {
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+  const seen = new Set<string>();
+  const components: string[][] = [];
+  for (const node of nodes) {
+    if (seen.has(node)) {
+      continue;
+    }
+    const component: string[] = [];
+    const queue = [node];
+    seen.add(node);
+    while (queue.length) {
+      const current = queue.shift()!;
+      component.push(current);
+      for (const next of [...(adjacency.get(current) || [])].sort((left, right) =>
+        left.localeCompare(right),
+      )) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    components.push(component.sort((left, right) => left.localeCompare(right)));
+  }
+  components.sort((left, right) => left[0].localeCompare(right[0]));
+  const byNode = new Map<string, { component_id: string; component_size: number }>();
+  components.forEach((component, index) => {
+    const componentId = `component:${String(index + 1).padStart(3, "0")}`;
+    for (const node of component) {
+      byNode.set(node, {
+        component_id: componentId,
+        component_size: component.length,
+      });
+    }
+  });
+  return { components, byNode };
+}
+
+function roleHints(args: {
+  foundationScore: number;
+  frontierScore: number;
+  pagerankNorm: number;
+  inDegreeNorm: number;
+  recencyNorm: number;
+  isIsolated: boolean;
+  externalReferenceCount: number;
+  unresolvedReferenceCount: number;
+  internalOutDegree: number;
+}) {
+  const hints = new Set<string>();
+  if (args.foundationScore >= 0.65 && args.pagerankNorm >= 0.35) {
+    hints.add("core");
+  }
+  if (args.foundationScore >= 0.55 && args.inDegreeNorm >= 0.35) {
+    hints.add("foundation");
+  }
+  if (args.frontierScore >= 0.55 && args.recencyNorm >= 0.5) {
+    hints.add("frontier");
+  }
+  if (args.isIsolated) {
+    hints.add("isolated");
+  }
+  if (
+    args.externalReferenceCount + args.unresolvedReferenceCount >= 3 &&
+    args.externalReferenceCount + args.unresolvedReferenceCount >= args.internalOutDegree * 2
+  ) {
+    hints.add("external-heavy");
+  }
+  return [...hints].sort((left, right) => left.localeCompare(right));
+}
+
+export function computeCitationGraphMetrics(graph: CitationGraph): CitationGraphMetrics {
+  const libraryNodes = graph.nodes
+    .filter((node) => node.kind === "library_paper")
+    .sort((left, right) => left.node_id.localeCompare(right.node_id));
+  const libraryNodeIds = libraryNodes.map((node) => node.node_id);
+  const librarySet = new Set(libraryNodeIds);
+  const nodeById = new Map(graph.nodes.map((node) => [node.node_id, node]));
+  const internalEdges = graph.edges.filter(
+    (edge) => librarySet.has(edge.source) && librarySet.has(edge.target),
+  );
+  const inDegree = new Map<string, number>();
+  const outDegree = new Map<string, number>();
+  const externalCounts = new Map<string, number>();
+  const unresolvedCounts = new Map<string, number>();
+  for (const nodeId of libraryNodeIds) {
+    inDegree.set(nodeId, 0);
+    outDegree.set(nodeId, 0);
+    externalCounts.set(nodeId, 0);
+    unresolvedCounts.set(nodeId, 0);
+  }
+  for (const edge of graph.edges) {
+    const weight = Math.max(1, Number(edge.mention_count) || 1);
+    if (librarySet.has(edge.source) && librarySet.has(edge.target)) {
+      outDegree.set(edge.source, (outDegree.get(edge.source) || 0) + weight);
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + weight);
+      continue;
+    }
+    if (librarySet.has(edge.source)) {
+      const target = nodeById.get(edge.target);
+      if (target?.kind === "external_reference") {
+        externalCounts.set(edge.source, (externalCounts.get(edge.source) || 0) + weight);
+      } else if (target?.kind === "unresolved_reference") {
+        unresolvedCounts.set(edge.source, (unresolvedCounts.get(edge.source) || 0) + weight);
+      }
+    }
+  }
+  const pagerank = computeLibraryPagerank({
+    libraryNodeIds,
+    internalEdges,
+    damping: 0.85,
+    iterations: 50,
+  });
+  const { components, byNode: componentByNode } = computeWeakComponents({
+    libraryNodeIds,
+    internalEdges,
+  });
+  const validYears = libraryNodes
+    .map((node) => parseYear(node.year))
+    .filter((year): year is number => year !== null);
+  const graphYear = validYears.length ? Math.max(...validYears) : null;
+  const minYear = validYears.length ? Math.min(...validYears) : null;
+  const yearSpan =
+    graphYear !== null && minYear !== null && graphYear > minYear
+      ? graphYear - minYear
+      : 0;
+  const maxIn = Math.max(0, ...libraryNodeIds.map((node) => inDegree.get(node) || 0));
+  const maxOut = Math.max(0, ...libraryNodeIds.map((node) => outDegree.get(node) || 0));
+  const maxPagerank = Math.max(0, ...libraryNodeIds.map((node) => pagerank.get(node) || 0));
+  const libraryNodeMetrics = libraryNodes.map((node): CitationGraphLibraryNodeMetrics => {
+    const parsedYear = parseYear(node.year);
+    const ageNorm =
+      parsedYear !== null && graphYear !== null && yearSpan > 0
+        ? roundMetric((graphYear - parsedYear) / yearSpan)
+        : 0;
+    const recencyNorm =
+      parsedYear !== null && graphYear !== null
+        ? yearSpan > 0
+          ? roundMetric(1 - ageNorm)
+          : 1
+        : 0;
+    const internalInDegree = inDegree.get(node.node_id) || 0;
+    const internalOutDegree = outDegree.get(node.node_id) || 0;
+    const internalPagerank = pagerank.get(node.node_id) || 0;
+    const inDegreeNorm = normalizeMetric(internalInDegree, maxIn);
+    const outDegreeNorm = normalizeMetric(internalOutDegree, maxOut);
+    const pagerankNorm = normalizeMetric(internalPagerank, maxPagerank);
+    const foundationScore = roundMetric(
+      0.5 * inDegreeNorm + 0.35 * pagerankNorm + 0.15 * ageNorm,
+    );
+    const frontierScore = roundMetric(
+      0.55 * recencyNorm + 0.25 * outDegreeNorm + 0.2 * pagerankNorm,
+    );
+    const component = componentByNode.get(node.node_id) || {
+      component_id: "component:000",
+      component_size: 0,
+    };
+    const isIsolated = component.component_size <= 1;
+    return {
+      node_id: node.node_id,
+      paper_ref: paperRefFromLibraryNode(node),
+      item_key: node.item_key,
+      title: node.title,
+      year: node.year,
+      internal_in_degree: internalInDegree,
+      internal_out_degree: internalOutDegree,
+      external_reference_count: externalCounts.get(node.node_id) || 0,
+      unresolved_reference_count: unresolvedCounts.get(node.node_id) || 0,
+      internal_pagerank: roundMetric(internalPagerank),
+      component_id: component.component_id,
+      component_size: component.component_size,
+      is_isolated: isIsolated,
+      age_norm: ageNorm,
+      recency_norm: recencyNorm,
+      in_degree_norm: inDegreeNorm,
+      out_degree_norm: outDegreeNorm,
+      pagerank_norm: pagerankNorm,
+      foundation_score: foundationScore,
+      frontier_score: frontierScore,
+      synthesis_role_hints: roleHints({
+        foundationScore,
+        frontierScore,
+        pagerankNorm,
+        inDegreeNorm,
+        recencyNorm,
+        isIsolated,
+        externalReferenceCount: externalCounts.get(node.node_id) || 0,
+        unresolvedReferenceCount: unresolvedCounts.get(node.node_id) || 0,
+        internalOutDegree,
+      }),
+    };
+  });
+  const base = {
+    schema_id: "synthesis.unified_citation_graph_metrics" as const,
+    schema_version: "1.0.0" as const,
+    graph_hash: graph.graph_hash,
+    metrics_version: 1 as const,
+    params: {
+      pagerank_damping: 0.85,
+      pagerank_iterations: 50,
+      foundation_formula: "0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm",
+      frontier_formula: "0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm",
+    },
+    graph_year: graphYear,
+    library_node_metrics: libraryNodeMetrics.sort((left, right) =>
+      left.node_id.localeCompare(right.node_id),
+    ),
+    diagnostics: {
+      library_node_count: libraryNodes.length,
+      external_reference_count: graph.nodes.filter((node) => node.kind === "external_reference").length,
+      unresolved_reference_count: graph.nodes.filter((node) => node.kind === "unresolved_reference").length,
+      component_count: components.length,
+      isolated_library_node_count: components.filter((component) => component.length === 1).length,
+      missing_year_count: libraryNodes.length - validYears.length,
+    },
+  };
+  return {
+    ...base,
+    metrics_hash: hashCanonicalJson(base),
+  };
 }
 
 export function computeCitationGraphLayout(

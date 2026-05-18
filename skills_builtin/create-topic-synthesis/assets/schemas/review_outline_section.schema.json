@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Review Outline Section",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["introduction_logic", "related_work_logic", "body_sections"],
+  "properties": {
+    "introduction_logic": { "type": "array" },
+    "related_work_logic": { "type": "array" },
+    "body_sections": { "type": "array" }
+  }
+}

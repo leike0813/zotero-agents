@@ -9,6 +9,27 @@ var chromeHandle;
 
 function install(data, reason) {}
 
+function resolveAddonRootPath(rootURI) {
+  try {
+    var uri = Services.io.newURI(rootURI);
+    var fileURI = uri.QueryInterface(Components.interfaces.nsIFileURL);
+    return fileURI.file.path;
+  } catch (e) {
+    try {
+      if (typeof rootURI === "string" && rootURI.indexOf("file://") === 0) {
+        var path = decodeURIComponent(rootURI.replace(/^file:\/+/, ""));
+        if (/^[A-Za-z]:/.test(path)) {
+          return path.replace(/\//g, "\\").replace(/\\$/, "");
+        }
+        return "/" + path.replace(/\/$/, "");
+      }
+    } catch (ignored) {
+      // ignore
+    }
+  }
+  return "";
+}
+
 async function startup({ id, version, resourceURI, rootURI }, reason) {
   var aomStartup = Components.classes[
     "@mozilla.org/addons/addon-manager-startup;1"
@@ -24,7 +45,11 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
    * and all child variables assigned to it is globally accessible.
    * See `src/index.ts` for details.
    */
-  const ctx = { rootURI };
+  const ctx = {
+    rootURI,
+    resourceURI: resourceURI?.spec,
+    rootPath: resolveAddonRootPath(rootURI),
+  };
   ctx._globalThis = ctx;
 
   Services.scriptloader.loadSubScript(
