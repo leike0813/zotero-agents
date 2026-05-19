@@ -702,7 +702,7 @@ describe("Synthesis Layer v1 integration service", function () {
       "synthesis.topic_synthesis_artifact",
     );
     assert.isArray(reviewInput.structured_topic?.claims);
-    assert.isArray(reviewInput.structured_topic?.timeline_events);
+    assert.isObject(reviewInput.structured_topic?.timeline_events);
     assert.isArray(reviewInput.structured_topic?.paper_evidence);
     assert.include(["fresh", "stale", "dirty"], topicContext.freshness?.freshness);
     assert.deepEqual(
@@ -1201,7 +1201,7 @@ describe("topic synthesis applyResult host delegation", function () {
     } catch (error) {
       assert.match(
         String((error as Error).message || error),
-        /markdown_path instead of embedding markdown/i,
+        /must not embed markdown/i,
       );
     }
   });
@@ -1298,7 +1298,6 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
-    markdown_path: "result/preview.md",
     ...overrides,
   };
 }
@@ -1358,7 +1357,14 @@ function v2SectionContext(sections: Record<string, unknown>) {
 
 function v2SectionsWithEvidence(payloadHash: string) {
   return {
-    topic: { id: "object-detection", title: "Object Detection" },
+    topic: {
+      id: "object-detection",
+      title: "Object Detection",
+      definition: "The task of detecting instances of visual objects of certain classes in digital images.",
+      discipline: "Computer Science",
+      research_field: "Computer Vision",
+      scope_boundary: { include: ["DETR"], exclude: [] },
+    },
     summary: { brief: "structured summary" },
     positioning: {
       importance: "Object detection is a core perception task.",
@@ -1369,7 +1375,23 @@ function v2SectionsWithEvidence(payloadHash: string) {
     taxonomy: {
       primary_axis: "method_route",
       axis_rationale: "Fixture has one route.",
-      nodes: [{ id: "tax:detr", title: "DETR", evidence_map_refs: ["tax:detr"] }],
+      summary: {
+        text: "The fixture taxonomy contains one DETR route and uses it as a minimal route synthesis.",
+      },
+      nodes: [
+        {
+          id: "tax:detr",
+          title: "DETR",
+          definition: "End-to-end set prediction route for object detection.",
+          core_problem: "Reduce hand-designed detection pipeline components.",
+          mechanism: "Transformer object queries and bipartite matching.",
+          representative_papers: ["paper:1:DETR"],
+          strengths: ["Unified detection formulation"],
+          limitations: ["Fixture route has one paper"],
+          maturity: "early fixture",
+          evidence_map_refs: ["tax:detr"],
+        },
+      ],
     },
     comparison_matrix: {
       dimensions: ["problem addressed"],
@@ -1379,18 +1401,30 @@ function v2SectionsWithEvidence(payloadHash: string) {
       {
         id: "claim:detr",
         text: "DETR introduced end-to-end detection.",
+        analysis: "The fixture claim is supported by DETR's set-prediction formulation.",
         evidence_refs: ["paper:1:DETR"],
         evidence_map_refs: ["claim:detr"],
+        confidence: 0.8,
+        limitations: ["Fixture has one evidence paper."],
       },
     ],
-    timeline_events: [
-      {
-        id: "event:detr",
-        year: 2020,
-        label: "DETR",
-        evidence_refs: ["paper:1:DETR"],
+    timeline_events: {
+      summary: {
+        text: "The fixture timeline treats DETR as the minimal milestone for query-based set prediction.",
       },
-    ],
+      events: [
+        {
+          id: "event:detr",
+          year: 2020,
+          label: "DETR",
+          description: "DETR introduced set-prediction object detection.",
+          phase: "paradigm_shift",
+          progression_logic: "Later detector transformer work builds on this formulation.",
+          evidence_refs: ["paper:1:DETR"],
+          evidence_map_refs: ["claim:detr"],
+        },
+      ],
+    },
     paper_evidence: [
       {
         id: "paper:1:DETR",
@@ -1405,20 +1439,42 @@ function v2SectionsWithEvidence(payloadHash: string) {
       },
     ],
     external_literature_analysis: {
-      summary: "",
-      themes: [],
+      summary: "This is a summary of external literature analysis.",
+      themes: [{ id: "theme:transformer", title: "Transformer background" }],
       representative_references: [],
       citation_contexts: [],
       contribution_to_topic: "",
       limitations: "",
+      coverage_verdict: "partial",
+      suggested_additions: [],
     },
     debates: [{ id: "debate:detr", evidence_type: "methodological_tradeoff", evidence_map_refs: ["debate:detr"] }],
-    coverage: { paper_count: 1, external_literature_count: 0 },
+    coverage: {
+      paper_count: 1,
+      external_literature_count: 0,
+      coverage_verdict: "partial",
+      route_coverage_summary: "Fixture covers one DETR route.",
+    },
     gaps: [{ id: "gap:coverage", gap_type: "library_coverage_gap", evidence_map_refs: ["gap:coverage"] }],
     review_outline: {
       introduction_logic: [{ id: "intro:why", evidence_map_refs: ["claim:detr"] }],
       related_work_logic: [],
       body_sections: [],
+    },
+    statistics: {
+      paper_count: 1,
+      time_span: { start_year: 2020, end_year: 2020 },
+      route_coverage: "Fixture covers one DETR route.",
+      coverage_verdict: "partial",
+    },
+    synthesis_report: {
+      title: "Object Detection Fixture Report",
+      source_section_chapters: {
+        research_routes: "taxonomy.summary",
+        historical_progression: "timeline_events.summary",
+      },
+      body:
+        "This fixture topic synthesis describes object detection through a single DETR evidence paper. DETR introduced a set-prediction framing that reduced reliance on hand-designed post-processing and made query-based detection a coherent research route. Because the fixture contains only one paper, the taxonomy, timeline, claims, and external literature analysis are intentionally partial and should be treated as a minimal validation artifact rather than a full domain synthesis.",
     },
     evidence_map: {
       path: "runtime/payloads/cross-paper-evidence-map.json",
@@ -1523,7 +1579,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       "synthesis.topic_synthesis_artifact",
     );
     assert.isArray(reviewInput.structured_topic?.claims);
-    assert.isArray(reviewInput.structured_topic?.timeline_events);
+    assert.isObject(reviewInput.structured_topic?.timeline_events);
     assert.isArray(reviewInput.structured_topic?.paper_evidence);
     assert.isObject(reviewInput.structured_topic?.external_literature_analysis);
   });

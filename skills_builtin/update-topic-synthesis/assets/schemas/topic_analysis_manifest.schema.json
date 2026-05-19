@@ -26,6 +26,8 @@
         "coverage",
         "gaps",
         "review_outline",
+        "statistics",
+        "synthesis_report",
         "evidence_map",
         "source_artifacts",
         "diagnostics"
@@ -42,8 +44,12 @@
           }
         }
       }
-    },
-    "markdown_path": { "type": "string" }
+    }
   },
-  "not": { "required": ["markdown"] }
+  "not": {
+    "anyOf": [
+      { "required": ["markdown"] },
+      { "required": ["markdown_path"] }
+    ]
+  }
 }

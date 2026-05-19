@@ -26,8 +26,12 @@ import {
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   resetAcpSkillRunsForTests,
+  setAcpSkillRunMode,
+  setAcpSkillRunModel,
   setAcpSkillRunRecoveryHandlerForTests,
   setAcpSkillRunPermissionRequest,
+  setAcpSkillRunReasoningEffort,
+  setAcpSkillRunRuntimeOptions,
   subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
@@ -55,10 +59,12 @@ import { buildAcpSkillOutputRepairPrompt } from "../../src/modules/acpSkillOutpu
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
+import { createAcpMcpGatewayConnection } from "../../src/modules/acpMcpGateway";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
   writeMcpContextInjectionDiagnostics,
 } from "../../src/modules/mcpContextDiagnostics";
+import { appendRuntimeLog } from "../../src/modules/runtimeLogManager";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-skillrunner-"));
@@ -905,6 +911,426 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isString(failedEvent?.details?.evidenceFile);
   });
 
+  it("cancels the active ACP turn when gateway MCP smoke observation times out", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      mcpRequiredTools: ["synthesis.list_topics"],
+    });
+    const gateway = createAcpMcpGatewayConnection({
+      runtimeDir: path.join(root, "gateway-timeout"),
+      disableHttpServer: true,
+    });
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      startMcpSmokeSpan: (args) => gateway.startMcpSmokeSpan(args),
+      getMcpGatewayConnectionId: () => gateway.connectionId,
+      getMcpGatewayTransportKinds: () => ["http"],
+      newSession: async () => ({ sessionId: "session-gateway-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        promptCount += 1;
+        return new Promise(() => undefined);
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        await gateway.close();
+      },
+    };
+
+    try {
+      await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          mcpPreflight: async ({ requiredTools }) => ({
+            ok: true,
+            availableTools: requiredTools,
+            missingTools: [],
+          }),
+          mcpCallableSmokeTimeoutMs: 5,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      assert.fail("expected gateway smoke timeout");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "timed out",
+      );
+    }
+
+    assert.equal(promptCount, 1);
+    assert.equal(cancelCount, 1);
+    const run = listAcpSkillRuns()[0];
+    const failedEvent = run.events.find((event) => event.stage === "mcp-smoke-failed");
+    assert.equal(failedEvent?.details?.decisionSource, "mcp-gateway");
+    assert.deepEqual(failedEvent?.details?.missingTools, ["synthesis.list_topics"]);
+  });
+
+  it("passes required MCP smoke from gateway observations without transcript or runtime logs", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      mcpRequiredTools: ["synthesis.list_topics"],
+    });
+    const gateway = createAcpMcpGatewayConnection({
+      runtimeDir: path.join(root, "gateway"),
+      disableHttpServer: true,
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let smokePrompt = "";
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      startMcpSmokeSpan: (args) => gateway.startMcpSmokeSpan(args),
+      getMcpGatewayConnectionId: () => gateway.connectionId,
+      getMcpGatewayTransportKinds: () => ["http"],
+      newSession: async () => ({ sessionId: "session-runtime-smoke" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId, message }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          smokePrompt = message;
+          gateway.observeToolCall({
+            toolName: "synthesis.list_topics",
+            connectionId: gateway.connectionId,
+          });
+          return { stopReason: "end_turn" };
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        await gateway.close();
+      },
+    };
+
+    const result = await executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "bundle",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        mcpPreflight: async ({ requiredTools }) => ({
+          ok: true,
+          availableTools: requiredTools,
+          missingTools: [],
+        }),
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    const run = listAcpSkillRuns()[0];
+    const smokeEvent = run.events.find((event) => event.stage === "mcp-smoke-ok");
+    assert.deepEqual(smokeEvent?.details?.reachedTools, ["synthesis.list_topics"]);
+    assert.deepEqual(smokeEvent?.details?.missingTools, []);
+    assert.equal(smokeEvent?.details?.decisionSource, "mcp-gateway");
+    assert.equal(smokeEvent?.details?.connectionId, gateway.connectionId);
+    assert.include(smokePrompt, "mcp__zotero__synthesis_list_topics");
+    assert.include(smokePrompt, "Do not invent dotted callable names");
+    assert.include(smokePrompt, "mcp__zotero__synthesis.list_topics");
+  });
+
+  it("clears the MCP smoke timeout as soon as gateway observation is complete", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      mcpRequiredTools: ["synthesis.list_topics"],
+    });
+    const gateway = createAcpMcpGatewayConnection({
+      runtimeDir: path.join(root, "gateway-clear-timeout"),
+      disableHttpServer: true,
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      startMcpSmokeSpan: (args) => gateway.startMcpSmokeSpan(args),
+      getMcpGatewayConnectionId: () => gateway.connectionId,
+      getMcpGatewayTransportKinds: () => ["http"],
+      newSession: async () => ({ sessionId: "session-clear-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          gateway.observeToolCall({
+            toolName: "synthesis.list_topics",
+            connectionId: gateway.connectionId,
+          });
+          await delay(30);
+          return { stopReason: "end_turn" };
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        await gateway.close();
+      },
+    };
+
+    const result = await executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "bundle",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        mcpPreflight: async ({ requiredTools }) => ({
+          ok: true,
+          availableTools: requiredTools,
+          missingTools: [],
+        }),
+        mcpCallableSmokeTimeoutMs: 5,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.equal(cancelCount, 0);
+    assert.equal(promptCount, 2);
+  });
+
+  it("does not use global runtime logs as MCP smoke decision evidence", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const gateway = createAcpMcpGatewayConnection({
+      runtimeDir: path.join(root, "gateway-runtime-log"),
+      disableHttpServer: true,
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      startMcpSmokeSpan: (args) => gateway.startMcpSmokeSpan(args),
+      getMcpGatewayConnectionId: () => gateway.connectionId,
+      getMcpGatewayTransportKinds: () => ["http"],
+      newSession: async () => ({ sessionId: "session-partial-smoke-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        appendRuntimeLog({
+          level: "info",
+          scope: "provider",
+          component: "zotero-mcp",
+          stage: "tool.finished",
+          message: "Zotero MCP tool.finished",
+          details: {
+            jsonrpcMethod: "tools/call",
+            toolName: "synthesis.list_topics",
+            toolOutcome: "success",
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        await gateway.close();
+      },
+    };
+
+    try {
+      await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            workflow_mcp: {
+              required_tools: [
+                "synthesis.list_topics",
+                "synthesis.get_library_index",
+              ],
+            },
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          mcpPreflight: async ({ requiredTools }) => ({
+            ok: true,
+            availableTools: requiredTools,
+            missingTools: [],
+          }),
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      assert.fail("expected MCP callable smoke to fail without gateway observation");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "synthesis.list_topics",
+      );
+    }
+
+    const run = listAcpSkillRuns()[0];
+    const failedEvent = run.events.find((event) => event.stage === "mcp-smoke-failed");
+    assert.deepEqual(failedEvent?.details?.reachedTools, []);
+    assert.deepEqual(failedEvent?.details?.missingTools, [
+      "synthesis.list_topics",
+      "synthesis.get_library_index",
+    ]);
+    assert.equal(failedEvent?.details?.decisionSource, "mcp-gateway");
+    assert.equal(
+      failedEvent?.details?.diagnosticClassification,
+      "smoke_timeout_unclassified",
+    );
+  });
+
   it("writes backend-agnostic MCP diagnostics from provider discovery evidence", async function () {
     const root = await mkTempRoot();
     const workspaceDir = path.join(root, "run");
@@ -947,8 +1373,12 @@ describe("ACP SkillRunner-compatible runner", function () {
         ok: false,
         reachedTools: [],
         missingTools: ["synthesis.list_topics"],
+        decisionSource: "mcp-gateway",
+        connectionId: "connection-1",
+        smokeAttemptId: "smoke-1",
+        transportKinds: ["http"],
       },
-      timeoutMs: 60000,
+      timeoutMs: 120000,
       adapterDiagnostics: [
         {
           id: "diag-1",
@@ -961,18 +1391,20 @@ describe("ACP SkillRunner-compatible runner", function () {
       ],
     });
 
-    assert.equal(
-      result.diagnostics.classification,
-      "backend_mcp_discovery_failed",
-    );
+    assert.equal(result.diagnostics.classification, "smoke_timeout_unclassified");
+    assert.equal(result.diagnostics.callableSmoke.decisionSource, "mcp-gateway");
     const diagnosticText = await fs.readFile(result.diagnosticFile, "utf8");
     const evidenceText = await fs.readFile(result.evidenceFile, "utf8");
     assert.notInclude(diagnosticText, "secret-token");
     assert.notInclude(evidenceText, "secret-token");
-    assert.include(diagnosticText, "backend_mcp_discovery_failed");
+    assert.include(diagnosticText, "nonDecisionEvidence");
+    assert.include(
+      JSON.stringify(result.diagnostics.nonDecisionEvidence),
+      "Failed to fetch tools",
+    );
   });
 
-  it("classifies backend tool absence from transcript evidence", async function () {
+  it("retains transcript tool absence only as non-decision evidence", async function () {
     const root = await mkTempRoot();
     const workspaceDir = path.join(root, "run");
     await fs.mkdir(workspaceDir, { recursive: true });
@@ -1011,11 +1443,69 @@ describe("ACP SkillRunner-compatible runner", function () {
         ok: false,
         reachedTools: [],
         missingTools: ["synthesis.list_topics"],
+        decisionSource: "mcp-gateway",
+        connectionId: "connection-absent",
+        smokeAttemptId: "smoke-absent",
+        transportKinds: ["http"],
       },
-      timeoutMs: 60000,
+      timeoutMs: 120000,
     });
 
-    assert.equal(result.diagnostics.classification, "backend_mcp_tools_absent");
+    assert.equal(result.diagnostics.classification, "smoke_timeout_unclassified");
+    assert.include(
+      JSON.stringify(result.diagnostics.nonDecisionEvidence),
+      "No such tool available",
+    );
+  });
+
+  it("does not classify observed MCP tool calls as descriptor injection failure", async function () {
+    const root = await mkTempRoot();
+    const workspaceDir = path.join(root, "run");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    upsertAcpSkillRun({
+      requestId: "run-mcp-observed",
+      backendId: "backend-any",
+      backendType: "acp",
+      workspaceDir,
+    });
+
+    const result = await writeMcpContextInjectionDiagnostics({
+      backend: createBackend({ id: "backend-any" }),
+      requestId: "run-mcp-observed",
+      sessionId: "session-observed",
+      workspaceDir,
+      preflight: {
+        ok: true,
+        availableTools: ["synthesis.list_topics"],
+        missingTools: [],
+      },
+      smoke: {
+        ok: false,
+        reachedTools: ["synthesis.list_topics"],
+        missingTools: [],
+      },
+      timeoutMs: 60000,
+      adapterDiagnostics: [
+        {
+          id: "diag-tool-call",
+          ts: new Date().toISOString(),
+          kind: "zotero_mcp_tool_call",
+          level: "info",
+          message: "Zotero MCP tool call synthesis.list_topics",
+          detail: JSON.stringify({ ok: true }),
+        },
+      ],
+    });
+
+    assert.equal(
+      result.diagnostics.classification,
+      "tool_call_observed_but_smoke_failed",
+    );
+    assert.isTrue(
+      result.diagnostics.observedToolEvents.some((event) =>
+        event.tags.includes("tool_call_observed"),
+      ),
+    );
   });
 
   it("documents bounded MCP callable smoke behavior in the smoke prompt", async function () {
@@ -1027,7 +1517,9 @@ describe("ACP SkillRunner-compatible runner", function () {
       "utf8",
     );
 
-    assert.include(orchestratorSource, "MCP_CALLABLE_SMOKE_TIMEOUT_MS = 60_000");
+    assert.include(orchestratorSource, "MCP_CALLABLE_SMOKE_TIMEOUT_MS = 120_000");
+    assert.include(orchestratorSource, "claudeStyleZoteroMcpCallableAlias");
+    assert.include(orchestratorSource, "mcp__zotero__");
     assert.include(orchestratorSource, "loadAcpRuntimePromptTemplate");
     assert.notInclude(
       orchestratorSource,
@@ -1035,6 +1527,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.include(smokePrompt, "hard timeout");
     assert.include(smokePrompt, "Only try the listed tool callables");
+    assert.include(smokePrompt, "Do not invent dotted callable names");
+    assert.include(smokePrompt, "replace punctuation with underscores");
     assert.include(smokePrompt, "search MCP configuration");
     assert.include(smokePrompt, "use shell commands");
     assert.include(smokePrompt, "try CLI/HTTP/file bridge alternatives");
@@ -1331,6 +1825,127 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("allows ACP skill run mode changes during active prompts but rejects model and reasoning changes", async function () {
+    const requestId = "run-runtime-active";
+    const modeSelections: string[] = [];
+    const modelSelections: string[] = [];
+    upsertAcpSkillRun({
+      requestId,
+      status: "running",
+      sessionId: "session-runtime-active",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: true,
+      acpModeId: "code",
+      acpModelId: "gpt-5",
+      acpReasoningEffort: "medium",
+      acpRawModelId: "gpt-5@medium",
+    });
+    setAcpSkillRunRuntimeOptions(requestId, {
+      modeOptions: [
+        { id: "code", label: "Code" },
+        { id: "plan", label: "Plan" },
+      ],
+      modelOptions: [
+        { id: "gpt-5@medium", label: "GPT-5 Medium" },
+        { id: "gpt-5@high", label: "GPT-5 High" },
+      ],
+      displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+      reasoningEffortOptions: [
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+      ],
+    });
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      setMode: async ({ sessionId, modeId }) => {
+        modeSelections.push(`${sessionId}:${modeId}`);
+      },
+      setModel: async ({ sessionId, modelId }) => {
+        modelSelections.push(`${sessionId}:${modelId}`);
+      },
+    });
+
+    await setAcpSkillRunMode({ requestId, modeId: "plan" });
+    assert.deepEqual(modeSelections, ["session-runtime-active:plan"]);
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpModeId, "plan");
+
+    try {
+      await setAcpSkillRunModel({ requestId, modelId: "gpt-5" });
+      assert.fail("expected active prompt model change to be rejected");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "prompt is running",
+      );
+    }
+    try {
+      await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
+      assert.fail("expected active prompt reasoning change to be rejected");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "prompt is running",
+      );
+    }
+    assert.deepEqual(modelSelections, []);
+  });
+
+  it("maps ACP skill run model and reasoning changes to raw model ids outside active prompts", async function () {
+    const requestId = "run-runtime-idle";
+    const modelSelections: string[] = [];
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      sessionId: "session-runtime-idle",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: false,
+      acpModeId: "code",
+      acpModelId: "gpt-5",
+      acpReasoningEffort: "medium",
+      acpRawModelId: "gpt-5@medium",
+    });
+    setAcpSkillRunRuntimeOptions(requestId, {
+      modeOptions: [{ id: "code", label: "Code" }],
+      modelOptions: [
+        { id: "gpt-5@medium", label: "GPT-5 Medium" },
+        { id: "gpt-5@high", label: "GPT-5 High" },
+        { id: "claude-4@default", label: "Claude 4 Default" },
+        { id: "claude-4@high", label: "Claude 4 High" },
+      ],
+      displayModelOptions: [
+        { id: "gpt-5", label: "GPT-5" },
+        { id: "claude-4", label: "Claude 4" },
+      ],
+      reasoningEffortOptions: [
+        { id: "default", label: "Default" },
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+      ],
+    });
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      setModel: async ({ sessionId, modelId }) => {
+        modelSelections.push(`${sessionId}:${modelId}`);
+      },
+    });
+
+    await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
+    assert.deepEqual(modelSelections, ["session-runtime-idle:gpt-5@high"]);
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpRawModelId, "gpt-5@high");
+
+    await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
+    assert.deepEqual(modelSelections, [
+      "session-runtime-idle:gpt-5@high",
+      "session-runtime-idle:claude-4@high",
+    ]);
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpModelId, "claude-4");
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpRawModelId, "claude-4@high");
+  });
+
   it("marks tool updates with output payload as completed when ACP omits status", function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -1395,6 +2010,113 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal((statusItem as any).details?.relativePath, "result/digest_payload.json");
       assert.equal(statusItem.text, "result/digest_payload.json");
     }
+  });
+
+  it("keeps assistant streaming message contiguous around workspace activity", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-stream-workspace-activity",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-workspace-activity", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "first " },
+      },
+    } as any);
+    upsertAcpSkillRun({
+      requestId: "run-stream-workspace-activity",
+      event: {
+        stage: "workspace-activity",
+        message: "result/output.json",
+        level: "info",
+        details: { relativePath: "result/output.json" },
+      },
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-workspace-activity", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second" },
+      },
+    } as any);
+
+    const transcript = getAcpSkillRunRecord("run-stream-workspace-activity")?.transcriptItems || [];
+    const assistantMessages = transcript.filter(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.lengthOf(assistantMessages, 1);
+    assert.equal(assistantMessages[0].text, "first second");
+    assert.isTrue(
+      transcript.some((item) => item.kind === "status" && item.label === "workspace-activity"),
+    );
+  });
+
+  it("keeps tool calls as assistant streaming message boundaries around workspace activity", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-stream-tool-boundary",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-tool-boundary", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "first thinking" },
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-stream-tool-boundary", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Edit file",
+        status: "pending",
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-stream-tool-boundary", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second " },
+      },
+    } as any);
+    upsertAcpSkillRun({
+      requestId: "run-stream-tool-boundary",
+      event: {
+        stage: "workspace-activity",
+        message: "runtime/file.json",
+        level: "info",
+        details: { relativePath: "runtime/file.json" },
+      },
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-tool-boundary", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "thinking" },
+      },
+    } as any);
+
+    const transcript = getAcpSkillRunRecord("run-stream-tool-boundary")?.transcriptItems || [];
+    const assistantMessages = transcript.filter(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.lengthOf(assistantMessages, 2);
+    assert.equal(assistantMessages[0].text, "first thinking");
+    assert.equal(assistantMessages[0].state, "complete");
+    assert.equal(assistantMessages[1].text, "second thinking");
+    assert.isTrue(transcript.some((item) => item.kind === "tool_call" && item.toolCallId === "tool-1"));
+    assert.isTrue(
+      transcript.some((item) => item.kind === "status" && item.label === "workspace-activity"),
+    );
   });
 
   it("keeps low-signal ACP skill success events out of transcript", function () {
@@ -1731,6 +2453,98 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(capturedMessage, "Do not output explanations.");
       assert.include(capturedMessage, "Do not output Markdown fences.");
       assert.include(capturedMessage, "continue from here");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("starts a fresh recovered prompt after a previous reply rejected", async function () {
+    const root = await mkTempRoot();
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      workflowId: "demo-skill",
+      jobId: "job",
+    });
+    let promptCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        promptCalls += 1;
+        if (promptCalls === 1) {
+          throw new Error("first recovered prompt failed");
+        }
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "succeeded",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-chain",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      try {
+        await replyAcpSkillRun({
+          requestId: workspace.requestId,
+          message: "first",
+        });
+        assert.fail("expected first recovered reply to fail");
+      } catch (error) {
+        assert.include(
+          error instanceof Error ? error.message : String(error),
+          "first recovered prompt failed",
+        );
+      }
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "second",
+      });
+
+      assert.equal(promptCalls, 2);
+      assert.equal(getAcpSkillRunRecord(workspace.requestId)?.replyState, "idle");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

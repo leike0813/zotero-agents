@@ -1,0 +1,157 @@
+:root {
+  color-scheme: light dark;
+  --zs-theme-mode: system;
+  --zs-font-sans: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --zs-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --zs-bg: #f4f7fb;
+  --zs-bg-gradient: linear-gradient(180deg, #f8fafd 0%, #eef3fa 100%);
+  --zs-panel: #ffffff;
+  --zs-panel-alt: #f7fafc;
+  --zs-panel-raised: #ffffff;
+  --zs-surface-hover: #eef4ff;
+  --zs-surface-selected: #eaf1ff;
+  --zs-input-bg: #ffffff;
+  --zs-overlay: rgba(15, 23, 42, 0.28);
+  --zs-border: #d6dee8;
+  --zs-border-strong: #b8c6d8;
+  --zs-text: #172033;
+  --zs-text-soft: #334155;
+  --zs-muted: #64748b;
+  --zs-muted-soft: #94a3b8;
+  --zs-accent: #2563eb;
+  --zs-accent-strong: #174ea6;
+  --zs-accent-soft: #edf4ff;
+  --zs-accent-soft-border: #c8d9ff;
+  --zs-success: #15803d;
+  --zs-success-soft: #e7f6ed;
+  --zs-success-border: #9dd7cb;
+  --zs-warning: #b45309;
+  --zs-warning-soft: #fff3e7;
+  --zs-warning-border: #f1d39b;
+  --zs-danger: #b91c1c;
+  --zs-danger-soft: #fff3f3;
+  --zs-danger-border: #e8b3b3;
+  --zs-purple: #7c3aed;
+  --zs-purple-soft: #f2ecff;
+  --zs-focus-ring: rgba(37, 99, 235, 0.18);
+  --zs-shadow-subtle: 0 3px 12px rgba(24, 34, 53, 0.08);
+  --zs-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.1);
+  --zs-shadow-strong: 0 24px 60px rgba(15, 23, 42, 0.22);
+  --zs-radius-sm: 6px;
+  --zs-radius-md: 8px;
+  --zs-radius-lg: 12px;
+  --zs-radius-xl: 16px;
+  --zs-radius-pill: 999px;
+}
+
+:root[data-zs-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-zs-theme="dark"] {
+  color-scheme: dark;
+  --zs-theme-mode: dark;
+  --zs-bg: #111827;
+  --zs-bg-gradient: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  --zs-panel: #1f2937;
+  --zs-panel-alt: #17212f;
+  --zs-panel-raised: #263244;
+  --zs-surface-hover: #243449;
+  --zs-surface-selected: rgba(96, 165, 250, 0.16);
+  --zs-input-bg: #111827;
+  --zs-overlay: rgba(2, 6, 23, 0.62);
+  --zs-border: #354153;
+  --zs-border-strong: #4b5b70;
+  --zs-text: #eef2f6;
+  --zs-text-soft: #d7dee8;
+  --zs-muted: #aab6c5;
+  --zs-muted-soft: #7f8da0;
+  --zs-accent: #60a5fa;
+  --zs-accent-strong: #93c5fd;
+  --zs-accent-soft: rgba(96, 165, 250, 0.16);
+  --zs-accent-soft-border: rgba(147, 197, 253, 0.38);
+  --zs-success: #7ed6a5;
+  --zs-success-soft: rgba(34, 197, 94, 0.14);
+  --zs-success-border: rgba(126, 214, 165, 0.42);
+  --zs-warning: #f2a24b;
+  --zs-warning-soft: rgba(245, 158, 11, 0.14);
+  --zs-warning-border: rgba(242, 162, 75, 0.44);
+  --zs-danger: #ff8a80;
+  --zs-danger-soft: rgba(239, 68, 68, 0.14);
+  --zs-danger-border: rgba(255, 138, 128, 0.42);
+  --zs-purple: #c4b5fd;
+  --zs-purple-soft: rgba(124, 58, 237, 0.18);
+  --zs-focus-ring: rgba(96, 165, 250, 0.26);
+  --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
+  --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
+  --zs-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.48);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) {
+    color-scheme: dark;
+    --zs-theme-mode: dark;
+    --zs-bg: #111827;
+    --zs-bg-gradient: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+    --zs-panel: #1f2937;
+    --zs-panel-alt: #17212f;
+    --zs-panel-raised: #263244;
+    --zs-surface-hover: #243449;
+    --zs-surface-selected: rgba(96, 165, 250, 0.16);
+    --zs-input-bg: #111827;
+    --zs-overlay: rgba(2, 6, 23, 0.62);
+    --zs-border: #354153;
+    --zs-border-strong: #4b5b70;
+    --zs-text: #eef2f6;
+    --zs-text-soft: #d7dee8;
+    --zs-muted: #aab6c5;
+    --zs-muted-soft: #7f8da0;
+    --zs-accent: #60a5fa;
+    --zs-accent-strong: #93c5fd;
+    --zs-accent-soft: rgba(96, 165, 250, 0.16);
+    --zs-accent-soft-border: rgba(147, 197, 253, 0.38);
+    --zs-success: #7ed6a5;
+    --zs-success-soft: rgba(34, 197, 94, 0.14);
+    --zs-success-border: rgba(126, 214, 165, 0.42);
+    --zs-warning: #f2a24b;
+    --zs-warning-soft: rgba(245, 158, 11, 0.14);
+    --zs-warning-border: rgba(242, 162, 75, 0.44);
+    --zs-danger: #ff8a80;
+    --zs-danger-soft: rgba(239, 68, 68, 0.14);
+    --zs-danger-border: rgba(255, 138, 128, 0.42);
+    --zs-purple: #c4b5fd;
+    --zs-purple-soft: rgba(124, 58, 237, 0.18);
+    --zs-focus-ring: rgba(96, 165, 250, 0.26);
+    --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
+    --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
+    --zs-shadow-strong: 0 24px 60px rgba(0, 0, 0, 0.48);
+  }
+}
+
+html,
+body {
+  background: var(--zs-bg);
+  color: var(--zs-text);
+}
+
+button,
+input,
+textarea,
+select {
+  color-scheme: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--zs-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--zs-accent-soft);
+  color: var(--zs-text);
+}

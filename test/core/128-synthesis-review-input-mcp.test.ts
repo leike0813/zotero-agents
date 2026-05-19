@@ -34,7 +34,10 @@ describe("Synthesis review input MCP tool", function () {
           topic: { topic_id: args.topicId },
           structured_topic: {
             claims: [{ id: "claim-1" }],
-            timeline_events: [{ id: "event-1" }],
+            timeline_events: {
+              summary: { text: "Event summary." },
+              events: [{ id: "event-1" }],
+            },
             paper_evidence: [{ id: "ev-a" }],
             external_literature_analysis: { summary: "External context." },
             coverage: { status: "partial" },

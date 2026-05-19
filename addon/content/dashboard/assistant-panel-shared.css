@@ -1,30 +1,31 @@
 :root {
-  --asst-bg: #f4f7fb;
-  --asst-surface: #ffffff;
-  --asst-surface-soft: #f8fbff;
-  --asst-surface-raised: #ffffff;
-  --asst-line: #d9e4ef;
-  --asst-line-strong: #b9c9dc;
-  --asst-text: #182235;
-  --asst-text-soft: #334155;
-  --asst-muted: #64748b;
-  --asst-muted-soft: #94a3b8;
-  --asst-accent: #136f8f;
-  --asst-accent-soft: #e6f6fb;
-  --asst-success: #16815f;
-  --asst-success-soft: #e8f7f0;
-  --asst-warning: #b7791f;
-  --asst-warning-soft: #fff7e6;
-  --asst-danger: #c24135;
-  --asst-danger-soft: #fff0ed;
-  --asst-radius-sm: 8px;
-  --asst-radius-md: 12px;
-  --asst-radius-lg: 16px;
-  --asst-radius-pill: 999px;
-  --asst-shadow-soft: 0 12px 34px rgba(24, 34, 53, 0.1);
-  --asst-shadow-subtle: 0 3px 12px rgba(24, 34, 53, 0.08);
-  --asst-font-sans: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --asst-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  color-scheme: light dark;
+  --asst-bg: var(--zs-bg);
+  --asst-surface: var(--zs-panel);
+  --asst-surface-soft: var(--zs-panel-alt);
+  --asst-surface-raised: var(--zs-panel-raised);
+  --asst-line: var(--zs-border);
+  --asst-line-strong: var(--zs-border-strong);
+  --asst-text: var(--zs-text);
+  --asst-text-soft: var(--zs-text-soft);
+  --asst-muted: var(--zs-muted);
+  --asst-muted-soft: var(--zs-muted-soft);
+  --asst-accent: var(--zs-accent);
+  --asst-accent-soft: var(--zs-accent-soft);
+  --asst-success: var(--zs-success);
+  --asst-success-soft: var(--zs-success-soft);
+  --asst-warning: var(--zs-warning);
+  --asst-warning-soft: var(--zs-warning-soft);
+  --asst-danger: var(--zs-danger);
+  --asst-danger-soft: var(--zs-danger-soft);
+  --asst-radius-sm: var(--zs-radius-md);
+  --asst-radius-md: var(--zs-radius-lg);
+  --asst-radius-lg: var(--zs-radius-xl);
+  --asst-radius-pill: var(--zs-radius-pill);
+  --asst-shadow-soft: var(--zs-shadow-soft);
+  --asst-shadow-subtle: var(--zs-shadow-subtle);
+  --asst-font-sans: var(--zs-font-sans);
+  --asst-font-mono: var(--zs-font-mono);
   --asst-context-drawer-width: min(380px, 92vw);
   --asst-details-drawer-width: min(520px, 94vw);
 }
@@ -734,6 +735,18 @@ input {
   white-space: nowrap;
 }
 
+.assistant-panel-selector[data-assistant-disabled="true"] {
+  color: var(--asst-muted-soft);
+}
+
+.assistant-panel-select:disabled {
+  border-color: var(--asst-line);
+  color: var(--asst-muted-soft);
+  background: var(--asst-surface-soft);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .assistant-panel-action[data-assistant-action-tone="danger"] {
   border-color: rgba(194, 65, 53, 0.35);
   color: var(--asst-danger);
@@ -1011,6 +1024,11 @@ input {
   width: 12px;
   height: 12px;
   border-width: 2px;
+}
+
+.assistant-panel-plan[data-assistant-plan-working="false"] .assistant-panel-plan-spinner {
+  animation: none;
+  border-top-color: rgba(19, 111, 143, 0.18);
 }
 
 .assistant-panel-reply-input {
@@ -1705,11 +1723,25 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   border-left-color: transparent;
 }
 
+.assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity {
+  padding-left: 0;
+  border-left-width: 0;
+  border-left-color: transparent;
+}
+
 .assistant-transcript.plain-mode .assistant-transcript-row.is-tool .assistant-transcript-meta {
   display: none;
 }
 
+.assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity .assistant-transcript-meta {
+  display: none;
+}
+
 .assistant-transcript.plain-mode .assistant-transcript-row.is-tool .assistant-transcript-body {
+  padding-left: 0;
+}
+
+.assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity .assistant-transcript-body {
   padding-left: 0;
 }
 
@@ -1928,9 +1960,40 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
 }
 
 .assistant-transcript-workspace-file-icon {
+  position: relative;
+  width: 12px;
+  height: 14px;
   flex: 0 0 auto;
+  border: 1.5px solid var(--asst-muted);
+  border-radius: 2px;
   color: var(--asst-muted);
-  font-size: 12px;
+}
+
+.assistant-transcript-workspace-file-icon::before {
+  content: "";
+  position: absolute;
+  top: -1.5px;
+  right: -1.5px;
+  width: 5px;
+  height: 5px;
+  border-left: 1.5px solid var(--asst-muted);
+  border-bottom: 1.5px solid var(--asst-muted);
+  background: var(--asst-surface-soft);
+}
+
+.assistant-transcript-workspace-file-icon::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 6px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.assistant-transcript-workspace-badge {
+  max-width: none;
 }
 
 .assistant-transcript-tool-activity-summary,
@@ -2022,5 +2085,75 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   .asst-led.is-running,
   .assistant-transcript-tool-led.is-running {
     animation: none;
+  }
+}
+
+:root[data-zs-theme="dark"] .assistant-panel-permission-drawer-panel,
+:root[data-zs-theme="dark"] .assistant-panel-reply-input,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-group,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task,
+:root[data-zs-theme="dark"] .assistant-transcript-row,
+:root[data-zs-theme="dark"] .assistant-transcript-tool-badge {
+  background: var(--asst-surface);
+}
+
+:root[data-zs-theme="dark"] .assistant-panel-permission-drawer-command,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-context-note,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-section.is-completed,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-section-toggle:hover,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-group-header,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task:hover:not(.is-disabled),
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task.is-related:not(.is-active),
+:root[data-zs-theme="dark"] .assistant-transcript,
+:root[data-zs-theme="dark"] .assistant-transcript.plain-mode,
+:root[data-zs-theme="dark"] .assistant-transcript.bubble-mode,
+:root[data-zs-theme="dark"] .assistant-transcript-row[data-assistant-item-kind="process"],
+:root[data-zs-theme="dark"] .assistant-transcript-row.is-workspace-activity,
+:root[data-zs-theme="dark"] .assistant-transcript-markdown-body pre,
+:root[data-zs-theme="dark"] .assistant-transcript .asst-code-surface,
+:root[data-zs-theme="dark"] .assistant-transcript-markdown-body code {
+  background: var(--asst-surface-soft);
+  color: var(--asst-text);
+}
+
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task-action:hover:not(:disabled),
+:root[data-zs-theme="dark"] .assistant-panel-context-entry.is-active {
+  background: var(--asst-accent-soft);
+  color: var(--zs-accent-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) .assistant-panel-permission-drawer-panel,
+  :root:not([data-zs-theme="light"]) .assistant-panel-reply-input,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-group,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task,
+  :root:not([data-zs-theme="light"]) .assistant-transcript-row,
+  :root:not([data-zs-theme="light"]) .assistant-transcript-tool-badge {
+    background: var(--asst-surface);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-panel-permission-drawer-command,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-context-note,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-section.is-completed,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-section-toggle:hover,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-group-header,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task:hover:not(.is-disabled),
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task.is-related:not(.is-active),
+  :root:not([data-zs-theme="light"]) .assistant-transcript,
+  :root:not([data-zs-theme="light"]) .assistant-transcript.plain-mode,
+  :root:not([data-zs-theme="light"]) .assistant-transcript.bubble-mode,
+  :root:not([data-zs-theme="light"]) .assistant-transcript-row[data-assistant-item-kind="process"],
+  :root:not([data-zs-theme="light"]) .assistant-transcript-row.is-workspace-activity,
+  :root:not([data-zs-theme="light"]) .assistant-transcript-markdown-body pre,
+  :root:not([data-zs-theme="light"]) .assistant-transcript .asst-code-surface,
+  :root:not([data-zs-theme="light"]) .assistant-transcript-markdown-body code {
+    background: var(--asst-surface-soft);
+    color: var(--asst-text);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task-action:hover:not(:disabled),
+  :root:not([data-zs-theme="light"]) .assistant-panel-context-entry.is-active {
+    background: var(--asst-accent-soft);
+    color: var(--zs-accent-strong);
   }
 }

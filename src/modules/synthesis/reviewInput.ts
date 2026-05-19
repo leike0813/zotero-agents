@@ -36,7 +36,7 @@ export type ReviewStructuredTopicInput = {
   manifest?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   claims: unknown[];
-  timeline_events: unknown[];
+  timeline_events: Record<string, unknown> | unknown[];
   paper_evidence: unknown[];
   external_literature_analysis: Record<string, unknown>;
   positioning: Record<string, unknown>;
@@ -147,9 +147,11 @@ function buildStructuredTopicInput(
       ? { metadata: sanitizeStructuredValue(value.metadata) as Record<string, unknown> }
       : {}),
     claims: Array.isArray(artifact.claims) ? artifact.claims : [],
-    timeline_events: Array.isArray(artifact.timeline_events)
+    timeline_events: isRecord(artifact.timeline_events)
       ? artifact.timeline_events
-      : [],
+      : Array.isArray(artifact.timeline_events)
+        ? { summary: {}, events: artifact.timeline_events }
+        : { summary: {}, events: [] },
     paper_evidence: Array.isArray(artifact.paper_evidence)
       ? artifact.paper_evidence
       : [],

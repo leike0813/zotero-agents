@@ -104,6 +104,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   emitReplayOnLoad = false;
   emitPermissionDuringPrompt = false;
   streamingChunkCount = 0;
+  holdPromptUntil: Promise<void> | null = null;
   modelState = {
     currentModelId: "gpt-5.4",
     availableModels: [
@@ -364,6 +365,9 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
       level: "info",
       message: `prompt started for ${args.sessionId}`,
     });
+    if (this.holdPromptUntil) {
+      await this.holdPromptUntil;
+    }
     await this.emitUpdate({
       sessionId: args.sessionId,
       update: {
@@ -1846,6 +1850,59 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.modeSelections, ["session-1:plan"]);
     assert.deepEqual(lastAdapter?.modelSelections, ["session-1:gpt-5.4-mini"]);
     assert.deepEqual(lastAdapter?.cancelSessionIds, ["session-1"]);
+  });
+
+  it("allows mode changes but rejects model and reasoning changes while a prompt is active", async function () {
+    let releasePrompt: () => void = () => undefined;
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.holdPromptUntil = new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+      });
+      return lastAdapter;
+    });
+
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Busy turn",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const busySnapshot = getAcpConversationSnapshot();
+    assert.equal(busySnapshot.busy, true);
+    assert.equal(busySnapshot.status, "prompting");
+
+    await setAcpConversationMode({
+      modeId: "plan",
+    });
+    assert.deepEqual(lastAdapter?.modeSelections, ["session-1:plan"]);
+
+    try {
+      await setAcpConversationModel({
+        modelId: "gpt-5.4-mini",
+      });
+      assert.fail("expected active prompt model change to be rejected");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "prompt is running",
+      );
+    }
+
+    try {
+      await setAcpConversationReasoningEffort({
+        effortId: "high",
+      });
+      assert.fail("expected active prompt reasoning change to be rejected");
+    } catch (error) {
+      assert.include(
+        error instanceof Error ? error.message : String(error),
+        "prompt is running",
+      );
+    }
+    assert.deepEqual(lastAdapter?.modelSelections, []);
+
+    releasePrompt();
+    await promptPromise;
   });
 
   it("derives reasoning effort choices from model variants and maps effort changes to raw model ids", async function () {

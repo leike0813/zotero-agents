@@ -38,7 +38,8 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.equal(workflow.taskNameTemplate, "Frame manuscript literature: {paperTitle}");
     assert.equal(workflow.inputs?.unit, "workflow");
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
-    assert.deepEqual(workflow.execution?.supportedBackends, ["acp"]);
+    assert.equal(workflow.provider, "acp");
+    assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.sameMembers(workflow.execution?.mcp?.requiredTools || [], REQUIRED_TOOLS);
     assert.equal(workflow.parameters?.paperTitle?.type, "string");
   });

@@ -6,6 +6,7 @@
     "import-notes/workflow.json",
     "literature-explainer/workflow.json",
     "literature-digest/workflow.json",
+    "literature-search-ingest/workflow.json",
     "reference-note-editor/workflow.json",
     "reference-matching/workflow.json"
   ]

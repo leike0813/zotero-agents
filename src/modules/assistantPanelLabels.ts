@@ -114,6 +114,7 @@ export function buildAssistantPanelLabels() {
       status: l("assistant-panel-transcript-status", "Status"),
       tool: l("assistant-panel-transcript-tool", "Tool"),
       toolActivity: l("assistant-panel-transcript-tool-activity", "Tool activity"),
+      workspaceActivity: l("assistant-panel-transcript-workspace-activity", "Workspace update"),
       tools: l("assistant-panel-transcript-tools", "tools"),
       failed: l("assistant-panel-transcript-failed", "failed"),
       running: l("assistant-panel-transcript-running", "running"),

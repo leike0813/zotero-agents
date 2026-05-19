@@ -24,6 +24,30 @@ export type { WorkflowResultContext } from "../modules/workflowExecution/resultC
 
 export type WorkflowParameterType = "string" | "number" | "boolean";
 
+export type WorkflowParameterOptionsSource = {
+  kind: "zotero.collections" | string;
+  library?: "current" | "user" | number;
+  includeEmpty?: boolean;
+  valueFormat?: "collectionRef" | string;
+  labelFormat?: "path" | string;
+  allowStale?: boolean;
+};
+
+export type WorkflowParameterOption = {
+  value: string;
+  label: string;
+  description?: string;
+  meta?: {
+    kind: string;
+    libraryId?: number;
+    collectionKey?: string;
+    collectionId?: number | string;
+    name?: string;
+    path?: string[];
+    [key: string]: unknown;
+  };
+};
+
 export type WorkflowParameterSchema = {
   type: WorkflowParameterType;
   title?: string;
@@ -31,6 +55,7 @@ export type WorkflowParameterSchema = {
   default?: unknown;
   enum?: unknown[];
   allowCustom?: boolean;
+  optionsSource?: WorkflowParameterOptionsSource;
   min?: number;
   max?: number;
 };
@@ -59,7 +84,6 @@ export type WorkflowTriggerSpec = {
 
 export type WorkflowExecutionSpec = {
   mode?: "auto" | "sync" | "async";
-  supportedBackends?: string[];
   mcp?: {
     requiredTools?: string[];
   };
@@ -106,7 +130,7 @@ export type WorkflowManifest = {
   id: string;
   label: string;
   debug_only?: boolean;
-  provider?: string;
+  provider: string;
   version?: string;
   taskNameTemplate?: string;
   parameters?: Record<string, WorkflowParameterSchema>;

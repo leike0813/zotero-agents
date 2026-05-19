@@ -31,15 +31,32 @@ async function makeWorkflow(
     request?: { kind?: unknown };
     provider?: unknown;
     execution?: Record<string, unknown>;
+    __test_skip_provider_autofill?: unknown;
     __test_skip_skillrunner_mode_autofill?: unknown;
   };
+  const skipProviderAutoFill =
+    normalizedManifest.__test_skip_provider_autofill === true;
   const skipSkillRunnerModeAutoFill =
     normalizedManifest.__test_skip_skillrunner_mode_autofill === true;
+  delete normalizedManifest.__test_skip_provider_autofill;
   delete normalizedManifest.__test_skip_skillrunner_mode_autofill;
   const provider = String(normalizedManifest.provider || "").trim();
   const requestKind = String(normalizedManifest.request?.kind || "").trim();
+  if (!provider && !skipProviderAutoFill) {
+    if (requestKind === "skillrunner.job.v1") {
+      normalizedManifest.provider = "skillrunner";
+    } else if (
+      requestKind === "generic-http.request.v1" ||
+      requestKind === "generic-http.steps.v1"
+    ) {
+      normalizedManifest.provider = "generic-http";
+    } else if (requestKind === "pass-through.run.v1") {
+      normalizedManifest.provider = "pass-through";
+    }
+  }
   const isSkillRunnerWorkflow =
-    provider === "skillrunner" || requestKind === "skillrunner.job.v1";
+    String(normalizedManifest.provider || "").trim() === "skillrunner" ||
+    requestKind === "skillrunner.job.v1";
   if (isSkillRunnerWorkflow && !skipSkillRunnerModeAutoFill) {
     normalizedManifest.execution = {
       ...(normalizedManifest.execution || {}),

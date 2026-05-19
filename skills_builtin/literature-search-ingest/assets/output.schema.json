@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "__SKILL_DONE__",
+        "kind",
+        "query",
+        "search_mode",
+        "confirmed_papers",
+        "summary",
+        "results"
+      ],
+      "properties": {
+        "__SKILL_DONE__": { "const": true },
+        "kind": { "const": "literature_search_ingest" },
+        "query": { "type": "string" },
+        "search_mode": {
+          "type": "string",
+          "enum": ["topic_expansion", "paper_seed_expansion"]
+        },
+        "confirmed_papers": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "requested",
+            "created",
+            "existing",
+            "failed",
+            "pdf_attached",
+            "pdf_skipped",
+            "pdf_failed"
+          ],
+          "properties": {
+            "requested": { "type": "number" },
+            "created": { "type": "number" },
+            "existing": { "type": "number" },
+            "failed": { "type": "number" },
+            "pdf_attached": { "type": "number" },
+            "pdf_skipped": { "type": "number" },
+            "pdf_failed": { "type": "number" }
+          },
+          "additionalProperties": true
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["index", "title", "status", "attachmentStatus"],
+            "properties": {
+              "index": { "type": "number" },
+              "title": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["created", "existing", "failed"]
+              },
+              "itemRef": { "type": "object" },
+              "attachmentStatus": {
+                "type": "string",
+                "enum": ["attached", "skipped", "failed"]
+              },
+              "error": { "type": "object" }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "required": ["__SKILL_DONE__", "kind", "status", "reason", "message"],
+      "properties": {
+        "__SKILL_DONE__": { "const": true },
+        "kind": { "const": "literature_search_ingest_canceled" },
+        "status": { "const": "canceled" },
+        "reason": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  ]
+}

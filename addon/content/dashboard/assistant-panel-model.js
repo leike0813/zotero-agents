@@ -160,7 +160,7 @@
     return safeText(current);
   }
 
-  function contextSelector(id, label, value, options, action, disabled, payloadKey) {
+  function contextSelector(id, label, value, options, action, disabled, payloadKey, payload) {
     return {
       id,
       label,
@@ -169,6 +169,7 @@
       action,
       disabled: disabled === true,
       payloadKey: safeText(payloadKey),
+      payload: payload && typeof payload === "object" ? payload : {},
     };
   }
 
@@ -357,7 +358,7 @@
     return "";
   }
 
-  function buildReplySelectControl(id, label, value, options, action, disabled) {
+  function buildReplySelectControl(id, label, value, options, action, disabled, payload) {
     return contextSelector(
       id,
       label,
@@ -368,6 +369,7 @@
       action,
       disabled,
       selectorPayloadKey(id, action),
+      payload,
     );
   }
 
@@ -1163,6 +1165,8 @@
     const effectiveReasoningOptions =
       reasoningOptions.length > 0 ? reasoningOptions : [{ id: "default", label: "Default" }];
     const effectiveReasoning = snap.currentReasoningEffort || effectiveReasoningOptions[0];
+    const runtimeControlsAvailable = connected && !isConnecting;
+    const promptBusy = snap.busy === true;
     const connectionOnlyStatus =
       ["checking-command", "spawning", "initializing", "connecting"].indexOf(status) >= 0;
     const connectionState = connected ? "connected" : isConnecting ? "connecting" : "disconnected";
@@ -1329,13 +1333,21 @@
         tone: snap.busy === true ? "danger" : "primary",
         showUsageGauge: true,
         controls: [
-          buildReplySelectControl("mode", labels.mode || "Mode", snap.currentMode, modeOptions, "set-mode"),
+          buildReplySelectControl(
+            "mode",
+            labels.mode || "Mode",
+            snap.currentMode,
+            modeOptions,
+            "set-mode",
+            !runtimeControlsAvailable || modeOptions.length === 0,
+          ),
           buildReplySelectControl(
             "model",
             labels.model || "Model",
             snap.currentDisplayModel || snap.currentModel,
             modelOptions,
             "set-model",
+            !runtimeControlsAvailable || promptBusy || modelOptions.length === 0,
           ),
           buildReplySelectControl(
             "reasoning",
@@ -1343,7 +1355,7 @@
             effectiveReasoning,
             effectiveReasoningOptions,
             "set-reasoning-effort",
-            reasoningOptions.length <= 1,
+            !runtimeControlsAvailable || promptBusy || reasoningOptions.length === 0,
           ),
         ],
       },
@@ -1518,7 +1530,7 @@
         },
       ];
     }
-    const interaction =
+    let interaction =
       run && run.pendingPermission
         ? {
             kind: "permission",
@@ -1563,13 +1575,80 @@
             ]),
           }
         : conversation.interaction;
-    const busyRun = ["queued", "running", "repairing"].indexOf(status) >= 0;
+    const activePrompt = Boolean(run && run.activePrompt === true);
+    const busyRun =
+      activePrompt || ["queued", "running", "repairing"].indexOf(status) >= 0;
+    const waitingForUser = status === "waiting-user" || status === "waiting-auth";
+    const terminalRun = isTerminalStatus(status);
+    const runtimeOptions =
+      panel.selectedRuntimeOptions && typeof panel.selectedRuntimeOptions === "object"
+        ? panel.selectedRuntimeOptions
+        : {};
+    const modeOptions = Array.isArray(runtimeOptions.modeOptions) ? runtimeOptions.modeOptions : [];
+    const modelOptions = Array.isArray(runtimeOptions.displayModelOptions)
+      ? runtimeOptions.displayModelOptions
+      : Array.isArray(runtimeOptions.modelOptions)
+        ? runtimeOptions.modelOptions
+        : [];
+    const reasoningOptions = Array.isArray(runtimeOptions.reasoningEffortOptions)
+      ? runtimeOptions.reasoningEffortOptions
+      : [];
+    const currentMode =
+      (runtimeOptions.currentMode && typeof runtimeOptions.currentMode === "object"
+        ? runtimeOptions.currentMode
+        : null) ||
+      (run && run.acpModeId ? { id: run.acpModeId, label: run.acpModeId } : null);
+    const currentModel =
+      (runtimeOptions.currentDisplayModel && typeof runtimeOptions.currentDisplayModel === "object"
+        ? runtimeOptions.currentDisplayModel
+        : null) ||
+      (run && (run.acpModelId || run.acpRawModelId)
+        ? { id: run.acpModelId || run.acpRawModelId, label: run.acpModelId || run.acpRawModelId }
+        : null);
+    const currentReasoning =
+      (runtimeOptions.currentReasoningEffort && typeof runtimeOptions.currentReasoningEffort === "object"
+        ? runtimeOptions.currentReasoningEffort
+        : null) ||
+      (run && run.acpReasoningEffort
+        ? { id: run.acpReasoningEffort, label: run.acpReasoningEffort }
+        : null);
+    const runtimeControlsAvailable = Boolean(run && connected && safeText(run.sessionId));
+    const runtimeControlPayload = { requestId: safeText(run && run.requestId) };
+    if (
+      run &&
+      !run.pendingPermission &&
+      safeText(interaction && interaction.kind) === "hidden" &&
+      waitingForUser
+    ) {
+      interaction = {
+        kind: "waiting_user",
+        pendingInteraction: run.pendingInteraction || null,
+      };
+    }
+    if (
+      run &&
+      !run.pendingPermission &&
+      safeText(interaction && interaction.kind) === "hidden" &&
+      (status === "failed" || status === "canceled" || status === "cancelled")
+    ) {
+      interaction = {
+        kind: "disconnected",
+        message:
+          safeText(
+            run.error ||
+              run.replyError ||
+              run.lastRecoveryError ||
+              run.conversationError,
+          ) ||
+          status,
+      };
+    }
     const canReply =
       Boolean(run) &&
       !run.pendingPermission &&
-      ["active", "available", "connected"].indexOf(
-        safeText(run && (run.conversationState || run.conversationRecoveryState)),
-      ) >= 0;
+      !busyRun &&
+      (waitingForUser || terminalRun) &&
+      connected;
     return normalizeAssistantPanelSnapshot({
       kind: "acp-skills",
       labels: panelLabels,
@@ -1587,8 +1666,6 @@
         workspaceDir: safeText(run && run.workspaceDir),
         metadata: compactMetadata([
           metadataItem(labelFrom(panel, "fields.backend", "Backend"), run && run.backendLabel, "backend"),
-          metadataItem(labelFrom(panel, "fields.mode", "Mode"), run && run.acpModeId, "mode"),
-          metadataItem(labelFrom(panel, "fields.model", "Model"), run && (run.acpModelId || run.acpRawModelId), "model"),
           metadataItem(labelFrom(panel, "fields.workspace", "Workspace"), run && run.workspaceDir, "workspace"),
         ]),
         indicators: [
@@ -1629,7 +1706,7 @@
         applyState: safeText(run && run.applyResultState),
         recoveryState: safeText(run && run.conversationRecoveryState),
         replyState: safeText(run && run.replyState),
-        terminal: isTerminalStatus(status),
+        terminal: terminalRun,
       },
       conversation,
       plan: conversation.plan,
@@ -1646,9 +1723,37 @@
         action: busyRun ? "interrupt-run-turn" : "reply-run",
         tone: busyRun ? "danger" : "primary",
         clearOnSend: !busyRun,
-        hint: labelFrom(panel, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
+        hint: "",
         showUsageGauge: true,
-        controls: [],
+        controls: [
+          buildReplySelectControl(
+            "mode",
+            labelFrom(panel, "fields.mode", "Mode"),
+            currentMode,
+            modeOptions,
+            "set-mode",
+            !runtimeControlsAvailable || modeOptions.length === 0,
+            runtimeControlPayload,
+          ),
+          buildReplySelectControl(
+            "model",
+            labelFrom(panel, "fields.model", "Model"),
+            currentModel,
+            modelOptions,
+            "set-model",
+            !runtimeControlsAvailable || busyRun || modelOptions.length === 0,
+            runtimeControlPayload,
+          ),
+          buildReplySelectControl(
+            "reasoning",
+            labelFrom(panel, "fields.reasoning", "Reasoning"),
+            currentReasoning,
+            reasoningOptions,
+            "set-reasoning-effort",
+            !runtimeControlsAvailable || busyRun || reasoningOptions.length === 0,
+            runtimeControlPayload,
+          ),
+        ],
       },
       drawers: {
         layout: "workspace-task-drawer",

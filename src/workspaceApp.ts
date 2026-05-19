@@ -1,10 +1,15 @@
 declare const window: Window &
   typeof globalThis & {
     __zoteroSkillsWorkspaceBridge?: WorkspaceBridge;
+    ZoteroSkillsTheme?: {
+      getTheme: () => WorkspaceTheme;
+      setTheme: (theme: WorkspaceTheme) => WorkspaceTheme;
+    };
   };
 declare const document: Document;
 
 type WorkspaceView = "dashboard" | "synthesis";
+type WorkspaceTheme = "system" | "light" | "dark";
 
 type WorkspaceBridge = {
   postMessage: (
@@ -19,10 +24,12 @@ type WorkspaceSnapshot = {
 
 const state: {
   snapshot: WorkspaceSnapshot;
+  theme: WorkspaceTheme;
 } = {
   snapshot: {
     selectedView: "dashboard",
   },
+  theme: "system",
 };
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
@@ -91,7 +98,50 @@ function iconButton(
   return node;
 }
 
+function getThemeChoice(): WorkspaceTheme {
+  const candidate = window.ZoteroSkillsTheme?.getTheme?.();
+  return candidate === "light" || candidate === "dark" ? candidate : "system";
+}
+
+function setThemeChoice(theme: WorkspaceTheme) {
+  state.theme = window.ZoteroSkillsTheme?.setTheme?.(theme) || theme;
+  updateThemeSwitchState();
+}
+
+function renderThemeSwitch() {
+  const group = el("div", "theme-switch");
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Theme");
+  [
+    ["system", "System"],
+    ["light", "Light"],
+    ["dark", "Dark"],
+  ].forEach(([theme, label]) => {
+    const node = el("button", state.theme === theme ? "active" : "", label);
+    node.type = "button";
+    node.dataset.theme = theme;
+    node.setAttribute("aria-pressed", state.theme === theme ? "true" : "false");
+    node.addEventListener("click", () => setThemeChoice(theme as WorkspaceTheme));
+    group.appendChild(node);
+  });
+  return group;
+}
+
+function updateThemeSwitchState() {
+  const group = document.querySelector<HTMLElement>(".theme-switch");
+  if (!group) {
+    return;
+  }
+  const buttons = Array.from(group.querySelectorAll("button")) as HTMLButtonElement[];
+  buttons.forEach((node) => {
+    const active = node.dataset.theme === state.theme;
+    node.classList.toggle("active", active);
+    node.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
 function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
+  state.theme = getThemeChoice();
   const header = el("header", "workspace-header");
   const brand = el("div", "brand");
   brand.appendChild(el("strong", "", "Zotero Skills"));
@@ -116,6 +166,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   header.appendChild(segmented);
 
   const toolbar = el("div", "toolbar");
+  toolbar.appendChild(renderThemeSwitch());
   toolbar.appendChild(
     iconButton(
       "Refresh",
@@ -190,6 +241,14 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (viewChanged) {
       render();
     }
+  }
+});
+
+window.addEventListener("zotero-skills-theme-change", () => {
+  const next = getThemeChoice();
+  if (state.theme !== next) {
+    state.theme = next;
+    updateThemeSwitchState();
   }
 });
 

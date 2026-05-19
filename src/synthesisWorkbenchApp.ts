@@ -105,9 +105,12 @@ type TopicDetailSection =
   | "overview"
   | "taxonomy"
   | "claims"
+  | "references"
   | "compare"
   | "external"
-  | "coverage";
+  | "coverage"
+  | "statistics"
+  | "report";
 
 type TopicDetailDto = {
   topicId: string;
@@ -125,11 +128,13 @@ type TopicDetailDto = {
   taxonomy?: Record<string, unknown>;
   comparison_matrix?: Record<string, unknown>;
   claims?: unknown[];
-  timeline_events?: unknown[];
+  timeline_events?: unknown[] | Record<string, unknown>;
   paper_evidence?: unknown[];
   external_literature_analysis?: Record<string, unknown>;
   debates?: unknown[];
   coverage?: Record<string, unknown>;
+  statistics?: Record<string, unknown>;
+  synthesis_report?: Record<string, unknown>;
   gaps?: unknown[];
   review_outline?: Record<string, unknown>;
   evidence_map?: Record<string, unknown>;
@@ -149,6 +154,8 @@ const state: {
   topicDetail?: TopicDetailDto;
   topicDetailSection: TopicDetailSection;
   selectedEvidenceId?: string;
+  evidenceExplorerOpen: boolean;
+  sidebarExpanded: boolean;
   explorerWidth: number;
   digestModal?: DigestModalState;
   sigma?: Sigma;
@@ -158,6 +165,8 @@ const state: {
 } = {
   snapshot: null,
   topicDetailSection: "overview",
+  evidenceExplorerOpen: false,
+  sidebarExpanded: false,
   explorerWidth: 360,
 };
 
@@ -206,6 +215,59 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+function iconSvg(name: "home" | "topics" | "graph" | "index" | "panel-open" | "panel-close") {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const paths: Record<typeof name, string[]> = {
+    home: [
+      "M3.5 10.5 12 3.5l8.5 7",
+      "M5.5 9.5V20h4.8v-5.7h3.4V20h4.8V9.5",
+    ],
+    topics: [
+      "M7 4.5h8.5L19 8v11.5H7z",
+      "M15.5 4.5V8H19",
+      "M5 7.5H3v12h2",
+      "M10 12h6",
+      "M10 15h4",
+    ],
+    graph: [
+      "M7 7.5 12 12l5-4.5",
+      "M7 16.5 12 12l5 4.5",
+      "M5.2 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
+      "M18.8 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
+      "M12 9.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
+      "M5.2 14.2a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
+      "M18.8 14.2a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
+    ],
+    index: [
+      "M8 6h12",
+      "M8 12h12",
+      "M8 18h12",
+      "M4 6h.01",
+      "M4 12h.01",
+      "M4 18h.01",
+    ],
+    "panel-open": [
+      "M4 5h16v14H4z",
+      "M9 5v14",
+      "M13 9l3 3-3 3",
+    ],
+    "panel-close": [
+      "M4 5h16v14H4z",
+      "M9 5v14",
+      "M16 9l-3 3 3 3",
+    ],
+  };
+  paths[name].forEach((data) => {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", data);
+    svg.appendChild(path);
+  });
+  return svg;
+}
+
 function clear(node: Element) {
   while (node.firstChild) {
     node.removeChild(node.firstChild);
@@ -250,6 +312,8 @@ function titleForTab(tab: Snapshot["selectedTab"]) {
 
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
   clear(root);
+  root.classList.toggle("sidebar-expanded", state.sidebarExpanded);
+  root.classList.toggle("sidebar-collapsed", !state.sidebarExpanded);
   state.sigmaResizeObserver?.disconnect();
   state.sigmaResizeObserver = undefined;
   state.sigma?.kill();
@@ -257,23 +321,43 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   state.graph = undefined;
 
   const sidebar = el("aside", "sidebar");
-  sidebar.appendChild(el("div", "brand", "Zotero Skills"));
-  sidebar.appendChild(el("div", "muted", `Synthesis · Library ${snapshot.libraryId}`));
+  const brand = el("div", "brand brand-icon-only");
+  const logo = document.createElement("img");
+  logo.src = "../icons/favicon.png";
+  logo.alt = "Zotero Skills";
+  brand.appendChild(logo);
+  const sidebarToggle = el(
+    "button",
+    "sidebar-collapse-toggle icon-only",
+  );
+  sidebarToggle.type = "button";
+  sidebarToggle.title = state.sidebarExpanded ? "Collapse navigation" : "Expand navigation";
+  sidebarToggle.setAttribute("aria-label", sidebarToggle.title);
+  sidebarToggle.setAttribute("aria-expanded", state.sidebarExpanded ? "true" : "false");
+  sidebarToggle.appendChild(iconSvg(state.sidebarExpanded ? "panel-close" : "panel-open"));
+  sidebarToggle.addEventListener("click", () => {
+    state.sidebarExpanded = !state.sidebarExpanded;
+    render();
+  });
+  brand.appendChild(sidebarToggle);
+  sidebar.appendChild(brand);
+  const libraryLabel = el("div", "muted sidebar-library", `Library ${snapshot.libraryId}`);
+  sidebar.appendChild(libraryLabel);
   const nav = el("div", "nav");
   [
-    ["overview", "Home"],
-    ["artifacts", "Topics"],
-    ["graph", "Graph"],
-    ["registry", "Index"],
-  ].forEach(([tab, label]) => {
-    nav.appendChild(
-      makeButton(
-        label,
-        "selectTab",
-        { tab },
-        snapshot.selectedTab === tab,
-      ),
-    );
+    ["overview", "Home", "home"],
+    ["artifacts", "Topics", "topics"],
+    ["graph", "Graph", "graph"],
+    ["registry", "Index", "index"],
+  ].forEach(([tab, label, iconName]) => {
+    const button = makeButton("", "selectTab", { tab }, snapshot.selectedTab === tab);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    const icon = el("span", `nav-icon nav-icon-${iconName}`);
+    icon.appendChild(iconSvg(iconName as "home" | "topics" | "graph" | "index"));
+    button.appendChild(icon);
+    button.appendChild(el("span", "nav-label", label));
+    nav.appendChild(button);
   });
   sidebar.appendChild(nav);
   root.appendChild(sidebar);
@@ -484,7 +568,7 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
     ),
   );
   filters.appendChild(
-    makeButton("Run synthesis", "hostCommand", {
+    makeButton("Create Topic", "hostCommand", {
       command: "runSynthesizeTopic",
     }),
   );
@@ -640,6 +724,10 @@ function recordArray(value: unknown) {
   return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
+function recordValue(value: unknown) {
+  return isRecord(value) ? value : {};
+}
+
 function stringArray(value: unknown) {
   return Array.isArray(value)
     ? value.map((entry) => textValue(entry)).filter(Boolean)
@@ -689,16 +777,31 @@ function renderParagraphs(value: unknown) {
   return box;
 }
 
-function renderKeyValueList(value: Record<string, unknown>) {
+function renderKeyValueList(value: Record<string, unknown>): HTMLElement {
   const list = el("div", "topic-kv-list");
   Object.entries(value).forEach(([key, raw]) => {
     const row = el("div", "topic-kv-row");
-    row.appendChild(el("span", "muted", key));
-    const rendered =
-      typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
-        ? String(raw)
-        : JSON.stringify(raw);
-    row.appendChild(el("strong", "", rendered || "-"));
+    row.appendChild(el("span", "muted", key.replace(/_/g, " ")));
+    if (raw === null || raw === undefined) {
+      row.appendChild(el("strong", "", "-"));
+    } else if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+      row.appendChild(el("strong", "", String(raw)));
+    } else if (Array.isArray(raw)) {
+      const arrWrap = el("div", "kv-array-wrap");
+      raw.forEach((item) => {
+        arrWrap.appendChild(badge(typeof item === "object" ? JSON.stringify(item) : String(item)));
+      });
+      row.appendChild(arrWrap);
+    } else if (typeof raw === "object") {
+      const subList = el("div", "kv-sub-list");
+      Object.entries(raw as Record<string, unknown>).forEach(([subK, subV]) => {
+        const subRow = el("div", "kv-sub-row");
+        subRow.appendChild(el("span", "muted", subK.replace(/_/g, " ") + ": "));
+        subRow.appendChild(el("span", "", typeof subV === "object" ? JSON.stringify(subV) : String(subV)));
+        subList.appendChild(subRow);
+      });
+      row.appendChild(subList);
+    }
     list.appendChild(row);
   });
   return list;
@@ -770,6 +873,14 @@ function openDigestModal(evidence: Record<string, unknown>) {
   });
 }
 
+function openEvidenceExplorer(evidenceIdValue?: string) {
+  if (evidenceIdValue) {
+    state.selectedEvidenceId = evidenceIdValue;
+  }
+  state.evidenceExplorerOpen = true;
+  render();
+}
+
 function selectEvidenceRef(detail: TopicDetailDto, ref: unknown) {
   const evidence = evidenceForRef(detail, ref);
   if (evidence) {
@@ -777,6 +888,7 @@ function selectEvidenceRef(detail: TopicDetailDto, ref: unknown) {
   } else {
     state.selectedEvidenceId = textValue(ref) || undefined;
   }
+  state.evidenceExplorerOpen = true;
   render();
 }
 
@@ -821,33 +933,43 @@ function renderContentCard(title: string, body?: Node | string, className = "con
 function renderTopicOverviewSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", "Overview"));
+  
   const summaryText =
+    detail.summary?.text ||
     detail.summary?.brief ||
     detail.summary?.summary ||
     detail.summary?.long_summary ||
     detail.positioning?.review_position;
+    
   if (summaryText) {
-    section.appendChild(renderContentCard("Synthesis Summary", renderParagraphs(summaryText)));
+    const summaryCard = el("div", "overview-summary-hero");
+    summaryCard.appendChild(el("h3", "hero-title", "Synthesis Summary"));
+    summaryCard.appendChild(renderParagraphs(summaryText));
+    section.appendChild(summaryCard);
   }
-  const takeaways = stringArray(detail.summary?.key_takeaways || detail.summary?.takeaways);
-  if (takeaways.length) {
-    const list = el("ul", "topic-bullet-list");
-    takeaways.forEach((entry) => list.appendChild(el("li", "", entry)));
-    section.appendChild(renderContentCard("Core Findings", list));
-  }
+
   const positioning = detail.positioning || {};
   if (hasStructuredContent(positioning)) {
-    const grid = el("div", "topic-card-grid");
-    ["importance", "timeliness", "review_position"].forEach((key) => {
+    const dash = el("div", "overview-dashboard");
+    ["importance", "timeliness", "review_position", "concept_position", "why_synthesize"].forEach((key) => {
       const text = textValue(positioning[key]);
-      if (text) grid.appendChild(renderContentCard(key.replace(/_/g, " "), text, "finding-card"));
+      if (text) {
+        const metric = el("div", "dashboard-metric");
+        metric.appendChild(el("div", "metric-label", key.replace(/_/g, " ")));
+        metric.appendChild(el("div", "metric-value", text));
+        dash.appendChild(metric);
+      }
     });
     const boundary = positioning.scope_boundary;
     if (hasStructuredContent(boundary)) {
-      grid.appendChild(renderContentCard("scope boundary", renderKeyValueList(boundary as Record<string, unknown>), "finding-card"));
+      const metric = el("div", "dashboard-metric span-2");
+      metric.appendChild(el("div", "metric-label", "Scope Boundary"));
+      metric.appendChild(renderKeyValueList(boundary as Record<string, unknown>));
+      dash.appendChild(metric);
     }
-    if (grid.childElementCount) section.appendChild(grid);
+    if (dash.childElementCount) section.appendChild(dash);
   }
+
   const outline = detail.review_outline || {};
   const outlineRows = [
     ...recordArray(outline.introduction_logic),
@@ -856,20 +978,37 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
     ...recordArray(outline.sections),
   ];
   if (outlineRows.length) {
-    const list = el("div", "outline-list");
-    outlineRows.slice(0, 6).forEach((row, index) => {
-      const card = el("article", "outline-row");
-      card.appendChild(el("span", "claim-index", `R${index + 1}`));
-      card.appendChild(el("strong", "", firstText(row, ["title", "heading", "purpose", "id"], `Step ${index + 1}`)));
+    const outlineSection = el("div", "overview-outline-section");
+    outlineSection.appendChild(el("h3", "", "Review Outline"));
+    
+    const stepper = el("div", "outline-stepper");
+    outlineRows.slice(0, 8).forEach((row, index) => {
+      const step = el("div", "outline-step");
+      
+      const marker = el("div", "step-marker");
+      marker.appendChild(el("span", "step-number", `${index + 1}`));
+      step.appendChild(marker);
+      
+      const content = el("div", "step-content");
+      content.appendChild(el("h4", "", firstText(row, ["title", "heading", "purpose", "id"], `Step ${index + 1}`)));
+      
       const text = firstText(row, ["summary", "description", "purpose", "rationale"]);
-      if (text) card.appendChild(el("p", "", text));
-      if (stringArray(row.evidence_map_refs || row.source_section_refs).length) {
-        card.appendChild(traceChips(row.evidence_map_refs || row.source_section_refs));
+      if (text) content.appendChild(el("p", "", text));
+      
+      const refs = stringArray(row.evidence_map_refs || row.source_section_refs);
+      if (refs.length) {
+        const foot = el("div", "step-footer");
+        foot.appendChild(traceChips(refs));
+        content.appendChild(foot);
       }
-      list.appendChild(card);
+      
+      step.appendChild(content);
+      stepper.appendChild(step);
     });
-    section.appendChild(renderContentCard("Review Outline", list));
+    outlineSection.appendChild(stepper);
+    section.appendChild(outlineSection);
   }
+
   if (section.childElementCount <= 1) {
     section.appendChild(renderEmptyStructuredState("No overview data"));
   }
@@ -880,6 +1019,11 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", "Taxonomy"));
   const taxonomy = detail.taxonomy || {};
+  const summary = recordValue(taxonomy.summary);
+  const summaryText = firstText(summary, ["text", "analysis", "overview"]);
+  if (summaryText) {
+    section.appendChild(renderContentCard("Route Synthesis", renderParagraphs(summaryText)));
+  }
   const axis = firstText(taxonomy, ["primary_axis", "axis", "classification_axis"]);
   const rationale = firstText(taxonomy, ["axis_rationale", "rationale", "reason"]);
   if (axis || rationale) {
@@ -890,15 +1034,76 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
   }
   const nodes = recordArray(taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes);
   if (nodes.length) {
-    const list = el("div", "taxonomy-grid");
+    const list = el("div", "taxonomy-list");
     nodes.forEach((node, index) => {
-      const card = el("article", "taxonomy-node");
-      card.appendChild(el("span", "claim-index", `T${index + 1}`));
-      card.appendChild(el("h3", "", firstText(node, ["title", "label", "name", "id"], `Node ${index + 1}`)));
-      const text = firstText(node, ["description", "summary", "rationale"]);
-      if (text) card.appendChild(el("p", "", text));
+      const card = el("article", "taxonomy-list-item");
+      
+      const header = el("header", "taxonomy-item-header");
+      const titleWrap = el("div", "taxonomy-item-title");
+      titleWrap.appendChild(el("span", "claim-index", `T${index + 1}`));
+      titleWrap.appendChild(el("h3", "", firstText(node, ["title", "label", "name", "id"], `Node ${index + 1}`)));
+      header.appendChild(titleWrap);
+      
+      const maturity = firstText(node, ["maturity", "status", "development_stage"]);
+      if (maturity) header.appendChild(badge(maturity, "purple"));
+      card.appendChild(header);
+
+      const text = firstText(node, ["description", "summary", "rationale", "definition"]);
+      if (text) card.appendChild(el("p", "taxonomy-item-desc", text));
+      
+      const detailsWrap = el("div", "taxonomy-item-details");
+      
+      const probMech = el("div", "taxonomy-detail-group");
+      const prob = firstText(node, ["core_problem", "problem", "target_problem"]);
+      if (prob) {
+          const pDiv = el("div", "taxonomy-detail-row");
+          pDiv.appendChild(el("span", "muted", "Problem"));
+          pDiv.appendChild(el("strong", "", prob));
+          probMech.appendChild(pDiv);
+      }
+      const mech = firstText(node, ["mechanism", "technical_mechanism", "core_mechanism"]);
+      if (mech) {
+          const mDiv = el("div", "taxonomy-detail-row");
+          mDiv.appendChild(el("span", "muted", "Mechanism"));
+          mDiv.appendChild(el("strong", "", mech));
+          probMech.appendChild(mDiv);
+      }
+      if (probMech.childElementCount) detailsWrap.appendChild(probMech);
+
+      const prosCons = el("div", "taxonomy-detail-group pros-cons");
+      const strengths = stringArray(node.strengths || node.advantages);
+      if (strengths.length) {
+          const sDiv = el("div", "taxonomy-detail-row");
+          sDiv.appendChild(el("span", "muted", "Strengths"));
+          const sList = el("ul", "taxonomy-bullet-list");
+          strengths.forEach((st) => sList.appendChild(el("li", "pro-item", st)));
+          sDiv.appendChild(sList);
+          prosCons.appendChild(sDiv);
+      }
+      const limits = stringArray(node.limitations || node.weaknesses);
+      if (limits.length) {
+          const lDiv = el("div", "taxonomy-detail-row");
+          lDiv.appendChild(el("span", "muted", "Limitations"));
+          const lList = el("ul", "taxonomy-bullet-list");
+          limits.forEach((lt) => lList.appendChild(el("li", "con-item", lt)));
+          lDiv.appendChild(lList);
+          prosCons.appendChild(lDiv);
+      }
+      if (prosCons.childElementCount) detailsWrap.appendChild(prosCons);
+      
+      if (detailsWrap.childElementCount) card.appendChild(detailsWrap);
+
       const refs = node.evidence_refs || node.paper_refs || node.paper_unit_refs;
-      if (stringArray(refs).length) card.appendChild(evidenceRefChips(detail, refs, "blue"));
+      if (stringArray(refs).length) {
+          const foot = el("footer", "taxonomy-item-footer");
+          foot.appendChild(evidenceRefChips(detail, refs, "blue"));
+          if (stringArray(node.evidence_map_refs).length) foot.appendChild(traceChips(node.evidence_map_refs));
+          card.appendChild(foot);
+      } else if (stringArray(node.evidence_map_refs).length) {
+          const foot = el("footer", "taxonomy-item-footer");
+          foot.appendChild(traceChips(node.evidence_map_refs));
+          card.appendChild(foot);
+      }
       list.appendChild(card);
     });
     section.appendChild(list);
@@ -906,6 +1111,19 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
     section.appendChild(renderEmptyStructuredState("No taxonomy data"));
   }
   return section;
+}
+
+function topicTimelineEvents(detail: TopicDetailDto) {
+  const timeline = detail.timeline_events;
+  if (recordValue(timeline).events) {
+    return recordArray(recordValue(timeline).events);
+  }
+  return recordArray(timeline);
+}
+
+function topicTimelineSummary(detail: TopicDetailDto) {
+  const timeline = recordValue(detail.timeline_events);
+  return recordValue(timeline.summary);
 }
 
 function renderTopicClaimsSection(detail: TopicDetailDto) {
@@ -916,19 +1134,166 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
     section.appendChild(renderEmptyStructuredState("No claim data"));
     return section;
   }
+  const list = el("div", "claims-list");
   claims.forEach((claim, index) => {
-    const card = el("article", "claim-card");
-    card.appendChild(el("span", "claim-index", firstText(claim, ["id"], `C${index + 1}`)));
+    const card = el("article", "claim-row");
+    
+    // Left column: Claim text and rationale
+    const leftCol = el("div", "claim-content");
+    const header = el("div", "claim-header");
+    header.appendChild(el("span", "claim-index", firstText(claim, ["id"], `C${index + 1}`)));
     const strength = firstText(claim, ["strength", "claim_strength", "support_level"]);
-    if (strength) card.appendChild(badge(strength, strength === "strong" ? "ok" : "warn"));
-    card.appendChild(el("h3", "", firstText(claim, ["text", "claim", "title", "id"], `Claim ${index + 1}`)));
-    const rationale = firstText(claim, ["rationale", "support", "summary", "explanation"]);
-    if (rationale) card.appendChild(el("p", "", rationale));
-    if (stringArray(claim.evidence_refs).length) card.appendChild(evidenceRefChips(detail, claim.evidence_refs, "green"));
-    if (stringArray(claim.evidence_map_refs).length) card.appendChild(traceChips(claim.evidence_map_refs));
-    section.appendChild(card);
+    if (strength) {
+        const tone = strength.toLowerCase() === "strong" ? "ok" : (strength.toLowerCase() === "weak" ? "warn" : "");
+        header.appendChild(badge(strength, tone as any));
+    }
+    leftCol.appendChild(header);
+    leftCol.appendChild(el("h3", "", firstText(claim, ["text", "claim", "title", "id"], `Claim ${index + 1}`)));
+    
+    const rationale = firstText(claim, ["analysis", "rationale", "support", "summary", "explanation"]);
+    if (rationale) leftCol.appendChild(el("p", "", rationale));
+    card.appendChild(leftCol);
+
+    // Right column: Evidence cards
+    const rightCol = el("div", "claim-evidence");
+    const eRefs = stringArray(claim.evidence_refs || claim.paper_evidence_refs);
+    if (eRefs.length) {
+      rightCol.appendChild(el("h4", "evidence-group-title", "Supporting Evidence"));
+      const eList = el("div", "claim-evidence-list");
+      eRefs.forEach((ref) => {
+        const rows = evidenceRows(detail);
+        const ev = rows.find(r => evidenceRefKeys(r).has(ref));
+        
+        if (ev) {
+            const eCard = el("button", "mini-evidence-card");
+            eCard.type = "button";
+            eCard.title = "View in Evidence Explorer";
+            const id = evidenceId(ev);
+            if (id) {
+                eCard.addEventListener("click", () => {
+                   openEvidenceExplorer(id);
+                });
+            }
+            const code = evidenceCode(ev, Math.max(0, rows.findIndex(r => evidenceId(r) === id)));
+            const title = evidenceTitle(ev, Math.max(0, rows.findIndex(r => evidenceId(r) === id)));
+            eCard.appendChild(el("span", "evidence-code", code));
+            eCard.appendChild(el("span", "evidence-title", title));
+            eList.appendChild(eCard);
+        } else {
+            // Fallback to chip if not found in paper evidence
+            eList.appendChild(badge(ref, "green"));
+        }
+      });
+      rightCol.appendChild(eList);
+    }
+    
+    const tRefs = stringArray(claim.evidence_map_refs);
+    if (tRefs.length) {
+       const tList = el("div", "claim-evidence-list");
+       tRefs.forEach((r) => tList.appendChild(badge(r, "purple")));
+       rightCol.appendChild(tList);
+    }
+    
+    card.appendChild(rightCol);
+    list.appendChild(card);
   });
+  section.appendChild(list);
   return section;
+}
+
+function renderTopicReferencesSection(detail: TopicDetailDto) {
+  const container = el("div", "references-section");
+  
+  const header = el("div", "references-header");
+  const rows = evidenceRows(detail);
+  
+  const titleContainer = el("div", "references-title-row");
+  titleContainer.appendChild(el("h3", "", `Associated Literature References (${rows.length})`));
+  header.appendChild(titleContainer);
+  
+  const searchBar = el("div", "references-search-bar");
+  const input = el("input", "references-search-input") as HTMLInputElement;
+  input.type = "text";
+  input.placeholder = "Search references by title, author, key, or summary...";
+  searchBar.appendChild(input);
+  header.appendChild(searchBar);
+  container.appendChild(header);
+  
+  const grid = el("div", "references-grid");
+  container.appendChild(grid);
+  
+  function updateGrid(filterText = "") {
+    grid.innerHTML = "";
+    const query = filterText.toLowerCase();
+    
+    rows.forEach((r, idx) => {
+      const title = evidenceTitle(r, idx);
+      const year = firstText(r, ["year", "publication_year"]) || "";
+      const refKey = firstText(r, ["paper_ref", "paperRef"]) || "";
+      const summary = firstText(r, ["summary", "evidence_summary", "topic_relevance", "rationale"]) || "";
+      const code = evidenceCode(r, idx);
+      const status = firstText(r, ["synthesis_role", "status", "freshness"]) || "";
+      const isSelected = state.selectedEvidenceId === evidenceId(r);
+      
+      if (
+        query &&
+        !title.toLowerCase().includes(query) &&
+        !year.toLowerCase().includes(query) &&
+        !refKey.toLowerCase().includes(query) &&
+        !summary.toLowerCase().includes(query) &&
+        !code.toLowerCase().includes(query)
+      ) {
+        return;
+      }
+      
+      const card = el("div", `reference-card${isSelected ? " active" : ""}`);
+      
+      const cardHead = el("div", "ref-card-head");
+      const badgeContainer = el("div", "ref-badge-container");
+      
+      // Code Badge
+      const codeEl = el("span", "ref-code-badge", code);
+      badgeContainer.appendChild(codeEl);
+      if (status) {
+        badgeContainer.appendChild(badge(status, toneFor(status)));
+      }
+      cardHead.appendChild(badgeContainer);
+      
+      if (year) {
+        cardHead.appendChild(el("span", "ref-year-label", year));
+      }
+      card.appendChild(cardHead);
+      
+      card.appendChild(el("h4", "ref-title", title));
+      
+      if (refKey) {
+        card.appendChild(el("div", "ref-key-badge", refKey));
+      }
+      
+      if (summary) {
+        const sumText = summary.length > 130 ? summary.substring(0, 127) + "..." : summary;
+        card.appendChild(el("p", "ref-summary", sumText));
+      }
+      
+      card.addEventListener("click", () => {
+        openEvidenceExplorer(evidenceId(r) || undefined);
+      });
+      
+      grid.appendChild(card);
+    });
+    
+    if (!grid.childElementCount) {
+      grid.appendChild(renderEmptyStructuredState("No matching references found"));
+    }
+  }
+  
+  input.addEventListener("input", (e) => {
+    updateGrid((e.target as HTMLInputElement).value);
+  });
+  
+  updateGrid();
+  
+  return container;
 }
 
 function comparisonRows(matrix: Record<string, unknown>) {
@@ -955,24 +1320,77 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
   section.appendChild(el("h2", "", "Compare"));
   const matrix = detail.comparison_matrix || {};
   const rows = comparisonRows(matrix);
-  const dimensions = stringArray(matrix.columns);
   if (rows.length) {
-    const grid = el("div", "topic-card-grid");
-    rows.forEach((row, index) => {
-      const card = el("article", "content-card");
-      card.appendChild(el("span", "claim-index", `M${index + 1}`));
-      card.appendChild(el("h3", "", firstText(row, ["name", "title", "dimension", "id"], `Dimension ${index + 1}`)));
-      const text = firstText(row, ["description", "summary", "rationale"]);
-      if (text) card.appendChild(el("p", "", text));
-      const table = renderMethodComparisonCard(row);
-      if (table) card.appendChild(table);
-      else if (dimensions.length) {
-        const values = isRecord(row.values) ? row.values : row;
-        card.appendChild(renderKeyValueList(Object.fromEntries(dimensions.map((dimension) => [dimension, (values as Record<string, unknown>)[dimension] || "-"]))));
-      }
-      grid.appendChild(card);
+    // 1. Extract all unique routes/methods to form columns
+    const routeSet = new Set<string>();
+    rows.forEach((r) => {
+      recordArray(r.comparisons).forEach((c) => {
+        const route = firstText(c, ["route", "method", "name"]);
+        if (route && route !== "-") routeSet.add(route);
+      });
     });
-    section.appendChild(grid);
+    const routes = Array.from(routeSet);
+
+    // 2. Build the table
+    const tableWrap = el("div", "matrix-table-wrap");
+    const table = el("table", "matrix-table");
+    
+    // Header
+    const thead = el("thead");
+    const trHead = el("tr");
+    trHead.appendChild(el("th", "matrix-th matrix-dim-col", "Dimension"));
+    routes.forEach((route) => {
+      trHead.appendChild(el("th", "matrix-th", route));
+    });
+    thead.appendChild(trHead);
+    table.appendChild(thead);
+
+    // Body
+    const tbody = el("tbody");
+    rows.forEach((r, i) => {
+      const tr = el("tr");
+      // Dimension column
+      const tdDim = el("td", "matrix-td matrix-dim-col");
+      const dimTitle = el("div", "matrix-dim-title");
+      dimTitle.appendChild(el("span", "claim-index", `M${i + 1}`));
+      dimTitle.appendChild(el("strong", "", firstText(r, ["name", "title", "dimension", "label", "id"], `Dimension ${i + 1}`)));
+      tdDim.appendChild(dimTitle);
+      const desc = firstText(r, ["description", "summary", "rationale"]);
+      if (desc) tdDim.appendChild(el("p", "matrix-dim-desc", desc));
+      
+      const methodTable = renderMethodComparisonCard(r);
+      if (methodTable) {
+         tdDim.appendChild(methodTable);
+      }
+      
+      tr.appendChild(tdDim);
+
+      // Value columns
+      const comps = recordArray(r.comparisons);
+      routes.forEach((route) => {
+        const td = el("td", "matrix-td");
+        const match = comps.find((c) => firstText(c, ["route", "method", "name"]) === route);
+        if (match) {
+          const val = firstText(match, ["value", "result"], "-");
+          td.appendChild(renderParagraphs(val));
+          // Apply subtle coloring based on text content as a heuristic
+          const lowerVal = val.toLowerCase();
+          if (lowerVal.includes("high") || lowerVal.includes("strong") || lowerVal.includes("good") || lowerVal.includes("better")) {
+             td.classList.add("highlight-positive");
+          } else if (lowerVal.includes("low") || lowerVal.includes("weak") || lowerVal.includes("poor") || lowerVal.includes("worse") || lowerVal.includes("limited") || lowerVal.includes("high cost")) {
+             td.classList.add("highlight-negative");
+          }
+        } else {
+          td.appendChild(el("span", "muted", "-"));
+        }
+        tr.appendChild(td);
+      });
+      
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    section.appendChild(tableWrap);
   } else {
     section.appendChild(renderEmptyStructuredState("No comparison matrix"));
   }
@@ -982,12 +1400,13 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     debates.forEach((debate, index) => {
       const card = el("article", "debate-card");
       card.appendChild(el("span", "claim-index", `D${index + 1}`));
-      card.appendChild(el("h3", "", firstText(debate, ["name", "title", "text", "debate", "id"], `Debate ${index + 1}`)));
+      card.appendChild(el("h3", "", firstText(debate, ["name", "title", "text", "debate", "topic", "id"], `Debate ${index + 1}`)));
       const type = firstText(debate, ["evidence_type", "type"]);
       if (type) card.appendChild(badge(type, "orange"));
-      const text = firstText(debate, ["summary", "description", "tension", "rationale"]);
+      const text = firstText(debate, ["synthesis_judgment", "summary", "description", "tension", "rationale"]);
       if (text) card.appendChild(el("p", "", text));
       if (stringArray(debate.evidence_refs).length) card.appendChild(evidenceRefChips(detail, debate.evidence_refs, "orange"));
+      if (stringArray(debate.evidence_map_refs).length) card.appendChild(traceChips(debate.evidence_map_refs));
       section.appendChild(card);
     });
   }
@@ -999,31 +1418,70 @@ function renderTopicExternalSection(detail: TopicDetailDto) {
   const external = detail.external_literature_analysis || {};
   section.appendChild(el("h2", "", "External Literature Analysis"));
   const summary = external.summary || external.contribution_to_topic;
-  if (summary) section.appendChild(renderContentCard("External Context", renderParagraphs(summary)));
+  if (summary) {
+    const hero = el("div", "overview-summary-hero");
+    hero.appendChild(el("h3", "hero-title", "External Context"));
+    hero.appendChild(renderParagraphs(summary));
+    section.appendChild(hero);
+  }
+  const verdict = firstText(external, ["coverage_verdict", "coverage_judgment"]);
+  const reason = firstText(external, ["coverage_reason", "reason", "limitations"]);
+  if (verdict || reason) {
+    const verdictCard = el("div", "coverage-verdict-card");
+    if (verdict) {
+      const line = el("div", "verdict-line");
+      line.style.display = "flex";
+      line.style.alignItems = "center";
+      line.style.gap = "8px";
+      line.appendChild(el("strong", "", "Coverage Verdict:"));
+      line.appendChild(badge(verdict, toneFor(verdict)));
+      verdictCard.appendChild(line);
+    }
+    if (reason) verdictCard.appendChild(renderParagraphs(reason));
+    section.appendChild(verdictCard);
+  }
   const themes = recordArray(external.themes);
   if (themes.length) {
     section.appendChild(el("h3", "", "Themes"));
+    const grid = el("div", "topic-card-grid");
     themes.forEach((theme) => {
-      const card = el("article", "external-theme");
-      card.appendChild(el("strong", "", firstText(theme, ["title", "theme", "id"], "Theme")));
+      const card = el("article", "external-theme-card");
+      card.appendChild(el("strong", "", firstText(theme, ["title", "theme", "label", "id"], "Theme")));
       const text = firstText(theme, ["analysis", "summary", "description"]);
       if (text) card.appendChild(el("p", "", text));
-      section.appendChild(card);
+      grid.appendChild(card);
     });
+    section.appendChild(grid);
   }
   const references = recordArray(external.representative_references);
   if (references.length) {
-    section.appendChild(el("h3", "", "Representative references"));
+    section.appendChild(el("h3", "", "Representative References"));
     section.appendChild(
-      tableView(["Reference", "Context", "Completeness"], references, (row) => [
-        firstText(row, ["title", "label", "id"], "Reference"),
-        firstText(row, ["citation_context", "context", "reason"], "-"),
-        firstText(row, ["information_completeness", "completeness", "status"], "-"),
-      ]),
+      matrixTableView(["Reference", "Context", "Completeness"], references, (row) => {
+        const titleStrong = el("strong", "", firstText(row, ["title", "label", "id"], "Reference"));
+        const contextSpan = el("span", "muted", firstText(row, ["citation_context", "context", "reason"], "-"));
+        const completenessSpan = el("span", "muted", firstText(row, ["information_completeness", "completeness", "status"], "-"));
+        return [titleStrong, contextSpan, completenessSpan];
+      }),
     );
   }
   if (external.limitations) {
     section.appendChild(renderContentCard("Limitations", renderParagraphs(external.limitations)));
+  }
+  const additions = recordArray(external.suggested_additions);
+  if (additions.length) {
+    section.appendChild(el("h3", "", "Suggested Additions"));
+    section.appendChild(
+      matrixTableView(["Candidate", "Reason", "Priority"], additions, (row) => {
+        const titleStrong = el("strong", "", firstText(row, ["title", "label", "id"], "Candidate"));
+        const reasonSpan = el("span", "", firstText(row, ["reason", "rationale", "why"], "-"));
+        const pText = firstText(row, ["priority", "urgency"], "-");
+        const priorityCell = pText.toLowerCase().includes("high")
+          ? badge(pText, "warn")
+          : el("span", "", pText);
+        return [titleStrong, reasonSpan, priorityCell];
+      }),
+    );
   }
   if (section.childElementCount <= 1) {
     section.appendChild(renderEmptyStructuredState("No external literature data"));
@@ -1063,20 +1521,32 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", "Coverage"));
   if (hasStructuredContent(detail.coverage)) {
-    section.appendChild(renderContentCard("Coverage Status", renderKeyValueList(detail.coverage || {})));
+    const metric = el("div", "dashboard-metric span-2");
+    metric.appendChild(el("div", "metric-label", "Coverage Status"));
+    metric.appendChild(renderKeyValueList(detail.coverage || {}));
+    const dash = el("div", "overview-dashboard");
+    dash.appendChild(metric);
+    section.appendChild(dash);
   }
   const gaps = recordArray(detail.gaps);
   if (gaps.length) {
-    section.appendChild(el("h3", "", "Gaps"));
-    gaps.forEach((gap) => {
-      const card = el("article", "gap-card");
-      card.appendChild(el("strong", "", firstText(gap, ["title", "gap", "id"], "Gap")));
+    section.appendChild(el("h3", "", "Identified Gaps"));
+    const gList = el("div", "claims-list");
+    gaps.forEach((gap, i) => {
+      const card = el("article", "claim-row");
+      const leftCol = el("div", "claim-content");
+      const header = el("div", "claim-header");
+      header.appendChild(el("span", "claim-index", `G${i + 1}`));
       const type = firstText(gap, ["gap_type", "type"]);
-      if (type) card.appendChild(badge(type, type === "library_coverage_gap" ? "orange" : "warn"));
+      if (type) header.appendChild(badge(type, type === "library_coverage_gap" ? "orange" : "warn"));
+      leftCol.appendChild(header);
+      leftCol.appendChild(el("h3", "", firstText(gap, ["title", "gap", "id"], "Gap")));
       const text = firstText(gap, ["text", "description", "impact", "summary"]);
-      if (text) card.appendChild(el("p", "", text));
-      section.appendChild(card);
+      if (text) leftCol.appendChild(el("p", "", text));
+      card.appendChild(leftCol);
+      gList.appendChild(card);
     });
+    section.appendChild(gList);
   }
   section.appendChild(renderEvidenceMapSummary(detail));
   if (hasStructuredContent(detail.diagnostics)) {
@@ -1091,12 +1561,94 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
   return section;
 }
 
+function renderTopicStatisticsSection(detail: TopicDetailDto) {
+  const section = el("div", "topic-section");
+  section.appendChild(el("h2", "", "Statistics"));
+  const stats = (detail.statistics || {}) as Record<string, unknown>;
+  if (hasStructuredContent(stats)) {
+    const dash = el("div", "overview-dashboard");
+    const paperVal = stats.paper_count ?? detail.paper_count;
+    const timeSpan = stats.time_span;
+    const timeSpanVal = isRecord(timeSpan)
+      ? `${timeSpan.earliest || timeSpan.start_year || "?"} - ${timeSpan.latest || timeSpan.end_year || "?"}`
+      : textValue(timeSpan);
+    [
+      ["Papers", paperVal],
+      ["Time span", timeSpanVal],
+      ["Coverage Verdict", stats.coverage_verdict],
+    ].forEach(([label, value]) => {
+      if (!textValue(value)) return;
+      const metric = el("div", "dashboard-metric");
+      metric.appendChild(el("div", "metric-label", String(label)));
+      metric.appendChild(el("div", "metric-value", String(value)));
+      dash.appendChild(metric);
+    });
+    if (dash.childElementCount) section.appendChild(dash);
+
+    const dash2 = el("div", "overview-dashboard");
+    if (stats.route_coverage) {
+      const rcCard = el("div", "dashboard-metric span-2");
+      rcCard.appendChild(el("div", "metric-label", "Route Coverage"));
+      rcCard.appendChild(
+        renderKeyValueList(
+          isRecord(stats.route_coverage) ? stats.route_coverage : { value: stats.route_coverage },
+        ),
+      );
+      dash2.appendChild(rcCard);
+    }
+
+    const metricCard = el("div", "dashboard-metric span-2");
+    metricCard.appendChild(el("div", "metric-label", "Full Statistics"));
+    const filteredStats = { ...stats };
+    delete filteredStats.route_coverage;
+    delete filteredStats.coverage_verdict;
+    delete filteredStats.time_span;
+    delete filteredStats.paper_count;
+    metricCard.appendChild(renderKeyValueList(filteredStats));
+    dash2.appendChild(metricCard);
+
+    section.appendChild(dash2);
+  }
+  if (hasStructuredContent(detail.coverage)) {
+    section.appendChild(renderContentCard("Coverage", renderKeyValueList(detail.coverage || {})));
+  }
+  if (section.childElementCount <= 1) {
+    section.appendChild(renderEmptyStructuredState("No statistics data"));
+  }
+  return section;
+}
+
+function renderTopicReportSection(detail: TopicDetailDto) {
+  const section = el("div", "topic-section topic-report-section");
+  section.appendChild(el("h2", "", "Synthesis Report"));
+  const report = detail.synthesis_report || {};
+  const title = firstText(report, ["title", "heading"]);
+  if (title) section.appendChild(el("h3", "", title));
+  const body = firstText(report, ["body", "markdown", "text", "report"]);
+  if (body) {
+    section.appendChild(renderContentCard("Report Body", renderParagraphs(body), "report-card"));
+  }
+  const sourceChapters = isRecord(report.source_section_chapters)
+    ? report.source_section_chapters
+    : {};
+  if (hasStructuredContent(sourceChapters)) {
+    section.appendChild(renderContentCard("Source Chapters", renderKeyValueList(sourceChapters)));
+  }
+  if (section.childElementCount <= 1) {
+    section.appendChild(renderEmptyStructuredState("No synthesis report"));
+  }
+  return section;
+}
+
 function renderTopicSection(detail: TopicDetailDto) {
   if (state.topicDetailSection === "taxonomy") return renderTopicTaxonomySection(detail);
   if (state.topicDetailSection === "claims") return renderTopicClaimsSection(detail);
+  if (state.topicDetailSection === "references") return renderTopicReferencesSection(detail);
   if (state.topicDetailSection === "compare") return renderTopicCompareSection(detail);
   if (state.topicDetailSection === "external") return renderTopicExternalSection(detail);
   if (state.topicDetailSection === "coverage") return renderTopicCoverageSection(detail);
+  if (state.topicDetailSection === "statistics") return renderTopicStatisticsSection(detail);
+  if (state.topicDetailSection === "report") return renderTopicReportSection(detail);
   return renderTopicOverviewSection(detail);
 }
 
@@ -1106,9 +1658,12 @@ function renderTopicTabs() {
     ["overview", "Overview"],
     ["taxonomy", "Taxonomy"],
     ["claims", "Claims"],
+    ["references", "References"],
     ["compare", "Compare"],
     ["external", "External"],
     ["coverage", "Coverage"],
+    ["statistics", "Stats"],
+    ["report", "Report"],
   ];
   entries.forEach(([id, label]) => {
     const button = el("button", state.topicDetailSection === id ? "active" : "", label);
@@ -1143,7 +1698,7 @@ function derivedEvidenceLinks(detail: TopicDetailDto, evidence: Record<string, u
       matches.claims.push(firstText(claim, ["id", "label", "text", "claim"], `C${index + 1}`));
     }
   });
-  recordArray(detail.timeline_events).forEach((event, index) => {
+  topicTimelineEvents(detail).forEach((event, index) => {
     const eventEvidence = primaryEvidenceForEvent(detail, event);
     if (eventEvidence && evidenceId(eventEvidence) === evidenceId(evidence)) {
       matches.timeline.push(firstText(event, ["id", "label", "title"], `T${index + 1}`));
@@ -1197,6 +1752,14 @@ function renderEvidenceExplorer(detail: TopicDetailDto) {
   const explorer = el("aside", "evidence-explorer");
   const header = el("div", "explorer-head");
   header.appendChild(el("h2", "", "Evidence Explorer"));
+  const close = el("button", "icon-button evidence-drawer-close", "Close");
+  close.type = "button";
+  close.title = "Close Evidence Explorer";
+  close.addEventListener("click", () => {
+    state.evidenceExplorerOpen = false;
+    render();
+  });
+  header.appendChild(close);
   explorer.appendChild(header);
   const rows = evidenceRows(detail);
   if (!rows.length) {
@@ -1221,84 +1784,272 @@ function renderEvidenceExplorer(detail: TopicDetailDto) {
   return explorer;
 }
 
+function renderEvidenceDrawer(detail: TopicDetailDto) {
+  const drawer = el("div", `evidence-drawer${state.evidenceExplorerOpen ? " open" : ""}`);
+  drawer.setAttribute("aria-hidden", state.evidenceExplorerOpen ? "false" : "true");
+  drawer.addEventListener("click", (event) => {
+    if (event.target === drawer) {
+      state.evidenceExplorerOpen = false;
+      render();
+    }
+  });
+  const panel = el("div", "evidence-drawer-panel");
+  panel.setAttribute("role", "complementary");
+  panel.setAttribute("aria-label", "Evidence Explorer");
+  panel.appendChild(renderEvidenceExplorer(detail));
+  drawer.appendChild(panel);
+  return drawer;
+}
+
 function numericYear(value: unknown) {
-  const text = textValue(value);
-  const match = text.match(/\b(19|20)\d{2}\b/);
-  return match ? Number(match[0]) : NaN;
+  const text = textValue(value).trim();
+  if (!text) return NaN;
+
+  const match4 = text.match(/\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})\b/);
+  if (match4) return Number(match4[0]);
+
+  const matchCh = text.match(/(\d{2})年/);
+  if (matchCh) {
+    const year = Number(matchCh[1]);
+    return year >= 50 ? 1900 + year : 2000 + year;
+  }
+
+  const matchPrefix = text.match(/^(\d{2})[-/]\d{1,2}\b/);
+  if (matchPrefix) {
+    const year = Number(matchPrefix[1]);
+    if (year >= 20 && year <= 35) return 2000 + year;
+  }
+
+  const matchQuote = text.match(/['’](\d{2})\b/);
+  if (matchQuote) {
+    const year = Number(matchQuote[1]);
+    return year >= 50 ? 1900 + year : 2000 + year;
+  }
+
+  return NaN;
 }
 
 type TimelineCluster = {
   key: string;
   label: string;
   left: number;
-  events: Array<Record<string, unknown>>;
+  items: TimelineItem[];
+};
+
+type TimelineItem = {
+  key: string;
+  kind: "paper" | "event";
+  year: number;
+  label: string;
+  title: string;
+  evidence?: Record<string, unknown>;
+  event?: Record<string, unknown>;
+  weight: number;
+  tone: "paper" | "milestone" | "frontier" | "foundation" | "external" | "warning";
 };
 
 function timelineLeft(index: number, total: number, year: number, minYear: number, maxYear: number) {
   if (Number.isFinite(year) && Number.isFinite(minYear) && Number.isFinite(maxYear) && maxYear > minYear) {
-    return 4 + ((year - minYear) / (maxYear - minYear)) * 92;
+    return ((year - minYear) / (maxYear - minYear)) * 100;
   }
-  return total <= 1 ? 50 : 4 + (index / (total - 1)) * 92;
+  return total <= 1 ? 50 : (index / (total - 1)) * 100;
 }
 
-function timelineAxisLabels(minYear: number, maxYear: number) {
+function timelineAxisTicks(minYear: number, maxYear: number): { label: string; left: number }[] {
   if (!Number.isFinite(minYear) || !Number.isFinite(maxYear)) {
-    return ["Start", "End"];
+    return [
+      { label: "Start", left: 0 },
+      { label: "End", left: 100 },
+    ];
   }
   const span = Math.max(1, maxYear - minYear);
-  const steps = Math.min(10, span + 1);
-  return Array.from({ length: steps }, (_, index) => {
-    const value = Math.round(minYear + (span * index) / Math.max(1, steps - 1));
-    return String(value);
+  let stepInterval = 1;
+  if (span > 15 && span <= 30) stepInterval = 2;
+  else if (span > 30 && span <= 75) stepInterval = 5;
+  else if (span > 75 && span <= 150) stepInterval = 10;
+  else if (span > 150) stepInterval = Math.ceil(span / 10);
+
+  const ticks: { label: string; left: number }[] = [];
+  for (let y = minYear; y <= maxYear; y += stepInterval) {
+    ticks.push({
+      label: String(y),
+      left: ((y - minYear) / span) * 100,
+    });
+  }
+  if (ticks.length > 0 && Math.round(ticks[ticks.length - 1].left) !== 100) {
+    ticks.push({
+      label: String(maxYear),
+      left: 100,
+    });
+  }
+  return ticks;
+}
+
+function evidenceYear(evidence: Record<string, unknown>) {
+  return numericYear(
+    evidence.year ||
+      evidence.publication_year ||
+      evidence.publicationYear ||
+      evidence.date ||
+      evidence.published_at,
+  );
+}
+
+function eventYear(event: Record<string, unknown>) {
+  return numericYear(event.year || event.date || event.publication_year || event.publicationYear);
+}
+
+function timelineItemSortKey(item: TimelineItem) {
+  const evidence = item.evidence || {};
+  const ref = firstText(evidence, ["paper_ref", "id"]);
+  const itemKey = ref.includes(":") ? ref.split(":").pop() : ref;
+  return (itemKey || item.key || item.label || item.title || "").toLowerCase();
+}
+
+function eventRefsPaper(event: Record<string, unknown>, evidence: Record<string, unknown>) {
+  const keys = evidenceRefKeys(evidence);
+  const refs = [
+    ...stringArray(event.evidence_refs),
+    ...stringArray(event.paper_evidence_refs),
+    ...stringArray(event.paper_refs),
+  ];
+  const direct = firstText(event, ["paper_evidence_id", "evidence_id", "paper_ref"]);
+  if (direct) refs.push(direct);
+  return refs.some((ref) => keys.has(ref));
+}
+
+function metricNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function nestedMetric(evidence: Record<string, unknown>, key: string) {
+  if (key in evidence) return evidence[key];
+  for (const containerKey of ["graph_metrics", "metrics", "citation_graph_metrics"]) {
+    const container = recordValue(evidence[containerKey]);
+    if (key in container) return container[key];
+  }
+  return undefined;
+}
+
+function timelineWeight(evidence: Record<string, unknown> | undefined, event: Record<string, unknown> | undefined) {
+  const explicit = metricNumber(event?.importance || event?.weight || evidence?.importance || evidence?.weight);
+  if (Number.isFinite(explicit)) return Math.max(0.85, Math.min(1.35, 0.95 + explicit * 0.2));
+  const foundation = metricNumber(nestedMetric(evidence || {}, "foundation_score"));
+  const frontier = metricNumber(nestedMetric(evidence || {}, "frontier_score"));
+  const score = Math.max(Number.isFinite(foundation) ? foundation : 0, Number.isFinite(frontier) ? frontier : 0);
+  return event ? 1.22 : Math.max(0.9, Math.min(1.2, 0.92 + score * 0.22));
+}
+
+function timelineTone(evidence: Record<string, unknown> | undefined, event: Record<string, unknown> | undefined): TimelineItem["tone"] {
+  const status = `${textValue(event?.status)} ${textValue(evidence?.status)} ${textValue(evidence?.freshness)}`;
+  if (status.match(/stale|dirty|missing|incomplete/i)) return "warning";
+  const roleHints = [
+    ...stringArray(evidence?.synthesis_role_hints),
+    ...stringArray(evidence?.role_hints),
+    ...stringArray(nestedMetric(evidence || {}, "synthesis_role_hints")),
+  ].join(" ");
+  if (roleHints.match(/external-heavy|unresolved/i)) return "external";
+  if (roleHints.match(/foundation|core/i)) return "foundation";
+  if (roleHints.match(/frontier/i)) return "frontier";
+  return event ? "milestone" : "paper";
+}
+
+function timelineItems(detail: TopicDetailDto) {
+  const events = topicTimelineEvents(detail);
+  const usedEvents = new Set<Record<string, unknown>>();
+  const items: TimelineItem[] = evidenceRows(detail).map((evidence, index) => {
+    const matchedEvent = events.find((event) => eventRefsPaper(event, evidence));
+    if (matchedEvent) usedEvents.add(matchedEvent);
+    const year = eventYear(matchedEvent || {}) || evidenceYear(evidence);
+    const title = firstText(matchedEvent || {}, ["event", "title", "label", "summary"]) || evidenceTitle(evidence, index);
+    return {
+      key: `paper:${evidenceId(evidence) || index}`,
+      kind: matchedEvent ? "event" : "paper",
+      year,
+      label: evidenceCode(evidence, index),
+      title,
+      evidence,
+      event: matchedEvent,
+      weight: timelineWeight(evidence, matchedEvent),
+      tone: timelineTone(evidence, matchedEvent),
+    };
   });
+  events.forEach((event, index) => {
+    if (usedEvents.has(event)) return;
+    const year = eventYear(event);
+    items.push({
+      key: `event:${firstText(event, ["id", "label", "title"], String(index))}`,
+      kind: "event",
+      year,
+      label: firstText(event, ["code", "short_id"], `E${index + 1}`),
+      title: firstText(event, ["event", "title", "label", "summary"], `Event ${index + 1}`),
+      event,
+      weight: timelineWeight(undefined, event),
+      tone: timelineTone(undefined, event),
+    });
+  });
+  return items;
 }
 
 function renderTimelineClusters(
   detail: TopicDetailDto,
-  events: Array<Record<string, unknown>>,
+  items: TimelineItem[],
   minYear: number,
   maxYear: number,
 ) {
-  const byYear = new Map<string, Array<Record<string, unknown>>>();
-  events.forEach((event, index) => {
-    const year = numericYear(event.year || event.date || event.publication_year);
-    const key = Number.isFinite(year) ? String(year) : `phase-${index + 1}`;
+  const byYear = new Map<string, TimelineItem[]>();
+  items.forEach((item, index) => {
+    const year = item.year;
+    const key = Number.isFinite(year) ? String(Math.floor(year)) : `phase-${index + 1}`;
     const list = byYear.get(key) || [];
-    list.push(event);
+    list.push(item);
     byYear.set(key, list);
   });
-  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(([key, clusterEvents], index, all) => {
+  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(([key, clusterItems], index, all) => {
     const year = Number(key);
-    const title = firstText(clusterEvents[0], ["phase", "phase_title", "label", "title"]);
+    const title = firstText(clusterItems[0].event || {}, ["phase", "phase_title", "label", "title"]);
     return {
       key,
       label: Number.isFinite(year)
-        ? `${year}${title ? ` · ${title}` : ""}`
+        ? ""
         : title || `Phase ${index + 1}`,
       left: timelineLeft(index, all.length, year, minYear, maxYear),
-      events: clusterEvents,
+      items: clusterItems,
     };
   });
   const fragment = document.createDocumentFragment();
-  clusters.forEach((cluster) => {
-    const phase = el("section", "timeline-phase");
-    phase.style.left = `${cluster.left}%`;
-    const title = el("div", "phase-title");
-    title.appendChild(el("strong", "", cluster.label));
-    phase.appendChild(title);
-    const markerList = el("div", "marker-list");
-    cluster.events.forEach((event, eventIndex) => {
-      const evidence = primaryEvidenceForEvent(detail, event);
-      const markerClasses = ["timeline-marker"];
-      if (cluster.events.length > 4) markerClasses.push("too-dense");
+  clusters.forEach((cluster, clusterIndex, allClusters) => {
+    const year = Number(cluster.key);
+    const sortedItems = [...cluster.items].sort((left, right) =>
+      timelineItemSortKey(left).localeCompare(timelineItemSortKey(right)),
+    );
+    sortedItems.forEach((item, itemIndex) => {
+      const coordinate = Number.isFinite(year)
+        ? year + (itemIndex + 0.5) / sortedItems.length
+        : NaN;
+      const left = Number.isFinite(coordinate)
+        ? timelineLeft(clusterIndex, allClusters.length, coordinate, minYear, maxYear)
+        : cluster.left;
+      const phase = el("section", "timeline-phase");
+      phase.style.left = `${left}%`;
+      const title = el("div", "phase-title");
+      if (cluster.label) {
+        title.appendChild(el("strong", "", cluster.label));
+      }
+      phase.appendChild(title);
+      const markerList = el("div", "marker-list");
+      const evidence = item.evidence;
+      const markerClasses = ["timeline-marker", `timeline-${item.kind}`, `timeline-tone-${item.tone}`];
+      if (sortedItems.length > 4) markerClasses.push("too-dense");
       if (evidence && evidenceId(evidence) === state.selectedEvidenceId) markerClasses.push("selected");
-      if (textValue(event.status).match(/stale|dirty|missing|incomplete/i)) markerClasses.push("warning");
       const marker = el("button", markerClasses.join(" "));
       marker.type = "button";
-      marker.style.left = `${(eventIndex - (cluster.events.length - 1) / 2) * 34}px`;
-      marker.title = firstText(event, ["event", "title", "label", "summary"], `Event ${eventIndex + 1}`);
+      marker.style.left = "0";
+      marker.style.setProperty("--pin-scale", String(item.weight));
+      marker.title = item.title;
       marker.setAttribute("aria-label", marker.title);
-      const code = el("span", "timeline-code", evidence ? evidenceCode(evidence, eventIndex) : `E${eventIndex + 1}`);
+      const code = el("span", "timeline-code", item.label);
       marker.appendChild(code);
       const pin = el("span", "timeline-pin");
       pin.appendChild(el("span", "timeline-pin-body"));
@@ -1307,37 +2058,79 @@ function renderTimelineClusters(
       marker.appendChild(el("span", "timeline-event-label", marker.title));
       if (evidence) {
         marker.addEventListener("click", () => {
-          state.selectedEvidenceId = evidenceId(evidence);
-          openDigestModal(evidence);
+          openEvidenceExplorer(evidenceId(evidence));
         });
       } else {
         marker.disabled = true;
       }
       markerList.appendChild(marker);
+      phase.appendChild(markerList);
+      fragment.appendChild(phase);
     });
-    phase.appendChild(markerList);
-    fragment.appendChild(phase);
   });
   return fragment;
 }
 
 function renderTopicTimeline(detail: TopicDetailDto) {
-  const events = recordArray(detail.timeline_events);
+  const items = timelineItems(detail);
+  items.sort((a, b) => {
+    const aFinite = Number.isFinite(a.year);
+    const bFinite = Number.isFinite(b.year);
+    if (aFinite && bFinite) return a.year - b.year;
+    if (aFinite) return -1;
+    if (bFinite) return 1;
+    return 0;
+  });
   const rail = el("section", "topic-timeline");
   const head = el("div", "timeline-head");
   head.appendChild(el("strong", "", "Timeline"));
+
+  // Legend
+  const legend = el("div", "timeline-legend");
+  
+  const legEvent = el("div", "legend-item");
+  const dotEvent = el("span", "legend-icon legend-icon-event");
+  legEvent.appendChild(dotEvent);
+  legEvent.appendChild(el("span", "legend-label", "Key Milestones"));
+  legend.appendChild(legEvent);
+  
+  const legPaper = el("div", "legend-item");
+  const dotPaper = el("span", "legend-icon legend-icon-paper");
+  legPaper.appendChild(dotPaper);
+  legPaper.appendChild(el("span", "legend-label", "Literature Papers"));
+  legend.appendChild(legPaper);
+  
+  head.appendChild(legend);
   rail.appendChild(head);
+
+  const summaryText = firstText(topicTimelineSummary(detail), ["text", "analysis", "overview"]);
+  if (summaryText) {
+    const summBlock = el("div", "timeline-summary");
+    summBlock.appendChild(renderParagraphs(summaryText));
+    rail.appendChild(summBlock);
+  }
+
   const scroll = el("div", "timeline-scroll");
   const timeline = el("div", "horizontal-timeline");
-  const years = events
-    .map((event) => numericYear(event.year || event.date || event.publication_year))
+  const trackInner = el("div", "timeline-inner-rail");
+
+  const years = items
+    .map((item) => item.year)
     .filter(Number.isFinite);
   const minYear = years.length ? Math.min(...years) : NaN;
-  const maxYear = years.length ? Math.max(...years) : NaN;
+  const maxYear = years.length ? Math.max(...years) + 1 : NaN;
   const axis = el("div", "time-axis");
-  timelineAxisLabels(minYear, maxYear).forEach((label) => axis.appendChild(el("span", "", label)));
-  timeline.appendChild(axis);
-  timeline.appendChild(renderTimelineClusters(detail, events, minYear, maxYear));
+  const ticks = timelineAxisTicks(minYear, maxYear);
+  ticks.forEach((tick) => {
+    const stepEl = el("span", "", tick.label);
+    stepEl.style.position = "absolute";
+    stepEl.style.left = `${tick.left}%`;
+    stepEl.style.transform = "translateX(-50%)";
+    axis.appendChild(stepEl);
+  });
+  trackInner.appendChild(axis);
+  trackInner.appendChild(renderTimelineClusters(detail, items, minYear, maxYear));
+  timeline.appendChild(trackInner);
   scroll.appendChild(timeline);
   rail.appendChild(scroll);
   return rail;
@@ -1349,7 +2142,7 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   actions.appendChild(badge(detail.language || "auto", "blue"));
   actions.appendChild(badge(`${numberValue(detail.paper_count)} papers`));
   actions.appendChild(badge(`${numberValue(detail.external_literature_count)} external refs`, "purple"));
-  actions.appendChild(makeButton("Back to Topics", "closeArtifactReader"));
+  actions.appendChild(makeButton("Back to Topics", "selectTab", { tab: "artifacts" }));
   actions.appendChild(
     makeButton("Update", "hostCommand", {
       command: "submitTopicSynthesisUpdate",
@@ -1382,34 +2175,6 @@ function renderTopicDetail(main: HTMLElement, snapshot: Snapshot) {
   renderTopicDetailShell(main, snapshot);
 }
 
-function renderExplorerSplitter(workbench: HTMLElement) {
-  const splitter = el("div", "splitter");
-  splitter.setAttribute("role", "separator");
-  splitter.setAttribute("aria-label", "Resize evidence explorer");
-  splitter.setAttribute("aria-orientation", "vertical");
-  splitter.tabIndex = 0;
-  splitter.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    const pointer = event as PointerEvent;
-    splitter.classList.add("dragging");
-    const startX = pointer.clientX;
-    const startWidth = state.explorerWidth;
-    const onMove = (move: PointerEvent) => {
-      const next = Math.max(300, Math.min(560, startWidth - (move.clientX - startX)));
-      state.explorerWidth = next;
-      workbench.style.setProperty("--topic-explorer-current-width", `${next}px`);
-    };
-    const onUp = () => {
-      splitter.classList.remove("dragging");
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  });
-  return splitter;
-}
-
 function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   const detail = state.topicDetail;
   const app = el("div", "topic-detail-shell detail-shell-in-workbench");
@@ -1420,14 +2185,12 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   }
   const body = el("section", "topic-detail");
   const workbench = el("div", "topic-detail-layout");
-  workbench.style.setProperty("--topic-explorer-current-width", `${state.explorerWidth}px`);
   workbench.appendChild(renderTopicTabs());
   const reader = el("main", "topic-reading-surface");
   reader.appendChild(renderTopicSection(detail));
   workbench.appendChild(reader);
-  workbench.appendChild(renderExplorerSplitter(workbench));
-  workbench.appendChild(renderEvidenceExplorer(detail));
   body.appendChild(workbench);
+  body.appendChild(renderEvidenceDrawer(detail));
   body.appendChild(renderTopicTimeline(detail));
   app.appendChild(body);
   root.appendChild(app);
@@ -1522,7 +2285,9 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   stage.appendChild(canvas);
   shell.appendChild(stage);
 
-  const detail = el("aside", "panel details");
+  const detail = el("aside", "panel details graph-control-drawer");
+  detail.tabIndex = 0;
+  detail.setAttribute("aria-label", "Graph controls");
   const header = el("div", "panel-header");
   header.appendChild(el("strong", "", "Graph Controls"));
   detail.appendChild(header);
@@ -1755,6 +2520,40 @@ function renderSelectedDetail(snapshot: Snapshot) {
   return wrap;
 }
 
+function matrixTableView(
+  headers: string[],
+  rows: Array<Record<string, unknown>>,
+  mapRow: (row: Record<string, unknown>) => Array<Node | unknown>,
+) {
+  if (!rows.length) {
+    return el("div", "empty", "No rows.");
+  }
+  const wrap = el("div", "matrix-table-wrap");
+  const table = el("table", "matrix-table");
+  const thead = el("thead");
+  const tr = el("tr");
+  headers.forEach((header) => tr.appendChild(el("th", "matrix-th", header)));
+  thead.appendChild(tr);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  rows.forEach((row) => {
+    const rowNode = el("tr");
+    mapRow(row).forEach((cell) => {
+      const td = el("td", "matrix-td");
+      if (cell instanceof Node) {
+        td.appendChild(cell);
+      } else {
+        td.textContent = String(cell ?? "");
+      }
+      rowNode.appendChild(td);
+    });
+    tbody.appendChild(rowNode);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
 function tableView(
   headers: string[],
   rows: Array<Record<string, unknown>>,
@@ -1823,6 +2622,31 @@ function render() {
   renderDigestModal(root as HTMLElement);
 }
 
+function buildDigestOutline(markdownNode: HTMLElement) {
+  const headings = Array.from(
+    markdownNode.querySelectorAll("h1, h2, h3, h4"),
+  ) as HTMLElement[];
+  if (!headings.length) {
+    return undefined;
+  }
+  const outline = el("nav", "digest-outline");
+  outline.setAttribute("aria-label", "Digest outline");
+  outline.appendChild(el("strong", "", "Outline"));
+  headings.forEach((heading, index) => {
+    const id = `digest-heading-${index + 1}`;
+    heading.id = id;
+    const level = Number(heading.tagName.replace(/\D/g, "")) || 2;
+    const link = el("a", `digest-outline-link depth-${Math.max(1, Math.min(4, level))}`, heading.textContent || `Section ${index + 1}`);
+    link.href = `#${id}`;
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      heading.scrollIntoView({ block: "start" });
+    });
+    outline.appendChild(link);
+  });
+  return outline;
+}
+
 function renderDigestModal(root: HTMLElement) {
   if (!state.digestModal) {
     return;
@@ -1850,8 +2674,9 @@ function renderDigestModal(root: HTMLElement) {
     dialog.appendChild(el("div", "empty", "Loading digest artifact..."));
   } else {
     const result = state.digestModal.result || {};
+    const content = el("div", "paper-digest-content");
     if (result.source_changed) {
-      dialog.appendChild(
+      content.appendChild(
         el(
           "div",
           "digest-warning",
@@ -1861,16 +2686,43 @@ function renderDigestModal(root: HTMLElement) {
     }
     const markdown = textValue(result.digest_markdown);
     if (markdown) {
-      dialog.appendChild(renderMarkdown(markdown));
+      const digestBody = el("div", "paper-digest-body");
+      const markdownNode = renderMarkdown(markdown);
+      const outline = markdownNode instanceof HTMLElement ? buildDigestOutline(markdownNode) : undefined;
+      if (outline) {
+        digestBody.appendChild(outline);
+      } else {
+        digestBody.classList.add("no-outline");
+      }
+      const scrollBody = el("div", "digest-scroll-body");
+      scrollBody.appendChild(markdownNode);
+      digestBody.appendChild(scrollBody);
+      content.appendChild(digestBody);
     } else {
-      dialog.appendChild(
+      content.appendChild(
         el("div", "empty", textValue(result.status) || "Digest is unavailable."),
       );
     }
+    dialog.appendChild(content);
   }
   overlay.appendChild(dialog);
   root.appendChild(overlay);
 }
+
+window.addEventListener("keydown", (event: KeyboardEvent) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+  if (state.digestModal) {
+    state.digestModal = undefined;
+    render();
+    return;
+  }
+  if (state.evidenceExplorerOpen) {
+    state.evidenceExplorerOpen = false;
+    render();
+  }
+});
 
 window.addEventListener("message", (event: MessageEvent) => {
   const data = event.data;
@@ -1885,6 +2737,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     state.artifactReader = data.payload || undefined;
     state.topicDetail = undefined;
     state.digestModal = undefined;
+    state.evidenceExplorerOpen = false;
     if (state.snapshot) {
       state.snapshot = {
         ...state.snapshot,
@@ -1901,6 +2754,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     state.topicDetail = data.payload || undefined;
     state.artifactReader = undefined;
     state.digestModal = undefined;
+    state.evidenceExplorerOpen = false;
     if (state.snapshot) {
       state.snapshot = {
         ...state.snapshot,

@@ -62,7 +62,34 @@ function canceledSkillOutputBundle() {
   };
 }
 
+async function collectWorkflowJsonFiles(rootDir: string): Promise<string[]> {
+  const entries = await fs.readdir(rootDir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await collectWorkflowJsonFiles(fullPath)));
+    } else if (entry.isFile() && entry.name === "workflow.json") {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
 describe("Synthesize topic workflow contract", function () {
+  it("does not ship built-in workflow manifests with execution.supportedBackends", async function () {
+    const workflowFiles = await collectWorkflowJsonFiles("workflows_builtin");
+    assert.isAtLeast(workflowFiles.length, 1);
+    for (const workflowFile of workflowFiles) {
+      const workflow = JSON.parse(await fs.readFile(workflowFile, "utf8"));
+      assert.notProperty(
+        workflow.execution || {},
+        "supportedBackends",
+        `${workflowFile} should use provider-derived backend compatibility`,
+      );
+    }
+  });
+
   it("declares separate builtin create and update topic synthesis ACP skills as backends", async function () {
     const createWorkflow = JSON.parse(
       await fs.readFile(
@@ -83,8 +110,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.equal(updateWorkflow.inputs?.unit, "workflow");
     assert.equal(createWorkflow.taskNameTemplate, "Create synthesis: {topic seed}");
     assert.equal(updateWorkflow.taskNameTemplate, "Update synthesis: {topicId}");
-    assert.deepEqual(createWorkflow.execution?.supportedBackends, ["acp"]);
-    assert.deepEqual(updateWorkflow.execution?.supportedBackends, ["acp"]);
+    assert.equal(createWorkflow.provider, "acp");
+    assert.equal(updateWorkflow.provider, "acp");
+    assert.notProperty(createWorkflow.execution || {}, "supportedBackends");
+    assert.notProperty(updateWorkflow.execution || {}, "supportedBackends");
     assert.sameMembers(createWorkflow.execution?.mcp?.requiredTools || [], [
       "synthesis.list_topics",
       "synthesis.get_library_index",
@@ -323,6 +352,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "cross-paper-context.md");
     assert.include(skillText, "external-literature-context.md");
     assert.include(skillText, "result/sections/*.json");
+    assert.include(skillText, "statistics");
+    assert.include(skillText, "synthesis_report");
+    assert.include(skillText, "研究路线分析");
+    assert.include(skillText, "历史沿革分析");
+    assert.include(skillText, "coverage_verdict");
     assert.include(skillText, "digest-markdown");
     assert.include(skillText, "references-json");
     assert.include(skillText, "citation-analysis-json");
@@ -360,12 +394,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
     assert.match(skillText, /不得内嵌 `markdown`/);
     assert.match(skillText, /synthesis\.resolve_resolver/);
-    assert.include(runner.entrypoint.prompts.common, "synthesis.list_topics");
-    assert.include(runner.entrypoint.prompts.common, "synthesis.get_citation_graph_metrics");
-    assert.include(runner.entrypoint.prompts.common, "persist_citation_graph_metrics");
-    assert.include(runner.entrypoint.prompts.common, "title/description/aliases");
+    assert.include(runner.entrypoint.prompts.common, "SKILL.md");
+    assert.include(runner.entrypoint.prompts.common, "next_action");
+    assert.include(runner.entrypoint.prompts.common, "instruction_refs");
+    assert.include(runner.entrypoint.prompts.common, "schema_refs");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
-    assert.include(runner.entrypoint.prompts.common, "references/create_workflow_playbook.md");
     assert.notInclude(runner.entrypoint.prompts.common, "topic-synthesis-runtime");
   });
 
@@ -374,12 +407,27 @@ describe("Synthesize topic workflow contract", function () {
       "scripts/gate_runtime.py",
       "scripts/stage_runtime.py",
       "scripts/runtime_db.py",
-      "references/paper_analysis_playbook.md",
-      "references/section_authoring_contract.md",
+      "references/step_00_runtime_gate.md",
+      "references/step_01_topic_context.md",
+      "references/step_02_resolver_workset.md",
+      "references/step_03_metrics_artifacts.md",
+      "references/step_04_paper_units.md",
+      "references/step_05_cross_paper_map.md",
+      "references/step_06_taxonomy_timeline.md",
+      "references/step_07_core_sections.md",
+      "references/step_08_external_statistics_report.md",
+      "references/step_09_render_validate.md",
+      "references/topic_synthesis_content_contract.md",
+      "references/section_examples.md",
+      "assets/schemas/topic_context_payload.schema.json",
+      "assets/schemas/resolver_manifest.schema.json",
+      "assets/schemas/citation_graph_metrics_receipt.schema.json",
+      "assets/schemas/filtered_artifact_manifest.schema.json",
+      "assets/schemas/route_timeline_synthesis.schema.json",
+      "assets/schemas/core_analytical_sections.schema.json",
       "assets/schemas/topic_analysis_manifest.schema.json",
       "assets/schemas/topic_section_patch_manifest.schema.json",
       "assets/schemas/topic_synthesis_artifact.schema.json",
-      "assets/templates/export_markdown.md.j2",
     ];
     const skillRoots = [
       "skills_builtin/create-topic-synthesis",
@@ -397,15 +445,6 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(runnerText, "\"required_tools\"");
       assert.notInclude(runnerText, "synthesis.read_paper_artifacts");
     }
-
-    await fs.readFile(
-      "skills_builtin/create-topic-synthesis/references/create_workflow_playbook.md",
-      "utf8",
-    );
-    await fs.readFile(
-      "skills_builtin/update-topic-synthesis/references/update_workflow_playbook.md",
-      "utf8",
-    );
   });
 
   it("documents minimum executable SKILL instructions, MCP dependency, script calls, and optional references", async function () {
@@ -413,48 +452,52 @@ describe("Synthesize topic workflow contract", function () {
     const updateSkill = await fs.readFile("skills_builtin/update-topic-synthesis/SKILL.md", "utf8");
 
     for (const skillText of [createSkill, updateSkill]) {
-      assert.include(skillText, "## 输入契约");
-      assert.include(skillText, "## 输出契约");
+      assert.include(skillText, "## 产品目标与质量标准");
+      assert.include(skillText, "## 核心执行指令");
+      assert.include(skillText, "## 输入输出硬契约");
       assert.include(skillText, "## MCP 服务依赖");
-      assert.include(skillText, "## 包内脚本调用");
       assert.include(skillText, "## 运行时硬合同");
+      assert.include(skillText, "## 状态机与 Gate 纪律");
       assert.include(skillText, "## 最小执行主路径");
       assert.include(skillText, "禁止");
-      assert.include(skillText, "MCP 服务提供");
+      assert.include(skillText, "信息密集型 topic 知识窗口");
+      assert.include(skillText, "Introduction");
+      assert.include(skillText, "Related Work");
+      assert.include(skillText, "不是字段填空");
+      assert.include(skillText, "支持综述写作");
+      assert.include(skillText, "研究路线分析");
+      assert.include(skillText, "历史递进逻辑");
+      assert.include(skillText, "synthesis-level finding");
+      assert.include(skillText, "库内覆盖不足");
+      assert.include(skillText, "外部文献用于背景、覆盖判断和入库建议");
       assert.include(skillText, "Host 会在正式执行前完成 MCP availability check 和 callable smoke");
       assert.include(skillText, "不要自行搜索");
       assert.include(skillText, "topic_synthesis_canceled");
       assert.match(skillText, /mcp_unavailable|required_mcp_tool_unavailable/);
       assert.include(skillText, "scripts/gate_runtime.py");
       assert.include(skillText, "scripts/stage_runtime.py");
-      assert.include(skillText, "scripts/runtime_db.py");
       assert.include(skillText, "python scripts/gate_runtime.py --db \"runtime/topic-synthesis.sqlite\"");
-      assert.include(skillText, "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --action gate");
       assert.include(skillText, "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --action cancel");
-      assert.include(skillText, "没有独立 CLI");
-      assert.include(skillText, "不要直接运行");
-      assert.include(skillText, "SQLite SSOT");
+      assert.include(skillText, "SQLite");
       assert.include(skillText, "runtime/topic-synthesis.sqlite");
       assert.include(skillText, "prompt memory");
-      assert.include(skillText, "stage_0_bootstrap");
-      assert.include(skillText, "stage_7_completed");
-      assert.include(skillText, "pending");
-      assert.include(skillText, "running");
-      assert.include(skillText, "completed");
-      assert.include(skillText, "failed_retryable");
-      assert.include(skillText, "failed_terminal");
-      assert.include(skillText, "canceled");
+      assert.include(skillText, "stage_0_runtime_setup");
+      assert.include(skillText, "stage_11_completed");
       assert.include(skillText, "artifact_registry");
-      assert.include(skillText, "partial/unregistered output");
       assert.include(skillText, "只执行 gate 返回的 `next_action`");
       assert.include(skillText, "synthesis.get_citation_graph_metrics");
       assert.include(skillText, "persist_citation_graph_metrics");
       assert.include(skillText, "graph_metrics_interpretation");
-      assert.include(skillText, "可选扩展");
-      assert.include(skillText, "不是执行硬约束");
+      assert.include(skillText, "Topic Synthesis 内容合同");
+      assert.include(skillText, "synthesis_report");
+      assert.include(skillText, "语义目标");
+      assert.include(skillText, "提供可组合证据");
+      assert.include(skillText, "候选证据网络");
+      assert.include(skillText, "连续知识报告");
+      assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
-      assert.include(skillText, "references/paper_analysis_playbook.md");
-      assert.include(skillText, "references/section_authoring_contract.md");
+      assert.include(skillText, "references/step_04_paper_units.md");
+      assert.include(skillText, "references/topic_synthesis_content_contract.md");
       assert.notInclude(skillText, "后台自动化纪律");
       assert.notInclude(skillText, "不得向用户提问");
       assert.notInclude(skillText, "host preflight 注入");
@@ -470,7 +513,6 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(createSkill, "persist_library_index_page");
     assert.include(createSkill, "has_more");
     assert.include(createSkill, "index_hash");
-    assert.include(createSkill, "references/create_workflow_playbook.md");
     assert.include(
       createSkill,
       "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation create --language \"zh-CN\" --action validate_final_artifacts",
@@ -483,7 +525,6 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(updateSkill, "synthesis.get_topic_context");
     assert.include(updateSkill, "synthesis.resolve_resolver");
     assert.include(updateSkill, "recommended_update");
-    assert.include(updateSkill, "references/update_workflow_playbook.md");
     assert.include(
       updateSkill,
       "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_full --language \"zh-CN\" --action validate_final_artifacts",
@@ -508,12 +549,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "read_section_hashes");
     assert.include(skillText, "result/topic-analysis.patch.json");
     assert.match(skillText, /不得内嵌 `markdown`/);
-    assert.include(runner.entrypoint.prompts.common, "synthesis.get_topic_context");
-    assert.include(runner.entrypoint.prompts.common, "synthesis.get_citation_graph_metrics");
-    assert.include(runner.entrypoint.prompts.common, "persist_citation_graph_metrics");
-    assert.include(runner.entrypoint.prompts.common, "recommended_update");
+    assert.include(runner.entrypoint.prompts.common, "SKILL.md");
+    assert.include(runner.entrypoint.prompts.common, "next_action");
+    assert.include(runner.entrypoint.prompts.common, "instruction_refs");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
-    assert.include(runner.entrypoint.prompts.common, "references/update_workflow_playbook.md");
     assert.notInclude(runner.entrypoint.prompts.common, "topic-synthesis-runtime");
   });
 
@@ -646,7 +685,6 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
-    markdown_path: "result/preview.md",
     ...overrides,
   };
 }
@@ -694,12 +732,11 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
-  it("accepts create and full-update bundles with section manifests and optional markdown preview paths", function () {
+  it("accepts create and full-update bundles with section manifests and no markdown preview dependency", function () {
     for (const operation of ["create", "update_full"] as const) {
       const result = validateSynthesisResultBundle(
         v2CompleteBundle({
           operation,
-          markdown_path: "result/preview.md",
         }),
       );
 
@@ -708,8 +745,24 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       assert.equal((result.bundle as any).analysis_manifest_path, "result/topic-analysis.json");
       assert.equal((result.bundle as any).resolver_manifest_path, "runtime/payloads/resolver.json");
       assert.equal((result.bundle as any).language, "zh-CN");
+      assert.notProperty(result.bundle, "markdown_path");
       assert.notProperty(result.bundle, "topic_resolver");
       assert.notProperty(result.bundle, "resolved_paper_set");
+    }
+  });
+
+  it("rejects create and full-update bundles that still depend on markdown_path", function () {
+    for (const operation of ["create", "update_full"] as const) {
+      assert.throws(
+        () =>
+          validateSynthesisResultBundle(
+            v2CompleteBundle({
+              operation,
+              markdown_path: "result/preview.md",
+            }),
+          ),
+        /markdown_path/i,
+      );
     }
   });
 

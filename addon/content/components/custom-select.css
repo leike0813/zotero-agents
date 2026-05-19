@@ -12,7 +12,7 @@
   align-items: center;
   padding: 4px 8px;
   background-color: transparent;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--zs-border-strong, var(--border-color, #ccc));
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
@@ -22,8 +22,8 @@
   font: inherit;
   font-size: 12px;
   line-height: 1.3;
-  color: var(--text, #333);
-  background: #fff;
+  color: var(--zs-text, var(--text, #333));
+  background: var(--zs-input-bg, #fff);
   /* The user-select property was duplicated, removing the second one */
   
   /* Prevent text wrapping and maintain single line */
@@ -32,14 +32,14 @@
 
 .custom-select-trigger:focus {
   outline: none;
-  border-color: #9db8ff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--zs-accent, #9db8ff);
+  box-shadow: 0 0 0 3px var(--zs-focus-ring, rgba(37, 99, 235, 0.12));
 }
 
 .custom-select-trigger::after {
   content: "▼";
   font-size: 9px;
-  color: var(--muted, #666);
+  color: var(--zs-muted, var(--muted, #666));
   margin-left: 8px;
   flex-shrink: 0;
 }
@@ -50,10 +50,10 @@
   left: 0;
   right: 0;
   margin-top: 4px;
-  background: #fff;
-  border: 1px solid var(--line-strong, #ccc);
+  background: var(--zs-panel-raised, #fff);
+  border: 1px solid var(--zs-border-strong, var(--line-strong, #ccc));
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--zs-shadow-soft, 0 4px 12px rgba(0, 0, 0, 0.15));
   z-index: 10000;
   max-height: 200px;
   overflow-y: auto;
@@ -66,13 +66,13 @@
 
 /* Optional generic flip direction if drawn upwards */
 .custom-select-menu.open-up {
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--zs-shadow-soft, 0 -4px 12px rgba(0, 0, 0, 0.15));
 }
 
 .custom-select-option {
   padding: 6px 8px;
   font-size: 12px;
-  color: var(--text, #333);
+  color: var(--zs-text, var(--text, #333));
   cursor: pointer;
   user-select: none;
   border-radius: 2px;
@@ -82,10 +82,10 @@
 }
 
 .custom-select-option:hover {
-  background: #f0f4ff;
+  background: var(--zs-surface-hover, #f0f4ff);
 }
 
 .custom-select-option.selected {
-  background: var(--accent, #0056b3);
+  background: var(--zs-accent, var(--accent, #0056b3));
   color: #fff;
 }

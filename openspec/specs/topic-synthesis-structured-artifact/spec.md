@@ -55,12 +55,11 @@ source of truth, while Markdown remains a compatibility export.
 - **AND** the structured topic artifact SHALL NOT duplicate the full
   `digest-markdown` body.
 
-#### Scenario: Markdown export is produced
+#### Scenario: Host Markdown export is produced
 
 - **WHEN** a completed topic synthesis run returns its final bundle
-- **THEN** create and full-update bundles MAY reference a Markdown export through
-  `markdown_path`
-- **AND** update-patch bundles SHALL NOT depend on `markdown_path`
+- **THEN** the run-workspace final bundle and section manifest SHALL NOT depend
+  on `markdown_path`, `preview.md`, or `export.md`
 - **AND** the host SHALL render canonical `current/export.md` from the
   materialized structured artifact
 - **AND** Markdown SHALL NOT be treated as the structured display source of
@@ -117,4 +116,3 @@ promoted into main timeline evidence nodes.
 - **THEN** external literature analysis SHALL record limitations or confidence
   constraints
 - **AND** it SHALL NOT fabricate missing bibliographic details.
-

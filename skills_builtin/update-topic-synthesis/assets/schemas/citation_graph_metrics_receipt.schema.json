@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.citation_graph_metrics_receipt",
+  "type": "object",
+  "properties": {
+    "paper_refs": { "type": "array", "items": { "type": "string" } },
+    "result": { "type": "object" },
+    "rows": { "type": "array", "items": { "type": "object" } },
+    "metrics": { "type": "array", "items": { "type": "object" } },
+    "diagnostics": { "type": "array" }
+  },
+  "additionalProperties": true
+}

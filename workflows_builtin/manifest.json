@@ -35,6 +35,8 @@
     "literature-workbench-package/literature-digest/hooks/filterInputs.mjs",
     "literature-workbench-package/literature-digest/workflow.json",
     "literature-workbench-package/literature-digest/README.md",
+    "literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs",
+    "literature-workbench-package/literature-search-ingest/workflow.json",
     "mineru/hooks/applyResult.js",
     "mineru/hooks/filterInputs.js",
     "mineru/workflow.json",

@@ -255,7 +255,7 @@ describe("zotero host broker capability api", function () {
     const addToCollection = await hostApi.mutations.execute({
       operation: "collection.addItems",
       items: [item.id],
-      collection: collection.id,
+      collection: `${Zotero.Libraries.userLibraryID}:${collection.key}`,
     });
     assert.isTrue(addToCollection.ok);
     assert.include(item.getCollections(), collection.id);

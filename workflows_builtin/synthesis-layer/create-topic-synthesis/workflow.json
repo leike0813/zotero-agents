@@ -31,7 +31,6 @@
   },
   "execution": {
     "mode": "auto",
-    "supportedBackends": ["acp"],
     "mcp": {
       "requiredTools": [
         "synthesis.list_topics",

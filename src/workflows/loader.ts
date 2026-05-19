@@ -885,11 +885,11 @@ export async function loadWorkflowManifests(
               level: "warning",
               category: "manifest_validation_error",
               message:
-                `Skip workflow ${candidate.manifest.id}: missing provider declaration and unable to infer from request kind`,
+                `Skip workflow ${candidate.manifest.id}: missing provider declaration`,
               entry: candidate.entry,
               workflowId: candidate.manifest.id,
               path: candidate.manifestPath,
-              reason: "provider missing and cannot infer",
+              reason: "provider missing",
             }),
           );
           continue;

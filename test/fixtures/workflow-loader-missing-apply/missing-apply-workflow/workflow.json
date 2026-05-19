@@ -1,6 +1,7 @@
 {
   "id": "missing-apply-workflow",
   "label": "Missing Apply Workflow",
+  "provider": "skillrunner",
   "request": { "kind": "skillrunner.job.v1" },
   "execution": { "skillrunner_mode": "auto" },
   "hooks": { "applyResult": "hooks/applyResult.js" }

@@ -748,9 +748,18 @@ function addListener(
   listener?: (event: ZoteroMcpDiagnosticEvent) => void | Promise<void>,
 ) {
   if (!listener) {
-    return;
+    return () => undefined;
   }
   state.listeners.add(listener);
+  return () => {
+    state.listeners.delete(listener);
+  };
+}
+
+export function subscribeZoteroMcpDiagnostics(
+  listener: (event: ZoteroMcpDiagnosticEvent) => void | Promise<void>,
+) {
+  return addListener(listener);
 }
 
 function generateToken() {

@@ -3,7 +3,7 @@
   "$id": "workflow.schema.json",
   "title": "WorkflowManifest",
   "type": "object",
-  "required": ["id", "label", "hooks"],
+  "required": ["id", "label", "provider", "hooks"],
   "properties": {
     "id": {
       "$ref": "#/$defs/nonEmptyString"
@@ -121,6 +121,9 @@
         "allowCustom": {
           "type": "boolean"
         },
+        "optionsSource": {
+          "$ref": "#/$defs/parameterOptionsSource"
+        },
         "min": {
           "type": "number"
         },
@@ -154,6 +157,40 @@
           }
         }
       ],
+      "additionalProperties": true
+    },
+    "parameterOptionsSource": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "library": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["current", "user"]
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "includeEmpty": {
+          "type": "boolean"
+        },
+        "valueFormat": {
+          "type": "string"
+        },
+        "labelFormat": {
+          "type": "string"
+        },
+        "allowStale": {
+          "type": "boolean"
+        }
+      },
       "additionalProperties": true
     },
     "hooksSpec": {
@@ -225,13 +262,6 @@
           "mode": {
             "type": "string",
             "enum": ["auto", "sync", "async"]
-          },
-          "supportedBackends": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/nonEmptyString"
-            },
-            "uniqueItems": true
           },
           "mcp": {
             "type": "object",

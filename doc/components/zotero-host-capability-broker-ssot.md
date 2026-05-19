@@ -106,7 +106,7 @@ These guardrails are a reliability layer around the broker; they do not change t
 
 Read/context capabilities include current view, selected items, item search, item detail, notes, attachments, tags, and collection membership. MCP read tools should be backed by `hostApi.context` and `hostApi.library`, not by raw Zotero APIs.
 
-Mutation capabilities include note creation, tag changes, collection membership changes, and item field updates. They may reuse `handlers` internally, but MCP exposure must go through `hostApi.mutations.preview()` and `hostApi.mutations.execute()` with an explicit permission gate before execute. Deletion, attachment writes, and other higher-risk writes require a separate change before MCP exposure.
+Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and the `paper.ingest` batch import path used by interactive literature search workflows. They may reuse `handlers` internally, but MCP exposure must go through `hostApi.mutations.preview()` and `hostApi.mutations.execute()` with an explicit permission gate before execute. Deletion and other higher-risk writes require a separate change before MCP exposure. `paper.ingest` may create PDF attachments from explicit public `pdfUrl` values on a best-effort basis; attachment failure must not roll back a successfully created or reused bibliographic item.
 
 Host services include file operations, preferences, editor sessions, notifications, and logging. These belong to `hostApi`; MCP should expose them only when a user-facing tool contract requires them.
 
@@ -200,8 +200,11 @@ The first formal write tools are:
 4. `remove_item_tags`
 5. `create_child_note`
 6. `update_note`
-7. `add_items_to_collection`
-8. `remove_items_from_collection`
+7. `create_markdown_note`
+8. `update_markdown_note`
+9. `ingest_papers`
+10. `add_items_to_collection`
+11. `remove_items_from_collection`
 
 Each write tool must use broker preview semantics and ACP permission confirmation before execute. If the permission hook is unavailable or the user denies the request, the MCP tool must return a structured non-executed result.
 

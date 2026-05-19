@@ -38,6 +38,11 @@
     return truncateText(text, maxLength || 4000);
   }
 
+  function isAssistantPlanWorking(panel) {
+    const interaction = panel && panel.interaction ? panel.interaction : {};
+    return safeText(interaction.kind || "hidden") === "running";
+  }
+
   function buildPermissionRequestDto(permission, interaction) {
     const source = permission && typeof permission === "object" ? permission : {};
     const actionList = interaction && Array.isArray(interaction.actions) ? interaction.actions : [];
@@ -265,6 +270,9 @@
   function renderSelectControl(container, selector, options) {
     const label = el("label", "assistant-panel-selector");
     label.setAttribute("data-assistant-selector-id", safeText(selector.id));
+    if (selector.disabled === true) {
+      label.setAttribute("data-assistant-disabled", "true");
+    }
     label.appendChild(el("span", "assistant-panel-selector-label", selector.label || selector.id));
     const select = el("select", "assistant-panel-select");
     select.disabled = selector.disabled === true;
@@ -286,6 +294,7 @@
         return optionValue(entry) === select.value;
       });
       const payload = {
+        ...(selector.payload && typeof selector.payload === "object" ? selector.payload : {}),
         selectorId: selector.id,
         value: select.value,
         option: selected || null,
@@ -494,7 +503,9 @@
     const entries = Array.isArray(plan.entries) ? plan.entries : [];
     const active = Array.isArray(plan.activeEntries) ? plan.activeEntries : [];
     const visible = active.length > 0 || (plan.active === true && entries.length > 0);
+    const planWorking = isAssistantPlanWorking(panel);
     container.setAttribute("data-assistant-plan-active", visible ? "true" : "false");
+    container.setAttribute("data-assistant-plan-working", planWorking ? "true" : "false");
     if (options && options.adoptOnly) return;
     container.classList.toggle("hidden", !visible);
     if (!visible) return;
@@ -526,7 +537,7 @@
       const row = el("div", "assistant-panel-plan-entry " + toneClass);
       const icon = el("span", "assistant-panel-plan-icon " + toneClass);
       const iconText = safeText(entry.icon);
-      if (toneClass === "is-running") {
+      if (toneClass === "is-running" && planWorking) {
         icon.appendChild(el("span", "asst-spinner assistant-panel-plan-spinner"));
       } else {
         icon.textContent = iconText || (toneClass === "is-completed" ? "✓" : "•");
@@ -688,12 +699,18 @@
     container.setAttribute("data-assistant-reply-enabled", panel.reply.enabled ? "true" : "false");
     container.setAttribute("data-assistant-reply-state", safeText(panel.lifecycle.replyState));
     if (options && options.adoptOnly) return;
+    const nextStructure = stablePanelSignature(replyStructuralSignature(panel));
+    if (target.getAttribute("data-assistant-reply-structure-signature") === nextStructure) {
+      updateAssistantReplyLiveFields(target, panel);
+      return;
+    }
     const previous = target.querySelector(".assistant-panel-reply-input");
     const previousText = previous ? previous.value : "";
     const previousSelectionStart = previous ? previous.selectionStart : null;
     const previousSelectionEnd = previous ? previous.selectionEnd : null;
     const previousFocused = previous && document.activeElement === previous;
     clear(target);
+    target.setAttribute("data-assistant-reply-structure-signature", nextStructure);
     const input = el("textarea", "assistant-panel-reply-input");
     input.placeholder = panel.reply.placeholder || "";
     input.disabled = panel.reply.inputEnabled === false || !panel.reply.enabled;
@@ -750,6 +767,57 @@
         typeof input.setSelectionRange === "function"
       ) {
         input.setSelectionRange(previousSelectionStart, previousSelectionEnd);
+      }
+    }
+  }
+
+  function replyStructuralSignature(panel) {
+    const reply = panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
+    return {
+      kind: safeText(panel && panel.kind),
+      contextId: safeText(panel && panel.context && panel.context.id),
+      replyState: safeText(panel && panel.lifecycle && panel.lifecycle.replyState),
+      enabled: reply.enabled === true,
+      inputEnabled: reply.inputEnabled !== false,
+      action: safeText(reply.action || "reply"),
+      tone: safeText(reply.tone || "primary"),
+      clearOnSend: reply.clearOnSend !== false,
+      showUsageGauge: reply.showUsageGauge === true,
+      controls: Array.isArray(reply.controls) ? reply.controls : [],
+    };
+  }
+
+  function updateAssistantReplyLiveFields(target, panel) {
+    if (!target) return;
+    const reply = panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
+    const input = target.querySelector(".assistant-panel-reply-input");
+    if (input) {
+      input.placeholder = reply.placeholder || "";
+      input.disabled = reply.inputEnabled === false || reply.enabled !== true;
+      if (
+        document.activeElement !== input &&
+        Object.prototype.hasOwnProperty.call(reply, "value")
+      ) {
+        input.value = String(reply.value == null ? "" : reply.value);
+      }
+    }
+    const replyAction = safeText(reply.action || "reply");
+    const interruptAction =
+      replyAction === "cancel" ||
+      replyAction === "cancel-run" ||
+      replyAction === "interrupt-run-turn";
+    const button = target.querySelector(".assistant-panel-reply-submit");
+    if (button) {
+      button.textContent = reply.submitLabel || labelOf(panel, "actions.send", "Send");
+      button.setAttribute("data-assistant-button-tone", safeText(reply.tone) || "primary");
+      button.disabled = reply.enabled !== true || (reply.sending === true && !interruptAction);
+    }
+    const secondary = target.querySelector(".assistant-panel-reply-secondary");
+    if (secondary) {
+      clear(secondary);
+      secondary.appendChild(el("span", "assistant-panel-reply-hint", reply.hint || ""));
+      if (reply.showUsageGauge === true) {
+        renderUsageGauge(secondary, panel.usage, panel);
       }
     }
   }
@@ -832,6 +900,7 @@
         (relationState === "related" ? " is-related" : ""),
       "",
     );
+    if (taskKey) row.setAttribute("data-assistant-task-key", taskKey);
     const button = el("button", "assistant-workspace-drawer-task-main", "");
     button.type = "button";
     button.disabled = !selectable;
@@ -854,7 +923,7 @@
     const meta = el("div", "assistant-workspace-drawer-task-meta skillrunner-workspace-task-meta");
     meta.appendChild(el("span", "", safeText(item.stateLabel || item.status || item.state) || "-"));
     const updatedAt = safeText(item.updatedAt);
-    if (updatedAt) meta.appendChild(el("span", "", updatedAt));
+    if (updatedAt) meta.appendChild(el("span", "assistant-workspace-drawer-task-updated-at", updatedAt));
     const content = el("div", "assistant-workspace-drawer-task-content");
     if (safeText(item.attention) === "warning") {
       const led = el("span", "assistant-workspace-drawer-task-attention asst-led is-warning", "");
@@ -883,6 +952,77 @@
       row.appendChild(actionBox);
     }
     return row;
+  }
+
+  function workspaceTaskSignature(task) {
+    const item = task && typeof task === "object" ? task : {};
+    return [
+      safeText(item.key || item.taskKey || item.id),
+      safeText(item.title || item.taskName || item.inputUnitLabel),
+      safeText(item.workflowLabel),
+      safeText(item.stateLabel || item.status || item.state),
+      safeText(item.attention),
+      safeText(item.relationState),
+      item.selectable === true ? "selectable" : "static",
+      item.terminal === true ? "terminal" : "active",
+      (Array.isArray(item.itemActions) ? item.itemActions : [])
+        .map(function (action) {
+          return [
+            safeText(action && action.action),
+            safeText(action && action.label),
+            action && action.enabled === false ? "disabled" : "enabled",
+          ].join(":");
+        })
+        .join(","),
+    ].join("|");
+  }
+
+  function workspaceDrawerStableSignature(sections) {
+    return (Array.isArray(sections) ? sections : [])
+      .map(function (section) {
+        const groups = Array.isArray(section && section.groups) ? section.groups : [];
+        return [
+          safeText(section && section.id),
+          safeText(section && section.title),
+          section && section.collapsed === true ? "collapsed" : "expanded",
+          groups
+            .map(function (group) {
+              const active = Array.isArray(group && group.activeTasks) ? group.activeTasks : [];
+              const finished = Array.isArray(group && group.finishedTasks) ? group.finishedTasks : [];
+              return [
+                safeText(group && (group.backendId || group.backendDisplayName || group.title)),
+                group && group.disabled === true ? "disabled" : "enabled",
+                active.map(workspaceTaskSignature).join(";"),
+                finished.map(workspaceTaskSignature).join(";"),
+              ].join("~");
+            })
+            .join("||"),
+        ].join("::");
+      })
+      .join("###");
+  }
+
+  function updateWorkspaceDrawerLiveFields(target, sections) {
+    const tasks = [];
+    (Array.isArray(sections) ? sections : []).forEach(function (section) {
+      (Array.isArray(section && section.groups) ? section.groups : []).forEach(function (group) {
+        tasks.push.apply(tasks, Array.isArray(group && group.activeTasks) ? group.activeTasks : []);
+        tasks.push.apply(tasks, Array.isArray(group && group.finishedTasks) ? group.finishedTasks : []);
+      });
+    });
+    tasks.forEach(function (task) {
+      const item = task && typeof task === "object" ? task : {};
+      const taskKey = safeText(item.key || item.taskKey || item.id);
+      if (!taskKey) return;
+      const rows = Array.prototype.slice.call(
+        target.querySelectorAll("[data-assistant-task-key]"),
+      );
+      const row = rows.find(function (entry) {
+        return safeText(entry && entry.getAttribute("data-assistant-task-key")) === taskKey;
+      });
+      const updated = row && row.querySelector(".assistant-workspace-drawer-task-updated-at");
+      if (updated) updated.textContent = safeText(item.updatedAt);
+    });
   }
 
   function renderAssistantWorkspaceGroup(parent, group, selectedTaskKey, labels, options) {
@@ -931,9 +1071,24 @@
   }
 
   function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
-    clear(target);
     const drawers = panel.drawers || {};
     const labels = drawers.labels && typeof drawers.labels === "object" ? drawers.labels : {};
+    const sections = Array.isArray(drawers.sections)
+      ? drawers.sections
+      : Array.isArray(drawers.skillrunnerSections)
+        ? drawers.skillrunnerSections
+        : [];
+    const nextSignature = workspaceDrawerStableSignature(sections);
+    if (
+      target.getAttribute("data-assistant-workspace-drawer") === "true" &&
+      target.getAttribute("data-assistant-workspace-drawer-signature") === nextSignature
+    ) {
+      updateWorkspaceDrawerLiveFields(target, sections);
+      return;
+    }
+    clear(target);
+    target.setAttribute("data-assistant-workspace-drawer", "true");
+    target.setAttribute("data-assistant-workspace-drawer-signature", nextSignature);
     const header = el(
       "div",
       "assistant-panel-context-drawer-header assistant-workspace-drawer-header skillrunner-workspace-drawer-header",
@@ -967,11 +1122,6 @@
       );
     }
 
-    const sections = Array.isArray(drawers.sections)
-      ? drawers.sections
-      : Array.isArray(drawers.skillrunnerSections)
-        ? drawers.skillrunnerSections
-        : [];
     const selectedTaskKey = safeText(drawers.selectedTaskKey);
     const body = el("div", "assistant-workspace-drawer-sections skillrunner-workspace-sections");
     let availableTaskCount = 0;
@@ -1238,22 +1388,78 @@
     }
   }
 
+  function stablePanelSignature(value) {
+    try {
+      return JSON.stringify(value || null);
+    } catch {
+      return safeText(value);
+    }
+  }
+
+  function renderManagedRegionIfChanged(region, name, signature, render) {
+    if (!region) {
+      render();
+      return;
+    }
+    const attr = "data-assistant-" + name + "-signature";
+    const next = stablePanelSignature(signature);
+    if (region.getAttribute(attr) === next) {
+      return;
+    }
+    region.setAttribute(attr, next);
+    render();
+  }
+
   function renderAssistantPanelSnapshot(snapshot, options) {
     const panel = normalize(snapshot);
     const opts = options || {};
     adoptPanelRegions(panel, opts);
     const managedSnapshot = Object.assign({}, panel, { onAction: opts.onAction });
     if (shouldManageRegion(opts, "toolbar")) {
-      renderToolbar(opts.regions && opts.regions.toolbar, managedSnapshot, opts);
+      renderManagedRegionIfChanged(
+        opts.regions && opts.regions.toolbar,
+        "toolbar",
+        panel.actions && panel.actions.toolbar,
+        function () {
+          renderToolbar(opts.regions && opts.regions.toolbar, managedSnapshot, opts);
+        },
+      );
     }
     if (shouldManageRegion(opts, "banner")) {
-      renderAssistantBanner(opts.regions && opts.regions.banner, managedSnapshot, opts);
+      renderManagedRegionIfChanged(
+        opts.regions && opts.regions.banner,
+        "banner",
+        {
+          context: panel.context,
+          lifecycle: panel.lifecycle,
+        },
+        function () {
+          renderAssistantBanner(opts.regions && opts.regions.banner, managedSnapshot, opts);
+        },
+      );
     }
     if (shouldManageRegion(opts, "plan")) {
-      renderAssistantPlan(opts.regions && opts.regions.plan, managedSnapshot, opts);
+      renderManagedRegionIfChanged(
+        opts.regions && opts.regions.plan,
+        "plan",
+        {
+          plan: panel.plan,
+          interactionKind: panel.interaction && panel.interaction.kind,
+        },
+        function () {
+          renderAssistantPlan(opts.regions && opts.regions.plan, managedSnapshot, opts);
+        },
+      );
     }
     if (shouldManageRegion(opts, "hint")) {
-      renderAssistantHint(opts.regions && opts.regions.hint, managedSnapshot, opts);
+      renderManagedRegionIfChanged(
+        opts.regions && opts.regions.hint,
+        "hint",
+        panel.interaction,
+        function () {
+          renderAssistantHint(opts.regions && opts.regions.hint, managedSnapshot, opts);
+        },
+      );
     }
     if (shouldManageRegion(opts, "reply")) {
       renderAssistantReply(opts.regions && opts.regions.reply, managedSnapshot, opts);
@@ -1284,6 +1490,7 @@
     renderContextSelectors,
     renderContextActions,
     renderAssistantBanner,
+    isAssistantPlanWorking,
     renderAssistantPlan,
     renderAssistantHint,
     renderAssistantReply,

@@ -2434,7 +2434,14 @@ function sectionNameFromPath(pathValue: string) {
 
 function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
   return {
-    topic: bundle.topic_definition || {},
+    topic: {
+      ...(isObject(bundle.topic_definition) ? bundle.topic_definition : {}),
+      discipline: cleanString((bundle.topic_definition as any)?.discipline) || "unknown",
+      research_field: cleanString((bundle.topic_definition as any)?.research_field) || "unknown",
+      scope_boundary: isObject((bundle.topic_definition as any)?.scope_boundary)
+        ? (bundle.topic_definition as any).scope_boundary
+        : { status: "unknown; legacy bundle lacks explicit scope boundary" },
+    },
     summary: {
       brief: cleanString(bundle.artifact_metadata.summary) || cleanString(bundle.artifact_metadata.description),
     },
@@ -2445,24 +2452,56 @@ function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
       review_position: "",
     },
     taxonomy: {
-      primary_axis: "",
-      axis_rationale: "",
-      nodes: [],
+      primary_axis: "legacy_bundle_route",
+      axis_rationale: "Legacy bundle fallback cannot reconstruct full research routes; recreate the topic for a complete route analysis.",
+      summary: {
+        text: "Legacy fallback cannot reconstruct an integrated route landscape. Recreate or update the topic synthesis to obtain taxonomy.summary and substantive route nodes.",
+        report_chapter_hint: "legacy degraded summary only",
+      },
+      nodes: [
+        {
+          id: "route:legacy-fallback",
+          label: "Legacy fallback route",
+          definition: "Degraded route placeholder materialized from a legacy bundle without section artifacts.",
+          core_problem: "Original section-level route analysis is unavailable.",
+          mechanism: "Unknown; rerun create/update topic synthesis for substantive route analysis.",
+          representative_papers: ["legacy:unknown"],
+          strengths: ["Preserves degraded topic materialization"],
+          limitations: ["Not a substantive research-route analysis"],
+          maturity: "unknown",
+        },
+      ],
     },
     comparison_matrix: {
       dimensions: [],
       rows: [],
     },
     claims: [],
-    timeline_events: Array.isArray(bundle.timeline) ? bundle.timeline : [],
+    timeline_events: {
+      summary: {
+        text: "Legacy fallback cannot reconstruct historical progression. Recreate or update the topic synthesis to obtain timeline_events.summary and event-level analysis.",
+        phases: [],
+        milestone_event_refs: [],
+        report_chapter_hint: "legacy degraded summary only",
+      },
+      events: Array.isArray(bundle.timeline) ? bundle.timeline : [],
+    },
     paper_evidence: [],
     external_literature_analysis: {
       summary: "",
-      themes: [],
+      themes: [
+        {
+          id: "theme:legacy-unknown",
+          title: "Legacy fallback external literature status",
+          analysis: "External literature analysis is unavailable in the legacy bundle.",
+        },
+      ],
       representative_references: [],
       citation_contexts: [],
       contribution_to_topic: "",
       limitations: "",
+      coverage_verdict: "unknown",
+      suggested_additions: [],
     },
     debates: [],
     coverage: {
@@ -2477,6 +2516,23 @@ function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
       related_work_logic: [],
       body_sections: [],
     },
+    statistics: {
+      paper_count: Array.isArray((bundle.resolved_paper_set as any)?.papers)
+        ? (bundle.resolved_paper_set as any).papers.length
+        : 0,
+      time_span: { start_year: "unknown", end_year: "unknown" },
+      route_coverage: "unknown; legacy bundle lacks section artifacts",
+      coverage_verdict: "unknown",
+    },
+    synthesis_report: {
+      title: cleanString((bundle.topic_definition as any)?.title) || "Legacy Topic Synthesis",
+      source_section_chapters: {
+        research_routes: "taxonomy.summary",
+        historical_progression: "timeline_events.summary",
+      },
+      body:
+        "This topic was materialized from a legacy topic_synthesis bundle that did not provide the complete section-level content contract. The stored report is therefore a degraded compatibility summary rather than a substantive synthesis report. Recreate or update this topic synthesis to obtain research-route analysis, timeline progression, argued claims, external literature coverage, statistics, and a continuous report suitable for Zotero reading and downstream literature review writing.",
+    },
     evidence_map: {
       path: "",
       hash: "",
@@ -2484,7 +2540,7 @@ function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
       candidate_ids: [],
     },
     source_artifacts: [],
-    diagnostics: { warnings: [] },
+    diagnostics: { warnings: [], legacy_fallback: true },
   };
 }
 
@@ -3444,13 +3500,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         ? artifact.comparison_matrix
         : {},
       claims: Array.isArray(artifact.claims) ? artifact.claims : [],
-      timeline_events: Array.isArray(artifact.timeline_events)
+      timeline_events: isObject(artifact.timeline_events)
         ? artifact.timeline_events
-        : [],
+        : Array.isArray(artifact.timeline_events)
+          ? { summary: {}, events: artifact.timeline_events }
+          : { summary: {}, events: [] },
       paper_evidence: paperEvidence,
       external_literature_analysis: externalAnalysis,
       debates: Array.isArray(artifact.debates) ? artifact.debates : [],
       coverage: isObject(artifact.coverage) ? artifact.coverage : {},
+      statistics: isObject(artifact.statistics) ? artifact.statistics : {},
+      synthesis_report: isObject(artifact.synthesis_report)
+        ? artifact.synthesis_report
+        : {},
       gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
       review_outline: isObject(artifact.review_outline)
         ? artifact.review_outline

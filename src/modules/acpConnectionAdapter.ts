@@ -27,10 +27,16 @@ import {
   ensureZoteroMcpServer,
   markZoteroMcpServerDescriptorInjected,
   redactZoteroMcpServerDescriptor,
+  subscribeZoteroMcpDiagnostics,
   type ZoteroMcpDiagnosticEvent,
   type ZoteroMcpServerDescriptor,
 } from "./zoteroMcpServer";
 import type { ZoteroMcpToolPermissionRequest } from "./zoteroMcpProtocol";
+import {
+  createAcpMcpGatewayConnection,
+  type AcpMcpGatewayConnection,
+  type AcpMcpSmokeSpanHandle,
+} from "./acpMcpGateway";
 
 export type AcpConnectionUpdate = SessionNotification;
 export type AcpConnectionUpdateListener = (
@@ -102,6 +108,14 @@ export type AcpConnectionAdapter = {
   setMode: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel: (args: { sessionId: string; modelId: string }) => Promise<void>;
   authenticate: (args: { methodId: string }) => Promise<void>;
+  wrapMcpServersForSession?: (descriptors: unknown[]) => Promise<unknown[]>;
+  startMcpSmokeSpan?: (args: {
+    sessionId: string;
+    requiredTools: string[];
+    timeoutMs: number;
+  }) => Promise<AcpMcpSmokeSpanHandle>;
+  getMcpGatewayConnectionId?: () => string;
+  getMcpGatewayTransportKinds?: () => string[];
   close: () => Promise<void>;
 };
 
@@ -222,6 +236,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private canUseSseMcp = false;
   private currentSessionId = "";
   private closing = false;
+  private readonly mcpGateway: AcpMcpGatewayConnection;
+  private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
     this.emitDiagnostic({
       kind: event.kind,
@@ -232,7 +248,24 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
   };
 
-  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {}
+  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {
+    this.mcpGateway = createAcpMcpGatewayConnection({
+      runtimeDir: this.args.runtimeDir,
+      backendId: this.args.backend.id,
+      backendType: this.args.backend.type,
+      providerId: "acp",
+      emitDiagnostic: (entry) => {
+        this.emitDiagnostic({
+          kind: entry.kind,
+          level: entry.level || "info",
+          message: entry.message,
+          detail: entry.detail,
+          stage: entry.stage,
+          raw: entry.raw,
+        });
+      },
+    });
+  }
 
   private emitDiagnostic(entry: {
     kind: string;
@@ -326,12 +359,18 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       return [];
     }
     try {
+      this.unsubscribeZoteroMcpDiagnostics();
+      this.unsubscribeZoteroMcpDiagnostics = subscribeZoteroMcpDiagnostics(
+        this.zoteroMcpDiagnosticListener,
+      );
       const descriptor = await ensureZoteroMcpServer({
-        onDiagnostic: this.zoteroMcpDiagnosticListener,
         requestToolPermission: (request) =>
           this.requestZoteroMcpToolPermission(request),
       });
       markZoteroMcpServerDescriptorInjected();
+      const wrappedDescriptors = await this.wrapMcpServersForSession([
+        descriptor,
+      ]);
       this.emitDiagnostic({
         kind: "mcp_server_injected",
         message: "Injected embedded Zotero MCP server",
@@ -340,7 +379,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         ),
         stage,
       });
-      return [descriptor];
+      return wrappedDescriptors;
     } catch (error) {
       const detail = compactError(error);
       this.emitDiagnostic({
@@ -678,6 +717,26 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     };
   }
 
+  async wrapMcpServersForSession(descriptors: unknown[]) {
+    return await this.mcpGateway.wrapMcpServersForSession(descriptors);
+  }
+
+  async startMcpSmokeSpan(args: {
+    sessionId: string;
+    requiredTools: string[];
+    timeoutMs: number;
+  }) {
+    return await this.mcpGateway.startMcpSmokeSpan(args);
+  }
+
+  getMcpGatewayConnectionId() {
+    return this.mcpGateway.connectionId;
+  }
+
+  getMcpGatewayTransportKinds() {
+    return this.mcpGateway.getTransportKinds();
+  }
+
   async newSession() {
     if (!this.connection) {
       await this.initialize();
@@ -905,6 +964,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   async close() {
     this.closing = true;
     try {
+      this.unsubscribeZoteroMcpDiagnostics();
+      this.unsubscribeZoteroMcpDiagnostics = () => undefined;
+      await this.mcpGateway.close();
       await this.transport?.close();
     } finally {
       this.transport = null;

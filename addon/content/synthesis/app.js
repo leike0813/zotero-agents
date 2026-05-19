@@ -64,7 +64,63 @@
     return button;
   }
 
-  function renderShell(root, snapshot) {
+  function captureActiveWorkbenchState(root) {
+    const result = {
+      activeControlKey: "",
+      activeValue: "",
+      selectionStart: null,
+      selectionEnd: null,
+      scrollPositions: {},
+    };
+    if (!root) return result;
+    const active = document.activeElement;
+    if (active && root.contains(active)) {
+      const key = active.getAttribute && active.getAttribute("data-synthesis-control-key");
+      if (key) {
+        result.activeControlKey = key;
+        result.activeValue = typeof active.value === "string" ? active.value : "";
+        result.selectionStart = typeof active.selectionStart === "number" ? active.selectionStart : null;
+        result.selectionEnd = typeof active.selectionEnd === "number" ? active.selectionEnd : null;
+      }
+    }
+    Array.from(root.querySelectorAll("[data-synthesis-scroll-key]")).forEach(function (node) {
+      const key = node.getAttribute("data-synthesis-scroll-key");
+      if (key && typeof node.scrollTop === "number") {
+        result.scrollPositions[key] = node.scrollTop;
+      }
+    });
+    return result;
+  }
+
+  function restoreActiveWorkbenchState(root, preservedState) {
+    const stateToRestore = preservedState || {};
+    const scrollPositions = stateToRestore.scrollPositions || {};
+    Object.keys(scrollPositions).forEach(function (key) {
+      const node = root.querySelector('[data-synthesis-scroll-key="' + key + '"]');
+      if (node && typeof node.scrollTop === "number") {
+        node.scrollTop = scrollPositions[key];
+      }
+    });
+    const activeKey = stateToRestore.activeControlKey;
+    if (!activeKey) return;
+    const active = root.querySelector('[data-synthesis-control-key="' + activeKey + '"]');
+    if (!active) return;
+    if (typeof active.value === "string") {
+      active.value = stateToRestore.activeValue || "";
+    }
+    if (typeof active.focus === "function") {
+      active.focus();
+    }
+    if (
+      typeof active.setSelectionRange === "function" &&
+      typeof stateToRestore.selectionStart === "number" &&
+      typeof stateToRestore.selectionEnd === "number"
+    ) {
+      active.setSelectionRange(stateToRestore.selectionStart, stateToRestore.selectionEnd);
+    }
+  }
+
+  function renderShell(root, snapshot, preservedState) {
     clear(root);
     const sidebar = el("aside", "sidebar");
     sidebar.appendChild(el("div", "brand", "Synthesis"));
@@ -102,6 +158,7 @@
     renderCurrentView(main, snapshot);
     content.appendChild(main);
     root.appendChild(content);
+    restoreActiveWorkbenchState(root, preservedState);
   }
 
   function titleForTab(tab) {
@@ -194,6 +251,7 @@
     header.appendChild(el("strong", "", "Artifacts"));
     const filters = el("div", "filters");
     const search = el("input");
+    search.setAttribute("data-synthesis-control-key", "artifacts.search");
     search.placeholder = "Search";
     search.value = snapshot.artifacts.filters.search || "";
     search.addEventListener("input", function () {
@@ -207,11 +265,11 @@
     filters.appendChild(search);
     filters.appendChild(coverage);
     filters.appendChild(
-      makeButton("Run synthesis", "hostCommand", { command: "runSynthesizeTopic" }, false),
+      makeButton("Create Topic", "hostCommand", { command: "runSynthesizeTopic" }, false),
     );
     header.appendChild(filters);
     panel.appendChild(header);
-    panel.appendChild(tableView(["Title", "Coverage", "Freshness", "Updated", "Action"], snapshot.artifacts.visibleRows, function (row) {
+    const table = tableView(["Title", "Coverage", "Freshness", "Updated", "Action"], snapshot.artifacts.visibleRows, function (row) {
       return [
         row.title,
         badge(row.coverage, toneFor(row.coverage)),
@@ -222,7 +280,9 @@
           args: { topicId: row.id },
         }),
       ];
-    }));
+    });
+    table.setAttribute("data-synthesis-scroll-key", "artifacts.table");
+    panel.appendChild(table);
     main.appendChild(panel);
   }
 
@@ -232,6 +292,7 @@
     header.appendChild(el("strong", "", "Registry"));
     const filters = el("div", "filters");
     const search = el("input");
+    search.setAttribute("data-synthesis-control-key", "registry.search");
     search.placeholder = "Search";
     search.value = snapshot.registry.filters.search || "";
     search.addEventListener("input", function () {
@@ -248,7 +309,7 @@
     filters.appendChild(missing);
     header.appendChild(filters);
     panel.appendChild(header);
-    panel.appendChild(tableView(["Title", "Year", "Readiness", "Coverage", "Missing"], snapshot.registry.visibleRows, function (row) {
+    const table = tableView(["Title", "Year", "Readiness", "Coverage", "Missing"], snapshot.registry.visibleRows, function (row) {
       return [
         row.title,
         row.year || "-",
@@ -256,12 +317,15 @@
         badge(row.coverage, toneFor(row.coverage)),
         row.missing_artifacts.length ? row.missing_artifacts.join(", ") : "-",
       ];
-    }));
+    });
+    table.setAttribute("data-synthesis-scroll-key", "registry.table");
+    panel.appendChild(table);
     main.appendChild(panel);
   }
 
   function renderGraph(main, snapshot) {
     const shell = el("div", "graph-shell");
+    shell.setAttribute("data-synthesis-scroll-key", "graph.shell");
     const stage = el("div", "graph-stage");
     stage.appendChild(renderGraphSvg(snapshot));
     shell.appendChild(stage);
@@ -273,6 +337,7 @@
     const controls = el("div", "details");
     const filters = el("div", "filters");
     const search = el("input");
+    search.setAttribute("data-synthesis-control-key", "graph.search");
     search.placeholder = "Search node";
     search.value = snapshot.graph.filters.search || "";
     search.addEventListener("input", function () {
@@ -405,7 +470,8 @@
       root.appendChild(el("div", "empty", "Loading Synthesis Workbench..."));
       return;
     }
-    renderShell(root, state.snapshot);
+    const preservedState = captureActiveWorkbenchState(root);
+    renderShell(root, state.snapshot, preservedState);
   }
 
   window.addEventListener("message", function (event) {

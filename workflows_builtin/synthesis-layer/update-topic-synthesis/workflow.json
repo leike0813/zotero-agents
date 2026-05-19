@@ -49,7 +49,6 @@
   },
   "execution": {
     "mode": "auto",
-    "supportedBackends": ["acp"],
     "mcp": {
       "requiredTools": [
         "synthesis.get_topic_context",

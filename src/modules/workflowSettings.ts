@@ -14,14 +14,13 @@ import {
   isSkillRunnerProviderScopedEngine,
   resolveSkillRunnerModelNameForProvider,
 } from "../providers/skillrunner/modelCatalog";
-import type { LoadedWorkflow } from "../workflows/types";
+import type { LoadedWorkflow, WorkflowParameterOption } from "../workflows/types";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { getPref, setPref } from "../utils/prefs";
 import { resolveWorkflowRequestKind } from "./workflowRequestKind";
 import {
   ACP_BACKEND_TYPE,
   ACP_SKILL_RUN_REQUEST_KIND,
-  DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
 import { isAcpBackendConnectionTestPassed } from "./acpBackendProbe";
@@ -38,6 +37,7 @@ import {
   applyExecutionWorkflowParamsNormalizer,
   applyPersistedWorkflowSettingsNormalizer,
 } from "./workflowSettingsNormalizer";
+import { resolveWorkflowParameterOptionsSource } from "./workflowParameterOptions";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -55,9 +55,14 @@ type WorkflowSettingsSchemaEntry = {
   title?: string;
   description?: string;
   enumValues?: string[];
+  options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
   disabled?: boolean;
+  diagnostics?: Array<{
+    code: string;
+    message: string;
+  }>;
   min?: number;
   max?: number;
 };
@@ -102,14 +107,6 @@ function writeSettingsRecord(record: WorkflowSettingsRecord) {
 function resolveProviderId(workflow: LoadedWorkflow) {
   const providerId = String(workflow.manifest.provider || "").trim();
   if (!providerId) {
-    const requestKind = String(workflow.manifest.request?.kind || "").trim();
-    for (const [backendType, knownRequestKind] of Object.entries(
-      DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
-    )) {
-      if (knownRequestKind === requestKind) {
-        return backendType;
-      }
-    }
     throw new Error(
       `Workflow ${workflow.manifest.id} does not declare provider`,
     );
@@ -386,21 +383,33 @@ export function listWorkflowSettingsRecord() {
   return readSettingsRecord();
 }
 
-function toWorkflowSchemaEntries(
+async function toWorkflowSchemaEntries(
   workflow: LoadedWorkflow,
-): WorkflowSettingsSchemaEntry[] {
+): Promise<WorkflowSettingsSchemaEntry[]> {
   const schema = workflow.manifest.parameters || {};
-  return Object.entries(schema).map(([key, entry]) => ({
-    key,
-    type: entry.type,
-    title: entry.title,
-    description: entry.description,
-    enumValues: entry.type === "string" ? toStringEnum(entry.enum) : [],
-    allowCustom: entry.type === "string" && entry.allowCustom === true,
-    defaultValue: entry.default,
-    min: entry.type === "number" ? entry.min : undefined,
-    max: entry.type === "number" ? entry.max : undefined,
-  }));
+  const entries = await Promise.all(
+    Object.entries(schema).map(async ([key, entry]) => {
+      const dynamic =
+        entry.type === "string"
+          ? await resolveWorkflowParameterOptionsSource(entry.optionsSource)
+          : { options: [], diagnostics: [] };
+      return {
+        key,
+        type: entry.type,
+        title: entry.title,
+        description: entry.description,
+        enumValues: entry.type === "string" ? toStringEnum(entry.enum) : [],
+        options: dynamic.options.length > 0 ? dynamic.options : undefined,
+        allowCustom: entry.type === "string" && entry.allowCustom === true,
+        defaultValue: entry.default,
+        diagnostics:
+          dynamic.diagnostics.length > 0 ? dynamic.diagnostics : undefined,
+        min: entry.type === "number" ? entry.min : undefined,
+        max: entry.type === "number" ? entry.max : undefined,
+      };
+    }),
+  );
+  return entries;
 }
 
 function toProviderSchemaEntries(args: {
@@ -538,7 +547,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     workflow: args.workflow,
     backend: selectedBackend,
   });
-  const workflowSchemaEntries = toWorkflowSchemaEntries(args.workflow);
+  const workflowSchemaEntries = await toWorkflowSchemaEntries(args.workflow);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,
     merged.workflowParams,

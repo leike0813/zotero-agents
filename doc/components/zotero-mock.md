@@ -29,6 +29,7 @@
 ### Attachments
 
 - `Zotero.Attachments.linkFromFile`
+- `Zotero.Attachments.importFromURL`（测试用 URL 附件导入；包含 `fail` 标记的 URL 会抛错）
 - `Zotero.Attachments.resolveRelativePath`（`attachments:` 前缀）
 - `Zotero.Attachments.getStorageDirectoryByLibraryAndKey`（`storage:` 前缀）
 

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.core_analytical_sections",
+  "type": "object",
+  "required": ["positioning", "claims", "comparison_matrix", "debates", "gaps", "review_outline"],
+  "properties": {
+    "positioning": { "type": "object" },
+    "claims": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+    "comparison_matrix": { "type": "object" },
+    "debates": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+    "gaps": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+    "review_outline": { "type": "object" }
+  },
+  "additionalProperties": true
+}

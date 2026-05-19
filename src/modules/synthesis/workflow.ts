@@ -53,13 +53,14 @@ function requireString(source: Record<string, unknown>, key: string) {
 
 function requireTopicDefinition(source: Record<string, unknown>) {
   const definition = requireObject(source, "topic_definition");
-  if (!cleanString(definition.id)) {
+  const id = cleanString(definition.id);
+  if (!id) {
     throw new Error("synthesis result bundle requires topic_definition.id");
   }
-  if (!cleanString(definition.title)) {
-    throw new Error("synthesis result bundle requires topic_definition.title");
-  }
-  return definition;
+  return {
+    ...definition,
+    title: cleanString(definition.title) || id,
+  };
 }
 
 export function validateSynthesisResultBundle(input: unknown): {
@@ -114,6 +115,9 @@ export function validateSynthesisResultBundle(input: unknown): {
         },
       };
     }
+    if (cleanString(input.markdown_path)) {
+      throw new Error("structured topic synthesis bundle must not depend on markdown_path");
+    }
     return {
       ok: true,
         bundle: {
@@ -128,8 +132,6 @@ export function validateSynthesisResultBundle(input: unknown): {
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
           markdown: "",
-          markdown_path:
-            typeof input.markdown_path === "string" ? input.markdown_path.trim() : undefined,
         },
     };
   }
@@ -181,8 +183,14 @@ export function decideSynthesisApply(args: {
         .filter(([name]) => name.startsWith("section:"))
         .map(([name, value]) => [name.slice("section:".length), value]),
     );
+    const currentReadSectionHashes = Object.fromEntries(
+      Object.keys(readSectionHashes).map((section) => [
+        section,
+        currentSectionHashes[section],
+      ]),
+    );
     const cas = checkBaseHashes({
-      current: currentSectionHashes,
+      current: currentReadSectionHashes,
       base: readSectionHashes,
     });
     if (cas.ok) {

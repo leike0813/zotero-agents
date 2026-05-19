@@ -1,30 +1,3 @@
-:root {
-  color-scheme: light dark;
-  --zs-bg: #f4f7f9;
-  --zs-panel: #ffffff;
-  --zs-panel-alt: #eef5f7;
-  --zs-border: #cfd7df;
-  --zs-text: #1c2430;
-  --zs-muted: #657385;
-  --zs-accent: #0d9488;
-  --zs-accent-strong: #0f766e;
-  --zs-accent-soft: #dff7f3;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --zs-bg: #181c20;
-    --zs-panel: #22282f;
-    --zs-panel-alt: #29313a;
-    --zs-border: #3d4854;
-    --zs-text: #eef2f6;
-    --zs-muted: #a6b1bd;
-    --zs-accent: #5eead4;
-    --zs-accent-strong: #2dd4bf;
-    --zs-accent-soft: rgba(45, 212, 191, 0.12);
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -37,7 +10,7 @@ body {
   overflow: hidden;
   background: var(--zs-bg);
   color: var(--zs-text);
-  font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 13px/1.45 var(--zs-font-sans);
 }
 
 button {
@@ -117,6 +90,33 @@ button:focus-visible {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.theme-switch {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel-alt);
+}
+
+.theme-switch button {
+  min-width: 54px;
+  min-height: 26px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--zs-muted);
+  font-size: 12px;
+}
+
+.theme-switch button.active {
+  border-color: var(--zs-accent-soft-border);
+  background: var(--zs-panel);
+  color: var(--zs-accent-strong);
 }
 
 .toolbar .icon-button {

@@ -52,6 +52,9 @@ import {
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
+  setAcpSkillRunMode,
+  setAcpSkillRunModel,
+  setAcpSkillRunReasoningEffort,
   subscribeAcpSkillRunSnapshots,
 } from "./acpSkillRunStore";
 import {
@@ -804,6 +807,27 @@ async function handleAcpSkillRunAction(
     }
     if (action === "end-session") {
       await endAcpSkillRunSession(String(payload.requestId || "").trim());
+      return;
+    }
+    if (action === "set-mode") {
+      await setAcpSkillRunMode({
+        requestId: String(payload.requestId || "").trim(),
+        modeId: String(payload.modeId || "").trim(),
+      });
+      return;
+    }
+    if (action === "set-model") {
+      await setAcpSkillRunModel({
+        requestId: String(payload.requestId || "").trim(),
+        modelId: String(payload.modelId || "").trim(),
+      });
+      return;
+    }
+    if (action === "set-reasoning-effort") {
+      await setAcpSkillRunReasoningEffort({
+        requestId: String(payload.requestId || "").trim(),
+        effortId: String(payload.effortId || "").trim(),
+      });
       return;
     }
     if (action === "resolve-permission") {

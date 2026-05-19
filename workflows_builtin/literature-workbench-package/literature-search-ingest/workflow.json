@@ -1,0 +1,63 @@
+{
+  "id": "literature-search-ingest",
+  "label": "Literature Search Ingest",
+  "provider": "acp",
+  "version": "0.1.0",
+  "taskNameTemplate": "Search and ingest literature: {query}",
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "query": {
+      "type": "string",
+      "title": "Search Query",
+      "description": "Free-form literature search topic, research direction, paper title, DOI, arXiv, PMID, or related seed."
+    },
+    "targetCollection": {
+      "type": "string",
+      "title": "Target Collection",
+      "description": "Optional Zotero collection for created or existing items.",
+      "default": "",
+      "allowCustom": true,
+      "optionsSource": {
+        "kind": "zotero.collections",
+        "library": "current",
+        "includeEmpty": true,
+        "valueFormat": "collectionRef",
+        "labelFormat": "path"
+      }
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "literature-search-ingest"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "mcp": {
+      "requiredTools": [
+        "list_library_items",
+        "search_items",
+        "synthesis.list_topics",
+        "synthesis.get_library_index",
+        "ingest_papers"
+      ]
+    },
+    "skillrunner_mode": "interactive",
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

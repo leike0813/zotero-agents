@@ -21,6 +21,11 @@ import type {
   SessionNotification,
 } from "./acpProtocol";
 import type { AcpMcpHealthSnapshot, AcpPendingPermissionRequest } from "./acpTypes";
+import {
+  parseAcpEffortFromModelText,
+  resolveAcpRawModelIdForSelection,
+  type AcpSelectableOption,
+} from "./acpModelOptionFolding";
 
 export type AcpSkillRunStatus =
   | "queued"
@@ -266,6 +271,7 @@ export type AcpSkillRunPanelSnapshot = {
   };
   runs: AcpSkillRunSummary[];
   selectedRun?: AcpSkillRunRecord;
+  selectedRuntimeOptions?: AcpSkillRunRuntimeOptionsSnapshot;
   selectedTask?: WorkflowTaskRecord;
   logs: Array<{
     id: string;
@@ -280,11 +286,24 @@ export type AcpSkillRunPanelSnapshot = {
   };
 };
 
+export type AcpSkillRunRuntimeOptionsSnapshot = {
+  modeOptions: AcpSelectableOption[];
+  currentMode?: AcpSelectableOption;
+  modelOptions: AcpSelectableOption[];
+  currentModel?: AcpSelectableOption;
+  displayModelOptions: AcpSelectableOption[];
+  currentDisplayModel?: AcpSelectableOption;
+  reasoningEffortOptions: AcpSelectableOption[];
+  currentReasoningEffort?: AcpSelectableOption;
+};
+
 type AcpSkillRunController = {
   cancel: () => Promise<void>;
   reply?: (message: string) => Promise<void>;
   disconnect?: () => Promise<void>;
   endSession?: () => Promise<void>;
+  setMode?: (args: { sessionId: string; modeId: string }) => Promise<void>;
+  setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
 };
 
 type AcpSkillRunListener = () => void;
@@ -296,6 +315,7 @@ type AcpSkillRunRecoveryHandler = (args: {
 const STORE_SCOPE = "skill-runs";
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const controllers = new Map<string, AcpSkillRunController>();
+const runtimeOptionsByRequestId = new Map<string, AcpSkillRunRuntimeOptionsSnapshot>();
 const permissionResolvers = new Map<
   string,
   {
@@ -315,6 +335,58 @@ function nowIso() {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeSelectableOption(value: unknown): AcpSelectableOption | null {
+  if (!isRecord(value)) {
+    const id = normalizeString(value);
+    return id ? { id, label: id } : null;
+  }
+  const id = normalizeString(value.id);
+  if (!id) return null;
+  return {
+    id,
+    label: normalizeString(value.label) || id,
+    description: normalizeString(value.description) || undefined,
+  };
+}
+
+function normalizeSelectableOptions(value: unknown) {
+  return (Array.isArray(value) ? value : [])
+    .map(normalizeSelectableOption)
+    .filter((entry): entry is AcpSelectableOption => !!entry);
+}
+
+function cloneSelectableOption(option?: AcpSelectableOption) {
+  return option ? { ...option } : undefined;
+}
+
+function cloneSelectableOptions(options: AcpSelectableOption[]) {
+  return options.map((entry) => ({ ...entry }));
+}
+
+function findSelectableOption(options: AcpSelectableOption[], idRaw: unknown) {
+  const id = normalizeString(idRaw);
+  if (!id) return undefined;
+  return options.find((entry) => normalizeString(entry.id) === id) || {
+    id,
+    label: id,
+  };
+}
+
+function cloneRuntimeOptions(
+  options: AcpSkillRunRuntimeOptionsSnapshot,
+): AcpSkillRunRuntimeOptionsSnapshot {
+  return {
+    modeOptions: cloneSelectableOptions(options.modeOptions),
+    currentMode: cloneSelectableOption(options.currentMode),
+    modelOptions: cloneSelectableOptions(options.modelOptions),
+    currentModel: cloneSelectableOption(options.currentModel),
+    displayModelOptions: cloneSelectableOptions(options.displayModelOptions),
+    currentDisplayModel: cloneSelectableOption(options.currentDisplayModel),
+    reasoningEffortOptions: cloneSelectableOptions(options.reasoningEffortOptions),
+    currentReasoningEffort: cloneSelectableOption(options.currentReasoningEffort),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1467,6 +1539,63 @@ function getLatestTranscriptItem(record: AcpSkillRunRecord) {
   return record.transcriptItems[record.transcriptItems.length - 1];
 }
 
+function isSkippableInterleavedStatus(entry: AcpSkillRunTranscriptItem | undefined) {
+  return entry?.kind === "status" && entry.label === "workspace-activity";
+}
+
+function isMatchingStreamingTextItem(args: {
+  entry: AcpSkillRunTranscriptItem | undefined;
+  kind: "message" | "thought";
+  role: "assistant" | "user";
+}) {
+  const { entry } = args;
+  if (args.kind === "message") {
+    return (
+      entry?.kind === "message" &&
+      entry.role === args.role &&
+      entry.state === "streaming"
+    );
+  }
+  return entry?.kind === "thought" && entry.state === "streaming";
+}
+
+function findAppendableStreamingTextItem(args: {
+  record: AcpSkillRunRecord;
+  kind: "message" | "thought";
+  role: "assistant" | "user";
+}) {
+  for (let index = args.record.transcriptItems.length - 1; index >= 0; index -= 1) {
+    const entry = args.record.transcriptItems[index];
+    if (isSkippableInterleavedStatus(entry)) {
+      continue;
+    }
+    return isMatchingStreamingTextItem({
+      entry,
+      kind: args.kind,
+      role: args.role,
+    })
+      ? entry
+      : undefined;
+  }
+  return undefined;
+}
+
+function completeOpenStreamingTextItems(record: AcpSkillRunRecord, now: string) {
+  record.transcriptItems = record.transcriptItems.map((entry) => {
+    if (
+      (entry.kind === "message" || entry.kind === "thought") &&
+      entry.state === "streaming"
+    ) {
+      return {
+        ...entry,
+        state: "complete",
+        updatedAt: entry.updatedAt || now,
+      };
+    }
+    return entry;
+  });
+}
+
 function appendTextChunk(args: {
   record: AcpSkillRunRecord;
   kind: "message" | "thought";
@@ -1478,18 +1607,24 @@ function appendTextChunk(args: {
   if (!text) {
     return;
   }
-  const latest = getLatestTranscriptItem(args.record);
+  const role = args.role || "assistant";
+  const latest = findAppendableStreamingTextItem({
+    record: args.record,
+    kind: args.kind,
+    role,
+  }) || getLatestTranscriptItem(args.record);
   if (
     args.kind === "message" &&
     latest?.kind === "message" &&
-    latest.role === (args.role || "assistant")
+    latest.role === role &&
+    latest.state === "streaming"
   ) {
     latest.text += text;
     latest.state = "streaming";
     latest.updatedAt = args.now;
     return;
   }
-  if (args.kind === "thought" && latest?.kind === "thought") {
+  if (args.kind === "thought" && latest?.kind === "thought" && latest.state === "streaming") {
     latest.text += text;
     latest.state = "streaming";
     latest.updatedAt = args.now;
@@ -1501,7 +1636,7 @@ function appendTextChunk(args: {
       ? {
           id,
           kind: "message",
-          role: args.role || "assistant",
+          role,
           text,
           state: "streaming",
           createdAt: args.now,
@@ -1672,6 +1807,7 @@ export function recordAcpSkillRunSessionUpdate(
       });
     }
   } else if (kind === "tool_call" || kind === "tool_call_update") {
+    completeOpenStreamingTextItems(next, now);
     upsertTranscriptToolCall(next, update as AcpToolCall, now);
   } else if (kind === "plan") {
     next.planEntries = parsePlanEntries((update as { entries?: unknown }).entries);
@@ -1731,6 +1867,34 @@ export function setAcpSkillRunRecoveryHandler(
 export function hasAcpSkillRunController(requestIdRaw: string) {
   const requestId = normalizeString(requestIdRaw);
   return !!requestId && controllers.has(requestId);
+}
+
+export function setAcpSkillRunRuntimeOptions(
+  requestIdRaw: string,
+  options: Partial<AcpSkillRunRuntimeOptionsSnapshot> | null | undefined,
+) {
+  const requestId = normalizeString(requestIdRaw);
+  if (!requestId) {
+    return;
+  }
+  if (!options) {
+    runtimeOptionsByRequestId.delete(requestId);
+    scheduleChangedEmit();
+    return;
+  }
+  const normalized: AcpSkillRunRuntimeOptionsSnapshot = {
+    modeOptions: normalizeSelectableOptions(options.modeOptions),
+    currentMode: normalizeSelectableOption(options.currentMode) || undefined,
+    modelOptions: normalizeSelectableOptions(options.modelOptions),
+    currentModel: normalizeSelectableOption(options.currentModel) || undefined,
+    displayModelOptions: normalizeSelectableOptions(options.displayModelOptions),
+    currentDisplayModel: normalizeSelectableOption(options.currentDisplayModel) || undefined,
+    reasoningEffortOptions: normalizeSelectableOptions(options.reasoningEffortOptions),
+    currentReasoningEffort:
+      normalizeSelectableOption(options.currentReasoningEffort) || undefined,
+  };
+  runtimeOptionsByRequestId.set(requestId, normalized);
+  scheduleChangedEmit();
 }
 
 export function setAcpSkillRunPermissionRequest(
@@ -2009,6 +2173,185 @@ export async function replyAcpSkillRun(args: {
     });
     throw error;
   }
+}
+
+function isAcpSkillRunPromptActive(run: AcpSkillRunRecord) {
+  return (
+    run.activePrompt === true ||
+    run.status === "queued" ||
+    run.status === "running" ||
+    run.status === "repairing"
+  );
+}
+
+function requireRuntimeController(
+  requestId: string,
+  operation: "setMode" | "setModel",
+) {
+  const controller = controllers.get(requestId);
+  if (!controller || typeof controller[operation] !== "function") {
+    throw new Error("No active ACP skill run controller is available for runtime option changes.");
+  }
+  return controller as AcpSkillRunController & Required<Pick<AcpSkillRunController, typeof operation>>;
+}
+
+function runtimeOptionsForRun(run: AcpSkillRunRecord) {
+  const stored = runtimeOptionsByRequestId.get(run.requestId);
+  const base: AcpSkillRunRuntimeOptionsSnapshot = stored
+    ? cloneRuntimeOptions(stored)
+    : {
+        modeOptions: [],
+        modelOptions: [],
+        displayModelOptions: [],
+        reasoningEffortOptions: [],
+      };
+  base.currentMode =
+    findSelectableOption(base.modeOptions, run.acpModeId) ||
+    cloneSelectableOption(base.currentMode);
+  base.currentModel =
+    findSelectableOption(base.modelOptions, run.acpRawModelId) ||
+    cloneSelectableOption(base.currentModel);
+  base.currentDisplayModel =
+    findSelectableOption(base.displayModelOptions, run.acpModelId || run.acpRawModelId) ||
+    cloneSelectableOption(base.currentDisplayModel);
+  base.currentReasoningEffort =
+    findSelectableOption(base.reasoningEffortOptions, run.acpReasoningEffort) ||
+    cloneSelectableOption(base.currentReasoningEffort);
+  return base;
+}
+
+function resolveEffortIdFromRawModel(
+  rawModelId: string,
+  modelOptions: AcpSelectableOption[],
+  fallback: string,
+) {
+  const option = modelOptions.find((entry) => entry.id === rawModelId);
+  const parsed =
+    parseAcpEffortFromModelText(option?.id || rawModelId) ||
+    parseAcpEffortFromModelText(option?.label || "");
+  return normalizeString(parsed?.effortId) || fallback;
+}
+
+export async function setAcpSkillRunMode(args: {
+  requestId: string;
+  modeId: string;
+}) {
+  const requestId = normalizeString(args.requestId);
+  const modeId = normalizeString(args.modeId);
+  if (!requestId || !modeId) {
+    return;
+  }
+  const run = getAcpSkillRunRecord(requestId);
+  const sessionId = normalizeString(run?.sessionId);
+  if (!run || !sessionId) {
+    throw new Error("No active ACP skill run session is available for mode changes.");
+  }
+  const controller = requireRuntimeController(requestId, "setMode");
+  await controller.setMode({ sessionId, modeId });
+  upsertAcpSkillRun({
+    requestId,
+    acpModeId: modeId,
+    event: {
+      stage: "runtime-mode-updated",
+      message: "ACP skill run mode updated.",
+      level: "info",
+      details: { modeId },
+    },
+  });
+}
+
+export async function setAcpSkillRunModel(args: {
+  requestId: string;
+  modelId: string;
+}) {
+  const requestId = normalizeString(args.requestId);
+  const modelId = normalizeString(args.modelId);
+  if (!requestId || !modelId) {
+    return;
+  }
+  const run = getAcpSkillRunRecord(requestId);
+  const sessionId = normalizeString(run?.sessionId);
+  if (!run || !sessionId) {
+    throw new Error("No active ACP skill run session is available for model changes.");
+  }
+  if (isAcpSkillRunPromptActive(run)) {
+    throw new Error("Cannot change ACP skill run model while a prompt is running.");
+  }
+  const runtimeOptions = runtimeOptionsForRun(run);
+  const rawModelId = resolveAcpRawModelIdForSelection({
+    modelOptions: runtimeOptions.modelOptions,
+    displayModelId: modelId,
+    effortId:
+      normalizeString(run.acpReasoningEffort) ||
+      normalizeString(runtimeOptions.currentReasoningEffort?.id),
+    currentRawModelId: run.acpRawModelId,
+  });
+  const controller = requireRuntimeController(requestId, "setModel");
+  await controller.setModel({ sessionId, modelId: rawModelId });
+  const effortId = resolveEffortIdFromRawModel(
+    rawModelId,
+    runtimeOptions.modelOptions,
+    normalizeString(run.acpReasoningEffort),
+  );
+  upsertAcpSkillRun({
+    requestId,
+    acpModelId: modelId,
+    acpRawModelId: rawModelId,
+    acpReasoningEffort: effortId,
+    event: {
+      stage: "runtime-model-updated",
+      message: "ACP skill run model updated.",
+      level: "info",
+      details: { modelId, rawModelId, reasoningEffort: effortId },
+    },
+  });
+}
+
+export async function setAcpSkillRunReasoningEffort(args: {
+  requestId: string;
+  effortId: string;
+}) {
+  const requestId = normalizeString(args.requestId);
+  const effortId = normalizeString(args.effortId);
+  if (!requestId || !effortId) {
+    return;
+  }
+  const run = getAcpSkillRunRecord(requestId);
+  const sessionId = normalizeString(run?.sessionId);
+  if (!run || !sessionId) {
+    throw new Error("No active ACP skill run session is available for reasoning changes.");
+  }
+  if (isAcpSkillRunPromptActive(run)) {
+    throw new Error("Cannot change ACP skill run reasoning effort while a prompt is running.");
+  }
+  const runtimeOptions = runtimeOptionsForRun(run);
+  const displayModelId =
+    normalizeString(run.acpModelId) ||
+    normalizeString(runtimeOptions.currentDisplayModel?.id) ||
+    normalizeString(run.acpRawModelId);
+  if (!displayModelId) {
+    throw new Error("No ACP skill run model is available for reasoning changes.");
+  }
+  const rawModelId = resolveAcpRawModelIdForSelection({
+    modelOptions: runtimeOptions.modelOptions,
+    displayModelId,
+    effortId,
+    currentRawModelId: run.acpRawModelId,
+  });
+  const controller = requireRuntimeController(requestId, "setModel");
+  await controller.setModel({ sessionId, modelId: rawModelId });
+  upsertAcpSkillRun({
+    requestId,
+    acpModelId: displayModelId,
+    acpRawModelId: rawModelId,
+    acpReasoningEffort: effortId,
+    event: {
+      stage: "runtime-reasoning-updated",
+      message: "ACP skill run reasoning effort updated.",
+      level: "info",
+      details: { modelId: displayModelId, rawModelId, reasoningEffort: effortId },
+    },
+  });
 }
 
 export async function connectAcpSkillRun(requestIdRaw: string) {
@@ -2290,6 +2633,7 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     },
     runs: runs.map(summarizeAcpSkillRun),
     selectedRun: selected,
+    selectedRuntimeOptions: selected ? runtimeOptionsForRun(selected) : undefined,
     selectedTask,
     logs,
   };
@@ -2346,6 +2690,7 @@ export function resetAcpSkillRunsForTests() {
   }
   runRecords.clear();
   controllers.clear();
+  runtimeOptionsByRequestId.clear();
   permissionResolvers.clear();
   listeners.clear();
   selectedRequestId = "";
@@ -2354,6 +2699,7 @@ export function resetAcpSkillRunsForTests() {
 
 registerAcpSkillRunsMemoryClearer(() => {
   runRecords.clear();
+  runtimeOptionsByRequestId.clear();
   selectedRequestId = "";
   hydrated = false;
   emitChanged();

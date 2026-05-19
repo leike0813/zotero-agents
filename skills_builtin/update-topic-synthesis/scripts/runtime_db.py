@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-SCHEMA_VERSION = "topic-synthesis-skill-runtime/6"
+SCHEMA_VERSION = "topic-synthesis-skill-runtime/8"
 SHA256_HASH_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 STAGE_STATES = (
@@ -32,15 +32,35 @@ STAGE_STATES = (
 )
 
 STAGES = (
-    "stage_0_bootstrap",
-    "stage_1_topic_intent",
-    "stage_2_resolver",
-    "stage_3_paper_workset",
-    "stage_4_per_paper_analysis",
-    "stage_5_cross_paper_synthesis",
-    "stage_6_render_and_validate",
-    "stage_7_completed",
+    "stage_0_runtime_setup",
+    "stage_1_topic_context",
+    "stage_2_resolver_and_workset",
+    "stage_3_graph_metrics",
+    "stage_4_evidence_collection",
+    "stage_5_paper_units",
+    "stage_6_cross_paper_map",
+    "stage_7_route_timeline",
+    "stage_8_core_sections",
+    "stage_9_external_statistics_report",
+    "stage_10_render_and_validate",
+    "stage_11_completed",
 )
+
+LEGACY_STAGE_ALIASES = {
+    "stage_0_bootstrap": "stage_0_runtime_setup",
+    "stage_1_topic_intent": "stage_1_topic_context",
+    "stage_2_resolver": "stage_2_resolver_and_workset",
+    "stage_3_paper_workset": "stage_2_resolver_and_workset",
+    "stage_4_per_paper_analysis": "stage_5_paper_units",
+    "stage_5_cross_paper_synthesis": "stage_6_cross_paper_map",
+    "stage_6_render_and_validate": "stage_10_render_and_validate",
+    "stage_7_completed": "stage_11_completed",
+}
+
+ACTION_ALIASES = {
+    "persist_paper_analysis": "persist_paper_unit",
+    "persist_paper_analyses": "persist_paper_units",
+}
 
 REQUIRED_FULL_SECTIONS = (
     "topic",
@@ -56,6 +76,8 @@ REQUIRED_FULL_SECTIONS = (
     "coverage",
     "gaps",
     "review_outline",
+    "statistics",
+    "synthesis_report",
     "evidence_map",
     "source_artifacts",
     "diagnostics",
@@ -260,6 +282,7 @@ def get_meta(conn: sqlite3.Connection, key: str, default: object = None) -> obje
 
 
 def set_stage_state(conn: sqlite3.Connection, stage: str, state: str, *, error: str = "") -> None:
+    stage = LEGACY_STAGE_ALIASES.get(stage, stage)
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
     if state not in STAGE_STATES:
@@ -294,15 +317,20 @@ def clear_failed_retryable(conn: sqlite3.Connection, stage: str) -> None:
 
 
 def stage_state(conn: sqlite3.Connection, stage: str) -> str:
+    stage = LEGACY_STAGE_ALIASES.get(stage, stage)
     row = conn.execute("select state from stages where stage = ?", (stage,)).fetchone()
     return row["state"] if row else "pending"
 
 
 def completed_stages(conn: sqlite3.Connection) -> set[str]:
-    return {
+    completed = {
         row["stage"]
         for row in conn.execute("select stage from stages where state = 'completed'")
     }
+    for legacy, canonical in LEGACY_STAGE_ALIASES.items():
+        if canonical in completed:
+            completed.add(legacy)
+    return completed
 
 
 def has_any_state(conn: sqlite3.Connection, states: Iterable[str]) -> bool:
@@ -336,6 +364,7 @@ def record_action_receipt(
     payload: object,
     result: object,
 ) -> dict:
+    action_name = ACTION_ALIASES.get(action_name, action_name)
     input_hash = sha256_text(canonical_json(payload))
     action_id = sha256_text(f"{action_name}:{input_hash}")
     conn.execute(
@@ -403,13 +432,27 @@ def persist_resolver(conn: sqlite3.Connection, payload: dict) -> dict:
         if meta_key in payload:
             set_meta(conn, meta_key, payload[meta_key])
     resolved = payload.get("resolved_paper_set")
+    if isinstance(resolved, list):
+        resolved = {"papers": resolved}
+        put_key_value(conn, "topic_resolver", "resolved_paper_set", resolved)
     if not isinstance(resolved, dict) and isinstance(payload.get("resolution_result"), dict):
         result = payload["resolution_result"]
         if isinstance(result.get("papers"), list):
             resolved = {"papers": result["papers"]}
             put_key_value(conn, "topic_resolver", "resolved_paper_set", resolved)
+        elif isinstance(result.get("paper_refs"), list):
+            resolved = {"papers": result["paper_refs"]}
+            put_key_value(conn, "topic_resolver", "resolved_paper_set", resolved)
+    if not isinstance(resolved, dict) and isinstance(payload.get("paper_refs"), list):
+        resolved = {"papers": payload["paper_refs"]}
+        put_key_value(conn, "topic_resolver", "resolved_paper_set", resolved)
     if isinstance(resolved, dict) and isinstance(resolved.get("papers"), list):
         derive_paper_workset(conn, {"papers": resolved["papers"]})
+    if not paper_refs(conn):
+        raise ValueError(
+            "persist_resolver requires a non-empty resolved paper set; expected resolved_paper_set[], "
+            "resolved_paper_set.papers[], resolution_result.papers[], or resolution_result.paper_refs[]"
+        )
     conn.commit()
     return {"stored_keys": sorted(payload.keys()), "paper_refs": paper_refs(conn)}
 
@@ -550,9 +593,80 @@ def missing_paper_analysis_receipt_refs(conn: sqlite3.Connection) -> list[str]:
     analyzed = set(analyzed_paper_refs(conn))
     receipted = action_receipt_paper_refs(
         conn,
-        ("persist_paper_analysis", "persist_paper_analyses"),
+        ("persist_paper_unit", "persist_paper_units"),
     )
     return [ref for ref in paper_refs(conn) if ref not in analyzed or ref not in receipted]
+
+
+def audit_runtime_integrity(
+    conn: sqlite3.Connection,
+    run_root: str | Path | None = None,
+    *,
+    strict_files: bool = False,
+) -> list[str]:
+    """Return structural gate violations that must block forward progress."""
+
+    errors: list[str] = []
+    stage_rows = conn.execute(
+        "select stage, state from stages order by stage"
+    ).fetchall()
+    states = {row["stage"]: row["state"] for row in stage_rows}
+    running = [stage for stage, state in states.items() if state == "running"]
+    if len(running) > 1:
+        errors.append("runtime_integrity_multiple_running_stages: " + ", ".join(running))
+
+    seen_unfinished = False
+    for stage in STAGES:
+        state = states.get(stage, "pending")
+        if state not in {"completed", "canceled"}:
+            seen_unfinished = True
+        elif seen_unfinished and state == "completed":
+            errors.append(f"runtime_integrity_non_monotonic_stage_state: {stage}=completed")
+
+    legacy_actions = sorted(ACTION_ALIASES)
+    placeholders = ",".join("?" for _ in legacy_actions)
+    if placeholders:
+        rows = conn.execute(
+            f"select action_name from action_receipts where action_name in ({placeholders})",
+            tuple(legacy_actions),
+        ).fetchall()
+        if rows:
+            found = sorted({row["action_name"] for row in rows})
+            errors.append("runtime_integrity_legacy_action_receipts: " + ", ".join(found))
+
+    rows = conn.execute("select action_name, result_json from action_receipts").fetchall()
+    for row in rows:
+        try:
+            result = json.loads(row["result_json"])
+        except Exception:
+            errors.append(f"runtime_integrity_malformed_receipt_result: {row['action_name']}")
+            continue
+        if not isinstance(result, dict):
+            errors.append(f"runtime_integrity_non_object_receipt_result: {row['action_name']}")
+
+    if strict_files and run_root is not None:
+        root = Path(run_root)
+        for table, path_column, hash_column in (
+            ("artifact_registry", "path", "hash"),
+            ("section_outputs", "path", "hash"),
+        ):
+            rows = conn.execute(
+                f"select {path_column} as path, {hash_column} as hash_value from {table}"
+            ).fetchall()
+            for row in rows:
+                relative_path = str(row["path"] or "")
+                path = root / relative_path
+                if not path.exists():
+                    errors.append(f"runtime_integrity_missing_registered_file: {relative_path}")
+                    continue
+                actual = sha256_file(path)
+                expected = str(row["hash_value"] or "")
+                if actual != expected:
+                    errors.append(
+                        f"runtime_integrity_registered_file_hash_mismatch: {relative_path} expected={expected} actual={actual}"
+                    )
+
+    return errors
 
 
 def require_stage4_action_receipts_complete(conn: sqlite3.Connection) -> None:
@@ -896,7 +1010,7 @@ def persist_paper_analyses(
         paper_ref, value = _load_payload_entry(run_root, entry)
         normalized.append((paper_ref, _normalized_paper_analysis(conn, paper_ref, value)))
     if not normalized:
-        raise ValueError("persist_paper_analyses requires at least one payload")
+        raise ValueError("persist_paper_units requires payload object with non-empty analyses[]")
     for paper_ref, value in normalized:
         conn.execute(
             "insert or replace into paper_analysis(paper_ref, analysis_json) values (?, ?)",
@@ -1192,10 +1306,30 @@ def write_cross_paper_evidence_index(
         hash_value=hash_value,
         content_type="json",
         schema_id="synthesis.cross_paper_evidence_index",
-        stage="stage_4_per_paper_analysis",
+        stage="stage_5_paper_units",
         validated=True,
     )
     return {"path": relative_path, "hash": hash_value, "paper_unit_count": len(units)}
+
+
+def _timeline_events_rows(sections: dict) -> list:
+    timeline = sections.get("timeline_events")
+    if isinstance(timeline, dict):
+        events = timeline.get("events")
+        return events if isinstance(events, list) else []
+    if isinstance(timeline, list):
+        return timeline
+    return []
+
+
+def _set_timeline_events_rows(sections: dict, rows: list) -> None:
+    timeline = sections.get("timeline_events")
+    if isinstance(timeline, dict):
+        next_timeline = dict(timeline)
+        next_timeline["events"] = rows
+        sections["timeline_events"] = next_timeline
+    elif isinstance(timeline, list):
+        sections["timeline_events"] = rows
 
 
 def inject_paper_evidence_ids_and_refs(sections: dict) -> dict:
@@ -1234,7 +1368,7 @@ def inject_paper_evidence_ids_and_refs(sections: dict) -> dict:
     value["paper_evidence"] = normalized_evidence
 
     for section_name in ("claims", "timeline_events"):
-        rows = value.get(section_name)
+        rows = _timeline_events_rows(value) if section_name == "timeline_events" else value.get(section_name)
         if not isinstance(rows, list):
             continue
         normalized_rows: list[object] = []
@@ -1251,7 +1385,10 @@ def inject_paper_evidence_ids_and_refs(sections: dict) -> dict:
                     if _clean_text(ref)
                 ]
             normalized_rows.append(next_row)
-        value[section_name] = normalized_rows
+        if section_name == "timeline_events":
+            _set_timeline_events_rows(value, normalized_rows)
+        else:
+            value[section_name] = normalized_rows
     return value
 
 
@@ -1459,7 +1596,7 @@ def persist_cross_paper_evidence_map(
         hash_value=hash_value,
         content_type="json",
         schema_id="synthesis.cross_paper_evidence_map",
-        stage="stage_5_cross_paper_synthesis",
+        stage="stage_6_cross_paper_map",
         validated=True,
     )
     set_meta(conn, "cross_paper_evidence_map_path", relative_path)
@@ -1479,6 +1616,20 @@ def _evidence_map_candidate_ids(conn: sqlite3.Connection) -> set[str]:
     if isinstance(ids, list):
         return {_clean_text(value) for value in ids if _clean_text(value)}
     return set()
+
+
+def _section_evidence_map_ids(sections: dict) -> set[str]:
+    evidence_map = sections.get("evidence_map", {})
+    if not isinstance(evidence_map, dict):
+        return set()
+    ids: set[str] = set()
+    candidate_ids = evidence_map.get("candidate_ids")
+    if isinstance(candidate_ids, list):
+        ids.update(_clean_text(value) for value in candidate_ids if _clean_text(value))
+    candidates = evidence_map.get("candidates")
+    if isinstance(candidates, dict):
+        ids.update(_clean_text(key) for key in candidates if _clean_text(key))
+    return ids
 
 
 def _validate_evidence_map_refs(section_name: str, rows: object, known_candidates: set[str]) -> None:
@@ -1515,6 +1666,373 @@ def _validate_nested_evidence_map_refs(section_name: str, value: object, known_c
             _validate_nested_evidence_map_refs(section_name, entry, known_candidates)
 
 
+def _has_text(value: dict, keys: Iterable[str]) -> bool:
+    for key in keys:
+        entry = value.get(key)
+        if isinstance(entry, str) and entry.strip():
+            return True
+        if isinstance(entry, list) and entry:
+            return True
+        if isinstance(entry, dict) and entry:
+            return True
+    return False
+
+
+def _first_text(value: dict, keys: Iterable[str]) -> str:
+    for key in keys:
+        entry = value.get(key)
+        if isinstance(entry, str) and entry.strip():
+            return entry.strip()
+    return ""
+
+
+def _schema_file_path(name: str) -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "schemas" / name
+
+
+def _schema_path(path: str) -> str:
+    return path or "$"
+
+
+def _schema_type_matches(value: object, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    return True
+
+
+def _resolve_schema_ref(schema_root: dict, ref: str) -> dict:
+    if not ref.startswith("#/"):
+        raise ValueError(f"unsupported schema ref: {ref}")
+    current: object = schema_root
+    for part in ref[2:].split("/"):
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"unresolved schema ref: {ref}")
+        current = current[part]
+    if not isinstance(current, dict):
+        raise ValueError(f"schema ref does not resolve to object: {ref}")
+    return current
+
+
+def _validate_json_schema_subset(
+    value: object,
+    schema: dict,
+    schema_root: dict,
+    *,
+    path: str = "$",
+) -> list[str]:
+    errors: list[str] = []
+    if "$ref" in schema:
+        return _validate_json_schema_subset(
+            value,
+            _resolve_schema_ref(schema_root, str(schema["$ref"])),
+            schema_root,
+            path=path,
+        )
+
+    if "anyOf" in schema:
+        any_of = schema.get("anyOf")
+        if not isinstance(any_of, list):
+            errors.append(f"{_schema_path(path)} schema anyOf must be an array")
+        else:
+            branch_errors = [
+                _validate_json_schema_subset(value, branch, schema_root, path=path)
+                for branch in any_of
+                if isinstance(branch, dict)
+            ]
+            if not any(not branch for branch in branch_errors):
+                errors.append(f"{_schema_path(path)} must match at least one allowed schema")
+
+    if "not" in schema and isinstance(schema["not"], dict):
+        not_errors = _validate_json_schema_subset(value, schema["not"], schema_root, path=path)
+        if not not_errors:
+            errors.append(f"{_schema_path(path)} contains a forbidden schema shape")
+
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"{_schema_path(path)} must be {schema['const']!r}")
+    if "enum" in schema and value not in schema.get("enum", []):
+        errors.append(f"{_schema_path(path)} must be one of {schema.get('enum')}")
+
+    expected_type = schema.get("type")
+    if expected_type is not None:
+        expected_types = expected_type if isinstance(expected_type, list) else [expected_type]
+        if not any(_schema_type_matches(value, str(entry)) for entry in expected_types):
+            errors.append(f"{_schema_path(path)} must be type {expected_types}")
+            return errors
+
+    if isinstance(value, str):
+        min_length = schema.get("minLength")
+        if isinstance(min_length, int) and len(value) < min_length:
+            errors.append(f"{_schema_path(path)} must contain at least {min_length} characters")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{_schema_path(path)} must be >= {minimum}")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            errors.append(f"{_schema_path(path)} must be <= {maximum}")
+    if isinstance(value, list):
+        min_items = schema.get("minItems")
+        if isinstance(min_items, int) and len(value) < min_items:
+            errors.append(f"{_schema_path(path)} must contain at least {min_items} items")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, entry in enumerate(value):
+                errors.extend(
+                    _validate_json_schema_subset(
+                        entry,
+                        item_schema,
+                        schema_root,
+                        path=f"{path}[{index}]",
+                    )
+                )
+    if isinstance(value, dict):
+        required = schema.get("required")
+        if isinstance(required, list):
+            for key in required:
+                if key not in value:
+                    errors.append(f"{_schema_path(path)}.{key} is required")
+        min_properties = schema.get("minProperties")
+        if isinstance(min_properties, int) and len(value) < min_properties:
+            errors.append(f"{_schema_path(path)} must contain at least {min_properties} properties")
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for key, prop_schema in properties.items():
+                if key in value and isinstance(prop_schema, dict):
+                    errors.extend(
+                        _validate_json_schema_subset(
+                            value[key],
+                            prop_schema,
+                            schema_root,
+                            path=f"{path}.{key}",
+                        )
+                    )
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, dict):
+            declared = set(properties.keys()) if isinstance(properties, dict) else set()
+            for key, entry in value.items():
+                if key not in declared:
+                    errors.extend(
+                        _validate_json_schema_subset(
+                            entry,
+                            additional,
+                            schema_root,
+                            path=f"{path}.{key}",
+                        )
+                    )
+    return errors
+
+
+def validate_topic_synthesis_artifact_schema(artifact: dict) -> None:
+    schema = read_json_file(_schema_file_path("topic_synthesis_artifact.schema.json"))
+    if not isinstance(schema, dict):
+        raise ValueError("topic_synthesis_artifact schema must be a JSON object")
+    errors = _validate_json_schema_subset(artifact, schema, schema)
+    if errors:
+        raise ValueError("topic_synthesis_artifact_schema_failed: " + "; ".join(errors[:25]))
+
+
+def _statistics_paper_count(sections: dict) -> int:
+    statistics = sections.get("statistics", {})
+    if isinstance(statistics, dict):
+        try:
+            return int(statistics.get("paper_count") or 0)
+        except Exception:
+            return 0
+    return 0
+
+
+def _paragraph_count(text: str) -> int:
+    return len([entry for entry in re.split(r"\n\s*\n+", text.strip()) if entry.strip()])
+
+
+def _report_dimension_errors(sections: dict) -> list[str]:
+    errors: list[str] = []
+    topic = sections.get("topic", {})
+    if not isinstance(topic, dict) or not (
+        _clean_text(topic.get("definition"))
+        and _has_text(topic, ("discipline", "field", "research_field", "research_area"))
+        and (isinstance(topic.get("scope_boundary"), dict) or _clean_text(topic.get("scope")))
+    ):
+        errors.append("topic definition/scope")
+
+    taxonomy = sections.get("taxonomy", {})
+    if not isinstance(taxonomy, dict) or not (
+        isinstance(taxonomy.get("summary"), dict)
+        and _has_text(taxonomy["summary"], ("text", "analysis", "overview"))
+        and isinstance(taxonomy.get("nodes"), list)
+        and taxonomy.get("nodes")
+    ):
+        errors.append("research routes")
+
+    timeline = sections.get("timeline_events", {})
+    if not isinstance(timeline, dict) or not (
+        isinstance(timeline.get("summary"), dict)
+        and _has_text(timeline["summary"], ("text", "analysis", "overview"))
+        and isinstance(timeline.get("events"), list)
+        and timeline.get("events")
+    ):
+        errors.append("historical progression")
+
+    claims = sections.get("claims")
+    if not isinstance(claims, list) or not claims:
+        errors.append("core findings")
+
+    comparison = sections.get("comparison_matrix", {})
+    debates = sections.get("debates", [])
+    comparison_rows = comparison.get("rows") if isinstance(comparison, dict) else None
+    if not ((isinstance(comparison_rows, list) and comparison_rows) or (isinstance(debates, list) and debates)):
+        errors.append("comparison/debates")
+
+    coverage = sections.get("coverage", {})
+    if not isinstance(coverage, dict) or not (
+        _clean_text(coverage.get("coverage_verdict"))
+        and _has_text(coverage, ("route_coverage_summary", "claim_coverage_summary", "timeline_coverage_summary"))
+    ):
+        errors.append("gaps/coverage")
+
+    external = sections.get("external_literature_analysis", {})
+    if not isinstance(external, dict) or not (
+        _clean_text(external.get("summary"))
+        and isinstance(external.get("themes"), list)
+        and external.get("themes")
+        and isinstance(external.get("suggested_additions"), list)
+    ):
+        errors.append("external literature/collection suggestion")
+    return errors
+
+
+def _validate_synthesis_report_depth(sections: dict) -> None:
+    report = sections.get("synthesis_report", {})
+    if not isinstance(report, dict):
+        raise ValueError("synthesis_report must be an object")
+    if not _clean_text(report.get("title")):
+        raise ValueError("synthesis_report.title is required")
+    body = _first_text(report, ("body", "markdown", "text", "report"))
+    paper_count = _statistics_paper_count(sections)
+    min_length = 400 if paper_count and paper_count < 5 else 800
+    if len(body) < min_length:
+        raise ValueError(
+            f"synthesis_report body must contain at least {min_length} characters of substantive continuous prose"
+        )
+    if paper_count >= 5 and _paragraph_count(body) < 3:
+        raise ValueError("synthesis_report body must contain multiple paragraphs for medium/large topics")
+    missing_dimensions = _report_dimension_errors(sections)
+    if missing_dimensions:
+        raise ValueError(
+            "synthesis_report source dimensions incomplete: "
+            + ", ".join(missing_dimensions)
+        )
+    source_chapters = report.get("source_section_chapters")
+    if not isinstance(source_chapters, dict):
+        raise ValueError("synthesis_report.source_section_chapters is required")
+    if source_chapters.get("research_routes") != "taxonomy.summary":
+        raise ValueError("synthesis_report.source_section_chapters.research_routes must be taxonomy.summary")
+    if source_chapters.get("historical_progression") != "timeline_events.summary":
+        raise ValueError("synthesis_report.source_section_chapters.historical_progression must be timeline_events.summary")
+
+
+def _validate_content_depth(sections: dict) -> None:
+    topic = sections.get("topic", {})
+    if isinstance(topic, dict):
+        if not _has_text(topic, ("discipline", "field", "research_field", "research_area")):
+            raise ValueError("topic requires discipline/research field metadata")
+        if not (isinstance(topic.get("scope_boundary"), dict) or _clean_text(topic.get("scope"))):
+            raise ValueError("topic requires scope_boundary or scope")
+
+    taxonomy = sections.get("taxonomy", {})
+    if isinstance(taxonomy, dict):
+        if not _clean_text(taxonomy.get("primary_axis") or taxonomy.get("axis")):
+            raise ValueError("taxonomy requires primary_axis")
+        summary = taxonomy.get("summary")
+        if not isinstance(summary, dict):
+            raise ValueError("taxonomy.summary is required")
+        if not _has_text(summary, ("text", "analysis", "overview")):
+            raise ValueError("taxonomy.summary requires text/analysis")
+        nodes = taxonomy.get("nodes")
+        if not isinstance(nodes, list) or not nodes:
+            raise ValueError("taxonomy.nodes requires at least one research route")
+        required_route_fields = {
+            "definition": ("definition", "route_definition", "description"),
+            "core_problem": ("core_problem", "problem", "target_problem"),
+            "mechanism": ("mechanism", "technical_mechanism", "core_mechanism"),
+            "representative_papers": ("representative_papers", "paper_refs", "evidence_refs"),
+            "strengths": ("strengths", "advantages"),
+            "limitations": ("limitations", "weaknesses"),
+            "maturity": ("maturity", "status", "development_stage"),
+        }
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_id = _first_text(node, ("id", "title", "label", "name")) or "(unknown)"
+            for field, aliases in required_route_fields.items():
+                if not _has_text(node, aliases):
+                    raise ValueError(f"taxonomy route {node_id} requires {field}")
+
+    for claim in sections.get("claims", []) if isinstance(sections.get("claims"), list) else []:
+        if not isinstance(claim, dict):
+            continue
+        claim_id = _first_text(claim, ("id", "text", "claim"))
+        if not _has_text(claim, ("analysis", "rationale", "argument", "explanation")):
+            raise ValueError(f"claim {claim_id} requires analysis/rationale")
+        if not _has_text(claim, ("limitations", "scope", "applicability")):
+            raise ValueError(f"claim {claim_id} requires limitations or scope")
+
+    timeline_section = sections.get("timeline_events")
+    if not isinstance(timeline_section, dict):
+        raise ValueError("timeline_events must be an object with summary and events")
+    timeline_summary = timeline_section.get("summary")
+    if not isinstance(timeline_summary, dict):
+        raise ValueError("timeline_events.summary is required")
+    if not _has_text(timeline_summary, ("text", "analysis", "overview")):
+        raise ValueError("timeline_events.summary requires text/analysis")
+    timeline_events = timeline_section.get("events")
+    if not isinstance(timeline_events, list) or not timeline_events:
+        raise ValueError("timeline_events.events requires at least one event")
+    for event in timeline_events:
+        if not isinstance(event, dict):
+            continue
+        event_id = _first_text(event, ("id", "label", "title"))
+        if not _has_text(event, ("description", "analysis", "why_it_matters")):
+            raise ValueError(f"timeline {event_id} requires description/analysis")
+        if not _has_text(event, ("phase", "stage", "progression_logic", "follow_on_effect")):
+            raise ValueError(f"timeline {event_id} requires phase or progression logic")
+
+    external = sections.get("external_literature_analysis", {})
+    if isinstance(external, dict):
+        if not isinstance(external.get("themes"), list) or not external.get("themes"):
+            raise ValueError("external_literature_analysis themes are required")
+        if not isinstance(external.get("representative_references"), list):
+            raise ValueError("external_literature_analysis representative_references are required")
+        if not _has_text(external, ("coverage_verdict", "coverage_judgment")):
+            raise ValueError("external_literature_analysis coverage_verdict is required")
+        if not isinstance(external.get("suggested_additions"), list):
+            raise ValueError("external_literature_analysis suggested_additions are required")
+
+    statistics = sections.get("statistics", {})
+    if not isinstance(statistics, dict):
+        raise ValueError("statistics must be an object")
+    for key in ("paper_count", "time_span", "route_coverage", "coverage_verdict"):
+        if key not in statistics:
+            raise ValueError(f"statistics.{key} is required")
+
+    report = sections.get("synthesis_report", {})
+    if not isinstance(report, dict):
+        raise ValueError("synthesis_report must be an object")
+    _validate_synthesis_report_depth(sections)
+
+
 def validate_topic_section_contract(
     conn: sqlite3.Connection,
     sections: dict,
@@ -1529,6 +2047,7 @@ def validate_topic_section_contract(
             raise ValueError("missing_required_sections: " + ", ".join(missing))
         if not _evidence_map_candidate_ids(conn):
             raise ValueError("cross_paper_evidence_map must be validated before final sections")
+        _validate_content_depth(sections)
 
     paper_evidence = sections.get("paper_evidence", [])
     if "paper_evidence" in sections or require_complete:
@@ -1550,7 +2069,7 @@ def validate_topic_section_contract(
     def validate_refs(section_name: str, label: str) -> None:
         if section_name not in sections and not require_complete:
             return
-        rows = sections.get(section_name, [])
+        rows = _timeline_events_rows(sections) if section_name == "timeline_events" else sections.get(section_name, [])
         if not isinstance(rows, list):
             raise ValueError(f"{section_name} section must be an array")
         for row in rows:
@@ -1581,7 +2100,15 @@ def validate_topic_section_contract(
             raise ValueError("external_literature_analysis summary is required")
 
     known_candidates = _evidence_map_candidate_ids(conn)
-    if known_candidates:
+    final_candidates = _section_evidence_map_ids(sections)
+    if require_complete or known_candidates or final_candidates:
+        if require_complete and not final_candidates:
+            raise ValueError("evidence_map.candidate_ids is required for final evidence_map_refs validation")
+        if known_candidates and not known_candidates.issubset(final_candidates):
+            missing_ids = sorted(known_candidates - final_candidates)
+            raise ValueError("evidence_map.candidate_ids missing validated candidates: " + ", ".join(missing_ids))
+        if not final_candidates:
+            final_candidates = known_candidates
         evidence_map_section = sections.get("evidence_map", {})
         if isinstance(evidence_map_section, dict):
             section_ids = {
@@ -1589,19 +2116,20 @@ def validate_topic_section_contract(
                 for value in evidence_map_section.get("candidate_ids", [])
                 if _clean_text(value)
             } if isinstance(evidence_map_section.get("candidate_ids"), list) else set()
-            if section_ids and not known_candidates.issubset(section_ids):
+            if section_ids and known_candidates and not known_candidates.issubset(section_ids):
                 missing_ids = sorted(known_candidates - section_ids)
                 raise ValueError("evidence_map.candidate_ids missing validated candidates: " + ", ".join(missing_ids))
-        _validate_evidence_map_refs("claims", sections.get("claims", []), known_candidates)
-        _validate_nested_evidence_map_refs("taxonomy", sections.get("taxonomy", {}), known_candidates)
-        _validate_nested_evidence_map_refs("comparison_matrix", sections.get("comparison_matrix", {}), known_candidates)
-        _validate_evidence_map_refs("debates", sections.get("debates", []), known_candidates)
-        _validate_evidence_map_refs("gaps", sections.get("gaps", []), known_candidates)
-        _validate_nested_evidence_map_refs("review_outline", sections.get("review_outline", {}), known_candidates)
+        _validate_evidence_map_refs("claims", sections.get("claims", []), final_candidates)
+        _validate_evidence_map_refs("timeline_events", _timeline_events_rows(sections), final_candidates)
+        _validate_nested_evidence_map_refs("taxonomy", sections.get("taxonomy", {}), final_candidates)
+        _validate_nested_evidence_map_refs("comparison_matrix", sections.get("comparison_matrix", {}), final_candidates)
+        _validate_evidence_map_refs("debates", sections.get("debates", []), final_candidates)
+        _validate_evidence_map_refs("gaps", sections.get("gaps", []), final_candidates)
+        _validate_nested_evidence_map_refs("review_outline", sections.get("review_outline", {}), final_candidates)
     for gap in sections.get("gaps", []) if isinstance(sections.get("gaps"), list) else []:
         if isinstance(gap, dict) and _clean_text(gap.get("gap_type")) not in GAP_TYPES:
             raise ValueError(f"gaps {_clean_text(gap.get('id'))} requires a valid gap_type")
-    for event in sections.get("timeline_events", []) if isinstance(sections.get("timeline_events"), list) else []:
+    for event in _timeline_events_rows(sections):
         if isinstance(event, dict) and _clean_text(event.get("year")).lower() == "unknown" and _clean_text(event.get("time_basis")) != "inferred_phase":
             raise ValueError(f"timeline {_clean_text(event.get('id'))} with unknown year must use time_basis=inferred_phase")
 
@@ -2003,7 +2531,7 @@ def register_section_output(
     path: str,
     hash_value: str,
     content_type: str = "json",
-    stage: str = "stage_6_render_and_validate",
+    stage: str = "stage_10_render_and_validate",
 ) -> None:
     conn.execute(
         """

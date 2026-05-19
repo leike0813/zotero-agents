@@ -2253,6 +2253,9 @@ export async function setAcpConversationModel(args: {
     return;
   }
   const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  if (slot.snapshot.busy === true) {
+    throw new Error("Cannot change ACP model while a prompt is running.");
+  }
   const rawModelId = resolveRawModelIdForSelection(
     slot.snapshot,
     modelId,
@@ -2273,6 +2276,9 @@ export async function setAcpConversationReasoningEffort(args: {
     return;
   }
   const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  if (slot.snapshot.busy === true) {
+    throw new Error("Cannot change ACP reasoning effort while a prompt is running.");
+  }
   const displayModelId =
     String(slot.snapshot.currentDisplayModel?.id || "").trim() ||
     String(slot.snapshot.currentModel?.id || "").trim();

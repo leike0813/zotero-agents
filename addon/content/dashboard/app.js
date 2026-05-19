@@ -52,6 +52,14 @@
     return node;
   }
 
+  function labelText(labels, key, fallback) {
+    const text = String((labels && labels[key]) || "").trim();
+    if (text && !/^task-dashboard-[a-z0-9-]+$/i.test(text)) {
+      return text;
+    }
+    return fallback;
+  }
+
   function formatTime(value) {
     const text = String(value || "").trim();
     if (!text) {
@@ -351,6 +359,32 @@
         }
         bubble.appendChild(title);
         const actions = el("div", "workflow-bubble-actions");
+        const runButton = el(
+          "button",
+          "btn workflow-bubble-btn workflow-bubble-run-btn",
+          "",
+        );
+        const runLabel = labels.homeWorkflowRunButton || "Run workflow";
+        const runDisabledReason = workflow.quickRunDisabledReason || "";
+        runButton.setAttribute(
+          "title",
+          workflow.quickRunEnabled === true
+            ? runLabel
+            : runDisabledReason || runLabel,
+        );
+        runButton.setAttribute("aria-label", runLabel);
+        runButton.disabled = workflow.quickRunEnabled !== true;
+        const runIcon = el("span", "workflow-bubble-icon workflow-bubble-icon-run");
+        runButton.appendChild(runIcon);
+        runButton.addEventListener("click", function () {
+          if (runButton.disabled) {
+            return;
+          }
+          sendAction("run-home-workflow", {
+            workflowId: workflow.workflowId || "",
+          });
+        });
+        actions.appendChild(runButton);
         const docButton = el(
           "button",
           "btn workflow-bubble-btn",
@@ -872,9 +906,24 @@
       ? args.values[args.entry.key]
       : args.entry.defaultValue;
     let control;
+    let controlNode;
     const enumValues = Array.isArray(args.entry.enumValues)
       ? args.entry.enumValues
       : [];
+    const structuredOptions = Array.isArray(args.entry.options)
+      ? args.entry.options
+          .filter(function (entry) { return entry && typeof entry === "object"; })
+          .map(function (entry) {
+            return {
+              value: String(entry.value == null ? "" : entry.value),
+              label: String(entry.label || entry.value || ""),
+              description: String(entry.description || ""),
+            };
+          })
+      : [];
+    const optionEntries = structuredOptions.length > 0
+      ? structuredOptions
+      : enumValues.map(function(val) { return { value: String(val), label: String(val) }; });
     if (args.entry.type === "boolean") {
       const line = el("label", "workflow-settings-field-checkbox");
       const checkbox = document.createElement("input");
@@ -893,10 +942,9 @@
       row.appendChild(line);
       return row;
     }
-    if (enumValues.length > 0 && args.entry.allowCustom !== true) {
-      const options = enumValues.map(function(val) { return { value: String(val), label: String(val) }; });
-      const currentValueStr = String(currentValue == null ? enumValues[0] || "" : currentValue);
-      const customSelect = window.createCustomSelect(options, currentValueStr, function (newValue) {
+    if (optionEntries.length > 0 && args.entry.allowCustom !== true) {
+      const currentValueStr = String(currentValue == null ? optionEntries[0].value || "" : currentValue);
+      const customSelect = window.createCustomSelect(optionEntries, currentValueStr, function (newValue) {
         args.values[args.entry.key] = newValue;
         args.onChange({
           changedKey: args.entry.key,
@@ -904,6 +952,30 @@
       });
       control = customSelect.element;
       control.classList.add("workflow-settings-field-control");
+    } else if (optionEntries.length > 0 && args.entry.allowCustom === true) {
+      const combo = document.createElement("div");
+      combo.className = "workflow-settings-field-combo";
+      combo.style.display = "flex";
+      combo.style.gap = "8px";
+      combo.style.alignItems = "center";
+      const currentValueStr = String(currentValue == null ? "" : currentValue);
+      const customSelect = window.createCustomSelect(optionEntries, currentValueStr, function (newValue) {
+        control.value = String(newValue == null ? "" : newValue);
+        args.values[args.entry.key] = control.value;
+        args.onChange({
+          changedKey: args.entry.key,
+        });
+      });
+      customSelect.element.classList.add("workflow-settings-field-control");
+      customSelect.element.style.flex = "1 1 55%";
+      combo.appendChild(customSelect.element);
+      control = document.createElement("input");
+      control.type = "text";
+      control.value = currentValueStr;
+      control.className = "workflow-settings-field-control";
+      control.style.flex = "1 1 45%";
+      combo.appendChild(control);
+      controlNode = combo;
     } else {
       control = document.createElement("input");
       control.type = "text";
@@ -981,7 +1053,7 @@
     control.addEventListener("blur", function () {
       commitControlValue(true);
     });
-    row.appendChild(control);
+    row.appendChild(controlNode || control);
     return row;
   }
 
@@ -1217,10 +1289,10 @@
     return wrap;
   }
 
-  function renderProductPreview(preview) {
+  function renderProductPreview(preview, labels) {
     const wrap = el("div", "product-preview");
     if (!preview) {
-      wrap.appendChild(el("div", "empty", "Select a file to preview."));
+      wrap.appendChild(el("div", "empty", labelText(labels, "productsSelectFile", "Select a file to preview.")));
       return wrap;
     }
     const meta = el("div", "product-preview-meta");
@@ -1231,7 +1303,7 @@
     ].filter(Boolean).join(" · ");
     wrap.appendChild(meta);
     if (!preview.previewable) {
-      wrap.appendChild(el("div", "empty", preview.error || "Preview unavailable."));
+      wrap.appendChild(el("div", "empty", preview.error || labelText(labels, "productsPreviewUnavailable", "Preview unavailable.")));
       return wrap;
     }
     if (preview.kind === "markdown") {
@@ -1254,16 +1326,16 @@
     const products = Array.isArray(view.products) ? view.products : [];
     const selected = view.selectedProduct;
     const toolbar = el("div", "toolbar");
-    toolbar.appendChild(el("h2", "page-title", labels.tabProducts || "Products"));
+    toolbar.appendChild(el("h2", "page-title", labelText(labels, "tabProducts", "Products")));
     if (selected) {
       const actions = el("div", "toolbar-actions");
-      const openFolder = el("button", "btn", labels.productsOpenWorkspace || "Open Folder");
+      const openFolder = el("button", "btn", labelText(labels, "productsOpenWorkspace", "Open Folder"));
       openFolder.addEventListener("click", function () {
         sendAction("open-product-folder", { productId: selected.productId });
       });
       actions.appendChild(openFolder);
       if (selected.requestId && selected.backendId) {
-        const openRun = el("button", "btn", labels.productsOpenRun || "Open Run");
+        const openRun = el("button", "btn", labelText(labels, "productsOpenRun", "Open Run"));
         openRun.addEventListener("click", function () {
           sendAction("open-run", {
             backendId: selected.backendId,
@@ -1272,7 +1344,7 @@
         });
         actions.appendChild(openRun);
       }
-      const remove = el("button", "btn danger", labels.productsRemove || "Remove");
+      const remove = el("button", "btn danger", labelText(labels, "productsRemove", "Remove"));
       remove.addEventListener("click", function () {
         sendAction("remove-product", { productId: selected.productId });
       });
@@ -1281,7 +1353,7 @@
     }
     main.appendChild(toolbar);
     if (products.length === 0) {
-      main.appendChild(el("div", "empty", labels.productsEmpty || "No workflow products have been registered yet."));
+      main.appendChild(el("div", "empty", labelText(labels, "productsEmpty", "No workflow products have been registered yet.")));
       return;
     }
     const layout = el("div", "products-layout");
@@ -1316,7 +1388,7 @@
       detail.appendChild(meta);
       const body = el("div", "product-detail-body");
       body.appendChild(renderProductFileTree(selected, view.selectedAssetId));
-      body.appendChild(renderProductPreview(view.selectedPreview));
+      body.appendChild(renderProductPreview(view.selectedPreview, labels));
       detail.appendChild(body);
     }
     layout.appendChild(detail);

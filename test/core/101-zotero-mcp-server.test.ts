@@ -27,6 +27,7 @@ import {
   ZOTERO_MCP_TOOL_GET_NOTE_DETAIL,
   ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
   ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS,
+  ZOTERO_MCP_TOOL_INGEST_PAPERS,
   ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
   ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
   ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
@@ -383,6 +384,7 @@ describe("embedded Zotero MCP server protocol", function () {
       "update_note",
       ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
       ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
+      ZOTERO_MCP_TOOL_INGEST_PAPERS,
       "add_items_to_collection",
       "remove_items_from_collection",
     ]);
@@ -419,6 +421,12 @@ describe("embedded Zotero MCP server protocol", function () {
         tool.name === ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,
     );
     assert.deepEqual(createMarkdownNote.inputSchema.required, ["title", "markdown"]);
+    const ingestPapers = (response as any).result.tools.find(
+      (tool: { name: string }) => tool.name === ZOTERO_MCP_TOOL_INGEST_PAPERS,
+    );
+    assert.deepEqual(ingestPapers.inputSchema.required, ["papers"]);
+    assert.include(ingestPapers.description, "Permission-gated");
+    assert.include(ingestPapers.description, "best-effort");
   });
 
   it("accepts MCP initialized notification without returning an error", async function () {
@@ -1530,6 +1538,158 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include(text, "permission=approved");
     assert.include(text, "executed=true");
     assert.include(text, "Verify:");
+  });
+
+  it("ingests papers with duplicate detection and best-effort PDF attachment", async function () {
+    const doi = "10.5555/zs.mcp.ingest.001";
+    const first = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-first",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
+          arguments: {
+            papers: [
+              {
+                title: "Zotero Skills MCP Ingest Paper",
+                authors: ["Ada Lovelace", "Grace Hopper"],
+                year: 2026,
+                doi,
+                landingUrl: "https://example.test/papers/zs-mcp-ingest",
+                pdfUrl: "https://example.test/papers/zs-mcp-ingest.pdf",
+                venue: "Journal of Agentic Libraries",
+              },
+            ],
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const firstIngest = (first as any).result.structuredContent.execution.result.ingest;
+    assert.isTrue((first as any).result.structuredContent.executed);
+    assert.strictEqual(firstIngest.created, 1);
+    assert.strictEqual(firstIngest.existing, 0);
+    assert.strictEqual(firstIngest.failed, 0);
+    assert.strictEqual(firstIngest.pdfAttached, 1);
+    assert.strictEqual(firstIngest.results[0].attachmentStatus, "attached");
+    assert.strictEqual(firstIngest.results[0].item.title, "Zotero Skills MCP Ingest Paper");
+
+    const duplicate = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-duplicate",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
+          arguments: {
+            papers: [
+              {
+                title: "Zotero Skills MCP Ingest Paper",
+                doi,
+              },
+            ],
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const duplicateIngest = (duplicate as any).result.structuredContent.execution.result.ingest;
+    assert.strictEqual(duplicateIngest.created, 0);
+    assert.strictEqual(duplicateIngest.existing, 1);
+    assert.strictEqual(duplicateIngest.failed, 0);
+    assert.strictEqual(duplicateIngest.pdfSkipped, 1);
+  });
+
+  it("keeps paper ingest successful when PDF attachment import fails", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-pdf-fail",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
+          arguments: {
+            papers: [
+              {
+                title: "Zotero Skills MCP Ingest PDF Failure",
+                doi: "10.5555/zs.mcp.ingest.002",
+                pdfUrl: "https://example.test/fail?paper=zs-mcp-ingest",
+              },
+            ],
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const ingest = (response as any).result.structuredContent.execution.result.ingest;
+    assert.strictEqual(ingest.created, 1);
+    assert.strictEqual(ingest.failed, 0);
+    assert.strictEqual(ingest.pdfFailed, 1);
+    assert.strictEqual(ingest.results[0].status, "created");
+    assert.strictEqual(ingest.results[0].attachmentStatus, "failed");
+    assert.strictEqual(ingest.results[0].error.code, "pdf_attachment_failed");
+  });
+
+  it("does not execute paper ingest when permission is denied", async function () {
+    let executeCalls = 0;
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-denied",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
+          arguments: {
+            papers: [
+              {
+                title: "Denied Paper Ingest",
+                doi: "10.5555/zs.mcp.ingest.denied",
+              },
+            ],
+          },
+        },
+      },
+      {
+        resolveHostApi: () =>
+          ({
+            mutations: {
+              preview: async (mutation: any) => ({
+                ok: true,
+                operation: mutation.operation,
+                targetRefs: [],
+                summary: "Ingest 1 paper.",
+                warnings: [],
+                requiresConfirmation: true,
+              }),
+              execute: async () => {
+                executeCalls += 1;
+                throw new Error("should not execute");
+              },
+            },
+          }) as any,
+        requestToolPermission: () => ({
+          outcome: "denied",
+          reason: "test denial",
+        }),
+      },
+    );
+
+    assert.strictEqual(executeCalls, 0);
+    assert.isFalse((response as any).result.structuredContent.executed);
+    assert.strictEqual(
+      (response as any).result.structuredContent.permission.outcome,
+      "denied",
+    );
   });
 
   it("creates markdown-backed notes through permission-gated mutation flow", async function () {

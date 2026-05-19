@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.topic_context_payload",
+  "type": "object",
+  "required": ["topic_definition"],
+  "properties": {
+    "operation": { "type": "string" },
+    "language": { "type": "string" },
+    "topic_seed": { "type": "string" },
+    "topic_id": { "type": "string" },
+    "topic_definition": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "duplicate_check": { "type": "object" },
+    "current_context": { "type": "object" },
+    "base_hashes": { "type": "object" },
+    "read_section_hashes": { "type": "object" },
+    "recommended_update": { "type": "object" }
+  },
+  "additionalProperties": true
+}

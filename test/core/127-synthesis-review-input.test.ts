@@ -83,7 +83,10 @@ describe("Synthesis review input workflow DTO", function () {
           artifact: {
             schema_id: "synthesis.topic_synthesis_artifact",
             claims: [{ id: "claim-1", text: "Alpha claim", evidence_refs: ["ev-a"] }],
-            timeline_events: [{ id: "event-1", year: "2024", evidence_refs: ["ev-a"] }],
+            timeline_events: {
+              summary: { text: "Alpha timeline summary." },
+              events: [{ id: "event-1", year: "2024", evidence_refs: ["ev-a"] }],
+            },
             paper_evidence: [
               {
                 id: "ev-a",
@@ -148,7 +151,7 @@ describe("Synthesis review input workflow DTO", function () {
       ["claim-1"],
     );
     assert.deepEqual(
-      input.structured_topic?.timeline_events.map((event: any) => event.id),
+      (input.structured_topic?.timeline_events as any).events.map((event: any) => event.id),
       ["event-1"],
     );
     assert.deepEqual(

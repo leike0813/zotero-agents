@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --asst-context-drawer-width: min(380px, 92vw);
   --asst-details-drawer-width: min(520px, 94vw);
 }

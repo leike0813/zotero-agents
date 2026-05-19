@@ -3,6 +3,7 @@ import { isSkillRunnerProviderScopedEngine } from "../providers/skillrunner/mode
 import type { ProviderRuntimeOptionSchemaEntry } from "../providers/types";
 import type { BackendInstance } from "../backends/types";
 import type { WorkflowParameterSchema } from "../workflows/types";
+import type { WorkflowParameterOption } from "../workflows/types";
 import type {
   WorkflowExecutionOptions,
   WorkflowSettingsDialogInitialState,
@@ -16,6 +17,7 @@ export type FormSchemaEntry = {
   title?: string;
   description?: string;
   enumValues?: string[];
+  options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
   disabled?: boolean;

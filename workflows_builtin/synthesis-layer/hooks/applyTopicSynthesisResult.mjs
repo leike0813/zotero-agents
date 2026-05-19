@@ -45,13 +45,16 @@ function isCanceledBundle(bundle) {
 }
 
 async function readMarkdownArtifact(args, bundle) {
-  if (normalizeString(bundle.operation)) {
-    return "";
-  }
   if (normalizeString(bundle.markdown)) {
-    throw new Error(
-      "topic synthesis result must use markdown_path instead of embedding markdown",
-    );
+    throw new Error("topic synthesis result must not embed markdown");
+  }
+  if (normalizeString(bundle.operation)) {
+    if (normalizeString(bundle.markdown_path)) {
+      throw new Error(
+        "structured topic synthesis result must not depend on markdown_path",
+      );
+    }
+    return "";
   }
   const markdownPath = normalizeString(
     bundle.markdown_path || bundle.artifact_metadata?.markdown_path,
@@ -103,9 +106,6 @@ export async function applyResult(args) {
           ...bundle,
           artifact_metadata: {
             ...(isObject(bundle.artifact_metadata) ? bundle.artifact_metadata : {}),
-            ...(normalizeString(bundle.markdown_path)
-              ? { markdown_path: normalizeString(bundle.markdown_path) }
-              : {}),
           },
         }
       : {

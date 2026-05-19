@@ -1,199 +1,523 @@
 ---
 name: update-topic-synthesis
-description: Update an existing structured Zotero topic_synthesis artifact using filtered Zotero Synthesis MCP inputs and gated runtime validation.
+description: Update a structured Zotero topic_synthesis artifact using Zotero Synthesis MCP tools, package-local SQLite gate scripts, and schema-validated JSON stage artifacts.
 ---
 
 # update-topic-synthesis
 
-你是 Zotero Skills 的 Topic Synthesis 更新代理。你只在当前 ACP run workspace
-内写结果文件，不写 Zotero 条目、canonical assets、anchor 或 note shards。
+本 skill 运行于 ACP 后台自动化场景。Host 已完成 MCP availability check 和
+callable smoke；不要自行搜索 MCP 配置、读取本机设置文件或测试 tool 注入状态。
+stdout 只能输出一个 JSON 对象。
 
-机器字段名、schema key、payload type、artifact path、command name 和最终 JSON
-字段必须保持英文。自然语言正文按 `language` 输出；如果 `language` 缺失或为
-`auto`，默认沿用 current topic language。
+Host 会在正式执行前完成 MCP availability check 和 callable smoke。
 
-## 输入契约
+## 产品目标与质量标准
 
+Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Introduction /
+Related Work 等写作 workflow 的上游证据材料。它不是字段填空，也不是论文摘要拼接。
+update 的目标是在保持 current topic
+结构一致性的前提下，补强或修正 topic 的概念边界、研究路线、历史沿革、主要结论、争议、
+缺口、库内覆盖状态、库外补充方向和综述写作角度。
+
+最低质量目标：
+
+- 用户读完 `summary`、`taxonomy`、`timeline_events`、`claims`、`external_literature_analysis`、
+  `statistics` 和 `synthesis_report` 后，应能说清这个 topic 属于哪个学科/研究领域、
+  核心问题是什么、主要技术路线如何分化、关键论文如何推动演进。
+- `taxonomy` 是研究路线分析，不是标签表；必须解释每条路线解决什么问题、采用什么机制、
+  有哪些代表论文、路线之间是什么关系。
+- `timeline_events` 是历史递进逻辑，不是年份列表；必须说明里程碑论文、阶段转折、
+  前后工作的延续/修正/融合关系。
+- `claims` 是 synthesis-level finding，不是单篇论文结论；每条 claim 都要说明成立原因、
+  证据范围、适用边界和置信度。
+- `external_literature_analysis` 要判断库外概念/方法/综述/benchmark 与 topic 的关系、
+  当前库内覆盖档位，以及下一步建议入库文献。
+- `statistics` 要解释 synthesis 可靠性和覆盖结构，而不只是列数字。
+- `synthesis_report` 要把结构化 sections 串成连续报告正文，可直接作为用户理解 topic
+  和撰写综述时的高密度材料。
+
+内容生成原则：
+
+- 先理解 topic，再写字段；字段服务于“理解 topic”和“支持综述写作”。
+- 单篇分析只抽取事实，跨文献阶段才综合；跨文献综合必须回到已校验 paper units 和 evidence map。
+- 库内 paper evidence 支撑主 claim/timeline；库外/外部文献用于背景、覆盖判断和入库建议。
+- coverage/gaps 要区分领域真实空白、库内覆盖不足、artifact 证据不足和评价口径缺口。
+- patch 更新也必须维持被替换 section 的内容深度，不能只做局部短句替换。
+- 语言要信息密集、可追溯、具体到技术路线/评价场景/方法机制/证据范围。
+
+## 核心执行指令
+
+这部分是 gate 返回的 `core_instruction` 的完整等价内容。它只保留跨阶段都必须反复遵守的规则。
+
+1. 先读 `SKILL.md`，不要预读整个 `references/` 目录。
+2. 首次进入和每次正式写入/校验 JSON 工件后，都必须重新运行 `scripts/gate_runtime.py`。
+3. 每一步看 gate，只执行 gate 返回的动作。
+4. 只执行 gate 返回的 `next_action`，不得跳 stage。
+5. 同时遵守 gate 返回的 `next_action`、`command_example`、`instruction_refs`、`schema_refs`、`core_instruction` 和 `execution_note`。
+6. SQLite 只保存流程状态、action receipt、manifest、hash、progress 和 artifact_registry；语义内容真源是 run workspace 中的 JSON 工件。
+7. 所有语义判断结果必须先整理为结构化 JSON，再通过 `scripts/stage_runtime.py <next_action>` 校验、登记和推进。
+   需要写入 payload 的动作都必须使用 `--payload-file`。
+8. 不要直接写 SQLite 表来伪造阶段完成；阶段推进必须由对应脚本动作成功写入 receipt。
+9. `update_patch` 只能写入 changed sections；重大 schema/language/resolver/paper set 变化必须转为 `update_full`。
+10. 最终 assistant 输出必须是 `result/result.json` 的 JSON 对象，不得追加解释、Markdown fence 或嵌入 markdown。
+
+成功态 stdout JSON 示例：
+
+```json
+{
+  "__SKILL_DONE__": true,
+  "kind": "topic_synthesis",
+  "operation": "update_patch",
+  "topic_id": "object-detection",
+  "language": "zh-CN",
+  "base_hashes": {
+    "manifest": "sha256:...",
+    "artifact": "sha256:...",
+    "export": "sha256:...",
+    "metadata": "sha256:...",
+    "index": "sha256:..."
+  },
+  "read_section_hashes": {
+    "claims": "sha256:..."
+  },
+  "topic_definition": {
+    "id": "object-detection",
+    "title": "Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": {
+    "final_count": 21,
+    "warnings": []
+  },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.patch.json"
+}
+```
+
+取消态 stdout JSON 示例：
+
+```json
+{
+  "__SKILL_DONE__": true,
+  "kind": "topic_synthesis_canceled",
+  "status": "canceled",
+  "reason": "required_mcp_tool_unavailable",
+  "message": "Required Zotero Synthesis MCP tool is unavailable.",
+  "topic_id": "object-detection"
+}
+```
+
+## 输入输出硬契约
+
+- 输入只读取 prompt payload 中的 `topicId`、`updateScope`、`updateMode`、`updateReason` 与 `language`。
 - `topicId` 是要更新的 topic。
 - `updateScope`、`updateMode`、`updateReason` 用于约束更新范围和原因。
-- `language` 控制自然语言输出。
-
-## 输出契约
-
-最终只输出 `result/result.json` 中的 JSON object，不追加解释。不得内嵌 `markdown`。
-`update_full` 生成 `result/topic-analysis.json`、preview/export
-和 result；`update_patch` 是 section_patch，生成
-`result/topic-analysis.patch.json` 和 result，
-并包含 `read_section_hashes`，不得包含 `markdown_path`。
+- `language` 控制自然语言输出；缺失或为 `auto` 时沿用 current topic language。
+- 必须先调用 `synthesis.get_topic_context({ topicId, mode: "update", includeArtifact: true, includeManifest: true })`。
+- `get_topic_context` 返回的 current hashes、section hashes、recommended_update、current artifact/manifest 是 update 的 base truth。
+- update 成功只输出 `result/result.json` 中的 JSON 对象。
+- `update_full` 成功必须生成：
+  - `result/topic-analysis.json`
+  - `result/result.json`
+  - `result/sections/*.json`
+  - `runtime/payloads/*.json`
+  - `runtime/views/*.md` / `runtime/views/*.json`
+- `update_patch` 成功必须生成：
+  - `result/topic-analysis.patch.json`
+  - `result/result.json`
+  - changed `result/sections/*.json`
+  - `read_section_hashes`
+- `update_patch` 是 section_patch 合同，只能替换 changed sections。
+- 最终 JSON 不得内嵌 `markdown`。
+- 最终 JSON 不包含正文 Markdown、agent-authored hash、canonical asset path、Zotero note shard 或 anchor。
+- Host apply 负责 canonical persistence 与导出渲染。
 
 ## MCP 服务依赖
 
-Host 会在正式执行前完成 MCP availability check 和 callable smoke。不要自行搜索
-MCP 配置、读取本机设置文件、猜测 tool 注入状态，或为了确认环境而额外测试工具。
-MCP 服务提供以下必需工具；若缺失则按 `mcp_unavailable` /
-`required_mcp_tool_unavailable` 取消。
-
 必需 MCP tools：
 
-- `synthesis.get_topic_context`：读取 current metadata、current artifact/manifest、
-  section hashes、resolver、resolved paper set、freshness diagnostics 和
-  `recommended_update`。必须传 `topicId`、`mode: "update"`、
-  `includeArtifact: true`、`includeManifest: true`。
-- `synthesis.resolve_resolver`：resolver 或 paper set 需要重新验证时使用。
-- `synthesis.get_citation_graph_metrics`：按当前 update paper workset 获取库内论文
-  图指标。这些指标只用于排序、role hints、coverage/gaps 和 external-heavy
-  诊断，不得作为 claim/timeline 证据，也不得改变 resolved paper set。
-- `synthesis.export_filtered_paper_artifacts`：Stage 4 主路径。host 解码并过滤
-  digest、references、citation-analysis，只写
-  `runtime/payloads/paper-artifacts-manifest.json` 和
-  `runtime/payloads/artifacts/<safe-ref>/*`。这是 bounded MCP artifact probe；
-  关注 `digest-markdown`、`references-json`、`citation-analysis-json`。
+- `synthesis.get_topic_context`
+- `synthesis.resolve_resolver`
+- `synthesis.get_citation_graph_metrics`
+- `synthesis.export_filtered_paper_artifacts`
 
 正式执行中如果必需 MCP tool 返回 unavailable/no such tool，立即输出合法
-`topic_synthesis_canceled`，不要排查环境。
-
-## 包内脚本调用
-
-本 skill 没有独立 CLI，不要直接运行 `runtime_db.py`。所有状态变更都通过：
-
-```bash
-python scripts/gate_runtime.py --db "runtime/topic-synthesis.sqlite"
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action gate
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action cancel
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action validate_final_artifacts
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action validate_final_artifacts
-```
-
-每一步看 gate，只执行 gate 返回的 `next_action`、`command_example`、
-`required_reads` 和 `required_writes`。`references/paper_analysis_playbook.md`、
-`references/section_authoring_contract.md` 和
-`references/update_workflow_playbook.md` 是可选扩展材料，不是执行硬约束。
-需要 JSON payload 的动作必须使用 gate 给出的 `--payload-file`，不要绕过
-`scripts/stage_runtime.py` 或直接调用 `scripts/runtime_db.py`。
+`topic_synthesis_canceled`，不要排查环境。`synthesis.get_citation_graph_metrics`
+返回 missing/stale/empty 不是 blocker，但必须写入 diagnostics；metrics 只用于排序、
+role hints、coverage/gaps 和 external-heavy 诊断，不能替代 digest evidence。
+`synthesis.export_filtered_paper_artifacts` 是 bounded artifact probe，只导出
+`digest-markdown`、`references-json`、`citation-analysis-json` 的过滤结果到 run-local
+文件，不通过 MCP response 返回大正文。
 
 ## 运行时硬合同
 
-SQLite SSOT 位于 `runtime/topic-synthesis.sqlite`，只保存流程状态、receipt、
-轻量 manifest、registry 和 hash，不保存长正文。阶段状态包括
-`stage_0_bootstrap`、`stage_1_topic_intent`、`stage_2_resolver`、
-`stage_3_paper_workset`、`stage_4_per_paper_analysis`、
-`stage_5_cross_paper_synthesis`、`stage_6_render_and_validate`、
-`stage_7_completed`，状态值包括 `pending`、`running`、`completed`、
-`failed_retryable`、`failed_terminal`、`canceled`。
+本节也是 SQLite 运行时状态真源。
 
-`artifact_registry` 是最终产物真源之一。partial/unregistered output 不是合法输出。
-不要把过程状态放到 prompt memory，当 prompt memory 与 SQLite 冲突时，以 SQLite 为准。
+- 在调用任何 skill 脚本之前，先确认当前工作目录就是 ACP run workspace，不要 `cd` 到别处。
+- SQLite 路径固定为 `runtime/topic-synthesis.sqlite`。
+- `scripts/runtime_db.py` 没有独立 CLI，不要直接运行；所有状态变化通过 gate/stage runtime 完成。
+- 阶段状态只允许 `pending`、`running`、`completed`、`failed_retryable`、`failed_terminal`、`canceled`。
+- partial/unregistered output 不是合法输出。
+- SQLite 保存：
+  - runtime inputs
+  - stage states
+  - action receipts
+  - artifact_registry
+  - manifest/hash/progress metadata
+- SQLite 不保存：
+  - digest 正文
+  - references 原文
+  - citation report 正文
+  - taxonomy/claims/report 等语义正文
+- 语义内容以 JSON 文件为真源，由 stage runtime 校验 schema 后登记 hash。
+- 当 prompt memory 与 SQLite 或已登记 artifact 冲突时，以 SQLite/artifact registry 为准。
 
-## LLM 与脚本分工
+## 状态机与 Gate 纪律
 
-LLM 负责所有语义任务：
+状态机阶段固定为：
 
-- topic intent / update intent 解释
-- resolver 与 update mode 决策
-- per-paper semantic analysis
-- cross-paper evidence-map aggregation
-- cross-paper synthesis
-- external literature analysis
-- final section JSON 写作
+- `stage_0_runtime_setup`
+- `stage_1_topic_context`
+- `stage_2_resolver_and_workset`
+- `stage_3_graph_metrics`
+- `stage_4_evidence_collection`
+- `stage_5_paper_units`
+- `stage_6_cross_paper_map`
+- `stage_7_route_timeline`
+- `stage_8_core_sections`
+- `stage_9_external_statistics_report`
+- `stage_10_render_and_validate`
+- `stage_11_completed`
 
-脚本只负责 gate、SQLite 阶段状态、action receipt、metrics/manifest/path/hash 校验、
-cross-paper evidence index 机械生成、cross-paper evidence map schema 与引用闭环校验、
-cross-paper context 拼接、final section schema 校验、manifest/result bundle 生成
-和 artifact registry 登记。
+执行纪律：
 
-禁止创建脚本生成语义内容。禁止读取 raw/full artifact payload。禁止
-手写 `payload_hash`、`digest_locator`。禁止直接修改 SQLite。
-
-## 最小执行主路径
-
-每一步先运行：
+- 首次进入先运行：
 
 ```bash
 python scripts/gate_runtime.py --db "runtime/topic-synthesis.sqlite"
 ```
 
-只执行 gate 返回的 `next_action` 与 `command_example`。
+等价 gate 入口：
 
-1. `persist_topic_intent`
-   - LLM 调 `synthesis.get_topic_context`。
-   - 写 `runtime/payloads/topic-context.json`，必须包含
-     `topic_definition.id` 和 `topic_definition.title`；其中 `current_hashes`
-     是 `base_hashes` 真源。
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action gate
+```
 
-2. `persist_resolver`
-   - LLM 根据 `recommended_update`、resolver/paper set/language/schema 变化决定
-     `update_full` 或 `update_patch`。
-   - 必要时调用 `synthesis.resolve_resolver`。
-   - 写 `runtime/payloads/resolver.json`。
-   - 最终 stdout 只通过 `resolver_manifest_path` 引用该文件，不内嵌
-     `topic_resolver`、`resolution_result` 或 `resolved_paper_set`。
-   - runtime 自动派生 paper workset。
+取消入口：
 
-3. `persist_citation_graph_metrics`
-   - 按 gate 给出的 `paper_refs` 调
-     `synthesis.get_citation_graph_metrics({ paperRefs, sortBy: "foundation", limit })`。
-   - 写 `runtime/payloads/citation-graph-metrics-batch.json`，其中必须包含
-     `paper_refs` 和 MCP 返回的 metrics result。
-   - 运行 gate 返回的 persist 命令。
-   - metrics 缺失、stale 或 empty 不阻断流程，但必须进入 DB diagnostics；
-     metrics 只能作为辅助结构信号，不能替代 digest evidence。
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action cancel
+```
 
-4. `persist_filtered_artifact_manifest`
-   - 按 gate 给出的 `paper_refs` 批量调
-     `synthesis.export_filtered_paper_artifacts({ run_root, paper_refs })`。
-   - 运行 persist 命令读取 `runtime/payloads/paper-artifacts-manifest.json`。
-   - 缺 artifact 时不要补造内容，只按 manifest 诊断进入 per-paper analysis。
+- 每次正式写入/校验后都必须重新运行 gate。
+- gate 返回 blocker 或 repair 路径时，先修复当前 stage，不能跳到后续 stage。
+- 只有 gate 进入 repair 路径时才允许参考 SQL 诊断；正常主路径禁止手写 SQLite。
+- gate 返回的 `schema_refs` 是当前动作必须满足的 schema 列表。
 
-5. `persist_paper_analyses`
-   - LLM 读取 filtered artifact content files。
-   - LLM 写增强版 paper unit；这是唯一 paper-level extraction 步骤。
-   - 每行必须包含 `bibliographic`、`topic_relevance`、`research_problem`、
-     `method_contribution`、`evaluation_context`、`findings`、`limitations`、
-     `taxonomy_hints`、`timeline_candidates`、`claim_support_candidates`、
-     `comparison_facts`、`external_references`、`citation_contexts` 和
-     `missing_payloads`，并包含 `graph_metrics_interpretation` 说明 metrics
-     的 role hints、结构位置、合成用途和 caveat。
-   - `comparison_facts` 只能记录本 paper 自身事实，不得比较其他 paper。
-   - LLM 写 `runtime/payloads/paper-analyses-batch.json`。
-   - 不写 `digest_locator`，runtime 会注入。
-   - 脚本会生成 `runtime/views/cross-paper-evidence-index.json`。
+## LLM 与脚本职责边界
 
-6. `export_cross_paper_context`
-   - 脚本拼接：
-     - `runtime/views/cross-paper-context.md`
-     - `runtime/views/external-literature-context.md`
-     - `runtime/views/cross-paper-context.manifest.json`
-     - `runtime/views/cross-paper-evidence-index.json`
+必须由 LLM 完成：
 
-7. `draft_cross_paper_evidence_map`
-   - LLM 读取两个 context markdown、manifest 和 evidence index。
-   - 不重新逐篇抽取；只聚合 Stage 4 paper units。
-   - 可以用 citation graph metrics 决定组织顺序、core/foundation/frontier
-     叙述位置、isolated coverage caveat 和 external-heavy 诊断。
-   - 不得把 metrics row 作为 claim/timeline evidence。
-   - 写 `runtime/payloads/cross-paper-evidence-map.json`。
-   - evidence map 必须包含 taxonomy、comparison、claim、debate、gap、
-     review outline candidates，并引用 `pu:<paper-ref>` paper unit ids。
-   - 缺失事实写 `unknown`，不得把 library coverage gap 推断为 field-wide gap。
+- update intent 解释
+- recommended_update 判断与 update_full/update_patch 决策
+- resolver 复核或重建决策
+- per-paper semantic analysis
+- cross-paper evidence map 聚合
+- taxonomy / timeline 分析
+- claims / comparison / debates / gaps / review_outline 写作
+- external literature / coverage / statistics / synthesis_report 写作
+- final section JSON 写作
 
-8. `write_final_sections`
-   - LLM 读取 validated evidence map 和 context markdown。
-   - LLM 直接写完整 `result/sections/*.json`，包含：
-     `positioning`、`taxonomy`、`comparison_matrix`、`debates`、
-     `review_outline`、`evidence_map` 以及既有 sections。
-   - 每条 claim/taxonomy/comparison/debate/gap/review-outline row 必须引用
-     `evidence_map_refs`。
-   - `evidence_map` section 必须记录 evidence map 的 `path`、`hash`、
-     `candidate_counts` 和 `candidate_ids`，不得展开长正文。
-   - `update_patch` 只写 changed sections。
+必须由脚本完成：
 
-9. `validate_final_artifacts`
-   - 脚本校验 section files。
-   - `update_full` 生成 `result/topic-analysis.json`、preview/export 和 result。
-   - `update_patch` 生成 `result/topic-analysis.patch.json` 和 result，不生成
-     `markdown_path`。
+- gate 与状态推进
+- SQLite 初始化
+- action receipt
+- schema 校验
+- filtered artifact manifest 校验
+- content file path/hash 校验
+- digest locator 注入
+- evidence id / evidence map 引用闭环校验
+- cross-paper context 拼接
+- final manifest/result bundle 生成
 
-## 可选扩展
+绝对禁止：
 
-参考材料只用于补充写作质量和字段理解；硬约束以 `SKILL.md`、gate 输出和
-JSON schema 为准。
+- 用临时脚本生成语义分析或最终 sections。
+- 读取 raw/full artifact payload。
+- 手写 `payload_hash`、`digest_ref`、`digest_locator`。
+- digest_ref / digest_locator 由 runtime 会注入，LLM 不复制 hash。
+- 缺 artifact 不是 blocker，但必须记录 missing payload 与 coverage caveat。
+- 直接修改 SQLite。
+- 把外部文献或 citation graph metrics 作为主 claim/timeline evidence。
+- 不得把 metrics row 作为 claim/timeline evidence。
+
+## 参数词表
+
+Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md` 与 schema 为准。
+
+- `topicId`：要更新的 topic id。
+- `updateScope`：用户希望更新的范围。
+- `updateMode`：用户指定或 host 推荐的更新模式。
+- `updateReason`：触发更新的原因。
+- `language`：自然语言输出语言。
+- `run_root`：当前 ACP run workspace，脚本命令中使用 `.`。
+- `db`：`runtime/topic-synthesis.sqlite`。
+- `topic_context`：`synthesis.get_topic_context` 返回的 current topic 上下文。
+- `base_hashes`：current hashes，是 conflict 检测真源。
+- `read_section_hashes`：update_patch 读取过的 section hash。
+- `topic_definition`：包含 `id`、`title`、definition/scope 等 topic 定义。
+- `resolver`：可复现的 topic resolver。
+- `resolved_paper_set`：当前或重算后的库内论文集合。
+- `paper_workset`：runtime 从 resolved paper set 派生的库内论文处理集。
+- `citation_graph_metrics`：图指标 receipt；只做辅助排序和诊断。
+- `filtered_artifact_manifest`：host 导出的 filtered digest/references/citation-analysis 文件清单。
+- `paper_unit`：单篇论文语义分析 JSON 行。
+- `cross_paper_evidence_map`：跨文献候选证据图。
+- `evidence_map_refs`：最终 claims、timeline、taxonomy、comparison、debates、gaps 追溯到 evidence map candidate 的引用。
+- `taxonomy`：研究路线分析 section。
+- `timeline_events`：历史沿革分析 section，必须是 `{summary, events}`。
+- `result/sections/*.json`：最终 section 内容真源。
+- `analysis_manifest_path`：最终 topic-analysis manifest 或 patch manifest 路径。
+- `coverage_verdict`：覆盖判断，至少用于 external literature、coverage 和 statistics。
+
+## 最小执行主路径
+
+### 0. `confirm_runtime_setup`
+
+调用：
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action confirm_runtime_setup
+```
+
+或 patch 模式：
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action confirm_runtime_setup
+```
+
+作用：初始化 SQLite、固化 operation/language/run root，并进入 `stage_1_topic_context`。
+
+### 1. `persist_topic_context`
+
+调用 `synthesis.get_topic_context({ topicId, mode: "update", includeArtifact: true, includeManifest: true })`。写：
+
+```text
+runtime/payloads/topic-context.json
+```
+
+然后执行 gate 返回的 persist 命令。payload 必须包含 `topic_definition.id` 与
+`topic_definition.title`，并保存 `current_hashes`、`section_hashes`、`recommended_update`。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"
+```
+
+### 2. `persist_library_index_page` / `persist_resolver`
+
+根据 `recommended_update` 决定是否沿用 current resolver/paper set，或重新分页读取
+`synthesis.get_library_index` 并调用 `synthesis.resolve_resolver`。写：
+
+```text
+runtime/payloads/resolver.json
+```
+
+runtime 从 resolver result 派生 paper workset。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_library_index_page --payload-file "runtime/payloads/library-index-page-0.json"
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_resolver --payload-file "runtime/payloads/resolver.json"
+```
+
+### 3. `persist_citation_graph_metrics`
+
+按 gate 给出的 paper refs 调 `synthesis.get_citation_graph_metrics`，写：
+
+```text
+runtime/payloads/citation-graph-metrics-batch.json
+```
+
+metrics 缺失不阻断，但必须进入 diagnostics。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_citation_graph_metrics --payload-file "runtime/payloads/citation-graph-metrics-batch.json"
+```
+
+### 4. `persist_filtered_artifact_manifest`
+
+按 gate 给出的 paper refs 批量调用：
+
+```json
+{
+  "run_root": "<absolute current ACP run workspace>",
+  "paper_refs": ["1:ABC", "1:DEF"]
+}
+```
+
+MCP tool 写 filtered files；stage runtime 读取：
+
+```text
+runtime/payloads/paper-artifacts-manifest.json
+```
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_filtered_artifact_manifest --payload-file "runtime/payloads/paper-artifacts-manifest.json"
+```
+
+### 5. `persist_paper_units`
+
+LLM 读取 filtered content files，写：
+
+```text
+runtime/payloads/paper-units-batch.json
+```
+
+每个 paper unit 必须包含 bibliographic、topic_relevance、research_problem、
+method_contribution、evaluation_context、graph_metrics_interpretation、findings、
+limitations、taxonomy_hints、timeline_candidates、claim_support_candidates、
+comparison_facts、external_references、citation_contexts、missing_payloads。
+
+语义目标：为后续研究路线、timeline、claim、comparison、debate、gap 和 external analysis
+提供可组合证据。这里只做单篇事实抽取，不做跨论文优劣判断或领域总评。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_paper_units --payload-file "runtime/payloads/paper-units-batch.json"
+```
+
+### 6. `export_cross_paper_context` / `persist_cross_paper_evidence_map`
+
+脚本导出：
+
+```text
+runtime/views/cross-paper-context.md
+runtime/views/external-literature-context.md
+runtime/views/cross-paper-context.manifest.json
+runtime/views/cross-paper-evidence-index.json
+```
+
+LLM 写：
+
+```text
+runtime/payloads/cross-paper-evidence-map.json
+```
+
+语义目标：把已校验 paper units 聚合成 taxonomy/claim/debate/gap/review seeds。
+本阶段产出候选证据网络，不写最终 section 正文。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action export_cross_paper_context
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_cross_paper_evidence_map --payload-file "runtime/payloads/cross-paper-evidence-map.json"
+```
+
+### 7. `persist_route_timeline`
+
+读取 `references/step_06_taxonomy_timeline.md` 和已校验 evidence map，写：
+
+```text
+runtime/payloads/route-timeline-synthesis.json
+```
+
+payload 必须包含 `taxonomy` 与 `timeline_events`。
+
+语义目标：`taxonomy` 回答“有哪些实质研究路线以及路线之间如何分化/互补/融合”，
+`timeline_events` 回答“topic 如何按历史递进逻辑发展，哪些论文构成里程碑和转折点”。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_route_timeline --payload-file "runtime/payloads/route-timeline-synthesis.json"
+```
+
+### 8. `persist_core_sections`
+
+读取 `references/step_07_core_sections.md`，写：
+
+```text
+runtime/payloads/core-analytical-sections.json
+```
+
+payload 必须包含 positioning、claims、comparison_matrix、debates、gaps、review_outline。
+
+语义目标：把路线和历史分析转成可复用的核心综合结论。claims 说明 topic-level findings；
+comparison 解释路线/方法的关键差异；debates 解释评价口径或立场张力；gaps 区分真实研究空白
+和当前库内覆盖不足；review_outline 转化为写作骨架。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_core_sections --payload-file "runtime/payloads/core-analytical-sections.json"
+```
+
+### 9. `persist_external_statistics_report`
+
+读取 `references/step_08_external_statistics_report.md` 和所有已校验 stage artifacts，
+写 Stage 9 payload：
+
+```text
+runtime/payloads/external-statistics-report.json
+```
+
+payload 顶层必须是 `sections` object。Full update 时只包含 Stage 9 首次生成的
+`topic`、`summary`、`paper_evidence`、`external_literature_analysis`、`coverage`、
+`statistics`、`synthesis_report`、`evidence_map`、`source_artifacts`、`diagnostics`。
+Patch update 至少包含实际替换的 Stage 9 section。不要把前序已验证的
+`taxonomy`、`timeline_events`、`positioning`、`claims`、`comparison_matrix`、
+`debates`、`gaps`、`review_outline` 写入这个 payload；runtime 会保真合并 Stage 7/8
+已验证工件，并在 Stage 9 校验通过后物化 `result/sections/*.json`。
+其中 `synthesis_report` 必须是带 `title` 的连续报告正文，并覆盖 topic definition/scope、research routes、historical progression、core findings、comparison/debates、gaps/coverage、external literature/collection suggestion；深度在本 stage 首次校验。
+
+语义目标：external literature 判断库内覆盖相对 topic 应有范围的充分程度并给出入库建议；
+statistics 解释 synthesis 的可靠性和覆盖结构；synthesis_report 把路线、历史、结论、争议、
+缺口、外部文献和收集建议串成一篇连续知识报告。patch 模式只要替换这些 section 中的任意一个，
+也必须保持完整语义闭环。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action persist_external_statistics_report --payload-file "runtime/payloads/external-statistics-report.json"
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action persist_external_statistics_report --payload-file "runtime/payloads/external-statistics-report.json"
+```
+
+### 10. `validate_final_artifacts`
+
+Full update：
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action validate_final_artifacts
+```
+
+Patch update：
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action validate_final_artifacts
+```
+
+脚本校验完整 artifact schema 或 patch schema，生成：
+
+```text
+result/topic-analysis.json
+result/topic-analysis.patch.json
+result/result.json
+```
+
+### 11. `emit_final_json`
+
+只读取并输出：
+
+```bash
+Get-Content -Encoding UTF8 "result/result.json"
+```
+
+不要追加解释。
+
+## 按需读取附录
+
+只按 gate 返回的 `instruction_refs` 读取以下文档：
+
+- [step_00_runtime_gate.md](references/step_00_runtime_gate.md)：gate/state/repair/cancel。
+- [step_01_topic_context.md](references/step_01_topic_context.md)：update topic context、base hashes、patch/full 决策。
+- [step_02_resolver_workset.md](references/step_02_resolver_workset.md)：resolver、paper workset、必要时 library index。
+- [step_03_metrics_artifacts.md](references/step_03_metrics_artifacts.md)：graph metrics 与 filtered artifacts。
+- [step_04_paper_units.md](references/step_04_paper_units.md)：paper unit 分析。
+- [step_05_cross_paper_map.md](references/step_05_cross_paper_map.md)：cross-paper evidence map。
+- [step_06_taxonomy_timeline.md](references/step_06_taxonomy_timeline.md)：taxonomy 与 timeline。
+- [step_07_core_sections.md](references/step_07_core_sections.md)：claims、comparison、debates、gaps、review outline。
+- [step_08_external_statistics_report.md](references/step_08_external_statistics_report.md)：external、coverage、statistics、report。
+- [step_09_render_validate.md](references/step_09_render_validate.md)：final manifest/stdout。
+- [topic_synthesis_content_contract.md](references/topic_synthesis_content_contract.md)：完整内容协议。
+- [section_examples.md](references/section_examples.md)：合格内容示例与反例。

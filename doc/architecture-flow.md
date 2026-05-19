@@ -48,6 +48,7 @@ flowchart TD
    - backend profile（workflow settings）
    - request kind（workflow + backend type）
    - workflow params / provider options（persisted + run-once）
+   - backend 兼容性仅由 workflow `provider` 派生，`request.kind` 只描述请求形状
 3. 入队执行（FIFO + provider 决定的并发）
 
 ## 4. Provider 执行

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.topic_resolver_manifest",
+  "type": "object",
+  "required": ["resolved_paper_set"],
+  "properties": {
+    "topic_resolver": { "type": "object" },
+    "resolved_paper_set": {
+      "oneOf": [
+        { "type": "array", "items": {} },
+        {
+          "type": "object",
+          "properties": {
+            "papers": { "type": "array", "items": {} }
+          },
+          "required": ["papers"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "resolver_diagnostics": { "type": "object" },
+    "base_hashes": { "type": "object" },
+    "read_section_hashes": { "type": "object" },
+    "operation": { "type": "string" }
+  },
+  "additionalProperties": true
+}

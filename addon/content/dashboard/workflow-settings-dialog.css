@@ -17,14 +17,14 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 10px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--zs-shadow-soft);
 }
 
 .settings-banner {
   margin-top: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #f8fbff;
+  background: var(--zs-panel-alt);
   padding: 8px 10px;
   display: flex;
   align-items: flex-end;
@@ -68,7 +68,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px;
-  background: #fbfdff;
+  background: var(--zs-panel-alt);
 }
 
 .settings-card-title {
@@ -84,9 +84,9 @@
 
 .settings-error {
   margin-top: 12px;
-  border: 1px solid #f3c0c0;
-  background: #fff4f4;
-  color: #a13232;
+  border: 1px solid var(--zs-danger-border);
+  background: var(--zs-danger-soft);
+  color: var(--danger);
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 12px;
@@ -108,7 +108,7 @@
   max-width: 40%;
   font-size: 11px;
   font-weight: 600;
-  color: #1f2a44;
+  color: var(--zs-text-soft);
   line-height: 1.3;
 }
 
@@ -133,7 +133,7 @@
   font-size: 12px;
   line-height: 1.3;
   color: var(--text);
-  background: #fff;
+  background: var(--zs-input-bg);
   pointer-events: auto;
   width: 100%;
 }
@@ -150,18 +150,18 @@
 }
 
 .field-control.invalid {
-  border-color: #d94a4a;
-  box-shadow: 0 0 0 2px rgba(217, 74, 74, 0.14);
+  border-color: var(--zs-danger);
+  box-shadow: 0 0 0 2px var(--zs-focus-ring);
 }
 
 .field-control:focus {
   outline: none;
-  border-color: #9db8ff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--zs-accent);
+  box-shadow: 0 0 0 3px var(--zs-focus-ring);
 }
 
 .field-error {
-  color: #a13232;
+  color: var(--danger);
   font-size: 10px;
   line-height: 1.4;
   margin-top: 4px;
@@ -182,7 +182,7 @@
 
 .settings-btn {
   border: 1px solid var(--line-strong);
-  background: #fff;
+  background: var(--zs-input-bg);
   color: var(--text);
   border-radius: 8px;
   min-width: 110px;
@@ -193,7 +193,7 @@
 }
 
 .settings-btn:hover {
-  background: #f5f8ff;
+  background: var(--zs-surface-hover);
 }
 
 .settings-btn.primary {
@@ -203,7 +203,7 @@
 }
 
 .settings-btn.primary:hover {
-  background: #1d4ed8;
+  background: var(--zs-accent-strong);
 }
 
 .settings-btn:disabled {
@@ -252,14 +252,14 @@
   font-size: 12px;
   line-height: 1.3;
   color: var(--text);
-  background: #fff;
+  background: var(--zs-input-bg);
   user-select: none;
 }
 
 .custom-select-trigger:focus {
   outline: none;
-  border-color: #9db8ff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--zs-accent);
+  box-shadow: 0 0 0 3px var(--zs-focus-ring);
 }
 
 .custom-select-trigger::after {
@@ -275,10 +275,10 @@
   left: 0;
   right: 0;
   margin-top: 4px;
-  background: #fff;
+  background: var(--zs-panel-raised);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--zs-shadow-soft);
   z-index: 10000;
   max-height: 200px;
   overflow-y: auto;
@@ -298,7 +298,7 @@
 }
 
 .custom-select-option:hover {
-  background: #f0f4ff;
+  background: var(--zs-surface-hover);
 }
 
 .custom-select-option.selected {

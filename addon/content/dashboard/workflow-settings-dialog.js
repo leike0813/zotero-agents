@@ -48,6 +48,101 @@
     return toText(value);
   }
 
+  function fieldControlKey(section, key) {
+    return toText(section).trim() + "." + toText(key).trim();
+  }
+
+  function formStructureSignature(snapshot) {
+    const form = snapshot && snapshot.form ? snapshot.form : {};
+    const workflow = snapshot && snapshot.workflow ? snapshot.workflow : {};
+    const summarizeEntries = function (entries) {
+      return (Array.isArray(entries) ? entries : []).map(function (entry) {
+        return {
+          key: toText(entry && entry.key),
+          type: toText(entry && entry.type),
+          allowCustom: entry && entry.allowCustom === true,
+          disabled: entry && entry.disabled === true,
+          enumValues: Array.isArray(entry && entry.enumValues) ? entry.enumValues : [],
+          options: Array.isArray(entry && entry.options)
+            ? entry.options.map(function (option) {
+                return {
+                  value: toText(option && option.value),
+                  label: toText(option && option.label),
+                };
+              })
+            : [],
+        };
+      });
+    };
+    return JSON.stringify({
+      workflowId: toText(workflow.id || workflow.workflowId || workflow.key || workflow.label),
+      providerId: toText(workflow.providerId),
+      requiresBackendProfile: form.requiresBackendProfile === true,
+      profileEditable: form.profileEditable === true,
+      profiles: Array.isArray(form.profiles)
+        ? form.profiles.map(function (profile) {
+            return { id: toText(profile.id), label: toText(profile.label) };
+          })
+        : [],
+      workflowSchemaEntries: summarizeEntries(form.workflowSchemaEntries),
+      providerSchemaEntries: summarizeEntries(form.providerSchemaEntries),
+    });
+  }
+
+  function shouldResetDraftForSnapshot(nextSnapshot) {
+    const nextSignature = formStructureSignature(nextSnapshot);
+    const previousSignature = formStructureSignature(state.snapshot);
+    return !state.snapshot || nextSignature !== previousSignature;
+  }
+
+  function captureActiveFormState(root) {
+    const result = {
+      activeControlKey: "",
+      value: "",
+      checked: false,
+      selectionStart: null,
+      selectionEnd: null,
+    };
+    if (!root) return result;
+    const active = document.activeElement;
+    if (!active || !root.contains(active)) return result;
+    const control =
+      active.closest && active.closest("[data-workflow-settings-control-key]")
+        ? active.closest("[data-workflow-settings-control-key]")
+        : active;
+    const key = control.getAttribute && control.getAttribute("data-workflow-settings-control-key");
+    if (!key) return result;
+    result.activeControlKey = key;
+    result.value = typeof control.value === "string" ? control.value : "";
+    result.checked = control.checked === true;
+    result.selectionStart = typeof control.selectionStart === "number" ? control.selectionStart : null;
+    result.selectionEnd = typeof control.selectionEnd === "number" ? control.selectionEnd : null;
+    return result;
+  }
+
+  function restoreActiveFormState(root, preservedState) {
+    const key = preservedState && preservedState.activeControlKey;
+    if (!key || !root) return;
+    const control = root.querySelector('[data-workflow-settings-control-key="' + key + '"]');
+    if (!control) return;
+    if (typeof control.value === "string") {
+      control.value = preservedState.value || "";
+    }
+    if (typeof control.checked === "boolean") {
+      control.checked = preservedState.checked === true;
+    }
+    if (typeof control.focus === "function") {
+      control.focus();
+    }
+    if (
+      typeof control.setSelectionRange === "function" &&
+      typeof preservedState.selectionStart === "number" &&
+      typeof preservedState.selectionEnd === "number"
+    ) {
+      control.setSelectionRange(preservedState.selectionStart, preservedState.selectionEnd);
+    }
+  }
+
   function isPositiveIntegerField(entry) {
     const key = toText(entry && entry.key).trim().toLowerCase();
     if (!key) {
@@ -135,12 +230,15 @@
     const controlWrap = document.createElement("div");
     controlWrap.className = "field-input-col";
     let control;
+    let controlNode;
+    const controlKey = fieldControlKey(args.section, args.entry.key);
     const currentValue = Object.prototype.hasOwnProperty.call(args.values, args.entry.key)
       ? args.values[args.entry.key]
       : args.entry.defaultValue;
     if (args.entry.type === "boolean") {
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.setAttribute("data-workflow-settings-control-key", controlKey);
       checkbox.checked = currentValue === true;
       checkbox.disabled = args.entry.disabled === true;
       checkbox.addEventListener("change", function () {
@@ -162,10 +260,23 @@
     const enumValues = Array.isArray(args.entry.enumValues)
       ? args.entry.enumValues
       : [];
-    if (enumValues.length > 0 && args.entry.allowCustom !== true) {
-      const options = enumValues.map(function(val) { return { value: val, label: val }; });
-      let selectedValue = toText(currentValue || enumValues[0] || "");
-      const customSelect = window.createCustomSelect(options, selectedValue, function(newValue) {
+    const structuredOptions = Array.isArray(args.entry.options)
+      ? args.entry.options
+          .filter(function (entry) { return entry && typeof entry === "object"; })
+          .map(function (entry) {
+            return {
+              value: toText(entry.value),
+              label: toText(entry.label || entry.value),
+              description: toText(entry.description),
+            };
+          })
+      : [];
+    const optionEntries = structuredOptions.length > 0
+      ? structuredOptions
+      : enumValues.map(function(val) { return { value: toText(val), label: toText(val) }; });
+    if (optionEntries.length > 0 && args.entry.allowCustom !== true) {
+      let selectedValue = toText(currentValue || optionEntries[0].value || "");
+      const customSelect = window.createCustomSelect(optionEntries, selectedValue, function(newValue) {
         selectedValue = toText(newValue);
         args.values[args.entry.key] = selectedValue;
         args.onChange({
@@ -173,6 +284,7 @@
           changedKey: args.entry.key,
         });
       });
+      customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey);
       if (args.entry.disabled === true) {
         customSelect.element.classList.add("disabled");
         customSelect.element.style.pointerEvents = "none";
@@ -185,9 +297,34 @@
       controlWrap.appendChild(customSelect.element);
       wrap.appendChild(controlWrap);
       return wrap;
+    } else if (optionEntries.length > 0 && args.entry.allowCustom === true) {
+      const combo = document.createElement("div");
+      combo.style.display = "flex";
+      combo.style.alignItems = "center";
+      combo.style.gap = "8px";
+      const currentText = toText(currentValue == null ? "" : currentValue);
+      const customSelect = window.createCustomSelect(optionEntries, currentText, function(newValue) {
+        control.value = toText(newValue);
+        args.values[args.entry.key] = control.value;
+        args.onChange({
+          changedSection: args.section,
+          changedKey: args.entry.key,
+        });
+      });
+      customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey + ".recommendation");
+      customSelect.element.style.flex = "1 1 55%";
+      combo.appendChild(customSelect.element);
+      control = document.createElement("input");
+      control.type = "text";
+      control.setAttribute("data-workflow-settings-control-key", controlKey);
+      control.value = currentText;
+      control.style.flex = "1 1 45%";
+      combo.appendChild(control);
+      controlNode = combo;
     } else {
       control = document.createElement("input");
       control.type = "text";
+      control.setAttribute("data-workflow-settings-control-key", controlKey);
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",
@@ -286,7 +423,7 @@
     registerFieldCollector(function () {
       return commitControlValue(false);
     });
-    controlWrap.appendChild(control);
+    controlWrap.appendChild(controlNode || control);
     wrap.appendChild(controlWrap);
     return wrap;
   }
@@ -324,6 +461,7 @@
     if (!root) {
       return;
     }
+    const preservedState = captureActiveFormState(root);
     root.innerHTML = "";
     const snapshot = state.snapshot;
     if (!snapshot) {
@@ -496,6 +634,7 @@
     footer.appendChild(actions);
     shell.appendChild(footer);
     root.appendChild(shell);
+    restoreActiveFormState(root, preservedState);
   }
 
   window.addEventListener("message", function (event) {
@@ -506,13 +645,17 @@
     ) {
       return;
     }
-    state.snapshot = data.payload || null;
+    const nextSnapshot = data.payload || null;
+    const resetDraft = shouldResetDraftForSnapshot(nextSnapshot);
+    state.snapshot = nextSnapshot;
     const form = state.snapshot && state.snapshot.form ? state.snapshot.form : {};
-    state.draft = {
-      backendId: toText(form.selectedProfile || "").trim(),
-      workflowParams: cloneRecord(form.workflowParams),
-      providerOptions: cloneRecord(form.providerOptions),
-    };
+    if (resetDraft) {
+      state.draft = {
+        backendId: toText(form.selectedProfile || "").trim(),
+        workflowParams: cloneRecord(form.workflowParams),
+        providerOptions: cloneRecord(form.providerOptions),
+      };
+    }
     render();
   });
 

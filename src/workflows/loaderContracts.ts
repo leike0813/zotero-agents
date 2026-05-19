@@ -1,8 +1,5 @@
 import type { WorkflowManifest, WorkflowPackageManifest } from "./types";
-import {
-  DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
-  PASS_THROUGH_BACKEND_TYPE,
-} from "../config/defaults";
+import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
 import workflowManifestSchema from "../schemas/workflow.schema.json";
 import workflowPackageManifestSchema from "../schemas/workflow-package.schema.json";
@@ -123,30 +120,10 @@ function describeManifestValidationErrors(
   return errors.map(formatManifestValidationError).join("; ");
 }
 
-export function inferProviderFromRequestKind(kind: string) {
-  const normalized = String(kind || "").trim();
-  if (!normalized) {
-    return "";
-  }
-  for (const [backendType, requestKind] of Object.entries(
-    DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
-  )) {
-    if (requestKind === normalized) {
-      return backendType;
-    }
-  }
-  return "";
-}
-
 export function normalizeManifestProvider(manifest: WorkflowManifest) {
   const declared = String(manifest.provider || "").trim();
   if (declared) {
     manifest.provider = declared;
-    return manifest;
-  }
-  const inferred = inferProviderFromRequestKind(manifest.request?.kind || "");
-  if (inferred) {
-    manifest.provider = inferred;
   }
   return manifest;
 }

@@ -306,14 +306,26 @@
     const source = run && typeof run === "object" ? run : {};
     const status = safeText(source.status);
     const recovery = safeText(source.conversationRecoveryState);
-    const terminal = ["succeeded", "failed", "canceled", "cancelled"].indexOf(status) >= 0;
+    const succeeded = status === "succeeded";
+    const failedOrCanceled =
+      ["failed", "canceled", "cancelled"].indexOf(status) >= 0;
     const activeContinuation =
       source.activePrompt === true ||
       ["submitted", "accepted", "sending"].indexOf(safeText(source.replyState)) >= 0;
+    const errorText = failedOrCanceled
+      ? safeText(
+          source.error ||
+            source.replyError ||
+            source.lastRecoveryError ||
+            source.conversationError,
+        ) || status
+      : "";
     const disconnected =
+      failedOrCanceled ||
       recovery === "failed" ||
       recovery === "unsupported" ||
-      recovery === "unavailable" && safeText(source.conversationState) === "error";
+      (recovery === "unavailable" &&
+        safeText(source.conversationState) === "error");
     return {
       items: (Array.isArray(source.transcriptItems) ? source.transcriptItems : [])
         .map(normalizeAssistantItem),
@@ -321,13 +333,19 @@
       interaction: resolveAssistantInteraction({
         pendingPermission: source.pendingPermission,
         disconnected,
-        errorText: disconnected ? source.lastRecoveryError || source.error : "",
+        errorText: disconnected
+          ? errorText || source.lastRecoveryError || source.error
+          : "",
         waitingUser: status === "waiting_user",
         pendingInteraction: source.pendingInteraction || null,
-        running: ["queued", "running", "repairing"].indexOf(status) >= 0 || activeContinuation,
+        running:
+          ["queued", "running", "repairing"].indexOf(status) >= 0 ||
+          activeContinuation,
         runningLabel:
-          status === "repairing" ? "Agent is repairing output..." : "Agent is working...",
-        completed: terminal && !activeContinuation,
+          status === "repairing"
+            ? "Agent is repairing output..."
+            : "Agent is working...",
+        completed: succeeded && !activeContinuation,
         completedMessage:
           status === "succeeded"
             ? "Run completed. Workflow result is ready."

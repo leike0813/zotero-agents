@@ -10,6 +10,7 @@ import {
 } from "./taskManagerDialog";
 import {
   closeAssistantWorkspaceSidebar,
+  isAssistantWorkspaceSidebarOpen,
   openAssistantWorkspaceSidebar,
   toggleAssistantWorkspaceSidebar,
 } from "./assistantWorkspaceSidebar";
@@ -387,12 +388,16 @@ export async function openZoteroSkillsWorkspaceTab(args: {
     add: NonNullable<ZoteroTabs["add"]>;
     select: NonNullable<ZoteroTabs["select"]>;
   };
+  const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen({ window: hostWindow });
   if (workspaceTab) {
     workspaceTab.selectedView = args.initialView || workspaceTab.selectedView;
     Zotero_Tabs.select(WORKSPACE_TAB_ID);
     postSnapshot(workspaceTab, "workspace:snapshot");
     await mountDashboardRuntimeIfReady(workspaceTab);
     await mountSynthesisRuntimeIfReady(workspaceTab);
+    if (reopenAssistantSidebar) {
+      await openAssistantWorkspaceSidebar({ window: hostWindow });
+    }
     return;
   }
   const result = Zotero_Tabs.add({
@@ -424,6 +429,9 @@ export async function openZoteroSkillsWorkspaceTab(args: {
   setFrameSource(frame, resolveWorkspacePageUrl());
   scheduleWorkspaceHandshake(runtime);
   Zotero_Tabs.select(WORKSPACE_TAB_ID);
+  if (reopenAssistantSidebar) {
+    await openAssistantWorkspaceSidebar({ window: hostWindow });
+  }
 }
 
 export function resetZoteroSkillsWorkspaceTabRuntimeForTests() {

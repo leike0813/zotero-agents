@@ -148,9 +148,10 @@ function buildTriggerFailureMessage(workflowLabel: string, error: unknown) {
   return `Workflow ${workflowLabel} cannot run: ${reason}`;
 }
 
-async function triggerWorkflowFromMenu(args: {
+export async function triggerWorkflowFromUnifiedEntry(args: {
   win: _ZoteroTypes.MainWindow;
   workflow: LoadedWorkflow;
+  source?: string;
 }) {
   try {
     await executeWorkflowFromCurrentSelection({
@@ -168,6 +169,7 @@ async function triggerWorkflowFromMenu(args: {
       message: "workflow menu trigger failed before execution completed",
       details: {
         workflowSource: getLoadedWorkflowSourceById(args.workflow.manifest.id),
+        triggerSource: args.source || "workflow-menu",
         reason: compactError(error),
       },
       error,
@@ -257,9 +259,10 @@ export async function rebuildWorkflowActionPopup(
       menuItem.setAttribute("disabled", "true");
     } else {
       menuItem.addEventListener("command", () => {
-        void triggerWorkflowFromMenu({
+        void triggerWorkflowFromUnifiedEntry({
           win,
           workflow,
+          source: "workflow-menu",
         });
       });
     }

@@ -351,13 +351,24 @@ function renderSchemaFields(args: {
       row.appendChild(checkboxWrap);
     } else if (
       entry.type === "string" &&
-      Array.isArray(entry.enumValues) &&
-      entry.enumValues.length > 0
+      ((Array.isArray(entry.options) && entry.options.length > 0) ||
+        (Array.isArray(entry.enumValues) && entry.enumValues.length > 0))
     ) {
+      const options =
+        Array.isArray(entry.options) && entry.options.length > 0
+          ? entry.options.map((candidate) => ({
+              value: String(candidate.value || ""),
+              label: String(candidate.label || candidate.value || ""),
+            }))
+          : (entry.enumValues || []).map((candidate) => ({
+              value: candidate,
+              label: candidate,
+            }));
       const selectedValue = coerceString(rawValue, defaultValue);
       const needsEmptyOption =
-        selectedValue.length === 0 ||
-        (typeof defaultValue === "string" && defaultValue.length === 0);
+        !options.some((candidate) => candidate.value === "") &&
+        (selectedValue.length === 0 ||
+          (typeof defaultValue === "string" && defaultValue.length === 0));
       if (entry.allowCustom === true) {
         const combo = createHtmlElement(doc, "div");
         combo.style.display = "inline-flex";
@@ -366,10 +377,7 @@ function renderSchemaFields(args: {
 
         const recommendationControl = createChoiceControl({
           doc,
-          options: entry.enumValues.map((candidate) => ({
-            value: candidate,
-            label: candidate,
-          })),
+          options,
           selectedValue,
           includeEmptyOption: needsEmptyOption
             ? {
@@ -399,10 +407,7 @@ function renderSchemaFields(args: {
       } else {
         const control = createChoiceControl({
           doc,
-          options: entry.enumValues.map((candidate) => ({
-            value: candidate,
-            label: candidate,
-          })),
+          options,
           selectedValue,
           includeEmptyOption: needsEmptyOption
             ? {

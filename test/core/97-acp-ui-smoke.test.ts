@@ -61,6 +61,143 @@ async function loadAssistantPanelModelForSmoke() {
   return (context.window as any).AssistantPanelModel;
 }
 
+async function loadAssistantPanelRendererForSmoke(document: any) {
+  const vm = await dynamicImport<typeof import("vm")>("vm");
+  const code = await readProjectFile(
+    "addon/content/dashboard/assistant-panel-renderer.js",
+  );
+  const context = {
+    window: {},
+    document,
+  };
+  vm.runInNewContext(code, context);
+  return (context.window as any).AssistantPanelRenderer;
+}
+
+function createFakeDocumentForAssistantPanel() {
+  const documentRef: any = {
+    activeElement: null,
+    createElement(tag: string) {
+      return new FakeElement(tag, documentRef);
+    },
+    createElementNS(_namespace: string, tag: string) {
+      return new FakeElement(tag, documentRef);
+    },
+  };
+
+  class FakeElement {
+    tagName: string;
+    ownerDocument: any;
+    parentNode: FakeElement | null = null;
+    children: FakeElement[] = [];
+    attributes = new Map<string, string>();
+    className = "";
+    textContent = "";
+    value = "";
+    disabled = false;
+    selectionStart: number | null = 0;
+    selectionEnd: number | null = 0;
+    type = "";
+    onclick: any = null;
+    style = {
+      setProperty: (_name: string, _value: string) => undefined,
+    };
+    classList = {
+      add: (...names: string[]) => {
+        const current = new Set(this.className.split(/\s+/).filter(Boolean));
+        names.forEach((name) => current.add(name));
+        this.className = Array.from(current).join(" ");
+      },
+      remove: (...names: string[]) => {
+        const current = new Set(this.className.split(/\s+/).filter(Boolean));
+        names.forEach((name) => current.delete(name));
+        this.className = Array.from(current).join(" ");
+      },
+      toggle: (name: string, force?: boolean) => {
+        const current = new Set(this.className.split(/\s+/).filter(Boolean));
+        const shouldAdd = typeof force === "boolean" ? force : !current.has(name);
+        if (shouldAdd) current.add(name);
+        else current.delete(name);
+        this.className = Array.from(current).join(" ");
+      },
+      contains: (name: string) => this.className.split(/\s+/).includes(name),
+    };
+
+    constructor(tagName: string, ownerDocument: any) {
+      this.tagName = tagName.toUpperCase();
+      this.ownerDocument = ownerDocument;
+    }
+
+    get firstChild() {
+      return this.children[0] || null;
+    }
+
+    appendChild(child: FakeElement) {
+      child.parentNode = this;
+      this.children.push(child);
+      return child;
+    }
+
+    removeChild(child: FakeElement) {
+      this.children = this.children.filter((entry) => entry !== child);
+      child.parentNode = null;
+      return child;
+    }
+
+    setAttribute(name: string, value: string) {
+      this.attributes.set(name, String(value));
+    }
+
+    getAttribute(name: string) {
+      return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
+    }
+
+    addEventListener(_type: string, _handler: any) {
+      // Event behavior is not needed for this focused renderer smoke.
+    }
+
+    focus() {
+      this.ownerDocument.activeElement = this;
+    }
+
+    setSelectionRange(start: number, end: number) {
+      this.selectionStart = start;
+      this.selectionEnd = end;
+    }
+
+    contains(target: FakeElement) {
+      if (target === this) return true;
+      return this.children.some((child) => child.contains(target));
+    }
+
+    querySelector(selector: string): FakeElement | null {
+      return this.querySelectorAll(selector)[0] || null;
+    }
+
+    querySelectorAll(selector: string): FakeElement[] {
+      const directClass = selector.match(/^:scope > \.([A-Za-z0-9_-]+)$/);
+      if (directClass) {
+        return this.children.filter((child) =>
+          child.className.split(/\s+/).includes(directClass[1]),
+        );
+      }
+      const classMatch = selector.match(/^\.([A-Za-z0-9_-]+)$/);
+      if (classMatch) {
+        return this.descendants().filter((child) =>
+          child.className.split(/\s+/).includes(classMatch[1]),
+        );
+      }
+      return [];
+    }
+
+    private descendants(): FakeElement[] {
+      return this.children.flatMap((child) => [child, ...child.descendants()]);
+    }
+  }
+
+  return documentRef;
+}
+
 describe("acp ui smoke", function () {
   beforeEach(function () {
     if (isRealZoteroRuntime()) {
@@ -288,6 +425,8 @@ describe("acp ui smoke", function () {
     const assistantJs = await readProjectFile("addon/content/dashboard/assistant-workspace.js");
     const assistantCss = await readProjectFile("addon/content/dashboard/assistant-workspace.css");
     const sharedPanelCss = await readProjectFile("addon/content/dashboard/assistant-panel-shared.css");
+    const sharedThemeCss = await readProjectFile("addon/content/shared/theme.css");
+    const sharedThemeJs = await readProjectFile("addon/content/shared/theme.js");
     const assistantConversationViewJs = await readProjectFile("addon/content/dashboard/assistant-conversation-view.js");
     const assistantTranscriptRendererJs = await readProjectFile("addon/content/dashboard/assistant-transcript-renderer.js");
     const assistantPanelModelJs = await readProjectFile("addon/content/dashboard/assistant-panel-model.js");
@@ -302,6 +441,7 @@ describe("acp ui smoke", function () {
     const acpSkillRunCss = await readProjectFile("addon/content/dashboard/acp-skill-run.css");
     const runDialogHtml = await readProjectFile("addon/content/dashboard/run-dialog.html");
     const runDialogJs = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    const runDialogCss = await readProjectFile("addon/content/dashboard/run-dialog.css");
     const acpSkillRunSidebar = await readProjectFile("src/modules/acpSkillRunnerSidebar.ts");
     const acpSkillRunStore = await readProjectFile("src/modules/acpSkillRunStore.ts");
     const acpSkillRunner = await readProjectFile("src/modules/acpSkillRunnerOrchestrator.ts");
@@ -309,6 +449,7 @@ describe("acp ui smoke", function () {
     const sidebarTypes = await readProjectFile("src/modules/acpTypes.ts");
     const sharedHost = await readProjectFile("src/modules/sidebarBrowserHost.ts");
     const skillRunnerSidebar = await readProjectFile("src/modules/skillRunnerSidebar.ts");
+    const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
 
     assert.notInclude(dialog, "open-acp-sidebar");
     assert.include(dialog, "open-acp-skill-runs");
@@ -328,6 +469,9 @@ describe("acp ui smoke", function () {
     assert.notInclude(app, "homeAcpSkillRunsEntry");
     assert.notInclude(app, 'sendAction("open-acp-sidebar"');
     assert.include(app, 'sendAction("open-acp-skill-runs"');
+    assert.include(app, "function labelText(labels, key, fallback)");
+    assert.include(app, 'labelText(labels, "tabProducts", "Products")');
+    assert.include(app, 'labelText(labels, "productsEmpty", "No workflow products have been registered yet.")');
     assert.include(app, "renderAcpSkillRunnerBackend");
     assert.include(app, "row.requestKind");
     assert.include(app, 'snapshot.backendView.backendType === "acp"');
@@ -335,6 +479,9 @@ describe("acp ui smoke", function () {
     assert.include(hooks, "removeAssistantWorkspaceSidebarShell");
     assert.include(hooks, "openAssistantWorkspaceSidebar");
     assert.include(hooks, "toggleAssistantWorkspaceSidebar");
+    assert.include(workspaceTab, "isAssistantWorkspaceSidebarOpen");
+    assert.include(workspaceTab, "const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen");
+    assert.include(workspaceTab, "await openAssistantWorkspaceSidebar({ window: hostWindow });");
     assert.notInclude(hooks, "installAcpSidebarShell(win)");
     assert.notInclude(hooks, "installAcpSkillRunnerSidebarShell(win)");
     assert.include(assistantHtml, "assistant-tab-skillrunner");
@@ -364,6 +511,8 @@ describe("acp ui smoke", function () {
       "ACP Skills frame should appear before SkillRunner",
     );
     assert.include(assistantHtml, "assistant-workspace-tabbar");
+    assert.include(assistantHtml, "../shared/theme.js");
+    assert.include(assistantHtml, "../shared/theme.css");
     assert.include(assistantHtml, 'src="./run-dialog.html"');
     assert.notInclude(assistantHtml, "assistant-workspace-title");
     assert.notInclude(assistantHtml, "assistant-workspace-subtitle");
@@ -407,8 +556,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantCss, "width: 100%");
     assert.include(assistantCss, "flex: 1 1 0");
     assert.include(assistantCss, ".assistant-tab.is-active");
+    assert.notInclude(assistantCss, "color-scheme: light;");
     assert.notInclude(assistantCss, ".assistant-workspace-title");
     assert.include(assistantCss, ".assistant-workspace-close");
+    assert.include(acpChatHtml, "../shared/theme.js");
+    assert.include(acpChatHtml, "../shared/theme.css");
     assert.include(acpChatHtml, "./assistant-panel-shared.css");
     assert.include(acpChatJs, '"assistant-panel:close-drawers"');
     assert.include(acpChatJs, "function closeAllDrawers()");
@@ -417,7 +569,14 @@ describe("acp ui smoke", function () {
     assert.include(runDialogJs, '"assistant-panel:close-drawers"');
     assert.include(runDialogJs, "function closeAllDrawers()");
     assert.include(acpSkillRunHtml, "./assistant-panel-shared.css");
+    assert.include(acpSkillRunHtml, "../shared/theme.js");
+    assert.include(acpSkillRunHtml, "../shared/theme.css");
     assert.include(runDialogHtml, "./assistant-panel-shared.css");
+    assert.include(runDialogHtml, "../shared/theme.js");
+    assert.include(runDialogHtml, "../shared/theme.css");
+    assert.notInclude(acpChatCss, "color-scheme: light;");
+    assert.notInclude(acpSkillRunCss, "color-scheme: light;");
+    assert.notInclude(runDialogCss, "color-scheme: light;");
     assert.isBelow(
       acpChatHtml.indexOf("./assistant-panel-shared.css"),
       acpChatHtml.indexOf("./acp-chat.css"),
@@ -435,8 +594,16 @@ describe("acp ui smoke", function () {
       "SkillRunner should load shared foundation before page CSS",
     );
     assert.include(sharedPanelCss, "--asst-bg");
+    assert.include(sharedPanelCss, "--asst-bg: var(--zs-bg)");
     assert.include(sharedPanelCss, "--asst-surface");
+    assert.include(sharedPanelCss, "--asst-surface: var(--zs-panel)");
     assert.include(sharedPanelCss, "--asst-accent");
+    assert.include(sharedPanelCss, ':root[data-zs-theme="dark"]');
+    assert.include(sharedThemeCss, "--zs-bg-gradient");
+    assert.include(sharedThemeCss, ':root[data-zs-theme="dark"]');
+    assert.include(sharedThemeCss, "@media (prefers-color-scheme: dark)");
+    assert.include(sharedThemeJs, "ZoteroSkillsTheme");
+    assert.include(sharedThemeJs, "zotero-skills.theme");
     assert.include(sharedPanelCss, "@keyframes asst-spin");
     assert.include(sharedPanelCss, "@keyframes asst-pulse");
     assert.include(sharedPanelCss, ".asst-shell-toolbar");
@@ -483,12 +650,23 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row");
     assert.include(sharedPanelCss, ".assistant-transcript.bubble-mode .assistant-transcript-row");
     assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool");
+    assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity");
     assert.include(
       sharedPanelCss,
       ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool .assistant-transcript-meta",
     );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity .assistant-transcript-meta",
+    );
     assert.include(sharedPanelCss, "border-left-width: 0;");
     assert.include(sharedPanelCss, "display: none;");
+    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon::before");
+    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon::after");
+    assert.include(sharedPanelCss, ".assistant-transcript-workspace-badge");
+    assert.include(assistantTranscriptRendererJs, "assistant-transcript-workspace-badge");
+    assert.include(assistantTranscriptRendererJs, 'transcriptLabel(options, "workspaceActivity", "Workspace update")');
+    assert.notInclude(assistantTranscriptRendererJs, 'assistant-transcript-workspace-file-icon", "▣"');
     assert.notInclude(sharedPanelCss, ".acp-");
     assert.notInclude(sharedPanelCss, ".workspace-");
     assert.notInclude(sharedPanelCss, ".btn");
@@ -612,7 +790,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "renderAssistantPlan");
     assert.include(assistantPanelRendererJs, "completedCount + \"/\" + totalCount");
     assert.include(assistantPanelRendererJs, "assistant-panel-plan-spinner");
-    assert.include(assistantPanelRendererJs, "toneClass === \"is-completed\" ? \"✓\" : \"•\"");
+    assert.include(assistantPanelRendererJs, "function isAssistantPlanWorking(panel)");
+    assert.include(assistantPanelRendererJs, 'container.setAttribute("data-assistant-plan-working"');
+    assert.include(assistantPanelRendererJs, 'toneClass === "is-running" && planWorking');
+    assert.include(sharedPanelCss, '.assistant-panel-plan[data-assistant-plan-working="false"] .assistant-panel-plan-spinner');
+    assert.include(assistantPanelRendererJs, 'toneClass === "is-completed" ? "✓" : "•"');
     assert.include(assistantPanelRendererJs, "renderAssistantHint");
     assert.include(assistantPanelRendererJs, "assistant-panel-permission-summary");
     assert.include(assistantPanelRendererJs, 'labelOf(panel, "permission.viewFullRequest", "View full request")');
@@ -620,6 +802,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "buildPermissionRequestDto");
     assert.notInclude(assistantPanelRendererJs, "assistant-panel-permission-detail-code");
     assert.include(assistantPanelRendererJs, "renderAssistantReply");
+    assert.include(assistantPanelRendererJs, "function replyStructuralSignature");
+    assert.include(assistantPanelRendererJs, "function updateAssistantReplyLiveFields");
+    assert.include(assistantPanelRendererJs, "data-assistant-reply-structure-signature");
+    assert.notInclude(assistantPanelRendererJs, "reply: panel.reply,");
     assert.include(assistantPanelRendererJs, "renderPermissionRequestDrawer");
     assert.include(assistantPanelRendererJs, "assistant-panel-permission-drawer-overlay");
     assert.include(assistantPanelRendererJs, "close-permission-request");
@@ -672,6 +858,8 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-panel-permission-drawer-panel");
     assert.notInclude(sharedPanelCss, ".assistant-panel-permission-details summary");
     assert.include(sharedPanelCss, ".assistant-panel-reply-controls");
+    assert.include(sharedPanelCss, ".assistant-panel-select:disabled");
+    assert.include(sharedPanelCss, 'data-assistant-disabled="true"');
     assert.include(sharedPanelCss, ".assistant-panel-reply-secondary");
     assert.include(sharedPanelCss, ".assistant-panel-usage-gauge");
     assert.include(sharedPanelCss, ".assistant-panel-usage-ring");
@@ -760,7 +948,8 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantPanelModelJs, "showUsageGauge: true");
     assert.include(assistantPanelModelJs, "conversation.usage || (run && run.usage) || null");
-    assert.include(assistantPanelModelJs, 'hint: labelFrom(panel, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send")');
+    assert.include(assistantPanelModelJs, 'kind: "acp-skills"');
+    assert.include(assistantPanelModelJs, 'hint: "",');
     assert.isBelow(
       acpChatHtml.indexOf('id="acp-transcript"'),
       acpChatHtml.indexOf('id="acp-chat-mode-plain"'),
@@ -947,8 +1136,12 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, 'action === "set-chat-display-mode"');
     assert.include(acpSkillRunJs, "renderChatDisplayMode()");
     assert.include(assistantTranscriptRendererJs, "function isAssistantTranscriptNearBottom(element, threshold)");
-    assert.include(assistantTranscriptRendererJs, "const shouldStick = isAssistantTranscriptNearBottom");
-    assert.include(assistantTranscriptRendererJs, "if (shouldStick) container.scrollTop = container.scrollHeight");
+    assert.include(assistantTranscriptRendererJs, "function installAssistantTranscriptStickiness(container, threshold)");
+    assert.include(assistantTranscriptRendererJs, "function shouldStickAssistantTranscript(container, threshold)");
+    assert.include(assistantTranscriptRendererJs, "function stickAssistantTranscriptToBottom(container)");
+    assert.include(assistantTranscriptRendererJs, 'data-assistant-transcript-programmatic-scroll');
+    assert.include(assistantTranscriptRendererJs, "const shouldStick = shouldStickAssistantTranscript");
+    assert.include(assistantTranscriptRendererJs, "if (shouldStick) stickAssistantTranscriptToBottom(container)");
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
     assert.notInclude(acpSkillRunJs, "function renderPlan");
     assert.notInclude(acpSkillRunJs, "function renderHintWidget");
@@ -1225,6 +1418,28 @@ describe("acp ui smoke", function () {
     });
   });
 
+  it("defines Products dashboard locale keys in all active locales", async function () {
+    const locales = await Promise.all(
+      ["en-US", "zh-CN", "fr-FR", "ja-JP"].map(async (locale) => ({
+        locale,
+        text: await readProjectFile(`addon/locale/${locale}/addon.ftl`),
+      })),
+    );
+    const requiredKeys = [
+      "task-dashboard-tab-products",
+      "task-dashboard-products-empty",
+      "task-dashboard-products-open-workspace",
+      "task-dashboard-products-open-run",
+      "task-dashboard-products-remove",
+      "task-dashboard-products-preview-unavailable",
+    ];
+    locales.forEach(({ locale, text }) => {
+      requiredKeys.forEach((key) => {
+        assert.include(text, `${key} =`, `${locale} should define ${key}`);
+      });
+    });
+  });
+
   it("keeps managed ACP Chat selectors populated with typed payload keys", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const panel = model.projectAcpChatPanelSnapshot({
@@ -1241,7 +1456,10 @@ describe("acp ui smoke", function () {
       currentMode: { id: "bypassPermissions", label: "Bypass permissions" },
       displayModelOptions: [{ id: "opus", label: "Opus" }],
       currentDisplayModel: { id: "opus", label: "Opus" },
-      reasoningEffortOptions: [{ id: "high", label: "High" }],
+      reasoningEffortOptions: [
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+      ],
       currentReasoningEffort: { id: "high", label: "High" },
       authMethods: [],
       items: [],
@@ -1278,7 +1496,15 @@ describe("acp ui smoke", function () {
       [
         ["mode", "bypassPermissions", "modeId", 1],
         ["model", "opus", "modelId", 1],
-        ["reasoning", "high", "effortId", 1],
+        ["reasoning", "high", "effortId", 2],
+      ],
+    );
+    assert.deepEqual(
+      controls.map((entry: any) => [entry.id, entry.disabled]),
+      [
+        ["mode", false],
+        ["model", false],
+        ["reasoning", false],
       ],
     );
 
@@ -1341,6 +1567,15 @@ describe("acp ui smoke", function () {
       sessionId: "session-1",
       activeBackendId: "backend-a",
       backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
+      modeOptions: [{ id: "plan", label: "Plan" }],
+      currentMode: { id: "plan", label: "Plan" },
+      displayModelOptions: [{ id: "opus", label: "Opus" }],
+      currentDisplayModel: { id: "opus", label: "Opus" },
+      reasoningEffortOptions: [
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+      ],
+      currentReasoningEffort: { id: "high", label: "High" },
       items: [],
       labels: {},
     });
@@ -1350,6 +1585,14 @@ describe("acp ui smoke", function () {
     assert.equal(busyPanel.reply.action, "cancel");
     assert.equal(busyPanel.reply.tone, "danger");
     assert.equal(busyPanel.reply.submitLabel, "Cancel");
+    assert.deepEqual(
+      busyPanel.reply.controls.map((entry: any) => [entry.id, entry.disabled]),
+      [
+        ["mode", false],
+        ["model", true],
+        ["reasoning", true],
+      ],
+    );
 
     const skillPanel = model.projectAcpSkillRunPanelSnapshot({
       mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
@@ -1358,7 +1601,26 @@ describe("acp ui smoke", function () {
         status: "running",
         conversationState: "active",
         sessionId: "session-1",
+        acpModeId: "plan",
+        acpModelId: "opus",
+        acpReasoningEffort: "high",
+        acpRawModelId: "opus@high",
         transcriptItems: [],
+      },
+      selectedRuntimeOptions: {
+        modeOptions: [{ id: "plan", label: "Plan" }],
+        displayModelOptions: [{ id: "opus", label: "Opus" }],
+        modelOptions: [
+          { id: "opus@medium", label: "Opus Medium" },
+          { id: "opus@high", label: "Opus High" },
+        ],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+        currentMode: { id: "plan", label: "Plan" },
+        currentDisplayModel: { id: "opus", label: "Opus" },
+        currentReasoningEffort: { id: "high", label: "High" },
       },
       runs: [
         {
@@ -1380,6 +1642,14 @@ describe("acp ui smoke", function () {
       ],
       logs: [],
     });
+    assert.notInclude(
+      skillPanel.context.metadata.map((entry: any) => entry.key),
+      "mode",
+    );
+    assert.notInclude(
+      skillPanel.context.metadata.map((entry: any) => entry.key),
+      "model",
+    );
     assert.deepEqual(
       skillPanel.context.indicators.map((entry: any) => [entry.id, entry.value, entry.tone]),
       [
@@ -1420,6 +1690,35 @@ describe("acp ui smoke", function () {
     assert.equal(skillPanel.reply.action, "interrupt-run-turn");
     assert.equal(skillPanel.reply.tone, "danger");
     assert.equal(skillPanel.reply.submitLabel, "Cancel");
+    assert.equal(skillPanel.reply.hint, "");
+    assert.deepEqual(
+      skillPanel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.payloadKey,
+        entry.disabled,
+      ]),
+      [
+        ["mode", "plan", "modeId", false],
+        ["model", "opus", "modelId", true],
+        ["reasoning", "high", "effortId", true],
+      ],
+    );
+
+    const reconnectedWorkingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-reconnected",
+        status: "waiting_user",
+        activePrompt: true,
+        conversationRecoveryState: "connected",
+        transcriptItems: [],
+      },
+      runs: [{ requestId: "acp-skill-reconnected", status: "waiting_user" }],
+      logs: [],
+    });
+    assert.equal(reconnectedWorkingSkillPanel.reply.enabled, true);
+    assert.equal(reconnectedWorkingSkillPanel.reply.inputEnabled, false);
+    assert.equal(reconnectedWorkingSkillPanel.reply.action, "interrupt-run-turn");
 
     const terminalSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -1460,7 +1759,71 @@ describe("acp ui smoke", function () {
       runs: [{ requestId: "acp-skill-waiting", status: "waiting_user", backendId: "backend-a" }],
       logs: [],
     });
-    assert.equal(waitingSkillPanel.drawers.sections[0].groups[0].activeTasks[0].attention, "warning");
+    assert.equal(
+      waitingSkillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
+      "warning",
+    );
+    assert.equal(waitingSkillPanel.interaction.kind, "waiting_user");
+    assert.equal(waitingSkillPanel.reply.enabled, true);
+    assert.equal(waitingSkillPanel.reply.inputEnabled, true);
+    assert.equal(waitingSkillPanel.reply.action, "reply-run");
+
+    const idleSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-idle-controls",
+        status: "waiting_user",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        sessionId: "session-idle-controls",
+        acpModeId: "code",
+        acpModelId: "opus",
+        acpReasoningEffort: "medium",
+        acpRawModelId: "opus@medium",
+        transcriptItems: [],
+      },
+      selectedRuntimeOptions: {
+        modeOptions: [
+          { id: "plan", label: "Plan" },
+          { id: "code", label: "Code" },
+        ],
+        displayModelOptions: [{ id: "opus", label: "Opus" }],
+        modelOptions: [
+          { id: "opus@medium", label: "Opus Medium" },
+          { id: "opus@high", label: "Opus High" },
+        ],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      },
+      runs: [{ requestId: "acp-skill-idle-controls", status: "waiting_user" }],
+      logs: [],
+    });
+    assert.deepEqual(
+      idleSkillPanel.reply.controls.map((entry: any) => [entry.id, entry.disabled]),
+      [
+        ["mode", false],
+        ["model", false],
+        ["reasoning", false],
+      ],
+    );
+
+    const failedConnectedSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-failed-connected",
+        status: "failed",
+        conversationState: "closed",
+        conversationRecoveryState: "connected",
+        replyError: "Provider quota exceeded.",
+        transcriptItems: [],
+      },
+      runs: [{ requestId: "acp-skill-failed-connected", status: "failed" }],
+      logs: [],
+    });
+    assert.notEqual(failedConnectedSkillPanel.interaction.kind, "completed");
+    assert.equal(failedConnectedSkillPanel.reply.enabled, true);
+    assert.equal(failedConnectedSkillPanel.reply.inputEnabled, true);
+    assert.equal(failedConnectedSkillPanel.reply.action, "reply-run");
 
     const detachedSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -1543,6 +1906,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, 'entry && entry.active ? " is-active" : ""');
     assert.include(assistantPanelRendererJs, "--assistant-context-depth");
     assert.include(assistantPanelRendererJs, "renderAssistantWorkspaceTaskDrawer");
+    assert.include(assistantPanelRendererJs, "workspaceDrawerStableSignature");
+    assert.include(assistantPanelRendererJs, "updateWorkspaceDrawerLiveFields");
+    assert.include(assistantPanelRendererJs, "data-assistant-workspace-drawer-signature");
+    assert.include(assistantPanelRendererJs, "data-assistant-task-key");
     assert.include(assistantPanelRendererJs, 'safeText(panel.drawers && panel.drawers.layout) === "workspace-task-drawer"');
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-group");
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-active");
@@ -1564,5 +1931,60 @@ describe("acp ui smoke", function () {
     assert.notInclude(sharedPanelCss, ".asst-button,\n.asst-button-compact,\n.asst-icon-button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  border: 1px solid var(--asst-line-strong);\n  border-radius: var(--asst-radius-pill);");
     assert.notInclude(acpSkillRunCss, ".asst-button {");
     assert.notInclude(runDialogCss, ".asst-button {");
+  });
+
+  it("keeps focused reply textarea stable across unrelated managed renders", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const replyRegion = fakeDocument.createElement("div");
+    const basePanel = {
+      kind: "acp-skill",
+      context: { id: "run-a" },
+      lifecycle: { replyState: "waiting" },
+      reply: {
+        enabled: true,
+        inputEnabled: true,
+        action: "reply-run",
+        placeholder: "Reply",
+        hint: "Ctrl+Enter",
+        value: "model echo",
+      },
+    };
+
+    renderer.renderAssistantPanelSnapshot(basePanel, {
+      managed: true,
+      managedRegions: { reply: true },
+      regions: { reply: replyRegion },
+    });
+
+    const input = replyRegion.querySelector(".assistant-panel-reply-input") as any;
+    assert.ok(input);
+    input.value = "local draft";
+    input.focus();
+    input.setSelectionRange(2, 7);
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...basePanel,
+        usage: { used: 100, size: 1000 },
+        reply: {
+          ...basePanel.reply,
+          value: "new model echo",
+          hint: "Still waiting",
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { reply: true },
+        regions: { reply: replyRegion },
+      },
+    );
+
+    const nextInput = replyRegion.querySelector(".assistant-panel-reply-input") as any;
+    assert.strictEqual(nextInput, input);
+    assert.equal(nextInput.value, "local draft");
+    assert.equal(nextInput.selectionStart, 2);
+    assert.equal(nextInput.selectionEnd, 7);
+    assert.strictEqual(fakeDocument.activeElement, input);
   });
 });

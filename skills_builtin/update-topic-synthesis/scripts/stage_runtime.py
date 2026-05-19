@@ -9,9 +9,9 @@ before final stdout is accepted.
 State-changing actions write deterministic action receipts for idempotent retry.
 validate_final_artifacts validates paper_evidence digest_ref payload_hash against SQLite bundles.
 validate_final_artifacts validates evidence_refs against paper_evidence.id and external_literature_analysis.summary.
-persist_paper_analysis validates one-paper analysis against the Stage 4 artifact bundle receipt.
+persist_paper_units validates paper-unit analyses against Stage 4 artifact bundle receipts.
 cross-paper synthesis requires package-local action receipts for every Stage 4
-artifact bundle and paper analysis row; direct SQLite rows are not valid state.
+artifact bundle and paper unit row; direct SQLite rows are not valid state.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pathlib import Path
 
 from gate_runtime import next_action
 from runtime_db import (
+    audit_runtime_integrity,
     artifact_hash,
     build_cross_paper_context_views,
     clear_failed_retryable,
@@ -29,6 +30,8 @@ from runtime_db import (
     get_key_value,
     get_meta,
     missing_paper_analysis_refs,
+    missing_citation_graph_metric_receipt_refs,
+    missing_paper_artifact_bundle_receipt_refs,
     paper_analysis_values,
     paper_artifact_bundle_values,
     paper_refs,
@@ -49,9 +52,23 @@ from runtime_db import (
     set_meta,
     set_stage_state,
     sha256_file,
+    inject_section_digest_refs,
+    _clean_text,
+    _evidence_map_candidate_ids,
+    _validate_evidence_map_refs,
+    _validate_nested_evidence_map_refs,
     validate_paper_evidence_against_bundles,
     validate_topic_section_contract,
+    validate_topic_synthesis_artifact_schema,
 )
+
+ACTION_ALIASES = {
+    "persist_paper_analysis": "persist_paper_unit",
+    "persist_paper_analyses": "persist_paper_units",
+    "validate_cross_paper_evidence_map": "persist_cross_paper_evidence_map",
+    "validate_route_timeline_synthesis": "persist_route_timeline",
+    "validate_core_analytical_sections": "persist_core_sections",
+}
 
 FULL_SECTIONS = (
     "topic",
@@ -67,10 +84,41 @@ FULL_SECTIONS = (
     "coverage",
     "gaps",
     "review_outline",
+    "statistics",
+    "synthesis_report",
     "evidence_map",
     "source_artifacts",
     "diagnostics",
 )
+
+FINAL_REWRITE_PATHS = {
+    "result/result.json",
+    "result/topic-analysis.json",
+    "result/topic-analysis.patch.json",
+}
+
+ROUTE_TIMELINE_SECTIONS = ("taxonomy", "timeline_events")
+CORE_SECTIONS = (
+    "positioning",
+    "claims",
+    "comparison_matrix",
+    "debates",
+    "gaps",
+    "review_outline",
+)
+STAGE9_AUTHORED_SECTIONS = (
+    "topic",
+    "summary",
+    "paper_evidence",
+    "external_literature_analysis",
+    "coverage",
+    "statistics",
+    "synthesis_report",
+    "evidence_map",
+    "source_artifacts",
+    "diagnostics",
+)
+VALID_GAP_TYPES = {"research_gap", "library_coverage_gap", "evidence_gap", "evaluation_gap"}
 
 
 def write_json(path: Path, value: object) -> str:
@@ -109,25 +157,48 @@ def require_payload(args: argparse.Namespace) -> dict:
 
 
 def action_stage(action_name: str) -> str:
+    action_name = ACTION_ALIASES.get(action_name, action_name)
+    if action_name == "confirm_runtime_setup":
+        return "stage_0_runtime_setup"
     if action_name in {
         "persist_citation_graph_metrics",
-        "persist_filtered_artifact_manifest",
-        "persist_paper_analysis",
-        "persist_paper_analyses",
     }:
-        return "stage_4_per_paper_analysis"
-    if action_name in {"export_cross_paper_context", "validate_cross_paper_evidence_map"}:
-        return "stage_5_cross_paper_synthesis"
+        return "stage_3_graph_metrics"
+    if action_name in {
+        "persist_filtered_artifact_manifest",
+    }:
+        return "stage_4_evidence_collection"
+    if action_name in {
+        "persist_paper_unit",
+        "persist_paper_units",
+    }:
+        return "stage_5_paper_units"
+    if action_name in {
+        "export_cross_paper_context",
+        "persist_cross_paper_evidence_map",
+    }:
+        return "stage_6_cross_paper_map"
+    if action_name in {
+        "persist_route_timeline",
+    }:
+        return "stage_7_route_timeline"
+    if action_name in {
+        "persist_core_sections",
+    }:
+        return "stage_8_core_sections"
+    if action_name == "persist_external_statistics_report":
+        return "stage_9_external_statistics_report"
     if action_name == "validate_final_artifacts":
-        return "stage_6_render_and_validate"
+        return "stage_10_render_and_validate"
     if action_name == "persist_resolver":
-        return "stage_2_resolver"
-    if action_name == "persist_topic_intent":
-        return "stage_1_topic_intent"
-    return "stage_0_bootstrap"
+        return "stage_2_resolver_and_workset"
+    if action_name in {"persist_topic_intent", "persist_topic_context"}:
+        return "stage_1_topic_context"
+    return "stage_0_runtime_setup"
 
 
 def stage_result(conn, action_name: str, payload: dict, result: dict) -> dict:
+    action_name = ACTION_ALIASES.get(action_name, action_name)
     receipt = record_action_receipt(
         conn,
         action_name=action_name,
@@ -177,7 +248,7 @@ def export_cross_paper_context(conn, run_root: Path) -> dict:
         hash_value=main_hash,
         content_type="markdown",
         schema_id="synthesis.cross_paper_context.main_markdown",
-        stage="stage_5_cross_paper_synthesis",
+        stage="stage_6_cross_paper_map",
         validated=True,
     )
     register_artifact(
@@ -186,7 +257,7 @@ def export_cross_paper_context(conn, run_root: Path) -> dict:
         hash_value=external_hash,
         content_type="markdown",
         schema_id="synthesis.cross_paper_context.external_markdown",
-        stage="stage_5_cross_paper_synthesis",
+        stage="stage_6_cross_paper_map",
         validated=True,
     )
     register_artifact(
@@ -195,7 +266,7 @@ def export_cross_paper_context(conn, run_root: Path) -> dict:
         hash_value=manifest_hash,
         content_type="json",
         schema_id="synthesis.cross_paper_context_manifest",
-        stage="stage_5_cross_paper_synthesis",
+        stage="stage_6_cross_paper_map",
         validated=True,
     )
     set_meta(conn, "source_context_path", main_path)
@@ -221,11 +292,251 @@ def export_cross_paper_context(conn, run_root: Path) -> dict:
     }
 
 
+def _require_object(value: object, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _require_list(value: object, label: str) -> list:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{label} must be a non-empty array")
+    return value
+
+
+def _has_text(value: dict, *keys: str) -> bool:
+    for key in keys:
+        entry = value.get(key)
+        if isinstance(entry, str) and entry.strip():
+            return True
+        if isinstance(entry, list) and entry:
+            return True
+        if isinstance(entry, dict) and entry:
+            return True
+    return False
+
+
+def _has_non_empty_refs(value: dict, key: str) -> bool:
+    entry = value.get(key)
+    return isinstance(entry, list) and any(str(ref).strip() for ref in entry)
+
+
+def _has_any_text(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(_has_any_text(entry) for entry in value)
+    if isinstance(value, dict):
+        return any(_has_any_text(entry) for entry in value.values())
+    return value is not None
+
+
+def _require_field(value: dict, label: str, *keys: str) -> None:
+    if not any(key in value and _has_any_text(value.get(key)) for key in keys):
+        raise ValueError(f"{label} requires {'/'.join(keys)}")
+
+
+def _known_evidence_map_candidates(conn) -> set[str]:
+    candidates = _evidence_map_candidate_ids(conn)
+    if not candidates:
+        raise ValueError("cross_paper_evidence_map must be validated before section prevalidation")
+    return candidates
+
+
+def _require_route_timeline_depth(payload: dict) -> None:
+    taxonomy = _require_object(payload.get("taxonomy"), "taxonomy")
+    if not _has_text(taxonomy, "primary_axis", "axis"):
+        raise ValueError("taxonomy requires primary_axis")
+    for node in _require_list(taxonomy.get("nodes"), "taxonomy.nodes"):
+        if not isinstance(node, dict):
+            raise ValueError("taxonomy.nodes entries must be objects")
+        node_id = str(node.get("id") or node.get("route_id") or node.get("title") or "(unknown)")
+        for label, aliases in {
+            "definition": ("definition", "route_definition", "description"),
+            "core_problem": ("core_problem", "problem", "target_problem"),
+            "mechanism": ("mechanism", "technical_mechanism", "core_mechanism"),
+            "representative_papers": ("representative_papers", "paper_refs", "evidence_refs"),
+            "strengths": ("strengths", "advantages"),
+            "limitations": ("limitations", "weaknesses"),
+            "maturity": ("maturity", "status", "development_stage"),
+            "route_relation": (
+                "relation_to_other_routes",
+                "route_relationships",
+                "relations",
+                "related_routes",
+                "main_tradeoffs",
+                "tradeoffs",
+                "review_angle",
+            ),
+        }.items():
+            if not _has_text(node, *aliases):
+                raise ValueError(f"taxonomy route {node_id} requires {label}")
+    timeline = _require_object(payload.get("timeline_events"), "timeline_events")
+    for event in _require_list(timeline.get("events"), "timeline_events.events"):
+        if not isinstance(event, dict):
+            raise ValueError("timeline_events.events entries must be objects")
+        event_id = str(event.get("id") or event.get("title") or "(unknown)")
+        if not _has_text(event, "description", "analysis", "why_it_matters"):
+            raise ValueError(f"timeline {event_id} requires description/analysis")
+        if not _has_text(event, "phase", "stage", "progression_logic", "follow_on_effect"):
+            raise ValueError(f"timeline {event_id} requires phase or progression logic")
+        if not _has_text(event, "historical_role", "milestone_role", "why_it_matters"):
+            raise ValueError(f"timeline {event_id} requires milestone role or why_it_matters")
+        if not _has_text(event, "follow_on_effect", "relation_to_previous", "progression_logic"):
+            raise ValueError(f"timeline {event_id} requires follow_on_effect or progression link")
+        if not _has_text(event, "evidence_refs"):
+            raise ValueError(f"timeline {event_id} requires evidence_refs")
+        if not _has_text(event, "evidence_map_refs"):
+            raise ValueError(f"timeline {event_id} requires evidence_map_refs")
+
+
+def validate_route_timeline_synthesis(conn, payload: dict, run_root: Path) -> dict:
+    taxonomy = _require_object(payload.get("taxonomy"), "taxonomy")
+    taxonomy_summary = _require_object(taxonomy.get("summary"), "taxonomy.summary")
+    if not _has_text(taxonomy_summary, "text", "analysis", "overview"):
+        raise ValueError("taxonomy.summary requires text/analysis")
+    _require_list(taxonomy.get("nodes"), "taxonomy.nodes")
+    timeline = _require_object(payload.get("timeline_events"), "timeline_events")
+    timeline_summary = _require_object(timeline.get("summary"), "timeline_events.summary")
+    if not _has_text(timeline_summary, "text", "analysis", "overview"):
+        raise ValueError("timeline_events.summary requires text/analysis")
+    _require_list(timeline.get("events"), "timeline_events.events")
+    _require_route_timeline_depth(payload)
+    known_candidates = _known_evidence_map_candidates(conn)
+    _validate_nested_evidence_map_refs("taxonomy", taxonomy, known_candidates)
+    _validate_evidence_map_refs("timeline_events", timeline.get("events", []), known_candidates)
+    relative_path = "runtime/payloads/route-timeline-synthesis.json"
+    hash_value = write_json(run_root / relative_path, payload)
+    register_artifact(
+        conn,
+        path=relative_path,
+        hash_value=hash_value,
+        content_type="json",
+        schema_id="synthesis.route_timeline_synthesis",
+        stage="stage_7_route_timeline",
+        validated=True,
+    )
+    set_meta(conn, "route_timeline_synthesis_path", relative_path)
+    set_meta(conn, "route_timeline_synthesis_hash", hash_value)
+    return {"path": relative_path, "hash": hash_value}
+
+
+def _validate_core_sections_depth(conn, payload: dict) -> None:
+    known_candidates = _known_evidence_map_candidates(conn)
+
+    positioning = _require_object(payload.get("positioning"), "positioning")
+    _require_field(
+        positioning,
+        "positioning",
+        "importance",
+        "field_position",
+        "review_position",
+        "scope_boundary",
+    )
+    _validate_nested_evidence_map_refs("positioning", positioning, known_candidates)
+
+    claims = _require_list(payload.get("claims"), "claims")
+    for claim in claims:
+        if not isinstance(claim, dict):
+            raise ValueError("claims entries must be objects")
+        claim_id = str(claim.get("id") or claim.get("text") or claim.get("claim") or "(unknown)")
+        _require_field(claim, f"claim {claim_id}", "id", "text", "claim")
+        _require_field(claim, f"claim {claim_id}", "analysis", "rationale", "argument", "explanation")
+        if not _has_non_empty_refs(claim, "evidence_refs"):
+            raise ValueError(f"claim {claim_id} requires evidence_refs")
+        if not _has_non_empty_refs(claim, "evidence_map_refs"):
+            raise ValueError(f"claim {claim_id} requires evidence_map_refs")
+        _require_field(claim, f"claim {claim_id}", "confidence")
+        _require_field(claim, f"claim {claim_id}", "scope", "limitations", "applicability")
+    _validate_evidence_map_refs("claims", claims, known_candidates)
+
+    comparison = _require_object(payload.get("comparison_matrix"), "comparison_matrix")
+    _require_list(comparison.get("dimensions"), "comparison_matrix.dimensions")
+    rows = _require_list(comparison.get("rows"), "comparison_matrix.rows")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("comparison_matrix.rows entries must be objects")
+        row_id = str(row.get("id") or row.get("route_ref") or "(unknown)")
+        _require_field(row, f"comparison row {row_id}", "id", "route_ref", "paper_refs")
+        values = row.get("values")
+        if not isinstance(values, dict) or not values:
+            raise ValueError(f"comparison row {row_id} requires non-empty values")
+        if not _has_non_empty_refs(row, "evidence_map_refs"):
+            raise ValueError(f"comparison row {row_id} requires evidence_map_refs")
+    _validate_nested_evidence_map_refs("comparison_matrix", comparison, known_candidates)
+
+    debates = _require_list(payload.get("debates"), "debates")
+    for debate in debates:
+        if not isinstance(debate, dict):
+            raise ValueError("debates entries must be objects")
+        debate_id = str(debate.get("id") or debate.get("title") or "(unknown)")
+        _require_field(debate, f"debate {debate_id}", "id", "title")
+        _require_list(debate.get("positions"), f"debate {debate_id}.positions")
+        _require_field(debate, f"debate {debate_id}", "evaluation_axis", "axis")
+        _require_field(debate, f"debate {debate_id}", "current_judgment", "judgment")
+        if not _has_non_empty_refs(debate, "evidence_map_refs"):
+            raise ValueError(f"debate {debate_id} requires evidence_map_refs")
+    _validate_evidence_map_refs("debates", debates, known_candidates)
+
+    gaps = _require_list(payload.get("gaps"), "gaps")
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            raise ValueError("gaps entries must be objects")
+        gap_id = str(gap.get("id") or gap.get("title") or "(unknown)")
+        _require_field(gap, f"gap {gap_id}", "id", "title", "description")
+        gap_type = _clean_text(gap.get("gap_type"))
+        if gap_type not in VALID_GAP_TYPES:
+            raise ValueError(f"gap {gap_id} requires valid gap_type: {', '.join(sorted(VALID_GAP_TYPES))}")
+        _require_field(gap, f"gap {gap_id}", "severity", "priority")
+        _require_field(gap, f"gap {gap_id}", "recommended_action", "next_step")
+        if not _has_non_empty_refs(gap, "evidence_map_refs"):
+            raise ValueError(f"gap {gap_id} requires evidence_map_refs")
+    _validate_evidence_map_refs("gaps", gaps, known_candidates)
+
+    review_outline = _require_object(payload.get("review_outline"), "review_outline")
+    if not any(
+        isinstance(review_outline.get(key), list) and review_outline.get(key)
+        for key in ("introduction_logic", "related_work_logic", "body_sections")
+    ):
+        raise ValueError("review_outline requires introduction_logic, related_work_logic, or body_sections")
+    _validate_nested_evidence_map_refs("review_outline", review_outline, known_candidates)
+
+
+def validate_core_analytical_sections(conn, payload: dict, run_root: Path) -> dict:
+    for key in ("claims", "debates", "gaps"):
+        _require_list(payload.get(key), key)
+    for key in ("comparison_matrix", "review_outline", "positioning"):
+        _require_object(payload.get(key), key)
+    _validate_core_sections_depth(conn, payload)
+    relative_path = "runtime/payloads/core-analytical-sections.json"
+    hash_value = write_json(run_root / relative_path, payload)
+    register_artifact(
+        conn,
+        path=relative_path,
+        hash_value=hash_value,
+        content_type="json",
+        schema_id="synthesis.core_analytical_sections",
+        stage="stage_8_core_sections",
+        validated=True,
+    )
+    set_meta(conn, "core_analytical_sections_path", relative_path)
+    set_meta(conn, "core_analytical_sections_hash", hash_value)
+    return {"path": relative_path, "hash": hash_value}
+
+
 def read_section_files(run_root: Path, operation: str) -> dict:
     sections_root = run_root / "result" / "sections"
     selected = []
     for path in sorted(sections_root.glob("*.json")):
         selected.append(path.stem.replace("-", "_"))
+    if operation != "update_patch":
+        unknown = sorted(set(selected) - set(FULL_SECTIONS))
+        if unknown:
+            raise RuntimeError(
+                "unknown_section_files: "
+                + ", ".join(unknown)
+                + "; remove legacy aliases and emit only canonical topic synthesis sections"
+            )
     required = selected if operation == "update_patch" else list(FULL_SECTIONS)
     sections: dict[str, object] = {}
     missing = []
@@ -240,57 +551,182 @@ def read_section_files(run_root: Path, operation: str) -> dict:
     return sections
 
 
-def markdown_from_sections(sections: dict) -> str:
-    topic = sections.get("topic", {})
-    summary = sections.get("summary", {})
-    claims = sections.get("claims", [])
-    coverage = sections.get("coverage", {})
-    title = topic.get("title") if isinstance(topic, dict) else None
-    lines = [f"# {title or 'Topic Synthesis'}", ""]
-    if isinstance(summary, dict):
-        for key in ("brief", "overview", "summary"):
-            value = summary.get(key)
-            if isinstance(value, str) and value.strip():
-                lines.extend([value.strip(), ""])
-                break
-    if isinstance(claims, list) and claims:
-        lines.extend(["## Claims", ""])
-        for index, claim in enumerate(claims, start=1):
-            text = claim.get("text") if isinstance(claim, dict) else str(claim)
-            lines.append(f"{index}. {text}")
-        lines.append("")
-    taxonomy = sections.get("taxonomy", {})
-    if isinstance(taxonomy, dict) and taxonomy:
-        lines.extend(["## Taxonomy", "", "```json", json.dumps(taxonomy, ensure_ascii=False, indent=2), "```", ""])
-    comparison = sections.get("comparison_matrix", {})
-    if isinstance(comparison, dict) and comparison:
-        lines.extend(["## Comparison Matrix", "", "```json", json.dumps(comparison, ensure_ascii=False, indent=2), "```", ""])
-    debates = sections.get("debates", [])
-    if isinstance(debates, list) and debates:
-        lines.extend(["## Debates", ""])
-        for debate in debates:
-            if isinstance(debate, dict):
-                lines.append(f"- {debate.get('title') or debate.get('text') or debate.get('id')}")
-        lines.append("")
-    gaps = sections.get("gaps", [])
-    if isinstance(gaps, list) and gaps:
-        lines.extend(["## Gaps", ""])
-        for gap in gaps:
-            if isinstance(gap, dict):
-                lines.append(f"- {gap.get('title') or gap.get('text') or gap.get('id')}")
-        lines.append("")
-    if isinstance(coverage, dict) and coverage:
-        lines.extend(["## Coverage", "", "```json", json.dumps(coverage, ensure_ascii=False, indent=2), "```", ""])
-    lines.append("<!-- export.md rendered from validated result/sections files -->")
-    return "\n".join(lines) + "\n"
+def _load_validated_payload_artifact(
+    conn,
+    run_root: Path,
+    *,
+    path_meta: str,
+    hash_meta: str,
+    label: str,
+) -> dict:
+    relative_path = str(get_meta(conn, path_meta, "") or "")
+    expected_hash = str(get_meta(conn, hash_meta, "") or "")
+    if not relative_path or not expected_hash:
+        raise RuntimeError(f"{label} must be validated before Stage 9")
+    verify_registered_file_hash(conn, run_root, relative_path)
+    actual_hash = sha256_file(run_root / relative_path)
+    if actual_hash != expected_hash:
+        raise RuntimeError(f"{label} hash drift: expected {expected_hash}, got {actual_hash}")
+    value = read_json_file(run_root / relative_path)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} payload must be a JSON object")
+    return value
+
+
+def _current_sections_from_update_context(conn) -> dict:
+    current_context = get_key_value(conn, "topic_intent", "current_context", {})
+    if not isinstance(current_context, dict):
+        return {}
+    for key in ("sections", "artifact", "current_artifact", "topic_artifact"):
+        candidate = current_context.get(key)
+        if isinstance(candidate, dict):
+            return {
+                section_name: candidate[section_name]
+                for section_name in FULL_SECTIONS
+                if section_name in candidate
+            }
+    return {}
+
+
+def _stage9_payload_sections(payload: dict, *, operation: str) -> dict:
+    sections = payload.get("sections")
+    if not isinstance(sections, dict):
+        raise ValueError("persist_external_statistics_report payload must contain sections object")
+    unknown = sorted(set(sections) - set(FULL_SECTIONS))
+    if unknown:
+        raise ValueError("persist_external_statistics_report sections contain unknown keys: " + ", ".join(unknown))
+    protected = sorted(set(sections) & (set(ROUTE_TIMELINE_SECTIONS) | set(CORE_SECTIONS)))
+    if protected:
+        raise ValueError(
+            "Stage 9 payload must not overwrite validated Stage 7/8 sections: "
+            + ", ".join(protected)
+        )
+    if operation != "update_patch":
+        missing = [name for name in STAGE9_AUTHORED_SECTIONS if name not in sections]
+        if missing:
+            raise ValueError(
+                "persist_external_statistics_report.sections missing Stage 9 sections: "
+                + ", ".join(missing)
+            )
+    elif not sections:
+        raise ValueError("update_patch persist_external_statistics_report.sections must not be empty")
+    return sections
+
+
+def _merge_prevalidated_sections(conn, run_root: Path, stage9_sections: dict, *, operation: str) -> dict:
+    route_timeline = _load_validated_payload_artifact(
+        conn,
+        run_root,
+        path_meta="route_timeline_synthesis_path",
+        hash_meta="route_timeline_synthesis_hash",
+        label="route/timeline synthesis",
+    )
+    core_sections = _load_validated_payload_artifact(
+        conn,
+        run_root,
+        path_meta="core_analytical_sections_path",
+        hash_meta="core_analytical_sections_hash",
+        label="core analytical sections",
+    )
+    sections: dict[str, object] = {}
+    if operation == "update_patch":
+        sections.update(_current_sections_from_update_context(conn))
+    sections.update(stage9_sections)
+    for section_name in ROUTE_TIMELINE_SECTIONS:
+        if section_name in route_timeline:
+            sections[section_name] = route_timeline[section_name]
+    for section_name in CORE_SECTIONS:
+        if section_name in core_sections:
+            sections[section_name] = core_sections[section_name]
+    return sections
+
+
+def _materialize_section_files(run_root: Path, sections: dict) -> dict:
+    result: dict[str, dict[str, str]] = {}
+    for section_name in sorted(sections):
+        relative_path = f"result/sections/{safe_section_file(section_name)}"
+        hash_value = write_json(run_root / relative_path, sections[section_name])
+        result[section_name] = {"path": relative_path, "hash": hash_value}
+    return result
+
+
+def persist_external_statistics_report_payload(
+    conn,
+    payload: dict,
+    run_root: Path,
+    *,
+    operation: str,
+    language: str,
+) -> dict:
+    stage9_sections = _stage9_payload_sections(payload, operation=operation)
+    sections = _merge_prevalidated_sections(conn, run_root, stage9_sections, operation=operation)
+    sections = inject_section_digest_refs(conn, sections)
+    if operation != "update_patch":
+        validate_topic_section_contract(conn, sections, require_complete=True)
+        validate_topic_synthesis_artifact_schema(assemble_full_artifact(sections, language=language))
+    else:
+        validate_topic_section_contract(
+            conn,
+            sections,
+            require_complete=all(section_name in sections for section_name in FULL_SECTIONS),
+        )
+    if "paper_evidence" in sections:
+        validate_paper_evidence_against_bundles(conn, sections["paper_evidence"])
+    materialized = _materialize_section_files(run_root, sections)
+    return {
+        "section_count": len(sections),
+        "sections": sorted(sections),
+        "materialized": materialized,
+    }
+
+
+def _is_final_rewrite_integrity_error(error: str) -> bool:
+    if any(path in error for path in FINAL_REWRITE_PATHS):
+        return True
+    if "runtime_integrity_section_file_" in error and "result/sections/" in error:
+        return True
+    return (
+        "runtime_integrity_non_monotonic_stage_state:" in error
+        and "stage_10_render_and_validate=" in error
+        and "before completed stage_11_completed" in error
+    )
+
+
+def _pre_final_integrity_errors(conn, run_root: Path) -> list[str]:
+    return [
+        error
+        for error in audit_runtime_integrity(conn, run_root=run_root, strict_files=True)
+        if not _is_final_rewrite_integrity_error(error)
+    ]
+
+
+def _post_final_integrity_check(conn, run_root: Path) -> None:
+    errors = audit_runtime_integrity(conn, run_root=run_root, strict_files=True)
+    if errors:
+        raise RuntimeError("runtime_integrity_failed_after_final_write: " + "; ".join(errors))
+
+
+def assemble_full_artifact(sections: dict, *, language: str) -> dict:
+    return {
+        "schema_id": "synthesis.topic_synthesis_artifact",
+        "schema_version": "2.0.0",
+        "language": language or "auto",
+        **sections,
+    }
 
 
 def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: str) -> dict:
+    integrity_errors = _pre_final_integrity_errors(conn, run_root)
+    if integrity_errors:
+        raise RuntimeError("runtime_integrity_failed: " + "; ".join(integrity_errors))
     require_stage4_action_receipts_complete(conn)
     sections = read_section_files(run_root, operation)
     sections = inject_section_digest_refs(conn, sections)
     if operation != "update_patch":
         validate_topic_section_contract(conn, sections, require_complete=True)
+        validate_topic_synthesis_artifact_schema(
+            assemble_full_artifact(sections, language=language)
+        )
     else:
         validate_topic_section_contract(conn, sections, require_complete=False)
     if "paper_evidence" in sections:
@@ -334,13 +770,6 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
             "sections": manifest_sections,
         }
     manifest_hash = write_json(run_root / manifest_path, manifest)
-    markdown_path = None
-    markdown_hash = None
-    if operation != "update_patch":
-        markdown = markdown_from_sections(sections)
-        markdown_path = "result/preview.md"
-        markdown_hash = write_text(run_root / markdown_path, markdown)
-        write_text(run_root / "result/export.md", markdown)
     topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
     if not isinstance(topic_definition, dict) or not str(topic_definition.get("id") or "").strip():
         raise ValueError("validate_final_artifacts requires topic_definition.id from stage_1_topic_intent")
@@ -381,8 +810,6 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
             topic_definition.get("id") if isinstance(topic_definition, dict) else None
         ) or get_meta(conn, "topic_id", "")
         final["read_section_hashes"] = get_meta(conn, "read_section_hashes", {})
-    else:
-        final["markdown_path"] = markdown_path
     final_hash = write_json(run_root / "result/result.json", final)
     register_artifact(
         conn,
@@ -390,36 +817,26 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         hash_value=manifest_hash,
         content_type="json",
         schema_id=manifest["schema_id"],
-        stage="stage_6_render_and_validate",
+        stage="stage_10_render_and_validate",
         validated=True,
     )
-    if markdown_path and markdown_hash:
-        register_artifact(
-            conn,
-            path=markdown_path,
-            hash_value=markdown_hash,
-            content_type="markdown",
-            schema_id="synthesis.topic_markdown_export",
-            stage="stage_6_render_and_validate",
-            validated=True,
-        )
     register_artifact(
         conn,
         path="result/result.json",
         hash_value=final_hash,
         content_type="json",
         schema_id="synthesis.topic_synthesis_final_bundle",
-        stage="stage_6_render_and_validate",
+        stage="stage_10_render_and_validate",
         validated=True,
     )
-    set_stage_state(conn, "stage_6_render_and_validate", "completed")
-    set_stage_state(conn, "stage_7_completed", "completed")
+    set_stage_state(conn, "stage_10_render_and_validate", "completed")
+    set_stage_state(conn, "stage_11_completed", "completed")
+    _post_final_integrity_check(conn, run_root)
     return {
         "manifest_path": manifest_path,
         "manifest_hash": manifest_hash,
         "final_path": "result/result.json",
         "final_hash": final_hash,
-        "markdown_path": markdown_path,
     }
 
 
@@ -439,7 +856,7 @@ def main() -> None:
         print(json.dumps(next_action(conn), ensure_ascii=False, sort_keys=True))
         return
     if args.action == "cancel":
-        set_stage_state(conn, "stage_7_completed", "canceled")
+        set_stage_state(conn, "stage_11_completed", "canceled")
         canceled = {
             "__SKILL_DONE__": True,
             "kind": "topic_synthesis_canceled",
@@ -449,78 +866,143 @@ def main() -> None:
         }
         print(json.dumps(canceled, ensure_ascii=False, sort_keys=True))
         return
+    if args.action == "audit_runtime_integrity":
+        errors = audit_runtime_integrity(conn, run_root=Path(args.run_root), strict_files=True)
+        result = {"ok": not errors, "errors": errors}
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        if errors:
+            raise SystemExit(1)
+        return
 
     try:
-        if args.action == "persist_topic_intent":
+        if args.action == "confirm_runtime_setup":
+            payload = {
+                "operation": args.operation,
+                "language": "zh-CN" if args.language == "auto" else args.language,
+                "run_root": str(Path(args.run_root).resolve()),
+            }
+            set_meta(conn, "operation", payload["operation"])
+            set_meta(conn, "language", payload["language"])
+            set_meta(conn, "run_root", payload["run_root"])
+            set_stage_state(conn, "stage_0_runtime_setup", "completed")
+            set_stage_state(conn, "stage_1_topic_context", "running")
+            print(json.dumps(stage_result(conn, args.action, payload, payload), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action in {"persist_topic_intent", "persist_topic_context"}:
             payload = require_payload(args)
             result = persist_topic_intent(conn, payload)
-            set_stage_state(conn, "stage_0_bootstrap", "completed")
-            set_stage_state(conn, "stage_1_topic_intent", "completed")
-            set_stage_state(conn, "stage_2_resolver", "running")
+            set_stage_state(conn, "stage_0_runtime_setup", "completed")
+            set_stage_state(conn, "stage_1_topic_context", "completed")
+            set_stage_state(conn, "stage_2_resolver_and_workset", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "persist_resolver":
             payload = require_payload(args)
             result = persist_resolver(conn, payload)
-            set_stage_state(conn, "stage_2_resolver", "completed")
-            set_stage_state(conn, "stage_3_paper_workset", "completed")
+            set_stage_state(conn, "stage_2_resolver_and_workset", "completed")
             if result.get("paper_refs"):
-                set_stage_state(conn, "stage_4_per_paper_analysis", "running")
+                set_stage_state(conn, "stage_3_graph_metrics", "running")
             else:
-                set_stage_state(conn, "stage_4_per_paper_analysis", "completed")
-                set_stage_state(conn, "stage_5_cross_paper_synthesis", "running")
+                set_stage_state(conn, "stage_3_graph_metrics", "completed")
+                set_stage_state(conn, "stage_4_evidence_collection", "completed")
+                set_stage_state(conn, "stage_5_paper_units", "completed")
+                set_stage_state(conn, "stage_6_cross_paper_map", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "persist_citation_graph_metrics":
             payload = require_payload(args)
             result = persist_citation_graph_metrics(conn, payload)
-            set_stage_state(conn, "stage_4_per_paper_analysis", "running")
-            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            response = stage_result(conn, args.action, payload, result)
+            if not missing_citation_graph_metric_receipt_refs(conn):
+                set_stage_state(conn, "stage_3_graph_metrics", "completed")
+                set_stage_state(conn, "stage_4_evidence_collection", "running")
+            else:
+                set_stage_state(conn, "stage_3_graph_metrics", "running")
+            print(json.dumps(response, ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "persist_filtered_artifact_manifest":
             payload = require_payload(args)
             result = persist_filtered_artifact_manifest(conn, payload, run_root=args.run_root)
-            set_stage_state(conn, "stage_4_per_paper_analysis", "running")
-            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            response = stage_result(conn, args.action, payload, result)
+            if not missing_paper_artifact_bundle_receipt_refs(conn):
+                set_stage_state(conn, "stage_4_evidence_collection", "completed")
+                set_stage_state(conn, "stage_5_paper_units", "running")
+            else:
+                set_stage_state(conn, "stage_4_evidence_collection", "running")
+            print(json.dumps(response, ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "persist_paper_analysis":
+        if args.action in {"persist_paper_analysis", "persist_paper_unit"}:
             if not args.paper_ref:
-                raise SystemExit("--paper-ref is required for persist_paper_analysis")
+                raise SystemExit("--paper-ref is required for persist_paper_unit")
             payload = require_payload(args)
             result = persist_paper_analysis(conn, args.paper_ref, payload, run_root=args.run_root)
             if not missing_paper_analysis_refs(conn):
-                set_stage_state(conn, "stage_4_per_paper_analysis", "completed")
-                set_stage_state(conn, "stage_5_cross_paper_synthesis", "running")
+                set_stage_state(conn, "stage_5_paper_units", "completed")
+                set_stage_state(conn, "stage_6_cross_paper_map", "running")
             else:
-                set_stage_state(conn, "stage_4_per_paper_analysis", "running")
+                set_stage_state(conn, "stage_5_paper_units", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "persist_paper_analyses":
+        if args.action in {"persist_paper_analyses", "persist_paper_units"}:
             payload = require_payload(args)
             result = persist_paper_analyses(conn, payload, run_root=args.run_root)
             if not missing_paper_analysis_refs(conn):
-                set_stage_state(conn, "stage_4_per_paper_analysis", "completed")
-                set_stage_state(conn, "stage_5_cross_paper_synthesis", "running")
+                set_stage_state(conn, "stage_5_paper_units", "completed")
+                set_stage_state(conn, "stage_6_cross_paper_map", "running")
             else:
-                set_stage_state(conn, "stage_4_per_paper_analysis", "running")
+                set_stage_state(conn, "stage_5_paper_units", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "export_cross_paper_context":
             result = export_cross_paper_context(conn, Path(args.run_root))
-            set_stage_state(conn, "stage_5_cross_paper_synthesis", "running")
+            set_stage_state(conn, "stage_6_cross_paper_map", "running")
             print(json.dumps(stage_result(conn, args.action, {}, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "validate_cross_paper_evidence_map":
+        if args.action in {"validate_cross_paper_evidence_map", "persist_cross_paper_evidence_map"}:
             payload = require_payload(args)
             result = persist_cross_paper_evidence_map(conn, payload, run_root=args.run_root)
-            set_stage_state(conn, "stage_5_cross_paper_synthesis", "running")
+            set_stage_state(conn, "stage_6_cross_paper_map", "completed")
+            set_stage_state(conn, "stage_7_route_timeline", "running")
+            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action in {"validate_route_timeline_synthesis", "persist_route_timeline"}:
+            payload = require_payload(args)
+            result = validate_route_timeline_synthesis(conn, payload, Path(args.run_root))
+            set_stage_state(conn, "stage_7_route_timeline", "completed")
+            set_stage_state(conn, "stage_8_core_sections", "running")
+            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action in {"validate_core_analytical_sections", "persist_core_sections"}:
+            payload = require_payload(args)
+            result = validate_core_analytical_sections(conn, payload, Path(args.run_root))
+            set_stage_state(conn, "stage_8_core_sections", "completed")
+            set_stage_state(conn, "stage_9_external_statistics_report", "running")
+            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action == "persist_external_statistics_report":
+            operation = args.operation
+            language = "zh-CN" if args.language == "auto" else args.language
+            payload = require_payload(args)
+            result = persist_external_statistics_report_payload(
+                conn,
+                payload,
+                Path(args.run_root),
+                operation=operation,
+                language=language,
+            )
+            set_stage_state(conn, "stage_9_external_statistics_report", "completed")
+            set_stage_state(conn, "stage_10_render_and_validate", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
@@ -548,4 +1030,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    inject_section_digest_refs,

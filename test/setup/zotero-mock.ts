@@ -43,6 +43,17 @@ type ZoteroMock = {
       file: MockFile;
       parentItemID?: number | null;
     }) => Promise<MockItem>;
+    importFromURL?: (opts: {
+      url: string;
+      parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
+    }) => Promise<MockItem>;
+    resolveRelativePath?: (dataPath: string) => string;
+    getStorageDirectoryByLibraryAndKey?: (
+      libraryID: number,
+      key: string,
+    ) => MockFile;
   };
   Collection: typeof MockCollection;
   Collections: {
@@ -423,6 +434,7 @@ class MockCollection {
   key!: string;
   name = "";
   libraryID = 0;
+  parentID: number | null = null;
 
   async saveTx() {
     if (!this.id) {
@@ -2280,6 +2292,34 @@ function createZoteroMock(): ZoteroMock {
         await attachment.saveTx();
         return attachment;
       },
+      importFromURL: async ({
+        url,
+        parentItemID,
+        title,
+        contentType,
+      }: {
+        url: string;
+        parentItemID?: number | null;
+        title?: string;
+        contentType?: string;
+      }) => {
+        if (
+          !/^https?:\/\//i.test(url) ||
+          /(?:^|[/?#&])fail(?:[=?&/#]|$)/i.test(url)
+        ) {
+          throw new Error(`Mock attachment URL import failed: ${url}`);
+        }
+        const attachment = new MockItem("attachment");
+        attachment.parentItemID = parentItemID ?? null;
+        attachment.setField("title", title || url);
+        attachment.setField("url", url);
+        attachment.setField("contentType", contentType || "application/pdf");
+        attachment.setFilePath(
+          path.join(os.tmpdir(), "zotero-url-attachments", encodeURIComponent(url)),
+        );
+        await attachment.saveTx();
+        return attachment;
+      },
       resolveRelativePath: (dataPath: string) => {
         return dataPath.replace(/^attachments:/, "");
       },
@@ -2295,6 +2335,10 @@ function createZoteroMock(): ZoteroMock {
       get: (id: number) => collectionsById.get(id),
       getByLibraryAndKey: (_libraryID: number, key: string) =>
         collectionsByKey.get(key),
+      getByLibrary: (libraryID: number) =>
+        Array.from(collectionsById.values()).filter(
+          (collection) => collection.libraryID === libraryID,
+        ),
     },
     ItemTypes: {
       getID: (itemType: string) => {

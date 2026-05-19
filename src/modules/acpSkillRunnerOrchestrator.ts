@@ -68,6 +68,7 @@ import {
   recordAcpSkillRunSessionUpdate,
   setAcpSkillRunPermissionRequest,
   setAcpSkillRunRecoveryHandler,
+  setAcpSkillRunRuntimeOptions,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
@@ -136,6 +137,11 @@ export type AcpCallableMcpSmokeProbe = (args: {
   reachedTools?: string[];
   missingTools?: string[];
   message?: string;
+  decisionSource?: string;
+  connectionId?: string;
+  smokeAttemptId?: string;
+  transportKinds?: string[];
+  warning?: string;
 }>;
 
 function normalizeString(value: unknown) {
@@ -444,29 +450,78 @@ async function preflightRequiredMcpTools(args: {
   return result;
 }
 
-function extractMcpToolNameFromDiagnostic(entry: AcpDiagnosticsEntry) {
-  if (entry.kind === "zotero_mcp_response") {
-    const raw = entry.raw as { jsonrpcToolName?: unknown } | null | undefined;
-    const fromRaw = normalizeString(raw?.jsonrpcToolName);
-    if (fromRaw) {
-      return fromRaw;
-    }
-    try {
-      const parsed = JSON.parse(normalizeString(entry.detail));
-      return normalizeString(parsed?.jsonrpcToolName);
-    } catch {
-      return "";
-    }
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  const text = normalizeString(value);
+  if (!text) {
+    return null;
   }
-  if (entry.kind !== "zotero_mcp_tool_call") {
-    return "";
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
   }
-  const message = normalizeString(entry.message);
-  const match = message.match(/Zotero MCP tool call(?: failed)?\s+(.+)$/i);
-  return normalizeString(match?.[1]);
 }
 
-const MCP_CALLABLE_SMOKE_TIMEOUT_MS = 60_000;
+function extractMcpToolNameFromUnknown(value: unknown): string {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    const parsed = parseJsonObject(value);
+    if (parsed) {
+      return extractMcpToolNameFromUnknown(parsed);
+    }
+    const match =
+      value.match(/"toolName"\s*:\s*"([^"]+)"/i) ||
+      value.match(/"jsonrpcToolName"\s*:\s*"([^"]+)"/i) ||
+      value.match(/Zotero MCP tool(?: call)?(?: failed)?\s+([A-Za-z0-9_.-]+)/i);
+    return normalizeString(match?.[1]);
+  }
+  if (typeof value !== "object") {
+    return "";
+  }
+  const record = value as Record<string, unknown>;
+  const direct =
+    normalizeString(record.toolName) ||
+    normalizeString(record.jsonrpcToolName);
+  if (direct) {
+    return direct;
+  }
+  for (const key of ["details", "raw", "data", "error", "result"]) {
+    const nested = extractMcpToolNameFromUnknown(record[key]);
+    if (nested) {
+      return nested;
+    }
+  }
+  return "";
+}
+
+function extractMcpToolNameFromDiagnostic(entry: AcpDiagnosticsEntry) {
+  const fromRaw = extractMcpToolNameFromUnknown(entry.raw);
+  if (fromRaw) {
+    return fromRaw;
+  }
+  const fromData = extractMcpToolNameFromUnknown(entry.data);
+  if (fromData) {
+    return fromData;
+  }
+  const fromDetail = extractMcpToolNameFromUnknown(entry.detail);
+  if (fromDetail) {
+    return fromDetail;
+  }
+  if (entry.kind === "zotero_mcp_response") {
+    return "";
+  }
+  if (entry.kind !== "zotero_mcp_tool_call") {
+    return extractMcpToolNameFromUnknown(entry.message);
+  }
+  return extractMcpToolNameFromUnknown(entry.message);
+}
+
+const MCP_CALLABLE_SMOKE_TIMEOUT_MS = 120_000;
 
 function resolveMcpCallableSmokeTimeoutMs(value: unknown) {
   const numeric = Number(value);
@@ -474,6 +529,20 @@ function resolveMcpCallableSmokeTimeoutMs(value: unknown) {
     return MCP_CALLABLE_SMOKE_TIMEOUT_MS;
   }
   return Math.max(1, Math.floor(numeric));
+}
+
+function claudeStyleZoteroMcpCallableAlias(toolName: string) {
+  const normalizedToolName = normalizeString(toolName)
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalizedToolName ? `mcp__zotero__${normalizedToolName}` : "";
+}
+
+function renderMcpCallableSmokeToolLine(toolName: string) {
+  const alias = claudeStyleZoteroMcpCallableAlias(toolName);
+  return alias
+    ? `- ${toolName} (Claude-style callable alias: ${alias})`
+    : `- ${toolName}`;
 }
 
 async function renderMcpCallableSmokePrompt(
@@ -486,7 +555,7 @@ async function renderMcpCallableSmokePrompt(
   return renderAcpRuntimePromptTemplate({
     template,
     replacements: {
-      REQUIRED_TOOLS: requiredTools.map((tool) => `- ${tool}`).join("\n"),
+      REQUIRED_TOOLS: requiredTools.map(renderMcpCallableSmokeToolLine).join("\n"),
       TIMEOUT_SECONDS: String(Math.ceil(timeoutMs / 1000)),
     },
     requiredPlaceholders: ["REQUIRED_TOOLS", "TIMEOUT_SECONDS"],
@@ -526,56 +595,20 @@ async function defaultCallableMcpSmoke(args: {
   sessionId: string;
   timeoutMs?: number;
 }) {
-  const required = new Set(args.requiredTools);
-  const reached = new Set<string>();
   const timeoutMs = resolveMcpCallableSmokeTimeoutMs(args.timeoutMs);
-  const unsubscribe = args.adapter.onDiagnostics((entry) => {
-    const toolName = extractMcpToolNameFromDiagnostic(entry);
-    if (required.has(toolName)) {
-      reached.add(toolName);
-    }
+  const smokePrompt = await renderMcpCallableSmokePrompt(
+    args.requiredTools,
+    timeoutMs,
+  );
+  await args.adapter.prompt({
+    sessionId: args.sessionId,
+    message: smokePrompt,
   });
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutSentinel = Symbol("mcp-callable-smoke-timeout");
-  try {
-    const smokePrompt = await renderMcpCallableSmokePrompt(
-      args.requiredTools,
-      timeoutMs,
-    );
-    const result = await Promise.race([
-      args.adapter.prompt({
-        sessionId: args.sessionId,
-        message: smokePrompt,
-      }),
-      new Promise<typeof timeoutSentinel>((resolve) => {
-        timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
-      }),
-    ]);
-    if (result === timeoutSentinel) {
-      const reachedTools = args.requiredTools.filter((tool) => reached.has(tool));
-      const missingTools = args.requiredTools.filter((tool) => !reached.has(tool));
-      return {
-        ok: false,
-        reachedTools,
-        missingTools,
-        message: `ACP callable MCP smoke timed out after ${timeoutMs}ms. Do not try alternate MCP access paths.`,
-      };
-    }
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-    unsubscribe();
-  }
-  const reachedTools = args.requiredTools.filter((tool) => reached.has(tool));
-  const missingTools = args.requiredTools.filter((tool) => !reached.has(tool));
   return {
-    ok: missingTools.length === 0,
-    reachedTools,
-    missingTools,
-    message: missingTools.length
-      ? `ACP callable smoke did not observe required Zotero MCP tools: ${missingTools.join(", ")}`
-      : "ACP callable smoke observed all required Zotero MCP tools.",
+    ok: true,
+    reachedTools: args.requiredTools,
+    missingTools: [],
+    message: "ACP callable MCP smoke prompt completed.",
   };
 }
 
@@ -597,6 +630,7 @@ async function runCallableMcpSmoke(args: {
   if (!args.requiredTools.length) {
     return;
   }
+  const timeoutMs = resolveMcpCallableSmokeTimeoutMs(args.timeoutMs);
   upsertAcpSkillRun({
     requestId: args.requestId,
     activePrompt: true,
@@ -606,6 +640,7 @@ async function runCallableMcpSmoke(args: {
       level: "info",
       details: {
         requiredTools: args.requiredTools,
+        timeoutMs,
       },
     },
   });
@@ -623,51 +658,194 @@ async function runCallableMcpSmoke(args: {
     message: "ACP callable MCP smoke started.",
     details: {
       requiredTools: args.requiredTools,
-      timeoutMs: resolveMcpCallableSmokeTimeoutMs(args.timeoutMs),
+      timeoutMs,
+      decisionSource: args.probe ? "test-probe" : "mcp-gateway",
     },
   });
-  const timeoutMs = resolveMcpCallableSmokeTimeoutMs(args.timeoutMs);
   const smokeStartedAt = new Date().toISOString();
   const adapterDiagnostics: AcpDiagnosticsEntry[] = [];
   const unsubscribeDiagnostics = args.adapter.onDiagnostics((entry) => {
     adapterDiagnostics.push(entry);
   });
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutSentinel = Symbol("mcp-callable-smoke-timeout");
-  let raced:
-    | Awaited<ReturnType<AcpCallableMcpSmokeProbe>>
-    | typeof timeoutSentinel;
+  let result: Awaited<ReturnType<AcpCallableMcpSmokeProbe>>;
   try {
-    const probePromise = (args.probe || defaultCallableMcpSmoke)({
-      requiredTools: args.requiredTools,
-      requestId: args.requestId,
-      backend: args.backend,
-      workspace: args.workspace,
-      adapter: args.adapter,
-      sessionId: args.sessionId,
-      timeoutMs,
-    });
-    raced = await Promise.race([
-      probePromise,
-      new Promise<typeof timeoutSentinel>((resolve) => {
-        timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-    unsubscribeDiagnostics();
-  }
-  const result =
-    raced === timeoutSentinel
-      ? {
+    if (args.probe) {
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      const timeoutSentinel = Symbol("mcp-callable-smoke-timeout");
+      const probePromise = args.probe({
+        requiredTools: args.requiredTools,
+        requestId: args.requestId,
+        backend: args.backend,
+        workspace: args.workspace,
+        adapter: args.adapter,
+        sessionId: args.sessionId,
+        timeoutMs,
+      });
+      const raced = await Promise.race([
+        probePromise,
+        new Promise<typeof timeoutSentinel>((resolve) => {
+          timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
+        }),
+      ]);
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      if (raced === timeoutSentinel) {
+        await args.adapter.cancel({ sessionId: args.sessionId }).catch(() => undefined);
+        result = {
           ok: false,
           reachedTools: [],
           missingTools: args.requiredTools,
+          decisionSource: "test-probe",
           message: `ACP callable MCP smoke timed out after ${timeoutMs}ms. Do not try alternate MCP access paths.`,
+        };
+      } else {
+        const reachedSet = new Set(raced.reachedTools || []);
+        const reachedTools = args.requiredTools.filter((tool) =>
+          reachedSet.has(tool),
+        );
+        const missingTools = args.requiredTools.filter(
+          (tool) => !reachedSet.has(tool),
+        );
+        result = {
+          ...raced,
+          reachedTools,
+          missingTools,
+          ok: raced.ok && missingTools.length === 0,
+          decisionSource: raced.decisionSource || "test-probe",
+        };
+      }
+    } else {
+      if (!args.adapter.startMcpSmokeSpan) {
+        result = {
+          ok: false,
+          reachedTools: [],
+          missingTools: args.requiredTools,
+          decisionSource: "mcp-gateway",
+          message: "ACP MCP smoke gateway is unavailable for this adapter.",
+        };
+      } else {
+        const span = await args.adapter.startMcpSmokeSpan({
+          sessionId: args.sessionId,
+          requiredTools: args.requiredTools,
+          timeoutMs,
+        });
+        const smokePrompt = await renderMcpCallableSmokePrompt(
+          args.requiredTools,
+          timeoutMs,
+        );
+        let observed = false;
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const promptPromise = args.adapter.prompt({
+          sessionId: args.sessionId,
+          message: smokePrompt,
+        });
+        const timeoutPromise = new Promise<{
+          kind: "timeout";
+        }>((resolve) => {
+          timeoutHandle = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+        });
+        const first = await Promise.race([
+          span.observed.then((value) => ({ kind: "observed" as const, value })),
+          promptPromise
+            .then((value) => ({ kind: "prompt_finished" as const, value }))
+            .catch((error) => ({ kind: "prompt_failed" as const, error })),
+          timeoutPromise,
+        ]);
+        if (first.kind === "observed") {
+          observed = true;
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
+          const observation = first.value;
+          upsertAcpSkillRun({
+            requestId: args.requestId,
+            event: {
+              stage: "mcp-smoke-observed",
+              message: "ACP callable MCP smoke observed all required tools.",
+              level: "info",
+              details: {
+                requiredTools: args.requiredTools,
+                reachedTools: observation.reachedTools,
+                missingTools: observation.missingTools,
+                timeoutMs,
+                decisionSource: "mcp-gateway",
+                connectionId: observation.connectionId,
+                smokeAttemptId: observation.smokeAttemptId,
+                transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
+              },
+            },
+          });
+          let warning = "";
+          await promptPromise.catch((error) => {
+            warning =
+              error instanceof Error ? error.message : String(error || "unknown error");
+          });
+          await span.finish();
+          result = {
+            ok: true,
+            reachedTools: observation.reachedTools,
+            missingTools: observation.missingTools,
+            decisionSource: "mcp-gateway",
+            connectionId: observation.connectionId,
+            smokeAttemptId: observation.smokeAttemptId,
+            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
+            warning,
+            message: warning
+              ? "ACP callable MCP smoke observed required tools; smoke prompt ended with warning evidence."
+              : "ACP callable MCP smoke succeeded.",
+          };
+        } else if (first.kind === "timeout") {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
+          await args.adapter.cancel({ sessionId: args.sessionId }).catch(() => undefined);
+          const snapshot = span.snapshot();
+          span.observed.catch(() => undefined);
+          await span.abort("mcp smoke timeout").catch(() => undefined);
+          promptPromise.catch(() => undefined);
+          result = {
+            ok: false,
+            reachedTools: snapshot.reachedTools,
+            missingTools: snapshot.missingTools,
+            decisionSource: "mcp-gateway",
+            connectionId: snapshot.connectionId,
+            smokeAttemptId: snapshot.smokeAttemptId,
+            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
+            message: `ACP callable MCP smoke timed out after ${timeoutMs}ms. Do not try alternate MCP access paths.`,
+          };
+        } else {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
+          const snapshot = span.snapshot();
+          await span.finish();
+          const promptMessage =
+            first.kind === "prompt_failed"
+              ? first.error instanceof Error
+                ? first.error.message
+                : String(first.error || "unknown error")
+              : "Smoke prompt finished before all required MCP tools were observed.";
+          result = {
+            ok: false,
+            reachedTools: snapshot.reachedTools,
+            missingTools: snapshot.missingTools,
+            decisionSource: "mcp-gateway",
+            connectionId: snapshot.connectionId,
+            smokeAttemptId: snapshot.smokeAttemptId,
+            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
+            message: promptMessage,
+          };
         }
-      : raced;
+        if (!observed) {
+          span.observed.catch(() => undefined);
+        }
+      }
+    }
+  } finally {
+    unsubscribeDiagnostics();
+  }
+  const smokeFinishedAt = new Date().toISOString();
   const diagnosticResult = result.ok
     ? null
     : await writeMcpContextInjectionDiagnostics({
@@ -686,7 +864,7 @@ async function runCallableMcpSmoke(args: {
         timeoutMs,
         timeWindow: {
           fromTs: smokeStartedAt,
-          toTs: new Date().toISOString(),
+          toTs: smokeFinishedAt,
         },
       }).catch((error) => {
         appendRuntimeLog({
@@ -721,6 +899,11 @@ async function runCallableMcpSmoke(args: {
         reachedTools: result.reachedTools || [],
         missingTools: result.missingTools || [],
         timeoutMs,
+        decisionSource: result.decisionSource || "mcp-gateway",
+        connectionId: result.connectionId,
+        smokeAttemptId: result.smokeAttemptId,
+        transportKinds: result.transportKinds || [],
+        warning: result.warning,
         diagnosticClassification: diagnosticResult?.diagnostics.classification,
         diagnosticConfidence: diagnosticResult?.diagnostics.confidence,
         diagnosticFile: diagnosticResult?.diagnosticFile,
@@ -751,6 +934,11 @@ async function runCallableMcpSmoke(args: {
       reachedTools: result.reachedTools || [],
       missingTools: result.missingTools || [],
       timeoutMs,
+      decisionSource: result.decisionSource || "mcp-gateway",
+      connectionId: result.connectionId,
+      smokeAttemptId: result.smokeAttemptId,
+      transportKinds: result.transportKinds || [],
+      warning: result.warning,
       diagnosticClassification: diagnosticResult?.diagnostics.classification,
       diagnosticConfidence: diagnosticResult?.diagnostics.confidence,
       diagnosticFile: diagnosticResult?.diagnosticFile,
@@ -778,6 +966,35 @@ type FrozenAcpRuntimeOptions = {
   reasoningEffort?: string;
   rawModelId?: string;
 };
+
+function rememberAcpSkillRunRuntimeOptions(args: {
+  requestId: string;
+  backend: BackendInstance;
+}) {
+  const cache = args.backend.acp?.runtimeOptionsCache;
+  setAcpSkillRunRuntimeOptions(args.requestId, {
+    modeOptions: cache?.modes || [],
+    currentMode: cache?.currentModeId
+      ? (cache?.modes || []).find((entry) => entry.id === cache.currentModeId) ||
+        { id: cache.currentModeId, label: cache.currentModeId }
+      : undefined,
+    modelOptions: cache?.rawModels || [],
+    currentModel: cache?.currentRawModelId
+      ? (cache?.rawModels || []).find((entry) => entry.id === cache.currentRawModelId) ||
+        { id: cache.currentRawModelId, label: cache.currentRawModelId }
+      : undefined,
+    displayModelOptions: cache?.displayModels || [],
+    currentDisplayModel: cache?.currentDisplayModelId
+      ? (cache?.displayModels || []).find((entry) => entry.id === cache.currentDisplayModelId) ||
+        { id: cache.currentDisplayModelId, label: cache.currentDisplayModelId }
+      : undefined,
+    reasoningEffortOptions: cache?.reasoningEfforts || [],
+    currentReasoningEffort: cache?.currentReasoningEffortId
+      ? (cache?.reasoningEfforts || []).find((entry) => entry.id === cache.currentReasoningEffortId) ||
+        { id: cache.currentReasoningEffortId, label: cache.currentReasoningEffortId }
+      : undefined,
+  });
+}
 
 function resolveFrozenAcpRuntimeOptions(args: {
   backend: BackendInstance;
@@ -1227,6 +1444,7 @@ export async function recoverAcpSkillRunConversation(args: {
     },
   });
   const backend = await resolveBackendForRecoveredRun(record.backendId);
+  rememberAcpSkillRunRuntimeOptions({ requestId, backend });
   const runnerJson = record.runnerJson || {};
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
     backend,
@@ -1584,14 +1802,28 @@ export async function recoverAcpSkillRunConversation(args: {
         await detach("ended");
       },
       reply: async (message) => {
-        promptChain = promptChain.then(() => convergeRecoveredReply(message));
-        await promptChain;
+        const nextPrompt = promptChain
+          .catch(() => undefined)
+          .then(() => convergeRecoveredReply(message));
+        promptChain = nextPrompt;
+        try {
+          await nextPrompt;
+        } catch (error) {
+          promptChain = Promise.resolve();
+          throw error;
+        }
       },
       disconnect: async () => {
         await detach("closed");
       },
       endSession: async () => {
         await detach("ended");
+      },
+      setMode: async ({ sessionId, modeId }) => {
+        await adapter.setMode({ sessionId, modeId });
+      },
+      setModel: async ({ sessionId, modelId }) => {
+        await adapter.setModel({ sessionId, modelId });
       },
     });
     upsertAcpSkillRun({
@@ -1696,6 +1928,10 @@ export async function executeAcpSkillRunnerJob(args: {
         workspaceDir: workspace.workspaceDir,
       },
     },
+  });
+  rememberAcpSkillRunRuntimeOptions({
+    requestId: workspace.requestId,
+    backend: args.backend,
   });
   args.onProgress?.({
     type: "request-created",
@@ -2100,7 +2336,7 @@ export async function executeAcpSkillRunnerJob(args: {
         resolvePendingReply(text);
         return;
       }
-      promptChain = promptChain.then(async () => {
+      const nextPrompt = promptChain.catch(() => undefined).then(async () => {
         appendAcpSkillRunUserReply({
           requestId: workspace.requestId,
           message: text,
@@ -2129,7 +2365,13 @@ export async function executeAcpSkillRunnerJob(args: {
           throw error;
         }
       });
-      await promptChain;
+      promptChain = nextPrompt;
+      try {
+        await nextPrompt;
+      } catch (error) {
+        promptChain = Promise.resolve();
+        throw error;
+      }
     },
     disconnect: async () => {
       await cleanupLiveSession({
@@ -2147,6 +2389,12 @@ export async function executeAcpSkillRunnerJob(args: {
         conversationState: "ended",
         closeAdapter: true,
       });
+    },
+    setMode: async ({ sessionId, modeId }) => {
+      await adapter.setMode({ sessionId, modeId });
+    },
+    setModel: async ({ sessionId, modelId }) => {
+      await adapter.setModel({ sessionId, modelId });
     },
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {

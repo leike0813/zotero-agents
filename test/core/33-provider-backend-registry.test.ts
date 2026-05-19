@@ -13,6 +13,7 @@ import {
 } from "../../src/providers/registry";
 import { ProviderRequestContractError } from "../../src/providers/requestContracts";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { Provider } from "../../src/providers/types";
 import { workflowsPath } from "./workflow-test-utils";
@@ -27,25 +28,19 @@ function buildWorkflow(args: {
   id: string;
   provider?: string;
   requestKind: string;
-  supportedBackends?: string[];
 }): LoadedWorkflow {
   return {
     manifest: {
       id: args.id,
       label: args.id,
-      provider: args.provider,
+      ...(args.provider ? { provider: args.provider } : {}),
       request: {
         kind: args.requestKind,
       },
-      execution: args.supportedBackends
-        ? {
-            supportedBackends: args.supportedBackends,
-          }
-        : undefined,
       hooks: {
         applyResult: "hooks/applyResult.js",
       },
-    },
+    } as LoadedWorkflow["manifest"],
     rootDir: "test-workflow",
     hooks: {
       applyResult: async () => ({ ok: true }),
@@ -772,7 +767,7 @@ describe("provider/backend registry", function () {
     assert.match(String(thrown), /Invalid backends JSON/);
   });
 
-  it("filters compatible backends by workflow execution.supportedBackends", async function () {
+  it("derives ACP-only compatible backends from an ACP workflow provider", async function () {
     setBackendsConfig({
       schemaVersion: 2,
       backends: [
@@ -796,7 +791,6 @@ describe("provider/backend registry", function () {
       id: "acp-only-skillrunner-request",
       provider: "acp",
       requestKind: "skillrunner.job.v1",
-      supportedBackends: ["acp"],
     });
 
     const backends = await listBackendsForWorkflow(workflow);
@@ -816,6 +810,106 @@ describe("provider/backend registry", function () {
     }
     assert.isOk(thrown);
     assert.match(String(thrown), /incompatible backendId/);
+  });
+
+  it("lets SkillRunner-provider workflows run through SkillRunner or ACP backends", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "skillrunner-compatible",
+      provider: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.sameMembers(Array.from(new Set(backends.map((entry) => entry.type))), [
+      "skillrunner",
+      "acp",
+    ]);
+
+    const skillrunnerBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "skillrunner-primary",
+    });
+    assert.equal(skillrunnerBackend.type, "skillrunner");
+
+    const acpBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "acp-local",
+    });
+    assert.equal(acpBackend.type, "acp");
+  });
+
+  it("does not infer backend compatibility from request.kind when provider is missing", async function () {
+    const workflow = buildWorkflow({
+      id: "missing-provider-skillrunner-request",
+      requestKind: "skillrunner.job.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.deepEqual(backends, []);
+
+    let backendError: unknown;
+    try {
+      await resolveBackendForWorkflow(workflow);
+    } catch (error) {
+      backendError = error;
+    }
+    assert.isOk(backendError);
+    assert.match(String(backendError), /does not declare provider/);
+
+    let settingsError: unknown;
+    try {
+      await resolveWorkflowExecutionContext({ workflow });
+    } catch (error) {
+      settingsError = error;
+    }
+    assert.isOk(settingsError);
+    assert.match(String(settingsError), /does not declare provider/);
+  });
+
+  it("rejects execution.supportedBackends in workflow manifests", function () {
+    const result = parseWorkflowManifestFromText({
+      manifestPath: "workflow.json",
+      raw: JSON.stringify({
+        id: "legacy-supported-backends",
+        label: "Legacy Supported Backends",
+        provider: "acp",
+        request: {
+          kind: "skillrunner.job.v1",
+          create: {
+            skill_id: "legacy-supported-backends",
+          },
+        },
+        execution: {
+          mode: "auto",
+          supportedBackends: ["acp"],
+          skillrunner_mode: "interactive",
+        },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      }),
+    });
+
+    assert.isNull(result.manifest);
+    assert.equal(result.diagnostic?.category, "manifest_validation_error");
+    assert.include(String(result.diagnostic?.reason || ""), "supportedBackends");
   });
 
   it("only disables workflows that bind to invalid backend entries", async function () {

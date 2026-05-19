@@ -23,6 +23,50 @@
     return gap < (Number(threshold) || 80);
   }
 
+  function installAssistantTranscriptStickiness(container, threshold) {
+    if (!container || container.getAttribute("data-assistant-transcript-stick-installed") === "true") {
+      return;
+    }
+    container.setAttribute("data-assistant-transcript-stick-installed", "true");
+    container.setAttribute("data-assistant-transcript-stick", isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false");
+    container.addEventListener("scroll", function () {
+      if (container.getAttribute("data-assistant-transcript-programmatic-scroll") === "true") {
+        return;
+      }
+      container.setAttribute("data-assistant-transcript-stick", isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false");
+    });
+  }
+
+  function shouldStickAssistantTranscript(container, threshold) {
+    if (!container) return true;
+    if (isAssistantTranscriptNearBottom(container, threshold)) {
+      container.setAttribute("data-assistant-transcript-stick", "true");
+      return true;
+    }
+    return container.getAttribute("data-assistant-transcript-stick") === "true";
+  }
+
+  function stickAssistantTranscriptToBottom(container) {
+    if (!container) return;
+    const finish = function () {
+      container.scrollTop = container.scrollHeight;
+    };
+    container.setAttribute("data-assistant-transcript-programmatic-scroll", "true");
+    container.scrollTop = container.scrollHeight;
+    const raf = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : function (callback) {
+          return setTimeout(callback, 0);
+        };
+    raf(function () {
+      finish();
+      raf(function () {
+        container.removeAttribute("data-assistant-transcript-programmatic-scroll");
+        container.setAttribute("data-assistant-transcript-stick", "true");
+      });
+    });
+  }
+
   function isGenericToolText(value) {
     const text = String(value || "").trim();
     const normalized = text.toLowerCase().replace(/[\s_-]+/g, " ");
@@ -470,7 +514,16 @@
         item.details && typeof item.details === "object" && item.details.relativePath
           ? item.details.relativePath
           : item.text;
-      body.appendChild(el("span", "assistant-transcript-workspace-file-icon", "▣"));
+      const fileIcon = el("span", "assistant-transcript-workspace-file-icon");
+      fileIcon.setAttribute("aria-hidden", "true");
+      body.appendChild(fileIcon);
+      body.appendChild(
+        el(
+          "span",
+          "assistant-transcript-tool-badge assistant-transcript-workspace-badge",
+          transcriptLabel(options, "workspaceActivity", "Workspace update"),
+        ),
+      );
       body.appendChild(
         el("span", "assistant-transcript-workspace-path", String(relativePath || "")),
       );
@@ -519,7 +572,8 @@
     container.classList.toggle("plain-mode", mode === "plain");
     container.classList.toggle("bubble-mode", mode === "bubble");
     container.setAttribute("data-assistant-panel-kind", variant);
-    const shouldStick = isAssistantTranscriptNearBottom(container, opts.stickThreshold);
+    installAssistantTranscriptStickiness(container, opts.stickThreshold);
+    const shouldStick = shouldStickAssistantTranscript(container, opts.stickThreshold);
     if (items.length === 0) {
       clearNode(container);
       if (opts.nodeMap && typeof opts.nodeMap.clear === "function") opts.nodeMap.clear();
@@ -553,7 +607,7 @@
         renderAssistantTranscriptItem(row, item, opts);
       });
     }
-    if (shouldStick) container.scrollTop = container.scrollHeight;
+    if (shouldStick) stickAssistantTranscriptToBottom(container);
     if (typeof opts.onRendered === "function") {
       opts.onRendered({ orderKey, modeKey: mode, items });
     }
@@ -563,8 +617,11 @@
     buildTranscriptRenderItems,
     compactAssistantToolName,
     compactAssistantToolSummary,
+    installAssistantTranscriptStickiness,
     isAssistantTranscriptNearBottom,
     renderAssistantTranscript,
     renderAssistantTranscriptItem,
+    shouldStickAssistantTranscript,
+    stickAssistantTranscriptToBottom,
   };
 })();

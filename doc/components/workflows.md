@@ -179,13 +179,13 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
   - `request`（声明式）
 - 例外：当 `provider = "pass-through"` 时，允许最小声明（仅 `hooks.applyResult`，可选 `hooks.filterInputs`），runtime 会补全 request。
 - 两者同时存在时，优先 `hooks.buildRequest`。
-- `provider` 建议显式声明；若缺失，loader 会按 `request.kind` 推断。
+- `provider` 必须显式声明，是 workflow 可用 backend 类型的唯一推断来源；`request.kind` 只描述请求协议/形状，不参与 backend 兼容性推断。
 - `execution.feedback.showNotifications`（可选，默认 `true`）语义：
   - `false`：禁用 workflow 执行提醒（开始/单任务 Toast + 结束汇总 alert）；
   - `true` 或缺省：保持默认提醒行为。
 - `execution.skillrunner_mode`（`auto|interactive`）语义：
-  - 仅对 SkillRunner workflow 生效（`provider=skillrunner` 或 `request.kind=skillrunner.job.v1`）；
-  - SkillRunner workflow 必填；
+  - 对 SkillRunner job 请求形状生效（`request.kind=skillrunner.job.v1`）；
+  - 使用 `skillrunner.job.v1` 的 workflow 必填；
   - 当前会在执行链注入到请求的 `runtime_options.execution_mode`；
   - 不替代旧字段 `execution.mode`，两者语义并存。
 - `parameters.<key>.allowCustom`（仅 `type=string` 生效）语义：
@@ -206,6 +206,7 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 - `request.create.model`
 - `request.create.parameter`
 - `request.create.runtime_options`
+- `execution.supportedBackends`
 
 ## 声明式 request（当前支持）
 
@@ -250,6 +251,11 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 - loader 同时支持 Zotero 与 Node。
 - 禁止在 loader 顶层静态引入 Node 内置模块（避免 Zotero 打包失败）。
 - `provider = "pass-through"` 时，执行上下文使用本地虚拟 backend（无需配置 backend profile）。
+- Provider/backend 兼容性由 `provider` 派生：
+  - `provider = "acp"`：只能由 ACP backend 执行；
+  - `provider = "skillrunner"`：当前可由 SkillRunner backend 或 ACP backend 执行；
+  - 其他 provider：只匹配同名 backend type；
+  - `request.kind` 不参与兼容性推断。
 - Hook 加载策略：
   - Node：动态 import，失败回退到文本导出转换
   - Zotero：脚本加载器，失败回退到文本导出转换

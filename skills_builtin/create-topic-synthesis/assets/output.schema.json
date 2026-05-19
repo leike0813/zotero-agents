@@ -3,7 +3,12 @@
   "title": "Create Topic Synthesis Result",
   "type": "object",
   "additionalProperties": true,
-  "not": { "required": ["markdown"] },
+  "not": {
+    "anyOf": [
+      { "required": ["markdown"] },
+      { "required": ["markdown_path"] }
+    ]
+  },
   "oneOf": [
     {
       "title": "Completed create topic synthesis",
@@ -36,8 +41,7 @@
         "resolver_manifest_path": { "type": "string", "minLength": 1 },
         "resolver_diagnostics": { "type": "object" },
         "artifact_metadata": { "type": "object" },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "markdown_path": { "type": "string", "minLength": 1 }
+        "analysis_manifest_path": { "type": "string", "minLength": 1 }
       }
     },
     {

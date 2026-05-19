@@ -17,7 +17,7 @@ describe("workflow settings single-source routing", function () {
   it("enforces settings gate on interactive workflow trigger", async function () {
     const ts = await readProjectFile("src/modules/workflowMenu.ts");
     assert.include(ts, "requireSettingsGate: true");
-    assert.include(ts, "triggerWorkflowFromMenu");
+    assert.include(ts, "triggerWorkflowFromUnifiedEntry");
     assert.include(ts, "menu-trigger-failed");
   });
 
@@ -93,6 +93,9 @@ describe("workflow settings single-source routing", function () {
   it("keeps submit dialog updates metadata-aware for structural refresh gating", async function () {
     const js = await readProjectFile("addon/content/dashboard/workflow-settings-dialog.js");
     assert.include(js, "flushDraftFromControls");
+    assert.include(js, "captureActiveFormState");
+    assert.include(js, "restoreActiveFormState");
+    assert.include(js, "shouldResetDraftForSnapshot");
     assert.include(js, "registerFieldCollector");
     assert.include(js, 'control.addEventListener("input"');
     assert.include(js, 'control.addEventListener("blur"');

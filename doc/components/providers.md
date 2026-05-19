@@ -11,11 +11,12 @@
   - `skillrunner`：`src/providers/skillrunner/provider.ts`
   - `generic-http`：`src/providers/generic-http/provider.ts`
   - `pass-through`：`src/providers/pass-through/provider.ts`
-- 选择逻辑：按 `requestKind + backend.type` 解析 Provider
+- Backend 兼容性：先由 workflow `provider` 派生候选 backend type；`request.kind` 不参与兼容性推断。
+- Provider 执行解析：在已选定 backend 后，按 `requestKind + backend.type` 解析具体 Provider。
 
 ## 输入
 
-- `requestKind`：由 Workflow manifest/request 与 backend.type 共同决定
+- `requestKind`：由 Workflow manifest/request 与 backend.type 共同决定，仅描述请求协议/形状
 - `request`：由 `compileDeclarativeRequest` 或 `hooks.buildRequest` 产出
 - `backend`：由 backend registry + workflow settings 解析出的 profile；对本地 provider（如 `pass-through`）可为 runtime 构建的虚拟 backend（`local://...`）
 - `providerOptions`：运行时选项（持久化或 run-once 覆盖）
@@ -110,6 +111,13 @@
   - `selectionContext`（完整选择上下文）
   - `parameter`（workflow 参数）
   - `requestMeta`（`targetParentID/taskName/sourceAttachmentPaths`）
+
+## Backend 兼容性
+
+- `provider = "acp"`：仅兼容 `type=acp` 的 backend。
+- `provider = "skillrunner"`：当前兼容 `type=skillrunner` 与 `type=acp` 的 backend；这是本地 ACP skill-run bridge 的临时兼容规则。
+- 其他 provider：仅兼容同名 backend type。
+- `request.kind` 不用于推断兼容 backend；缺少 `provider` 的 workflow 为无效或不可执行状态。
 
 ## 失败语义
 

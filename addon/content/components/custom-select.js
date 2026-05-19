@@ -75,7 +75,9 @@
         optionEl.classList.add("selected");
       }
       optionEl.textContent = opt.label;
-      optionEl.title = opt.label; // For tooltip if truncated
+      optionEl.title = opt.description
+        ? opt.label + "\n" + opt.description
+        : opt.label; // For tooltip if truncated
       optionEl.addEventListener("click", function (event) {
         event.stopPropagation();
         trigger.textContent = opt.label;

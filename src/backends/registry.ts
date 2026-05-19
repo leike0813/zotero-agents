@@ -4,7 +4,6 @@ import {
   ACP_OPENCODE_BACKEND_ID,
   ACP_OPENCODE_COMMAND,
   ACP_OPENCODE_DISPLAY_NAME,
-  DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
 } from "../config/defaults";
 import { getPref, setPref } from "../utils/prefs";
 import type { LoadedWorkflow } from "../workflows/types";
@@ -675,46 +674,18 @@ export async function listBackendInstances() {
   return loaded.backends;
 }
 
-function resolveProviderTypeFromWorkflow(workflow: LoadedWorkflow) {
-  const declaredProvider = String(workflow.manifest.provider || "").trim();
-  if (declaredProvider) {
-    return declaredProvider;
-  }
-  const requestKind = String(workflow.manifest.request?.kind || "").trim();
-  if (requestKind) {
-    for (const [backendType, knownRequestKind] of Object.entries(
-      DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
-    )) {
-      if (knownRequestKind === requestKind) {
-        return backendType;
-      }
-    }
-  }
-  return "";
-}
-
 function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
-  const providerType = resolveProviderTypeFromWorkflow(workflow);
-  const types = new Set<string>();
-  if (providerType) {
-    types.add(providerType);
+  const providerType = String(workflow.manifest.provider || "").trim();
+  if (!providerType) {
+    return [];
   }
-  const requestKind = String(workflow.manifest.request?.kind || "").trim();
-  if (requestKind === "skillrunner.job.v1") {
-    types.add("skillrunner");
-    types.add(ACP_BACKEND_TYPE);
+  if (providerType === ACP_BACKEND_TYPE) {
+    return [ACP_BACKEND_TYPE];
   }
-  const inferredTypes = Array.from(types.values());
-  const supportedTypes = normalizeStringArray(
-    workflow.manifest.execution?.supportedBackends,
-  );
-  if (supportedTypes.length === 0) {
-    return inferredTypes;
+  if (providerType === "skillrunner") {
+    return ["skillrunner", ACP_BACKEND_TYPE];
   }
-  if (inferredTypes.length === 0) {
-    return supportedTypes;
-  }
-  return inferredTypes.filter((type) => supportedTypes.includes(type));
+  return [providerType];
 }
 
 export async function listBackendsForProvider(providerType: string) {
@@ -758,7 +729,7 @@ export async function resolveBackendForWorkflow(
   const compatibleBackendTypes = resolveCompatibleBackendTypesForWorkflow(workflow);
   if (compatibleBackendTypes.length === 0) {
     throw new Error(
-      `Workflow ${workflow.manifest.id} does not declare provider and request kind cannot infer provider type`,
+      `Workflow ${workflow.manifest.id} does not declare provider`,
     );
   }
   const backendsByType = loaded.backends.filter(

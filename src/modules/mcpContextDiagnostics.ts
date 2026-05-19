@@ -21,6 +21,7 @@ export type McpContextDiagnosticClassification =
   | "backend_mcp_discovery_failed"
   | "backend_mcp_tools_absent"
   | "backend_mcp_tool_call_failed_transport"
+  | "tool_call_observed_but_smoke_failed"
   | "model_ignored_available_tools"
   | "smoke_timeout_unclassified";
 
@@ -72,15 +73,21 @@ export type McpContextInjectionDiagnostics = {
     ok: boolean;
   };
   callableSmoke: {
+    decisionSource?: string;
+    connectionId?: string;
+    smokeAttemptId?: string;
+    transportKinds?: string[];
     reachedTools: string[];
     missingTools: string[];
     timeoutMs: number;
     ok: boolean;
+    warning?: string;
   };
   observedToolEvents: McpContextEvidenceEvent[];
   classification: McpContextDiagnosticClassification;
   confidence: number;
   evidence: McpContextEvidenceEvent[];
+  nonDecisionEvidence: McpContextEvidenceEvent[];
   nextSuggestedProbe: string;
 };
 
@@ -95,6 +102,11 @@ type SmokeResultLike = {
   reachedTools?: string[];
   missingTools?: string[];
   message?: string;
+  decisionSource?: string;
+  connectionId?: string;
+  smokeAttemptId?: string;
+  transportKinds?: string[];
+  warning?: string;
 };
 
 type PreflightResultLike = {
@@ -216,7 +228,12 @@ function classifyText(textRaw: string) {
   if (text.includes("counttooldefinitiontokens") || text.includes("mcp__zotero__")) {
     tags.push("tool_definition_visible");
   }
-  if (text.includes("executepretoolhooks") || text.includes("calling mcp tool")) {
+  if (
+    text.includes("executepretoolhooks") ||
+    text.includes("calling mcp tool") ||
+    text.includes("zotero mcp tool call") ||
+    (text.includes("tools/call") && text.includes("toolname"))
+  ) {
     tags.push("tool_call_observed");
   }
   if (text.includes("fetch failed") || text.includes("connection error")) {
@@ -419,8 +436,34 @@ function chooseClassification(args: {
   descriptorInjected: boolean;
   evidence: McpContextEvidenceEvent[];
 }) {
+  if (args.smoke.decisionSource === "mcp-gateway") {
+    if (!args.preflight.ok || (args.preflight.missingTools || []).length > 0) {
+      return {
+        classification: "host_mcp_preflight_failed" as const,
+        confidence: 0.95,
+        nextSuggestedProbe: "Fix host-side MCP tools/list before starting an ACP session.",
+      };
+    }
+    if ((args.smoke.reachedTools || []).length > 0) {
+      return {
+        classification: "tool_call_observed_but_smoke_failed" as const,
+        confidence: 0.8,
+        nextSuggestedProbe:
+          "Inspect gateway smoke completion, missing required-tool matching, and prompt timeout/cancel behavior.",
+      };
+    }
+    return {
+      classification: "smoke_timeout_unclassified" as const,
+      confidence: 0.7,
+      nextSuggestedProbe:
+        "Inspect MCP gateway descriptor wrapping and current connection smoke span state.",
+    };
+  }
   const hasTag = (tag: string) =>
     args.evidence.some((event) => event.tags.includes(tag));
+  const hasObservedToolCall =
+    hasTag("tool_call_observed") ||
+    (args.smoke.reachedTools || []).length > 0;
   if (!args.preflight.ok || (args.preflight.missingTools || []).length > 0) {
     return {
       classification: "host_mcp_preflight_failed" as const,
@@ -428,7 +471,7 @@ function chooseClassification(args: {
       nextSuggestedProbe: "Fix host-side Zotero MCP tools/list before starting an ACP session.",
     };
   }
-  if (!args.descriptorInjected) {
+  if (!args.descriptorInjected && !hasObservedToolCall) {
     return {
       classification: "descriptor_not_injected" as const,
       confidence: 0.85,
@@ -454,6 +497,13 @@ function chooseClassification(args: {
       classification: "backend_mcp_tool_call_failed_transport" as const,
       confidence: 0.85,
       nextSuggestedProbe: "Inspect per-call MCP HTTP request failures and Zotero server lifecycle.",
+    };
+  }
+  if (hasObservedToolCall) {
+    return {
+      classification: "tool_call_observed_but_smoke_failed" as const,
+      confidence: 0.8,
+      nextSuggestedProbe: "Inspect callable smoke completion, required-tool matching, and tool-level errors.",
     };
   }
   if (hasTag("tool_definition_visible") && (args.smoke.reachedTools || []).length === 0) {
@@ -503,7 +553,6 @@ export async function collectMcpContextEvidence(args: {
     })
       .filter((entry) =>
         entry.requestId === args.requestId ||
-        entry.component === "zotero-mcp" ||
         entry.providerId === args.providerId ||
         entry.backendId === args.backend.id,
       )
@@ -584,10 +633,15 @@ export async function writeMcpContextInjectionDiagnostics(args: {
       ok: args.preflight.ok,
     },
     callableSmoke: {
+      decisionSource: normalizeString(args.smoke.decisionSource) || undefined,
+      connectionId: normalizeString(args.smoke.connectionId) || undefined,
+      smokeAttemptId: normalizeString(args.smoke.smokeAttemptId) || undefined,
+      transportKinds: uniqueStrings(args.smoke.transportKinds || []),
       reachedTools: uniqueStrings(args.smoke.reachedTools || []),
       missingTools: uniqueStrings(args.smoke.missingTools || []),
       timeoutMs: args.timeoutMs,
       ok: args.smoke.ok,
+      warning: normalizeString(args.smoke.warning) || undefined,
     },
     observedToolEvents: evidence.filter((event) =>
       event.tags.some((tag) =>
@@ -603,6 +657,7 @@ export async function writeMcpContextInjectionDiagnostics(args: {
     classification: classified.classification,
     confidence: classified.confidence,
     evidence,
+    nonDecisionEvidence: evidence,
     nextSuggestedProbe: classified.nextSuggestedProbe,
   };
   const diagnosticsDir = joinPath(args.workspaceDir, "runtime", "diagnostics");

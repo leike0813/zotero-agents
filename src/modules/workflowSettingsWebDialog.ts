@@ -47,6 +47,11 @@ type WorkflowSettingsDialogSnapshot = {
       title?: string;
       description?: string;
       enumValues?: string[];
+      options?: Array<{
+        value: string;
+        label: string;
+        description?: string;
+      }>;
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;
@@ -57,6 +62,11 @@ type WorkflowSettingsDialogSnapshot = {
       title?: string;
       description?: string;
       enumValues?: string[];
+      options?: Array<{
+        value: string;
+        label: string;
+        description?: string;
+      }>;
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;

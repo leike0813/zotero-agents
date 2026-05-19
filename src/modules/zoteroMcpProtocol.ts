@@ -54,6 +54,7 @@ export const ZOTERO_MCP_TOOL_CREATE_CHILD_NOTE = "create_child_note";
 export const ZOTERO_MCP_TOOL_UPDATE_NOTE = "update_note";
 export const ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE = "create_markdown_note";
 export const ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE = "update_markdown_note";
+export const ZOTERO_MCP_TOOL_INGEST_PAPERS = "ingest_papers";
 export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
@@ -1536,6 +1537,12 @@ function buildMutationRequest(
         note: args.note || args.target || resolveItemRef(args),
         content: String(args.content || ""),
       };
+    case ZOTERO_MCP_TOOL_INGEST_PAPERS:
+      return {
+        operation: "paper.ingest",
+        papers: requireArray(args.papers, "papers") as any,
+        collection: args.collection ? resolveCollectionRef(args) : undefined,
+      };
     case ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION:
       return {
         operation: "collection.addItems",
@@ -2691,6 +2698,25 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       },
     }, ["markdown"]),
     handler: updateMarkdownNoteTool,
+  },
+  {
+    name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
+    title: "Ingest literature papers",
+    description:
+      "Permission-gated batch ingest for literature search workflows. Creates or reuses Zotero items from DOI/arXiv/PMID/ISBN or metadata, and attaches public PDF URLs on a best-effort basis.",
+    inputSchema: objectSchema({
+      papers: {
+        type: "array",
+        items: {
+          type: "object",
+        },
+      },
+      collection: {
+        description: "Optional target collection reference.",
+      },
+    }, ["papers"]),
+    handler: (args, context) =>
+      executeMutationTool(ZOTERO_MCP_TOOL_INGEST_PAPERS, args, context),
   },
   {
     name: ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION,

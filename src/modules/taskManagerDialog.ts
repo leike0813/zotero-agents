@@ -39,6 +39,8 @@ import {
   updateWorkflowSettings,
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
+import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
+import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isTerminal,
@@ -166,6 +168,8 @@ type DashboardSnapshot = {
     providerId: string;
     configurable: boolean;
     builtin: boolean;
+    quickRunEnabled: boolean;
+    quickRunDisabledReason?: string;
   }>;
   acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   productStorageView?: {
@@ -989,10 +993,48 @@ async function buildHomeWorkflowSummaries(args: {
         providerId: descriptor.providerId,
         configurable: descriptor.hasConfigurableSettings,
         builtin: getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
+        quickRunEnabled: canWorkflowRunWithoutSelection(workflow.manifest),
+        quickRunDisabledReason: !canWorkflowRunWithoutSelection(workflow.manifest)
+          ? localize(
+              "task-dashboard-home-workflow-run-disabled-selection",
+              "Requires a Zotero selection",
+            )
+          : undefined,
       };
     }),
   );
   return entries.sort((a, b) => a.workflowLabel.localeCompare(b.workflowLabel));
+}
+
+async function resolveHomeWorkflowQuickRun(args: {
+  workflowId: string;
+  backends: BackendInstance[];
+}) {
+  const workflow = getVisibleLoadedWorkflowEntries().find(
+    (entry) => entry.manifest.id === args.workflowId,
+  );
+  if (!workflow) {
+    return {
+      workflow: undefined,
+      enabled: false,
+      reason: localize("task-dashboard-home-workflow-run-missing", "Workflow is not loaded"),
+    };
+  }
+  if (!canWorkflowRunWithoutSelection(workflow.manifest)) {
+    return {
+      workflow,
+      enabled: false,
+      reason: localize(
+        "task-dashboard-home-workflow-run-disabled-selection",
+        "Requires a Zotero selection",
+      ),
+    };
+  }
+  return {
+    workflow,
+    enabled: true,
+    reason: "",
+  };
 }
 
 async function buildHomeWorkflowDocView(args: {
@@ -1291,6 +1333,10 @@ async function buildDashboardSnapshot(args: {
     homeWorkflowDocButton: localize(
       "task-dashboard-home-workflow-doc",
       "Description",
+    ),
+    homeWorkflowRunButton: localize(
+      "task-dashboard-home-workflow-run",
+      "Run workflow",
     ),
     homeWorkflowSettingsButton: localize(
       "task-dashboard-home-workflow-settings",
@@ -1863,6 +1909,45 @@ export async function openTaskManagerDialog(args?: {
       refresh("user-action");
       return;
     }
+    if (action === "run-home-workflow") {
+      const workflowId = String(payload.workflowId || "").trim();
+      if (!workflowId) {
+        return;
+      }
+      const quickRun = await resolveHomeWorkflowQuickRun({
+        workflowId,
+        backends: state.backends,
+      });
+      if (!quickRun.enabled || !quickRun.workflow) {
+        alertRuntimeWindow(
+          quickRun.reason ||
+            localize(
+              "workflow-execute-cannot-run",
+              "Workflow cannot run from the dashboard shortcut",
+            ),
+        );
+        return;
+      }
+      const chromeWindow = getChromeWindow();
+      if (!chromeWindow) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-home-workflow-run-missing-window",
+            "Unable to find the Zotero window for this workflow run.",
+          ),
+        );
+        return;
+      }
+      state.selectedTabKey = "home";
+      state.homeWorkflowDocWorkflowId = "";
+      refresh("user-action");
+      void triggerWorkflowFromUnifiedEntry({
+        win: chromeWindow,
+        workflow: quickRun.workflow,
+        source: "dashboard-home",
+      });
+      return;
+    }
     if (action === "workflow-settings-draft") {
       const workflowId = String(payload.workflowId || "").trim();
       const executionOptions =
@@ -1926,6 +2011,23 @@ export async function openTaskManagerDialog(args?: {
       const backendId = String(payload.backendId || "").trim();
       const requestId = String(payload.requestId || "").trim();
       const payloadBackendType = String(payload.backendType || "").trim();
+      const requestKind = String(payload.requestKind || "").trim();
+      if (
+        requestId &&
+        (
+          payloadBackendType === "acp" ||
+          requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
+          taskId.startsWith("acp-skill-run:")
+        )
+      ) {
+        selectAcpSkillRun(requestId);
+        await openAssistantWorkspaceSidebar({
+          window: getChromeWindow(),
+          tab: "acp-skills",
+          requestId,
+        });
+        return;
+      }
       if (!taskId || !backendId) {
         return;
       }
@@ -1934,7 +2036,6 @@ export async function openTaskManagerDialog(args?: {
       }
       const backend = state.backends.find((entry) => entry.id === backendId);
       const backendType = String(backend?.type || payloadBackendType).trim();
-      const requestKind = String(payload.requestKind || "").trim();
       if (
         isAcpSkillRunnerTask({
           backendType,

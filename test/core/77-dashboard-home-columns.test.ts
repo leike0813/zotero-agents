@@ -9,6 +9,16 @@ async function readProjectFile(relativePath: string) {
 describe("dashboard home columns", function () {
   it("renders home running table with backend column and row-click routing", async function () {
     const js = await readProjectFile("addon/content/dashboard/app.js");
+    const html = await readProjectFile("addon/content/dashboard/index.html");
+    const css = await readProjectFile("addon/content/dashboard/styles.css");
+    const customSelectCss = await readProjectFile("addon/content/components/custom-select.css");
+    assert.include(html, "../shared/theme.js");
+    assert.include(html, "../shared/theme.css");
+    assert.include(css, "--bg: var(--zs-bg)");
+    assert.include(css, "--panel: var(--zs-panel)");
+    assert.include(css, "background: var(--zs-bg-gradient)");
+    assert.include(customSelectCss, "--zs-input-bg");
+    assert.include(customSelectCss, "--zs-border-strong");
     assert.include(js, "labels.colBackend || \"Backend\"");
     assert.include(
       js,
@@ -43,6 +53,9 @@ describe("dashboard home columns", function () {
   it("routes row-click by backend type and handles missing skillrunner requestId", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     assert.include(ts, 'if (action === "open-running-task")');
+    assert.include(ts, 'requestKind === ACP_SKILL_RUN_REQUEST_KIND');
+    assert.include(ts, 'taskId.startsWith("acp-skill-run:")');
+    assert.include(ts, 'tab: "acp-skills"');
     assert.include(ts, 'if (backendType === "skillrunner")');
     assert.include(ts, 'if (backendType === "generic-http")');
     assert.include(ts, 'state.selectedTabKey = toBackendTabKey(backendId);');

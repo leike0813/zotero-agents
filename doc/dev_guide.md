@@ -106,7 +106,8 @@
 
 Provider 解析逻辑：
 
-- `requestKind + backend.type` 匹配
+- workflow `provider` 是 backend 兼容性的唯一来源：`acp -> acp`，`skillrunner -> skillrunner/acp`，其他 provider 只匹配同名 backend type。
+- `requestKind + backend.type` 只用于已选定 backend 后的 provider 执行解析，不用于推断 backend 兼容性。
 
 Provider runtime options：
 

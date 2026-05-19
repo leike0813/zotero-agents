@@ -1,6 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zotero-skills.local/schemas/synthesis/topic_synthesis_artifact.schema.json",
   "title": "Topic Synthesis Structured Artifact",
+  "description": "Canonical product schema for the structured topic_synthesis artifact. Markdown exports are compatibility views and are not part of this SSOT artifact.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -11,39 +13,760 @@
     "summary",
     "positioning",
     "taxonomy",
-    "comparison_matrix",
-    "claims",
     "timeline_events",
-    "paper_evidence",
-    "external_literature_analysis",
+    "claims",
+    "comparison_matrix",
     "debates",
-    "coverage",
     "gaps",
+    "external_literature_analysis",
+    "coverage",
+    "statistics",
     "review_outline",
+    "synthesis_report",
+    "paper_evidence",
     "evidence_map",
     "source_artifacts",
     "diagnostics"
   ],
   "properties": {
     "schema_id": { "const": "synthesis.topic_synthesis_artifact" },
-    "schema_version": { "type": "string" },
-    "language": { "type": "string" },
-    "topic": { "type": "object" },
-    "summary": { "type": "object" },
-    "positioning": { "type": "object" },
-    "taxonomy": { "type": "object" },
-    "comparison_matrix": { "type": "object" },
-    "claims": { "type": "array" },
-    "timeline_events": { "type": "array" },
-    "paper_evidence": { "type": "array" },
-    "external_literature_analysis": { "type": "object" },
-    "debates": { "type": "array" },
-    "coverage": { "type": "object" },
-    "gaps": { "type": "array" },
-    "review_outline": { "type": "object" },
-    "evidence_map": { "type": "object" },
-    "source_artifacts": { "type": "array" },
-    "diagnostics": { "type": "object" }
+    "schema_version": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "minLength": 2 },
+    "topic": { "$ref": "#/$defs/topic" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "positioning": { "$ref": "#/$defs/positioning" },
+    "taxonomy": { "$ref": "#/$defs/taxonomy" },
+    "timeline_events": { "$ref": "#/$defs/timeline_events" },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "comparison_matrix": { "$ref": "#/$defs/comparison_matrix" },
+    "debates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/debate" }
+    },
+    "gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gap" }
+    },
+    "external_literature_analysis": {
+      "$ref": "#/$defs/external_literature_analysis"
+    },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "statistics": { "$ref": "#/$defs/statistics" },
+    "review_outline": { "$ref": "#/$defs/review_outline" },
+    "synthesis_report": { "$ref": "#/$defs/synthesis_report" },
+    "paper_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/paper_evidence" }
+    },
+    "evidence_map": { "$ref": "#/$defs/evidence_map" },
+    "source_artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source_artifact" }
+    },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" }
   },
-  "not": { "required": ["markdown"] }
+  "not": {
+    "anyOf": [
+      { "required": ["markdown"] },
+      { "required": ["markdown_path"] }
+    ]
+  },
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text_array": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/non_empty_string" }
+    },
+    "ref_array": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/non_empty_string" }
+    },
+    "coverage_verdict": {
+      "enum": ["sufficient", "partial", "insufficient", "severely_missing", "unknown"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "topic": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "title",
+        "definition",
+        "discipline",
+        "research_field",
+        "scope_boundary",
+        "topic_granularity"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "definition": { "$ref": "#/$defs/non_empty_string" },
+        "discipline": { "$ref": "#/$defs/non_empty_string" },
+        "research_field": { "$ref": "#/$defs/non_empty_string" },
+        "aliases": { "$ref": "#/$defs/text_array" },
+        "topic_granularity": {
+          "enum": [
+            "method_family",
+            "task",
+            "problem",
+            "application_scenario",
+            "theory_concept",
+            "mechanism",
+            "dataset_or_benchmark",
+            "mixed"
+          ]
+        },
+        "scope_boundary": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["include", "exclude"],
+          "properties": {
+            "include": { "$ref": "#/$defs/text_array" },
+            "exclude": { "$ref": "#/$defs/text_array" },
+            "gray_zone": { "$ref": "#/$defs/text_array" }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["brief", "overview", "key_takeaways"],
+      "properties": {
+        "brief": { "$ref": "#/$defs/non_empty_string" },
+        "overview": { "$ref": "#/$defs/non_empty_string" },
+        "key_takeaways": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "route_count": { "type": "integer", "minimum": 0 },
+        "timeline_span": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "start_year": { "type": ["integer", "string"] },
+            "end_year": { "type": ["integer", "string"] }
+          }
+        },
+        "coverage_verdict": { "$ref": "#/$defs/coverage_verdict" }
+      }
+    },
+    "positioning": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "importance",
+        "timeliness",
+        "field_position",
+        "review_position",
+        "scope_boundary"
+      ],
+      "properties": {
+        "importance": { "$ref": "#/$defs/non_empty_string" },
+        "timeliness": { "$ref": "#/$defs/non_empty_string" },
+        "field_position": { "$ref": "#/$defs/non_empty_string" },
+        "review_position": { "$ref": "#/$defs/non_empty_string" },
+        "scope_boundary": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["covered", "not_covered"],
+          "properties": {
+            "covered": { "$ref": "#/$defs/non_empty_string" },
+            "not_covered": { "$ref": "#/$defs/non_empty_string" }
+          }
+        },
+        "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "taxonomy": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["primary_axis", "axis_rationale", "summary", "nodes"],
+      "properties": {
+        "primary_axis": { "$ref": "#/$defs/non_empty_string" },
+        "axis_rationale": { "$ref": "#/$defs/non_empty_string" },
+        "summary": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["text"],
+          "properties": {
+            "text": { "$ref": "#/$defs/non_empty_string" },
+            "dominant_routes": { "$ref": "#/$defs/ref_array" },
+            "emerging_routes": { "$ref": "#/$defs/ref_array" },
+            "route_relationships": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/route_relationship" }
+            },
+            "main_tradeoffs": { "$ref": "#/$defs/text_array" },
+            "report_chapter_hint": { "$ref": "#/$defs/non_empty_string" }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/taxonomy_node" }
+        }
+      }
+    },
+    "route_relationship": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["from", "to", "relation", "explanation"],
+      "properties": {
+        "from": { "$ref": "#/$defs/non_empty_string" },
+        "to": { "$ref": "#/$defs/non_empty_string" },
+        "relation": { "$ref": "#/$defs/non_empty_string" },
+        "explanation": { "$ref": "#/$defs/non_empty_string" }
+      }
+    },
+    "taxonomy_node": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "label",
+        "definition",
+        "core_problem",
+        "mechanism",
+        "representative_papers",
+        "main_contributions",
+        "strengths",
+        "limitations",
+        "maturity",
+        "relation_to_other_routes",
+        "review_angle",
+        "evidence_map_refs"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "label": { "$ref": "#/$defs/non_empty_string" },
+        "definition": { "$ref": "#/$defs/non_empty_string" },
+        "core_problem": { "$ref": "#/$defs/non_empty_string" },
+        "mechanism": { "$ref": "#/$defs/non_empty_string" },
+        "representative_papers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "main_contributions": { "$ref": "#/$defs/text_array" },
+        "strengths": { "$ref": "#/$defs/text_array" },
+        "limitations": { "$ref": "#/$defs/text_array" },
+        "maturity": { "$ref": "#/$defs/non_empty_string" },
+        "relation_to_other_routes": { "$ref": "#/$defs/non_empty_string" },
+        "review_angle": { "$ref": "#/$defs/non_empty_string" },
+        "paper_refs": { "$ref": "#/$defs/ref_array" },
+        "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "timeline_events": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["summary", "events"],
+      "properties": {
+        "summary": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["text"],
+          "properties": {
+            "text": { "$ref": "#/$defs/non_empty_string" },
+            "phases": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/timeline_phase" }
+            },
+            "milestone_event_refs": { "$ref": "#/$defs/ref_array" },
+            "report_chapter_hint": { "$ref": "#/$defs/non_empty_string" }
+          }
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/timeline_event" }
+        }
+      }
+    },
+    "timeline_phase": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "period", "logic"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "period": { "$ref": "#/$defs/non_empty_string" },
+        "logic": { "$ref": "#/$defs/non_empty_string" }
+      }
+    },
+    "timeline_event": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "label",
+        "description",
+        "phase",
+        "why_it_matters",
+        "progression_logic",
+        "follow_on_effect",
+        "evidence_refs",
+        "evidence_map_refs"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "year": { "type": ["integer", "string"] },
+        "period": { "type": "string" },
+        "label": { "$ref": "#/$defs/non_empty_string" },
+        "phase": { "$ref": "#/$defs/non_empty_string" },
+        "route_refs": { "$ref": "#/$defs/ref_array" },
+        "description": { "$ref": "#/$defs/non_empty_string" },
+        "bottleneck_addressed": { "$ref": "#/$defs/non_empty_string" },
+        "why_it_matters": { "$ref": "#/$defs/non_empty_string" },
+        "progression_logic": { "$ref": "#/$defs/non_empty_string" },
+        "follow_on_effect": { "$ref": "#/$defs/non_empty_string" },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "evidence_map_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "text",
+        "analysis",
+        "evidence_refs",
+        "evidence_map_refs",
+        "confidence",
+        "scope",
+        "limitations",
+        "review_usage"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "text": { "$ref": "#/$defs/non_empty_string" },
+        "analysis": { "$ref": "#/$defs/non_empty_string" },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "evidence_map_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "scope": { "$ref": "#/$defs/non_empty_string" },
+        "limitations": { "$ref": "#/$defs/text_array" },
+        "review_usage": { "$ref": "#/$defs/non_empty_string" }
+      }
+    },
+    "comparison_matrix": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["dimensions", "rows"],
+      "properties": {
+        "dimensions": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/comparison_row" }
+        }
+      }
+    },
+    "comparison_row": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "values", "evidence_map_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "route_ref": { "type": "string" },
+        "paper_ref": { "type": "string" },
+        "paper_refs": { "$ref": "#/$defs/ref_array" },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "debate": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "title",
+        "positions",
+        "evaluation_axis",
+        "current_judgment",
+        "uncertainty",
+        "evidence_map_refs"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "positions": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["stance", "evidence_refs"],
+            "properties": {
+              "stance": { "$ref": "#/$defs/non_empty_string" },
+              "evidence_refs": { "$ref": "#/$defs/ref_array" }
+            }
+          }
+        },
+        "evaluation_axis": { "$ref": "#/$defs/non_empty_string" },
+        "current_judgment": { "$ref": "#/$defs/non_empty_string" },
+        "uncertainty": { "$ref": "#/$defs/non_empty_string" },
+        "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "gap_type",
+        "title",
+        "description",
+        "evidence_refs",
+        "evidence_map_refs",
+        "severity"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "gap_type": {
+          "enum": [
+            "research_gap",
+            "library_coverage_gap",
+            "evidence_gap",
+            "method_gap",
+            "evaluation_gap",
+            "engineering_gap",
+            "review_gap"
+          ]
+        },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "description": { "$ref": "#/$defs/non_empty_string" },
+        "evidence_refs": { "$ref": "#/$defs/ref_array" },
+        "evidence_map_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/non_empty_string" }
+        },
+        "severity": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "review_usage": { "type": "string" },
+        "recommended_action": { "type": "string" },
+        "not_field_wide_claim": { "type": "boolean" }
+      }
+    },
+    "external_literature_analysis": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "summary",
+        "themes",
+        "representative_references",
+        "citation_contexts",
+        "coverage_verdict",
+        "coverage_reason",
+        "suggested_additions",
+        "limitations"
+      ],
+      "properties": {
+        "summary": { "$ref": "#/$defs/non_empty_string" },
+        "themes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/external_theme" }
+        },
+        "representative_references": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/representative_reference" }
+        },
+        "citation_contexts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/citation_context" }
+        },
+        "coverage_verdict": { "$ref": "#/$defs/coverage_verdict" },
+        "coverage_reason": { "$ref": "#/$defs/non_empty_string" },
+        "suggested_additions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/suggested_addition" }
+        },
+        "contribution_to_topic": { "type": "string" },
+        "limitations": { "$ref": "#/$defs/non_empty_string" }
+      }
+    },
+    "external_theme": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "title", "analysis", "related_topic_aspect"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "analysis": { "$ref": "#/$defs/non_empty_string" },
+        "related_topic_aspect": { "$ref": "#/$defs/non_empty_string" },
+        "reference_ids": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "representative_reference": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "title", "cited_by_papers", "why_relevant", "information_completeness"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "year": { "type": ["integer", "string"] },
+        "authors": { "$ref": "#/$defs/text_array" },
+        "cited_by_papers": { "$ref": "#/$defs/ref_array" },
+        "why_relevant": { "$ref": "#/$defs/non_empty_string" },
+        "information_completeness": {
+          "enum": ["complete", "partial", "minimal", "unknown"]
+        }
+      }
+    },
+    "citation_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["citing_paper_ref", "reference_id", "usage"],
+      "properties": {
+        "citing_paper_ref": { "$ref": "#/$defs/non_empty_string" },
+        "reference_id": { "$ref": "#/$defs/non_empty_string" },
+        "usage": { "$ref": "#/$defs/non_empty_string" }
+      }
+    },
+    "suggested_addition": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["title", "reason", "priority"],
+      "properties": {
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "reason": { "$ref": "#/$defs/non_empty_string" },
+        "priority": { "enum": ["high", "medium", "low", "unknown"] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "paper_count",
+        "paper_evidence_count",
+        "digest_coverage",
+        "references_coverage",
+        "citation_analysis_coverage",
+        "route_coverage_summary",
+        "claim_coverage_summary",
+        "timeline_coverage_summary",
+        "coverage_verdict",
+        "warnings"
+      ],
+      "properties": {
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "paper_evidence_count": { "type": "integer", "minimum": 0 },
+        "digest_coverage": { "$ref": "#/$defs/non_empty_string" },
+        "references_coverage": { "$ref": "#/$defs/non_empty_string" },
+        "citation_analysis_coverage": { "$ref": "#/$defs/non_empty_string" },
+        "route_coverage_summary": { "$ref": "#/$defs/non_empty_string" },
+        "claim_coverage_summary": { "$ref": "#/$defs/non_empty_string" },
+        "timeline_coverage_summary": { "$ref": "#/$defs/non_empty_string" },
+        "external_literature_coverage_summary": { "type": "string" },
+        "coverage_verdict": { "$ref": "#/$defs/coverage_verdict" },
+        "warnings": { "$ref": "#/$defs/text_array" }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "paper_count",
+        "evidence_paper_count",
+        "time_span",
+        "route_count",
+        "route_coverage",
+        "coverage_verdict",
+        "external_reference_count",
+        "suggested_addition_count",
+        "citation_graph_role_counts"
+      ],
+      "properties": {
+        "paper_count": { "type": "integer", "minimum": 0 },
+        "evidence_paper_count": { "type": "integer", "minimum": 0 },
+        "time_span": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["start_year", "end_year"],
+          "properties": {
+            "start_year": { "type": ["integer", "string"] },
+            "end_year": { "type": ["integer", "string"] }
+          }
+        },
+        "route_count": { "type": "integer", "minimum": 0 },
+        "route_coverage": { "$ref": "#/$defs/non_empty_string" },
+        "coverage_verdict": { "$ref": "#/$defs/coverage_verdict" },
+        "external_reference_count": { "type": "integer", "minimum": 0 },
+        "suggested_addition_count": { "type": "integer", "minimum": 0 },
+        "citation_graph_role_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "artifact_availability": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "review_outline": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["introduction_logic", "related_work_logic", "body_sections"],
+      "properties": {
+        "introduction_logic": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/review_logic" }
+        },
+        "related_work_logic": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/review_logic" }
+        },
+        "body_sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["title", "role"],
+            "properties": {
+              "title": { "$ref": "#/$defs/non_empty_string" },
+              "role": { "$ref": "#/$defs/non_empty_string" }
+            }
+          }
+        }
+      }
+    },
+    "review_logic": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "purpose", "source_sections", "evidence_map_refs"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "purpose": { "$ref": "#/$defs/non_empty_string" },
+        "organization": { "type": "string" },
+        "source_sections": { "$ref": "#/$defs/ref_array" },
+        "candidate_citations": { "$ref": "#/$defs/ref_array" },
+        "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "synthesis_report": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["title", "source_section_chapters", "body"],
+      "properties": {
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "source_section_chapters": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["research_routes", "historical_progression"],
+          "properties": {
+            "research_routes": { "const": "taxonomy.summary" },
+            "historical_progression": { "const": "timeline_events.summary" }
+          }
+        },
+        "body": { "type": "string", "minLength": 200 }
+      }
+    },
+    "paper_evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "paper_ref", "title", "evidence_summary", "digest_ref"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "paper_ref": { "$ref": "#/$defs/non_empty_string" },
+        "title": { "$ref": "#/$defs/non_empty_string" },
+        "year": { "type": ["integer", "string"] },
+        "evidence_summary": { "$ref": "#/$defs/non_empty_string" },
+        "digest_ref": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["payload_type", "payload_hash"],
+          "properties": {
+            "payload_type": { "const": "digest-markdown" },
+            "payload_hash": { "$ref": "#/$defs/non_empty_string" },
+            "paper_ref": { "type": "string" },
+            "item_ref": { "type": "string" },
+            "note_key": { "type": "string" },
+            "updated_at": { "type": "string" }
+          }
+        }
+      },
+      "not": {
+        "anyOf": [
+          { "required": ["digest_markdown"] },
+          { "required": ["digest_body"] },
+          { "required": ["digest_text"] }
+        ]
+      }
+    },
+    "evidence_map": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["path", "hash", "candidate_counts", "candidate_ids"],
+      "properties": {
+        "path": { "$ref": "#/$defs/non_empty_string" },
+        "hash": { "$ref": "#/$defs/non_empty_string" },
+        "candidate_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "candidate_ids": { "$ref": "#/$defs/ref_array" }
+      }
+    },
+    "source_artifact": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "paper_ref": { "type": "string" },
+        "artifact_type": { "type": "string" },
+        "payload_type": { "type": "string" },
+        "status": { "type": "string" },
+        "path": { "type": "string" },
+        "hash": { "type": "string" }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "warnings": { "$ref": "#/$defs/text_array" },
+        "quality_flags": { "$ref": "#/$defs/text_array" },
+        "limitations": { "$ref": "#/$defs/text_array" }
+      }
+    }
+  }
 }

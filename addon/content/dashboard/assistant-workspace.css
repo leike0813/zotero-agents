@@ -1,11 +1,14 @@
 :root {
-  color-scheme: light;
-  --assistant-bg: #f7fafc;
-  --assistant-surface: #ffffff;
-  --assistant-line: #d9e2ec;
-  --assistant-text: #1f2f43;
-  --assistant-muted: #64748b;
-  --assistant-accent: #1f7a8c;
+  color-scheme: light dark;
+  --assistant-bg: var(--zs-bg);
+  --assistant-surface: var(--zs-panel);
+  --assistant-surface-soft: var(--zs-panel-alt);
+  --assistant-line: var(--zs-border);
+  --assistant-text: var(--zs-text);
+  --assistant-muted: var(--zs-muted);
+  --assistant-accent: var(--zs-accent);
+  --assistant-accent-strong: var(--zs-accent-strong);
+  --assistant-accent-soft: var(--zs-accent-soft);
 }
 
 * {
@@ -20,7 +23,7 @@ body {
   overflow: hidden;
   background: var(--assistant-bg);
   color: var(--assistant-text);
-  font: 13px/1.45 "Aptos", "Segoe UI", sans-serif;
+  font: 13px/1.45 var(--zs-font-sans);
 }
 
 button {
@@ -50,7 +53,7 @@ button {
   height: 32px;
   padding: 0 6px;
   border-bottom: 1px solid var(--assistant-line);
-  background: #f8fbff;
+  background: var(--assistant-surface-soft);
   z-index: 10;
 }
 
@@ -80,7 +83,7 @@ button {
 
 .assistant-workspace-close:hover {
   border-color: var(--assistant-line);
-  background: #eef7fb;
+  background: var(--zs-surface-hover);
   color: var(--assistant-text);
 }
 
@@ -104,13 +107,13 @@ button {
 
 .assistant-tab.is-active {
   border-color: var(--assistant-line);
-  border-bottom-color: #ffffff;
-  background: #ffffff;
-  color: var(--assistant-accent);
+  border-bottom-color: var(--assistant-surface);
+  background: var(--assistant-surface);
+  color: var(--assistant-accent-strong);
 }
 
 .assistant-tab:hover {
-  background: #eef7fb;
+  background: var(--zs-surface-hover);
 }
 
 .assistant-workspace-body {
@@ -131,7 +134,7 @@ button {
   min-height: 0;
   display: block;
   border: 0;
-  background: #ffffff;
+  background: var(--assistant-surface);
 }
 
 @media (max-width: 740px) {
