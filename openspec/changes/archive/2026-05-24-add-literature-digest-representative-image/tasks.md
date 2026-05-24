@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec delta specs and upstream submodule recommendation.
+- [x] 2. Add Host API image preparation and embedded-image import support.
+- [x] 3. Add literature workbench representative image resolver/materializer.
+- [x] 4. Integrate optional representative image handling into `literature-digest` apply result.
+- [x] 5. Add focused tests for Host API exposure, Markdown embedding, PDF skip, unsafe paths, and version compatibility.
+- [x] 6. Validate OpenSpec, targeted tests, and TypeScript.

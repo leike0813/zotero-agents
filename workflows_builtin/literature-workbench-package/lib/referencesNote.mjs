@@ -5,6 +5,10 @@ import {
   readTagAttribute,
   setTagAttribute,
 } from "./htmlCodec.mjs";
+import {
+  attachWorkbenchPayloadToNote,
+  resolveWorkbenchEmbeddedPayloadBlock,
+} from "./embeddedPayloadAttachments.mjs";
 import { parseWorkbenchNoteKind } from "./noteCodecs.mjs";
 import { requireHostItems } from "./runtime.mjs";
 
@@ -29,7 +33,16 @@ export function parseNoteKind(noteContent) {
   const kind = kindMatch
     ? String(kindMatch[1] || kindMatch[2] || kindMatch[3] || "")
     : "";
-  return kind === "references" ? "references" : "";
+  if (kind === "references") {
+    return "references";
+  }
+  const isZoteroNormalizedGeneratedNote =
+    /<div\b[^>]*data-schema-version\s*=/i.test(text) ||
+    /<section\b[^>]*data-schema-version\s*=/i.test(text);
+  return isZoteroNormalizedGeneratedNote &&
+    parseGeneratedNoteKind(text) === "references"
+    ? "references"
+    : "";
 }
 
 export function parseGeneratedNoteKind(noteContent) {
@@ -227,6 +240,44 @@ export function parseReferencesPayload(noteContent, runtime) {
     payload,
     references,
     payloadTag,
+    source: "html-payload-block",
+  };
+}
+
+function normalizeReferencesFromPayload(payload, runtime) {
+  const normalizeReferencesPayload =
+    typeof runtime?.helpers?.normalizeReferencesPayload === "function"
+      ? runtime.helpers.normalizeReferencesPayload.bind(runtime.helpers)
+      : (input) => {
+          const references = Array.isArray(input?.references) ? input.references : [];
+          return references;
+        };
+  return normalizeReferencesPayload(payload);
+}
+
+export async function resolveReferencesPayloadForNote(args) {
+  const noteContent = String(args?.noteContent || "");
+  const runtime = args?.runtime;
+  try {
+    return parseReferencesPayload(noteContent, runtime);
+  } catch {
+    // New generated notes persist payloads in note-child embedded-image
+    // attachments so Zotero's note editor can normalize the visible HTML.
+  }
+  const block = await resolveWorkbenchEmbeddedPayloadBlock({
+    runtime,
+    noteItem: args?.noteItem,
+    payloadType: "references-json",
+  });
+  if (!block || block.errors?.length) {
+    throw new Error("references payload block not found in note");
+  }
+  const payload = block.payload;
+  return {
+    payload,
+    references: normalizeReferencesFromPayload(payload, runtime),
+    payloadTag: "",
+    source: "embedded-image-attachment",
   };
 }
 
@@ -249,6 +300,26 @@ export function updatePayloadBlock(noteContent, payloadTag, nextPayload, runtime
   let nextTag = setTagAttribute(payloadTag, "data-zs-encoding", "base64");
   nextTag = setTagAttribute(nextTag, "data-zs-value", nextEncoded);
   return String(noteContent).replace(payloadTag, nextTag);
+}
+
+export async function persistReferencesPayloadForNote(args) {
+  const source = String(args?.source || "");
+  if (source !== "embedded-image-attachment") {
+    return updatePayloadBlock(
+      args?.noteContent,
+      args?.payloadTag,
+      args?.nextPayload,
+      args?.runtime,
+    );
+  }
+  await attachWorkbenchPayloadToNote({
+    runtime: args?.runtime,
+    note: args?.noteItem,
+    noteKind: "references",
+    payloadType: "references-json",
+    payload: args?.nextPayload,
+  });
+  return String(args?.noteContent || "");
 }
 
 export function parseReferencesNoteKind(noteContent) {

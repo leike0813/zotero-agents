@@ -1,0 +1,7 @@
+- [x] Add delta specs for embedded attachment payload persistence and normalized representative image rendering.
+- [x] Add shared workbench embedded payload attachment read/write helpers.
+- [x] Rewrite literature workbench generated note writing to use legal note HTML and payload attachments.
+- [x] Update export/import and representative image helpers to resolve legacy HTML and attachment-backed payloads.
+- [x] Update Host Bridge note payload APIs and synthesis artifact readers to consume attachment-backed payloads.
+- [x] Update Obsidian eta templates to use resolved payload DTOs when present.
+- [x] Update focused tests and run OpenSpec validation, workflow/core targeted tests, and typecheck.

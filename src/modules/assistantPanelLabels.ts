@@ -105,7 +105,7 @@ export function buildAssistantPanelLabels() {
       acpToolApproval: l("assistant-panel-permission-acp-tool-approval", "ACP tool approval"),
       acpBackendApproval: l("assistant-panel-permission-acp-backend-approval", "ACP backend requests approval."),
       acpSkillApproval: l("assistant-panel-permission-acp-skill-approval", "ACP skill run requests approval."),
-      viewFullRequest: l("assistant-panel-permission-view-full-request", "View full request"),
+      viewFullRequest: l("assistant-panel-permission-view-full-request", "View details"),
       waitingReply: l("assistant-panel-permission-waiting-reply", "Agent is waiting for your reply."),
     },
     transcript: {

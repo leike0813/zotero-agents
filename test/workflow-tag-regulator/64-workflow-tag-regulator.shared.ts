@@ -64,6 +64,7 @@ type TagRegulatorRequest = {
     };
     input_tags?: string[];
     valid_tags?: string;
+    digest_markdown?: string;
   };
   parameter?: {
     infer_tag?: boolean;
@@ -239,6 +240,7 @@ const TAG_VOCAB_LOCAL_PREF_KEY = `${config.prefsPrefix}.tagVocabularyLocalCommit
 const TAG_VOCAB_STAGED_PREF_KEY = `${config.prefsPrefix}.tagVocabularyStagedJson`;
 const TAG_VOCAB_REMOTE_PREF_KEY = `${config.prefsPrefix}.tagVocabularyRemoteCommittedJson`;
 const WORKFLOW_SETTINGS_PREF_KEY = `${config.prefsPrefix}.workflowSettingsJson`;
+const WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
 
 function clearTagVocabularyState() {
   Zotero.Prefs.clear(TAG_VOCAB_PREF_KEY, true);
@@ -263,6 +265,32 @@ function saveTagVocabularyState(entries: PersistedTagEntry[]) {
     payload,
     true,
   );
+}
+
+function buildEmbeddedDigestPayloadBlob(content: string) {
+  const envelope = {
+    schemaVersion: 1,
+    kind: "zotero-skills-workbench-note-payload",
+    noteKind: "digest",
+    payloadType: "digest-markdown",
+    payload: {
+      version: 1,
+      entry: "artifacts/digest.md",
+      format: "markdown",
+      content,
+    },
+  };
+  const encoded = Buffer.from(JSON.stringify(envelope), "utf8").toString(
+    "base64",
+  );
+  const bytes = Buffer.from(
+    `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encoded}\n`,
+    "utf8",
+  );
+  const BlobCtor = (globalThis as typeof globalThis & { Blob?: typeof Blob })
+    .Blob;
+  assert.isFunction(BlobCtor, "Blob is required for embedded image fixtures");
+  return new BlobCtor!([bytes], { type: "image/png" });
 }
 
 function saveRemoteCommittedVocabularyState(entries: PersistedTagEntry[]) {
@@ -585,7 +613,10 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       .map((request) => request.targetParentID)
       .filter((value): value is number => typeof value === "number")
       .sort((left, right) => left - right);
-    assert.deepEqual(targetParentIds, [parentA.id, parentB.id].sort((left, right) => left - right));
+    assert.deepEqual(
+      targetParentIds,
+      [parentA.id, parentB.id].sort((left, right) => left - right),
+    );
 
     for (const request of requests) {
       assert.equal(request.kind, "skillrunner.job.v1");
@@ -610,6 +641,102 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
     assert.include(yamlText, "- field:CE/UG/Tunnel");
     assert.notInclude(yamlText, "topic:legacy");
   });
+
+  itNodeOnly(
+    "adds digest markdown upload when parent has embedded digest payload",
+    async function () {
+      saveTagVocabularyState([
+        {
+          tag: "topic:tunnel",
+          facet: "topic",
+          source: "manual",
+          note: "",
+          deprecated: false,
+        },
+      ]);
+
+      const digestMarkdown = [
+        "# Digest",
+        "",
+        "This paper studies tunnel inspection with deep learning.",
+      ].join("\n");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Tag Regulator Parent With Digest" },
+      });
+      const note = await handlers.parent.addNote(parent, {
+        content:
+          '<div data-schema-version="9"><h1>Digest</h1><p>Visible digest note</p></div>',
+      });
+      await Zotero.Attachments.importEmbeddedImage({
+        blob: buildEmbeddedDigestPayloadBlob(digestMarkdown),
+        parentItemID: note.id,
+      });
+
+      const workflow = await getTagRegulatorWorkflow();
+      const selectionContext = await buildSelectionContext([parent]);
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext,
+      })) as TagRegulatorRequest[];
+
+      assert.lengthOf(requests, 1);
+      const request = requests[0];
+      assert.equal(
+        request.input?.digest_markdown,
+        "inputs/digest_markdown/digest.md",
+      );
+      const digestUpload = request.upload_files?.find(
+        (entry) => entry.key === "digest_markdown",
+      );
+      assert.isOk(digestUpload, "digest markdown upload should be present");
+      const digestText = await readUtf8(String(digestUpload?.path || ""));
+      assert.equal(digestText, digestMarkdown);
+      assert.isOk(
+        request.upload_files?.find((entry) => entry.key === "valid_tags"),
+        "valid_tags upload should remain present",
+      );
+    },
+  );
+
+  itNodeOnly(
+    "does not add digest markdown input when embedded payload is absent",
+    async function () {
+      saveTagVocabularyState([
+        {
+          tag: "topic:tunnel",
+          facet: "topic",
+          source: "manual",
+          note: "",
+          deprecated: false,
+        },
+      ]);
+
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Tag Regulator Parent Without Digest Payload" },
+      });
+      await handlers.parent.addNote(parent, {
+        content:
+          '<div data-schema-version="9"><h1>Digest</h1><p>Visible digest note</p></div>',
+      });
+
+      const workflow = await getTagRegulatorWorkflow();
+      const selectionContext = await buildSelectionContext([parent]);
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext,
+      })) as TagRegulatorRequest[];
+
+      assert.lengthOf(requests, 1);
+      assert.notProperty(requests[0].input || {}, "digest_markdown");
+      assert.isUndefined(
+        requests[0].upload_files?.find(
+          (entry) => entry.key === "digest_markdown",
+        ),
+      );
+    },
+  );
 
   itNodeOnly("fails with deterministic diagnostics when controlled vocabulary is missing", async function () {
     const parent = await handlers.item.create({

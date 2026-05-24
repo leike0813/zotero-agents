@@ -71,6 +71,10 @@ export function isZoteroTargetScript(targetScript: string) {
   return /^test:zotero(?::|$)/.test(String(targetScript || "").trim());
 }
 
+export function isNodeMochaTargetScript(targetScript: string) {
+  return /^test:node:raw(?::|$)/.test(String(targetScript || "").trim());
+}
+
 export function hasExplicitWatchFlag(args: string[]) {
   return args.some(
     (arg) =>
@@ -80,12 +84,22 @@ export function hasExplicitWatchFlag(args: string[]) {
   );
 }
 
+export function hasExplicitMochaExitFlag(args: string[]) {
+  return args.some((arg) => arg === "--exit" || arg === "--no-exit");
+}
+
 export function buildForwardedTestArgs(
   targetScript: string,
   args: string[],
 ): string[] {
   if (isZoteroTargetScript(targetScript) && !hasExplicitWatchFlag(args)) {
     return [...args, "--no-watch"];
+  }
+  if (
+    isNodeMochaTargetScript(targetScript) &&
+    !hasExplicitMochaExitFlag(args)
+  ) {
+    return [...args, "--exit"];
   }
   return [...args];
 }

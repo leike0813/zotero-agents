@@ -1775,6 +1775,40 @@ describe("gui: workflow context menu", function () {
     assert.equal(workflowItem!.getAttribute("disabled"), "true");
   });
 
+  it("context menu lets workflow-unit parameterized workflows open settings before request build", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Unit Settings Parent" },
+    });
+    const workflow = makeExplodingFilterWorkflow("update-topic-synthesis", "Update Topic Synthesis");
+    workflow.manifest.inputs = { unit: "workflow" };
+    workflow.manifest.parameters = {
+      topicId: {
+        type: "string",
+        title: "Topic ID",
+      },
+    };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find(
+      (child) => (child.getAttribute("label") || "").startsWith("Update Topic Synthesis"),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(workflowItem!.getAttribute("label"), "Update Topic Synthesis");
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
   it("context menu skips workflow request preflight for multiple selected items", async function () {
     const parentA = await handlers.item.create({
       itemType: "journalArticle",

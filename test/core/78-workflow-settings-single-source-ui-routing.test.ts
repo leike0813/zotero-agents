@@ -36,6 +36,8 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, "Save as default settings");
     assert.include(ts, "resizeTo(760, 620)");
     assert.include(ts, "isStructuralDraftChange");
+    assert.include(ts, "toRunOptionsFormValues");
+    assert.include(ts, "normalizeWorkflowRunOptions(raw.runOptions)");
     assert.include(ts, "changedSection");
     assert.include(ts, "changedKey");
     assert.include(
@@ -97,6 +99,10 @@ describe("workflow settings single-source routing", function () {
     assert.include(js, "restoreActiveFormState");
     assert.include(js, "shouldResetDraftForSnapshot");
     assert.include(js, "registerFieldCollector");
+    assert.include(js, "markCustomSelectDisabled");
+    assert.include(js, "runSchemaEntries");
+    assert.include(js, "runOptions");
+    assert.notInclude(js, "No selectable options are available.");
     assert.include(js, 'control.addEventListener("input"');
     assert.include(js, 'control.addEventListener("blur"');
     assert.include(js, 'changedSection: "backend"');

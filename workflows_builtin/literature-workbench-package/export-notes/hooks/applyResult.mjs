@@ -2,6 +2,31 @@ import { exportGeneratedNoteCandidate } from "../../lib/literatureDigestNotes.mj
 import { joinPath, sanitizeFileNameSegment } from "../../lib/path.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
+async function writeExportedFile(host, targetPath, file) {
+  if (typeof file.content === "string") {
+    await host.file.writeText(targetPath, file.content);
+    return;
+  }
+  if (file.bytes) {
+    await host.file.writeBytes(targetPath, file.bytes);
+    return;
+  }
+  if (file.sourcePath) {
+    if (typeof host.file.copy === "function") {
+      await host.file.copy(file.sourcePath, targetPath);
+      return;
+    }
+    await host.file.writeBytes(
+      targetPath,
+      await host.file.readBytes(file.sourcePath),
+    );
+    return;
+  }
+  throw new Error(
+    `unsupported export file payload: ${String(file.fileName || "")}`,
+  );
+}
+
 async function applyResultImpl({ request, runtime }) {
   const host = requireHostApi(runtime);
   const exportCandidates = Array.isArray(request?.exportCandidates)
@@ -39,10 +64,15 @@ async function applyResultImpl({ request, runtime }) {
     });
     for (const file of exported.files) {
       try {
-        await host.file.writeText(joinPath(targetDir, file.fileName), file.content);
+        await writeExportedFile(host, joinPath(targetDir, file.fileName), file);
       } catch (error) {
+        if (file.optional === true) {
+          continue;
+        }
         const reason =
-          error instanceof Error ? error.message : String(error || "unknown error");
+          error instanceof Error
+            ? error.message
+            : String(error || "unknown error");
         throw new Error(
           `export-notes failed to write file kind=${String(candidate.kind || "").trim() || "unknown"} noteItemID=${String(candidate.noteItemID || "")} noteItemKey=${String(candidate.noteItemKey || "")} fileName=${String(file.fileName || "")} targetDir=${targetDir}: ${reason}`,
         );

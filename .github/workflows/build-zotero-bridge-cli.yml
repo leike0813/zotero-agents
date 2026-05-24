@@ -1,0 +1,57 @@
+name: Build Zotero Bridge CLI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "cli/zotero-bridge/**"
+      - "scripts/package-zotero-bridge-cli.mjs"
+      - ".github/workflows/build-zotero-bridge-cli.yml"
+  pull_request:
+    paths:
+      - "cli/zotero-bridge/**"
+      - "scripts/package-zotero-bridge-cli.mjs"
+      - ".github/workflows/build-zotero-bridge-cli.yml"
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32-x64
+            binary: zotero-bridge.exe
+          - os: macos-13
+            platform: darwin-x64
+            binary: zotero-bridge
+          - os: macos-latest
+            platform: darwin-arm64
+            binary: zotero-bridge
+          - os: ubuntu-latest
+            platform: linux-x64
+            binary: zotero-bridge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CLI
+        run: cargo build --release --manifest-path cli/zotero-bridge/Cargo.toml
+
+      - name: Check help output
+        run: cli/zotero-bridge/target/release/${{ matrix.binary }} --help
+
+      - name: Package into addon/bin
+        env:
+          ZOTERO_BRIDGE_PLATFORM: ${{ matrix.platform }}
+        run: node scripts/package-zotero-bridge-cli.mjs
+
+      - name: Upload packaged CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: zotero-bridge-${{ matrix.platform }}
+          path: |
+            addon/bin/${{ matrix.platform }}/${{ matrix.binary }}
+            addon/bin/${{ matrix.platform }}/${{ matrix.binary }}.sha256

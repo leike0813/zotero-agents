@@ -3,6 +3,11 @@ import type {
   SkillRunnerJobRequestV1,
 } from "../providers/contracts";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../config/defaults";
+import type { WorkflowManifest } from "../workflows/types";
+import {
+  buildZoteroHostAccessRuntimeOptions,
+  type WorkflowRunOptions,
+} from "../workflows/zoteroHostAccessOptions";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -34,6 +39,10 @@ function isUploadRelativePath(value: string) {
 
 export function adaptSkillRunnerJobToAcpSkillRun(
   request: SkillRunnerJobRequestV1,
+  options?: {
+    manifest?: WorkflowManifest;
+    runOptions?: WorkflowRunOptions;
+  },
 ): AcpSkillRunRequestV1 {
   if (!request || request.kind !== "skillrunner.job.v1") {
     throw new Error("ACP skill run adapter requires skillrunner.job.v1 request");
@@ -73,6 +82,16 @@ export function adaptSkillRunnerJobToAcpSkillRun(
     }
   }
 
+  const runtimeOptions = request.runtime_options
+    ? { ...request.runtime_options }
+    : {};
+  if (options?.manifest) {
+    runtimeOptions.zotero_host_access = buildZoteroHostAccessRuntimeOptions({
+      manifest: options.manifest,
+      runOptions: options.runOptions,
+    });
+  }
+
   return {
     kind: ACP_SKILL_RUN_REQUEST_KIND,
     skill_id: request.skill_id,
@@ -85,8 +104,8 @@ export function adaptSkillRunnerJobToAcpSkillRun(
       : {}),
     ...(Object.keys(input).length > 0 ? { input } : {}),
     ...(request.parameter ? { parameter: { ...request.parameter } } : {}),
-    ...(request.runtime_options
-      ? { runtime_options: { ...request.runtime_options } }
+    ...(Object.keys(runtimeOptions).length > 0
+      ? { runtime_options: runtimeOptions }
       : {}),
     ...(request.poll ? { poll: { ...request.poll } } : {}),
     ...(request.fetch_type ? { fetch_type: request.fetch_type } : {}),

@@ -1,10 +1,10 @@
 import { escapeAttribute, escapeHtml } from "../../lib/htmlCodec.mjs";
 import { normalizeReferencesArray } from "../../lib/referenceModel.mjs";
 import {
-  parseReferencesPayload,
+  persistReferencesPayloadForNote,
   replaceReferencesTable,
+  resolveReferencesPayloadForNote,
   resolveSelectedReferenceNote,
-  updatePayloadBlock,
 } from "../../lib/referencesNote.mjs";
 import {
   requireHostApi,
@@ -489,10 +489,12 @@ async function applyResultImpl({ runResult, runtime, manifest }) {
     runtime,
     workflowId: "reference-note-editor",
   });
-  const { payload, references, payloadTag } = parseReferencesPayload(
-    noteContent,
-    runtime,
-  );
+  const { payload, references, payloadTag, source } =
+    await resolveReferencesPayloadForNote({
+      noteItem,
+      noteContent,
+      runtime,
+    });
   const parent = resolveParentInfo(noteItem, runtime);
   const editorResult = await openReferenceEditor({
     runtime,
@@ -519,12 +521,14 @@ async function applyResultImpl({ runResult, runtime, manifest }) {
     payload,
     nextReferences,
   );
-  const withPayload = updatePayloadBlock(
+  const withPayload = await persistReferencesPayloadForNote({
+    source,
+    noteItem,
     noteContent,
     payloadTag,
     nextPayload,
     runtime,
-  );
+  });
   const nextNoteContent = replaceReferencesTable(
     withPayload,
     runtime.helpers.renderReferencesTable(nextReferences),

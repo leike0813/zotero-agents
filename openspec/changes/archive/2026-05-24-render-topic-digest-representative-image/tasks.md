@@ -1,0 +1,7 @@
+- [x] Add OpenSpec delta for topic digest representative image rendering.
+- [x] Add Host-side representative image note-block parser and UI DTO resolver.
+- [x] Extend `resolveTopicPaperDigest` with opt-in representative image output.
+- [x] Update topic detail digest modal to request and render representative images.
+- [x] Add compact modal CSS for the representative image band.
+- [x] Add service/UI regression coverage.
+- [x] Run OpenSpec, focused core tests, and TypeScript validation.

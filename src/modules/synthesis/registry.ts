@@ -36,6 +36,7 @@ export type PaperRegistryInputNote = {
   title?: string;
   html: string;
   updatedAt?: string;
+  payloadBlocks?: ReturnType<typeof listNotePayloadBlocks>;
 };
 
 export type PaperRegistryInput = {
@@ -177,7 +178,7 @@ function discoverArtifact(
   const diagnostics: PaperRegistryDiagnostic[] = [];
 
   for (const note of sortedNotes) {
-    const blocks = listNotePayloadBlocks(note.html).filter(
+    const blocks = (note.payloadBlocks || listNotePayloadBlocks(note.html)).filter(
       (entry) => entry.payloadType === payloadType,
     );
     for (const block of blocks) {

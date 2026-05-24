@@ -1,6 +1,7 @@
 import {
   getAllRegularZoteroItems,
 } from "../zoteroHostCapabilityBroker";
+import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
 import {
   listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
@@ -209,7 +210,7 @@ function zoteroRuntime() {
   return zotero;
 }
 
-function childNotes(item: any): PaperRegistryInputNote[] {
+async function childNotes(item: any): Promise<PaperRegistryInputNote[]> {
   const zotero = zoteroRuntime();
   let ids: unknown[] = [];
   try {
@@ -217,19 +218,26 @@ function childNotes(item: any): PaperRegistryInputNote[] {
   } catch {
     ids = [];
   }
-  return ids
+  const notes = ids
     .map((id) => zotero.Items?.get?.(Number(id)))
-    .filter(Boolean)
-    .map((note: any) => ({
+    .filter(Boolean);
+  const rows = [];
+  for (const note of notes) {
+    rows.push({
       key: cleanString(note.key),
       title: noteTitle(note),
       html: cleanString(note.getNote?.()),
       updatedAt: cleanString(note.dateModified || note.dateAdded),
-    }))
-    .filter((note) => note.key);
+      payloadBlocks: await listNotePayloadBlocksForItem(note),
+    });
+  }
+  return rows.filter((note) => note.key);
 }
 
-function paperInputFromItem(item: any, fallbackLibraryId: number): PaperRegistryInput {
+async function paperInputFromItem(
+  item: any,
+  fallbackLibraryId: number,
+): Promise<PaperRegistryInput> {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
   const date = readField(item, "date");
   return {
@@ -240,7 +248,7 @@ function paperInputFromItem(item: any, fallbackLibraryId: number): PaperRegistry
     itemType: cleanString(item?.itemType),
     tags: getTags(item),
     collections: collectionRefs(item),
-    notes: childNotes(item),
+    notes: await childNotes(item),
     creators: getCreators(item),
     doi: readField(item, "DOI"),
     url: readField(item, "url"),
@@ -265,10 +273,11 @@ function isVisibleTopLevelRegular(item: any) {
 
 async function registryInputsFromZotero(libraryId: number) {
   const items = await getAllRegularZoteroItems();
-  return items
+  const rows = await Promise.all(items
     .filter(isVisibleTopLevelRegular)
     .filter((item: any) => normalizeLibraryId(item?.libraryID, libraryId) === libraryId)
-    .map((item) => paperInputFromItem(item, libraryId))
+    .map((item) => paperInputFromItem(item, libraryId)));
+  return rows
     .filter((input) => input.itemKey)
     .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
 }
@@ -364,7 +373,7 @@ function payloadBlocksForInput(input: PaperRegistryInput) {
   const payloadTypesSeen: string[] = [];
   const decodeErrors: string[] = [];
   for (const note of noteRows) {
-    for (const block of listNotePayloadBlocks(note.html)) {
+    for (const block of note.payloadBlocks || listNotePayloadBlocks(note.html)) {
       const payloadType = cleanString(block.payloadType);
       if (payloadType) {
         payloadTypesSeen.push(payloadType);

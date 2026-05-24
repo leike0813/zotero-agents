@@ -18,6 +18,12 @@ declare namespace _ZoteroTypes {
       "tagVocabularyStagedJson": string;
       "workflowDir": string;
       "sampleOutputDir": string;
+      "hostBridgeLanEnabled": boolean;
+      "hostBridgePinPortEnabled": boolean;
+      "hostBridgePinnedPort": number;
+      "hostBridgeToken": string;
+      "hostBridgeTokenCreatedAt": string;
+      "hostBridgeTokenRotatedAt": string;
     };
   }
 }

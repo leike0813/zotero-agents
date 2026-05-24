@@ -3,10 +3,13 @@ import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { buildCurrentAcpHostContext } from "./acpContextBuilder";
 import {
   getNotePayloadDetail,
-  listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
   type ZoteroNotePayloadDetail,
 } from "./notePayloadCodec";
+import {
+  listNotePayloadBlocksForItem,
+  selectPreferredNotePayloadBlock,
+} from "./zoteroNotePayloadResolver";
 import type { AcpHostContext } from "./acpTypes";
 
 export type ZoteroHostItemRefInput =
@@ -194,7 +197,7 @@ export type ZoteroHostMutationOperation =
   | "item.removeTags"
   | "note.createChild"
   | "note.update"
-  | "paper.ingest"
+  | "literature.ingest"
   | "collection.addItems"
   | "collection.removeItems";
 
@@ -229,17 +232,6 @@ export type ZoteroHostIngestPaperResult = {
   error?: ZoteroHostMutationError;
 };
 
-export type ZoteroHostIngestPapersSummary = {
-  total: number;
-  created: number;
-  existing: number;
-  failed: number;
-  pdfAttached: number;
-  pdfSkipped: number;
-  pdfFailed: number;
-  results: ZoteroHostIngestPaperResult[];
-};
-
 export type ZoteroHostMutationRequest = {
   operation: ZoteroHostMutationOperation | string;
   target?: ZoteroHostItemRefInput;
@@ -252,7 +244,8 @@ export type ZoteroHostMutationRequest = {
   fields?: Record<string, string | number | boolean | null>;
   tags?: string[];
   content?: string;
-  papers?: ZoteroHostIngestPaperInput[];
+  paper?: ZoteroHostIngestPaperInput;
+  papers?: unknown;
 };
 
 export type ZoteroHostMutationError = {
@@ -307,7 +300,7 @@ export type ZoteroHostMutationExecuteResponse =
         items?: ZoteroHostItemSummaryDto[];
         notes?: ZoteroHostNoteDto[];
         collections?: ZoteroHostCollectionDto[];
-        ingest?: ZoteroHostIngestPapersSummary;
+        ingest?: ZoteroHostIngestPaperResult;
       };
     })
   | (ZoteroHostMutationBaseResponse & {
@@ -331,6 +324,7 @@ const NOTE_EXCERPT_DEFAULT = 800;
 const NOTE_EXCERPT_MAX = 2000;
 const NOTE_DETAIL_CHUNK_DEFAULT = 8000;
 const NOTE_DETAIL_CHUNK_MAX = 16000;
+const LITERATURE_INGEST_OPERATION = "literature.ingest";
 
 const DETAIL_FIELDS = [
   "title",
@@ -691,12 +685,52 @@ function serializeNoteDetailChunk(
   };
 }
 
-function serializeNotePayloadSummary(
+function getPayloadContent(block: ZoteroNotePayloadBlock) {
+  if (block.errors?.length) {
+    throw new Error(block.errors.join("; "));
+  }
+  if (block.format === "markdown") {
+    return String(block.markdown || block.decodedText || "");
+  }
+  if (block.format === "json") {
+    return JSON.stringify(block.payload, null, 2);
+  }
+  return String(block.decodedText || "");
+}
+
+function getPayloadDetailFromBlock(
+  block: ZoteroNotePayloadBlock,
+  args: ZoteroHostNotePayloadDetailArgs = {},
+): ZoteroNotePayloadDetail {
+  const fullContent = getPayloadContent(block);
+  const maxChars = Math.min(
+    NOTE_DETAIL_CHUNK_MAX,
+    Math.max(
+      1,
+      parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
+    ),
+  );
+  const offset = Math.min(
+    fullContent.length,
+    Math.max(0, parseNonNegativeInteger(args.offset)),
+  );
+  const content = fullContent.slice(offset, offset + maxChars);
+  const nextOffset = Math.min(fullContent.length, offset + content.length);
+  return {
+    ...block,
+    content,
+    offset,
+    nextOffset,
+    hasMore: nextOffset < fullContent.length,
+    totalChars: fullContent.length,
+    truncated: nextOffset < fullContent.length,
+  };
+}
+
+async function serializeNotePayloadSummary(
   item: Zotero.Item,
-): ZoteroHostNotePayloadSummaryDto[] {
-  const warnings: string[] = [];
-  const html = extractNoteHtml(item, warnings);
-  return listNotePayloadBlocks(html).map((entry) => ({
+): Promise<ZoteroHostNotePayloadSummaryDto[]> {
+  return (await listNotePayloadBlocksForItem(item)).map((entry) => ({
     payloadType: entry.payloadType,
     noteKind: entry.noteKind,
     version: entry.version,
@@ -704,16 +738,22 @@ function serializeNotePayloadSummary(
     estimatedSize: entry.estimatedSize,
     format: entry.format,
     errors: entry.errors,
+    source: entry.source,
+    attachmentKey: entry.attachmentKey,
   }));
 }
 
-function serializeNotePayloadDetail(
+async function serializeNotePayloadDetail(
   item: Zotero.Item,
   args: ZoteroHostNotePayloadDetailArgs = {},
-): ZoteroHostNotePayloadDetailDto {
-  const warnings: string[] = [];
-  const html = extractNoteHtml(item, warnings);
-  const detail = getNotePayloadDetail(html, args);
+): Promise<ZoteroHostNotePayloadDetailDto> {
+  const html = extractNoteHtml(item, []);
+  const blocks = await listNotePayloadBlocksForItem(item);
+  const selected = selectPreferredNotePayloadBlock(blocks, args.payloadType);
+  const detail =
+    selected?.source === "embedded-image-attachment"
+      ? getPayloadDetailFromBlock(selected, args)
+      : getNotePayloadDetail(html, args);
   return {
     payloadType: detail.payloadType,
     noteKind: detail.noteKind,
@@ -724,6 +764,8 @@ function serializeNotePayloadDetail(
     markdown: detail.markdown,
     format: detail.format,
     errors: detail.errors,
+    source: detail.source,
+    attachmentKey: detail.attachmentKey,
     content: detail.content,
     offset: detail.offset,
     nextOffset: detail.nextOffset,
@@ -1250,34 +1292,45 @@ function normalizePaperAuthors(value: unknown) {
     .slice(0, 50);
 }
 
-function normalizeIngestPapers(request: ZoteroHostMutationRequest) {
-  if (!Array.isArray(request.papers) || request.papers.length === 0) {
-    throw new Error("papers must be a non-empty array");
+function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
+  if ("papers" in request) {
+    throw new Error(
+      "literature.ingest accepts a single paper field; papers is not supported",
+    );
   }
-  return request.papers.map((paper, index) => {
-    const input = paper || {};
-    const title = normalizePaperText(input.title, 500);
-    const doi = normalizeIdentifier(input.doi);
-    const arxiv = normalizeIdentifier(input.arxiv);
-    const pmid = normalizeIdentifier(input.pmid);
-    const isbn = normalizeIdentifier(input.isbn);
-    if (!title && !doi && !arxiv && !pmid && !isbn) {
-      throw new Error(`paper ${index + 1} requires title or identifier`);
-    }
-    return {
-      title,
-      authors: normalizePaperAuthors(input.authors),
-      year: normalizePaperText(input.year, 40),
-      doi,
-      arxiv,
-      pmid,
-      isbn,
-      landingUrl: normalizePaperText(input.landingUrl || input.url, 1000),
-      pdfUrl: normalizePaperText(input.pdfUrl, 1000),
-      abstract: normalizePaperText(input.abstract, 4000),
-      venue: normalizePaperText(input.venue, 500),
-    };
-  });
+  if (
+    !request.paper ||
+    typeof request.paper !== "object" ||
+    Array.isArray(request.paper)
+  ) {
+    throw new Error("paper must be an object");
+  }
+  const input = request.paper;
+  const title = normalizePaperText(input.title, 500);
+  const doi = normalizeIdentifier(input.doi);
+  const arxiv = normalizeIdentifier(input.arxiv);
+  const pmid = normalizeIdentifier(input.pmid);
+  const isbn = normalizeIdentifier(input.isbn);
+  if (!title && !doi && !arxiv && !pmid && !isbn) {
+    throw new Error("paper requires title or identifier");
+  }
+  return {
+    title,
+    authors: normalizePaperAuthors(input.authors),
+    year: normalizePaperText(input.year, 40),
+    doi,
+    arxiv,
+    pmid,
+    isbn,
+    landingUrl: normalizePaperText(input.landingUrl || input.url, 1000),
+    pdfUrl: normalizePaperText(input.pdfUrl, 1000),
+    abstract: normalizePaperText(input.abstract, 4000),
+    venue: normalizePaperText(input.venue, 500),
+  };
+}
+
+function normalizeMutationOperation(value: unknown) {
+  return trimText(value);
 }
 
 function normalizedComparable(value: unknown) {
@@ -1291,7 +1344,7 @@ function normalizedComparable(value: unknown) {
 
 function itemMatchesIngestPaper(
   item: Zotero.Item,
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
 ) {
   const doi = normalizedComparable(readField(item, "DOI", 500));
   const isbn = normalizedComparable(readField(item, "ISBN", 500));
@@ -1317,7 +1370,7 @@ function itemMatchesIngestPaper(
 }
 
 async function findExistingPaper(
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
 ) {
   const items = await getAllRegularZoteroItems();
   return items.find((item) => itemMatchesIngestPaper(item, paper)) || null;
@@ -1369,7 +1422,7 @@ function setItemCreators(item: Zotero.Item, authors: string[]) {
 }
 
 async function tryTranslateIdentifier(
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
   libraryID: number,
 ) {
   const Translate = (resolveZotero() as any).Translate;
@@ -1408,7 +1461,7 @@ async function tryTranslateIdentifier(
 }
 
 async function createMetadataPaperItem(
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
   libraryID: number,
 ) {
   const item = new Zotero.Item("journalArticle" as any);
@@ -1434,7 +1487,7 @@ async function createMetadataPaperItem(
 
 async function attachPdfBestEffort(
   item: Zotero.Item,
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
 ) {
   if (!paper.pdfUrl) {
     return {
@@ -1443,8 +1496,8 @@ async function attachPdfBestEffort(
       error: undefined,
     };
   }
-  const importFromURL = (resolveZotero() as any).Attachments?.importFromURL;
-  if (typeof importFromURL !== "function") {
+  const attachments = (resolveZotero() as any).Attachments;
+  if (typeof attachments?.importFromURL !== "function") {
     return {
       status: "failed" as const,
       attachment: undefined,
@@ -1455,7 +1508,7 @@ async function attachPdfBestEffort(
     };
   }
   try {
-    const attachment = (await importFromURL({
+    const attachment = (await attachments.importFromURL({
       libraryID: normalizeLibraryId((item as any).libraryID),
       url: paper.pdfUrl,
       parentItemID: item.id,
@@ -1478,7 +1531,7 @@ async function attachPdfBestEffort(
 }
 
 async function ingestOnePaper(
-  paper: ReturnType<typeof normalizeIngestPapers>[number],
+  paper: ReturnType<typeof normalizeIngestPaper>,
   index: number,
   collection: Zotero.Collection | null,
 ): Promise<ZoteroHostIngestPaperResult> {
@@ -1532,26 +1585,15 @@ async function ingestOnePaper(
   }
 }
 
-async function ingestPapers(request: ZoteroHostMutationRequest) {
-  const papers = normalizeIngestPapers(request);
-  const collection = request.collection ? resolveCollection(request.collection) : null;
+async function ingestPaper(request: ZoteroHostMutationRequest) {
+  const paper = normalizeIngestPaper(request);
+  const collection = request.collection
+    ? resolveCollection(request.collection)
+    : null;
   if (request.collection && !collection) {
     throw new Error("collection not found");
   }
-  const results: ZoteroHostIngestPaperResult[] = [];
-  for (const [index, paper] of papers.entries()) {
-    results.push(await ingestOnePaper(paper, index + 1, collection));
-  }
-  return {
-    total: results.length,
-    created: results.filter((entry) => entry.status === "created").length,
-    existing: results.filter((entry) => entry.status === "existing").length,
-    failed: results.filter((entry) => entry.status === "failed").length,
-    pdfAttached: results.filter((entry) => entry.attachmentStatus === "attached").length,
-    pdfSkipped: results.filter((entry) => entry.attachmentStatus === "skipped").length,
-    pdfFailed: results.filter((entry) => entry.attachmentStatus === "failed").length,
-    results,
-  };
+  return ingestOnePaper(paper, 1, collection);
 }
 
 function normalizeTargetItems(request: ZoteroHostMutationRequest) {
@@ -1607,7 +1649,7 @@ function okPreview(args: {
 function previewMutationOrThrow(
   request: ZoteroHostMutationRequest,
 ): ZoteroHostMutationPreviewResponse {
-  const operation = trimText(request.operation);
+  const operation = normalizeMutationOperation(request.operation);
   switch (operation) {
     case "item.updateFields": {
       const item = requireItem(request.target || request.item, "target item");
@@ -1649,17 +1691,20 @@ function previewMutationOrThrow(
         summary: `Update note "${serializeNote(note).title}" (${content.length} chars).`,
       });
     }
-    case "paper.ingest": {
-      const papers = normalizeIngestPapers(request);
-      const collection = request.collection ? resolveCollection(request.collection) : null;
+    case LITERATURE_INGEST_OPERATION: {
+      const paper = normalizeIngestPaper(request);
+      const collection = request.collection
+        ? resolveCollection(request.collection)
+        : null;
       if (request.collection && !collection) {
         throw new Error("collection not found");
       }
-      const pdfCount = papers.filter((paper) => paper.pdfUrl).length;
       return okPreview({
         operation,
         targetRefs: [],
-        summary: `Ingest ${papers.length} paper(s); best-effort PDF attachment for ${pdfCount} paper(s).`,
+        summary: `Ingest one paper${
+          paper.pdfUrl ? " with best-effort PDF attachment" : ""
+        }.`,
         collection: collection ? serializeCollection(collection) : undefined,
       });
     }
@@ -1741,14 +1786,12 @@ async function executeMutationOrThrow(
         },
       };
     }
-    case "paper.ingest": {
-      const ingest = await ingestPapers(request);
+    case LITERATURE_INGEST_OPERATION: {
+      const ingest = await ingestPaper(request);
       return {
         ...preview,
         result: {
-          items: ingest.results
-            .map((entry) => entry.item)
-            .filter((entry): entry is ZoteroHostItemSummaryDto => !!entry),
+          items: ingest.item ? [ingest.item] : [],
           ingest,
         },
       };
@@ -1998,7 +2041,7 @@ export function createZoteroHostCapabilityBrokerApis() {
       async preview(
         request: ZoteroHostMutationRequest,
       ): Promise<ZoteroHostMutationPreviewResponse> {
-        const operation = trimText(request?.operation);
+        const operation = normalizeMutationOperation(request?.operation);
         try {
           return previewMutationOrThrow(request);
         } catch (error) {
@@ -2008,7 +2051,7 @@ export function createZoteroHostCapabilityBrokerApis() {
       async execute(
         request: ZoteroHostMutationRequest,
       ): Promise<ZoteroHostMutationExecuteResponse> {
-        const operation = trimText(request?.operation);
+        const operation = normalizeMutationOperation(request?.operation);
         try {
           return await executeMutationOrThrow(request);
         } catch (error) {

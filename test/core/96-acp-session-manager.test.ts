@@ -487,13 +487,14 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
         });
       }
     } else {
+      const visibleEcho = args.message.split("\n[Zotero Host Bridge CLI]")[0];
       await this.emitUpdate({
         sessionId: args.sessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
           content: {
             type: "text",
-            text: `Echo: ${args.message}`,
+            text: `Echo: ${visibleEcho}`,
           },
         },
       });
@@ -1101,7 +1102,7 @@ describe("acp session manager", function () {
     });
   });
 
-  it("injects Zotero MCP guidance instead of raw host context into ACP prompts", function () {
+  it("omits Zotero MCP guidance from default ACP prompts without leaking raw host context", function () {
     const promptText = buildAcpPromptTextForTests("Inspect Zotero", {
       target: "library",
       libraryId: "1",
@@ -1114,16 +1115,30 @@ describe("acp session manager", function () {
     });
 
     assert.include(promptText, "Inspect Zotero");
+    assert.notInclude(promptText, "[Zotero MCP tool usage]");
+    assert.notInclude(promptText, 'MCP server named "zotero"');
+    assert.notInclude(promptText, "get_current_view");
+    assert.notInclude(promptText, "search_items");
+    assert.notInclude(promptText, "zotero.get_current_view");
+    assert.notInclude(promptText, "zotero.search_items");
+    assert.notInclude(promptText, "Never write directly to Zotero's SQLite database");
+    assert.notInclude(promptText, "[Zotero host context]");
+    assert.notInclude(promptText, "Private Item Title");
+    assert.notInclude(promptText, "\"selectionEmpty\"");
+  });
+
+  it("keeps Zotero MCP guidance available for explicit compatibility prompts", function () {
+    const promptText = buildAcpPromptTextForTests(
+      "Inspect Zotero",
+      undefined,
+      { mcpCompatibilityMode: "explicit_descriptor_injection" },
+    );
+
     assert.include(promptText, "[Zotero MCP tool usage]");
     assert.include(promptText, 'MCP server named "zotero"');
     assert.include(promptText, "get_current_view");
     assert.include(promptText, "search_items");
-    assert.notInclude(promptText, "zotero.get_current_view");
-    assert.notInclude(promptText, "zotero.search_items");
     assert.include(promptText, "Never write directly to Zotero's SQLite database");
-    assert.notInclude(promptText, "[Zotero host context]");
-    assert.notInclude(promptText, "Private Item Title");
-    assert.notInclude(promptText, "\"selectionEmpty\"");
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
@@ -1215,6 +1230,14 @@ describe("acp session manager", function () {
     assert.equal(lastAdapter?.initializeCalls, 1);
     assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
     assert.equal(lastAdapter?.prompts.length, 1);
+    assert.include(lastAdapter?.prompts[0] || "", "Hello ACP");
+    assert.include(lastAdapter?.prompts[0] || "", "[Zotero Host Bridge CLI]");
+    assert.include(lastAdapter?.prompts[0] || "", ".zotero-bridge/README.md");
+    assert.isString(lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE);
+    assert.include(
+      lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
+      ".zotero-bridge",
+    );
     assert.equal(lastFactoryArgs?.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(lastFactoryArgs?.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(
@@ -1295,8 +1318,16 @@ describe("acp session manager", function () {
       two.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text,
       "Echo: hello two",
     );
-    assert.deepEqual(adapters.get("acp-one")?.prompts, ["hello one"]);
-    assert.deepEqual(adapters.get("acp-two")?.prompts, ["hello two"]);
+    assert.include(adapters.get("acp-one")?.prompts[0] || "", "hello one");
+    assert.include(
+      adapters.get("acp-one")?.prompts[0] || "",
+      "[Zotero Host Bridge CLI]",
+    );
+    assert.include(adapters.get("acp-two")?.prompts[0] || "", "hello two");
+    assert.include(
+      adapters.get("acp-two")?.prompts[0] || "",
+      "[Zotero Host Bridge CLI]",
+    );
     assert.deepEqual(
       factoryArgs.map((entry) => entry.backend.id),
       ["acp-one", "acp-two"],

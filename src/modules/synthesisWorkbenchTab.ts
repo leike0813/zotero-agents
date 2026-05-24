@@ -97,7 +97,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260520-controls-v5`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -342,17 +342,21 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
+  const snapshot = await getDefaultSynthesisService().getSynthesisSnapshot();
+  const row = snapshot.artifacts.rows.find(
+    (entry) => String(entry.id || "").trim() === args.topicId,
+  );
+  if (!row?.updateIntent || row.updateIntent.blocked === true) {
+    alertWindow(hostWindow, `Topic does not need update: ${args.topicId}`);
+    return;
+  }
   await executeWorkflowFromCurrentSelection({
     win: hostWindow,
     workflow,
     requireSettingsGate: true,
-    executionOptionsOverride: {
+    settingsGateInitialOptions: {
       workflowParams: {
         topicId: args.topicId,
-        language: args.language || "auto",
-        updateMode: "update_full",
-        updateScope: "refresh",
-        updateReason: "Workbench Topic Detail update action",
       },
     },
   });

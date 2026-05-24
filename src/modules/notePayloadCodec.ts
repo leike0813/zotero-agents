@@ -7,6 +7,7 @@ export type ZoteroNotePayloadKind =
   | string;
 
 export type ZoteroNotePayloadBlock = {
+  source?: "html-payload-block" | "embedded-image-attachment";
   payloadType: string;
   noteKind: string;
   version: string;
@@ -18,6 +19,8 @@ export type ZoteroNotePayloadBlock = {
   markdown?: string;
   format: "markdown" | "json" | "text";
   errors?: string[];
+  attachmentKey?: string;
+  attachmentId?: number | string | null;
 };
 
 export type ZoteroNotePayloadDetail = ZoteroNotePayloadBlock & {
@@ -31,6 +34,8 @@ export type ZoteroNotePayloadDetail = ZoteroNotePayloadBlock & {
 
 const DEFAULT_PAYLOAD_CHUNK = 8000;
 const MAX_PAYLOAD_CHUNK = 16000;
+export const WORKBENCH_EMBEDDED_PAYLOAD_MARKER =
+  "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
 
 function getBuffer() {
   return (globalThis as unknown as { Buffer?: any }).Buffer;
@@ -64,6 +69,50 @@ export function decodeBase64Utf8(value: string) {
     bytes[index] = binary.charCodeAt(index);
   }
   return new TextDecoder().decode(bytes);
+}
+
+function toUint8Array(value: unknown) {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array();
+}
+
+function encodeAsciiBytes(value: string) {
+  const bytes = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    bytes[index] = value.charCodeAt(index) & 0x7f;
+  }
+  return bytes;
+}
+
+function decodeAsciiBytes(bytes: Uint8Array) {
+  let text = "";
+  for (const byte of bytes) {
+    text += String.fromCharCode(byte);
+  }
+  return text;
+}
+
+function indexOfBytes(haystack: Uint8Array, needle: Uint8Array) {
+  if (!haystack.length || !needle.length || needle.length > haystack.length) {
+    return -1;
+  }
+  outer: for (let index = 0; index <= haystack.length - needle.length; index += 1) {
+    for (let inner = 0; inner < needle.length; inner += 1) {
+      if (haystack[index + inner] !== needle[inner]) {
+        continue outer;
+      }
+    }
+    return index;
+  }
+  return -1;
 }
 
 export function escapeHtml(input: unknown) {
@@ -271,6 +320,7 @@ export function listNotePayloadBlocks(noteHtml: unknown): ZoteroNotePayloadBlock
     const encoding = (readTagAttribute(tag, "data-zs-encoding") || "base64").toLowerCase();
     const encodedValue = readTagAttribute(tag, "data-zs-value");
     const block: ZoteroNotePayloadBlock = {
+      source: "html-payload-block",
       payloadType,
       noteKind,
       version,
@@ -298,6 +348,88 @@ export function listNotePayloadBlocks(noteHtml: unknown): ZoteroNotePayloadBlock
     blocks.push(block);
   }
   return blocks;
+}
+
+export function parseEmbeddedNotePayloadBlock(
+  bytesInput: unknown,
+  attachment?: { key?: unknown; id?: unknown } | null,
+): ZoteroNotePayloadBlock | null {
+  const bytes = toUint8Array(bytesInput);
+  const marker = encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER);
+  const start = indexOfBytes(bytes, marker);
+  if (start < 0) {
+    return null;
+  }
+  let cursor = start + marker.length;
+  while (
+    cursor < bytes.length &&
+    (bytes[cursor] === 0x20 || bytes[cursor] === 0x09)
+  ) {
+    cursor += 1;
+  }
+  let end = cursor;
+  while (
+    end < bytes.length &&
+    bytes[end] !== 0x0a &&
+    bytes[end] !== 0x0d &&
+    bytes[end] !== 0x00
+  ) {
+    end += 1;
+  }
+  const encoded = decodeAsciiBytes(bytes.slice(cursor, end));
+  const block: ZoteroNotePayloadBlock = {
+    source: "embedded-image-attachment",
+    payloadType: "",
+    noteKind: "",
+    version: "1",
+    encoding: "embedded-image-attachment",
+    encodedValue: "",
+    estimatedSize: 0,
+    format: "text",
+    attachmentKey: String(attachment?.key || "").trim() || undefined,
+    attachmentId: (attachment?.id as number | string | undefined) || null,
+  };
+  try {
+    const envelope = JSON.parse(decodeBase64Utf8(encoded));
+    if (Number(envelope?.schemaVersion) !== 1) {
+      throw new Error("unsupported workbench embedded payload schema version");
+    }
+    if (envelope?.kind !== "zotero-skills-workbench-note-payload") {
+      throw new Error("unsupported workbench embedded payload kind");
+    }
+    const payloadType = String(envelope?.payloadType || "").trim();
+    if (!payloadType) {
+      throw new Error("workbench embedded payload type is missing");
+    }
+    const payload = envelope?.payload;
+    const format = String(payload?.format || "").trim() || (payloadType.endsWith("-markdown")
+      ? "markdown"
+      : payloadType.endsWith("-json")
+        ? "json"
+        : "text");
+    const decodedText =
+      format === "markdown"
+        ? String(payload?.content || "")
+        : format === "json"
+          ? JSON.stringify(payload || {})
+          : String(payload?.content || "");
+    block.payloadType = payloadType;
+    block.noteKind = String(envelope?.noteKind || "").trim();
+    block.format =
+      format === "markdown" || format === "json" || format === "text"
+        ? format
+        : "text";
+    block.decodedText = decodedText;
+    block.estimatedSize = decodedText.length;
+    block.payload = payload;
+    if (block.format === "markdown") {
+      block.markdown = String(payload?.content || "");
+    }
+  } catch (error) {
+    block.errors = [error instanceof Error ? error.message : String(error)];
+    block.estimatedSize = encoded.length;
+  }
+  return block;
 }
 
 function parseNonNegativeInteger(value: unknown) {

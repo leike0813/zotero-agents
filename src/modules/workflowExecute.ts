@@ -28,6 +28,13 @@ import {
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
 
+function stripRunOptionsForPersistence(
+  options: WorkflowExecutionOptions,
+): WorkflowExecutionOptions {
+  const { runOptions: _runOptions, ...persisted } = options;
+  return persisted;
+}
+
 function buildWorkflowCannotRunMessage(args: {
   workflowLabel: string;
   reason: string;
@@ -55,6 +62,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
   workflow: LoadedWorkflow;
   requireSettingsGate?: boolean;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  settingsGateInitialOptions?: WorkflowExecutionOptions;
 }) {
   const messageFormatter = createLocalizedMessageFormatter();
   const showWorkflowNotifications = shouldShowWorkflowNotifications(
@@ -82,6 +90,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
         workflow: args.workflow,
         ownerWindow: args.win,
         candidateBackends: submitVisibleBackends,
+        initialDraft: args.settingsGateInitialOptions,
       });
       if (dialogResult.status !== "confirmed") {
         const canceled = dialogResult.status === "canceled";
@@ -116,10 +125,27 @@ export async function executeWorkflowFromCurrentSelection(args: {
         return;
       }
       executionOptionsOverride = dialogResult.executionOptions;
+      appendRuntimeLog({
+        level: "info",
+        scope: "workflow-trigger",
+        workflowId: args.workflow.manifest.id,
+        providerId: String(args.workflow.manifest.provider || "").trim(),
+        stage: "settings-gate-confirmed",
+        message: "workflow settings gate confirmed",
+        details: {
+          workflowSource,
+          allowWriteApprovalBypass:
+            args.workflow.manifest.execution?.zoteroHostAccess
+              ?.allowWriteApprovalBypass === true,
+          autoApproveWritesRequested:
+            dialogResult.executionOptions.runOptions?.zoteroHostAccess
+              ?.autoApproveWrites === true,
+        },
+      });
       if (dialogResult.persist) {
         updateWorkflowSettings(
           args.workflow.manifest.id,
-          dialogResult.executionOptions,
+          stripRunOptionsForPersistence(dialogResult.executionOptions),
         );
       }
     }

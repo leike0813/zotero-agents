@@ -5,6 +5,100 @@
     return String(value == null ? "" : value).trim();
   }
 
+  const replyHistoryByKey = new Map();
+  const replyHistoryLimit = 50;
+
+  function replyHistoryKey(panel) {
+    const reply = panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
+    return [
+      safeText(panel && panel.kind) || "assistant",
+      safeText(panel && panel.context && panel.context.id) || "global",
+      safeText(reply.action || "reply"),
+    ].join("|");
+  }
+
+  function replyHistoryState(key) {
+    const normalized = safeText(key) || "assistant|global|reply";
+    let state = replyHistoryByKey.get(normalized);
+    if (!state) {
+      state = { entries: [], cursor: null, draft: "" };
+      replyHistoryByKey.set(normalized, state);
+    }
+    return state;
+  }
+
+  function rememberReplyHistory(key, value) {
+    const text = safeText(value);
+    if (!text) return;
+    const state = replyHistoryState(key);
+    const entries = state.entries;
+    if (entries[entries.length - 1] !== text) {
+      entries.push(text);
+      while (entries.length > replyHistoryLimit) entries.shift();
+    }
+    state.cursor = null;
+    state.draft = "";
+  }
+
+  function resetReplyHistoryNavigation(key) {
+    const state = replyHistoryState(key);
+    state.cursor = null;
+    state.draft = "";
+  }
+
+  function setTextareaValueAndCaret(input, value) {
+    input.value = String(value == null ? "" : value);
+    if (typeof input.setSelectionRange === "function") {
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }
+  }
+
+  function isCollapsedTextareaSelection(input) {
+    return typeof input.selectionStart === "number" &&
+      typeof input.selectionEnd === "number" &&
+      input.selectionStart === input.selectionEnd;
+  }
+
+  function isCaretOnFirstTextareaLine(input) {
+    const caret = Number(input.selectionStart || 0);
+    return String(input.value || "").lastIndexOf("\n", Math.max(0, caret - 1)) < 0;
+  }
+
+  function isCaretOnLastTextareaLine(input) {
+    const caret = Number(input.selectionStart || 0);
+    return String(input.value || "").indexOf("\n", caret) < 0;
+  }
+
+  function navigateReplyHistory(key, input, direction) {
+    const state = replyHistoryState(key);
+    if (!state.entries.length) return false;
+    if (state.cursor === null) {
+      state.draft = input.value;
+      state.cursor = state.entries.length;
+    }
+    const nextCursor = state.cursor + direction;
+    if (nextCursor < 0) return false;
+    if (nextCursor >= state.entries.length) {
+      setTextareaValueAndCaret(input, state.draft);
+      state.cursor = null;
+      state.draft = "";
+      return true;
+    }
+    state.cursor = nextCursor;
+    setTextareaValueAndCaret(input, state.entries[nextCursor]);
+    return true;
+  }
+
+  function shouldHandleReplyHistoryKey(event, input) {
+    return !input.disabled &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      isCollapsedTextareaSelection(input);
+  }
+
   function truncateText(value, maxLength) {
     const text = safeText(value).replace(/\s+/g, " ");
     const limit = Math.max(0, Number(maxLength || 0) || 0);
@@ -614,7 +708,7 @@
           const view = el(
             "button",
             "asst-button-compact assistant-panel-permission-view-full-request",
-            labelOf(panel, "permission.viewFullRequest", "View full request"),
+            labelOf(panel, "permission.viewFullRequest", "View details"),
           );
           view.type = "button";
           view.addEventListener("click", function (event) {
@@ -735,6 +829,7 @@
     );
     button.type = "button";
     const replyAction = safeText(panel.reply.action || "reply");
+    const historyKey = replyHistoryKey(panel);
     const interruptAction =
       replyAction === "cancel" ||
       replyAction === "cancel-run" ||
@@ -744,14 +839,32 @@
     button.addEventListener("click", function (event) {
       event.preventDefault();
       event.stopPropagation();
+      if (!interruptAction) rememberReplyHistory(historyKey, input.value);
       emit(options, replyAction || "reply", { message: safeText(input.value) });
+      resetReplyHistoryNavigation(historyKey);
       if (panel.reply.clearOnSend !== false && !interruptAction) input.value = "";
     });
     input.addEventListener("keydown", function (event) {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         event.preventDefault();
         if (!button.disabled) button.click();
+        return;
       }
+      if (!shouldHandleReplyHistoryKey(event, input)) return;
+      if (event.key === "ArrowUp" && isCaretOnFirstTextareaLine(input)) {
+        if (navigateReplyHistory(historyKey, input, -1)) {
+          event.preventDefault();
+        }
+        return;
+      }
+      if (event.key === "ArrowDown" && isCaretOnLastTextareaLine(input)) {
+        if (navigateReplyHistory(historyKey, input, 1)) {
+          event.preventDefault();
+        }
+      }
+    });
+    input.addEventListener("input", function () {
+      resetReplyHistoryNavigation(historyKey);
     });
     primary.appendChild(button);
     target.appendChild(input);

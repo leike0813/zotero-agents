@@ -22,7 +22,7 @@ taxonomy、timeline、claims、debates、gaps 的候选池。
 - `taxonomy_candidates`：候选研究路线、方法族、技术流派或评价场景。
 - `timeline_candidates`：候选历史节点、阶段转折、里程碑论文或递进关系。
 - `claim_candidates`：可以发展成主结论的跨论文判断。
-- `comparison_candidates`：可用于比较矩阵的维度、对象和差异。
+- `comparison_dimensions`：可用于比较矩阵的维度、覆盖论文和差异。
 - `debate_candidates`：争议双方、张力来源、评价口径冲突。
 - `gap_candidates`：研究空白、库内覆盖缺口、证据缺口、评价缺口。
 
@@ -54,15 +54,22 @@ taxonomy、timeline、claims、debates、gaps 的候选池。
 - `taxonomy_candidates`：研究路线、方法族、技术流派、应用场景或评价维度的候选。要说明边界、共同机制和代表 paper units。
 - `timeline_candidates`：历史阶段、里程碑、范式转折或评价标准变化。要说明“为什么这是历史节点”，而不只是年份。
 - `claim_candidates`：可发展为 synthesis-level finding 的判断。必须至少有一个库内 paper unit 支持，最好有多个支持或限定范围。
-- `comparison_candidates`：比较矩阵的维度和对象。维度必须解释实际差异，例如训练信号、计算路径、部署目标、benchmark。
+- `comparison_dimensions`：比较矩阵的维度和对象。每项必须有 `id` 与 `coverage_refs[]`，维度必须解释实际差异，例如训练信号、计算路径、部署目标、benchmark。
 - `debate_candidates`：立场张力或评价口径冲突。必须能说明双方依据。
-- `gap_candidates`：分清真实研究空白、库内覆盖不足、artifact 缺失和评价缺口。
+- `debate_candidates` 每项必须有非空 `evidence_type`。
+- `gap_candidates`：分清真实研究空白、库内覆盖不足、artifact 缺失和评价缺口；`gap_type` 只能是 `library_coverage_gap` / `evidence_gap` / `method_gap` / `evaluation_gap` / `review_gap`。
 - `review_outline_seeds`：面向 Introduction/Related Work 的段落组织线索，通常来自 taxonomy、timeline 和 claims 的组合。
 
 ## 合格内容示例
 
 ```json
 {
+  "schema_id": "synthesis.cross_paper_evidence_map",
+  "schema_version": "1.0.0",
+  "evidence_limits": {
+    "known_paper_unit_refs": ["pu:1:DETR2020", "pu:1:DNDETR2022", "pu:1:DABDETR2022"],
+    "caveat": "候选仅覆盖当前 workset 和可用 artifact。"
+  },
   "taxonomy_candidates": [
     {
       "id": "route:convergence-stabilization",
@@ -72,15 +79,45 @@ taxonomy、timeline、claims、debates、gaps 的候选池。
       "downstream_use": ["taxonomy", "timeline_events", "claims", "comparison_matrix"]
     }
   ],
+  "comparison_dimensions": [
+    {
+      "id": "cmp:training-stabilization",
+      "label": "Training stabilization mechanism",
+      "coverage_refs": ["pu:1:DNDETR2022", "pu:1:DABDETR2022"],
+      "rationale": "这两篇 paper units 都提供了改善 query/matching 学习稳定性的机制证据。"
+    }
+  ],
   "claim_candidates": [
     {
       "id": "claim:practicality-depends-on-stabilization",
-      "paper_unit_refs": ["pu:1:DNDETR2022", "pu:1:DABDETR2022"],
+      "supporting_paper_unit_refs": ["pu:1:DNDETR2022", "pu:1:DABDETR2022"],
       "claim": "DETR-style detectors 的实用化高度依赖 matching/query learning 的稳定化机制。",
       "scope": "适用于库内 DETR-family object detection papers。",
       "limitations": "缺少非 DETR real-time detector 的一手对照。"
     }
-  ]
+  ],
+  "debate_candidates": [
+    {
+      "id": "debate:end-to-end-purity-vs-engineering",
+      "evidence_type": "tradeoff",
+      "summary": "部分改进牺牲纯端到端简洁性以换取训练稳定性或速度。"
+    }
+  ],
+  "gap_candidates": [
+    {
+      "id": "gap:real-time-detector-baselines",
+      "gap_type": "library_coverage_gap",
+      "description": "当前 workset 缺少非 DETR real-time detector 一手对照。"
+    }
+  ],
+  "review_outline_seeds": [
+    {
+      "id": "outline:from-set-prediction-to-stabilization",
+      "section_hint": "Related Work",
+      "candidate_refs": ["route:convergence-stabilization", "claim:practicality-depends-on-stabilization"]
+    }
+  ],
+  "diagnostics": []
 }
 ```
 
@@ -113,7 +150,7 @@ taxonomy、timeline、claims、debates、gaps 的候选池。
   "claim_candidates": [
     {
       "id": "claim:set-prediction-reframes-detection",
-      "paper_unit_refs": ["pu:1:ABC12345"],
+      "supporting_paper_unit_refs": ["pu:1:ABC12345"],
       "claim": "Set prediction reduces the need for hand-designed post-processing."
     }
   ]

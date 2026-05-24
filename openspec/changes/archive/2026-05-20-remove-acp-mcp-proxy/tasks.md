@@ -1,0 +1,7 @@
+- [x] 1. Remove superseded OpenSpec change artifacts.
+- [x] 2. Add replacement delta specs for direct MCP descriptors and preflight-only required-MCP readiness.
+- [x] 3. Remove ACP MCP gateway/proxy runtime interfaces, lifecycle, and tests.
+- [x] 4. Remove blocking callable-smoke orchestration and smoke prompt template usage.
+- [x] 5. Update diagnostics and prompt wording to remove gateway/smoke decision fields.
+- [x] 6. Update focused ACP SkillRunner tests for preflight-only behavior and direct descriptors.
+- [x] 7. Run OpenSpec validation, focused tests, and typecheck.

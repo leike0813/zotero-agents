@@ -2,7 +2,7 @@
   "id": "manuscript-literature-framing",
   "label": "Manuscript Literature Framing",
   "provider": "acp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "taskNameTemplate": "Frame manuscript literature: {paperTitle}",
   "trigger": {
     "requiresSelection": false
@@ -49,23 +49,8 @@
   },
   "execution": {
     "mode": "auto",
-    "mcp": {
-      "requiredTools": [
-        "synthesis.list_topics",
-        "synthesis.get_review_input",
-        "synthesis.get_paper_registry",
-        "synthesis.get_citation_graph_metrics",
-        "synthesis.get_citation_graph_slice",
-        "synthesis.resolve_topic_paper_digest",
-        "list_library_items",
-        "search_items",
-        "get_item_detail",
-        "get_item_notes",
-        "list_note_payloads",
-        "get_note_payload",
-        "get_item_attachments",
-        "prepare_paper_reading_context"
-      ]
+    "zoteroHostAccess": {
+      "required": true
     },
     "skillrunner_mode": "interactive",
     "timeout_ms": 1200000
@@ -74,13 +59,16 @@
     "fetch": { "type": "result" },
     "expects": {
       "result_json": "result/result.json",
-      "artifacts": [
-        "result/introduction.tex",
-        "result/related-work.tex",
-        "result/writing-plan.json",
-        "result/citation-map.json",
-        "result/diagnostics.json"
-      ]
+        "artifacts": [
+          "result/introduction.tex",
+          "result/related-work.tex",
+          "result/intent-brief.json",
+          "result/evidence-inventory.json",
+          "result/framing-analysis.json",
+          "result/writing-plan.json",
+          "result/citation-map.json",
+          "result/diagnostics.json"
+        ]
     }
   },
   "hooks": {

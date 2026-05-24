@@ -52,6 +52,7 @@ async function createSkill(args: {
     path.join(skillDir, "assets", "runner.json"),
     JSON.stringify({
       id: args.skillId,
+      execution_modes: ["auto"],
       runtime: { dependencies: ["jinja2"] },
       schemas: { output: "assets/output.schema.json" },
     }),

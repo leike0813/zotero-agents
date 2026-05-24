@@ -181,19 +181,24 @@
 }
 
 .settings-btn {
-  border: 1px solid var(--line-strong);
-  background: var(--zs-input-bg);
+  appearance: none;
+  -moz-appearance: none;
+  border: 1px solid var(--dashboard-control-border);
+  background: var(--dashboard-control-bg);
+  background-image: none;
   color: var(--text);
   border-radius: 8px;
   min-width: 110px;
   height: 30px;
   padding: 4px 9px;
   font-size: 12px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
 }
 
 .settings-btn:hover {
-  background: var(--zs-surface-hover);
+  background: var(--dashboard-control-hover);
+  border-color: var(--dashboard-control-border);
 }
 
 .settings-btn.primary {
@@ -209,6 +214,9 @@
 .settings-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+  background: var(--zs-panel-alt);
+  border-color: var(--line);
+  box-shadow: none;
 }
 
 @media (max-width: 540px) {

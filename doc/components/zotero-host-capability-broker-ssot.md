@@ -31,7 +31,7 @@ Future Zotero capability work should start from this model. Do not expose raw Zo
 
 - `items`: item lookup and broad item listing
 - `prefs`: preference get/set/clear
-- `file`: file conversion, text I/O, directory creation, temp path, and file pickers
+- `file`: file conversion, text/binary I/O, file copy, directory creation, temp path, and file pickers
 - `editor`: workflow editor sessions and renderer registration
 - `notifications`: toast feedback
 - `logging`: runtime and diagnostic instrumentation
@@ -106,9 +106,11 @@ These guardrails are a reliability layer around the broker; they do not change t
 
 Read/context capabilities include current view, selected items, item search, item detail, notes, attachments, tags, and collection membership. MCP read tools should be backed by `hostApi.context` and `hostApi.library`, not by raw Zotero APIs.
 
-Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and the `paper.ingest` batch import path used by interactive literature search workflows. They may reuse `handlers` internally, but MCP exposure must go through `hostApi.mutations.preview()` and `hostApi.mutations.execute()` with an explicit permission gate before execute. Deletion and other higher-risk writes require a separate change before MCP exposure. `paper.ingest` may create PDF attachments from explicit public `pdfUrl` values on a best-effort basis; attachment failure must not roll back a successfully created or reused bibliographic item.
+Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and the single-paper `literature.ingest` import path used by interactive literature search workflows. They may reuse `handlers` internally, but MCP exposure must go through `hostApi.mutations.preview()` and `hostApi.mutations.execute()` with an explicit permission gate before execute. ACP workflows may opt into a per-run write auto-approval control; when the workflow declares support, the user enables it, and the Host Bridge CLI profile scope is registered for that run, mutation execute may skip the UI approval. This bypass never applies to workflow submit. Deletion and other higher-risk writes require a separate change before MCP exposure. `literature.ingest` may create PDF attachments from an explicit public `pdfUrl` value on a best-effort basis; attachment failure must not roll back a successfully created or reused bibliographic item. Batch ingest payloads and legacy `paper.ingest` inputs are not supported.
 
 Host services include file operations, preferences, editor sessions, notifications, and logging. These belong to `hostApi`; MCP should expose them only when a user-facing tool contract requires them.
+
+Workflow file services may move binary sidecar artifacts such as representative-note images through `hostApi.file.readBytes`, `hostApi.file.writeBytes`, and `hostApi.file.copy`. These APIs are workflow-host capabilities; MCP tools should still avoid embedding large file bytes in JSON responses.
 
 Diagnostics/logging capabilities should remain separate from user data tools. Diagnostic bundles may reference broker state, but should continue redacting secrets and avoiding raw host objects.
 
@@ -202,7 +204,7 @@ The first formal write tools are:
 6. `update_note`
 7. `create_markdown_note`
 8. `update_markdown_note`
-9. `ingest_papers`
+9. `ingest_paper`
 10. `add_items_to_collection`
 11. `remove_items_from_collection`
 

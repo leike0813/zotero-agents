@@ -36,6 +36,23 @@
   box-shadow: 0 0 0 3px var(--zs-focus-ring, rgba(37, 99, 235, 0.12));
 }
 
+.custom-select.disabled .custom-select-trigger {
+  background: var(--zs-panel-alt, #f3f4f6);
+  border-color: var(--zs-border, #d0d7de);
+  color: var(--zs-muted, #667085);
+  cursor: not-allowed;
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.custom-select.disabled .custom-select-trigger::after {
+  opacity: 0.55;
+}
+
+.custom-select.disabled .custom-select-menu {
+  display: none;
+}
+
 .custom-select-trigger::after {
   content: "▼";
   font-size: 9px;

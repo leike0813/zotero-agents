@@ -165,7 +165,11 @@ describe("dashboard toolbar button", function () {
     assert.equal(executeButton!.getAttribute("class"), "zotero-tb-button");
     assert.include(skillRunnerButton!.getAttribute("class") || "", "zotero-tb-button");
     assert.include(skillRunnerButton!.getAttribute("image") || "", "icon_backend.png");
-    assert.equal(dashboardButton!.getAttribute("class"), "zotero-tb-button");
+    assert.include(dashboardButton!.getAttribute("class") || "", "zotero-tb-button");
+    assert.include(
+      dashboardButton!.getAttribute("class") || "",
+      "zs-workspace-toolbar-button",
+    );
 
     skillRunnerButton!.dispatch("command");
     assert.lengthOf(calls, 1);

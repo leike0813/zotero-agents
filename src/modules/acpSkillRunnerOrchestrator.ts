@@ -6,7 +6,10 @@ import type {
   ProviderExecutionResult,
 } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
-import { getLoadedWorkflowEntries, rescanWorkflowRegistry } from "./workflowRuntime";
+import {
+  getLoadedWorkflowEntries,
+  rescanWorkflowRegistry,
+} from "./workflowRuntime";
 import { createUnavailableBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
@@ -24,6 +27,13 @@ import {
   buildAcpRuntimeDependencyPlan,
   type AcpRuntimeDependencyProbe,
 } from "./acpRuntimeDependencyWrapper";
+import {
+  applyHostBridgeCliEnvToBackend,
+  createDisabledHostBridgeCliRunInjection,
+  materializeHostBridgeCliRunInjection,
+  summarizeHostBridgeCliRunInjection,
+  type HostBridgeCliRunInjection,
+} from "./hostBridgeCliInjection";
 import {
   createAcpSkillRunnerWorkspace,
   writeAcpSkillRunnerInputManifest,
@@ -44,18 +54,20 @@ import {
 } from "./acpRuntimePromptTemplates";
 import {
   buildAcpSkillOutputRepairPrompt,
+  validateAcpSkillFinalPayload,
 } from "./acpSkillOutputValidator";
 import {
   convergeAcpSkillTurnOutput,
   writeAcpSkillRunnerResultEnvelope,
   type AcpSkillOutputConvergenceResult,
 } from "./acpSkillOutputConvergence";
+import { validateAcpSkillRunRequestAgainstSchemas } from "./acpSkillSchemaAssets";
+import { resolveAcpSkillResultFileFallback } from "./acpSkillResultFileFallback";
 import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
   type AcpConnectionInitializeResult,
 } from "./acpConnectionAdapter";
-import type { AcpDiagnosticsEntry } from "./acpTypes";
 import { ensureZoteroMcpServer } from "./zoteroMcpServer";
 import { listZoteroMcpTools } from "./zoteroMcpProtocol";
 import {
@@ -78,13 +90,17 @@ import {
   readRuntimeTextFile,
   statRuntimePath,
 } from "./runtimePersistence";
-import {
-  writeMcpContextInjectionDiagnostics,
-} from "./mcpContextDiagnostics";
 
 export type AcpSkillRunnerExecutionSnapshot = {
   requestId: string;
-  status: "queued" | "running" | "waiting_user" | "repairing" | "succeeded" | "failed" | "canceled";
+  status:
+    | "queued"
+    | "running"
+    | "waiting_user"
+    | "repairing"
+    | "succeeded"
+    | "failed"
+    | "canceled";
   workspaceDir: string;
   skillId: string;
   repairRounds: number;
@@ -97,6 +113,8 @@ export type AcpSkillRunnerRunContext = {
   workspace: AcpSkillRunnerWorkspace;
   materialization: AcpSkillMaterializationResult;
   injectionPlan: AcpSkillInjectionPlan;
+  inputContext: Record<string, unknown>;
+  parameterContext: Record<string, unknown>;
 };
 
 export type AcpSkillRunnerDependencies = {
@@ -105,8 +123,11 @@ export type AcpSkillRunnerDependencies = {
   createAdapter?: typeof createAcpConnectionAdapter;
   dependencyProbe?: AcpRuntimeDependencyProbe;
   mcpPreflight?: AcpRequiredMcpPreflightProbe;
-  mcpCallableSmoke?: AcpCallableMcpSmokeProbe;
-  mcpCallableSmokeTimeoutMs?: number;
+  hostBridgeCliInjection?: (args: {
+    workspaceDir: string;
+    requestId: string;
+    autoApproveWrites?: boolean;
+  }) => Promise<HostBridgeCliRunInjection>;
   maxRepairRounds?: number;
   sharedSkillCatalogRootDir?: string;
 };
@@ -124,26 +145,6 @@ export type AcpRequiredMcpPreflightProbe = (args: {
   message?: string;
 }>;
 
-export type AcpCallableMcpSmokeProbe = (args: {
-  requiredTools: string[];
-  requestId: string;
-  backend: BackendInstance;
-  workspace: AcpSkillRunnerWorkspace;
-  adapter: AcpConnectionAdapter;
-  sessionId: string;
-  timeoutMs?: number;
-}) => Promise<{
-  ok: boolean;
-  reachedTools?: string[];
-  missingTools?: string[];
-  message?: string;
-  decisionSource?: string;
-  connectionId?: string;
-  smokeAttemptId?: string;
-  transportKinds?: string[];
-  warning?: string;
-}>;
-
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -158,7 +159,12 @@ function normalizeStringArray(value: unknown) {
 }
 
 function basename(path: string) {
-  return normalizeString(path).split(/[\\/]+/).filter(Boolean).pop() || "";
+  return (
+    normalizeString(path)
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .pop() || ""
+  );
 }
 
 function pathParts(value: string) {
@@ -194,13 +200,19 @@ async function findWorkspaceActivitySnapshot(rootDir: string) {
     visited += 1;
     const stat = await statRuntimePath(current.path);
     if (!stat.exists) continue;
-    const mtime = Number((stat as { lastModified?: unknown; mtimeMs?: unknown }).lastModified || (stat as { mtimeMs?: unknown }).mtimeMs || 0) || 0;
+    const mtime =
+      Number(
+        (stat as { lastModified?: unknown; mtimeMs?: unknown }).lastModified ||
+          (stat as { mtimeMs?: unknown }).mtimeMs ||
+          0,
+      ) || 0;
     if (!stat.isDir) {
       const candidate = { path: current.path, size: stat.size, mtime };
       if (
         !best ||
         candidate.mtime > best.mtime ||
-        (candidate.mtime === best.mtime && candidate.path.localeCompare(best.path) > 0)
+        (candidate.mtime === best.mtime &&
+          candidate.path.localeCompare(best.path) > 0)
       ) {
         best = candidate;
       }
@@ -253,12 +265,13 @@ function resolveJobId(request: AcpSkillRunRequestV1) {
 async function buildRunPrompt(args: {
   context: AcpSkillRunnerRunContext;
   repairPrompt?: string;
+  hostBridgeCliPromptSnippet?: string;
 }) {
   if (args.repairPrompt) {
     return args.repairPrompt;
   }
   const { context } = args;
-  return buildAcpSkillRunPrompt({
+  const basePrompt = await buildAcpSkillRunPrompt({
     context: {
       skillId: context.request.skill_id,
       workspace: context.workspace,
@@ -269,19 +282,28 @@ async function buildRunPrompt(args: {
       sharedSkillCatalogPath: context.materialization.sharedSkillCatalogPath,
     },
     request: context.request,
+    runnerJson: context.materialization.runnerJson,
+    inputContext: context.inputContext,
+    parameterContext: context.parameterContext,
   });
+  const snippet = normalizeString(args.hostBridgeCliPromptSnippet);
+  return snippet ? `${basePrompt}\n${snippet}` : basePrompt;
 }
 
 function resolveExecutionMode(
   request: AcpSkillRunRequestV1,
   runnerJson: Record<string, unknown>,
 ) {
-  const explicit = normalizeString(request.runtime_options?.execution_mode).toLowerCase();
+  const explicit = normalizeString(
+    request.runtime_options?.execution_mode,
+  ).toLowerCase();
   if (explicit === "interactive" || explicit === "auto") {
     return explicit;
   }
   const modes = Array.isArray(runnerJson.execution_modes)
-    ? runnerJson.execution_modes.map((entry) => normalizeString(entry).toLowerCase())
+    ? runnerJson.execution_modes.map((entry) =>
+        normalizeString(entry).toLowerCase(),
+      )
     : [];
   if (modes.includes("auto")) {
     return "auto";
@@ -294,7 +316,10 @@ function resolveExecutionMode(
 
 async function readRunnerJsonForExecutionMode(path: string) {
   try {
-    return JSON.parse(await readRuntimeTextFile(path)) as Record<string, unknown>;
+    return JSON.parse(await readRuntimeTextFile(path)) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }
@@ -305,16 +330,23 @@ function resolveRunnerRequiredMcpTools(runnerJson: Record<string, unknown>) {
   if (!mcp || typeof mcp !== "object" || Array.isArray(mcp)) {
     return [] as string[];
   }
-  const tools = (mcp as { required_tools?: unknown; requiredTools?: unknown });
+  const tools = mcp as { required_tools?: unknown; requiredTools?: unknown };
   return normalizeStringArray(tools.required_tools || tools.requiredTools);
 }
 
 function resolveWorkflowRequiredMcpTools(request: AcpSkillRunRequestV1) {
   const workflowMcp = request.runtime_options?.workflow_mcp;
-  if (!workflowMcp || typeof workflowMcp !== "object" || Array.isArray(workflowMcp)) {
+  if (
+    !workflowMcp ||
+    typeof workflowMcp !== "object" ||
+    Array.isArray(workflowMcp)
+  ) {
     return [] as string[];
   }
-  const tools = workflowMcp as { required_tools?: unknown; requiredTools?: unknown };
+  const tools = workflowMcp as {
+    required_tools?: unknown;
+    requiredTools?: unknown;
+  };
   return normalizeStringArray(tools.required_tools || tools.requiredTools);
 }
 
@@ -327,6 +359,33 @@ function resolveRequiredMcpTools(args: {
     return workflowTools;
   }
   return resolveRunnerRequiredMcpTools(args.runnerJson);
+}
+
+function resolveZoteroHostAccessRequirement(args: {
+  request: AcpSkillRunRequestV1;
+  runnerJson: Record<string, unknown>;
+}) {
+  void args.runnerJson;
+  const declaration = args.request.runtime_options?.zotero_host_access;
+  if (
+    declaration &&
+    typeof declaration === "object" &&
+    !Array.isArray(declaration)
+  ) {
+    return {
+      required:
+        typeof declaration.required === "boolean"
+          ? declaration.required
+          : true,
+      autoApproveWrites: declaration.auto_approve_writes === true,
+      source: "request" as const,
+    };
+  }
+  return {
+    required: true,
+    autoApproveWrites: false,
+    source: "default" as const,
+  };
 }
 
 async function defaultRequiredMcpPreflight(args: {
@@ -365,7 +424,9 @@ async function defaultRequiredMcpPreflight(args: {
     .map((tool) => normalizeString(tool.name))
     .filter(Boolean);
   const available = new Set(availableTools);
-  const missingTools = args.requiredTools.filter((tool) => !available.has(tool));
+  const missingTools = args.requiredTools.filter(
+    (tool) => !available.has(tool),
+  );
   return {
     ok: missingTools.length === 0,
     availableTools,
@@ -450,118 +511,6 @@ async function preflightRequiredMcpTools(args: {
   return result;
 }
 
-function parseJsonObject(value: unknown): Record<string, unknown> | null {
-  const text = normalizeString(value);
-  if (!text) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function extractMcpToolNameFromUnknown(value: unknown): string {
-  if (!value) {
-    return "";
-  }
-  if (typeof value === "string") {
-    const parsed = parseJsonObject(value);
-    if (parsed) {
-      return extractMcpToolNameFromUnknown(parsed);
-    }
-    const match =
-      value.match(/"toolName"\s*:\s*"([^"]+)"/i) ||
-      value.match(/"jsonrpcToolName"\s*:\s*"([^"]+)"/i) ||
-      value.match(/Zotero MCP tool(?: call)?(?: failed)?\s+([A-Za-z0-9_.-]+)/i);
-    return normalizeString(match?.[1]);
-  }
-  if (typeof value !== "object") {
-    return "";
-  }
-  const record = value as Record<string, unknown>;
-  const direct =
-    normalizeString(record.toolName) ||
-    normalizeString(record.jsonrpcToolName);
-  if (direct) {
-    return direct;
-  }
-  for (const key of ["details", "raw", "data", "error", "result"]) {
-    const nested = extractMcpToolNameFromUnknown(record[key]);
-    if (nested) {
-      return nested;
-    }
-  }
-  return "";
-}
-
-function extractMcpToolNameFromDiagnostic(entry: AcpDiagnosticsEntry) {
-  const fromRaw = extractMcpToolNameFromUnknown(entry.raw);
-  if (fromRaw) {
-    return fromRaw;
-  }
-  const fromData = extractMcpToolNameFromUnknown(entry.data);
-  if (fromData) {
-    return fromData;
-  }
-  const fromDetail = extractMcpToolNameFromUnknown(entry.detail);
-  if (fromDetail) {
-    return fromDetail;
-  }
-  if (entry.kind === "zotero_mcp_response") {
-    return "";
-  }
-  if (entry.kind !== "zotero_mcp_tool_call") {
-    return extractMcpToolNameFromUnknown(entry.message);
-  }
-  return extractMcpToolNameFromUnknown(entry.message);
-}
-
-const MCP_CALLABLE_SMOKE_TIMEOUT_MS = 120_000;
-
-function resolveMcpCallableSmokeTimeoutMs(value: unknown) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return MCP_CALLABLE_SMOKE_TIMEOUT_MS;
-  }
-  return Math.max(1, Math.floor(numeric));
-}
-
-function claudeStyleZoteroMcpCallableAlias(toolName: string) {
-  const normalizedToolName = normalizeString(toolName)
-    .replace(/[^A-Za-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return normalizedToolName ? `mcp__zotero__${normalizedToolName}` : "";
-}
-
-function renderMcpCallableSmokeToolLine(toolName: string) {
-  const alias = claudeStyleZoteroMcpCallableAlias(toolName);
-  return alias
-    ? `- ${toolName} (Claude-style callable alias: ${alias})`
-    : `- ${toolName}`;
-}
-
-async function renderMcpCallableSmokePrompt(
-  requiredTools: string[],
-  timeoutMs = MCP_CALLABLE_SMOKE_TIMEOUT_MS,
-) {
-  const template = await loadAcpRuntimePromptTemplate(
-    ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.mcp_callable_smoke,
-  );
-  return renderAcpRuntimePromptTemplate({
-    template,
-    replacements: {
-      REQUIRED_TOOLS: requiredTools.map(renderMcpCallableSmokeToolLine).join("\n"),
-      TIMEOUT_SECONDS: String(Math.ceil(timeoutMs / 1000)),
-    },
-    requiredPlaceholders: ["REQUIRED_TOOLS", "TIMEOUT_SECONDS"],
-  });
-}
-
 async function renderRequiredMcpGuardPrompt(requiredTools: string[]) {
   if (!requiredTools.length) {
     return "";
@@ -586,380 +535,6 @@ async function withRequiredMcpGuard(message: string, requiredTools: string[]) {
   return `${guard}\n\n${message}`;
 }
 
-async function defaultCallableMcpSmoke(args: {
-  requiredTools: string[];
-  requestId: string;
-  backend: BackendInstance;
-  workspace: AcpSkillRunnerWorkspace;
-  adapter: AcpConnectionAdapter;
-  sessionId: string;
-  timeoutMs?: number;
-}) {
-  const timeoutMs = resolveMcpCallableSmokeTimeoutMs(args.timeoutMs);
-  const smokePrompt = await renderMcpCallableSmokePrompt(
-    args.requiredTools,
-    timeoutMs,
-  );
-  await args.adapter.prompt({
-    sessionId: args.sessionId,
-    message: smokePrompt,
-  });
-  return {
-    ok: true,
-    reachedTools: args.requiredTools,
-    missingTools: [],
-    message: "ACP callable MCP smoke prompt completed.",
-  };
-}
-
-async function runCallableMcpSmoke(args: {
-  requestId: string;
-  backend: BackendInstance;
-  workspace: AcpSkillRunnerWorkspace;
-  adapter: AcpConnectionAdapter;
-  sessionId: string;
-  requiredTools: string[];
-  probe?: AcpCallableMcpSmokeProbe;
-  timeoutMs?: number;
-  preflight?: {
-    ok: boolean;
-    availableTools?: string[];
-    missingTools?: string[];
-  };
-}) {
-  if (!args.requiredTools.length) {
-    return;
-  }
-  const timeoutMs = resolveMcpCallableSmokeTimeoutMs(args.timeoutMs);
-  upsertAcpSkillRun({
-    requestId: args.requestId,
-    activePrompt: true,
-    event: {
-      stage: "mcp-smoke-started",
-      message: "ACP callable MCP smoke started.",
-      level: "info",
-      details: {
-        requiredTools: args.requiredTools,
-        timeoutMs,
-      },
-    },
-  });
-  appendRuntimeLog({
-    level: "info",
-    scope: "provider",
-    backendId: args.backend.id,
-    backendType: args.backend.type,
-    providerId: "acp",
-    requestId: args.requestId,
-    component: "acp-skillrunner",
-    operation: "mcp-callable-smoke",
-    phase: "start",
-    stage: "mcp-smoke-started",
-    message: "ACP callable MCP smoke started.",
-    details: {
-      requiredTools: args.requiredTools,
-      timeoutMs,
-      decisionSource: args.probe ? "test-probe" : "mcp-gateway",
-    },
-  });
-  const smokeStartedAt = new Date().toISOString();
-  const adapterDiagnostics: AcpDiagnosticsEntry[] = [];
-  const unsubscribeDiagnostics = args.adapter.onDiagnostics((entry) => {
-    adapterDiagnostics.push(entry);
-  });
-  let result: Awaited<ReturnType<AcpCallableMcpSmokeProbe>>;
-  try {
-    if (args.probe) {
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-      const timeoutSentinel = Symbol("mcp-callable-smoke-timeout");
-      const probePromise = args.probe({
-        requiredTools: args.requiredTools,
-        requestId: args.requestId,
-        backend: args.backend,
-        workspace: args.workspace,
-        adapter: args.adapter,
-        sessionId: args.sessionId,
-        timeoutMs,
-      });
-      const raced = await Promise.race([
-        probePromise,
-        new Promise<typeof timeoutSentinel>((resolve) => {
-          timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
-        }),
-      ]);
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-      if (raced === timeoutSentinel) {
-        await args.adapter.cancel({ sessionId: args.sessionId }).catch(() => undefined);
-        result = {
-          ok: false,
-          reachedTools: [],
-          missingTools: args.requiredTools,
-          decisionSource: "test-probe",
-          message: `ACP callable MCP smoke timed out after ${timeoutMs}ms. Do not try alternate MCP access paths.`,
-        };
-      } else {
-        const reachedSet = new Set(raced.reachedTools || []);
-        const reachedTools = args.requiredTools.filter((tool) =>
-          reachedSet.has(tool),
-        );
-        const missingTools = args.requiredTools.filter(
-          (tool) => !reachedSet.has(tool),
-        );
-        result = {
-          ...raced,
-          reachedTools,
-          missingTools,
-          ok: raced.ok && missingTools.length === 0,
-          decisionSource: raced.decisionSource || "test-probe",
-        };
-      }
-    } else {
-      if (!args.adapter.startMcpSmokeSpan) {
-        result = {
-          ok: false,
-          reachedTools: [],
-          missingTools: args.requiredTools,
-          decisionSource: "mcp-gateway",
-          message: "ACP MCP smoke gateway is unavailable for this adapter.",
-        };
-      } else {
-        const span = await args.adapter.startMcpSmokeSpan({
-          sessionId: args.sessionId,
-          requiredTools: args.requiredTools,
-          timeoutMs,
-        });
-        const smokePrompt = await renderMcpCallableSmokePrompt(
-          args.requiredTools,
-          timeoutMs,
-        );
-        let observed = false;
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        const promptPromise = args.adapter.prompt({
-          sessionId: args.sessionId,
-          message: smokePrompt,
-        });
-        const timeoutPromise = new Promise<{
-          kind: "timeout";
-        }>((resolve) => {
-          timeoutHandle = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
-        });
-        const first = await Promise.race([
-          span.observed.then((value) => ({ kind: "observed" as const, value })),
-          promptPromise
-            .then((value) => ({ kind: "prompt_finished" as const, value }))
-            .catch((error) => ({ kind: "prompt_failed" as const, error })),
-          timeoutPromise,
-        ]);
-        if (first.kind === "observed") {
-          observed = true;
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
-          const observation = first.value;
-          upsertAcpSkillRun({
-            requestId: args.requestId,
-            event: {
-              stage: "mcp-smoke-observed",
-              message: "ACP callable MCP smoke observed all required tools.",
-              level: "info",
-              details: {
-                requiredTools: args.requiredTools,
-                reachedTools: observation.reachedTools,
-                missingTools: observation.missingTools,
-                timeoutMs,
-                decisionSource: "mcp-gateway",
-                connectionId: observation.connectionId,
-                smokeAttemptId: observation.smokeAttemptId,
-                transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
-              },
-            },
-          });
-          let warning = "";
-          await promptPromise.catch((error) => {
-            warning =
-              error instanceof Error ? error.message : String(error || "unknown error");
-          });
-          await span.finish();
-          result = {
-            ok: true,
-            reachedTools: observation.reachedTools,
-            missingTools: observation.missingTools,
-            decisionSource: "mcp-gateway",
-            connectionId: observation.connectionId,
-            smokeAttemptId: observation.smokeAttemptId,
-            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
-            warning,
-            message: warning
-              ? "ACP callable MCP smoke observed required tools; smoke prompt ended with warning evidence."
-              : "ACP callable MCP smoke succeeded.",
-          };
-        } else if (first.kind === "timeout") {
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
-          await args.adapter.cancel({ sessionId: args.sessionId }).catch(() => undefined);
-          const snapshot = span.snapshot();
-          span.observed.catch(() => undefined);
-          await span.abort("mcp smoke timeout").catch(() => undefined);
-          promptPromise.catch(() => undefined);
-          result = {
-            ok: false,
-            reachedTools: snapshot.reachedTools,
-            missingTools: snapshot.missingTools,
-            decisionSource: "mcp-gateway",
-            connectionId: snapshot.connectionId,
-            smokeAttemptId: snapshot.smokeAttemptId,
-            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
-            message: `ACP callable MCP smoke timed out after ${timeoutMs}ms. Do not try alternate MCP access paths.`,
-          };
-        } else {
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
-          const snapshot = span.snapshot();
-          await span.finish();
-          const promptMessage =
-            first.kind === "prompt_failed"
-              ? first.error instanceof Error
-                ? first.error.message
-                : String(first.error || "unknown error")
-              : "Smoke prompt finished before all required MCP tools were observed.";
-          result = {
-            ok: false,
-            reachedTools: snapshot.reachedTools,
-            missingTools: snapshot.missingTools,
-            decisionSource: "mcp-gateway",
-            connectionId: snapshot.connectionId,
-            smokeAttemptId: snapshot.smokeAttemptId,
-            transportKinds: args.adapter.getMcpGatewayTransportKinds?.() || [],
-            message: promptMessage,
-          };
-        }
-        if (!observed) {
-          span.observed.catch(() => undefined);
-        }
-      }
-    }
-  } finally {
-    unsubscribeDiagnostics();
-  }
-  const smokeFinishedAt = new Date().toISOString();
-  const diagnosticResult = result.ok
-    ? null
-    : await writeMcpContextInjectionDiagnostics({
-        backend: args.backend,
-        providerId: "acp",
-        requestId: args.requestId,
-        sessionId: args.sessionId,
-        workspaceDir: args.workspace.workspaceDir,
-        adapterDiagnostics,
-        preflight: args.preflight || {
-          ok: true,
-          availableTools: args.requiredTools,
-          missingTools: [],
-        },
-        smoke: result,
-        timeoutMs,
-        timeWindow: {
-          fromTs: smokeStartedAt,
-          toTs: smokeFinishedAt,
-        },
-      }).catch((error) => {
-        appendRuntimeLog({
-          level: "error",
-          scope: "provider",
-          backendId: args.backend.id,
-          backendType: args.backend.type,
-          providerId: "acp",
-          requestId: args.requestId,
-          component: "acp-skillrunner",
-          operation: "mcp-context-diagnostics",
-          phase: "terminal",
-          stage: "mcp-context-diagnostics-failed",
-          message: "Failed to write MCP context diagnostics.",
-          error,
-        });
-        return null;
-      });
-  upsertAcpSkillRun({
-    requestId: args.requestId,
-    activePrompt: false,
-    event: {
-      stage: result.ok ? "mcp-smoke-ok" : "mcp-smoke-failed",
-      message:
-        result.message ||
-        (result.ok
-          ? "ACP callable MCP smoke succeeded."
-          : "ACP callable MCP smoke failed."),
-      level: result.ok ? "info" : "error",
-      details: {
-        requiredTools: args.requiredTools,
-        reachedTools: result.reachedTools || [],
-        missingTools: result.missingTools || [],
-        timeoutMs,
-        decisionSource: result.decisionSource || "mcp-gateway",
-        connectionId: result.connectionId,
-        smokeAttemptId: result.smokeAttemptId,
-        transportKinds: result.transportKinds || [],
-        warning: result.warning,
-        diagnosticClassification: diagnosticResult?.diagnostics.classification,
-        diagnosticConfidence: diagnosticResult?.diagnostics.confidence,
-        diagnosticFile: diagnosticResult?.diagnosticFile,
-        evidenceFile: diagnosticResult?.evidenceFile,
-        backendType: args.backend.type,
-        providerId: "acp",
-      },
-    },
-  });
-  appendRuntimeLog({
-    level: result.ok ? "info" : "error",
-    scope: "provider",
-    backendId: args.backend.id,
-    backendType: args.backend.type,
-    providerId: "acp",
-    requestId: args.requestId,
-    component: "acp-skillrunner",
-    operation: "mcp-callable-smoke",
-    phase: result.ok ? "complete" : "terminal",
-    stage: result.ok ? "mcp-smoke-ok" : "mcp-smoke-failed",
-    message:
-      result.message ||
-      (result.ok
-        ? "ACP callable MCP smoke succeeded."
-        : "ACP callable MCP smoke failed."),
-    details: {
-      requiredTools: args.requiredTools,
-      reachedTools: result.reachedTools || [],
-      missingTools: result.missingTools || [],
-      timeoutMs,
-      decisionSource: result.decisionSource || "mcp-gateway",
-      connectionId: result.connectionId,
-      smokeAttemptId: result.smokeAttemptId,
-      transportKinds: result.transportKinds || [],
-      warning: result.warning,
-      diagnosticClassification: diagnosticResult?.diagnostics.classification,
-      diagnosticConfidence: diagnosticResult?.diagnostics.confidence,
-      diagnosticFile: diagnosticResult?.diagnosticFile,
-      evidenceFile: diagnosticResult?.evidenceFile,
-      backendType: args.backend.type,
-      providerId: "acp",
-    },
-  });
-  if (!result.ok) {
-    const missing = result.missingTools?.length
-      ? ` Missing callable tools: ${result.missingTools.join(", ")}.`
-      : "";
-    const diagnostic = diagnosticResult
-      ? ` Diagnostic classification: ${diagnosticResult.diagnostics.classification} (${diagnosticResult.diagnostics.confidence}). Diagnostic file: ${diagnosticResult.diagnosticFile}. Evidence file: ${diagnosticResult.evidenceFile}.`
-      : "";
-    throw new Error(
-      `${result.message || "ACP callable MCP smoke failed."}${missing}${diagnostic}`,
-    );
-  }
-}
-
 type FrozenAcpRuntimeOptions = {
   modeId?: string;
   modelId?: string;
@@ -975,23 +550,33 @@ function rememberAcpSkillRunRuntimeOptions(args: {
   setAcpSkillRunRuntimeOptions(args.requestId, {
     modeOptions: cache?.modes || [],
     currentMode: cache?.currentModeId
-      ? (cache?.modes || []).find((entry) => entry.id === cache.currentModeId) ||
-        { id: cache.currentModeId, label: cache.currentModeId }
+      ? (cache?.modes || []).find(
+          (entry) => entry.id === cache.currentModeId,
+        ) || { id: cache.currentModeId, label: cache.currentModeId }
       : undefined,
     modelOptions: cache?.rawModels || [],
     currentModel: cache?.currentRawModelId
-      ? (cache?.rawModels || []).find((entry) => entry.id === cache.currentRawModelId) ||
-        { id: cache.currentRawModelId, label: cache.currentRawModelId }
+      ? (cache?.rawModels || []).find(
+          (entry) => entry.id === cache.currentRawModelId,
+        ) || { id: cache.currentRawModelId, label: cache.currentRawModelId }
       : undefined,
     displayModelOptions: cache?.displayModels || [],
     currentDisplayModel: cache?.currentDisplayModelId
-      ? (cache?.displayModels || []).find((entry) => entry.id === cache.currentDisplayModelId) ||
-        { id: cache.currentDisplayModelId, label: cache.currentDisplayModelId }
+      ? (cache?.displayModels || []).find(
+          (entry) => entry.id === cache.currentDisplayModelId,
+        ) || {
+          id: cache.currentDisplayModelId,
+          label: cache.currentDisplayModelId,
+        }
       : undefined,
     reasoningEffortOptions: cache?.reasoningEfforts || [],
     currentReasoningEffort: cache?.currentReasoningEffortId
-      ? (cache?.reasoningEfforts || []).find((entry) => entry.id === cache.currentReasoningEffortId) ||
-        { id: cache.currentReasoningEffortId, label: cache.currentReasoningEffortId }
+      ? (cache?.reasoningEfforts || []).find(
+          (entry) => entry.id === cache.currentReasoningEffortId,
+        ) || {
+          id: cache.currentReasoningEffortId,
+          label: cache.currentReasoningEffortId,
+        }
       : undefined,
   });
 }
@@ -1002,7 +587,8 @@ function resolveFrozenAcpRuntimeOptions(args: {
 }): FrozenAcpRuntimeOptions {
   const cache = args.backend.acp?.runtimeOptionsCache;
   const options = args.providerOptions || {};
-  const modeId = normalizeString(options.acpModeId) || cache?.currentModeId || "";
+  const modeId =
+    normalizeString(options.acpModeId) || cache?.currentModeId || "";
   const modelId =
     normalizeString(options.acpModelId) || cache?.currentDisplayModelId || "";
   const reasoningEffort =
@@ -1122,10 +708,13 @@ async function resolveWorkflowById(workflowId: string) {
 function resolveRecoveredWorkflowId(
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
 ) {
-  const request = record.requestPayload as {
-    skill_id?: unknown;
-    parameter?: { workflowId?: unknown } | null;
-  } | null | undefined;
+  const request = record.requestPayload as
+    | {
+        skill_id?: unknown;
+        parameter?: { workflowId?: unknown } | null;
+      }
+    | null
+    | undefined;
   return (
     normalizeString(record.workflowId) ||
     normalizeString(request?.parameter?.workflowId) ||
@@ -1144,12 +733,16 @@ async function applyRecoveredAcpSkillResult(args: {
   const workflowId = resolveRecoveredWorkflowId(args.record);
   const workflow = await resolveWorkflowById(workflowId);
   if (!workflow) {
-    throw new Error(`workflow not found for ACP skill recovery apply: ${workflowId}`);
+    throw new Error(
+      `workflow not found for ACP skill recovery apply: ${workflowId}`,
+    );
   }
   const request = args.record.requestPayload;
   const targetParentID = resolveTargetParentIDFromRequest(request);
   if (!targetParentID) {
-    throw new Error("cannot resolve target parent for recovered ACP skill apply");
+    throw new Error(
+      "cannot resolve target parent for recovered ACP skill apply",
+    );
   }
   const runResult = {
     status: "succeeded",
@@ -1196,7 +789,8 @@ async function applyRecoveredAcpSkillResult(args: {
       state: "succeeded",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     markAcpSkillRunApplyResult({
       requestId: args.record.requestId,
       state: "failed",
@@ -1218,10 +812,14 @@ async function resolveBackendForRecoveredRun(backendId: string) {
     (entry) => normalizeString(entry.id) === normalized,
   );
   if (!backend) {
-    throw new Error(`ACP backend not found for recovered skill run: ${normalized}`);
+    throw new Error(
+      `ACP backend not found for recovered skill run: ${normalized}`,
+    );
   }
   if (normalizeString(backend.type) !== "acp") {
-    throw new Error(`Recovered ACP skill run requires ACP backend: ${normalized}`);
+    throw new Error(
+      `Recovered ACP skill run requires ACP backend: ${normalized}`,
+    );
   }
   return backend;
 }
@@ -1241,7 +839,10 @@ async function attachRecoveredSession(args: {
         requestId: args.requestId,
         event: {
           stage: "session-resume-failed",
-          message: error instanceof Error ? error.message : String(error || "unknown error"),
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error || "unknown error"),
           level: "warn",
         },
       });
@@ -1294,8 +895,12 @@ function resolveRecoveredRuntimeOptions(
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
 ): FrozenAcpRuntimeOptions {
   return {
-    ...(normalizeString(record.acpModeId) ? { modeId: normalizeString(record.acpModeId) } : {}),
-    ...(normalizeString(record.acpModelId) ? { modelId: normalizeString(record.acpModelId) } : {}),
+    ...(normalizeString(record.acpModeId)
+      ? { modeId: normalizeString(record.acpModeId) }
+      : {}),
+    ...(normalizeString(record.acpModelId)
+      ? { modelId: normalizeString(record.acpModelId) }
+      : {}),
     ...(normalizeString(record.acpReasoningEffort)
       ? { reasoningEffort: normalizeString(record.acpReasoningEffort) }
       : {}),
@@ -1309,11 +914,18 @@ async function buildRecoveredContinuationPrompt(args: {
   userMessage: string;
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
 }) {
-  const executionMode = normalizeString(args.record.executionMode) || "interactive";
-  const workspaceDir = normalizeString(args.record.workspaceDir) || "(unknown workspace)";
-  const resultJsonPath = normalizeString(args.record.resultJsonPath) || "(unknown result path)";
-  const inputManifestPath = normalizeString(args.record.inputManifestPath) || "(unknown input manifest)";
-  const requestedSkillId = normalizeString(args.record.requestedSkillId) || normalizeString(args.record.skillId);
+  const executionMode =
+    normalizeString(args.record.executionMode) || "interactive";
+  const workspaceDir =
+    normalizeString(args.record.workspaceDir) || "(unknown workspace)";
+  const resultJsonPath =
+    normalizeString(args.record.resultJsonPath) || "(unknown result path)";
+  const inputManifestPath =
+    normalizeString(args.record.inputManifestPath) ||
+    "(unknown input manifest)";
+  const requestedSkillId =
+    normalizeString(args.record.requestedSkillId) ||
+    normalizeString(args.record.skillId);
   const outputBranchInstruction =
     executionMode === "interactive"
       ? "- If you still need user input, return the pending branch: `__SKILL_DONE__: false` with a non-empty `message` and an object `ui_hints`. If the task is complete, return the final branch: `__SKILL_DONE__: true` plus the final output fields."
@@ -1385,11 +997,7 @@ export async function recoverAcpSkillRunConversation(args: {
   reason?: "connect" | "reply";
   dependencies?: Pick<
     AcpSkillRunnerDependencies,
-    | "createAdapter"
-    | "dependencyProbe"
-    | "mcpPreflight"
-    | "mcpCallableSmoke"
-    | "mcpCallableSmokeTimeoutMs"
+    "createAdapter" | "dependencyProbe" | "mcpPreflight" | "maxRepairRounds"
   >;
 }) {
   const requestId = normalizeString(args.requestId);
@@ -1405,16 +1013,18 @@ export async function recoverAcpSkillRunConversation(args: {
     record.requestPayload &&
     typeof record.requestPayload === "object" &&
     !Array.isArray(record.requestPayload) &&
-    (record.requestPayload as { kind?: unknown }).kind === ACP_SKILL_RUN_REQUEST_KIND
+    (record.requestPayload as { kind?: unknown }).kind ===
+      ACP_SKILL_RUN_REQUEST_KIND
       ? (record.requestPayload as AcpSkillRunRequestV1)
       : null;
-  const requiredMcpTools = recoveredRequest
+  const recoveredRequiredMcpTools = recoveredRequest
     ? resolveRequiredMcpTools({
         request: recoveredRequest,
         runnerJson: (record.runnerJson || {}) as Record<string, unknown>,
       })
-    : resolveRunnerRequiredMcpTools((record.runnerJson || {}) as Record<string, unknown>);
-  let mcpSmokeCompleted = requiredMcpTools.length === 0;
+    : resolveRunnerRequiredMcpTools(
+        (record.runnerJson || {}) as Record<string, unknown>,
+      );
   const sessionId = normalizeString(record.sessionId);
   if (!sessionId) {
     upsertAcpSkillRun({
@@ -1440,6 +1050,11 @@ export async function recoverAcpSkillRunConversation(args: {
       details: {
         reason: args.reason || "reply",
         sessionId,
+        hostAccess: {
+          primary: "host_bridge_cli",
+          mcpCompatibility: "disabled_by_default",
+          requiredMcpTools: recoveredRequiredMcpTools,
+        },
       },
     },
   });
@@ -1468,7 +1083,8 @@ export async function recoverAcpSkillRunConversation(args: {
     });
     throw new Error(message);
   }
-  const createAdapter = args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const createAdapter =
+    args.dependencies?.createAdapter || createAcpConnectionAdapter;
   const adapter = await createAdapter({
     backend: dependencyPlan.wrappedBackend,
     agentWorkspaceDir: workspaceDir,
@@ -1485,7 +1101,10 @@ export async function recoverAcpSkillRunConversation(args: {
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
   let unsubscribeClose: () => void = () => undefined;
-  const detach = async (state: "closed" | "ended" | "error" = "closed", error?: string) => {
+  const detach = async (
+    state: "closed" | "ended" | "error" = "closed",
+    error?: string,
+  ) => {
     if (cleanupDone) {
       return;
     }
@@ -1499,7 +1118,8 @@ export async function recoverAcpSkillRunConversation(args: {
       requestId,
       activePrompt: false,
       conversationState: state,
-      conversationRecoveryState: state === "ended" ? "unavailable" : "available",
+      conversationRecoveryState:
+        state === "ended" ? "unavailable" : "available",
       conversationError: error,
       connectionActionState: "idle",
     });
@@ -1509,55 +1129,11 @@ export async function recoverAcpSkillRunConversation(args: {
     currentTurnAssistantText = "";
     captureAssistantText = true;
     try {
-      const promptMessage = mcpSmokeCompleted
-        ? message
-        : await withRequiredMcpGuard(message, requiredMcpTools);
       const result = await runPrompt({
         adapter,
         requestId,
-        message: promptMessage,
+        message,
         sessionId: liveSessionId,
-        prepareSession: async (sessionId) => {
-          if (mcpSmokeCompleted) {
-            return;
-          }
-          const preflightResult = await preflightRequiredMcpTools({
-            requestId,
-            backend: dependencyPlan.wrappedBackend,
-            workspace: {
-              requestId,
-              workspaceDir,
-              runtimeDir,
-              resultDir: "",
-              auditDir: "",
-              inputManifestPath: normalizeString(record.inputManifestPath),
-              resultJsonPath: normalizeString(record.resultJsonPath),
-            },
-            adapter,
-            requiredTools: requiredMcpTools,
-            probe: args.dependencies?.mcpPreflight,
-          });
-          await runCallableMcpSmoke({
-            requestId,
-            backend: dependencyPlan.wrappedBackend,
-            workspace: {
-              requestId,
-              workspaceDir,
-              runtimeDir,
-              resultDir: "",
-              auditDir: "",
-              inputManifestPath: normalizeString(record.inputManifestPath),
-              resultJsonPath: normalizeString(record.resultJsonPath),
-            },
-            adapter,
-            sessionId,
-            requiredTools: requiredMcpTools,
-            probe: args.dependencies?.mcpCallableSmoke,
-            timeoutMs: args.dependencies?.mcpCallableSmokeTimeoutMs,
-            preflight: preflightResult,
-          });
-          mcpSmokeCompleted = true;
-        },
       });
       liveSessionId = result.sessionId;
       return currentTurnAssistantText;
@@ -1585,7 +1161,8 @@ export async function recoverAcpSkillRunConversation(args: {
         pendingInteraction: null,
         event: {
           stage: "recovered-reply-continuing",
-          message: "Recovered reply accepted; continuing ACP skill output convergence.",
+          message:
+            "Recovered reply accepted; continuing ACP skill output convergence.",
           level: "info",
           details: {
             previousStatus: latest.status,
@@ -1593,150 +1170,211 @@ export async function recoverAcpSkillRunConversation(args: {
         },
       });
     }
-    let assistantText = "";
-    try {
-      assistantText = await promptRecoveredSession(
-        shouldContinueWorkflow
-          ? await buildRecoveredContinuationPrompt({
-              userMessage: message,
-              record: latest,
-            })
-          : message,
-      );
-    } catch (error) {
-      if (shouldContinueWorkflow) {
+    const promptRecoveredWorkflowContinuation = async (userMessage: string) => {
+      const promptRecord = getAcpSkillRunRecord(requestId) || latest;
+      try {
+        return await promptRecoveredSession(
+          await buildRecoveredContinuationPrompt({
+            userMessage,
+            record: promptRecord,
+          }),
+        );
+      } catch (error) {
         upsertAcpSkillRun({
           requestId,
-          status: latest.status,
+          status: promptRecord.status,
           activePrompt: false,
           conversationState: "closed",
           conversationRecoveryState: "available",
           event: {
             stage: "recovered-reply-prompt-failed",
-            message: error instanceof Error ? error.message : String(error || "unknown error"),
+            message:
+              error instanceof Error
+                ? error.message
+                : String(error || "unknown error"),
             level: "error",
           },
         });
+        throw error;
       }
-      throw error;
-    }
+    };
+    let assistantText = "";
+    assistantText = shouldContinueWorkflow
+      ? await promptRecoveredWorkflowContinuation(message)
+      : await promptRecoveredSession(message);
     if (!shouldContinueWorkflow) {
       return;
     }
     const runnerJsonForConvergence = latest.runnerJson;
     const primarySkillDir = normalizeString(latest.primarySkillDir);
     if (!runnerJsonForConvergence || !primarySkillDir) {
-      throw new Error("Recovered waiting run is missing output convergence context.");
+      throw new Error(
+        "Recovered waiting run is missing output convergence context.",
+      );
     }
     const executionMode = latest.executionMode || "interactive";
-    const convergence = await convergeAcpSkillTurnOutput({
-      assistantText,
-      executionMode,
-      runnerJson: runnerJsonForConvergence,
-      primarySkillDir,
-    });
-    if (convergence.kind === "pending") {
-      projectAcpSkillRunOutputEnvelopeToTranscript({
-        requestId,
-        kind: "pending",
-        message: convergence.message,
-        candidateText: convergence.candidateText,
-        repairRound: latest.repairRounds || 0,
+    const maxRepairRounds = Math.max(
+      0,
+      args.dependencies?.maxRepairRounds ?? 3,
+    );
+    let repairRound = Math.max(0, latest.repairRounds || 0);
+    while (true) {
+      const convergence = await convergeAcpSkillTurnOutput({
+        assistantText,
+        executionMode,
+        runnerJson: runnerJsonForConvergence,
+        primarySkillDir,
       });
-      upsertAcpSkillRun({
-        requestId,
-        status: "waiting_user",
-        activePrompt: false,
-        conversationState: "active",
-        outputConvergenceState: "pending",
-        lastTurnOutput: convergence.candidateText,
-        pendingInteraction: {
+      if (convergence.kind === "pending") {
+        projectAcpSkillRunOutputEnvelopeToTranscript({
+          requestId,
+          kind: "pending",
           message: convergence.message,
-          uiHints: convergence.uiHints,
           candidateText: convergence.candidateText,
-        },
-        event: {
-          stage: "waiting-user",
-          message: convergence.message,
-          level: "info",
-          details: {
+          repairRound,
+        });
+        upsertAcpSkillRun({
+          requestId,
+          status: "waiting_user",
+          activePrompt: false,
+          conversationState: "active",
+          outputConvergenceState: "pending",
+          validationStatus: "pending",
+          validationErrors: [],
+          repairRounds: repairRound,
+          lastTurnOutput: convergence.candidateText,
+          pendingInteraction: {
+            message: convergence.message,
             uiHints: convergence.uiHints,
+            candidateText: convergence.candidateText,
           },
-        },
-      });
-      return;
-    }
-    if (convergence.kind !== "final") {
+          event: {
+            stage: "waiting-user",
+            message: convergence.message,
+            level: "info",
+            details: {
+              uiHints: convergence.uiHints,
+            },
+          },
+        });
+        return;
+      }
+      if (convergence.kind === "final") {
+        if (!latest.resultJsonPath) {
+          throw new Error("Recovered ACP skill run is missing resultJsonPath.");
+        }
+        await writeAcpSkillRunnerResultEnvelope({
+          resultJsonPath: latest.resultJsonPath,
+          resultJson: convergence.resultJson,
+        });
+        projectAcpSkillRunOutputEnvelopeToTranscript({
+          requestId,
+          kind: "final",
+          resultJson: convergence.resultJson,
+          candidateText: convergence.candidateText,
+          repairRound,
+        });
+        upsertAcpSkillRun({
+          requestId,
+          status: "succeeded",
+          activePrompt: false,
+          conversationState: "active",
+          validationStatus: "valid",
+          validationErrors: [],
+          outputConvergenceState: "final",
+          repairRounds: repairRound,
+          pendingInteraction: null,
+          lastTurnOutput: convergence.candidateText,
+          resultJson: convergence.resultJson,
+          applyResultState:
+            latest.applyResultState === "succeeded" ? "succeeded" : "pending",
+          event: {
+            stage: "recovered-output-validation-succeeded",
+            message:
+              repairRound > (latest.repairRounds || 0)
+                ? `Recovered output repair round ${repairRound} succeeded.`
+                : "Recovered ACP skill output validation succeeded.",
+            level: "info",
+            details: {
+              resultJsonPath: latest.resultJsonPath,
+              repairRounds: repairRound,
+            },
+          },
+        });
+        const afterFinal = getAcpSkillRunRecord(requestId) || latest;
+        if (afterFinal.applyResultState !== "succeeded") {
+          await applyRecoveredAcpSkillResult({
+            record: {
+              ...afterFinal,
+              status: "succeeded",
+              resultJson: convergence.resultJson,
+            },
+            resultJson: convergence.resultJson,
+          });
+        }
+        return;
+      }
       recordAcpSkillRunOutputRevision({
         requestId,
         status: "invalid",
         candidateText: convergence.candidateText,
-        repairRound: latest.repairRounds || 0,
+        repairRound,
         errors: convergence.errors,
       });
       upsertAcpSkillRun({
         requestId,
-        status: "failed",
+        status: repairRound < maxRepairRounds ? "repairing" : "failed",
         activePrompt: false,
         outputConvergenceState: "invalid",
+        repairRounds: repairRound,
         validationStatus: "invalid",
         validationErrors: convergence.errors,
-        error: `Recovered ACP skill output validation failed: ${convergence.errors.join("; ")}`,
+        error:
+          repairRound >= maxRepairRounds
+            ? `Recovered ACP skill output validation failed: ${convergence.errors.join("; ")}`
+            : "",
         event: {
           stage: "recovered-output-validation-failed",
           message: "Recovered ACP skill output validation failed.",
-          level: "error",
+          level: repairRound < maxRepairRounds ? "warn" : "error",
           details: {
             errors: convergence.errors,
+            repairRound,
+            maxRepairRounds,
           },
         },
       });
-      throw new Error(`Recovered ACP skill output validation failed: ${convergence.errors.join("; ")}`);
-    }
-    if (!latest.resultJsonPath) {
-      throw new Error("Recovered ACP skill run is missing resultJsonPath.");
-    }
-    await writeAcpSkillRunnerResultEnvelope({
-      resultJsonPath: latest.resultJsonPath,
-      resultJson: convergence.resultJson,
-    });
-    projectAcpSkillRunOutputEnvelopeToTranscript({
-      requestId,
-      kind: "final",
-      resultJson: convergence.resultJson,
-      candidateText: convergence.candidateText,
-      repairRound: latest.repairRounds || 0,
-    });
-    upsertAcpSkillRun({
-      requestId,
-      status: "succeeded",
-      activePrompt: false,
-      conversationState: "active",
-      validationStatus: "valid",
-      validationErrors: [],
-      outputConvergenceState: "final",
-      pendingInteraction: null,
-      lastTurnOutput: convergence.candidateText,
-      resultJson: convergence.resultJson,
-      applyResultState: latest.applyResultState === "succeeded" ? "succeeded" : "pending",
-      event: {
-        stage: "recovered-output-validation-succeeded",
-        message: "Recovered ACP skill output validation succeeded.",
-        level: "info",
-        details: {
-          resultJsonPath: latest.resultJsonPath,
+      if (repairRound >= maxRepairRounds) {
+        throw new Error(
+          `Recovered ACP skill output validation failed: ${convergence.errors.join("; ")}`,
+        );
+      }
+      repairRound += 1;
+      upsertAcpSkillRun({
+        requestId,
+        status: "repairing",
+        activePrompt: true,
+        repairRounds: repairRound,
+        pendingInteraction: null,
+        event: {
+          stage: "repair-started",
+          message: `Output repair round ${repairRound} started.`,
+          level: "warn",
+          details: {
+            errors: convergence.errors,
+            recovered: true,
+          },
         },
-      },
-    });
-    if (latest.applyResultState !== "succeeded") {
-      await applyRecoveredAcpSkillResult({
-        record: {
-          ...latest,
-          status: "succeeded",
-          resultJson: convergence.resultJson,
-        },
-        resultJson: convergence.resultJson,
       });
+      assistantText = await promptRecoveredWorkflowContinuation(
+        buildAcpSkillOutputRepairPrompt({
+          executionMode,
+          previousCandidate: convergence.candidateText,
+          errors: convergence.errors,
+          repairRound,
+          maxRepairRounds,
+        }),
+      );
     }
   };
   unsubscribePermission = adapter.onPermissionRequest((request) => {
@@ -1748,7 +1386,9 @@ export async function recoverAcpSkillRunConversation(args: {
       captureAssistantText &&
       normalizeString(update.sessionUpdate) === "agent_message_chunk"
     ) {
-      const content = (update as { content?: { type?: string | null; text?: string | null } }).content;
+      const content = (
+        update as { content?: { type?: string | null; text?: string | null } }
+      ).content;
       if (normalizeString(content?.type) === "text") {
         currentTurnAssistantText += String(content?.text || "");
       }
@@ -1761,7 +1401,12 @@ export async function recoverAcpSkillRunConversation(args: {
       event: {
         stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
         message: normalizeString(entry.message) || "ACP diagnostic",
-        level: entry.level === "error" ? "error" : entry.level === "warn" ? "warn" : "info",
+        level:
+          entry.level === "error"
+            ? "error"
+            : entry.level === "warn"
+              ? "warn"
+              : "info",
         details: {
           detail: normalizeString(entry.detail),
           stage: entry.stage,
@@ -1858,11 +1503,14 @@ export async function recoverAcpSkillRunConversation(args: {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     await detach("error", message).catch(() => undefined);
     upsertAcpSkillRun({
       requestId,
-      conversationRecoveryState: /does not support session resume\/load/i.test(message)
+      conversationRecoveryState: /does not support session resume\/load/i.test(
+        message,
+      )
         ? "unsupported"
         : "failed",
       connectionActionState: "idle",
@@ -1890,10 +1538,12 @@ export async function executeAcpSkillRunnerJob(args: {
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;
   const workspace = await workspaceFactory({
     backendId: args.backend.id,
-    workflowId: normalizeString(request.parameter?.workflowId) || request.skill_id,
+    workflowId:
+      normalizeString(request.parameter?.workflowId) || request.skill_id,
     jobId: resolveJobId(request),
   });
-  const workflowId = normalizeString(request.parameter?.workflowId) || request.skill_id;
+  const workflowId =
+    normalizeString(request.parameter?.workflowId) || request.skill_id;
   const workflowLabel = normalizeString(request.parameter?.workflowLabel);
   const taskName = normalizeString(request.taskName) || resolveJobId(request);
   const frozenRuntimeOptions = resolveFrozenAcpRuntimeOptions({
@@ -1975,10 +1625,9 @@ export async function executeAcpSkillRunnerJob(args: {
     },
   });
 
-  const registry =
-    args.dependencies?.scanRegistry
-      ? await args.dependencies.scanRegistry()
-      : await scanPluginSkillRegistry();
+  const registry = args.dependencies?.scanRegistry
+    ? await args.dependencies.scanRegistry()
+    : await scanPluginSkillRegistry();
   const skill = registry.entriesById[request.skill_id];
   if (!skill) {
     upsertAcpSkillRun({
@@ -2015,7 +1664,10 @@ export async function executeAcpSkillRunnerJob(args: {
   const runnerJsonForExecutionMode = await readRunnerJsonForExecutionMode(
     skill.runnerJsonPath,
   );
-  const executionMode = resolveExecutionMode(request, runnerJsonForExecutionMode);
+  const executionMode = resolveExecutionMode(
+    request,
+    runnerJsonForExecutionMode,
+  );
   const materialization = await materializeAcpSkill({
     registry,
     requestedSkillId: skill.skillId,
@@ -2053,8 +1705,95 @@ export async function executeAcpSkillRunnerJob(args: {
     primarySkillDir: materialization.primarySkillDir,
     runnerJson: materialization.runnerJson,
   });
+  const requestValidation = await validateAcpSkillRunRequestAgainstSchemas({
+    request,
+    runnerJson: materialization.runnerJson,
+    skillDir: materialization.primarySkillDir,
+    workspaceDir: workspace.workspaceDir,
+  });
+  upsertAcpSkillRun({
+    requestId: workspace.requestId,
+    event: {
+      stage: requestValidation.ok
+        ? "request-schema-validation-succeeded"
+        : "request-schema-validation-failed",
+      message: requestValidation.ok
+        ? "ACP skill request schema validation succeeded."
+        : "ACP skill request schema validation failed.",
+      level: requestValidation.ok ? "info" : "error",
+      details: {
+        errors: requestValidation.errors,
+        inputSchemaPath: requestValidation.inputSchemaPath,
+        parameterSchemaPath: requestValidation.parameterSchemaPath,
+      },
+    },
+  });
+  if (!requestValidation.ok) {
+    upsertAcpSkillRun({
+      requestId: workspace.requestId,
+      status: "failed",
+      activePrompt: false,
+      error: `ACP skill request validation failed: ${requestValidation.errors.join("; ")}`,
+    });
+    throw new Error(
+      `ACP skill request validation failed: ${requestValidation.errors.join("; ")}`,
+    );
+  }
+  const zoteroHostAccess = resolveZoteroHostAccessRequirement({
+    request,
+    runnerJson: materialization.runnerJson,
+  });
+  const hostBridgeCliInjectionFactory =
+    args.dependencies?.hostBridgeCliInjection ||
+    ((input: {
+      workspaceDir: string;
+      requestId: string;
+      autoApproveWrites?: boolean;
+    }) =>
+      materializeHostBridgeCliRunInjection(input));
+  const hostBridgeCliInjection = zoteroHostAccess.required
+    ? await hostBridgeCliInjectionFactory({
+        workspaceDir: workspace.workspaceDir,
+        requestId: workspace.requestId,
+        autoApproveWrites: zoteroHostAccess.autoApproveWrites,
+      })
+    : createDisabledHostBridgeCliRunInjection();
+  const hostBridgeCliState = summarizeHostBridgeCliRunInjection(
+    hostBridgeCliInjection,
+  );
+  upsertAcpSkillRun({
+    requestId: workspace.requestId,
+    hostBridgeCli: hostBridgeCliState,
+    event: {
+      stage: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "host-bridge-cli-ready"
+          : "host-bridge-cli-unavailable"
+        : "zotero-host-access-disabled",
+      message: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "Host Bridge CLI injection prepared."
+          : "Host Bridge CLI is unavailable for this run; MCP fallback is disabled by default."
+        : "Zotero host access is disabled for this run.",
+      level: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "info"
+          : "warn"
+        : "info",
+      details: {
+        ...hostBridgeCliState,
+        zoteroHostAccess,
+      },
+    },
+  });
+  const backendWithHostBridgeCli = zoteroHostAccess.required
+    ? applyHostBridgeCliEnvToBackend({
+        backend: args.backend,
+        injection: hostBridgeCliInjection,
+      })
+    : args.backend;
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend: args.backend,
+    backend: backendWithHostBridgeCli,
     runnerJson: materialization.runnerJson,
     cwd: workspace.workspaceDir,
     mode: "probe-and-wrap",
@@ -2069,9 +1808,9 @@ export async function executeAcpSkillRunnerJob(args: {
         : dependencyPlan.wrapperMode === "disabled" &&
             dependencyPlan.dependencies.length > 0
           ? "disabled"
-        : dependencyPlan.dependencies.length > 0
-          ? "ready"
-          : "not-required",
+          : dependencyPlan.dependencies.length > 0
+            ? "ready"
+            : "not-required",
     runtimeDependencyError:
       dependencyPlan.diagnostic?.level === "error"
         ? dependencyPlan.diagnostic.message
@@ -2108,7 +1847,8 @@ export async function executeAcpSkillRunnerJob(args: {
     );
   }
 
-  const createAdapter = args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const createAdapter =
+    args.dependencies?.createAdapter || createAcpConnectionAdapter;
   let adapter: AcpConnectionAdapter;
   try {
     adapter = await createAdapter({
@@ -2119,7 +1859,8 @@ export async function executeAcpSkillRunnerJob(args: {
       runtimeDir: workspace.runtimeDir,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       status: "failed",
@@ -2137,8 +1878,34 @@ export async function executeAcpSkillRunnerJob(args: {
     request,
     runnerJson: materialization.runnerJson,
   });
+  upsertAcpSkillRun({
+    requestId: workspace.requestId,
+    event: {
+      stage: "host-access-mode",
+      message: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "Host access uses Host Bridge CLI guidance; MCP compatibility is disabled by default."
+          : "Host Bridge CLI is unavailable for this run; MCP fallback is disabled by default."
+        : "Zotero host access is disabled for this run.",
+      level: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "info"
+          : "warn"
+        : "info",
+      details: {
+        primary: zoteroHostAccess.required ? "host_bridge_cli" : "none",
+        status: zoteroHostAccess.required
+          ? hostBridgeCliInjection.available
+            ? "ready"
+            : "unavailable"
+          : "disabled",
+        zoteroHostAccess,
+        mcpCompatibility: "disabled_by_default",
+        requiredMcpTools,
+      },
+    },
+  });
   let liveSessionId = "";
-  let mcpSmokeCompleted = requiredMcpTools.length === 0;
   let keepConversationAlive = false;
   let cleanupDone = false;
   let cancellationRequested = false;
@@ -2148,13 +1915,6 @@ export async function executeAcpSkillRunnerJob(args: {
   let workspaceActivityTimer: ReturnType<typeof setInterval> | null = null;
   let workspaceActivitySignature = "";
   let workspaceActivityScanRunning = false;
-  let latestMcpPreflightResult:
-    | {
-        ok: boolean;
-        availableTools?: string[];
-        missingTools?: string[];
-      }
-    | undefined;
   let pendingReplyResolver: ((message: string) => void) | null = null;
   let pendingReplyRejecter: ((error: Error) => void) | null = null;
   let unsubscribePermission: () => void = () => undefined;
@@ -2197,7 +1957,9 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     workspaceActivityScanRunning = true;
     try {
-      const snapshot = await findWorkspaceActivitySnapshot(workspace.workspaceDir);
+      const snapshot = await findWorkspaceActivitySnapshot(
+        workspace.workspaceDir,
+      );
       if (!snapshot) {
         return;
       }
@@ -2248,32 +2010,12 @@ export async function executeAcpSkillRunnerJob(args: {
     captureAssistantText = true;
     startWorkspaceActivityHeartbeat();
     try {
-      const promptMessage = mcpSmokeCompleted
-        ? message
-        : await withRequiredMcpGuard(message, requiredMcpTools);
       const result = await runPrompt({
         adapter,
         requestId: workspace.requestId,
-        message: promptMessage,
+        message,
         runtimeOptions: frozenRuntimeOptions,
         sessionId: liveSessionId,
-        prepareSession: async (sessionId) => {
-          if (mcpSmokeCompleted) {
-            return;
-          }
-          await runCallableMcpSmoke({
-            requestId: workspace.requestId,
-            backend: dependencyPlan.wrappedBackend,
-            workspace,
-            adapter,
-            sessionId,
-            requiredTools: requiredMcpTools,
-            probe: args.dependencies?.mcpCallableSmoke,
-            timeoutMs: args.dependencies?.mcpCallableSmokeTimeoutMs,
-            preflight: latestMcpPreflightResult,
-          });
-          mcpSmokeCompleted = true;
-        },
       });
       liveSessionId = result.sessionId;
       return {
@@ -2300,7 +2042,9 @@ export async function executeAcpSkillRunnerJob(args: {
     cancel: async () => {
       cancellationRequested = true;
       if (pendingReplyRejecter) {
-        pendingReplyRejecter(new Error("ACP skill run canceled while waiting for user reply."));
+        pendingReplyRejecter(
+          new Error("ACP skill run canceled while waiting for user reply."),
+        );
         pendingReplyResolver = null;
         pendingReplyRejecter = null;
       }
@@ -2336,35 +2080,39 @@ export async function executeAcpSkillRunnerJob(args: {
         resolvePendingReply(text);
         return;
       }
-      const nextPrompt = promptChain.catch(() => undefined).then(async () => {
-        appendAcpSkillRunUserReply({
-          requestId: workspace.requestId,
-          message: text,
-        });
-        try {
-          await promptExistingSession(text);
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error || "unknown error");
-          upsertAcpSkillRun({
+      const nextPrompt = promptChain
+        .catch(() => undefined)
+        .then(async () => {
+          appendAcpSkillRunUserReply({
             requestId: workspace.requestId,
-            activePrompt: false,
-            conversationState: "error",
-            conversationError: message,
-            event: {
-              stage: "conversation-error",
-              message,
-              level: "error",
-            },
+            message: text,
           });
-          await cleanupLiveSession({
-            conversationState: "error",
-            conversationError: message,
-            closeAdapter: true,
-          });
-          throw error;
-        }
-      });
+          try {
+            await promptExistingSession(text);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : String(error || "unknown error");
+            upsertAcpSkillRun({
+              requestId: workspace.requestId,
+              activePrompt: false,
+              conversationState: "error",
+              conversationError: message,
+              event: {
+                stage: "conversation-error",
+                message,
+                level: "error",
+              },
+            });
+            await cleanupLiveSession({
+              conversationState: "error",
+              conversationError: message,
+              closeAdapter: true,
+            });
+            throw error;
+          }
+        });
       promptChain = nextPrompt;
       try {
         await nextPrompt;
@@ -2381,7 +2129,11 @@ export async function executeAcpSkillRunnerJob(args: {
     },
     endSession: async () => {
       if (pendingReplyRejecter) {
-        pendingReplyRejecter(new Error("ACP skill run session ended while waiting for user reply."));
+        pendingReplyRejecter(
+          new Error(
+            "ACP skill run session ended while waiting for user reply.",
+          ),
+        );
         pendingReplyResolver = null;
         pendingReplyRejecter = null;
       }
@@ -2406,7 +2158,9 @@ export async function executeAcpSkillRunnerJob(args: {
       captureAssistantText &&
       normalizeString(update.sessionUpdate) === "agent_message_chunk"
     ) {
-      const content = (update as { content?: { type?: string | null; text?: string | null } }).content;
+      const content = (
+        update as { content?: { type?: string | null; text?: string | null } }
+      ).content;
       if (normalizeString(content?.type) === "text") {
         currentTurnAssistantText += String(content?.text || "");
       }
@@ -2419,14 +2173,21 @@ export async function executeAcpSkillRunnerJob(args: {
       event: {
         stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
         message: normalizeString(entry.message) || "ACP diagnostic",
-        level: entry.level === "error" ? "error" : entry.level === "warn" ? "warn" : "info",
+        level:
+          entry.level === "error"
+            ? "error"
+            : entry.level === "warn"
+              ? "warn"
+              : "info",
         details: {
           detail: normalizeString(entry.detail),
           stage: entry.stage,
           errorName: entry.errorName,
           code: entry.code,
           commandLine:
-            entry.kind === "spawned" ? normalizeString(entry.detail) : undefined,
+            entry.kind === "spawned"
+              ? normalizeString(entry.detail)
+              : undefined,
         },
       },
     });
@@ -2462,26 +2223,22 @@ export async function executeAcpSkillRunnerJob(args: {
       workspace,
       materialization,
       injectionPlan,
+      inputContext: requestValidation.inputContext,
+      parameterContext: requestValidation.parameterContext,
     };
-    latestMcpPreflightResult = await preflightRequiredMcpTools({
-      requestId: workspace.requestId,
-      backend: dependencyPlan.wrappedBackend,
-      workspace,
-      adapter,
-      requiredTools: requiredMcpTools,
-      probe: args.dependencies?.mcpPreflight,
-    });
-    const runExecutionInstructionsPath = await materializeAcpRunExecutionInstructions({
-      context: {
-        skillId: request.skill_id,
-        workspace,
-        backend: dependencyPlan.wrappedBackend,
-        agentFamily: injectionPlan.family,
-        proxySkillRoots: materialization.proxySkillRoots,
-        requestedSkillProxyPath: materialization.requestedSkillProxyPath,
-        sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
-      },
-    });
+    const runExecutionInstructionsPath =
+      await materializeAcpRunExecutionInstructions({
+        context: {
+          skillId: request.skill_id,
+          workspace,
+          backend: dependencyPlan.wrappedBackend,
+          agentFamily: injectionPlan.family,
+          proxySkillRoots: materialization.proxySkillRoots,
+          requestedSkillProxyPath: materialization.requestedSkillProxyPath,
+          sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
+        },
+        hostBridgeCliPromptSnippet: hostBridgeCliInjection.promptSnippet,
+      });
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       event: {
@@ -2493,8 +2250,14 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       },
     });
-    let nextPrompt = await buildRunPrompt({ context });
-    const maxRepairRounds = Math.max(0, args.dependencies?.maxRepairRounds ?? 3);
+    let nextPrompt = await buildRunPrompt({
+      context,
+      hostBridgeCliPromptSnippet: hostBridgeCliInjection.promptSnippet,
+    });
+    const maxRepairRounds = Math.max(
+      0,
+      args.dependencies?.maxRepairRounds ?? 3,
+    );
     let repairRound = 0;
     let convergence: AcpSkillOutputConvergenceResult | null = null;
     while (true) {
@@ -2528,7 +2291,10 @@ export async function executeAcpSkillRunnerJob(args: {
           lastTurnOutput: convergence.candidateText,
           resultJson: convergence.resultJson,
           event: {
-            stage: repairRound > 0 ? "repair-validation-succeeded" : "output-validation-succeeded",
+            stage:
+              repairRound > 0
+                ? "repair-validation-succeeded"
+                : "output-validation-succeeded",
             message:
               repairRound > 0
                 ? `Output repair round ${repairRound} succeeded.`
@@ -2587,6 +2353,79 @@ export async function executeAcpSkillRunnerJob(args: {
         });
         nextPrompt = reply;
         continue;
+      }
+      const fallback = await resolveAcpSkillResultFileFallback({
+        skillId: request.skill_id,
+        runnerJson: materialization.runnerJson,
+        workspaceDir: workspace.workspaceDir,
+        validator: (payload) =>
+          validateAcpSkillFinalPayload({
+            payload,
+            runnerJson: materialization.runnerJson,
+            primarySkillDir: materialization.primarySkillDir,
+          }),
+      });
+      if (fallback.warnings.length > 0) {
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          event: {
+            stage: fallback.payload
+              ? "result-file-fallback-succeeded"
+              : "result-file-fallback-skipped",
+            message: fallback.payload
+              ? "Recovered final output from package result file."
+              : "Package result file fallback did not produce valid output.",
+            level: fallback.payload ? "warn" : "info",
+            details: {
+              selectedPath: fallback.selectedPath,
+              warnings: fallback.warnings,
+            },
+          },
+        });
+      }
+      if (fallback.payload) {
+        const candidateText = JSON.stringify(fallback.payload);
+        await writeAcpSkillRunnerResultEnvelope({
+          resultJsonPath: workspace.resultJsonPath,
+          resultJson: fallback.payload,
+        });
+        projectAcpSkillRunOutputEnvelopeToTranscript({
+          requestId: workspace.requestId,
+          kind: "final",
+          resultJson: fallback.payload,
+          candidateText,
+          repairRound,
+        });
+        convergence = {
+          kind: "final",
+          resultJson: fallback.payload,
+          candidateText,
+          warnings: fallback.warnings.map((entry) =>
+            [entry.code, entry.detail].filter(Boolean).join(": "),
+          ),
+        };
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "running",
+          repairRounds: repairRound,
+          validationStatus: "valid",
+          validationErrors: [],
+          outputConvergenceState: "final",
+          pendingInteraction: null,
+          lastTurnOutput: candidateText,
+          resultJson: fallback.payload,
+          event: {
+            stage: "output-validation-succeeded",
+            message: "Output validation succeeded through result-file fallback.",
+            level: "warn",
+            details: {
+              resultJsonPath: workspace.resultJsonPath,
+              selectedPath: fallback.selectedPath,
+              warnings: fallback.warnings,
+            },
+          },
+        });
+        break;
       }
       upsertAcpSkillRun({
         requestId: workspace.requestId,
@@ -2657,7 +2496,8 @@ export async function executeAcpSkillRunnerJob(args: {
         }),
       });
     }
-    const finalResultJson = convergence?.kind === "final" ? convergence.resultJson : {};
+    const finalResultJson =
+      convergence?.kind === "final" ? convergence.resultJson : {};
     appendRuntimeLog({
       level: "info",
       scope: "provider",
@@ -2721,7 +2561,8 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       status: cancellationRequested ? "canceled" : "failed",

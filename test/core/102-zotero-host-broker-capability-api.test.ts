@@ -44,15 +44,20 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v3 broker domains without removing legacy APIs", async function () {
+  it("exposes v5 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 3);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 5);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
+    assert.isFunction(hostApi.images.prepareForNoteEmbedding);
+    assert.isFunction(hostApi.notes.importEmbeddedImage);
+    assert.isFunction(hostApi.file.readBytes);
+    assert.isFunction(hostApi.file.writeBytes);
+    assert.isFunction(hostApi.file.copy);
     assert.strictEqual(hostApi.items.get(item.id), item);
 
     await handlers.parent.updateFields(item, {
@@ -92,7 +97,9 @@ describe("zotero host broker capability api", function () {
 
     const attachments = await hostApi.library.getItemAttachments(item.id);
     assert.deepEqual(attachments, []);
-    assert.doesNotThrow(() => JSON.stringify({ searchResults, detail, notes, attachments }));
+    assert.doesNotThrow(() =>
+      JSON.stringify({ searchResults, detail, notes, attachments }),
+    );
   });
 
   it("lists parent library items with pagination and collection filters", async function () {
@@ -217,7 +224,10 @@ describe("zotero host broker capability api", function () {
     });
     assert.isTrue(update.ok);
     assert.strictEqual(item.getField("title"), "Broker Execute After");
-    assert.strictEqual(update.ok && update.result.items?.[0].title, "Broker Execute After");
+    assert.strictEqual(
+      update.ok && update.result.items?.[0].title,
+      "Broker Execute After",
+    );
 
     const addTags = await hostApi.mutations.execute({
       operation: "item.addTags",
@@ -225,7 +235,10 @@ describe("zotero host broker capability api", function () {
       tags: ["broker:write"],
     });
     assert.isTrue(addTags.ok);
-    assert.include(item.getTags().map((entry) => entry.tag), "broker:write");
+    assert.include(
+      item.getTags().map((entry) => entry.tag),
+      "broker:write",
+    );
 
     const removeTags = await hostApi.mutations.execute({
       operation: "item.removeTags",
@@ -233,7 +246,10 @@ describe("zotero host broker capability api", function () {
       tags: ["broker:write"],
     });
     assert.isTrue(removeTags.ok);
-    assert.notInclude(item.getTags().map((entry) => entry.tag), "broker:write");
+    assert.notInclude(
+      item.getTags().map((entry) => entry.tag),
+      "broker:write",
+    );
 
     const createNote = await hostApi.mutations.execute({
       operation: "note.createChild",
@@ -241,7 +257,10 @@ describe("zotero host broker capability api", function () {
       content: "<div><p>broker child note</p></div>",
     });
     assert.isTrue(createNote.ok);
-    assert.include(createNote.ok ? createNote.result.notes?.[0].text : "", "broker child note");
+    assert.include(
+      createNote.ok ? createNote.result.notes?.[0].text : "",
+      "broker child note",
+    );
 
     const noteId = createNote.ok ? createNote.result.notes?.[0].id : 0;
     const updateNote = await hostApi.mutations.execute({
@@ -250,7 +269,10 @@ describe("zotero host broker capability api", function () {
       content: "<div><p>broker updated note</p></div>",
     });
     assert.isTrue(updateNote.ok);
-    assert.include(updateNote.ok ? updateNote.result.notes?.[0].text : "", "broker updated note");
+    assert.include(
+      updateNote.ok ? updateNote.result.notes?.[0].text : "",
+      "broker updated note",
+    );
 
     const addToCollection = await hostApi.mutations.execute({
       operation: "collection.addItems",
@@ -289,7 +311,10 @@ describe("zotero host broker capability api", function () {
       target: item.id,
     });
     assert.isFalse(unsupported.ok);
-    assert.match(unsupported.ok ? "" : unsupported.error.message, /Unsupported/);
+    assert.match(
+      unsupported.ok ? "" : unsupported.error.message,
+      /Unsupported/,
+    );
 
     const invalidField = await hostApi.mutations.preview({
       operation: "item.updateFields",
@@ -299,7 +324,10 @@ describe("zotero host broker capability api", function () {
       },
     });
     assert.isFalse(invalidField.ok);
-    assert.match(invalidField.ok ? "" : invalidField.error.message, /Invalid field/);
+    assert.match(
+      invalidField.ok ? "" : invalidField.error.message,
+      /Invalid field/,
+    );
 
     const emptyTags = await hostApi.mutations.preview({
       operation: "item.addTags",

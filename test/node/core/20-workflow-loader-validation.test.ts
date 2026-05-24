@@ -494,7 +494,7 @@ describe("workflow loader validation", function () {
       });
       assert.deepInclude(result as Record<string, unknown>, {
         hasHostApi: true,
-        hostApiVersion: 3,
+        hostApiVersion: 5,
       });
       assert.equal((result as Record<string, unknown>).consoleState, "ok");
       const bundleLog = listRuntimeLogs().find(

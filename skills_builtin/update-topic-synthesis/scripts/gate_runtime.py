@@ -35,7 +35,7 @@ BATCH_SIZE = 25
 RULE_SUMMARY = (
     "Hard rules: execute only this gate's next_action/command_example; do not hand-write SQLite; "
     "do not use temporary scripts to generate semantic content; do not copy or author hashes; "
-    "if an action fails, repair the current stage only and rerun gate; final stdout must be exactly result/result.json."
+    "if an action fails, repair the current stage only and rerun gate; final stdout must be a legal business JSON object."
 )
 STAGE_ORDER = (
     "stage_0_runtime_setup",
@@ -278,14 +278,14 @@ def next_action(conn) -> dict:
             stage="stage_1_topic_context",
             next_action="persist_topic_context",
             execution_note=(
-                "Call synthesis.get_topic_context with includeArtifact/includeManifest, store current context, "
+                "Run `./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...` with includeArtifact/includeManifest, store current context, "
                 "recommended_update, current_hashes as base hashes, read section hashes, and initial operation decision."
             ),
             command=(
                 f'python scripts/stage_runtime.py --db "{DB}" --action persist_topic_context '
                 '--payload-file "runtime/payloads/topic-context.json"'
             ),
-            required_reads=["topicId", "updateScope", "updateMode", "synthesis.get_topic_context"],
+            required_reads=["topicId", "updateScope", "updateMode", "zotero-bridge synthesis get-topic-context"],
             required_writes=["runtime/payloads/topic-context.json", "topic_intent rows"],
             progress={"completed_stages": sorted(completed)},
         )
@@ -325,7 +325,7 @@ def next_action(conn) -> dict:
                 f'python scripts/stage_runtime.py --db "{DB}" --action persist_resolver '
                 '--payload-file "runtime/payloads/resolver.json"'
             ),
-            required_reads=["recommended_update", "current artifact sections", "synthesis.resolve_resolver if needed"],
+            required_reads=["recommended_update", "current artifact sections", "zotero-bridge synthesis resolve-resolver if needed"],
             required_writes=["runtime/payloads/resolver.json", "topic_resolver rows"],
             progress={"completed_stages": sorted(completed)},
         )
@@ -359,7 +359,7 @@ def next_action(conn) -> dict:
                 stage="stage_3_graph_metrics",
                 next_action="persist_citation_graph_metrics",
                 execution_note=(
-                    f"Call MCP synthesis.get_citation_graph_metrics for the current paper_workset batch paperRefs={refs_json}; "
+                    f"Call `./.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input ...` for the current paper_workset batch paperRefs={refs_json}; "
                     "persist the returned bounded metrics summary before artifact export. Metrics are auxiliary graph-derived signals only: "
                     "they can guide paper ordering, role hints, coverage/gaps, and external-heavy diagnostics, but never replace digest evidence."
                 ),
@@ -369,7 +369,7 @@ def next_action(conn) -> dict:
                 ),
                 required_reads=[
                     "paper_workset batch",
-                    'MCP synthesis.get_citation_graph_metrics {"paperRefs":' + refs_json + ',"sortBy":"foundation","limit":' + str(len(batch_refs)) + "}",
+                    './.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input \'{"paperRefs":' + refs_json + ',"sortBy":"foundation","limit":' + str(len(batch_refs)) + "}\'",
                 ],
                 required_writes=[
                     "runtime/payloads/citation-graph-metrics-batch.json",
@@ -394,7 +394,7 @@ def next_action(conn) -> dict:
                 stage="stage_4_evidence_collection",
                 next_action="persist_filtered_artifact_manifest",
                 execution_note=(
-                    f"Call MCP synthesis.export_filtered_paper_artifacts with run_root set to the absolute current ACP run workspace and paper_refs={refs_json}; "
+                    f"Call `./.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input ...` with run_root set to the absolute current ACP run workspace and paper_refs={refs_json}; "
                     "the host writes runtime/payloads/paper-artifacts-manifest.json plus filtered content files. "
                     "Then persist the manifest below. Do not hand-write artifact files or hashes."
                 ),
@@ -404,7 +404,7 @@ def next_action(conn) -> dict:
                 ),
                 required_reads=[
                     "paper_workset batch",
-                    'MCP synthesis.export_filtered_paper_artifacts {"run_root":"<absolute current run workspace>","paper_refs":' + refs_json + "}",
+                    './.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input \'{"run_root":"<absolute current run workspace>","paper_refs":' + refs_json + "}\'",
                 ],
                 required_writes=[
                     "runtime/payloads/paper-artifacts-manifest.json",
@@ -740,7 +740,7 @@ def next_action(conn) -> dict:
             status="ready",
             stage="stage_11_completed",
             next_action="complete",
-            execution_note="Artifacts are registered; the skill can emit result/result.json and stop.",
+            execution_note="Artifacts are registered; emit the generated business JSON and stop.",
             command='Get-Content -Encoding UTF8 "result/result.json"',
             required_reads=["result/result.json"],
             required_writes=["assistant final JSON only"],

@@ -5,20 +5,12 @@
   "version": "2.0.0",
   "execution_modes": ["interactive"],
   "max_attempt": 12,
-  "mcp": {
-    "required_tools": [
-      "synthesis.get_topic_context",
-      "synthesis.resolve_resolver",
-      "synthesis.get_citation_graph_metrics",
-      "synthesis.export_filtered_paper_artifacts"
-    ]
-  },
   "schemas": {
     "output": "assets/output.schema.json"
   },
   "entrypoint": {
     "prompts": {
-      "common": "执行 update-topic-synthesis。输入 topicId={{ parameter.topicId }}，language={{ parameter.language }}，updateScope={{ parameter.updateScope }}，updateMode={{ parameter.updateMode }}，updateReason={{ parameter.updateReason }}。Host 已完成 MCP availability check 和 callable smoke；不要自行搜索 MCP 配置或测试工具注入状态。如果正式执行中必需 MCP tool 返回 unavailable/no such tool，立即输出合法 topic_synthesis_canceled。必须先阅读 SKILL.md；每一步运行 scripts/gate_runtime.py，并只执行 gate 返回的 next_action、command_example、instruction_refs 与 schema_refs。语义内容真源是 run workspace JSON 工件；SQLite 只保存阶段状态、receipt、manifest、hash 与 artifact registry。所有状态变化通过 stage runtime 完成；hash 与 locator 由 runtime/host 管理。最终只输出 result/result.json 中的 JSON object。"
+      "common": "执行 update-topic-synthesis。输入 topicId={{ parameter.topicId }}，language={{ parameter.language }}，updateScope={{ parameter.updateScope }}，updateMode={{ parameter.updateMode }}，updateReason={{ parameter.updateReason }}。需要读取 Zotero/Synthesis host 数据时，运行 zotero-bridge synthesis <subcommand> --input ...。如果正式执行中必需 zotero-bridge synthesis 调用不可用或返回失败错误，立即输出合法 topic_synthesis_canceled。必须先阅读 SKILL.md；每一步运行 scripts/gate_runtime.py，并只执行 gate 返回的 next_action、command_example、instruction_refs 与 schema_refs。语义内容真源是 run workspace JSON 工件；SQLite 只保存阶段状态、receipt、manifest、hash 与 artifact registry。所有状态变化通过 stage runtime 完成；hash 与 locator 由 runtime/host 管理。不得手写或改写 result/result.json；最终只输出合法业务 JSON object。"
     }
   }
 }

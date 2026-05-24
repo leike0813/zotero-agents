@@ -1,9 +1,12 @@
-import {
-  upsertLiteratureDigestGeneratedNotes,
-} from "../../lib/literatureDigestNotes.mjs";
+import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
+import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { applyReferenceMatchingToNote } from "../../lib/referenceMatchingApply.mjs";
-import { measureWorkflowTestSpan, withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import {
+  measureWorkflowTestSpan,
+  requireHostApi,
+  withPackageRuntimeScope,
+} from "../../lib/runtime.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -66,7 +69,9 @@ async function readBundleTextWithPathFallback(args) {
       lastError = error;
     }
   }
-  const reason = String(lastError && lastError.message ? lastError.message : lastError || "unknown");
+  const reason = String(
+    lastError && lastError.message ? lastError.message : lastError || "unknown",
+  );
   throw new Error(
     `[${args.fieldName}] bundle entry not found; raw_path=${normalizePathForCompare(args.rawPath) || "<empty>"}; candidates=${JSON.stringify(candidates)}; fallback=${normalizePathForCompare(args.fallbackPath) || "<empty>"}; last_error=${reason}`,
   );
@@ -101,17 +106,21 @@ function resolveWorkflowParameter(args) {
     args?.runResult?.responseJson?.parameter,
   ];
   for (const candidate of candidates) {
-    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate)
+    ) {
       return candidate;
     }
   }
   return {};
 }
 
-function findReferencesNote(notes) {
+function findGeneratedNote(notes, targetKind) {
   for (const note of Array.isArray(notes) ? notes : []) {
     try {
-      if (parseGeneratedNoteKind(note?.getNote?.() || "") === "references") {
+      if (parseGeneratedNoteKind(note?.getNote?.() || "") === targetKind) {
         return note;
       }
     } catch {
@@ -121,8 +130,67 @@ function findReferencesNote(notes) {
   return null;
 }
 
+function findReferencesNote(notes) {
+  return findGeneratedNote(notes, "references");
+}
+
+function findDigestNote(notes) {
+  return findGeneratedNote(notes, "digest");
+}
+
+function appendRepresentativeImageApplyLog(args) {
+  try {
+    const hostApi = requireHostApi(args.runtime);
+    const appendRuntimeLog = hostApi?.logging?.appendRuntimeLog;
+    if (typeof appendRuntimeLog !== "function") {
+      return;
+    }
+    const requested = args.locator?.status === "selected";
+    const status = String(
+      args.result?.status || (requested ? "missing" : "none"),
+    ).trim();
+    if (!requested && status === "none") {
+      return;
+    }
+    const reason = String(args.result?.reason || "").trim();
+    const warning = String(args.result?.warning || "").trim();
+    const failed = requested && status !== "embedded" && status !== "none";
+    appendRuntimeLog({
+      level: failed ? "warn" : "info",
+      scope: "job",
+      workflowId: "literature-digest",
+      component: "literature-digest-apply",
+      operation: "representative-image",
+      stage: `representative-image-${status || "unknown"}`,
+      message:
+        failed && reason
+          ? `representative image ${status}: ${reason}`
+          : `representative image ${status || "unknown"}`,
+      details: {
+        requested,
+        status,
+        reason,
+        warning,
+        locator: args.locator || null,
+        sourceAttachmentPaths: args.sourceAttachmentPaths || [],
+        digestNoteId: args.digestNote?.id || null,
+        digestNoteKey: String(args.digestNote?.key || "").trim(),
+        attachmentKey: String(args.result?.attachmentKey || "").trim(),
+        sourcePath: String(args.result?.sourcePath || "").trim(),
+        imagePath: String(args.result?.imagePath || "").trim(),
+      },
+    });
+  } catch {
+    // Runtime logging is diagnostic-only and must not affect apply-result.
+  }
+}
+
 async function readResultJson({ resultContext, bundleReader }) {
-  if (resultContext && typeof resultContext === "object" && "resultJson" in resultContext) {
+  if (
+    resultContext &&
+    typeof resultContext === "object" &&
+    "resultJson" in resultContext
+  ) {
     return resultContext.resultJson;
   }
   const resultJsonText = await bundleReader.readText("result/result.json");
@@ -160,7 +228,9 @@ function collectSourceAttachmentPathsFromRequest(request) {
   const fromUploadFiles = Array.isArray(typed.upload_files)
     ? typed.upload_files.map((entry) => entry?.path)
     : [];
-  const fromNestedUploadFiles = Array.isArray(typed?.request?.json?.upload_files)
+  const fromNestedUploadFiles = Array.isArray(
+    typed?.request?.json?.upload_files,
+  )
     ? typed.request.json.upload_files.map((entry) => entry?.path)
     : [];
 
@@ -173,7 +243,11 @@ function collectSourceAttachmentPathsFromRequest(request) {
   );
 }
 
-async function resolveSourceAttachmentItemKey({ parentItem, request, runtime }) {
+async function resolveSourceAttachmentItemKey({
+  parentItem,
+  request,
+  runtime,
+}) {
   if (!parentItem) {
     return "";
   }
@@ -213,7 +287,9 @@ async function resolveSourceAttachmentItemKey({ parentItem, request, runtime }) 
 
     let attachmentPath = "";
     try {
-      attachmentPath = String((await attachment.getFilePathAsync?.()) || "").trim();
+      attachmentPath = String(
+        (await attachment.getFilePathAsync?.()) || "",
+      ).trim();
     } catch {
       attachmentPath = "";
     }
@@ -245,7 +321,14 @@ async function resolveSourceAttachmentItemKey({ parentItem, request, runtime }) 
   return "";
 }
 
-async function applyResultImpl({ parent, bundleReader, resultContext, request, runResult, runtime }) {
+async function applyResultImpl({
+  parent,
+  bundleReader,
+  resultContext,
+  request,
+  runResult,
+  runtime,
+}) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const workflowParameter = resolveWorkflowParameter({ request, runResult });
   const result = await measureWorkflowTestSpan(
@@ -253,6 +336,9 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
     {},
     () => readResultJson({ resultContext, bundleReader }),
   );
+  const sourceAttachmentPaths =
+    collectSourceAttachmentPathsFromRequest(request);
+  const representativeImageLocator = extractRepresentativeImageLocator(result);
 
   const digestResolved = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:readDigestArtifact",
@@ -339,6 +425,14 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
             content: digestResolved.text,
           },
           sourceAttachmentItemKey,
+          ...(representativeImageLocator
+            ? {
+                representativeImage: {
+                  locator: representativeImageLocator,
+                  sourcePaths: sourceAttachmentPaths,
+                },
+              }
+            : {}),
         },
         references: {
           payload: referencesPayload,
@@ -348,21 +442,38 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
         },
       }),
   );
+  const digestNote = findDigestNote(applied?.notes);
+  const representativeImage = applied?.representative_image || {
+    status: "none",
+  };
+  appendRepresentativeImageApplyLog({
+    runtime,
+    locator: representativeImageLocator,
+    result: representativeImage,
+    sourceAttachmentPaths,
+    digestNote,
+  });
+  const appliedWithRepresentativeImage = {
+    ...applied,
+    representative_image: representativeImage,
+  };
   const autoReferenceMatching = {
     enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
     attempted: false,
   };
   if (!autoReferenceMatching.enabled) {
     return {
-      ...applied,
+      ...appliedWithRepresentativeImage,
       auto_reference_matching: autoReferenceMatching,
     };
   }
 
-  const referencesNote = findReferencesNote(applied?.notes);
+  const referencesNote = findReferencesNote(
+    appliedWithRepresentativeImage?.notes,
+  );
   if (!referencesNote) {
     return {
-      ...applied,
+      ...appliedWithRepresentativeImage,
       auto_reference_matching: {
         ...autoReferenceMatching,
         warning: "references note was not produced by literature-digest apply",
@@ -385,7 +496,7 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
         }),
     );
     return {
-      ...applied,
+      ...appliedWithRepresentativeImage,
       auto_reference_matching: {
         ...autoReferenceMatching,
         matched: matchingResult?.matched || 0,
@@ -397,10 +508,12 @@ async function applyResultImpl({ parent, bundleReader, resultContext, request, r
     };
   } catch (error) {
     return {
-      ...applied,
+      ...appliedWithRepresentativeImage,
       auto_reference_matching: {
         ...autoReferenceMatching,
-        warning: String(error?.message || error || "auto reference matching failed"),
+        warning: String(
+          error?.message || error || "auto reference matching failed",
+        ),
       },
     };
   }

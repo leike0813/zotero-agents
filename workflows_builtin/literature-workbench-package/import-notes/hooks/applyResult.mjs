@@ -6,7 +6,12 @@ import {
   validateImportedReferencesPayload,
 } from "../../lib/importSchemas.mjs";
 import { getBaseName } from "../../lib/path.mjs";
-import { importCustomNotes, upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
+import {
+  importCustomNotes,
+  upsertLiteratureDigestGeneratedNotes,
+} from "../../lib/literatureDigestNotes.mjs";
+import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
+import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
 import {
   requireHostApi,
   requireHostEditor,
@@ -90,6 +95,24 @@ function getPickerFilters(kind) {
   return [["JSON", "*.json"]];
 }
 
+function getRepresentativeImageStatus(digest) {
+  const representativeImage = digest?.representativeImage || null;
+  if (!digest) {
+    return "Select digest first";
+  }
+  if (!representativeImage) {
+    return "Representative image: none";
+  }
+  if (representativeImage.status === "selected") {
+    const mode = String(representativeImage.mode || "manual").trim();
+    return `Representative image: ${mode} (${getBaseName(representativeImage.sourcePath)})`;
+  }
+  if (representativeImage.status === "skipped") {
+    return `Representative image skipped: ${String(representativeImage.reason || "unavailable").trim()}`;
+  }
+  return "Representative image: none";
+}
+
 function formatValidationError(errors) {
   const first = Array.isArray(errors) && errors.length > 0 ? errors[0] : "";
   return String(first || "validation failed").trim();
@@ -137,7 +160,9 @@ function createImportRenderer(args) {
         const errorMessage = String(state.errors?.[kind] || "").trim();
         status.textContent = [
           existing ? "Existing: yes" : "Existing: no",
-          candidate?.sourcePath ? `Selected: ${getBaseName(candidate.sourcePath)}` : "Selected: none",
+          candidate?.sourcePath
+            ? `Selected: ${getBaseName(candidate.sourcePath)}`
+            : "Selected: none",
           errorMessage ? `Error: ${errorMessage}` : "Status: ready",
         ].join(" | ");
         row.appendChild(status);
@@ -160,10 +185,17 @@ function createImportRenderer(args) {
               draft.errors = draft.errors || {};
             });
             if (kind === "digest") {
+              const resolved =
+                await resolveRepresentativeImageMarkdownImportCandidate({
+                  runtime: args.runtime,
+                  digestPath: selectedPath,
+                  markdown: content,
+                });
               host.patchState((draft) => {
                 draft.digest = {
                   sourcePath: selectedPath,
-                  markdown: content,
+                  markdown: resolved.markdown,
+                  representativeImage: resolved.representativeImage,
                 };
                 draft.errors.digest = "";
               });
@@ -178,7 +210,9 @@ function createImportRenderer(args) {
               if (!validation.valid) {
                 host.patchState((draft) => {
                   draft.references = null;
-                  draft.errors.references = formatValidationError(validation.errors);
+                  draft.errors.references = formatValidationError(
+                    validation.errors,
+                  );
                 });
                 return;
               }
@@ -223,7 +257,9 @@ function createImportRenderer(args) {
           } catch (error) {
             host.patchState((draft) => {
               clearSelectedImportCandidateForKind(draft, kind);
-              draft.errors[kind] = String(error?.message || error || "import failed");
+              draft.errors[kind] = String(
+                error?.message || error || "import failed",
+              );
             });
           }
         });
@@ -240,6 +276,71 @@ function createImportRenderer(args) {
         row.appendChild(clearButton);
 
         panel.appendChild(row);
+
+        if (kind === "digest") {
+          const imageRow = createHtmlElement(doc, "div");
+          imageRow.style.display = "grid";
+          imageRow.style.gridTemplateColumns = "180px 1fr auto auto";
+          imageRow.style.gap = "8px";
+          imageRow.style.alignItems = "center";
+          imageRow.style.border = "1px solid #d8d8dd";
+          imageRow.style.borderRadius = "6px";
+          imageRow.style.padding = "8px";
+          imageRow.style.marginTop = "-4px";
+
+          const imageLabel = createHtmlElement(doc, "div");
+          imageLabel.textContent = "Representative image";
+          imageRow.appendChild(imageLabel);
+
+          const imageStatus = createHtmlElement(doc, "div");
+          imageStatus.style.fontSize = "12px";
+          imageStatus.textContent = getRepresentativeImageStatus(state.digest);
+          imageRow.appendChild(imageStatus);
+
+          const chooseImageButton = createHtmlElement(doc, "button");
+          chooseImageButton.type = "button";
+          chooseImageButton.textContent = "Choose Image";
+          chooseImageButton.disabled = !state.digest;
+          chooseImageButton.addEventListener("click", async () => {
+            if (!state.digest) {
+              return;
+            }
+            const selectedImagePath = await args.host.file.pickFile({
+              title: "Import Representative Image",
+              filters: [["Images", "*.jpg;*.jpeg;*.png;*.webp;*.gif;*.bmp"]],
+            });
+            if (!selectedImagePath) {
+              return;
+            }
+            host.patchState((draft) => {
+              if (!draft.digest) {
+                return;
+              }
+              draft.digest.representativeImage = {
+                status: "selected",
+                sourcePath: selectedImagePath,
+                alt: getBaseName(selectedImagePath),
+                mode: "manual",
+              };
+            });
+          });
+          imageRow.appendChild(chooseImageButton);
+
+          const clearImageButton = createHtmlElement(doc, "button");
+          clearImageButton.type = "button";
+          clearImageButton.textContent = "Clear Image";
+          clearImageButton.disabled = !state.digest?.representativeImage;
+          clearImageButton.addEventListener("click", () => {
+            host.patchState((draft) => {
+              if (draft.digest) {
+                draft.digest.representativeImage = null;
+              }
+            });
+          });
+          imageRow.appendChild(clearImageButton);
+
+          panel.appendChild(imageRow);
+        }
       }
 
       // Custom notes import section
@@ -280,7 +381,10 @@ function createImportRenderer(args) {
             fileName: getBaseName(path).replace(/\.md$/i, ""),
           }));
           host.patchState((draft) => {
-            draft.customNotes = [...(draft.customNotes || []), ...newCustomNotes];
+            draft.customNotes = [
+              ...(draft.customNotes || []),
+              ...newCustomNotes,
+            ];
             draft.errors.customNotes = "";
           });
         } catch (error) {
@@ -307,7 +411,9 @@ function createImportRenderer(args) {
 
       const renderCustomList = () => {
         clearChildren(customListContainer);
-        customError.textContent = String(state.errors?.customNotes || "").trim();
+        customError.textContent = String(
+          state.errors?.customNotes || "",
+        ).trim();
         const customNotes = state.customNotes || [];
         if (customNotes.length === 0) {
           const emptyMsg = createHtmlElement(doc, "div");
@@ -340,7 +446,9 @@ function createImportRenderer(args) {
           removeButton.style.padding = "2px 6px";
           removeButton.addEventListener("click", () => {
             host.patchState((draft) => {
-              draft.customNotes = (draft.customNotes || []).filter((_, i) => i !== index);
+              draft.customNotes = (draft.customNotes || []).filter(
+                (_, i) => i !== index,
+              );
             });
           });
           itemRow.appendChild(removeButton);
@@ -488,14 +596,14 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
     if (!noteItem) {
       continue;
     }
-    const content = String(noteItem.getNote?.() || "");
-    if (/data-zs-payload="digest-markdown"/.test(content)) {
+    const kind = parseGeneratedNoteKind(String(noteItem.getNote?.() || ""));
+    if (kind === "digest") {
       existing.digest = true;
     }
-    if (/data-zs-payload="references-json"/.test(content)) {
+    if (kind === "references") {
       existing.references = true;
     }
-    if (/data-zs-payload="citation-analysis-json"/.test(content)) {
+    if (kind === "citation-analysis") {
       existing["citation-analysis"] = true;
     }
   }
@@ -503,13 +611,130 @@ function resolveExistingGeneratedKinds(parentItem, runtime) {
 }
 
 function countSelectedCandidates(selection) {
-  return [selection?.digest, selection?.references, selection?.citationAnalysis].filter(
-    Boolean,
-  ).length;
+  return [
+    selection?.digest,
+    selection?.references,
+    selection?.citationAnalysis,
+  ].filter(Boolean).length;
 }
 
 function countCustomNotes(selection) {
-  return Array.isArray(selection?.customNotes) ? selection.customNotes.length : 0;
+  return Array.isArray(selection?.customNotes)
+    ? selection.customNotes.length
+    : 0;
+}
+
+function buildImportedRepresentativeImageRequest(digest) {
+  const candidate = digest?.representativeImage || null;
+  if (!candidate) {
+    return null;
+  }
+  if (candidate.status !== "selected") {
+    return {
+      skippedResult: {
+        status: "skipped",
+        reason: String(candidate.reason || "representative_image_unavailable"),
+        sourcePath: String(candidate.imagePath || candidate.sourcePath || ""),
+        imagePath: String(candidate.imagePath || candidate.sourcePath || ""),
+        locator: {
+          status: "selected",
+          source_kind: "imported_digest_markdown",
+          label: String(candidate.alt || "Representative image").trim(),
+          markdown_src_hint: String(candidate.src || "").trim(),
+          selection_reason: "Imported by import-notes",
+          confidence: "high",
+        },
+      },
+    };
+  }
+  const imagePath = String(
+    candidate.sourcePath || candidate.imagePath || "",
+  ).trim();
+  if (!imagePath) {
+    return {
+      skippedResult: {
+        status: "skipped",
+        reason: "representative_image_source_missing",
+        locator: {
+          status: "selected",
+          source_kind: "imported_digest_markdown",
+          label: String(candidate.alt || "Representative image").trim(),
+          markdown_src_hint: String(candidate.src || "").trim(),
+          selection_reason: "Imported by import-notes",
+          confidence: "high",
+        },
+      },
+    };
+  }
+  return {
+    imagePath,
+    strategy:
+      String(candidate.mode || "").trim() === "auto"
+        ? "imported_markdown_marker"
+        : "manual_import",
+    locator: {
+      status: "selected",
+      source_kind: "imported_digest_markdown",
+      label: String(candidate.alt || "Representative image").trim(),
+      caption_quote: "",
+      markdown_src_hint: String(candidate.src || "").trim(),
+      selection_reason: "Imported by import-notes",
+      confidence: "high",
+    },
+  };
+}
+
+async function applySelectedImportBatch(args) {
+  let importedCount = 0;
+  let representativeImage = {
+    status: "none",
+  };
+
+  if (args.standardCount > 0) {
+    const applied = await upsertLiteratureDigestGeneratedNotes({
+      runtime: args.runtime,
+      parentItem: args.parentItem,
+      digest: args.selected.digest
+        ? {
+            payload: {
+              version: 1,
+              entry: String(args.selected.digest.sourcePath || "").trim(),
+              format: "markdown",
+              content: String(args.selected.digest.markdown || ""),
+            },
+            representativeImage: buildImportedRepresentativeImageRequest(
+              args.selected.digest,
+            ),
+          }
+        : null,
+      references: args.selected.references
+        ? {
+            payload: args.selected.references.payload,
+          }
+        : null,
+      citationAnalysis: args.selected.citationAnalysis
+        ? {
+            payload: args.selected.citationAnalysis.payload,
+          }
+        : null,
+    });
+    importedCount += applied.notes.length;
+    representativeImage = applied.representative_image || representativeImage;
+  }
+
+  if (args.customCount > 0) {
+    const customApplied = await importCustomNotes({
+      runtime: args.runtime,
+      parentItem: args.parentItem,
+      customNotes: args.selected.customNotes || [],
+    });
+    importedCount += customApplied.notes.length;
+  }
+
+  return {
+    imported: importedCount,
+    representative_image: representativeImage,
+  };
 }
 
 async function applyResultImpl({ parent, runtime }) {
@@ -564,47 +789,17 @@ async function applyResultImpl({ parent, runtime }) {
     }
 
     if (conflictedKinds.length === 0) {
-      let importedCount = 0;
-      // Import standard notes
-      if (standardCount > 0) {
-        const applied = await upsertLiteratureDigestGeneratedNotes({
-          runtime,
-          parentItem,
-          digest: selected.digest
-            ? {
-                payload: {
-                  version: 1,
-                  entry: String(selected.digest.sourcePath || "").trim(),
-                  format: "markdown",
-                  content: String(selected.digest.markdown || ""),
-                },
-              }
-            : null,
-          references: selected.references
-            ? {
-                payload: selected.references.payload,
-              }
-            : null,
-          citationAnalysis: selected.citationAnalysis
-            ? {
-                payload: selected.citationAnalysis.payload,
-              }
-            : null,
-        });
-        importedCount += applied.notes.length;
-      }
-      // Import custom notes
-      if (customCount > 0) {
-        const customApplied = await importCustomNotes({
-          runtime,
-          parentItem,
-          customNotes: selected.customNotes || [],
-        });
-        importedCount += customApplied.notes.length;
-      }
+      const applied = await applySelectedImportBatch({
+        runtime,
+        parentItem,
+        selected,
+        standardCount,
+        customCount,
+      });
       return {
-        imported: importedCount,
+        imported: applied.imported,
         skipped: 0,
+        representative_image: applied.representative_image,
       };
     }
 
@@ -614,47 +809,17 @@ async function applyResultImpl({ parent, runtime }) {
     });
     const actionId = String(conflictResult?.actionId || "cancel").trim();
     if (actionId === "overwrite") {
-      let importedCount = 0;
-      // Import standard notes
-      if (standardCount > 0) {
-        const applied = await upsertLiteratureDigestGeneratedNotes({
-          runtime,
-          parentItem,
-          digest: selected.digest
-            ? {
-                payload: {
-                  version: 1,
-                  entry: String(selected.digest.sourcePath || "").trim(),
-                  format: "markdown",
-                  content: String(selected.digest.markdown || ""),
-                },
-              }
-            : null,
-          references: selected.references
-            ? {
-                payload: selected.references.payload,
-              }
-            : null,
-          citationAnalysis: selected.citationAnalysis
-            ? {
-                payload: selected.citationAnalysis.payload,
-              }
-            : null,
-        });
-        importedCount += applied.notes.length;
-      }
-      // Import custom notes
-      if (customCount > 0) {
-        const customApplied = await importCustomNotes({
-          runtime,
-          parentItem,
-          customNotes: selected.customNotes || [],
-        });
-        importedCount += customApplied.notes.length;
-      }
+      const applied = await applySelectedImportBatch({
+        runtime,
+        parentItem,
+        selected,
+        standardCount,
+        customCount,
+      });
       return {
-        imported: importedCount,
+        imported: applied.imported,
         skipped: 0,
+        representative_image: applied.representative_image,
       };
     }
     if (actionId === "skip") {

@@ -169,6 +169,9 @@ export function buildAcpSidebarViewSnapshot(args: {
     mcpHealth: args.snapshot.mcpHealth
       ? JSON.parse(JSON.stringify(args.snapshot.mcpHealth))
       : undefined,
+    hostBridge: args.snapshot.hostBridge
+      ? JSON.parse(JSON.stringify(args.snapshot.hostBridge))
+      : undefined,
     showDiagnostics: args.snapshot.showDiagnostics === true,
     lastStopReason: String(args.snapshot.lastStopReason || "").trim(),
     usage: args.snapshot.usage ? { ...args.snapshot.usage } : null,

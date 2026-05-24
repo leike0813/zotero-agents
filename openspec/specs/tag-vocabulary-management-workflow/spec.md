@@ -45,6 +45,17 @@ The manager workflow MUST export current controlled tags as `facet:value` string
 - **WHEN** vocabulary content is unchanged across runs
 - **THEN** exported array order SHALL remain stable
 
+#### Scenario: Tag regulator may include digest markdown context
+- **WHEN** `tag-regulator` builds a SkillRunner request for a parent item with a generated digest note containing a current `digest-markdown` embedded payload attachment
+- **THEN** the request SHALL include optional `input.digest_markdown`
+- **AND** the request SHALL upload the digest markdown content under the `digest_markdown` upload key
+- **AND** the request SHALL keep `valid_tags` as the controlled vocabulary input.
+
+#### Scenario: Tag regulator omits digest markdown when no current payload exists
+- **WHEN** the selected parent item has no readable `digest-markdown` embedded payload attachment
+- **THEN** the request SHALL omit `input.digest_markdown`
+- **AND** request building SHALL continue using metadata, input tags, and valid tags.
+
 ### Requirement: Workflow SHALL import controlled vocabulary from protocol-aligned YAML sources
 The manager workflow MUST support importing from `tags/tags.yaml`-style full-field YAML sources and apply conflict strategies consistent with `import_tags`.
 
@@ -319,3 +330,4 @@ The `tag-manager` workflow MUST be explicitly launchable even when Zotero starts
 - **THEN** workflow execution SHALL proceed without a `no selection` rejection
 - **AND** the tag manager editor SHALL open normally
 - **AND** save/discard behavior SHALL remain unchanged from the selected-item path
+

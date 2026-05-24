@@ -422,6 +422,12 @@ describe("Synthesis MCP tools", function () {
             },
           ],
         },
+        {
+          libraryId: 1,
+          itemKey: "EMPTY000",
+          title: "Empty Artifact Paper",
+          notes: [],
+        },
       ],
     });
 
@@ -429,7 +435,7 @@ describe("Synthesis MCP tools", function () {
       const response: any = await handleZoteroMcpRequestForTests(
         request(30, "synthesis.export_filtered_paper_artifacts", {
           run_root: runRoot,
-          paper_refs: ["1:ABCD1234"],
+          paper_refs: ["1:ABCD1234", "1:EMPTY000"],
           artifact_types: ["digest", "references", "citation_analysis"],
         }),
         { resolveSynthesisService: () => service },
@@ -453,10 +459,18 @@ describe("Synthesis MCP tools", function () {
       const digestEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "digest");
       const refsEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "references");
       const citationEntry = paper.artifacts.find((entry: any) => entry.artifact_type === "citation_analysis");
+      const emptyPaper = manifest.papers.find((entry: any) => entry.paper_ref === "1:EMPTY000");
+      const emptyDigestEntry = emptyPaper.artifacts.find((entry: any) => entry.artifact_type === "digest");
       const digestMd = await fs.readFile(path.join(runRoot, digestEntry.content_file), "utf8");
       const refs = JSON.parse(await fs.readFile(path.join(runRoot, refsEntry.content_file), "utf8"));
       const citationMd = await fs.readFile(path.join(runRoot, citationEntry.content_file), "utf8");
 
+      assert.includeMembers(digestEntry.payload_types_seen, [
+        "digest-markdown",
+        "references-json",
+        "citation-analysis-json",
+      ]);
+      assert.deepEqual(emptyDigestEntry.payload_types_seen, []);
       assert.include(digestMd, "#### Digest One");
       assert.include(digestMd, "##### Detail");
       assert.notInclude(digestMd, "Digest Five");

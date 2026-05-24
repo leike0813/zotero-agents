@@ -9,6 +9,9 @@ yarn.lock
 # TSC
 tsconfig.tsbuildinfo
 
+# Rust
+cli/zotero-bridge/target/
+
 # Scaffold
 .env
 .scaffold
@@ -20,6 +23,7 @@ logs
 .codex/
 .claude/
 .qwen/
+.codegraph/
 
 .pnpmfile.cjs
 

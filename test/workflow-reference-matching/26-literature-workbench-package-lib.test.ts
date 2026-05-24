@@ -60,7 +60,11 @@ describe("literature-workbench-package lib", function () {
       ...payload,
       references: [{ title: "Updated Title", year: "2025", author: ["Li"] }],
     };
-    const withPayload = updatePayloadBlock(noteContent, payloadTag, nextPayload);
+    const withPayload = updatePayloadBlock(
+      noteContent,
+      payloadTag,
+      nextPayload,
+    );
     const withTable = replaceReferencesTable(
       withPayload,
       '<table data-zs-view="references-table"><tbody><tr><td>updated</td></tr></tbody></table>',
@@ -68,7 +72,7 @@ describe("literature-workbench-package lib", function () {
     const reparsed = parseReferencesPayload(withTable);
 
     assert.equal(reparsed.payload.references?.[0]?.title, "Updated Title");
-    assert.include(withTable, "data-zs-view=\"references-table\"");
+    assert.include(withTable, 'data-zs-view="references-table"');
     assert.include(withTable, "updated");
   });
 
@@ -115,7 +119,7 @@ describe("literature-workbench-package lib", function () {
     assert.equal(normalized.parent?.title, "Scoped Parent");
   });
 
-  it("accepts current hostApi v3 as a compatible v2 extension", async function () {
+  it("accepts current hostApi v5 as a compatible v2 extension", async function () {
     const normalized = await withPackageRuntimeScope(
       {
         hostApiVersion: WORKFLOW_HOST_API_VERSION,
@@ -125,7 +129,7 @@ describe("literature-workbench-package lib", function () {
               return id === 7
                 ? {
                     getField(field: string) {
-                      return field === "title" ? "HostApi v3 Parent" : "";
+                      return field === "title" ? "HostApi v5 Parent" : "";
                     },
                   }
                 : null;
@@ -155,8 +159,8 @@ describe("literature-workbench-package lib", function () {
         }),
     );
 
-    assert.equal(WORKFLOW_HOST_API_VERSION, 3);
-    assert.equal(normalized.parent?.title, "HostApi v3 Parent");
+    assert.equal(WORKFLOW_HOST_API_VERSION, 5);
+    assert.equal(normalized.parent?.title, "HostApi v5 Parent");
   });
 
   it("hostApi-backed item accessors work in debug mode without raw Zotero globals", async function () {

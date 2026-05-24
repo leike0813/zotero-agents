@@ -1,8 +1,12 @@
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
+import { setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/selectionSample";
-import { ensureWorkflowMenuForWindow, refreshWorkflowMenus } from "./modules/workflowMenu";
+import {
+  ensureWorkflowMenuForWindow,
+  refreshWorkflowMenus,
+} from "./modules/workflowMenu";
 import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
@@ -23,9 +27,7 @@ import {
 } from "./modules/dashboardToolbarButton";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
-import {
-  startSkillRunnerModelCacheAutoRefresh,
-} from "./providers/skillrunner/modelCache";
+import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/modelCache";
 import {
   reconcileSkillRunnerBackendTaskLedgerOnce,
   purgeSkillRunnerBackendReconcileState,
@@ -67,6 +69,16 @@ import {
   scanRuntimePersistenceUsage,
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistence";
+import {
+  ensureHostBridgeServer,
+  getHostBridgeServerStatus,
+  restartHostBridgeServer,
+  rotateHostBridgeToken,
+  startHostBridgeSupervisor,
+  stopHostBridgeSupervisor,
+} from "./modules/hostBridgeServer";
+import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
+import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
@@ -219,7 +231,10 @@ async function onStartup() {
     });
   } catch (error) {
     if (typeof console !== "undefined") {
-      console.error("[workflow-builtin-sync] failed to sync builtin workflows", error);
+      console.error(
+        "[workflow-builtin-sync] failed to sync builtin workflows",
+        error,
+      );
     }
   }
 
@@ -235,6 +250,7 @@ async function onStartup() {
     await runManagedRuntimeStartupPreflightProbe();
   }
   startManagedLocalRuntimeAutoEnsureLoop();
+  startHostBridgeSupervisor();
 
   registerPrefsPane();
 
@@ -290,7 +306,6 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     });
     popupWin.startCloseTimer(5000);
   }
-
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
@@ -303,6 +318,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 async function onShutdown(): Promise<void> {
   await shutdownAcpSkillRunConversations();
   await shutdownAcpSessionManager();
+  await stopHostBridgeSupervisor();
   await shutdownSkillRunnerAsyncLifecycle();
   await flushRuntimeLogsPersistence();
   for (const win of Zotero.getMainWindows?.() || []) {
@@ -410,16 +426,62 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         initialView: "dashboard",
       });
       break;
+    case "listDashboardActiveTasksForPopover":
+      {
+        const [activeTasks, acpSkillRuns, filter, displayName] = await Promise.all([
+          import("./modules/taskRuntime"),
+          import("./modules/acpSkillRunStore"),
+          import("./modules/dashboardActiveTasks"),
+          import("./backends/displayName"),
+        ]);
+        const backendMetaById = new Map(
+          (await loadBackendsRegistry()).backends.map((entry) => [
+            String(entry.id || "").trim(),
+            {
+              displayName: String(entry.displayName || "").trim(),
+            },
+          ]),
+        );
+        return filter.filterDashboardActiveTasks({
+          activeTasks: activeTasks.listActiveWorkflowTasks(),
+          acpSkillRuns: acpSkillRuns.listAcpSkillRuns(),
+        }).map((entry) => {
+          const backendId = String(entry.backendId || "").trim();
+          const backendMeta = backendId ? backendMetaById.get(backendId) : undefined;
+          return {
+            ...entry,
+            backendLabel: backendId
+              ? displayName.resolveBackendDisplayName(
+                  backendId,
+                  backendMeta?.displayName,
+                )
+              : "",
+          };
+        });
+      }
     case "openSynthesisWorkbench":
       await openSynthesisWorkbenchTab({
         window: data.window,
       });
       break;
     case "openSkillRunnerSidebar":
-      await openAssistantWorkspaceSidebar({
-        window: data.window,
-        tab: "skillrunner",
-      });
+      {
+        const requestId =
+          typeof data.requestId === "string" ? data.requestId.trim() : "";
+        const backendId =
+          typeof data.backendId === "string" ? data.backendId.trim() : "";
+        const backend = backendId
+          ? (await loadBackendsRegistry()).backends.find(
+              (entry) => entry.id === backendId,
+            )
+          : undefined;
+        await openAssistantWorkspaceSidebar({
+          window: data.window,
+          tab: "skillrunner",
+          backend,
+          requestId: requestId || undefined,
+        });
+      }
       break;
     case "openAcpSidebar":
       await openAssistantWorkspaceSidebar({
@@ -431,6 +493,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       await openAssistantWorkspaceSidebar({
         window: data.window,
         tab: "acp-skills",
+        requestId:
+          typeof data.requestId === "string"
+            ? data.requestId.trim() || undefined
+            : undefined,
       });
       break;
     case "toggleSkillRunnerSidebar":
@@ -467,6 +533,92 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           message: String(error),
         };
       }
+    case "stateHostBridge":
+      return {
+        ok: true,
+        stage: "host-bridge-state",
+        details: getHostBridgeServerStatus(),
+      };
+    case "showHostBridgeEndpoint": {
+      try {
+        const details = await ensureHostBridgeServer();
+        return {
+          ok: true,
+          stage: "host-bridge-show-endpoint",
+          message: "Host Bridge endpoint is available.",
+          details,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          stage: "host-bridge-show-endpoint",
+          message: String(error),
+          details: getHostBridgeServerStatus(),
+        };
+      }
+    }
+    case "setHostBridgeLanEnabled": {
+      const enabled = data.enabled === true;
+      setPref("hostBridgeLanEnabled", enabled);
+      if (getHostBridgeServerStatus().status === "running") {
+        await restartHostBridgeServer();
+      }
+      return {
+        ok: true,
+        stage: "host-bridge-lan-setting",
+        message: enabled
+          ? "Host Bridge LAN binding enabled."
+          : "Host Bridge LAN binding disabled.",
+        details: getHostBridgeServerStatus(),
+      };
+    }
+    case "setHostBridgePinPort": {
+      const enabled = data.enabled === true;
+      const rawPort = Number(data.port);
+      const port =
+        Number.isInteger(rawPort) && rawPort >= 1024 && rawPort <= 65535
+          ? rawPort
+          : 26570;
+      setPref("hostBridgePinPortEnabled", enabled);
+      setPref("hostBridgePinnedPort", port);
+      await restartHostBridgeServer();
+      return {
+        ok: true,
+        stage: "host-bridge-pin-port-setting",
+        message: enabled
+          ? `Host Bridge fixed port enabled on ${port}.`
+          : "Host Bridge fixed port disabled.",
+        details: getHostBridgeServerStatus(),
+      };
+    }
+    case "rotateHostBridgeToken": {
+      const rotated = rotateHostBridgeToken();
+      const server = getHostBridgeServerStatus();
+      if (server.status === "running" && server.endpoint) {
+        await writeHostBridgeWellKnownProfile({
+          endpoint: server.endpoint,
+          token: rotated.token,
+          updatedAt: rotated.rotatedAt,
+        });
+      }
+      return {
+        ok: true,
+        stage: "host-bridge-token-rotate",
+        message: "Host Bridge token rotated.",
+        details: {
+          tokenMasked: rotated.tokenMasked,
+          rotatedAt: rotated.rotatedAt,
+          server: getHostBridgeServerStatus(),
+        },
+      };
+    }
+    case "installHostBridgeCli":
+      return installHostBridgeCli({
+        confirmAddToPath: (dir) =>
+          data.window?.confirm?.(
+            `Install directory is not in PATH:\n\n${dir}\n\nAdd it to the user PATH? Restarting terminals may be required.`,
+          ) === true,
+      });
     case "openSkillRunnerLocalDeployDebugConsole":
       if (!isDebugModeEnabled()) {
         return {
@@ -523,7 +675,9 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "refreshSkillRunnerManagedModelCache": {
       try {
         const backend = await resolveManagedLocalBackend();
-        const refreshed = await refreshSkillRunnerModelCacheForBackend({ backend });
+        const refreshed = await refreshSkillRunnerModelCacheForBackend({
+          backend,
+        });
         return {
           ok: true,
           stage: "refresh-managed-model-cache",

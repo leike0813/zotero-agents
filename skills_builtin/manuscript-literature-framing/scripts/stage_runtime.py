@@ -9,6 +9,8 @@ from runtime_state import (
     append_event,
     ensure_list,
     ensure_non_empty_string,
+    ensure_object,
+    normalize_string_list,
     read_payload,
     read_state,
     stable_hash,
@@ -24,66 +26,154 @@ def payload_file_required(action: str, payload_file: str | None) -> str:
     return payload_file
 
 
-def action_persist_manuscript_context(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    context = payload.get("manuscript_context", payload)
-    if not isinstance(context, dict):
-        raise ValueError("manuscript_context must be an object")
-    ensure_non_empty_string(context.get("problem"), "problem")
-    ensure_non_empty_string(context.get("method") or context.get("system"), "method/system")
-    contributions = context.get("main_contributions") or context.get("contributions")
-    if isinstance(contributions, str):
-        contributions = [contributions]
-    ensure_list(contributions, "main_contributions")
-    context["main_contributions"] = [str(entry).strip() for entry in contributions if str(entry).strip()]
-    if not context["main_contributions"]:
-        raise ValueError("main_contributions must contain at least one entry")
-    state["manuscript_context"] = context
+def root_for_state(state_path: str) -> Path:
+    state_parent = Path(state_path).parent
+    if state_parent.name == "runtime":
+        return state_parent.parent
+    return Path(".")
 
 
-def action_persist_topic_recommendations(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    topics = payload.get("topics") or payload.get("recommendations")
-    topics = ensure_list(topics, "topics")
-    normalized = []
+def payload_object(payload: dict[str, Any], key: str, label: str) -> dict[str, Any]:
+    return ensure_object(payload.get(key, payload), label)
+
+
+def normalize_contributions(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    return normalize_string_list(value, "main_contributions")
+
+
+def normalize_topics(value: Any) -> list[dict[str, Any]]:
+    topics = ensure_list(value, "topics")
+    normalized: list[dict[str, Any]] = []
     for entry in topics:
         if isinstance(entry, str):
-            normalized.append({"topic_id": entry, "reason": ""})
+            normalized.append({"topic_id": entry.strip(), "reason": ""})
         elif isinstance(entry, dict):
             topic_id = ensure_non_empty_string(entry.get("topic_id") or entry.get("id"), "topic_id")
             normalized.append({**entry, "topic_id": topic_id})
-    state["topic_recommendations"] = normalized
+        else:
+            raise ValueError("topics entries must be strings or objects")
+    normalized = [entry for entry in normalized if entry.get("topic_id")]
     if not normalized:
-        state["topic_recommendation_status"] = "none"
+        raise ValueError("topics must contain at least one recommendation")
+    if len(normalized) > 5:
+        raise ValueError("topics must contain at most five recommendations")
+    return normalized
 
 
-def action_confirm_topics(state: dict[str, Any], payload: dict[str, Any]) -> None:
+def render_value(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def render_runtime_views(state_path: str, state: dict[str, Any]) -> None:
+    views_dir = root_for_state(state_path) / "runtime" / "views"
+    intent = state.get("intent_brief") or state.get("manuscript_context") or {}
+    material = {
+        "material_plan": state.get("material_plan"),
+        "confirmed_topics": state.get("confirmed_topics"),
+        "material_scope_confirmed": state.get("material_scope_confirmed"),
+    }
+    evidence = {
+        "evidence_inventory": state.get("evidence_inventory"),
+        "citation_map": state.get("citation_map"),
+        "evidence_diagnostics": state.get("evidence_diagnostics"),
+    }
+    analysis = {
+        "domain_route_analysis": state.get("domain_route_analysis"),
+        "timeline_analysis": state.get("timeline_analysis"),
+        "gap_alignment_analysis": state.get("gap_alignment_analysis"),
+        "framing_synthesis": state.get("framing_synthesis"),
+    }
+    writing = {
+        "writing_plan": state.get("writing_plan"),
+        "writing_plan_confirmed": state.get("writing_plan_confirmed"),
+    }
+    write_text(views_dir / "01-intent-brief.md", "# Intent Brief\n\n```json\n" + render_value(intent) + "\n```\n")
+    write_text(views_dir / "02-material-scope.md", "# Material Scope\n\n```json\n" + render_value(material) + "\n```\n")
+    write_text(views_dir / "03-evidence-inventory.md", "# Evidence Inventory\n\n```json\n" + render_value(evidence) + "\n```\n")
+    write_text(views_dir / "04-framing-analysis.md", "# Framing Analysis\n\n```json\n" + render_value(analysis) + "\n```\n")
+    write_text(views_dir / "05-writing-plan.md", "# Writing Plan\n\n```json\n" + render_value(writing) + "\n```\n")
+
+
+def action_persist_intent_brief(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    brief = payload_object(payload, "intent_brief", "intent_brief")
+    title = brief.get("paperTitle") or brief.get("title") or payload.get("paperTitle")
+    if title:
+        brief["paperTitle"] = str(title).strip()
+    ensure_non_empty_string(brief.get("problem") or brief.get("research_problem"), "research_problem")
+    ensure_non_empty_string(
+        brief.get("target_object") or brief.get("scenario") or brief.get("object_or_scenario"),
+        "object_or_scenario",
+    )
+    ensure_non_empty_string(brief.get("method") or brief.get("system") or brief.get("method_or_system"), "method_or_system")
+    contributions = brief.get("main_contributions") or brief.get("contributions")
+    brief["main_contributions"] = normalize_contributions(contributions)
+    state["intent_brief"] = brief
+    state["intent_brief_hash"] = stable_hash(brief)
+    state["intent_confirmed"] = False
+    state["manuscript_context"] = brief
+
+
+def action_confirm_intent(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    if payload.get("intent_brief"):
+        action_persist_intent_brief(state, payload)
+    if payload.get("approved") is not True and payload.get("status") != "approved":
+        raise ValueError("intent confirmation requires approved=true")
+    if not state.get("intent_brief"):
+        raise ValueError("intent_brief must be persisted before confirmation")
+    state["intent_confirmed"] = True
+    state["intent_confirmation"] = payload
+
+
+def action_persist_material_plan(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    plan = payload_object(payload, "material_plan", "material_plan")
+    topics = plan.get("topics") or plan.get("topic_recommendations") or payload.get("topics") or payload.get("recommendations")
+    recommendations = normalize_topics(topics)
+    plan["topic_recommendations"] = recommendations
+    plan.setdefault("selection_rationale", payload.get("selection_rationale", ""))
+    state["material_plan"] = plan
+    state["topic_recommendations"] = recommendations
+    state["material_plan_hash"] = stable_hash(plan)
+    state["material_scope_confirmed"] = False
+
+
+def action_confirm_material_scope(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    if payload.get("approved") is not True and payload.get("status") not in {"approved", "confirmed"}:
+        raise ValueError("material scope confirmation requires approved=true")
     topic_ids = payload.get("topic_ids") or payload.get("confirmed_topics")
-    topic_ids = [
-        str(entry).strip()
-        for entry in ensure_list(topic_ids, "topic_ids")
-        if str(entry).strip()
-    ]
-    if not topic_ids:
-        raise ValueError("topic_ids must contain at least one confirmed topic")
-    state["confirmed_topics"] = topic_ids
+    state["confirmed_topics"] = normalize_string_list(topic_ids, "topic_ids")
+    state["material_scope_confirmed"] = True
+    state["material_scope_confirmation"] = payload
 
 
-def action_persist_review_inputs(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    review_inputs = payload.get("review_inputs") or payload.get("topics")
-    review_inputs = ensure_list(review_inputs, "review_inputs")
-    if not review_inputs:
-        raise ValueError("review_inputs must not be empty")
-    state["review_inputs"] = review_inputs
-    state["review_inputs_hash"] = stable_hash(review_inputs)
-    state["citation_map"] = payload.get("citation_map", {})
-    state["evidence_diagnostics"] = payload.get("diagnostics", {})
+def action_persist_evidence_inventory(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    inventory = payload_object(payload, "evidence_inventory", "evidence_inventory")
+    review_inputs = inventory.get("review_inputs") or payload.get("review_inputs") or payload.get("topics")
+    if review_inputs is not None:
+        inventory["review_inputs"] = ensure_list(review_inputs, "review_inputs")
+    if not inventory.get("review_inputs"):
+        raise ValueError("evidence_inventory.review_inputs must not be empty")
+    state["evidence_inventory"] = inventory
+    state["review_inputs"] = inventory["review_inputs"]
+    state["review_inputs_hash"] = stable_hash(inventory["review_inputs"])
+    state["citation_map"] = payload.get("citation_map") or inventory.get("citation_map") or {}
+    state["evidence_diagnostics"] = payload.get("diagnostics") or inventory.get("diagnostics") or {}
+    state["evidence_inventory_hash"] = stable_hash(inventory)
+
+
+def action_persist_named_analysis(state: dict[str, Any], payload: dict[str, Any], key: str) -> None:
+    analysis = payload_object(payload, key, key)
+    state[key] = analysis
+    state[f"{key}_hash"] = stable_hash(analysis)
 
 
 def action_persist_writing_plan(state: dict[str, Any], payload: dict[str, Any]) -> None:
-    plan = payload.get("writing_plan", payload)
-    if not isinstance(plan, dict):
-        raise ValueError("writing_plan must be an object")
+    plan = payload_object(payload, "writing_plan", "writing_plan")
     ensure_list(plan.get("introduction_plan"), "introduction_plan")
     ensure_list(plan.get("related_work_plan"), "related_work_plan")
+    if not plan.get("framing_strategy"):
+        plan["framing_strategy"] = state.get("framing_synthesis", {})
     state["writing_plan"] = plan
     state["writing_plan_hash"] = stable_hash(plan)
     state["writing_plan_confirmed"] = False
@@ -112,9 +202,18 @@ def summarize_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def action_render_latex(state_path: str, state: dict[str, Any], payload: dict[str, Any]) -> None:
+def build_framing_analysis(state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "domain_route_analysis": state.get("domain_route_analysis") or {},
+        "timeline_analysis": state.get("timeline_analysis") or {},
+        "gap_alignment_analysis": state.get("gap_alignment_analysis") or {},
+        "framing_synthesis": state.get("framing_synthesis") or {},
+    }
+
+
+def action_persist_final_draft(state_path: str, state: dict[str, Any], payload: dict[str, Any]) -> None:
     if not state.get("writing_plan_confirmed"):
-        raise ValueError("writing plan must be confirmed before render_latex")
+        raise ValueError("writing plan must be confirmed before persist_final_draft")
     introduction = ensure_non_empty_string(
         payload.get("introduction_latex") or payload.get("introduction_tex"),
         "introduction_latex",
@@ -123,43 +222,52 @@ def action_render_latex(state_path: str, state: dict[str, Any], payload: dict[st
         payload.get("related_work_latex") or payload.get("related_work_tex"),
         "related_work_latex",
     )
-    root = Path(state_path).parent.parent if Path(state_path).parent.name == "runtime" else Path(".")
+    root = root_for_state(state_path)
     result_dir = root / "result"
+    intent_brief = state.get("intent_brief") or state.get("manuscript_context") or {}
+    evidence_inventory = state.get("evidence_inventory") or {}
+    framing_analysis = build_framing_analysis(state)
     writing_plan = state.get("writing_plan") or {}
     citation_map = payload.get("citation_map") or state.get("citation_map") or {}
     diagnostics = payload.get("diagnostics") or state.get("evidence_diagnostics") or {}
     title = (
         payload.get("title")
-        or state.get("manuscript_context", {}).get("title")
-        or state.get("manuscript_context", {}).get("paperTitle")
+        or intent_brief.get("title")
+        or intent_brief.get("paperTitle")
         or state.get("paperTitle")
         or "Manuscript Literature Framing"
     )
-    language = payload.get("language") or state.get("manuscript_context", {}).get("language") or "auto"
+    language = payload.get("language") or intent_brief.get("language") or "auto"
     topic_ids = state.get("confirmed_topics") or payload.get("topic_ids") or []
+    assets = {
+        "introduction_tex": "result/introduction.tex",
+        "related_work_tex": "result/related-work.tex",
+        "intent_brief": "result/intent-brief.json",
+        "evidence_inventory": "result/evidence-inventory.json",
+        "framing_analysis": "result/framing-analysis.json",
+        "writing_plan": "result/writing-plan.json",
+        "citation_map": "result/citation-map.json",
+        "diagnostics": "result/diagnostics.json",
+    }
     result_json = {
-        "__SKILL_DONE__": True,
         "kind": "writing.manuscript_literature_framing",
         "status": "completed",
         "title": str(title),
         "language": str(language),
-        "assets": {
-            "introduction_tex": "result/introduction.tex",
-            "related_work_tex": "result/related-work.tex",
-            "writing_plan": "result/writing-plan.json",
-            "citation_map": "result/citation-map.json",
-            "diagnostics": "result/diagnostics.json",
-        },
+        "assets": assets,
         "topic_ids": topic_ids,
         "diagnostics_summary": summarize_diagnostics({"diagnostics": diagnostics}),
         "product_metadata": {
             "kind": "writing.manuscript_literature_framing",
             "title": str(title),
-            "asset_count": 5,
+            "asset_count": len(assets),
         },
     }
     write_text(result_dir / "introduction.tex", introduction.rstrip() + "\n")
     write_text(result_dir / "related-work.tex", related.rstrip() + "\n")
+    write_json(result_dir / "intent-brief.json", intent_brief if isinstance(intent_brief, dict) else {})
+    write_json(result_dir / "evidence-inventory.json", evidence_inventory if isinstance(evidence_inventory, dict) else {})
+    write_json(result_dir / "framing-analysis.json", framing_analysis)
     write_json(result_dir / "writing-plan.json", writing_plan if isinstance(writing_plan, dict) else {})
     write_json(result_dir / "citation-map.json", citation_map if isinstance(citation_map, dict) else {})
     write_json(result_dir / "diagnostics.json", diagnostics if isinstance(diagnostics, dict) else {})
@@ -171,9 +279,8 @@ def action_render_latex(state_path: str, state: dict[str, Any], payload: dict[st
 def action_cancel(state_path: str, state: dict[str, Any], payload: dict[str, Any]) -> None:
     reason = ensure_non_empty_string(payload.get("reason"), "reason")
     message = ensure_non_empty_string(payload.get("message"), "message")
-    root = Path(state_path).parent.parent if Path(state_path).parent.name == "runtime" else Path(".")
+    root = root_for_state(state_path)
     result_json = {
-        "__SKILL_DONE__": True,
         "kind": "manuscript_literature_framing_canceled",
         "status": "canceled",
         "reason": reason,
@@ -197,26 +304,37 @@ def main() -> None:
         payload_path = payload_file_required(args.action, args.payload_file)
         payload = read_payload(payload_path)
 
-    if args.action == "persist_manuscript_context":
-        action_persist_manuscript_context(state, payload)
-    elif args.action == "persist_topic_recommendations":
-        action_persist_topic_recommendations(state, payload)
-    elif args.action == "confirm_topics":
-        action_confirm_topics(state, payload)
-    elif args.action == "persist_review_inputs":
-        action_persist_review_inputs(state, payload)
+    if args.action in {"persist_intent_brief", "persist_manuscript_context"}:
+        action_persist_intent_brief(state, payload)
+    elif args.action == "confirm_intent":
+        action_confirm_intent(state, payload)
+    elif args.action in {"persist_material_plan", "persist_topic_recommendations"}:
+        action_persist_material_plan(state, payload)
+    elif args.action in {"confirm_material_scope", "confirm_topics"}:
+        action_confirm_material_scope(state, payload)
+    elif args.action in {"persist_evidence_inventory", "persist_review_inputs"}:
+        action_persist_evidence_inventory(state, payload)
+    elif args.action == "persist_domain_route_analysis":
+        action_persist_named_analysis(state, payload, "domain_route_analysis")
+    elif args.action == "persist_timeline_analysis":
+        action_persist_named_analysis(state, payload, "timeline_analysis")
+    elif args.action == "persist_gap_alignment_analysis":
+        action_persist_named_analysis(state, payload, "gap_alignment_analysis")
+    elif args.action == "persist_framing_synthesis":
+        action_persist_named_analysis(state, payload, "framing_synthesis")
     elif args.action == "persist_writing_plan":
         action_persist_writing_plan(state, payload)
     elif args.action == "confirm_writing_plan":
         action_confirm_writing_plan(state, payload)
-    elif args.action == "render_latex":
-        action_render_latex(args.state, state, payload)
+    elif args.action in {"persist_final_draft", "render_latex"}:
+        action_persist_final_draft(args.state, state, payload)
     elif args.action == "cancel":
         action_cancel(args.state, state, payload)
     else:
         raise ValueError(f"unsupported action: {args.action}")
 
     append_event(state, args.action)
+    render_runtime_views(args.state, state)
     write_state(args.state, state)
     print(json.dumps({"ok": True, "action": args.action, "status": state.get("status", "running")}, ensure_ascii=False, indent=2))
 

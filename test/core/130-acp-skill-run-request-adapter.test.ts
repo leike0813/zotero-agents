@@ -55,6 +55,74 @@ describe("ACP skill run request adapter", function () {
     });
   });
 
+  it("injects ZoteroHostAccess runtime options only during ACP adaptation", function () {
+    const adapted = adaptSkillRunnerJobToAcpSkillRun(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "literature-search-ingest",
+        runtime_options: { execution_mode: "interactive" },
+        parameter: { query: "exact paper" },
+      },
+      {
+        manifest: {
+          id: "literature-search-ingest",
+          label: "Literature Search Ingest",
+          provider: "acp",
+          execution: {
+            zoteroHostAccess: {
+              required: true,
+              allowWriteApprovalBypass: true,
+            },
+          },
+          request: { kind: "skillrunner.job.v1" },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        runOptions: {
+          zoteroHostAccess: {
+            autoApproveWrites: true,
+          },
+        },
+      },
+    );
+
+    assert.deepEqual(adapted.runtime_options, {
+      execution_mode: "interactive",
+      zotero_host_access: {
+        required: true,
+        auto_approve_writes: true,
+      },
+    });
+  });
+
+  it("preserves explicit disabled ZoteroHostAccess during ACP adaptation", function () {
+    const adapted = adaptSkillRunnerJobToAcpSkillRun(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "no-host-access",
+      },
+      {
+        manifest: {
+          id: "no-host-access",
+          label: "No Host Access",
+          provider: "acp",
+          execution: {
+            zoteroHostAccess: {
+              required: false,
+            },
+          },
+          request: { kind: "skillrunner.job.v1" },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+      },
+    );
+
+    assert.deepEqual(adapted.runtime_options, {
+      zotero_host_access: {
+        required: false,
+      },
+    });
+  });
+
   it("rejects missing upload key input mapping", function () {
     assert.throws(
       () =>
@@ -118,6 +186,65 @@ describe("ACP skill run request adapter", function () {
     });
 
     assert.include(prompt, "source_path: D:/real/example.md");
+    assert.notInclude(prompt, "inputs/source_path");
+  });
+
+  it("renders runner entrypoint common prompts with resolved contexts", async function () {
+    const prompt = await buildAcpSkillRunPrompt({
+      context: {
+        skillId: "literature-digest",
+        workspace: {
+          requestId: "run-1",
+          workspaceDir: "D:/runtime/run-1",
+          runtimeDir: "D:/runtime/run-1/.acp",
+          resultDir: "D:/runtime/run-1/result",
+          resultJsonPath: "D:/runtime/run-1/result/result.json",
+          auditDir: "D:/runtime/run-1/.audit",
+          inputManifestPath: "D:/runtime/run-1/.audit/input_manifest.json",
+        },
+        backend: {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp",
+        },
+        agentFamily: "claude-code",
+        proxySkillRoots: ["D:/runtime/run-1/.claude/skills"],
+        requestedSkillProxyPath:
+          "D:/runtime/run-1/.claude/skills/literature-digest",
+        sharedSkillCatalogPath: "D:/runtime/catalog",
+      },
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "literature-digest",
+        input: {
+          source_path: "inputs/source_path/example.md",
+        },
+        parameter: {
+          language: "en-US",
+        },
+      },
+      inputContext: {
+        source_path: "D:/real/example.md",
+      },
+      parameterContext: {
+        language: "zh-CN",
+      },
+      runnerJson: {
+        id: "literature-digest",
+        entrypoint: {
+          prompts: {
+            common:
+              "Run {{ skill.id }} with {{ input.source_path }}, {{ parameter.language }}, {{ run_dir }}, {{ engine_id }}.",
+          },
+        },
+      },
+    });
+
+    assert.include(
+      prompt,
+      "Run literature-digest with D:/real/example.md, zh-CN, D:/runtime/run-1, claude.",
+    );
+    assert.notInclude(prompt, "{{ input.source_path }}");
     assert.notInclude(prompt, "inputs/source_path");
   });
 });

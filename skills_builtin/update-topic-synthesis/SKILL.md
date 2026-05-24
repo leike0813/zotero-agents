@@ -1,15 +1,13 @@
 ---
 name: update-topic-synthesis
-description: Update a structured Zotero topic_synthesis artifact using Zotero Synthesis MCP tools, package-local SQLite gate scripts, and schema-validated JSON stage artifacts.
+description: Update a structured Zotero topic_synthesis artifact using the zotero-bridge CLI, package-local SQLite gate scripts, and schema-validated JSON stage artifacts.
 ---
 
 # update-topic-synthesis
 
-本 skill 运行于 ACP 后台自动化场景。Host 已完成 MCP availability check 和
-callable smoke；不要自行搜索 MCP 配置、读取本机设置文件或测试 tool 注入状态。
-stdout 只能输出一个 JSON 对象。
-
-Host 会在正式执行前完成 MCP availability check 和 callable smoke。
+本 skill 运行于 ACP 后台自动化场景。stdout 只能输出一个 JSON 对象。
+需要读取 Zotero/Synthesis host 数据时，使用 `zotero-bridge synthesis <subcommand> --input ...`。
+如果正式执行中必需的 `zotero-bridge synthesis` 调用不可用或返回失败错误，立即输出合法 `topic_synthesis_canceled`。
 
 ## 产品目标与质量标准
 
@@ -59,13 +57,12 @@ update 的目标是在保持 current topic
    需要写入 payload 的动作都必须使用 `--payload-file`。
 8. 不要直接写 SQLite 表来伪造阶段完成；阶段推进必须由对应脚本动作成功写入 receipt。
 9. `update_patch` 只能写入 changed sections；重大 schema/language/resolver/paper set 变化必须转为 `update_full`。
-10. 最终 assistant 输出必须是 `result/result.json` 的 JSON 对象，不得追加解释、Markdown fence 或嵌入 markdown。
+10. 最终公开产物只能由 `validate_final_artifacts` 从已校验 JSON 工件生成；agent 不得手写或改写 `result/result.json`。最终 assistant 输出必须是合法业务 JSON 对象，不得追加解释、Markdown fence 或嵌入 markdown。
 
-成功态 stdout JSON 示例：
+成功态最终 JSON 示例：
 
 ```json
 {
-  "__SKILL_DONE__": true,
   "kind": "topic_synthesis",
   "operation": "update_patch",
   "topic_id": "object-detection",
@@ -94,15 +91,14 @@ update 的目标是在保持 current topic
 }
 ```
 
-取消态 stdout JSON 示例：
+取消态最终 JSON 示例：
 
 ```json
 {
-  "__SKILL_DONE__": true,
   "kind": "topic_synthesis_canceled",
   "status": "canceled",
-  "reason": "required_mcp_tool_unavailable",
-  "message": "Required Zotero Synthesis MCP tool is unavailable.",
+  "reason": "required_zotero_bridge_call_unavailable",
+  "message": "Required zotero-bridge synthesis command is unavailable.",
   "topic_id": "object-detection"
 }
 ```
@@ -113,9 +109,10 @@ update 的目标是在保持 current topic
 - `topicId` 是要更新的 topic。
 - `updateScope`、`updateMode`、`updateReason` 用于约束更新范围和原因。
 - `language` 控制自然语言输出；缺失或为 `auto` 时沿用 current topic language。
-- 必须先调用 `synthesis.get_topic_context({ topicId, mode: "update", includeArtifact: true, includeManifest: true })`。
+- 必须先通过 `./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...` 读取
+  `{ topicId, mode: "update", includeArtifact: true, includeManifest: true }`。
 - `get_topic_context` 返回的 current hashes、section hashes、recommended_update、current artifact/manifest 是 update 的 base truth。
-- update 成功只输出 `result/result.json` 中的 JSON 对象。
+- update 成功的最终响应只包含合法业务 JSON 对象。
 - `update_full` 成功必须生成：
   - `result/topic-analysis.json`
   - `result/result.json`
@@ -132,22 +129,23 @@ update 的目标是在保持 current topic
 - 最终 JSON 不包含正文 Markdown、agent-authored hash、canonical asset path、Zotero note shard 或 anchor。
 - Host apply 负责 canonical persistence 与导出渲染。
 
-## MCP 服务依赖
+## zotero-bridge CLI 调用依赖
 
-必需 MCP tools：
+必需 CLI 调用：
 
-- `synthesis.get_topic_context`
-- `synthesis.resolve_resolver`
-- `synthesis.get_citation_graph_metrics`
-- `synthesis.export_filtered_paper_artifacts`
+- `./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...`
+- `./.zotero-bridge/bin/zotero-bridge synthesis resolve-resolver --input ...`
+- `./.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input ...`
+- `./.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input ...`
 
-正式执行中如果必需 MCP tool 返回 unavailable/no such tool，立即输出合法
+正式执行中如果必需 `./.zotero-bridge/bin/zotero-bridge synthesis <subcommand>` 调用返回 command not found、
+unavailable/no such tool、`capability_not_found`、`bridge_unavailable` 或非零退出码，立即输出合法
 `topic_synthesis_canceled`，不要排查环境。`synthesis.get_citation_graph_metrics`
 返回 missing/stale/empty 不是 blocker，但必须写入 diagnostics；metrics 只用于排序、
 role hints、coverage/gaps 和 external-heavy 诊断，不能替代 digest evidence。
 `synthesis.export_filtered_paper_artifacts` 是 bounded artifact probe，只导出
 `digest-markdown`、`references-json`、`citation-analysis-json` 的过滤结果到 run-local
-文件，不通过 MCP response 返回大正文。
+文件，不通过 CLI stdout 返回大正文。
 
 ## 运行时硬合同
 
@@ -263,7 +261,7 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `language`：自然语言输出语言。
 - `run_root`：当前 ACP run workspace，脚本命令中使用 `.`。
 - `db`：`runtime/topic-synthesis.sqlite`。
-- `topic_context`：`synthesis.get_topic_context` 返回的 current topic 上下文。
+- `topic_context`：`./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...` 返回的 current topic 上下文。
 - `base_hashes`：current hashes，是 conflict 检测真源。
 - `read_section_hashes`：update_patch 读取过的 section hash。
 - `topic_definition`：包含 `id`、`title`、definition/scope 等 topic 定义。
@@ -301,7 +299,8 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 
 ### 1. `persist_topic_context`
 
-调用 `synthesis.get_topic_context({ topicId, mode: "update", includeArtifact: true, includeManifest: true })`。写：
+运行 `./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...`，输入为
+`{ topicId, mode: "update", includeArtifact: true, includeManifest: true }`。写：
 
 ```text
 runtime/payloads/topic-context.json
@@ -317,7 +316,8 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 ### 2. `persist_library_index_page` / `persist_resolver`
 
 根据 `recommended_update` 决定是否沿用 current resolver/paper set，或重新分页读取
-`synthesis.get_library_index` 并调用 `synthesis.resolve_resolver`。写：
+`./.zotero-bridge/bin/zotero-bridge synthesis get-library-index --input ...`，并运行
+`./.zotero-bridge/bin/zotero-bridge synthesis resolve-resolver --input ...`。写：
 
 ```text
 runtime/payloads/resolver.json
@@ -332,13 +332,25 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 
 ### 3. `persist_citation_graph_metrics`
 
-按 gate 给出的 paper refs 调 `synthesis.get_citation_graph_metrics`，写：
+按 gate 给出的 paper refs 运行 `./.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input ...`，写：
 
 ```text
 runtime/payloads/citation-graph-metrics-batch.json
 ```
 
 metrics 缺失不阻断，但必须进入 diagnostics。
+
+payload 顶层必须包含请求批次的 `paper_refs[]`，并保留 bridge 返回的 metrics 结果：
+
+```json
+{
+  "paper_refs": ["1:ABC", "1:DEF"],
+  "result": {
+    "ok": true,
+    "items": []
+  }
+}
+```
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_citation_graph_metrics --payload-file "runtime/payloads/citation-graph-metrics-batch.json"
@@ -355,11 +367,16 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 }
 ```
 
-MCP tool 写 filtered files；stage runtime 读取：
+`./.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input ...` 会写 filtered files；stage runtime 读取：
 
 ```text
 runtime/payloads/paper-artifacts-manifest.json
 ```
+
+不要手写 artifact manifest。manifest 中每个 artifact status row 必须包含
+`payload_types_seen[]`。若某个 artifact 缺失且 host 没有看到对应 payload type，
+`payload_types_seen` 必须是空数组；如果 missing row 中包含自己的 `payload_type`，
+runtime 会判定 manifest 自相矛盾。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_filtered_artifact_manifest --payload-file "runtime/payloads/paper-artifacts-manifest.json"
@@ -373,10 +390,22 @@ LLM 读取 filtered content files，写：
 runtime/payloads/paper-units-batch.json
 ```
 
-每个 paper unit 必须包含 bibliographic、topic_relevance、research_problem、
-method_contribution、evaluation_context、graph_metrics_interpretation、findings、
-limitations、taxonomy_hints、timeline_candidates、claim_support_candidates、
-comparison_facts、external_references、citation_contexts、missing_payloads。
+payload 顶层必须是 `analyses[]`，不是 `paper_units[]`。每个 analysis 必须包含
+`paper_ref`、`evidence_available`、`bibliographic`、`topic_relevance`、
+`research_problem`、`method_contribution`、`evaluation_context`、
+`graph_metrics_interpretation`、`findings`、`limitations`、`taxonomy_hints`、
+`timeline_candidates`、`claim_support_candidates`、`comparison_facts`、
+`external_references`、`citation_contexts`、`missing_payloads`。
+
+关键结构约束：
+
+- `bibliographic.authors` 必须是数组；不要写 `creators`。
+- `topic_relevance.level` 只能是 `core` / `related` / `peripheral` / `excluded`。
+- `research_problem` 必须是 `{ "text": "...", "scope": "..." }`。
+- `method_contribution` 必须是 `{ "route": "...", "mechanism": "...", "claimed_advantage": "...", "target_bottleneck": "..." }`。
+- `evaluation_context` 必须是 `{ "datasets": [], "metrics": [], "baselines": [], "setting": "..." }`。
+- 不要手写 `digest_locator`；digest 可用时 runtime 会注入。
+- digest 缺失时 `evidence_available` 必须是 `false`，且 `claim_support_candidates` 与 `timeline_candidates` 必须为空数组。
 
 语义目标：为后续研究路线、timeline、claim、comparison、debate、gap 和 external analysis
 提供可组合证据。这里只做单篇事实抽取，不做跨论文优劣判断或领域总评。
@@ -404,6 +433,17 @@ runtime/payloads/cross-paper-evidence-map.json
 
 语义目标：把已校验 paper units 聚合成 taxonomy/claim/debate/gap/review seeds。
 本阶段产出候选证据网络，不写最终 section 正文。
+
+payload 必须包含：
+
+- `schema_id: "synthesis.cross_paper_evidence_map"` 与 `schema_version`。
+- `evidence_limits` 对象。
+- `taxonomy_candidates[]`，每项必须有 `id` 与 `paper_unit_refs[]`。
+- `comparison_dimensions[]`，每项必须有 `id` 与 `coverage_refs[]`。
+- `claim_candidates[]`，每项必须有 `id` 与 `supporting_paper_unit_refs[]`。
+- `debate_candidates[]`，每项必须有 `id` 与非空 `evidence_type`。
+- `gap_candidates[]`，其中 `gap_type` 只能是 `library_coverage_gap` / `evidence_gap` / `method_gap` / `evaluation_gap` / `review_gap`。
+- `review_outline_seeds[]` 与 `diagnostics[]`。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action export_cross_paper_context
@@ -487,7 +527,7 @@ Patch update：
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action validate_final_artifacts
 ```
 
-脚本校验完整 artifact schema 或 patch schema，生成：
+脚本校验完整 artifact schema 或 patch schema，并生成最终业务 JSON 工件：
 
 ```text
 result/topic-analysis.json
@@ -497,7 +537,7 @@ result/result.json
 
 ### 11. `emit_final_json`
 
-只读取并输出：
+只读取 runtime 生成的最终业务 JSON 并作为最终响应输出：
 
 ```bash
 Get-Content -Encoding UTF8 "result/result.json"

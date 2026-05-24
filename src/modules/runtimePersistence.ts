@@ -368,6 +368,25 @@ export async function copyRuntimeFileIfMissing(args: {
   if (!(await runtimePathExists(sourcePath)) || (await runtimePathExists(targetPath))) {
     return false;
   }
+  await copyRuntimeFile({ sourcePath, targetPath });
+  return true;
+}
+
+export async function copyRuntimeFile(args: {
+  sourcePath: string;
+  targetPath: string;
+}) {
+  const sourcePath = normalizeString(args.sourcePath);
+  const targetPath = normalizeString(args.targetPath);
+  if (!sourcePath || !targetPath) {
+    throw new Error("sourcePath and targetPath are required to copy a file");
+  }
+  if (sourcePath === targetPath) {
+    return false;
+  }
+  if (!(await runtimePathExists(sourcePath))) {
+    throw new Error(`source file does not exist: ${sourcePath}`);
+  }
   await ensureRuntimeDirectory(parentPath(targetPath));
   const runtime = globalThis as {
     IOUtils?: {
@@ -424,7 +443,73 @@ export async function copyRuntimeFileIfMissing(args: {
     await runtime.OS.File.copy(sourcePath, targetPath);
     return true;
   }
-  return false;
+  throw new Error("No binary file copy API is available");
+}
+
+function toUint8Array(value: Uint8Array | ArrayBuffer) {
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
+}
+
+export async function readRuntimeBytes(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path || !(await runtimePathExists(path))) {
+    throw new Error("binary file path does not exist");
+  }
+  const runtime = globalThis as {
+    IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
+    OS?: { File?: { read?: (path: string) => Promise<Uint8Array> } };
+  };
+  if (typeof runtime.IOUtils?.read === "function") {
+    return runtime.IOUtils.read(path);
+  }
+  if (typeof runtime.OS?.File?.read === "function") {
+    return runtime.OS.File.read(path);
+  }
+  const fs = await tryNodeFs();
+  if (fs?.readFile) {
+    return new Uint8Array(await fs.readFile(path));
+  }
+  throw new Error("No binary file read API is available");
+}
+
+export async function writeRuntimeBytes(
+  pathRaw: string,
+  bytes: Uint8Array | ArrayBuffer,
+) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    throw new Error("binary file path is missing");
+  }
+  const data = toUint8Array(bytes);
+  await ensureRuntimeDirectory(parentPath(path));
+  const runtime = globalThis as {
+    IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<unknown> };
+    OS?: {
+      File?: {
+        writeAtomic?: (
+          path: string,
+          data: Uint8Array,
+          options?: unknown,
+        ) => Promise<void>;
+      };
+    };
+  };
+  if (typeof runtime.IOUtils?.write === "function") {
+    await runtime.IOUtils.write(path, data);
+    return;
+  }
+  if (typeof runtime.OS?.File?.writeAtomic === "function") {
+    await runtime.OS.File.writeAtomic(path, data, {
+      tmpPath: `${path}.tmp`,
+    });
+    return;
+  }
+  const fs = await tryNodeFs();
+  if (fs?.writeFile) {
+    await fs.writeFile(path, data);
+    return;
+  }
+  throw new Error("No binary file write API is available");
 }
 
 function parentPath(pathRaw: string) {

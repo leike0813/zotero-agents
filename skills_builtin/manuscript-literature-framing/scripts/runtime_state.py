@@ -62,6 +62,14 @@ def write_text(path: str | Path, text: str) -> None:
     target.write_text(text, encoding="utf-8")
 
 
+def ensure_object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    if not value:
+        raise ValueError(f"{label} must not be empty")
+    return value
+
+
 def ensure_non_empty_string(value: Any, label: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -73,3 +81,10 @@ def ensure_list(value: Any, label: str) -> list[Any]:
     if not isinstance(value, list):
         raise ValueError(f"{label} must be an array")
     return value
+
+
+def normalize_string_list(value: Any, label: str) -> list[str]:
+    items = [str(entry).strip() for entry in ensure_list(value, label) if str(entry).strip()]
+    if not items:
+        raise ValueError(f"{label} must contain at least one non-empty entry")
+    return items

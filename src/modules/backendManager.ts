@@ -33,6 +33,11 @@ import {
   computeAcpBackendConfigFingerprint,
   probeAcpBackendRuntimeOptions,
 } from "./acpBackendProbe";
+import {
+  createAcpBackendFromPreset,
+  findAcpBackendPreset,
+  listAcpBackendPresets,
+} from "./acpBackendPresets";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -657,6 +662,38 @@ function appendProviderSection(args: {
   title.style.margin = "0";
   header.appendChild(title);
 
+  const actions = createHtmlElement(doc, "div");
+  actions.style.display = "flex";
+  actions.style.alignItems = "center";
+  actions.style.gap = "6px";
+
+  if (args.provider.type === ACP_BACKEND_TYPE) {
+    const presetControl = createChoiceControl({
+      doc,
+      options: listAcpBackendPresets().map((preset) => ({
+        value: preset.id,
+        text: preset.displayName,
+      })),
+      selectedValue: listAcpBackendPresets()[0]?.id || "",
+    });
+    presetControl.setAttribute("data-zs-acp-preset-control", "1");
+    presetControl.setAttribute(
+      "title",
+      getString("backend-manager-acp-preset-select-title" as any),
+    );
+    applySelectVisualStyle(presetControl, "210px");
+    actions.appendChild(presetControl);
+
+    const presetButton = createHtmlElement(doc, "button");
+    presetButton.type = "button";
+    presetButton.textContent = getString(
+      "backend-manager-acp-preset-add" as any,
+    );
+    presetButton.setAttribute("data-zs-backend-action", "add-acp-preset");
+    presetButton.setAttribute("data-zs-provider-type", args.provider.type);
+    actions.appendChild(presetButton);
+  }
+
   const addButton = createHtmlElement(doc, "button");
   addButton.type = "button";
   addButton.textContent = getString("backend-manager-provider-add" as any, {
@@ -664,7 +701,8 @@ function appendProviderSection(args: {
   });
   addButton.setAttribute("data-zs-backend-action", "add");
   addButton.setAttribute("data-zs-provider-type", args.provider.type);
-  header.appendChild(addButton);
+  actions.appendChild(addButton);
+  header.appendChild(actions);
 
   section.appendChild(header);
 
@@ -743,6 +781,25 @@ function readRowField(row: Element, field: string) {
 
 function readRowInternalId(row: Element) {
   return String(row.getAttribute("data-zs-backend-internal-id") || "").trim();
+}
+
+function hasBackendRowInternalId(doc: Document, internalId: string) {
+  const expected = String(internalId || "").trim();
+  if (!expected) {
+    return false;
+  }
+  const rows = Array.from(
+    doc.querySelectorAll("[data-zs-backend-row='1']"),
+  ) as HTMLElement[];
+  return rows.some((row) => readRowInternalId(row) === expected);
+}
+
+function editableRowFromAcpBackendPreset(presetId: string): EditableBackendRow {
+  const preset = findAcpBackendPreset(presetId);
+  if (!preset) {
+    throw new Error(`Unknown ACP backend preset: ${presetId}`);
+  }
+  return normalizeRowFromBackend(createAcpBackendFromPreset(preset));
 }
 
 export function resolveSkillRunnerManagementLaunchPayloadFromRow(
@@ -1502,6 +1559,43 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
               argsText: "",
               envText: "",
             },
+            onOpenManagement: openManagementFromRow,
+            onRefreshModelCache: refreshModelCacheFromRow,
+            onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
+          });
+        });
+      });
+
+      const presetButtons = Array.from(
+        doc.querySelectorAll(
+          "[data-zs-backend-action='add-acp-preset'][data-zs-provider-type='acp']",
+        ),
+      ) as HTMLButtonElement[];
+      presetButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const section = button.closest(
+            "[data-zs-provider-section='acp']",
+          ) as HTMLElement | null;
+          const control = section?.querySelector(
+            "[data-zs-acp-preset-control='1']",
+          ) as Element | null;
+          const presetId = getElementValue(control || button);
+          const preset = findAcpBackendPreset(presetId);
+          const tbody = bodyMap.get(ACP_BACKEND_TYPE);
+          if (!preset || !tbody) {
+            return;
+          }
+          if (hasBackendRowInternalId(doc, preset.backendId)) {
+            alertWindow?.alert?.(
+              getString("backend-manager-acp-preset-exists" as any, {
+                args: { name: preset.displayName },
+              }),
+            );
+            return;
+          }
+          appendBackendRow({
+            tbody,
+            backend: editableRowFromAcpBackendPreset(preset.id),
             onOpenManagement: openManagementFromRow,
             onRefreshModelCache: refreshModelCacheFromRow,
             onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,

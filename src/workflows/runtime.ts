@@ -33,7 +33,13 @@ import type {
   WorkflowResultContext,
   WorkflowRuntimeContext,
 } from "./types";
+import type { WorkflowRunOptions } from "./zoteroHostAccessOptions";
 import { createProductStorageApi } from "../modules/workflowProductStore";
+import {
+  SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
+  buildZoteroHostAccessRuntimeOptions,
+  stripZoteroHostAccessRuntimeParams,
+} from "./zoteroHostAccessOptions";
 
 type AttachmentLike = {
   item?: {
@@ -210,15 +216,17 @@ function withInjectedSkillRunnerExecutionMode(args: {
   workflow: LoadedWorkflow;
   requestKind: string;
   request: unknown;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
+  };
 }) {
   if (args.requestKind !== "skillrunner.job.v1") {
     return args.request;
   }
   const executionMode = resolveSkillRunnerExecutionMode(args.workflow.manifest);
   const requiredTools = resolveWorkflowRequiredMcpTools(args.workflow.manifest);
-  if (!executionMode && requiredTools.length === 0) {
-    return args.request;
-  }
   if (!isObjectRecord(args.request)) {
     return args.request;
   }
@@ -238,7 +246,22 @@ function withInjectedSkillRunnerExecutionMode(args: {
       required_tools: requiredTools,
     };
   }
-  next.runtime_options = runtimeOptions;
+  if (isObjectRecord(next.parameter)) {
+    next.parameter = stripZoteroHostAccessRuntimeParams(
+      next.parameter as Record<string, unknown>,
+    );
+  }
+  if (SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS) {
+    runtimeOptions.zotero_host_access = buildZoteroHostAccessRuntimeOptions({
+      manifest: args.workflow.manifest,
+      runOptions: args.executionOptions?.runOptions,
+    });
+  }
+  if (Object.keys(runtimeOptions).length > 0) {
+    next.runtime_options = runtimeOptions;
+  } else {
+    delete next.runtime_options;
+  }
   return next;
 }
 
@@ -798,6 +821,7 @@ async function resolveAttachmentSelectionUnits(args: {
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
     providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
   };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
@@ -872,6 +896,7 @@ async function resolveSelectionContexts(args: {
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
     providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
   };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
@@ -1000,6 +1025,7 @@ export async function executeBuildRequests(args: {
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
     providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
   };
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
@@ -1060,6 +1086,7 @@ export async function executeBuildRequests(args: {
             workflow: args.workflow,
             requestKind,
             request: builtRequest,
+            executionOptions: args.executionOptions,
           });
           if (requestKind) {
             assertRequestPayloadContract({
@@ -1094,6 +1121,7 @@ export async function executeBuildRequests(args: {
           workflow: args.workflow,
           requestKind: requestKindFromManifest,
           request: compiledRequest,
+          executionOptions: args.executionOptions,
         });
         assertRequestPayloadContract({
           requestKind: requestKindFromManifest,

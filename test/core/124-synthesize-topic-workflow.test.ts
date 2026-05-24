@@ -114,19 +114,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.equal(updateWorkflow.provider, "acp");
     assert.notProperty(createWorkflow.execution || {}, "supportedBackends");
     assert.notProperty(updateWorkflow.execution || {}, "supportedBackends");
-    assert.sameMembers(createWorkflow.execution?.mcp?.requiredTools || [], [
-      "synthesis.list_topics",
-      "synthesis.get_library_index",
-      "synthesis.resolve_resolver",
-      "synthesis.get_citation_graph_metrics",
-      "synthesis.export_filtered_paper_artifacts",
-    ]);
-    assert.sameMembers(updateWorkflow.execution?.mcp?.requiredTools || [], [
-      "synthesis.get_topic_context",
-      "synthesis.resolve_resolver",
-      "synthesis.get_citation_graph_metrics",
-      "synthesis.export_filtered_paper_artifacts",
-    ]);
+    assert.isTrue(createWorkflow.execution?.zoteroHostAccess?.required);
+    assert.isTrue(updateWorkflow.execution?.zoteroHostAccess?.required);
+    assert.notProperty(createWorkflow.execution || {}, "mcp");
+    assert.notProperty(updateWorkflow.execution || {}, "mcp");
   });
 
   it("builds one create-topic-synthesis request for a mixed attachment selection", async function () {
@@ -171,15 +162,8 @@ describe("Synthesize topic workflow contract", function () {
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].taskName, "Create synthesis: DETR");
-    assert.deepEqual((requests[0] as any).runtime_options?.workflow_mcp, {
-      required_tools: [
-        "synthesis.list_topics",
-        "synthesis.get_library_index",
-        "synthesis.resolve_resolver",
-        "synthesis.get_citation_graph_metrics",
-        "synthesis.export_filtered_paper_artifacts",
-      ],
-    });
+    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
     assert.equal(requests[0].targetParentID, 8);
     assert.deepEqual(requests[0].sourceAttachmentPaths, [
       "D:/papers/conditional-detr.md",
@@ -218,8 +202,30 @@ describe("Synthesize topic workflow contract", function () {
       executionOptions: {
         workflowParams: {
           topicId: "object-detection",
-          language: "zh-CN",
         },
+      },
+      runtime: {
+        hostApi: {
+          synthesis: {
+            async getTopicContext() {
+              return {
+                language: "zh-CN",
+                recommended_update: {
+                  scope: "refresh",
+                  mode: "update_full",
+                  reason: "manual",
+                  prefill: {
+                    topicId: "object-detection",
+                    language: "zh-CN",
+                    updateScope: "refresh",
+                    updateMode: "update_full",
+                    updateReason: "manual",
+                  },
+                },
+              };
+            },
+          },
+        } as any,
       },
     })) as Array<{
       taskName?: string;
@@ -236,6 +242,9 @@ describe("Synthesize topic workflow contract", function () {
       "D:/papers/conditional-detr.pdf",
     ]);
     assert.equal(requests[0].parameter?.topicId, "object-detection");
+    assert.equal(requests[0].parameter?.language, "zh-CN");
+    assert.equal(requests[0].parameter?.updateScope, "refresh");
+    assert.equal(requests[0].parameter?.updateMode, "update_full");
   });
 
   it("loads create/update topic synthesis from the builtin synthesis-layer workflow package", async function () {
@@ -339,14 +348,14 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(skillText, "synthesis.list_topics");
+    assert.include(skillText, "zotero-bridge synthesis list-topics");
     assert.include(skillText, "title/description/aliases");
     assert.include(skillText, "ACP interactive confirmation");
     assert.include(skillText, "analysis_manifest_path");
     assert.include(skillText, "result/topic-analysis.json");
-    assert.include(skillText, "synthesis.get_citation_graph_metrics");
+    assert.include(skillText, "zotero-bridge synthesis get-citation-graph-metrics");
     assert.include(skillText, "persist_citation_graph_metrics");
-    assert.include(skillText, "synthesis.export_filtered_paper_artifacts");
+    assert.include(skillText, "zotero-bridge synthesis export-filtered-paper-artifacts");
     assert.include(skillText, "persist_filtered_artifact_manifest");
     assert.include(skillText, "export_cross_paper_context");
     assert.include(skillText, "cross-paper-context.md");
@@ -365,7 +374,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "bounded");
     assert.notInclude(skillText, "synthesis.validate_resolver");
     assert.notInclude(skillText, "synthesis.query_citation_graph");
-    assert.include(skillText, "`synthesis.export_filtered_paper_artifacts`");
+    assert.include(skillText, "zotero-bridge synthesis export-filtered-paper-artifacts");
     assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(skillText, "synthesis.read_paper_artifacts");
     assert.notInclude(skillText, "`markdown` must contain");
@@ -388,12 +397,12 @@ describe("Synthesize topic workflow contract", function () {
       await fs.readFile("skills_builtin/create-topic-synthesis/assets/runner.json", "utf8"),
     );
 
-    assert.match(skillText, /topicSeed[\s\S]+synthesis\.list_topics/);
+    assert.match(skillText, /topicSeed[\s\S]+zotero-bridge synthesis list-topics/);
     assert.match(skillText, /title\/description\/aliases/);
     assert.match(skillText, /疑似重复[\s\S]+update-topic-synthesis/);
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
     assert.match(skillText, /不得内嵌 `markdown`/);
-    assert.match(skillText, /synthesis\.resolve_resolver/);
+    assert.match(skillText, /zotero-bridge synthesis resolve-resolver/);
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
     assert.include(runner.entrypoint.prompts.common, "next_action");
     assert.include(runner.entrypoint.prompts.common, "instruction_refs");
@@ -442,12 +451,12 @@ describe("Synthesize topic workflow contract", function () {
       const runnerText = await fs.readFile(path.join(skillRoot, "assets/runner.json"), "utf8");
       assert.notInclude(skillText, "topic-synthesis-runtime");
       assert.notInclude(runnerText, "topic-synthesis-runtime");
-      assert.include(runnerText, "\"required_tools\"");
+      assert.notInclude(runnerText, "\"required_tools\"");
       assert.notInclude(runnerText, "synthesis.read_paper_artifacts");
     }
   });
 
-  it("documents minimum executable SKILL instructions, MCP dependency, script calls, and optional references", async function () {
+  it("documents minimum executable SKILL instructions, host dependency, script calls, and optional references", async function () {
     const createSkill = await fs.readFile("skills_builtin/create-topic-synthesis/SKILL.md", "utf8");
     const updateSkill = await fs.readFile("skills_builtin/update-topic-synthesis/SKILL.md", "utf8");
 
@@ -455,7 +464,6 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "## 产品目标与质量标准");
       assert.include(skillText, "## 核心执行指令");
       assert.include(skillText, "## 输入输出硬契约");
-      assert.include(skillText, "## MCP 服务依赖");
       assert.include(skillText, "## 运行时硬合同");
       assert.include(skillText, "## 状态机与 Gate 纪律");
       assert.include(skillText, "## 最小执行主路径");
@@ -470,10 +478,8 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "synthesis-level finding");
       assert.include(skillText, "库内覆盖不足");
       assert.include(skillText, "外部文献用于背景、覆盖判断和入库建议");
-      assert.include(skillText, "Host 会在正式执行前完成 MCP availability check 和 callable smoke");
-      assert.include(skillText, "不要自行搜索");
       assert.include(skillText, "topic_synthesis_canceled");
-      assert.match(skillText, /mcp_unavailable|required_mcp_tool_unavailable/);
+      assert.include(skillText, "zotero-bridge synthesis");
       assert.include(skillText, "scripts/gate_runtime.py");
       assert.include(skillText, "scripts/stage_runtime.py");
       assert.include(skillText, "python scripts/gate_runtime.py --db \"runtime/topic-synthesis.sqlite\"");
@@ -485,7 +491,7 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "stage_11_completed");
       assert.include(skillText, "artifact_registry");
       assert.include(skillText, "只执行 gate 返回的 `next_action`");
-      assert.include(skillText, "synthesis.get_citation_graph_metrics");
+      assert.include(skillText, "zotero-bridge synthesis get-citation-graph-metrics");
       assert.include(skillText, "persist_citation_graph_metrics");
       assert.include(skillText, "graph_metrics_interpretation");
       assert.include(skillText, "Topic Synthesis 内容合同");
@@ -506,10 +512,10 @@ describe("Synthesize topic workflow contract", function () {
     }
 
     assert.include(createSkill, "topicSeed");
-    assert.include(createSkill, "synthesis.list_topics");
-    assert.include(createSkill, "synthesis.resolve_resolver");
-    assert.include(createSkill, "synthesis.get_library_index");
-    assert.include(createSkill, "synthesis.get_citation_graph_metrics");
+    assert.include(createSkill, "zotero-bridge synthesis list-topics");
+    assert.include(createSkill, "zotero-bridge synthesis resolve-resolver");
+    assert.include(createSkill, "zotero-bridge synthesis get-library-index");
+    assert.include(createSkill, "zotero-bridge synthesis get-citation-graph-metrics");
     assert.include(createSkill, "persist_library_index_page");
     assert.include(createSkill, "has_more");
     assert.include(createSkill, "index_hash");
@@ -522,8 +528,8 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(updateSkill, "updateScope");
     assert.include(updateSkill, "updateMode");
     assert.include(updateSkill, "updateReason");
-    assert.include(updateSkill, "synthesis.get_topic_context");
-    assert.include(updateSkill, "synthesis.resolve_resolver");
+    assert.include(updateSkill, "zotero-bridge synthesis get-topic-context");
+    assert.include(updateSkill, "zotero-bridge synthesis resolve-resolver");
     assert.include(updateSkill, "recommended_update");
     assert.include(
       updateSkill,
@@ -541,7 +547,7 @@ describe("Synthesize topic workflow contract", function () {
       await fs.readFile("skills_builtin/update-topic-synthesis/assets/runner.json", "utf8"),
     );
 
-    assert.include(skillText, "synthesis.get_topic_context");
+    assert.include(skillText, "zotero-bridge synthesis get-topic-context");
     assert.include(skillText, "recommended_update");
     assert.include(skillText, "update_full");
     assert.include(skillText, "update_patch");
@@ -822,7 +828,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
-  it("propagates language through create and update workflow parameters", async function () {
+  it("keeps update workflow user input limited to topicId and derives update parameters in the build hook", async function () {
     const createWorkflow = JSON.parse(
       await fs.readFile(
         "workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json",
@@ -837,8 +843,16 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
 
     assert.include(JSON.stringify(createWorkflow), "language");
-    assert.include(JSON.stringify(updateWorkflow), "language");
-    assert.include(JSON.stringify(updateWorkflow), "updateScope");
-    assert.include(JSON.stringify(updateWorkflow), "updateMode");
+    assert.sameMembers(Object.keys(updateWorkflow.parameters || {}), ["topicId"]);
+    assert.equal(
+      updateWorkflow.parameters?.topicId?.optionsSource?.kind,
+      "synthesis.topics",
+    );
+    assert.equal(
+      updateWorkflow.parameters?.topicId?.optionsSource?.filter,
+      "updatable",
+    );
+    assert.isFalse(updateWorkflow.parameters?.topicId?.allowCustom);
+    assert.equal(updateWorkflow.hooks?.buildRequest, "hooks/buildRequest.mjs");
   });
 });

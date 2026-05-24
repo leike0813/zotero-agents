@@ -15,15 +15,20 @@ import {
   getAllRegularZoteroItems,
 } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
+import { copyRuntimeFile } from "../modules/runtimePersistence";
 import { getDefaultSynthesisService } from "../modules/synthesis/service";
 import {
   resolveRuntimeAddon,
   resolveRuntimeToolkit,
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
-import type { WorkflowHostApi } from "./types";
+import type {
+  WorkflowHostApi,
+  WorkflowImagePreparationOptions,
+  WorkflowPreparedNoteImage,
+} from "./types";
 
-export const WORKFLOW_HOST_API_VERSION = 3;
+export const WORKFLOW_HOST_API_VERSION = 5;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -32,13 +37,23 @@ const dynamicImport: DynamicImport = new Function(
   "return import(specifier)",
 ) as DynamicImport;
 
+const DEFAULT_NOTE_IMAGE_OPTIONS = {
+  maxLongEdge: 720,
+  targetBytes: 180 * 1024,
+  hardMaxBytes: 320 * 1024,
+  initialQuality: 0.82,
+  minQuality: 0.7,
+  background: "#ffffff",
+};
+
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
   return {
     addonName: String(addonConfig?.addonName || "Zotero Skills").trim(),
     addonRef: String(addonConfig?.addonRef || "").trim(),
-    prefsPrefix: String(addonConfig?.prefsPrefix || "extensions.zotero.zotero-skills")
-      .trim(),
+    prefsPrefix: String(
+      addonConfig?.prefsPrefix || "extensions.zotero.zotero-skills",
+    ).trim(),
   };
 }
 
@@ -64,7 +79,17 @@ function resolveHostItem(ref: Zotero.Item | number | string) {
   if (!key) {
     return null;
   }
-  return zotero.Items.getByLibraryAndKey(zotero.Libraries.userLibraryID, key) || null;
+  return (
+    zotero.Items.getByLibraryAndKey(zotero.Libraries.userLibraryID, key) || null
+  );
+}
+
+function assertHostItem(ref: Zotero.Item | number | string) {
+  const item = resolveHostItem(ref);
+  if (!item) {
+    throw new Error(`Item not found: ${String(ref)}`);
+  }
+  return item;
 }
 
 function resolveIOUtils() {
@@ -101,6 +126,34 @@ async function writeText(path: string, content: string) {
   await fs.writeFile(path, String(content || ""), "utf8");
 }
 
+async function readBytes(path: string) {
+  const runtime = globalThis as typeof globalThis & {
+    IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
+  };
+  if (typeof runtime.IOUtils?.read === "function") {
+    return runtime.IOUtils.read(path);
+  }
+  const fs = await dynamicImport("fs/promises");
+  return new Uint8Array(await fs.readFile(path));
+}
+
+async function writeBytes(path: string, bytes: Uint8Array | ArrayBuffer) {
+  const data = toUint8Array(bytes);
+  const runtime = globalThis as typeof globalThis & {
+    IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<void> };
+  };
+  if (typeof runtime.IOUtils?.write === "function") {
+    await runtime.IOUtils.write(path, data);
+    return;
+  }
+  const fs = await dynamicImport("fs/promises");
+  await fs.writeFile(path, data);
+}
+
+async function copyFile(sourcePath: string, targetPath: string) {
+  await copyRuntimeFile({ sourcePath, targetPath });
+}
+
 async function pathExists(path: string) {
   const io = resolveIOUtils();
   if (typeof io?.exists === "function") {
@@ -123,6 +176,388 @@ async function makeDirectory(path: string) {
   }
   const fs = await dynamicImport("fs/promises");
   await fs.mkdir(path, { recursive: true });
+}
+
+function normalizeImageOptions(options?: WorkflowImagePreparationOptions) {
+  const merged = {
+    ...DEFAULT_NOTE_IMAGE_OPTIONS,
+    ...(options || {}),
+  };
+  return {
+    maxLongEdge: Math.max(1, Math.floor(Number(merged.maxLongEdge) || 720)),
+    targetBytes: Math.max(1, Math.floor(Number(merged.targetBytes) || 1)),
+    hardMaxBytes: Math.max(1, Math.floor(Number(merged.hardMaxBytes) || 1)),
+    initialQuality: Math.min(
+      1,
+      Math.max(0.01, Number(merged.initialQuality) || 0.82),
+    ),
+    minQuality: Math.min(1, Math.max(0.01, Number(merged.minQuality) || 0.7)),
+    background: String(merged.background || "#ffffff").trim() || "#ffffff",
+  };
+}
+
+function inferImageMimeType(pathOrMime?: string) {
+  const text = String(pathOrMime || "").toLowerCase();
+  if (text.includes("image/")) {
+    return text;
+  }
+  if (/\.(jpe?g)(?:[?#].*)?$/i.test(text)) {
+    return "image/jpeg";
+  }
+  if (/\.png(?:[?#].*)?$/i.test(text)) {
+    return "image/png";
+  }
+  if (/\.gif(?:[?#].*)?$/i.test(text)) {
+    return "image/gif";
+  }
+  if (/\.webp(?:[?#].*)?$/i.test(text)) {
+    return "image/webp";
+  }
+  if (/\.bmp(?:[?#].*)?$/i.test(text)) {
+    return "image/bmp";
+  }
+  return "application/octet-stream";
+}
+
+function toUint8Array(bytes: Uint8Array | ArrayBuffer) {
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+}
+
+function getBlobCtor() {
+  const BlobCtor = (globalThis as typeof globalThis & { Blob?: typeof Blob })
+    .Blob;
+  if (typeof BlobCtor !== "function") {
+    throw new Error("Blob is unavailable in workflow host api");
+  }
+  return BlobCtor;
+}
+
+async function readFileBlob(path: string, mimeType: string) {
+  const zotero = resolveHostZotero() as typeof Zotero & {
+    File?: typeof Zotero.File & {
+      pathToFileURI?: (path: string) => string;
+    };
+  };
+  const uri = zotero.File?.pathToFileURI?.(path);
+  if (uri && typeof globalThis.fetch === "function") {
+    try {
+      const response = await globalThis.fetch(uri);
+      if (response.ok || response.status === 0) {
+        const blob = await response.blob();
+        return blob.type ? blob : blob.slice(0, blob.size, mimeType);
+      }
+    } catch {
+      // Fall back to direct byte readers below.
+    }
+  }
+
+  const runtime = globalThis as typeof globalThis & {
+    IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
+  };
+  if (typeof runtime.IOUtils?.read === "function") {
+    const bytes = await runtime.IOUtils.read(path);
+    return new (getBlobCtor())([bytes], { type: mimeType });
+  }
+
+  const fs = await dynamicImport("fs/promises");
+  const bytes = new Uint8Array(await fs.readFile(path));
+  return new (getBlobCtor())([bytes], { type: mimeType });
+}
+
+async function normalizeImageSource(
+  source:
+    | string
+    | {
+        path?: string;
+        blob?: Blob;
+        bytes?: Uint8Array | ArrayBuffer;
+        mimeType?: string;
+      },
+) {
+  if (typeof source === "string") {
+    const path = source.trim();
+    const mimeType = inferImageMimeType(path);
+    const blob = await readFileBlob(path, mimeType);
+    return {
+      blob,
+      mimeType: blob.type || mimeType,
+      originalBytes: blob.size,
+      fileName: path.split(/[\\/]/).filter(Boolean).pop() || "image",
+    };
+  }
+  if (source?.blob) {
+    const mimeType = source.blob.type || inferImageMimeType(source.mimeType);
+    return {
+      blob: source.blob.type
+        ? source.blob
+        : source.blob.slice(0, source.blob.size, mimeType),
+      mimeType,
+      originalBytes: source.blob.size,
+      fileName: source.path?.split(/[\\/]/).filter(Boolean).pop(),
+    };
+  }
+  if (source?.bytes) {
+    const mimeType = inferImageMimeType(source.mimeType || source.path);
+    const bytes = toUint8Array(source.bytes);
+    return {
+      blob: new (getBlobCtor())([bytes], { type: mimeType }),
+      mimeType,
+      originalBytes: bytes.byteLength,
+      fileName: source.path?.split(/[\\/]/).filter(Boolean).pop(),
+    };
+  }
+  if (source?.path) {
+    return normalizeImageSource(source.path);
+  }
+  throw new Error("Image source must provide a path, blob, or bytes");
+}
+
+function resolveCanvasDocument() {
+  const runtime = globalThis as typeof globalThis & {
+    document?: Document;
+  };
+  return (
+    runtime.document ||
+    resolveRuntimeZotero()?.getMainWindow?.()?.document ||
+    null
+  );
+}
+
+async function decodeImageBlob(blob: Blob) {
+  const runtime = globalThis as typeof globalThis & {
+    createImageBitmap?: (blob: Blob) => Promise<ImageBitmap>;
+    URL?: typeof URL;
+  };
+  if (typeof runtime.createImageBitmap === "function") {
+    const bitmap = await runtime.createImageBitmap(blob);
+    return {
+      image: bitmap as CanvasImageSource,
+      width: bitmap.width,
+      height: bitmap.height,
+      close: () => bitmap.close?.(),
+    };
+  }
+
+  const doc = resolveCanvasDocument();
+  const URLCtor = runtime.URL || globalThis.URL;
+  if (!doc || typeof URLCtor?.createObjectURL !== "function") {
+    throw new Error("Canvas image decoder is unavailable");
+  }
+  const image = doc.createElement("img");
+  const url = URLCtor.createObjectURL(blob);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Failed to decode image"));
+      image.src = url;
+    });
+    return {
+      image: image as CanvasImageSource,
+      width: image.naturalWidth || image.width,
+      height: image.naturalHeight || image.height,
+      close: () => undefined,
+    };
+  } finally {
+    URLCtor.revokeObjectURL(url);
+  }
+}
+
+function createCanvas(width: number, height: number) {
+  const runtime = globalThis as typeof globalThis & {
+    OffscreenCanvas?: typeof OffscreenCanvas;
+  };
+  if (typeof runtime.OffscreenCanvas === "function") {
+    return new runtime.OffscreenCanvas(width, height);
+  }
+  const doc = resolveCanvasDocument();
+  if (!doc) {
+    throw new Error("Canvas is unavailable");
+  }
+  const canvas = doc.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+async function canvasToJpegBlob(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  quality: number,
+) {
+  const anyCanvas = canvas as HTMLCanvasElement & {
+    convertToBlob?: (options: {
+      type: string;
+      quality: number;
+    }) => Promise<Blob>;
+  };
+  if (typeof anyCanvas.convertToBlob === "function") {
+    return anyCanvas.convertToBlob({ type: "image/jpeg", quality });
+  }
+  if (typeof anyCanvas.toBlob === "function") {
+    return new Promise<Blob>((resolve, reject) => {
+      anyCanvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("Canvas JPEG encoding failed"));
+          }
+        },
+        "image/jpeg",
+        quality,
+      );
+    });
+  }
+  throw new Error("Canvas JPEG encoder is unavailable");
+}
+
+function computeBoundedSize(
+  width: number,
+  height: number,
+  maxLongEdge: number,
+) {
+  const safeWidth = Math.max(1, Math.floor(width));
+  const safeHeight = Math.max(1, Math.floor(height));
+  const longEdge = Math.max(safeWidth, safeHeight);
+  if (longEdge <= maxLongEdge) {
+    return {
+      width: safeWidth,
+      height: safeHeight,
+    };
+  }
+  const scale = maxLongEdge / longEdge;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
+}
+
+async function prepareForNoteEmbedding(
+  source:
+    | string
+    | {
+        path?: string;
+        blob?: Blob;
+        bytes?: Uint8Array | ArrayBuffer;
+        mimeType?: string;
+      },
+  options?: WorkflowImagePreparationOptions,
+): Promise<WorkflowPreparedNoteImage> {
+  const normalizedOptions = normalizeImageOptions(options);
+  if (normalizedOptions.minQuality > normalizedOptions.initialQuality) {
+    normalizedOptions.minQuality = normalizedOptions.initialQuality;
+  }
+  const normalizedSource = await normalizeImageSource(source);
+  const decoded = await decodeImageBlob(normalizedSource.blob);
+  try {
+    const target = computeBoundedSize(
+      decoded.width,
+      decoded.height,
+      normalizedOptions.maxLongEdge,
+    );
+    const canvas = createCanvas(target.width, target.height);
+    const context = canvas.getContext("2d") as
+      | CanvasRenderingContext2D
+      | OffscreenCanvasRenderingContext2D
+      | null;
+    if (!context) {
+      throw new Error("Canvas 2D context is unavailable");
+    }
+    context.fillStyle = normalizedOptions.background;
+    context.fillRect(0, 0, target.width, target.height);
+    context.drawImage(decoded.image, 0, 0, target.width, target.height);
+
+    const qualities = Array.from(
+      new Set(
+        [
+          normalizedOptions.initialQuality,
+          0.78,
+          0.74,
+          normalizedOptions.minQuality,
+        ]
+          .map((quality) => Number(quality.toFixed(2)))
+          .filter(
+            (quality) =>
+              quality <= normalizedOptions.initialQuality &&
+              quality >= normalizedOptions.minQuality,
+          ),
+      ),
+    ).sort((a, b) => b - a);
+
+    let selectedBlob: Blob | null = null;
+    let selectedQuality = qualities[qualities.length - 1];
+    for (const quality of qualities) {
+      const candidate = await canvasToJpegBlob(canvas, quality);
+      selectedBlob = candidate;
+      selectedQuality = quality;
+      if (candidate.size <= normalizedOptions.targetBytes) {
+        break;
+      }
+    }
+
+    if (!selectedBlob) {
+      throw new Error("JPEG encoding produced no image");
+    }
+    if (selectedBlob.size > normalizedOptions.hardMaxBytes) {
+      throw new Error(
+        `Prepared image exceeds hard cap: ${selectedBlob.size} > ${normalizedOptions.hardMaxBytes}`,
+      );
+    }
+
+    return {
+      blob: selectedBlob,
+      mimeType: "image/jpeg",
+      width: target.width,
+      height: target.height,
+      originalBytes: normalizedSource.originalBytes,
+      compressedBytes: selectedBlob.size,
+      fileName: normalizedSource.fileName,
+      diagnostics: {
+        quality: selectedQuality,
+        sourceMimeType: normalizedSource.mimeType,
+        maxLongEdge: normalizedOptions.maxLongEdge,
+        targetBytes: normalizedOptions.targetBytes,
+        hardMaxBytes: normalizedOptions.hardMaxBytes,
+      },
+    };
+  } finally {
+    decoded.close();
+  }
+}
+
+function blobFromPreparedImage(image: WorkflowPreparedNoteImage) {
+  const mimeType =
+    String(image?.mimeType || "image/jpeg").trim() || "image/jpeg";
+  if (image?.blob) {
+    return image.blob.type
+      ? image.blob
+      : image.blob.slice(0, image.blob.size, mimeType);
+  }
+  if (image?.bytes) {
+    return new (getBlobCtor())([toUint8Array(image.bytes)], { type: mimeType });
+  }
+  throw new Error("Prepared image must provide blob or bytes");
+}
+
+async function importEmbeddedImage(
+  noteRef: Zotero.Item | number | string,
+  image: WorkflowPreparedNoteImage,
+) {
+  const note = assertHostItem(noteRef);
+  const blob = blobFromPreparedImage(image);
+  const zotero = resolveHostZotero();
+  if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
+    throw new Error("Zotero embedded image import is unavailable");
+  }
+  const attachment = await zotero.Attachments.importEmbeddedImage({
+    blob,
+    parentItemID: note.id,
+  });
+  return {
+    attachmentKey: String(attachment?.key || "").trim(),
+    attachmentItem: attachment,
+    mimeType: blob.type || image.mimeType,
+    bytes: blob.size,
+  };
 }
 
 type ToolkitFilePickerCtor = new (
@@ -199,7 +634,9 @@ async function openToolkitFilePicker(args: {
     }
     return null;
   }
-  return typeof selected === "string" && selected.trim() ? selected.trim() : null;
+  return typeof selected === "string" && selected.trim()
+    ? selected.trim()
+    : null;
 }
 
 async function openNativeMultiFilePicker(args: {
@@ -211,7 +648,11 @@ async function openNativeMultiFilePicker(args: {
     ChromeUtils?: {
       importESModule?: (specifier: string) => {
         FilePicker?: new () => {
-          init: (parentWindow: Window | undefined, title: string, mode: number) => void;
+          init: (
+            parentWindow: Window | undefined,
+            title: string,
+            mode: number,
+          ) => void;
           appendFilter: (title: string, filter: string) => void;
           displayDirectory?: string;
           modeOpenMultiple: number;
@@ -252,7 +693,10 @@ async function openNativeMultiFilePicker(args: {
       if (!Array.isArray(filter) || filter.length < 2) {
         continue;
       }
-      picker.appendFilter(String(filter[0] || "").trim(), String(filter[1] || "").trim());
+      picker.appendFilter(
+        String(filter[0] || "").trim(),
+        String(filter[1] || "").trim(),
+      );
     }
     const result = await picker.show();
     if (result === picker.returnCancel) {
@@ -262,7 +706,9 @@ async function openNativeMultiFilePicker(args: {
       };
     }
     const files = Array.isArray(picker.files)
-      ? picker.files.map((entry: unknown) => String(entry || "").trim()).filter(Boolean)
+      ? picker.files
+          .map((entry: unknown) => String(entry || "").trim())
+          .filter(Boolean)
       : [];
     return {
       supported: true,
@@ -327,7 +773,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     mutations: zoteroBroker.mutations,
     prefs: {
       get(key, global = true) {
-        return resolveHostZotero().Prefs.get(String(key || "").trim(), Boolean(global));
+        return resolveHostZotero().Prefs.get(
+          String(key || "").trim(),
+          Boolean(global),
+        );
       },
       set(key, value, global = true) {
         resolveHostZotero().Prefs.set(
@@ -337,11 +786,20 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         );
       },
       clear(key, global = true) {
-        resolveHostZotero().Prefs.clear(String(key || "").trim(), Boolean(global));
+        resolveHostZotero().Prefs.clear(
+          String(key || "").trim(),
+          Boolean(global),
+        );
       },
     },
     parents: handlers.parent,
-    notes: handlers.note,
+    notes: {
+      ...handlers.note,
+      importEmbeddedImage,
+    },
+    images: {
+      prepareForNoteEmbedding,
+    },
     attachments: handlers.attachment,
     tags: handlers.tag,
     collections: handlers.collection,
@@ -371,6 +829,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
       readText,
       writeText,
+      readBytes,
+      writeBytes,
+      copy: copyFile,
       exists: pathExists,
       makeDirectory,
       getTempDirectoryPath() {
@@ -414,7 +875,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
   return cachedHostApi;
 }
 
-export function summarizeWorkflowHostApiCapabilities(hostApi?: WorkflowHostApi | null) {
+export function summarizeWorkflowHostApiCapabilities(
+  hostApi?: WorkflowHostApi | null,
+) {
   return {
     items: !!hostApi?.items,
     prefs: !!hostApi?.prefs,
@@ -427,6 +890,7 @@ export function summarizeWorkflowHostApiCapabilities(hostApi?: WorkflowHostApi |
     notifications: !!hostApi?.notifications,
     logging: !!hostApi?.logging,
     file: !!hostApi?.file,
+    images: !!hostApi?.images,
     addon: !!hostApi?.addon,
     context: !!hostApi?.context,
     library: !!hostApi?.library,

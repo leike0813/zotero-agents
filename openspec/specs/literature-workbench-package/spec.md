@@ -22,19 +22,20 @@ The `literature-workbench-package` MUST provide workflow `export-notes` to expor
 - **AND** it SHALL prompt for export destination only once
 
 ### Requirement: Export-Notes SHALL Materialize Canonical Artifact Files Per Parent Folder
-The export workflow MUST write canonical literature-digest artifact files into per-parent folders.
 
-#### Scenario: Export digest and references artifacts
-- **WHEN** a selected parent has digest and references notes
-- **THEN** the workflow SHALL create a subfolder named `Parent Title [itemKey]`
-- **AND** digest content SHALL be exported to `digest.md`
-- **AND** references payload SHALL be base64-decoded and exported as the native references artifact
-- **AND** the default export shape SHALL be a bare JSON array
+The export workflow MUST write canonical literature-digest artifact files into
+per-parent folders.
 
-#### Scenario: Export citation analysis as json and markdown
-- **WHEN** a selected parent has a citation-analysis note
-- **THEN** the workflow SHALL export decoded payload to `citation_analysis.json`
-- **AND** it SHALL export `citation_analysis.report_md` to `citation_analysis.md`
+#### Scenario: Export digest representative image marker and sidecar
+- **WHEN** a digest note contains a valid representative image block backed by a note-child embedded-image attachment
+- **THEN** `export-notes` SHALL write `representative_image.jpg` beside `digest.md`
+- **AND** `digest.md` SHALL include a `zs:representative-image:v1` Markdown marker block referencing `representative_image.jpg`
+- **AND** the digest payload text before marker insertion SHALL otherwise keep its existing export contract.
+
+#### Scenario: Representative image export is unavailable
+- **WHEN** the representative image block cannot be resolved to a readable note-child attachment
+- **THEN** `export-notes` SHALL still export `digest.md`
+- **AND** it SHALL NOT fail the export batch because of the missing image.
 
 ### Requirement: Literature Workbench Package SHALL Provide Import-Notes Workflow For Literature-Digest Artifacts
 The `literature-workbench-package` MUST provide workflow `import-notes` to import literature-digest artifact files into exactly one selected parent item.
@@ -162,20 +163,29 @@ codec rather than workflow-specific bespoke transformations.
 
 ### Requirement: import-notes SHALL use the unified codec for structured and custom note creation
 
-`import-notes` MUST create digest-family notes and custom markdown notes
-through the same package codec layer.
+`import-notes` MUST create digest-family notes and custom markdown notes through
+the same package codec layer.
 
-#### Scenario: import creates digest-family notes through shared codec
+#### Scenario: Import digest representative image marker
+- **WHEN** an imported `digest.md` contains a valid `zs:representative-image:v1` marker with a safe relative sidecar path
+- **THEN** `import-notes` SHALL remove that marker from the digest payload
+- **AND** it SHALL recreate the image as a Zotero embedded-image attachment under the digest note
+- **AND** it SHALL write the representative image HTML block through the same digest note builder that writes the canonical `digest-markdown` payload block.
 
-- **WHEN** the user imports one or more literature-digest artifacts
-- **THEN** the resulting notes SHALL be generated through the shared package codec
-- **AND** their DOM and payload structure SHALL remain compatible with current export behavior
+#### Scenario: Import representative image can be manually overridden
+- **WHEN** the import dialog has a selected digest candidate
+- **THEN** the user SHALL be able to manually select or clear a representative image candidate
+- **AND** a manual image selection SHALL take precedence over an automatically detected marker image.
 
-#### Scenario: import creates custom notes through shared codec
+#### Scenario: Representative image import is best-effort
+- **WHEN** the marker path is unsafe, missing, or image preparation/import fails
+- **THEN** `import-notes` SHALL still import the selected digest note
+- **AND** it SHALL expose a skipped/warning representative image result for diagnostics.
 
-- **WHEN** the user imports one or more custom markdown files
-- **THEN** the resulting notes SHALL be generated through the shared package codec
-- **AND** those notes SHALL be exportable through `export-notes` without format loss
+#### Scenario: Representative image writing preserves digest payload
+- **WHEN** a digest representative image is embedded or skipped with diagnostics
+- **THEN** the digest note final HTML SHALL still contain the canonical `digest-markdown` payload block
+- **AND** representative image helpers SHALL NOT patch digest note HTML from a stale `note.getNote()` snapshot after the digest writer has completed.
 
 ### Requirement: Literature Digest SHALL Auto Run Reference Matching After Apply
 
@@ -185,29 +195,113 @@ reference matching on the references note produced by the digest apply step.
 The option MUST NOT be dispatched to the skill/agent as a provider-facing
 parameter.
 
-#### Scenario: Auto matching is enabled by default
-
-- **WHEN** builtin workflows are loaded
-- **THEN** `literature-digest` SHALL expose `auto_reference_matching`
-- **AND** its default value SHALL be `true`
-- **AND** it SHALL be declared as runtime-only.
-
-#### Scenario: Digest skill request does not receive auto matching option
-
-- **WHEN** a `literature-digest` provider request is compiled
-- **THEN** the request `parameter` payload SHALL include skill-facing parameters such as `language`
-- **AND** it SHALL NOT include `auto_reference_matching`.
-
 #### Scenario: Digest apply uses runtime-only auto matching option
-
 - **WHEN** `literature-digest` successfully writes its generated notes
 - **AND** local result context has `auto_reference_matching` not equal to `false`
 - **THEN** the workflow SHALL run reference matching on the produced references note
-- **AND** it SHALL write the reference matching baseline into that references payload.
+- **AND** it SHALL write the reference matching baseline into that references payload
+- **AND** optional representative image handling SHALL NOT prevent reference matching from running.
 
-#### Scenario: Digest apply can disable auto matching locally
+### Requirement: Literature search ingest target collection uses dynamic options
 
-- **WHEN** `literature-digest` is applied with runtime-only `auto_reference_matching=false`
-- **THEN** it SHALL write the digest generated notes
-- **AND** it SHALL NOT run the auto reference matching post-process.
+The Literature Search Ingest workflow SHALL offer Zotero collection choices for
+its target collection parameter.
+
+#### Scenario: User configures target collection
+
+- **WHEN** the workflow settings UI renders Literature Search Ingest
+- **THEN** `targetCollection` SHALL use the `zotero.collections` dynamic option
+  source
+- **AND** the user SHALL see collection path labels
+- **AND** the submitted value SHALL remain a collection ref string accepted by
+  single-paper `ingest_paper` calls.
+
+### Requirement: Literature Digest Apply SHALL Consume Optional Representative Image Metadata
+
+The `literature-digest` workflow apply step SHALL consume optional `representative_image` result metadata after writing generated notes.
+
+#### Scenario: Representative image metadata is absent
+- **WHEN** `literature-digest` result JSON does not include `representative_image`
+- **THEN** the apply step SHALL write digest, references, and citation-analysis notes with the existing behavior.
+
+#### Scenario: Representative image materialization succeeds
+- **WHEN** `representative_image.status = "selected"` and Host resolves a safe Markdown image
+- **THEN** the digest note SHALL include exactly one representative image block
+- **AND** repeated apply runs SHALL replace the prior representative image block rather than append duplicates.
+
+#### Scenario: Representative image materialization is skipped
+- **WHEN** representative image resolution, compression, import, or PDF extraction fails best-effort
+- **THEN** the apply step SHALL still return successfully with the generated notes
+- **AND** the result SHALL expose a representative image skipped/warning status for diagnostics.
+
+### Requirement: Literature search ingest is ACP interactive and context aware
+
+`literature-search-ingest` SHALL support `auto`, `topic_expansion`,
+`paper_seed_expansion`, and `targeted_ingest` search modes.
+
+#### Scenario: User selects auto mode
+
+- **WHEN** the workflow starts with `searchMode` omitted or set to `auto`
+- **THEN** the skill SHALL compare the query against library/Synthesis context
+  and perform an initial web lookup before selecting the effective mode.
+
+#### Scenario: Exact new paper is found
+
+- **WHEN** the initial lookup finds a highly matching single paper not present
+  in the library
+- **THEN** the skill SHALL use `targeted_ingest`
+- **AND** user confirmation SHALL ingest that paper without an additional
+  candidate expansion search.
+
+#### Scenario: Seed paper expansion uses references artifacts
+
+- **WHEN** the effective mode is `paper_seed_expansion`
+- **THEN** the skill SHALL try to read the seed paper references/citation
+  artifacts through Host Bridge synthesis commands before falling back to web
+  search from seed metadata.
+
+### Requirement: Literature search ingest performs legal public PDF best effort
+
+The skill SHALL explicitly guide agents to search legal public PDF sources and
+skip uncertain or restricted PDFs without blocking metadata ingest.
+
+#### Scenario: Public PDF is uncertain
+
+- **WHEN** a candidate PDF URL cannot be matched confidently to title, authors,
+  or identifiers
+- **THEN** the skill SHALL mark the PDF as skipped instead of attaching it.
+
+### Requirement: Literature Digest SHALL persist generated-note payloads through Zotero-safe storage
+
+Generated digest-family notes MUST keep machine-readable payloads available after Zotero note editor normalization.
+
+#### Scenario: New generated notes use attachment-backed payloads
+- **WHEN** `literature-digest` or `import-notes` writes digest, references, or citation-analysis notes
+- **THEN** the visible note HTML SHALL NOT include `data-zs-payload`, `data-zs-note-kind`, hidden source metadata blocks, or custom representative-image wrapper blocks
+- **AND** each generated note SHALL have a note-child embedded-image payload attachment marked with the matching payload type.
+
+#### Scenario: Legacy HTML payloads remain readable
+- **WHEN** `export-notes` reads an older generated note that still contains a valid HTML payload block
+- **THEN** it SHALL export the same canonical artifact files as before.
+
+#### Scenario: Attachment-backed payloads survive note normalization
+- **WHEN** a generated digest-family note has been normalized by Zotero's editor and no longer contains custom HTML markers
+- **THEN** `export-notes` SHALL still export digest, references, and citation-analysis artifacts from the embedded payload attachment.
+
+### Requirement: Digest representative images SHALL use Zotero-legal note HTML
+
+Representative images MUST be written as normal Zotero embedded images and remain optional.
+
+#### Scenario: Representative image is embedded
+- **WHEN** Host resolves and imports a representative image for a digest note
+- **THEN** the digest note SHALL reference it with a normal `<img data-attachment-key="...">` element
+- **AND** it SHALL NOT wrap the image in a custom `data-zs-block="representative-image"` block.
+
+#### Scenario: Representative image export uses legal image markup
+- **WHEN** a digest note contains a valid note-child embedded image in the digest body
+- **THEN** `export-notes` SHALL export `representative_image.jpg` and insert the existing `zs:representative-image:v1` Markdown marker into `digest.md`.
+
+#### Scenario: Representative image remains best-effort
+- **WHEN** representative image resolution, import, read, or export fails
+- **THEN** digest text payload import/export SHALL still succeed.
 

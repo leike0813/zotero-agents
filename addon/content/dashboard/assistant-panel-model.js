@@ -241,6 +241,78 @@
     return fallback || "muted";
   }
 
+  function buildHostBridgeIndicator(source) {
+    const snap = source && typeof source === "object" ? source : {};
+    const bridge = snap.hostBridge && typeof snap.hostBridge === "object" ? snap.hostBridge : null;
+    if (!bridge) {
+      return null;
+    }
+    const status = normalizeStatusToken(bridge.status || "");
+    const portMode = normalizeStatusToken(bridge.portMode || "");
+    const endpoint = safeText(bridge.endpoint);
+    const recovery = safeText(bridge.lastRecoveryReason);
+    const title = [
+      endpoint ? "Endpoint: " + endpoint : "",
+      portMode ? "Port mode: " + portMode : "",
+      recovery,
+      safeText(bridge.lastError),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (status === "running" && portMode === "fallback") {
+      return indicator(
+        "host-bridge",
+        "Host Bridge",
+        "Fallback",
+        "warning",
+        title || "Host Bridge is running on a fallback random port.",
+      );
+    }
+    if (status === "running") {
+      return indicator(
+        "host-bridge",
+        "Host Bridge",
+        "Ready",
+        "success",
+        title || "Host Bridge is ready.",
+      );
+    }
+    if (status === "starting") {
+      return indicator(
+        "host-bridge",
+        "Host Bridge",
+        "Starting",
+        "accent",
+        title || "Host Bridge is starting.",
+      );
+    }
+    if (recovery && status !== "error") {
+      return indicator(
+        "host-bridge",
+        "Host Bridge",
+        "Recovering",
+        "accent",
+        title || recovery,
+      );
+    }
+    if (status === "error") {
+      return indicator(
+        "host-bridge",
+        "Host Bridge",
+        "Error",
+        "error",
+        title || "Host Bridge failed.",
+      );
+    }
+    return indicator(
+      "host-bridge",
+      "Host Bridge",
+      "Unavailable",
+      "warning",
+      title || "Host Bridge is not running.",
+    );
+  }
+
   function buildAcpMcpIndicator(source) {
     const snap = source && typeof source === "object" ? source : {};
     const health = snap.mcpHealth && typeof snap.mcpHealth === "object" ? snap.mcpHealth : null;
@@ -1262,8 +1334,8 @@
         ]),
         indicators: [
           connectionIndicator(connectionState, snap.lastError || snap.prerequisiteError),
-          buildAcpMcpIndicator(snap),
-        ],
+          buildHostBridgeIndicator(snap),
+        ].filter(Boolean),
         selectors: [
           contextSelector(
             "backend",
@@ -1576,8 +1648,13 @@
           }
         : conversation.interaction;
     const activePrompt = Boolean(run && run.activePrompt === true);
+    const replyState = safeText(run && run.replyState);
+    const activeContinuation =
+      ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
     const busyRun =
-      activePrompt || ["queued", "running", "repairing"].indexOf(status) >= 0;
+      activePrompt ||
+      activeContinuation ||
+      ["queued", "running", "repairing"].indexOf(status) >= 0;
     const waitingForUser = status === "waiting-user" || status === "waiting-auth";
     const terminalRun = isTerminalStatus(status);
     const runtimeOptions =
@@ -1629,7 +1706,7 @@
       run &&
       !run.pendingPermission &&
       safeText(interaction && interaction.kind) === "hidden" &&
-      (status === "failed" || status === "canceled" || status === "cancelled")
+      status === "failed"
     ) {
       interaction = {
         kind: "disconnected",
@@ -1641,6 +1718,19 @@
               run.conversationError,
           ) ||
           status,
+      };
+    }
+    if (
+      run &&
+      !run.pendingPermission &&
+      safeText(interaction && interaction.kind) === "hidden" &&
+      !activeContinuation &&
+      (status === "canceled" || status === "cancelled")
+    ) {
+      interaction = {
+        kind: "notice",
+        message:
+          "Run canceled. You can send a new instruction to continue this conversation.",
       };
     }
     const canReply =
@@ -1673,8 +1763,8 @@
             connected ? "connected" : recoveryState === "connecting" ? "connecting" : conversationState,
             run && (run.conversationError || run.error),
           ),
-          buildAcpSkillMcpIndicator(panel, run),
-        ],
+          buildHostBridgeIndicator(panel),
+        ].filter(Boolean),
         selectors: [],
         actions: run
           ? [

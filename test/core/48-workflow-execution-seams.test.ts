@@ -203,8 +203,97 @@ describe("workflow execution seams", function () {
         input: {
           source_path: "D:/real/example.md",
         },
+        runtime_options: {
+          zotero_host_access: {
+            required: true,
+          },
+        },
       },
     ]);
+  });
+
+  it("strips ZoteroHostAccess runtime options and logs a compatibility warning for SkillRunner backends", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-skillrunner-zotero-host-access",
+        label: "Seam SkillRunner ZoteroHostAccess",
+        provider: "skillrunner",
+        execution: {
+          zoteroHostAccess: {
+            required: true,
+          },
+        },
+        request: { kind: "skillrunner.job.v1" },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "skillrunner-local",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      requestKind: "skillrunner.job.v1",
+      workflowParams: {},
+      providerOptions: {},
+      runOptions: {
+        zoteroHostAccess: {
+          autoApproveWrites: true,
+        },
+      },
+      providerId: "skillrunner",
+    };
+    const logs: Array<{ stage: string; details?: unknown }> = [];
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+      },
+      {
+        buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-search-ingest",
+              runtime_options: {
+                execution_mode: "interactive",
+                zotero_host_access: {
+                  required: true,
+                  auto_approve_writes: true,
+                },
+              },
+              parameter: { query: "exact paper" },
+            },
+          ] as any,
+        resolveWorkflowExecutionContext: async () => fakeExecutionContext as any,
+        alertWindow: () => undefined,
+        appendRuntimeLog: (entry) => {
+          logs.push({ stage: entry.stage, details: entry.details });
+        },
+      },
+    );
+
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
+      execution_mode: "interactive",
+    });
+    assert.include(
+      logs.map((entry) => entry.stage),
+      "skillrunner_zotero_host_access_runtime_option_stripped",
+    );
   });
 
   it("keeps request-build failure messaging parity through seam entrypoint", async function () {

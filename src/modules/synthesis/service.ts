@@ -44,6 +44,7 @@ import {
   readArtifactsFromRegistryInputs,
   type SynthesisLibraryAdapter,
 } from "./libraryAdapter";
+import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
 import {
   buildPaperRegistryRows,
   type PaperRegistryInput,
@@ -65,6 +66,7 @@ import {
   createDefaultSynthesisUiState,
   type SynthesisUiSnapshot,
   type SynthesisUiState,
+  type SynthesisUiTopicUpdateIntent,
 } from "./uiModel";
 import {
   decideSynthesisApply,
@@ -1845,6 +1847,28 @@ function deriveTopicUpdateIntent(args: {
   };
 }
 
+function topicUpdateIntentForUi(args: {
+  topicId: string;
+  intent: TopicUpdateIntent;
+}): SynthesisUiTopicUpdateIntent {
+  const actionLabel: SynthesisUiTopicUpdateIntent["actionLabel"] =
+    args.intent.allowed && args.intent.scope === "repair"
+      ? "Repair/Rebuild"
+      : args.intent.allowed && args.intent.scope === "coverage"
+        ? "Complete"
+        : "Update";
+  return {
+    topicId: args.topicId,
+    language: args.intent.prefill.language,
+    updateScope: args.intent.prefill.updateScope,
+    updateMode: args.intent.prefill.updateMode,
+    updateReason: args.intent.prefill.updateReason,
+    actionLabel,
+    changedSections: args.intent.changed_sections,
+    blocked: !args.intent.allowed,
+  };
+}
+
 function summaryFromTopicDefinition(
   definition: Record<string, unknown> | undefined,
   fallback: string,
@@ -3601,45 +3625,60 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             deleted_at: row.deleted_at,
           })),
         },
-        artifacts: [...rows, ...legacyRows].map((row) => ({
-          id: row.topic_id,
-          title: row.title,
-          kind: "topic_synthesis",
-          coverage: artifactState[row.topic_id]?.coverage || "missing",
-          freshness:
+        artifacts: [...rows, ...legacyRows].map((row) => {
+          const stateRow = artifactState[row.topic_id];
+          const freshness =
             (row as any).status === "legacy_invalid"
               ? "dirty"
-              : artifactState[row.topic_id]?.freshness || "unknown",
-          updated_at: row.updated_at,
-          markdown_preview: (artifactState[row.topic_id]?.reasons || [])
-            .map((entry) => entry.code)
-            .join(", "),
-          paper_count:
-            row.paper_count ?? paperCountFromTopicState(artifactState[row.topic_id]),
-          summary: summaryFromTopicDefinition(
-            definitions[row.topic_id],
-            (artifactState[row.topic_id]?.reasons || [])
-              .map((entry) => entry.message || entry.code)
-              .filter(Boolean)
-              .slice(0, 2)
-              .join("; "),
-          ),
-          completion: completionFromTopicState(artifactState[row.topic_id]),
-          status: (row as any).status,
-          readerMode: (row as any).status === "legacy_invalid" ? "needs_recreate" : "structured",
-          language: row.language,
-          external_literature_count: row.external_literature_count,
-          stale_reasons:
-            artifactState[row.topic_id]?.freshness === "stale"
-              ? (artifactState[row.topic_id]?.reasons || []).map((entry) => entry.code)
-              : [],
-          dirty_reasons:
-            artifactState[row.topic_id]?.freshness === "dirty"
-              ? (artifactState[row.topic_id]?.reasons || []).map((entry) => entry.code)
-              : (row as any).status === "legacy_invalid"
-                ? ["legacy_invalid"]
+              : stateRow?.freshness || "unknown";
+          const coverage = stateRow?.coverage || "missing";
+          const intent = deriveTopicUpdateIntent({
+            topicId: row.topic_id,
+            language: row.language,
+            state: stateRow,
+            row,
+          });
+          return {
+            id: row.topic_id,
+            title: row.title,
+            kind: "topic_synthesis",
+            coverage,
+            freshness,
+            updated_at: row.updated_at,
+            markdown_preview: (stateRow?.reasons || [])
+              .map((entry) => entry.code)
+              .join(", "),
+            paper_count:
+              row.paper_count ?? paperCountFromTopicState(stateRow),
+            summary: summaryFromTopicDefinition(
+              definitions[row.topic_id],
+              (stateRow?.reasons || [])
+                .map((entry) => entry.message || entry.code)
+                .filter(Boolean)
+                .slice(0, 2)
+                .join("; "),
+            ),
+            completion: completionFromTopicState(stateRow),
+            status: (row as any).status,
+            readerMode: (row as any).status === "legacy_invalid" ? "needs_recreate" : "structured",
+            language: row.language,
+            external_literature_count: row.external_literature_count,
+            stale_reasons:
+              stateRow?.freshness === "stale"
+                ? (stateRow?.reasons || []).map((entry) => entry.code)
                 : [],
-        })),
+            dirty_reasons:
+              stateRow?.freshness === "dirty"
+                ? (stateRow?.reasons || []).map((entry) => entry.code)
+                : (row as any).status === "legacy_invalid"
+                  ? ["legacy_invalid"]
+                  : [],
+            updateIntent: topicUpdateIntentForUi({
+              topicId: row.topic_id,
+              intent,
+            }),
+          };
+        }),
         registry: {
           rows: registryRowsToUi(registryRows),
         },
@@ -4119,6 +4158,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       cleanString(artifact.decoded_text) ||
       (typeof artifact.payload === "string" ? artifact.payload : "");
     const currentHash = cleanString(artifact.hash);
+    const includeRepresentativeImage =
+      args.include_representative_image === true ||
+      args.includeRepresentativeImage === true;
+    const representativeImage = includeRepresentativeImage
+      ? await resolveDigestRepresentativeImageForUi({
+          libraryId:
+            libraryId ||
+            cleanString(artifact.paper_ref || paperRef).split(":")[0] ||
+            undefined,
+          noteKey: artifact.note_key,
+        })
+      : undefined;
     return {
       ok: Boolean(markdown),
       status: markdown ? "available" : "unavailable",
@@ -4130,6 +4181,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       current_hash: currentHash,
       source_changed: Boolean(recordedHash && currentHash && recordedHash !== currentHash),
       diagnostics: artifact.diagnostics || [],
+      ...(representativeImage ? { representative_image: representativeImage } : {}),
     };
   }
 
@@ -4399,6 +4451,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           status,
           note_key: cleanString(row.note_key || row.noteKey),
           note_title: cleanString(row.note_title || row.noteTitle),
+          payload_types_seen: normalizeArray(
+            row.payload_types_seen || row.payloadTypesSeen,
+          )
+            .map(cleanString)
+            .filter(Boolean),
           payload_hash: cleanString(artifact.payload_hash || artifact.hash),
           missing_reason: cleanString(row.missing_reason || row.missingReason),
           diagnostics: artifactDiagnostics,

@@ -5,164 +5,57 @@
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
   <html:style>
-    .zs-pref-root {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .zs-pref-card {
-      border: 1px solid rgba(15, 23, 42, 0.15);
-      border-radius: 8px;
-      padding: 12px;
-      background: rgba(248, 250, 252, 0.65);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .zs-pref-card-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 2px;
-    }
-    .zs-pref-actions-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .zs-runtime-data-grid {
-      display: grid;
-      grid-template-columns: minmax(140px, 1fr) auto auto;
-      gap: 6px 10px;
-      align-items: center;
-      font-size: 12px;
-    }
-    .zs-runtime-data-path {
-      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-      font-size: 11px;
-      word-break: break-all;
-      color: #334155;
-    }
-    .zs-runtime-data-category {
-      color: #334155;
-    }
-    .zs-runtime-data-size {
-      color: #0f172a;
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-      white-space: nowrap;
-    }
-    #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .zs-runtime-led {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      display: inline-block;
-      border: 1px solid #6b7280;
-      background: #9ca3af;
-    }
-    .zs-runtime-led.is-green {
-      background: #16a34a;
-      border-color: #166534;
-    }
-    .zs-runtime-led.is-red {
-      background: #dc2626;
-      border-color: #991b1b;
-    }
-    .zs-runtime-led.is-gray {
-      background: #9ca3af;
-      border-color: #6b7280;
-    }
-    .zs-runtime-led.is-orange {
-      background: #f59e0b;
-      border-color: #b45309;
-    }
-    .zs-autostart-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      font-size: 13px;
-      font-weight: 700;
-      line-height: 1;
-      color: #dc2626;
-      user-select: none;
-    }
-    .zs-autostart-icon.is-green {
-      color: #16a34a;
-    }
-    .zs-autostart-icon.is-red {
-      color: #dc2626;
-    }
-    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row {
-      display: none;
-      align-items: center;
-      gap: 8px;
-      margin-top: 4px;
-    }
+    .zs-pref-root { display: flex; flex-direction: column; gap: 12px; }
+    .zs-pref-card { border: 1px solid rgba(15, 23, 42, 0.15); border-radius:
+    8px; padding: 12px; background: rgba(248, 250, 252, 0.65); display: flex;
+    flex-direction: column; gap: 8px; } .zs-pref-card-title { font-size: 16px;
+    font-weight: 700; margin-bottom: 2px; } .zs-pref-actions-row { display:
+    flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .zs-runtime-data-grid { display: grid; grid-template-columns: minmax(140px,
+    1fr) auto auto; gap: 6px 10px; align-items: center; font-size: 12px; }
+    .zs-runtime-data-path { font-family: ui-monospace, SFMono-Regular, Consolas,
+    monospace; font-size: 11px; word-break: break-all; color: #334155; }
+    .zs-runtime-data-category { color: #334155; } .zs-runtime-data-size { color:
+    #0f172a; font-variant-numeric: tabular-nums; text-align: right; white-space:
+    nowrap; } #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
+    gap: 8px; align-items: center; flex-wrap: wrap; } .zs-runtime-led { width:
+    10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px
+    solid #6b7280; background: #9ca3af; } .zs-runtime-led.is-green { background:
+    #16a34a; border-color: #166534; } .zs-runtime-led.is-red { background:
+    #dc2626; border-color: #991b1b; } .zs-runtime-led.is-gray { background:
+    #9ca3af; border-color: #6b7280; } .zs-runtime-led.is-orange { background:
+    #f59e0b; border-color: #b45309; } .zs-autostart-icon { display: inline-flex;
+    align-items: center; justify-content: center; width: 16px; height: 16px;
+    font-size: 13px; font-weight: 700; line-height: 1; color: #dc2626;
+    user-select: none; } .zs-autostart-icon.is-green { color: #16a34a; }
+    .zs-autostart-icon.is-red { color: #dc2626; }
+    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row { display:
+    none; align-items: center; gap: 8px; margin-top: 4px; }
     #zotero-prefpane-__addonRef__-skillrunner-local-progress-row.is-visible {
-      display: flex;
-    }
-    .custom-progress-container {
-      width: 220px;
-      min-width: 220px;
-      height: 6px;
-      background-color: var(--fill-quaternary, rgba(128, 128, 128, 0.2));
-      border-radius: 3px;
-      overflow: hidden;
-      margin-top: 1px;
-      margin-bottom: 0px;
-    }
-    .custom-progress-bar {
-      height: 100%;
-      background-color: var(--fill-accent-primary, #0b6efd);
-      width: 0%;
-      transition: width 0.2s ease-out;
-    }
-
+    display: flex; } .custom-progress-container { width: 220px; min-width:
+    220px; height: 6px; background-color: var(--fill-quaternary, rgba(128, 128,
+    128, 0.2)); border-radius: 3px; overflow: hidden; margin-top: 1px;
+    margin-bottom: 0px; } .custom-progress-bar { height: 100%; background-color:
+    var(--fill-accent-primary, #0b6efd); width: 0%; transition: width 0.2s
+    ease-out; }
     #zotero-prefpane-__addonRef__-skillrunner-local-uninstall-options-dialog {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.35);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-    #zotero-prefpane-__addonRef__-skillrunner-local-uninstall-options-dialog.is-visible {
-      display: flex;
-    }
-    .zs-uninstall-options-panel {
-      min-width: 360px;
-      max-width: 460px;
-      background: #fff;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      padding: 14px;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .zs-uninstall-options-actions {
-      display: flex;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-    .zs-uninstall-option {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: none;
+    align-items: center; justify-content: center; z-index: 9999; }
+    #zotero-prefpane-__addonRef__-skillrunner-local-uninstall-options-dialog.is-visible
+    { display: flex; } .zs-uninstall-options-panel { min-width: 360px;
+    max-width: 460px; background: #fff; border: 1px solid #d1d5db;
+    border-radius: 8px; padding: 14px; box-shadow: 0 10px 24px rgba(0, 0, 0,
+    0.22); display: flex; flex-direction: column; gap: 10px; }
+    .zs-uninstall-options-actions { display: flex; gap: 8px; justify-content:
+    flex-end; } .zs-uninstall-option { display: flex; align-items: center; gap:
+    8px; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
-      <label class="zs-pref-card-title" data-l10n-id="pref-section-workflows"></label>
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-workflows"
+      ></label>
       <hbox align="center">
         <html:label
           for="zotero-prefpane-__addonRef__-workflow-dir"
@@ -199,7 +92,10 @@
     </vbox>
 
     <vbox class="zs-pref-card">
-      <label class="zs-pref-card-title" data-l10n-id="pref-section-backends"></label>
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-backends"
+      ></label>
       <hbox class="zs-pref-actions-row">
         <button
           id="zotero-prefpane-__addonRef__-backend-manage"
@@ -210,7 +106,63 @@
     </vbox>
 
     <vbox class="zs-pref-card">
-      <label class="zs-pref-card-title" data-l10n-id="pref-section-runtime-data"></label>
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-host-bridge"
+      ></label>
+      <description data-l10n-id="pref-host-bridge-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-host-bridge-lan-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-host-bridge-lan-enabled"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label class="zs-uninstall-option">
+          <html:input
+            id="zotero-prefpane-__addonRef__-host-bridge-pin-port-enabled"
+            type="checkbox"
+          ></html:input>
+          <html:span data-l10n-id="pref-host-bridge-pin-port-enabled"></html:span>
+        </html:label>
+        <html:input
+          id="zotero-prefpane-__addonRef__-host-bridge-pinned-port"
+          type="number"
+          min="1024"
+          max="65535"
+          step="1"
+        ></html:input>
+      </hbox>
+      <html:div
+        id="zotero-prefpane-__addonRef__-host-bridge-endpoint"
+        class="zs-runtime-data-path"
+      ></html:div>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-host-bridge-show-endpoint"
+          data-l10n-id="pref-host-bridge-show-endpoint"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-host-bridge-rotate-token"
+          data-l10n-id="pref-host-bridge-rotate-token"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-host-bridge-install-cli"
+          data-l10n-id="pref-host-bridge-install-cli"
+        ></button>
+      </hbox>
+      <description
+        id="zotero-prefpane-__addonRef__-host-bridge-status"
+        data-l10n-id="pref-host-bridge-status-idle"
+      ></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-runtime-data"
+      ></label>
       <description data-l10n-id="pref-runtime-data-help"></description>
       <html:div
         id="zotero-prefpane-__addonRef__-runtime-data-root"
@@ -264,13 +216,17 @@
         ></button>
       </hbox>
       <hbox id="zotero-prefpane-__addonRef__-skillrunner-local-inline-status">
-        <html:span data-l10n-id="pref-skillrunner-local-runtime-indicator"></html:span>
+        <html:span
+          data-l10n-id="pref-skillrunner-local-runtime-indicator"
+        ></html:span>
         <html:span
           id="zotero-prefpane-__addonRef__-skillrunner-local-runtime-led"
           class="zs-runtime-led is-gray"
           title="-"
         ></html:span>
-        <html:span data-l10n-id="pref-skillrunner-local-autostart-indicator"></html:span>
+        <html:span
+          data-l10n-id="pref-skillrunner-local-autostart-indicator"
+        ></html:span>
         <html:span
           id="zotero-prefpane-__addonRef__-skillrunner-local-autostart-icon"
           class="zs-autostart-icon is-red"
@@ -291,7 +247,9 @@
         ></button>
       </hbox>
       <description data-l10n-id="pref-skillrunner-local-help"></description>
-      <html:div id="zotero-prefpane-__addonRef__-skillrunner-local-progress-row">
+      <html:div
+        id="zotero-prefpane-__addonRef__-skillrunner-local-progress-row"
+      >
         <html:div class="custom-progress-container">
           <html:div
             id="zotero-prefpane-__addonRef__-skillrunner-local-progressmeter"

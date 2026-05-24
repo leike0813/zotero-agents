@@ -13,6 +13,8 @@
 | 输入单元 | 父条目 (parent)                                      |
 | 数据来源 | 从父条目获取：当前标签、元数据（标题、作者、摘要等） |
 
+若存在 literature digest 生成的 digest markdown embedded payload，workflow 会自动作为可选上下文上传。
+
 ### 触发方式
 
 - 直接选中一个或多个 Zotero 条目（父条目）
@@ -29,6 +31,7 @@
    └── 收集父条目的元数据
        └── 收集当前标签列表
        └── 将受控词表写入临时 YAML 文件
+       └── 若父条目已有 digest markdown embedded payload，则写入临时 Markdown 文件
        └── 上传到 Skill-Runner
 
 3. Skill-Runner 处理
@@ -48,6 +51,8 @@
 - **remove_tags**: 不在受控词表中的当前标签
 - **add_tags**: 根据元数据推断的推荐标签
 - **suggest_tags**: AI 建议的新标签（需要用户确认）
+- **digest_markdown**: 可选增强上下文；只在父条目存在 `digest-markdown` embedded payload 时上传，不提供用户开关，也不影响输出
+  schema
 
 ### 返回时 live reconcile 规则
 

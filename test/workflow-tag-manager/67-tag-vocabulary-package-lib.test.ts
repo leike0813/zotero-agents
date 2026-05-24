@@ -161,14 +161,14 @@ describe("tag-vocabulary-package lib", function () {
     assert.equal(value, "scoped-value");
   });
 
-  it("accepts current hostApi v3 as a compatible v2 extension", async function () {
+  it("accepts current hostApi v5 as a compatible v2 extension", async function () {
     const value = await withPackageRuntimeScope(
       {
         hostApiVersion: WORKFLOW_HOST_API_VERSION,
         hostApi: {
           prefs: {
             get(key: string) {
-              return key === "scoped.pref" ? "scoped-v3-value" : "";
+              return key === "scoped.pref" ? "scoped-v5-value" : "";
             },
             set() {
               return undefined;
@@ -191,8 +191,8 @@ describe("tag-vocabulary-package lib", function () {
       () => readRawPref("scoped.pref"),
     );
 
-    assert.equal(WORKFLOW_HOST_API_VERSION, 3);
-    assert.equal(value, "scoped-v3-value");
+    assert.equal(WORKFLOW_HOST_API_VERSION, 5);
+    assert.equal(value, "scoped-v5-value");
   });
 
   it("pref accessors read workflow metadata from hostApi addon config", async function () {

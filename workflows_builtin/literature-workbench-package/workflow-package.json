@@ -2,6 +2,10 @@
   "id": "literature-workbench-package",
   "version": "1.0.0",
   "workflows": [
+    "add-digest-representative-image/workflow.json",
+    "debug-digest-apply-fixture/workflow.json",
+    "debug-migrate-note-payloads/workflow.json",
+    "debug-note-artifact-inspector/workflow.json",
     "export-notes/workflow.json",
     "import-notes/workflow.json",
     "literature-explainer/workflow.json",

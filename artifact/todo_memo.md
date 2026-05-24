@@ -69,30 +69,41 @@
 - [x] workspace activity 有时会打断完整信息（当流式输出未结束时）
 - [x] synthesis页面中的run synthesis按钮语义应该改为create topic
 - [x] 四个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮；活动中的acp skills任务如果有新动作，会话抽屉中的任务卡片的更新时间会刷新，在刷新时会导致抽屉无法交互
-- [ ] **Topic graph**
+- [ ] **Topic graph 和知识库**
+- [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
+- [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
+- [ ] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
+- [x] 升级 host bridge cli 界面，将 synthesis 作为一等子命令
+- [x] 调试完毕后，彻底统一 host bridge cli 相关注入点（根据workflow声明，统一单点注入，不直接写SKILL；裸命令尽量实现，run-local shim做兜底），避免现在写得到处都是
 - [x] **Citation graph增强**，图论算法引入，更多分析维度和数据，最终用于增强synthesis质量
-- [ ] 常见 ACP backend 的快捷添加
+- [x] 常见 ACP backend 的快捷添加
+- [x] acp skills执行过程中点取消会显示“File Closed”，意义不明。继续发指令后提示区一直卡在这个状态
 - [ ] **初次启动时的使用指导demo**
-- [ ] **MCP 服务公开化，MCP插件调用能力**（非远程调用能力，远程调用比较麻烦，以后再说）
 - [p] **文献搜索入库 workflow**
 - [p] **文献综述撰写 workflow**
 - [x] Dashboard 的正在运行任务列表，点击无法直接打开侧栏并跳转至任务页面
+- [x] Dashboard 的正在运行的任务列表会显示很多会话抽屉中已不存在的任务，疑似是有某些残留
 - [x] 非运行状态应该把 plan 动画停掉（转圈改为代表halt的某个图标）
-- [ ] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
+- [x] 用户回复框按向上箭头浏览历史的功能
+- [x] agent的输出，以及其他很多控件中的文本选择和复制等功能不完善，增加code fence完整复制功能
+- [x] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
 - [ ] Dashboard 中已取消任务统计永远是0
 - [x] Dashboard 以及 Sidebar panels 与 synthesis workbench 的视觉风格统一（包括亮/暗主题切换）
 - [ ] 执行失败时的弹窗信息太多太乱
-- [ ] Dashboard 正在运行任务窗口似乎会频繁刷新导致scroll不正常
-- [ ] **工具栏上的快捷任务观察窗（hover展开）**
+- [x] Dashboard 正在运行任务窗口似乎会频繁刷新导致scroll不正常
+- [x] **工具栏上的快捷任务观察窗（hover展开）**
+- [ ] Tag 管理协议和功能内建化，支持用户自定义tag规则
 - [ ] **ACP 本地已归档 transcript/Skill runner 本地账本/任务的清理/管理机制**
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [p] **兼容 Zotero 9**
 - [ ] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
 - [ ] broad cache 治理，去除非必要的静态断言
-- [ ] 更详细的前后端通讯状态机
 - [ ] 进一步抽出所有可复用的手搓 UI 控件（例如之前已经实现的下拉菜单等，统一搜索并抽出），尤其是带 scroll 的控件，每次加入新的该类控件都会遇到重置 scroll 位置的问题，最好直接抽成通用控件
 - [ ] 进一步升级到各 workflow 可通用的 html 组件，原来基于原生控件的 helper 整体升级（可选）
 - [ ] 从已有的 workflow 中进一步提炼可抽取的公用 helper， 降低 workflow 开发难度 (进一步重构升级hostAPI)
 - [ ] **更加健壮的基础设施升级**
 
+暂不考虑的：
+- [c] 更详细的前后端通讯状态机
+- [c] **MCP 服务公开化，MCP插件调用能力**（非远程调用能力，远程调用比较麻烦，以后再说）

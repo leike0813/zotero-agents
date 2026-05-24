@@ -8,6 +8,8 @@ import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   listWorkflowTasks,
+  removeWorkflowTasksByBackendAndRequestIds,
+  updateWorkflowTaskStateByRequest,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import {
@@ -15,12 +17,17 @@ import {
   getZoteroMcpServerStatus,
   type ZoteroMcpServerStatusSnapshot,
 } from "./zoteroMcpServer";
+import { getHostBridgeServerStatus } from "./hostBridgeServer";
+import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import type {
   AcpToolCall,
   RequestPermissionOutcome,
   SessionNotification,
 } from "./acpProtocol";
-import type { AcpMcpHealthSnapshot, AcpPendingPermissionRequest } from "./acpTypes";
+import type {
+  AcpMcpHealthSnapshot,
+  AcpPendingPermissionRequest,
+} from "./acpTypes";
 import {
   parseAcpEffortFromModelText,
   resolveAcpRawModelIdForSelection,
@@ -155,6 +162,19 @@ export type AcpSkillRunPendingInteraction = {
   candidateText?: string;
 };
 
+export type AcpSkillRunHostBridgeCliState = {
+  available: boolean;
+  endpoint?: string;
+  tokenMasked?: string;
+  profilePath?: string;
+  readmePath?: string;
+  cliDir?: string;
+  binarySource?: string;
+  pathInjected: boolean;
+  autoApproveWrites?: boolean;
+  fallbackReason?: string;
+};
+
 export type AcpSkillRunRecord = {
   requestId: string;
   status: AcpSkillRunStatus;
@@ -189,8 +209,14 @@ export type AcpSkillRunRecord = {
   runnerJson?: Record<string, unknown>;
   resourceRewriteWarnings?: string[];
   runtimeDependencies?: string[];
-  runtimeDependencyStatus?: "not-required" | "disabled" | "probing" | "ready" | "failed";
+  runtimeDependencyStatus?:
+    | "not-required"
+    | "disabled"
+    | "probing"
+    | "ready"
+    | "failed";
   runtimeDependencyError?: string;
+  hostBridgeCli?: AcpSkillRunHostBridgeCliState;
   repairRounds: number;
   validationStatus?: "pending" | "valid" | "invalid";
   validationErrors?: string[];
@@ -263,6 +289,7 @@ export type AcpSkillRunPanelSnapshot = {
   selectedRequestId: string;
   mcpServer?: ZoteroMcpServerStatusSnapshot;
   mcpHealth?: AcpMcpHealthSnapshot;
+  hostBridge?: HostBridgeStatusSnapshot;
   summary: {
     total: number;
     active: number;
@@ -315,7 +342,10 @@ type AcpSkillRunRecoveryHandler = (args: {
 const STORE_SCOPE = "skill-runs";
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const controllers = new Map<string, AcpSkillRunController>();
-const runtimeOptionsByRequestId = new Map<string, AcpSkillRunRuntimeOptionsSnapshot>();
+const runtimeOptionsByRequestId = new Map<
+  string,
+  AcpSkillRunRuntimeOptionsSnapshot
+>();
 const permissionResolvers = new Map<
   string,
   {
@@ -368,10 +398,12 @@ function cloneSelectableOptions(options: AcpSelectableOption[]) {
 function findSelectableOption(options: AcpSelectableOption[], idRaw: unknown) {
   const id = normalizeString(idRaw);
   if (!id) return undefined;
-  return options.find((entry) => normalizeString(entry.id) === id) || {
-    id,
-    label: id,
-  };
+  return (
+    options.find((entry) => normalizeString(entry.id) === id) || {
+      id,
+      label: id,
+    }
+  );
 }
 
 function cloneRuntimeOptions(
@@ -384,8 +416,12 @@ function cloneRuntimeOptions(
     currentModel: cloneSelectableOption(options.currentModel),
     displayModelOptions: cloneSelectableOptions(options.displayModelOptions),
     currentDisplayModel: cloneSelectableOption(options.currentDisplayModel),
-    reasoningEffortOptions: cloneSelectableOptions(options.reasoningEffortOptions),
-    currentReasoningEffort: cloneSelectableOption(options.currentReasoningEffort),
+    reasoningEffortOptions: cloneSelectableOptions(
+      options.reasoningEffortOptions,
+    ),
+    currentReasoningEffort: cloneSelectableOption(
+      options.currentReasoningEffort,
+    ),
   };
 }
 
@@ -409,7 +445,9 @@ function normalizeStatus(value: unknown): AcpSkillRunStatus {
   return "running";
 }
 
-function normalizeConversationState(value: unknown): AcpSkillRunConversationState {
+function normalizeConversationState(
+  value: unknown,
+): AcpSkillRunConversationState {
   const normalized = normalizeString(value).toLowerCase();
   if (
     normalized === "starting" ||
@@ -439,13 +477,19 @@ function normalizeRecoveryState(value: unknown): AcpSkillRunRecoveryState {
 
 function normalizeReplyState(value: unknown): AcpSkillRunReplyState {
   const normalized = normalizeString(value).toLowerCase();
-  if (normalized === "submitted" || normalized === "accepted" || normalized === "rejected") {
+  if (
+    normalized === "submitted" ||
+    normalized === "accepted" ||
+    normalized === "rejected"
+  ) {
     return normalized;
   }
   return "idle";
 }
 
-function normalizeConnectionActionState(value: unknown): AcpSkillRunConnectionActionState {
+function normalizeConnectionActionState(
+  value: unknown,
+): AcpSkillRunConnectionActionState {
   const normalized = normalizeString(value).toLowerCase();
   if (normalized === "connecting" || normalized === "disconnecting") {
     return normalized;
@@ -453,7 +497,9 @@ function normalizeConnectionActionState(value: unknown): AcpSkillRunConnectionAc
   return "idle";
 }
 
-function parsePendingInteraction(value: unknown): AcpSkillRunPendingInteraction | undefined {
+function parsePendingInteraction(
+  value: unknown,
+): AcpSkillRunPendingInteraction | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -472,12 +518,16 @@ function normalizeOutputRevisionStatus(
   value: unknown,
 ): AcpSkillRunOutputRevisionStatus | undefined {
   const normalized = normalizeString(value);
-  return normalized === "invalid" || normalized === "pending" || normalized === "final"
+  return normalized === "invalid" ||
+    normalized === "pending" ||
+    normalized === "final"
     ? normalized
     : undefined;
 }
 
-function parseMessageRevision(value: unknown): AcpSkillRunMessageRevisionSummary | undefined {
+function parseMessageRevision(
+  value: unknown,
+): AcpSkillRunMessageRevisionSummary | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -489,7 +539,10 @@ function parseMessageRevision(value: unknown): AcpSkillRunMessageRevisionSummary
   return {
     count,
     latestStatus,
-    latestRepairRound: Math.max(0, Math.floor(Number(value.latestRepairRound || 0) || 0)),
+    latestRepairRound: Math.max(
+      0,
+      Math.floor(Number(value.latestRepairRound || 0) || 0),
+    ),
   };
 }
 
@@ -497,23 +550,26 @@ function parseOutputRevisions(value: unknown): AcpSkillRunOutputRevision[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter(isRecord).reduce<AcpSkillRunOutputRevision[]>((acc, raw, index) => {
-    const status = normalizeOutputRevisionStatus(raw.status);
-    if (!status) {
+  return value
+    .filter(isRecord)
+    .reduce<AcpSkillRunOutputRevision[]>((acc, raw, index) => {
+      const status = normalizeOutputRevisionStatus(raw.status);
+      if (!status) {
+        return acc;
+      }
+      const createdAt = normalizeString(raw.createdAt) || nowIso();
+      acc.push({
+        id: normalizeString(raw.id) || `revision-${index + 1}`,
+        candidateText: normalizeString(raw.candidateText),
+        repairRound: Math.max(0, Math.floor(Number(raw.repairRound || 0) || 0)),
+        status,
+        errors: parseStringArray(raw.errors),
+        replacementReason: normalizeString(raw.replacementReason) || undefined,
+        createdAt,
+      });
       return acc;
-    }
-    const createdAt = normalizeString(raw.createdAt) || nowIso();
-    acc.push({
-      id: normalizeString(raw.id) || `revision-${index + 1}`,
-      candidateText: normalizeString(raw.candidateText),
-      repairRound: Math.max(0, Math.floor(Number(raw.repairRound || 0) || 0)),
-      status,
-      errors: parseStringArray(raw.errors),
-      replacementReason: normalizeString(raw.replacementReason) || undefined,
-      createdAt,
-    });
-    return acc;
-  }, []).slice(-50);
+    }, [])
+    .slice(-50);
 }
 
 function buildOutputRevisionSummary(
@@ -535,9 +591,7 @@ function parseStringArray(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
-    .map((entry) => normalizeString(entry))
-    .filter(Boolean);
+  return value.map((entry) => normalizeString(entry)).filter(Boolean);
 }
 
 function normalizeToolCallState(
@@ -659,7 +713,11 @@ function permissionStatusFromResolution(details: Record<string, unknown>) {
   if (outcome === "cancelled" || outcome === "canceled") {
     return "cancelled" as const;
   }
-  if (optionId.includes("deny") || optionId.includes("reject") || optionId.includes("cancel")) {
+  if (
+    optionId.includes("deny") ||
+    optionId.includes("reject") ||
+    optionId.includes("cancel")
+  ) {
     return "denied" as const;
   }
   return "approved" as const;
@@ -677,7 +735,9 @@ function upsertPermissionTranscriptItem(
     return false;
   }
   const existingIndex = record.transcriptItems.findIndex(
-    (item) => item.kind === "permission" && item.permissionRequestId === permissionRequestId,
+    (item) =>
+      item.kind === "permission" &&
+      item.permissionRequestId === permissionRequestId,
   );
   const status =
     event.stage === "permission-resolved"
@@ -705,8 +765,7 @@ function upsertPermissionTranscriptItem(
     source:
       normalizeString(details.source) ||
       (previous?.kind === "permission" ? previous.source : undefined),
-    createdAt:
-      previous?.kind === "permission" ? previous.createdAt : event.ts,
+    createdAt: previous?.kind === "permission" ? previous.createdAt : event.ts,
     updatedAt: event.ts,
   };
   if (existingIndex >= 0) {
@@ -728,7 +787,8 @@ function appendStatusTranscriptItem(
     return;
   }
   if (
-    (event.stage === "permission-requested" || event.stage === "permission-resolved") &&
+    (event.stage === "permission-requested" ||
+      event.stage === "permission-resolved") &&
     upsertPermissionTranscriptItem(record, event)
   ) {
     return;
@@ -754,113 +814,136 @@ function appendStatusTranscriptItem(
     details: event.details ? { ...event.details } : undefined,
     createdAt: event.ts,
   };
-  record.transcriptItems = [
-    ...record.transcriptItems,
-    item,
-  ].slice(-200);
+  record.transcriptItems = [...record.transcriptItems, item].slice(-200);
 }
 
 function parseTranscriptItems(value: unknown, updatedAt: string) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter(isRecord).reduce<AcpSkillRunTranscriptItem[]>((acc, raw) => {
-    const kind = normalizeString(raw.kind);
-    const id = normalizeString(raw.id);
-    const createdAt = normalizeString(raw.createdAt) || updatedAt;
-    const updatedAtValue = normalizeString(raw.updatedAt) || undefined;
-    if (!id) {
+  return value
+    .filter(isRecord)
+    .reduce<AcpSkillRunTranscriptItem[]>((acc, raw) => {
+      const kind = normalizeString(raw.kind);
+      const id = normalizeString(raw.id);
+      const createdAt = normalizeString(raw.createdAt) || updatedAt;
+      const updatedAtValue = normalizeString(raw.updatedAt) || undefined;
+      if (!id) {
+        return acc;
+      }
+      if (kind === "message") {
+        const role = raw.role === "user" ? "user" : "assistant";
+        acc.push({
+          id,
+          kind,
+          role,
+          text: normalizeString(raw.text),
+          state: raw.state === "complete" ? "complete" : "streaming",
+          revision: parseMessageRevision(raw.revision),
+          createdAt,
+          updatedAt: updatedAtValue,
+        });
+        return acc;
+      }
+      if (kind === "thought") {
+        acc.push({
+          id,
+          kind,
+          text: normalizeString(raw.text),
+          state: raw.state === "complete" ? "complete" : "streaming",
+          createdAt,
+          updatedAt: updatedAtValue,
+        });
+        return acc;
+      }
+      if (kind === "tool_call") {
+        const state = normalizeToolCallState(raw.state);
+        acc.push({
+          id,
+          kind,
+          toolCallId: normalizeString(raw.toolCallId) || id,
+          title: normalizeString(raw.title) || undefined,
+          state,
+          toolKind: normalizeString(raw.toolKind) || undefined,
+          toolName: normalizeString(raw.toolName) || undefined,
+          inputSummary: normalizeString(raw.inputSummary) || undefined,
+          resultSummary: normalizeString(raw.resultSummary) || undefined,
+          summary: normalizeString(raw.summary) || undefined,
+          createdAt,
+          updatedAt: updatedAtValue,
+        });
+        return acc;
+      }
+      if (kind === "status") {
+        acc.push({
+          id,
+          kind,
+          level:
+            raw.level === "error" || raw.level === "warn" ? raw.level : "info",
+          label: normalizeString(raw.label) || "Status",
+          text: normalizeString(raw.text),
+          details: isRecord(raw.details) ? { ...raw.details } : undefined,
+          createdAt,
+          updatedAt: updatedAtValue,
+        });
+        return acc;
+      }
+      if (kind === "permission") {
+        const status = normalizeString(raw.status);
+        acc.push({
+          id,
+          kind,
+          permissionRequestId: normalizeString(raw.permissionRequestId),
+          status:
+            status === "approved" ||
+            status === "denied" ||
+            status === "cancelled"
+              ? status
+              : "pending",
+          title: normalizeString(raw.title) || "Permission request",
+          summary:
+            normalizeString(raw.summary) || "ACP backend requests approval.",
+          source: normalizeString(raw.source) || undefined,
+          createdAt,
+          updatedAt: updatedAtValue,
+        });
+      }
       return acc;
-    }
-    if (kind === "message") {
-      const role = raw.role === "user" ? "user" : "assistant";
-      acc.push({
-        id,
-        kind,
-        role,
-        text: normalizeString(raw.text),
-        state: raw.state === "complete" ? "complete" : "streaming",
-        revision: parseMessageRevision(raw.revision),
-        createdAt,
-        updatedAt: updatedAtValue,
-      });
-      return acc;
-    }
-    if (kind === "thought") {
-      acc.push({
-        id,
-        kind,
-        text: normalizeString(raw.text),
-        state: raw.state === "complete" ? "complete" : "streaming",
-        createdAt,
-        updatedAt: updatedAtValue,
-      });
-      return acc;
-    }
-    if (kind === "tool_call") {
-      const state = normalizeToolCallState(raw.state);
-      acc.push({
-        id,
-        kind,
-        toolCallId: normalizeString(raw.toolCallId) || id,
-        title: normalizeString(raw.title) || undefined,
-        state,
-        toolKind: normalizeString(raw.toolKind) || undefined,
-        toolName: normalizeString(raw.toolName) || undefined,
-        inputSummary: normalizeString(raw.inputSummary) || undefined,
-        resultSummary: normalizeString(raw.resultSummary) || undefined,
-        summary: normalizeString(raw.summary) || undefined,
-        createdAt,
-        updatedAt: updatedAtValue,
-      });
-      return acc;
-    }
-    if (kind === "status") {
-      acc.push({
-        id,
-        kind,
-        level:
-          raw.level === "error" || raw.level === "warn" ? raw.level : "info",
-        label: normalizeString(raw.label) || "Status",
-        text: normalizeString(raw.text),
-        details: isRecord(raw.details) ? { ...raw.details } : undefined,
-        createdAt,
-        updatedAt: updatedAtValue,
-      });
-      return acc;
-    }
-    if (kind === "permission") {
-      const status = normalizeString(raw.status);
-      acc.push({
-        id,
-        kind,
-        permissionRequestId: normalizeString(raw.permissionRequestId),
-        status:
-          status === "approved" ||
-          status === "denied" ||
-          status === "cancelled"
-            ? status
-            : "pending",
-        title: normalizeString(raw.title) || "Permission request",
-        summary: normalizeString(raw.summary) || "ACP backend requests approval.",
-        source: normalizeString(raw.source) || undefined,
-        createdAt,
-        updatedAt: updatedAtValue,
-      });
-    }
-    return acc;
-  }, []);
+    }, []);
 }
 
 function parsePlanEntries(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter(isRecord).map((entry) => ({
-    content: normalizeString(entry.content),
-    priority: normalizeString(entry.priority) || undefined,
-    status: normalizeString(entry.status) || undefined,
-  })).filter((entry) => entry.content);
+  return value
+    .filter(isRecord)
+    .map((entry) => ({
+      content: normalizeString(entry.content),
+      priority: normalizeString(entry.priority) || undefined,
+      status: normalizeString(entry.status) || undefined,
+    }))
+    .filter((entry) => entry.content);
+}
+
+function parseHostBridgeCliState(
+  value: unknown,
+): AcpSkillRunHostBridgeCliState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    available: value.available === true,
+    endpoint: normalizeString(value.endpoint) || undefined,
+    tokenMasked: normalizeString(value.tokenMasked) || undefined,
+    profilePath: normalizeString(value.profilePath) || undefined,
+    readmePath: normalizeString(value.readmePath) || undefined,
+    cliDir: normalizeString(value.cliDir) || undefined,
+    binarySource: normalizeString(value.binarySource) || undefined,
+    pathInjected: value.pathInjected === true,
+    autoApproveWrites: value.autoApproveWrites === true,
+    fallbackReason: normalizeString(value.fallbackReason) || undefined,
+  };
 }
 
 function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
@@ -887,7 +970,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     taskName: normalizeString(raw.taskName) || undefined,
     skillId: normalizeString(raw.skillId) || undefined,
     requestPayload: raw.requestPayload,
-    providerOptions: isRecord(raw.providerOptions) ? { ...raw.providerOptions } : undefined,
+    providerOptions: isRecord(raw.providerOptions)
+      ? { ...raw.providerOptions }
+      : undefined,
     executionMode:
       normalizeString(raw.executionMode).toLowerCase() === "interactive"
         ? "interactive"
@@ -904,11 +989,16 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     acpRawModelId: normalizeString(raw.acpRawModelId) || undefined,
     agentFamily: normalizeString(raw.agentFamily) || undefined,
     skillRoots: parseStringArray(raw.skillRoots),
-    sharedSkillCatalogPath: normalizeString(raw.sharedSkillCatalogPath) || undefined,
-    proxySkillCount: Math.max(0, Math.floor(Number(raw.proxySkillCount || 0) || 0)),
+    sharedSkillCatalogPath:
+      normalizeString(raw.sharedSkillCatalogPath) || undefined,
+    proxySkillCount: Math.max(
+      0,
+      Math.floor(Number(raw.proxySkillCount || 0) || 0),
+    ),
     proxySkillRoots: parseStringArray(raw.proxySkillRoots),
     requestedSkillId: normalizeString(raw.requestedSkillId) || undefined,
-    requestedSkillProxyPath: normalizeString(raw.requestedSkillProxyPath) || undefined,
+    requestedSkillProxyPath:
+      normalizeString(raw.requestedSkillProxyPath) || undefined,
     primarySkillDir: normalizeString(raw.primarySkillDir) || undefined,
     runnerJson: isRecord(raw.runnerJson) ? { ...raw.runnerJson } : undefined,
     resourceRewriteWarnings: parseStringArray(raw.resourceRewriteWarnings),
@@ -920,7 +1010,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
       raw.runtimeDependencyStatus === "probing"
         ? raw.runtimeDependencyStatus
         : "not-required",
-    runtimeDependencyError: normalizeString(raw.runtimeDependencyError) || undefined,
+    runtimeDependencyError:
+      normalizeString(raw.runtimeDependencyError) || undefined,
+    hostBridgeCli: parseHostBridgeCliState(raw.hostBridgeCli),
     repairRounds: Math.max(0, Math.floor(Number(raw.repairRounds || 0) || 0)),
     validationStatus:
       raw.validationStatus === "valid" || raw.validationStatus === "invalid"
@@ -936,13 +1028,18 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     lastTurnOutput: normalizeString(raw.lastTurnOutput) || undefined,
     pendingInteraction: parsePendingInteraction(raw.pendingInteraction),
     conversationState: normalizeConversationState(raw.conversationState),
-    conversationRecoveryState: normalizeRecoveryState(raw.conversationRecoveryState),
+    conversationRecoveryState: normalizeRecoveryState(
+      raw.conversationRecoveryState,
+    ),
     conversationError: normalizeString(raw.conversationError) || undefined,
     lastRecoveryError: normalizeString(raw.lastRecoveryError) || undefined,
     replyState: normalizeReplyState(raw.replyState),
     replyError: normalizeString(raw.replyError) || undefined,
-    connectionActionState: normalizeConnectionActionState(raw.connectionActionState),
-    lastPromptStopReason: normalizeString(raw.lastPromptStopReason) || undefined,
+    connectionActionState: normalizeConnectionActionState(
+      raw.connectionActionState,
+    ),
+    lastPromptStopReason:
+      normalizeString(raw.lastPromptStopReason) || undefined,
     appliedAt: normalizeString(raw.appliedAt) || undefined,
     applyResultState:
       raw.applyResultState === "succeeded" || raw.applyResultState === "failed"
@@ -961,7 +1058,8 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           source: normalizeString(raw.pendingPermission.source) || undefined,
           summary: normalizeString(raw.pendingPermission.summary) || undefined,
           detail: normalizeString(raw.pendingPermission.detail) || undefined,
-          requestedAt: normalizeString(raw.pendingPermission.requestedAt) || updatedAt,
+          requestedAt:
+            normalizeString(raw.pendingPermission.requestedAt) || updatedAt,
           options: Array.isArray(raw.pendingPermission.options)
             ? raw.pendingPermission.options
                 .filter(isRecord)
@@ -996,16 +1094,16 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     transcriptItems: parseTranscriptItems(raw.transcriptItems, updatedAt),
     createdAt,
     updatedAt,
-    events: rawEvents
-      .filter(isRecord)
-      .map((entry) => ({
-        ts: normalizeString(entry.ts) || updatedAt,
-        stage: normalizeString(entry.stage) || "unknown",
-        message: normalizeString(entry.message) || "Run updated",
-        level:
-          entry.level === "error" || entry.level === "warn" ? entry.level : "info",
-        details: isRecord(entry.details) ? { ...entry.details } : undefined,
-      })),
+    events: rawEvents.filter(isRecord).map((entry) => ({
+      ts: normalizeString(entry.ts) || updatedAt,
+      stage: normalizeString(entry.stage) || "unknown",
+      message: normalizeString(entry.message) || "Run updated",
+      level:
+        entry.level === "error" || entry.level === "warn"
+          ? entry.level
+          : "info",
+      details: isRecord(entry.details) ? { ...entry.details } : undefined,
+    })),
   };
 }
 
@@ -1014,7 +1112,10 @@ function ensureHydrated() {
     return;
   }
   hydrated = true;
-  for (const row of listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, STORE_SCOPE)) {
+  for (const row of listPluginTaskRowEntries(
+    PLUGIN_TASK_DOMAIN_ACP,
+    STORE_SCOPE,
+  )) {
     try {
       const parsed = parseRunRecord(JSON.parse(row.payload || "{}"));
       if (!parsed) {
@@ -1035,6 +1136,36 @@ function persistRun(record: AcpSkillRunRecord) {
     state: record.status,
     updatedAt: record.updatedAt,
     payload: JSON.stringify(record),
+  });
+}
+
+function isTerminalAcpSkillRunStatus(
+  status: AcpSkillRunStatus,
+): status is "succeeded" | "failed" | "canceled" {
+  return status === "succeeded" || status === "failed" || status === "canceled";
+}
+
+function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
+  const requestId = normalizeString(record.requestId);
+  if (!requestId) {
+    return;
+  }
+  if (record.removedAt || record.archivedAt) {
+    removeWorkflowTasksByBackendAndRequestIds({
+      backendId: record.backendId,
+      requestIds: [requestId],
+    });
+    return;
+  }
+  if (!isTerminalAcpSkillRunStatus(record.status)) {
+    return;
+  }
+  updateWorkflowTaskStateByRequest({
+    backendId: record.backendId,
+    requestId,
+    state: record.status,
+    error: record.error || record.conversationError,
+    updatedAt: record.updatedAt,
   });
 }
 
@@ -1094,6 +1225,7 @@ export function upsertAcpSkillRun(update: {
   runtimeDependencies?: string[];
   runtimeDependencyStatus?: AcpSkillRunRecord["runtimeDependencyStatus"];
   runtimeDependencyError?: string;
+  hostBridgeCli?: AcpSkillRunHostBridgeCliState;
   repairRounds?: number;
   validationStatus?: AcpSkillRunRecord["validationStatus"];
   validationErrors?: string[];
@@ -1147,7 +1279,10 @@ export function upsertAcpSkillRun(update: {
     }),
     updatedAt: now,
   };
-  const assignString = <K extends keyof AcpSkillRunRecord>(key: K, value: unknown) => {
+  const assignString = <K extends keyof AcpSkillRunRecord>(
+    key: K,
+    value: unknown,
+  ) => {
     const normalized = normalizeString(value);
     if (normalized) {
       (next as Record<string, unknown>)[key as string] = normalized;
@@ -1171,7 +1306,10 @@ export function upsertAcpSkillRun(update: {
   if (isRecord(update.providerOptions)) {
     next.providerOptions = { ...update.providerOptions };
   }
-  if (update.executionMode === "auto" || update.executionMode === "interactive") {
+  if (
+    update.executionMode === "auto" ||
+    update.executionMode === "interactive"
+  ) {
     next.executionMode = update.executionMode;
   }
   assignString("workspaceDir", update.workspaceDir);
@@ -1223,8 +1361,12 @@ export function upsertAcpSkillRun(update: {
   ) {
     next.error = undefined;
   }
-  if (Array.isArray(update.skillRoots)) next.skillRoots = [...update.skillRoots];
-  if (typeof update.proxySkillCount === "number" && Number.isFinite(update.proxySkillCount)) {
+  if (Array.isArray(update.skillRoots))
+    next.skillRoots = [...update.skillRoots];
+  if (
+    typeof update.proxySkillCount === "number" &&
+    Number.isFinite(update.proxySkillCount)
+  ) {
     next.proxySkillCount = Math.max(0, Math.floor(update.proxySkillCount));
   }
   if (Array.isArray(update.proxySkillRoots)) {
@@ -1239,7 +1381,13 @@ export function upsertAcpSkillRun(update: {
   if (update.runtimeDependencyStatus) {
     next.runtimeDependencyStatus = update.runtimeDependencyStatus;
   }
-  if (typeof update.repairRounds === "number" && Number.isFinite(update.repairRounds)) {
+  if (update.hostBridgeCli) {
+    next.hostBridgeCli = { ...update.hostBridgeCli };
+  }
+  if (
+    typeof update.repairRounds === "number" &&
+    Number.isFinite(update.repairRounds)
+  ) {
     next.repairRounds = Math.max(0, Math.floor(update.repairRounds));
   }
   if (update.validationStatus) next.validationStatus = update.validationStatus;
@@ -1252,7 +1400,8 @@ export function upsertAcpSkillRun(update: {
   if (Object.prototype.hasOwnProperty.call(update, "pendingInteraction")) {
     next.pendingInteraction = update.pendingInteraction || undefined;
   }
-  if (update.conversationState) next.conversationState = update.conversationState;
+  if (update.conversationState)
+    next.conversationState = update.conversationState;
   if (update.conversationRecoveryState) {
     next.conversationRecoveryState = update.conversationRecoveryState;
   }
@@ -1261,11 +1410,13 @@ export function upsertAcpSkillRun(update: {
     next.connectionActionState = update.connectionActionState;
   }
   if (update.applyResultState) next.applyResultState = update.applyResultState;
-  if (typeof update.activePrompt === "boolean") next.activePrompt = update.activePrompt;
+  if (typeof update.activePrompt === "boolean")
+    next.activePrompt = update.activePrompt;
   if (Object.prototype.hasOwnProperty.call(update, "pendingPermission")) {
     next.pendingPermission = update.pendingPermission || null;
   }
-  if (typeof update.resultJson !== "undefined") next.resultJson = update.resultJson;
+  if (typeof update.resultJson !== "undefined")
+    next.resultJson = update.resultJson;
   if (typeof update.removedAt === "string") {
     next.removedAt = normalizeString(update.removedAt) || undefined;
   }
@@ -1286,6 +1437,7 @@ export function upsertAcpSkillRun(update: {
   runRecords.set(requestId, next);
   selectedRequestId = selectedRequestId || requestId;
   persistRun(next);
+  syncWorkflowTaskForAcpSkillRun(next);
   emitChanged();
   return {
     ...next,
@@ -1347,19 +1499,21 @@ function replaceLatestAssistantMessage(args: {
   const existingIndex = args.record.transcriptItems
     .map((entry, index) => ({ entry, index }))
     .reverse()
-    .find(({ entry }) => entry.kind === "message" && entry.role === "assistant")
-    ?.index;
+    .find(
+      ({ entry }) => entry.kind === "message" && entry.role === "assistant",
+    )?.index;
   if (typeof existingIndex === "number") {
-    args.record.transcriptItems = args.record.transcriptItems.map((entry, index) =>
-      index === existingIndex && entry.kind === "message"
-        ? {
-            ...entry,
-            text,
-            state: "complete",
-            revision: args.revision || entry.revision,
-            updatedAt: args.now,
-          }
-        : entry,
+    args.record.transcriptItems = args.record.transcriptItems.map(
+      (entry, index) =>
+        index === existingIndex && entry.kind === "message"
+          ? {
+              ...entry,
+              text,
+              state: "complete",
+              revision: args.revision || entry.revision,
+              updatedAt: args.now,
+            }
+          : entry,
     );
     return;
   }
@@ -1372,10 +1526,9 @@ function replaceLatestAssistantMessage(args: {
     revision: args.revision,
     createdAt: args.now,
   };
-  args.record.transcriptItems = [
-    ...args.record.transcriptItems,
-    item,
-  ].slice(-200);
+  args.record.transcriptItems = [...args.record.transcriptItems, item].slice(
+    -200,
+  );
 }
 
 function removeLatestAssistantCandidateMessage(
@@ -1389,8 +1542,9 @@ function removeLatestAssistantCandidateMessage(
   const latestAssistantIndex = record.transcriptItems
     .map((entry, index) => ({ entry, index }))
     .reverse()
-    .find(({ entry }) => entry.kind === "message" && entry.role === "assistant")
-    ?.index;
+    .find(
+      ({ entry }) => entry.kind === "message" && entry.role === "assistant",
+    )?.index;
   if (typeof latestAssistantIndex !== "number") {
     return;
   }
@@ -1399,8 +1553,13 @@ function removeLatestAssistantCandidateMessage(
     return;
   }
   const latestText = String(latest.text || "").trim();
-  if (latestText === normalizedCandidate || latestText.includes("__SKILL_DONE__")) {
-    record.transcriptItems = record.transcriptItems.filter((_, index) => index !== latestAssistantIndex);
+  if (
+    latestText === normalizedCandidate ||
+    latestText.includes("__SKILL_DONE__")
+  ) {
+    record.transcriptItems = record.transcriptItems.filter(
+      (_, index) => index !== latestAssistantIndex,
+    );
   }
 }
 
@@ -1476,23 +1635,24 @@ export function recordAcpSkillRunOutputRevision(args: {
   emitChanged();
 }
 
-export function projectAcpSkillRunOutputEnvelopeToTranscript(args:
-  | {
-      requestId: string;
-      kind: "pending";
-      message: string;
-      candidateText?: string;
-      repairRound?: number;
-      errors?: string[];
-    }
-  | {
-      requestId: string;
-      kind: "final";
-      resultJson: Record<string, unknown>;
-      candidateText?: string;
-      repairRound?: number;
-      errors?: string[];
-    }
+export function projectAcpSkillRunOutputEnvelopeToTranscript(
+  args:
+    | {
+        requestId: string;
+        kind: "pending";
+        message: string;
+        candidateText?: string;
+        repairRound?: number;
+        errors?: string[];
+      }
+    | {
+        requestId: string;
+        kind: "final";
+        resultJson: Record<string, unknown>;
+        candidateText?: string;
+        repairRound?: number;
+        errors?: string[];
+      },
 ) {
   ensureHydrated();
   const requestId = normalizeString(args.requestId);
@@ -1518,7 +1678,9 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(args:
     record: next,
     candidateText:
       normalizeString(args.candidateText) ||
-      (args.kind === "pending" ? args.message : JSON.stringify(args.resultJson)),
+      (args.kind === "pending"
+        ? args.message
+        : JSON.stringify(args.resultJson)),
     repairRound: args.repairRound,
     status: args.kind,
     errors: args.errors,
@@ -1539,7 +1701,9 @@ function getLatestTranscriptItem(record: AcpSkillRunRecord) {
   return record.transcriptItems[record.transcriptItems.length - 1];
 }
 
-function isSkippableInterleavedStatus(entry: AcpSkillRunTranscriptItem | undefined) {
+function isSkippableInterleavedStatus(
+  entry: AcpSkillRunTranscriptItem | undefined,
+) {
   return entry?.kind === "status" && entry.label === "workspace-activity";
 }
 
@@ -1564,7 +1728,11 @@ function findAppendableStreamingTextItem(args: {
   kind: "message" | "thought";
   role: "assistant" | "user";
 }) {
-  for (let index = args.record.transcriptItems.length - 1; index >= 0; index -= 1) {
+  for (
+    let index = args.record.transcriptItems.length - 1;
+    index >= 0;
+    index -= 1
+  ) {
     const entry = args.record.transcriptItems[index];
     if (isSkippableInterleavedStatus(entry)) {
       continue;
@@ -1580,7 +1748,10 @@ function findAppendableStreamingTextItem(args: {
   return undefined;
 }
 
-function completeOpenStreamingTextItems(record: AcpSkillRunRecord, now: string) {
+function completeOpenStreamingTextItems(
+  record: AcpSkillRunRecord,
+  now: string,
+) {
   record.transcriptItems = record.transcriptItems.map((entry) => {
     if (
       (entry.kind === "message" || entry.kind === "thought") &&
@@ -1608,11 +1779,12 @@ function appendTextChunk(args: {
     return;
   }
   const role = args.role || "assistant";
-  const latest = findAppendableStreamingTextItem({
-    record: args.record,
-    kind: args.kind,
-    role,
-  }) || getLatestTranscriptItem(args.record);
+  const latest =
+    findAppendableStreamingTextItem({
+      record: args.record,
+      kind: args.kind,
+      role,
+    }) || getLatestTranscriptItem(args.record);
   if (
     args.kind === "message" &&
     latest?.kind === "message" &&
@@ -1624,7 +1796,11 @@ function appendTextChunk(args: {
     latest.updatedAt = args.now;
     return;
   }
-  if (args.kind === "thought" && latest?.kind === "thought" && latest.state === "streaming") {
+  if (
+    args.kind === "thought" &&
+    latest?.kind === "thought" &&
+    latest.state === "streaming"
+  ) {
     latest.text += text;
     latest.state = "streaming";
     latest.updatedAt = args.now;
@@ -1648,23 +1824,29 @@ function appendTextChunk(args: {
           state: "streaming",
           createdAt: args.now,
         };
-  args.record.transcriptItems = [
-    ...args.record.transcriptItems,
-    item,
-  ].slice(-200);
+  args.record.transcriptItems = [...args.record.transcriptItems, item].slice(
+    -200,
+  );
 }
 
-function extractToolName(update: AcpToolCall, current?: AcpSkillRunTranscriptItem) {
-  return firstToolText([
-    update.name,
-    update.tool,
-    update.functionName,
-    update.function_name,
-    (isRecord(update.metadata) && (update.metadata.name || update.metadata.title)) || "",
-    update.title,
-    update.kind,
-    current?.kind === "tool_call" ? current.toolName : "",
-  ]) || "Tool";
+function extractToolName(
+  update: AcpToolCall,
+  current?: AcpSkillRunTranscriptItem,
+) {
+  return (
+    firstToolText([
+      update.name,
+      update.tool,
+      update.functionName,
+      update.function_name,
+      (isRecord(update.metadata) &&
+        (update.metadata.name || update.metadata.title)) ||
+        "",
+      update.title,
+      update.kind,
+      current?.kind === "tool_call" ? current.toolName : "",
+    ]) || "Tool"
+  );
 }
 
 function extractToolInputSummary(update: AcpToolCall) {
@@ -1709,7 +1891,11 @@ function hasToolResultPayload(update: AcpToolCall) {
 function inferToolCallState(update: AcpToolCall) {
   const explicitStatus = normalizeString(update.status);
   const explicitState = normalizeToolCallState(explicitStatus);
-  if (!explicitStatus && explicitState === "pending" && hasToolResultPayload(update)) {
+  if (
+    !explicitStatus &&
+    explicitState === "pending" &&
+    hasToolResultPayload(update)
+  ) {
     return "completed";
   }
   return explicitState;
@@ -1728,11 +1914,8 @@ function upsertTranscriptToolCall(
     (entry) => entry.kind === "tool_call" && entry.toolCallId === toolCallId,
   );
   const existing =
-    existingIndex >= 0
-      ? record.transcriptItems[existingIndex]
-      : undefined;
-  const current =
-    existing?.kind === "tool_call" ? existing : undefined;
+    existingIndex >= 0 ? record.transcriptItems[existingIndex] : undefined;
+  const current = existing?.kind === "tool_call" ? existing : undefined;
   const nextState = inferToolCallState(update);
   const state =
     current && toolStateRank(current.state) > toolStateRank(nextState)
@@ -1786,7 +1969,9 @@ export function recordAcpSkillRunSessionUpdate(
   const update = event.update || { sessionUpdate: "" };
   const kind = normalizeString(update.sessionUpdate);
   if (kind === "agent_message_chunk" || kind === "user_message_chunk") {
-    const content = (update as { content?: { type?: string | null; text?: string | null } }).content;
+    const content = (
+      update as { content?: { type?: string | null; text?: string | null } }
+    ).content;
     if (normalizeString(content?.type) === "text") {
       appendTextChunk({
         record: next,
@@ -1797,7 +1982,9 @@ export function recordAcpSkillRunSessionUpdate(
       });
     }
   } else if (kind === "agent_thought_chunk") {
-    const content = (update as { content?: { type?: string | null; text?: string | null } }).content;
+    const content = (
+      update as { content?: { type?: string | null; text?: string | null } }
+    ).content;
     if (normalizeString(content?.type) === "text") {
       appendTextChunk({
         record: next,
@@ -1810,7 +1997,9 @@ export function recordAcpSkillRunSessionUpdate(
     completeOpenStreamingTextItems(next, now);
     upsertTranscriptToolCall(next, update as AcpToolCall, now);
   } else if (kind === "plan") {
-    next.planEntries = parsePlanEntries((update as { entries?: unknown }).entries);
+    next.planEntries = parsePlanEntries(
+      (update as { entries?: unknown }).entries,
+    );
   } else if (kind === "usage_update") {
     const used = Number((update as { used?: unknown }).used || 0);
     const size = Number((update as { size?: unknown }).size || 0);
@@ -1850,6 +2039,10 @@ export function registerAcpSkillRunController(
     connectionActionState: "idle",
     lastRecoveryError: "",
   });
+  clearStaleAcpSkillRunPermissionRequest({
+    runRequestId: requestId,
+    reason: "controller_registered_without_resolver",
+  });
 }
 
 export function setAcpSkillRunRecoveryHandlerForTests(
@@ -1887,9 +2080,14 @@ export function setAcpSkillRunRuntimeOptions(
     currentMode: normalizeSelectableOption(options.currentMode) || undefined,
     modelOptions: normalizeSelectableOptions(options.modelOptions),
     currentModel: normalizeSelectableOption(options.currentModel) || undefined,
-    displayModelOptions: normalizeSelectableOptions(options.displayModelOptions),
-    currentDisplayModel: normalizeSelectableOption(options.currentDisplayModel) || undefined,
-    reasoningEffortOptions: normalizeSelectableOptions(options.reasoningEffortOptions),
+    displayModelOptions: normalizeSelectableOptions(
+      options.displayModelOptions,
+    ),
+    currentDisplayModel:
+      normalizeSelectableOption(options.currentDisplayModel) || undefined,
+    reasoningEffortOptions: normalizeSelectableOptions(
+      options.reasoningEffortOptions,
+    ),
     currentReasoningEffort:
       normalizeSelectableOption(options.currentReasoningEffort) || undefined,
   };
@@ -1937,10 +2135,94 @@ export function setAcpSkillRunPermissionRequest(
         toolCallId: normalizeString(request.toolCallId),
         toolTitle: normalizeString(request.toolTitle),
         source: normalizeString(request.source) || undefined,
-        summary: normalizeString(request.summary) || normalizeString(request.toolTitle),
+        summary:
+          normalizeString(request.summary) ||
+          normalizeString(request.toolTitle),
       },
     },
   });
+}
+
+function findStaleAcpSkillRunPermissionRequest(args: {
+  runRequestId?: string;
+  permissionRequestId?: string;
+}) {
+  ensureHydrated();
+  const runRequestId = normalizeString(args.runRequestId);
+  const permissionRequestId = normalizeString(args.permissionRequestId);
+  if (!runRequestId && !permissionRequestId) {
+    return null;
+  }
+  const candidates = runRequestId
+    ? [runRecords.get(runRequestId)].filter(
+        (entry): entry is AcpSkillRunRecord => !!entry,
+      )
+    : Array.from(runRecords.values());
+  for (const record of candidates) {
+    const pending = record.pendingPermission;
+    if (!pending) {
+      continue;
+    }
+    const pendingRequestId = normalizeString(pending.requestId);
+    if (!pendingRequestId) {
+      continue;
+    }
+    if (permissionRequestId && pendingRequestId !== permissionRequestId) {
+      continue;
+    }
+    if (permissionResolvers.has(pendingRequestId)) {
+      continue;
+    }
+    return {
+      record,
+      pending,
+      permissionRequestId: pendingRequestId,
+    };
+  }
+  return null;
+}
+
+function clearStaleAcpSkillRunPermissionRequest(args: {
+  runRequestId?: string;
+  permissionRequestId?: string;
+  reason: string;
+}) {
+  const stale = findStaleAcpSkillRunPermissionRequest(args);
+  if (!stale) {
+    return false;
+  }
+  const recoverableStatus = new Set<AcpSkillRunStatus>([
+    "queued",
+    "running",
+    "repairing",
+  ]).has(stale.record.status)
+    ? "waiting_user"
+    : stale.record.status;
+  upsertAcpSkillRun({
+    requestId: stale.record.requestId,
+    status: recoverableStatus,
+    activePrompt: false,
+    pendingPermission: null,
+    replyState: "idle",
+    event: {
+      stage: "permission-resolved",
+      message:
+        "Permission request expired after reconnect; no live approval handler is available.",
+      level: "warn",
+      details: {
+        permissionRequestId: stale.permissionRequestId,
+        outcome: "cancelled",
+        reason: args.reason,
+        toolCallId: normalizeString(stale.pending.toolCallId),
+        toolTitle: normalizeString(stale.pending.toolTitle),
+        source: normalizeString(stale.pending.source) || undefined,
+        summary:
+          normalizeString(stale.pending.summary) ||
+          normalizeString(stale.pending.toolTitle),
+      },
+    },
+  });
+  return true;
 }
 
 export function resolveAcpSkillRunPermissionRequest(args: {
@@ -1957,6 +2239,15 @@ export function resolveAcpSkillRunPermissionRequest(args: {
         (entry) => entry.runRequestId === runRequestId,
       );
   if (!matched) {
+    if (
+      clearStaleAcpSkillRunPermissionRequest({
+        runRequestId,
+        permissionRequestId,
+        reason: "resolve_without_live_handler",
+      })
+    ) {
+      return;
+    }
     throw new Error("No active ACP skill run permission request is available.");
   }
   const outcome =
@@ -2014,7 +2305,8 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
       removedAt: nowIso(),
       event: {
         stage: "canceled",
-        message: "ACP skill run canceled from the panel; no live controller was available.",
+        message:
+          "ACP skill run canceled from the panel; no live controller was available.",
         level: "warn",
       },
     });
@@ -2044,7 +2336,9 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   }
   const controller = controllers.get(requestId);
   if (!controller) {
-    throw new Error("No active ACP skill run controller is available for interruption.");
+    throw new Error(
+      "No active ACP skill run controller is available for interruption.",
+    );
   }
   await controller.cancel();
   upsertAcpSkillRun({
@@ -2068,7 +2362,11 @@ export function archiveAcpSkillRun(requestIdRaw: string) {
   if (!existing) {
     throw new Error("No ACP skill run record is available for archive.");
   }
-  if (existing.status !== "succeeded" && existing.status !== "failed" && existing.status !== "canceled") {
+  if (
+    existing.status !== "succeeded" &&
+    existing.status !== "failed" &&
+    existing.status !== "canceled"
+  ) {
     throw new Error("Only terminal ACP skill runs can be archived.");
   }
   const archivedAt = nowIso();
@@ -2100,6 +2398,9 @@ export async function replyAcpSkillRun(args: {
     requestId,
     replyState: "submitted",
     replyError: "",
+    conversationError: "",
+    lastRecoveryError: "",
+    error: "",
     event: {
       stage: "reply-submitted",
       message: "User reply submitted.",
@@ -2112,7 +2413,10 @@ export async function replyAcpSkillRun(args: {
       await recoveryHandler({ requestId, reason: "reply" });
       controller = controllers.get(requestId);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error || "unknown error");
+      const detail =
+        error instanceof Error
+          ? error.message
+          : String(error || "unknown error");
       upsertAcpSkillRun({
         requestId,
         replyState: "rejected",
@@ -2138,7 +2442,8 @@ export async function replyAcpSkillRun(args: {
       replyError: "No active ACP conversation controller is available.",
       event: {
         stage: "reply-unavailable",
-        message: "Reply failed because no active ACP conversation controller was available.",
+        message:
+          "Reply failed because no active ACP conversation controller was available.",
         level: "error",
       },
     });
@@ -2147,6 +2452,12 @@ export async function replyAcpSkillRun(args: {
   upsertAcpSkillRun({
     requestId,
     replyState: "accepted",
+    conversationState: "active",
+    conversationRecoveryState: "connected",
+    replyError: "",
+    conversationError: "",
+    lastRecoveryError: "",
+    error: "",
     event: {
       stage: "reply-accepted",
       message: "User reply accepted by ACP skill run controller.",
@@ -2160,7 +2471,8 @@ export async function replyAcpSkillRun(args: {
       replyState: "idle",
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error || "unknown error");
+    const detail =
+      error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
       requestId,
       replyState: "rejected",
@@ -2190,9 +2502,12 @@ function requireRuntimeController(
 ) {
   const controller = controllers.get(requestId);
   if (!controller || typeof controller[operation] !== "function") {
-    throw new Error("No active ACP skill run controller is available for runtime option changes.");
+    throw new Error(
+      "No active ACP skill run controller is available for runtime option changes.",
+    );
   }
-  return controller as AcpSkillRunController & Required<Pick<AcpSkillRunController, typeof operation>>;
+  return controller as AcpSkillRunController &
+    Required<Pick<AcpSkillRunController, typeof operation>>;
 }
 
 function runtimeOptionsForRun(run: AcpSkillRunRecord) {
@@ -2212,8 +2527,10 @@ function runtimeOptionsForRun(run: AcpSkillRunRecord) {
     findSelectableOption(base.modelOptions, run.acpRawModelId) ||
     cloneSelectableOption(base.currentModel);
   base.currentDisplayModel =
-    findSelectableOption(base.displayModelOptions, run.acpModelId || run.acpRawModelId) ||
-    cloneSelectableOption(base.currentDisplayModel);
+    findSelectableOption(
+      base.displayModelOptions,
+      run.acpModelId || run.acpRawModelId,
+    ) || cloneSelectableOption(base.currentDisplayModel);
   base.currentReasoningEffort =
     findSelectableOption(base.reasoningEffortOptions, run.acpReasoningEffort) ||
     cloneSelectableOption(base.currentReasoningEffort);
@@ -2244,7 +2561,9 @@ export async function setAcpSkillRunMode(args: {
   const run = getAcpSkillRunRecord(requestId);
   const sessionId = normalizeString(run?.sessionId);
   if (!run || !sessionId) {
-    throw new Error("No active ACP skill run session is available for mode changes.");
+    throw new Error(
+      "No active ACP skill run session is available for mode changes.",
+    );
   }
   const controller = requireRuntimeController(requestId, "setMode");
   await controller.setMode({ sessionId, modeId });
@@ -2272,10 +2591,14 @@ export async function setAcpSkillRunModel(args: {
   const run = getAcpSkillRunRecord(requestId);
   const sessionId = normalizeString(run?.sessionId);
   if (!run || !sessionId) {
-    throw new Error("No active ACP skill run session is available for model changes.");
+    throw new Error(
+      "No active ACP skill run session is available for model changes.",
+    );
   }
   if (isAcpSkillRunPromptActive(run)) {
-    throw new Error("Cannot change ACP skill run model while a prompt is running.");
+    throw new Error(
+      "Cannot change ACP skill run model while a prompt is running.",
+    );
   }
   const runtimeOptions = runtimeOptionsForRun(run);
   const rawModelId = resolveAcpRawModelIdForSelection({
@@ -2319,10 +2642,14 @@ export async function setAcpSkillRunReasoningEffort(args: {
   const run = getAcpSkillRunRecord(requestId);
   const sessionId = normalizeString(run?.sessionId);
   if (!run || !sessionId) {
-    throw new Error("No active ACP skill run session is available for reasoning changes.");
+    throw new Error(
+      "No active ACP skill run session is available for reasoning changes.",
+    );
   }
   if (isAcpSkillRunPromptActive(run)) {
-    throw new Error("Cannot change ACP skill run reasoning effort while a prompt is running.");
+    throw new Error(
+      "Cannot change ACP skill run reasoning effort while a prompt is running.",
+    );
   }
   const runtimeOptions = runtimeOptionsForRun(run);
   const displayModelId =
@@ -2330,7 +2657,9 @@ export async function setAcpSkillRunReasoningEffort(args: {
     normalizeString(runtimeOptions.currentDisplayModel?.id) ||
     normalizeString(run.acpRawModelId);
   if (!displayModelId) {
-    throw new Error("No ACP skill run model is available for reasoning changes.");
+    throw new Error(
+      "No ACP skill run model is available for reasoning changes.",
+    );
   }
   const rawModelId = resolveAcpRawModelIdForSelection({
     modelOptions: runtimeOptions.modelOptions,
@@ -2349,7 +2678,11 @@ export async function setAcpSkillRunReasoningEffort(args: {
       stage: "runtime-reasoning-updated",
       message: "ACP skill run reasoning effort updated.",
       level: "info",
-      details: { modelId: displayModelId, rawModelId, reasoningEffort: effortId },
+      details: {
+        modelId: displayModelId,
+        rawModelId,
+        reasoningEffort: effortId,
+      },
     },
   });
 }
@@ -2410,7 +2743,8 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
       },
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error || "unknown error");
+    const detail =
+      error instanceof Error ? error.message : String(error || "unknown error");
     upsertAcpSkillRun({
       requestId,
       connectionActionState: "idle",
@@ -2454,7 +2788,8 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
     conversationRecoveryState: "available",
     event: {
       stage: "disconnected",
-      message: "ACP skill run local connection detached; remote session remains recoverable.",
+      message:
+        "ACP skill run local connection detached; remote session remains recoverable.",
       level: "info",
     },
   });
@@ -2583,7 +2918,9 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     replyState: run.replyState,
     connectionActionState: run.connectionActionState,
     applyResultState: run.applyResultState,
-    pendingPermission: run.pendingPermission ? { ...run.pendingPermission } : null,
+    pendingPermission: run.pendingPermission
+      ? { ...run.pendingPermission }
+      : null,
     activePrompt: run.activePrompt,
     error: run.error,
     removedAt: run.removedAt,
@@ -2596,11 +2933,12 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
 export function buildAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
 }): AcpSkillRunPanelSnapshot {
-  const runs = listAcpSkillRuns().filter((run) => !run.removedAt && !run.archivedAt);
-  const requested = normalizeString(args?.selectedRequestId) || selectedRequestId;
-  const selected =
-    runs.find((run) => run.requestId === requested) ||
-    runs[0];
+  const runs = listAcpSkillRuns().filter(
+    (run) => !run.removedAt && !run.archivedAt,
+  );
+  const requested =
+    normalizeString(args?.selectedRequestId) || selectedRequestId;
+  const selected = runs.find((run) => run.requestId === requested) || runs[0];
   selectedRequestId = selected?.requestId || "";
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
@@ -2625,15 +2963,23 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     selectedRequestId,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
+    hostBridge: getHostBridgeServerStatus(),
     summary: {
       total: runs.length,
-      active: runs.filter((run) => run.status !== "succeeded" && run.status !== "failed" && run.status !== "canceled").length,
+      active: runs.filter(
+        (run) =>
+          run.status !== "succeeded" &&
+          run.status !== "failed" &&
+          run.status !== "canceled",
+      ).length,
       failed: runs.filter((run) => run.status === "failed").length,
       recent: runs.slice(0, 20).length,
     },
     runs: runs.map(summarizeAcpSkillRun),
     selectedRun: selected,
-    selectedRuntimeOptions: selected ? runtimeOptionsForRun(selected) : undefined,
+    selectedRuntimeOptions: selected
+      ? runtimeOptionsForRun(selected)
+      : undefined,
     selectedTask,
     logs,
   };
@@ -2663,7 +3009,8 @@ export async function shutdownAcpSkillRunConversations() {
         connectionActionState: "idle",
         event: {
           stage: "conversation-detached",
-          message: "ACP skill run local controller detached during shutdown; remote session remains recoverable.",
+          message:
+            "ACP skill run local controller detached during shutdown; remote session remains recoverable.",
           level: "info",
         },
       });

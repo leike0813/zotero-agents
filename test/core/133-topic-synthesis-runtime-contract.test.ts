@@ -403,7 +403,7 @@ describe("Topic synthesis runtime contract", function () {
         assert.include(gate, "persist_library_index_page");
         assert.include(stageRuntime, "library_index_pages");
         assert.match(stageRuntime, /complete paged library index receipt/i);
-        assert.match(gate, /persist_library_index_page[\s\S]+synthesis\.get_library_index/);
+        assert.match(gate, /persist_library_index_page[\s\S]+zotero-bridge synthesis get-library-index/);
       }
       assert.include(stageRuntime, "paper_artifact_bundles");
       assert.include(stageRuntime, "citation_graph_metrics");
@@ -474,8 +474,8 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(runtimeDb, "citation_analysis.report_md");
       assert.include(runtimeDb, "source_context_hash");
       assert.include(runtimeDb, "external_context_hash");
-      assert.match(gate, /persist_filtered_artifact_manifest[\s\S]+synthesis\.export_filtered_paper_artifacts/);
-      assert.match(gate, /persist_citation_graph_metrics[\s\S]+synthesis\.get_citation_graph_metrics/);
+      assert.match(gate, /persist_filtered_artifact_manifest[\s\S]+zotero-bridge synthesis export-filtered-paper-artifacts/);
+      assert.match(gate, /persist_citation_graph_metrics[\s\S]+zotero-bridge synthesis get-citation-graph-metrics/);
       assert.include(gate, "BATCH_SIZE = 25");
       assert.include(gate, "RULE_SUMMARY");
       assert.include(gate, "audit_runtime_integrity");
@@ -614,7 +614,7 @@ describe("Topic synthesis runtime contract", function () {
       assert.match(skillText, /filtered artifact[\s\S]+manifest/i);
       assert.notMatch(skillText, /真实语义内容必须由 agent 在渲染前整理到 run-local 结构中/);
       assert.notMatch(skillText, /占位内容/);
-      assert.match(skillText, /MCP[\s\S]+artifact probe|artifact probe[\s\S]+MCP/i);
+      assert.match(skillText, /bounded artifact probe|artifact probe/i);
       assert.include(skillText, "final section JSON 写作");
       assert.include(skillText, "validate_final_artifacts");
       if (runtimeRoot.includes("create-topic-synthesis")) {
@@ -644,6 +644,38 @@ describe("Topic synthesis runtime contract", function () {
     assert.include(createSkill, "--operation create");
     assert.include(updateSkill, "--operation update_full");
     assert.include(updateSkill, "--operation update_patch");
+  });
+
+  it("documents runtime-required topic synthesis payload fields in skill guidance", async function () {
+    for (const runtimeRoot of skillRuntimeRoots) {
+      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
+      const step03 = await readRequiredRuntimeFile(runtimeRoot, "references/step_03_metrics_artifacts.md");
+      const step04 = await readRequiredRuntimeFile(runtimeRoot, "references/step_04_paper_units.md");
+      const step05 = await readRequiredRuntimeFile(runtimeRoot, "references/step_05_cross_paper_map.md");
+
+      for (const text of [skillText, step03]) {
+        assert.include(text, "paper_refs");
+        assert.include(text, "payload_types_seen");
+      }
+      for (const text of [skillText, step04]) {
+        assert.include(text, "analyses");
+        assert.include(text, "evidence_available");
+        assert.include(text, "bibliographic.authors");
+        assert.include(text, "core");
+        assert.include(text, "related");
+        assert.include(text, "peripheral");
+        assert.include(text, "excluded");
+        assert.include(text, "digest_locator");
+      }
+      for (const text of [skillText, step05]) {
+        assert.include(text, "synthesis.cross_paper_evidence_map");
+        assert.include(text, "evidence_limits");
+        assert.include(text, "comparison_dimensions");
+        assert.include(text, "supporting_paper_unit_refs");
+        assert.include(text, "evidence_type");
+        assert.include(text, "library_coverage_gap");
+      }
+    }
   });
 
   it("keeps references Chinese, optional, and example-driven", async function () {

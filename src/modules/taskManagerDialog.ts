@@ -28,6 +28,9 @@ import {
   subscribeWorkflowTasks,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
+import {
+  filterDashboardActiveTasks,
+} from "./dashboardActiveTasks";
 import { openSkillRunnerManagementDialog } from "./skillRunnerManagementDialog";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config } from "../../package.json";
@@ -252,7 +255,7 @@ function resolveDashboardPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/dashboard/index.html`;
+  return `chrome://${addonRef}/content/dashboard/index.html?ui=20260521-submit-v1`;
 }
 
 let taskManagerDialog: DialogHelper | undefined;
@@ -993,13 +996,17 @@ async function buildHomeWorkflowSummaries(args: {
         providerId: descriptor.providerId,
         configurable: descriptor.hasConfigurableSettings,
         builtin: getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
-        quickRunEnabled: canWorkflowRunWithoutSelection(workflow.manifest),
-        quickRunDisabledReason: !canWorkflowRunWithoutSelection(workflow.manifest)
-          ? localize(
-              "task-dashboard-home-workflow-run-disabled-selection",
-              "Requires a Zotero selection",
-            )
-          : undefined,
+        quickRunEnabled:
+          canWorkflowRunWithoutSelection(workflow.manifest) &&
+          !descriptor.blockedReason,
+        quickRunDisabledReason: descriptor.blockedReason
+          ? descriptor.blockedReason
+          : !canWorkflowRunWithoutSelection(workflow.manifest)
+            ? localize(
+                "task-dashboard-home-workflow-run-disabled-selection",
+                "Requires a Zotero selection",
+              )
+            : undefined,
       };
     }),
   );
@@ -1028,6 +1035,17 @@ async function resolveHomeWorkflowQuickRun(args: {
         "task-dashboard-home-workflow-run-disabled-selection",
         "Requires a Zotero selection",
       ),
+    };
+  }
+  const descriptor = await buildWorkflowSettingsUiDescriptor({
+    workflow,
+    candidateBackends: args.backends,
+  });
+  if (descriptor.blockedReason) {
+    return {
+      workflow,
+      enabled: false,
+      reason: descriptor.blockedReason,
     };
   }
   return {
@@ -1644,9 +1662,10 @@ function normalizeFilteredHistory() {
 }
 
 function normalizeFilteredActive() {
-  return listActiveWorkflowTasks().filter(
-    (entry) => entry.backendType !== PASS_THROUGH_BACKEND_TYPE,
-  );
+  return filterDashboardActiveTasks({
+    activeTasks: listActiveWorkflowTasks(),
+    acpSkillRuns: listAcpSkillRuns(),
+  });
 }
 
 export async function openTaskManagerDialog(args?: {
@@ -1693,6 +1712,8 @@ export async function openTaskManagerDialog(args?: {
   let unsubscribeBackendHealth: (() => void) | undefined;
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
   let refreshTimer: number | undefined;
+  let deferredDashboardRefreshTimer: number | undefined;
+  let dashboardRefreshQueued = false;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
   const getRuntimeWindow = () => args?.hostWindow || taskManagerDialog?.window || null;
@@ -1774,18 +1795,56 @@ export async function openTaskManagerDialog(args?: {
   const enqueueRefresh = (
     messageType: "dashboard:init" | "dashboard:snapshot",
   ) => {
+    if (dashboardRefreshQueued && messageType === "dashboard:snapshot") {
+      return refreshChain;
+    }
+    dashboardRefreshQueued = true;
     refreshChain = refreshChain
       .catch(() => undefined)
       .then(async () => {
+        dashboardRefreshQueued = false;
         await pushSnapshot(messageType);
       });
     return refreshChain;
+  };
+
+  const clearDeferredDashboardRefresh = () => {
+    if (!deferredDashboardRefreshTimer) {
+      return;
+    }
+    getRuntimeWindow()?.clearTimeout(deferredDashboardRefreshTimer);
+    deferredDashboardRefreshTimer = undefined;
+  };
+
+  const isNoisyRefreshReason = (reason: RefreshReason) =>
+    reason === "task-update" ||
+    reason === "backend-health" ||
+    reason === "periodic";
+
+  const scheduleDeferredDashboardRefresh = () => {
+    if (deferredDashboardRefreshTimer) {
+      return;
+    }
+    const win = getRuntimeWindow();
+    if (!win) {
+      void enqueueRefresh("dashboard:snapshot");
+      return;
+    }
+    deferredDashboardRefreshTimer = win.setTimeout(() => {
+      deferredDashboardRefreshTimer = undefined;
+      void enqueueRefresh("dashboard:snapshot");
+    }, 350);
   };
 
   const refresh = (reason: RefreshReason = "user-action") => {
     if (shouldSkipRefresh(reason)) {
       return;
     }
+    if (isNoisyRefreshReason(reason)) {
+      scheduleDeferredDashboardRefresh();
+      return;
+    }
+    clearDeferredDashboardRefresh();
     void enqueueRefresh("dashboard:snapshot");
   };
 
@@ -2451,6 +2510,7 @@ export async function openTaskManagerDialog(args?: {
       getRuntimeWindow()?.clearInterval(refreshTimer);
       refreshTimer = undefined;
     }
+    clearDeferredDashboardRefresh();
     if (unsubscribeBackendHealth) {
       unsubscribeBackendHealth();
       unsubscribeBackendHealth = undefined;

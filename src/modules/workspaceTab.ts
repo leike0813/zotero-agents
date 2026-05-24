@@ -48,7 +48,9 @@ let workspaceTab: WorkspaceRuntime | undefined;
 
 function resolveWorkspacePageUrl() {
   const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
-  return addonRef ? `chrome://${addonRef}/content/workspace/index.html` : "about:blank";
+  return addonRef
+    ? `chrome://${addonRef}/content/workspace/index.html?ui=20260520-controls-v5`
+    : "about:blank";
 }
 
 function resolveHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {

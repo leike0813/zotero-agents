@@ -1,4 +1,12 @@
-import { getPathSeparator, joinPath } from "../utils/path";
+import { getBaseName, joinPath } from "../utils/path";
+import {
+  compileSkillJsonSchema,
+  loadResolvedAcpSkillJson,
+  resolveAcpSkillSchemaAsset,
+  validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
+  type AcpSkillSchemaKey,
+} from "./acpSkillSchemaAssets";
 import {
   collectRuntimeFiles,
   listRuntimeChildDirectories,
@@ -18,6 +26,8 @@ export type PluginSkillRegistryDiagnostic = {
   category:
     | "skill_root_missing"
     | "skill_candidate_invalid"
+    | "skill_identity_mismatch"
+    | "skill_schema_invalid"
     | "skill_runner_json_invalid"
     | "skill_shadowed"
     | "skill_scan_error";
@@ -164,6 +174,99 @@ async function readJsonFile(filePath: string) {
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+async function readSkillFrontmatterName(skillMdPath: string) {
+  const content = await readRuntimeTextFile(skillMdPath);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!match) {
+    return "";
+  }
+  const body = match[1] || "";
+  const nameMatch = body.match(/^name:\s*(.+?)\s*$/m);
+  return normalizeString(nameMatch?.[1]).replace(/^["']|["']$/g, "");
+}
+
+function makeInvalidRunnerDiagnostic(args: {
+  candidate: Candidate;
+  path: string;
+  reason: string;
+  message?: string;
+  category?: PluginSkillRegistryDiagnostic["category"];
+  skillId?: string;
+}): PluginSkillRegistryDiagnostic {
+  return {
+    level: "error",
+    category: args.category || "skill_runner_json_invalid",
+    message: args.message || "skill runner.json is invalid",
+    sourceKind: args.candidate.sourceKind,
+    path: args.path,
+    skillId: args.skillId,
+    reason: args.reason,
+  };
+}
+
+async function validateSchemaAssetForRegistry(args: {
+  candidate: Candidate;
+  runnerJson: Record<string, unknown>;
+  schemaKey: AcpSkillSchemaKey;
+}) {
+  const resolution = await resolveAcpSkillSchemaAsset({
+    skillDir: args.candidate.sourceDir,
+    runnerJson: args.runnerJson,
+    schemaKey: args.schemaKey,
+  });
+  if (!resolution.path) {
+    if (args.schemaKey === "output") {
+      return [
+        makeInvalidRunnerDiagnostic({
+          candidate: args.candidate,
+          path: args.candidate.sourceDir,
+          category: "skill_schema_invalid",
+          reason: "missing_output_schema",
+          message: "skill output schema is missing",
+        }),
+      ];
+    }
+    return [] as PluginSkillRegistryDiagnostic[];
+  }
+  try {
+    const schema = await loadResolvedAcpSkillJson(resolution);
+    if (!schema) {
+      return [
+        makeInvalidRunnerDiagnostic({
+          candidate: args.candidate,
+          path: resolution.path,
+          category: "skill_schema_invalid",
+          reason: `${args.schemaKey}_schema_not_object`,
+          message: `skill ${args.schemaKey} schema must be a JSON object`,
+        }),
+      ];
+    }
+    const errors = [
+      ...compileSkillJsonSchema({ schema, schemaKey: args.schemaKey }),
+      ...validateSkillSchemaAnnotations({ schema, schemaKey: args.schemaKey }),
+    ];
+    return errors.map((reason) =>
+      makeInvalidRunnerDiagnostic({
+        candidate: args.candidate,
+        path: resolution.path || args.candidate.sourceDir,
+        category: "skill_schema_invalid",
+        reason,
+        message: `skill ${args.schemaKey} schema is invalid`,
+      }),
+    );
+  } catch (error) {
+    return [
+      makeInvalidRunnerDiagnostic({
+        candidate: args.candidate,
+        path: resolution.path,
+        category: "skill_schema_invalid",
+        reason: error instanceof Error ? error.message : String(error),
+        message: `skill ${args.schemaKey} schema could not be parsed`,
+      }),
+    ];
+  }
+}
+
 async function collectFiles(root: string) {
   return (await collectRuntimeFiles(root)).sort((left, right) =>
     runtimeRelativePath(root, left).localeCompare(runtimeRelativePath(root, right)),
@@ -268,6 +371,36 @@ async function inspectCandidate(
       path: runnerJsonPath,
       reason: "missing_id",
     };
+  }
+  const skillFrontmatterName = await readSkillFrontmatterName(skillMdPath);
+  const runnerErrors = validateRunnerManifestShape({
+    runnerJson,
+    skillDirName: getBaseName(candidate.sourceDir),
+    skillFrontmatterName,
+  });
+  if (runnerErrors.length > 0) {
+    return makeInvalidRunnerDiagnostic({
+      candidate,
+      path: runnerJsonPath,
+      reason: runnerErrors.join("; "),
+      category: runnerErrors.some((entry) => entry.startsWith("identity_mismatch"))
+        ? "skill_identity_mismatch"
+        : "skill_runner_json_invalid",
+      message: runnerErrors.some((entry) => entry.startsWith("identity_mismatch"))
+        ? "skill identity mismatch"
+        : "skill runner.json is invalid",
+      skillId,
+    });
+  }
+  for (const schemaKey of ["input", "parameter", "output"] as const) {
+    const schemaDiagnostics = await validateSchemaAssetForRegistry({
+      candidate,
+      runnerJson,
+      schemaKey,
+    });
+    if (schemaDiagnostics.length > 0) {
+      return schemaDiagnostics[0];
+    }
   }
 
   return {

@@ -908,6 +908,8 @@ function assertValidArtifactSchema(value: unknown) {
 }
 
 describe("Topic synthesis contract pipeline", function () {
+  this.timeout(10000);
+
   it("rejects shallow route/timeline content at Stage 7 before final validation", async function () {
     const runRoot = await makeRoot("zs-topic-stage7-run-");
     const sections = baseSections();
@@ -1196,7 +1198,7 @@ describe("Topic synthesis contract pipeline", function () {
 
     assert.equal(repaired.final_path, "result/result.json");
     assert.equal(finalBundle.kind, "topic_synthesis");
-    assert.equal(finalBundle.__SKILL_DONE__, true);
+    assert.notProperty(finalBundle, "__SKILL_DONE__");
   });
 
   it("merges an update_patch product into the previously persisted structured artifact", async function () {

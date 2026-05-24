@@ -4,10 +4,7 @@
   "type": "object",
   "additionalProperties": true,
   "not": {
-    "anyOf": [
-      { "required": ["markdown"] },
-      { "required": ["markdown_path"] }
-    ]
+    "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }]
   },
   "oneOf": [
     {
@@ -25,7 +22,6 @@
         "analysis_manifest_path"
       ],
       "properties": {
-        "__SKILL_DONE__": { "type": "boolean" },
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "update_full" },
         "language": { "type": "string", "minLength": 1 },
@@ -57,7 +53,6 @@
         "analysis_manifest_path"
       ],
       "properties": {
-        "__SKILL_DONE__": { "type": "boolean" },
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "update_patch" },
         "language": { "type": "string", "minLength": 1 },
@@ -72,7 +67,6 @@
       "type": "object",
       "required": ["kind", "status", "reason", "message"],
       "properties": {
-        "__SKILL_DONE__": { "type": "boolean" },
         "kind": { "const": "topic_synthesis_canceled" },
         "status": { "const": "canceled" },
         "reason": { "type": "string", "minLength": 1 },

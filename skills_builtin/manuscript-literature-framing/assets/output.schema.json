@@ -8,7 +8,6 @@
       "title": "Completed manuscript literature framing",
       "type": "object",
       "required": [
-        "__SKILL_DONE__",
         "kind",
         "status",
         "title",
@@ -18,7 +17,6 @@
         "diagnostics_summary"
       ],
       "properties": {
-        "__SKILL_DONE__": { "const": true },
         "kind": { "const": "writing.manuscript_literature_framing" },
         "status": { "const": "completed" },
         "title": { "type": "string", "minLength": 1 },
@@ -28,6 +26,9 @@
           "required": [
             "introduction_tex",
             "related_work_tex",
+            "intent_brief",
+            "evidence_inventory",
+            "framing_analysis",
             "writing_plan",
             "citation_map",
             "diagnostics"
@@ -35,6 +36,9 @@
           "properties": {
             "introduction_tex": { "type": "string", "minLength": 1 },
             "related_work_tex": { "type": "string", "minLength": 1 },
+            "intent_brief": { "type": "string", "minLength": 1 },
+            "evidence_inventory": { "type": "string", "minLength": 1 },
+            "framing_analysis": { "type": "string", "minLength": 1 },
             "writing_plan": { "type": "string", "minLength": 1 },
             "citation_map": { "type": "string", "minLength": 1 },
             "diagnostics": { "type": "string", "minLength": 1 }
@@ -51,9 +55,8 @@
     {
       "title": "Canceled manuscript literature framing",
       "type": "object",
-      "required": ["__SKILL_DONE__", "kind", "status", "reason", "message"],
+      "required": ["kind", "status", "reason", "message"],
       "properties": {
-        "__SKILL_DONE__": { "const": true },
         "kind": { "const": "manuscript_literature_framing_canceled" },
         "status": { "const": "canceled" },
         "reason": { "type": "string", "minLength": 1 },

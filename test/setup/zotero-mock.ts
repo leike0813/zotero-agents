@@ -43,6 +43,10 @@ type ZoteroMock = {
       file: MockFile;
       parentItemID?: number | null;
     }) => Promise<MockItem>;
+    importEmbeddedImage?: (opts: {
+      blob: Blob;
+      parentItemID?: number | null;
+    }) => Promise<MockItem>;
     importFromURL?: (opts: {
       url: string;
       parentItemID?: number | null;
@@ -2289,6 +2293,38 @@ function createZoteroMock(): ZoteroMock {
         const attachment = new MockItem("attachment");
         attachment.parentItemID = parentItemID ?? null;
         attachment.setFilePath(file.path);
+        await attachment.saveTx();
+        return attachment;
+      },
+      importEmbeddedImage: async ({
+        blob,
+        parentItemID,
+      }: {
+        blob: Blob;
+        parentItemID?: number | null;
+      }) => {
+        const contentType = String(blob?.type || "image/png").trim() || "image/png";
+        const extension = contentType.includes("jpeg")
+          ? "jpg"
+          : contentType.includes("png")
+            ? "png"
+            : "bin";
+        const attachment = new MockItem("attachment");
+        attachment.parentItemID = parentItemID ?? null;
+        attachment.setField("contentType", contentType);
+        const storageDir = path.join(
+          os.tmpdir(),
+          "zotero-embedded-images",
+          generateKey(nextItemId),
+        );
+        await fs.mkdir(storageDir, { recursive: true });
+        const filePath = path.join(storageDir, `image.${extension}`);
+        await fs.writeFile(filePath, Buffer.from(await blob.arrayBuffer()));
+        attachment.setFilePath(filePath);
+        (attachment as any).attachmentLinkMode = 4;
+        (attachment as any).attachmentContentType = contentType;
+        (attachment as any).getAttachmentLinkMode = () => 4;
+        (attachment as any).isEmbeddedImageAttachment = () => true;
         await attachment.saveTx();
         return attachment;
       },

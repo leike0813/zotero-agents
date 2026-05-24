@@ -28,6 +28,75 @@ function findPayloadTag(raw, payloadKind) {
   return "";
 }
 
+function payloadTypeOf(record) {
+  return String(
+    (record && (record.payloadType || record.payload_type || record.type)) ||
+    (record && record.payload && record.payload.payloadType) ||
+    (record && record.envelope && record.envelope.payloadType) ||
+    ""
+  ).trim();
+}
+
+function payloadObjectOf(record) {
+  if (!record || typeof record !== "object") return null;
+  if (record.payload && typeof record.payload === "object") return record.payload;
+  if (record.envelope && record.envelope.payload && typeof record.envelope.payload === "object") {
+    return record.envelope.payload;
+  }
+  if (record.markdown || record.content) {
+    return {
+      version: 1,
+      entry: record.entry || record.payloadEntry || "",
+      format: record.format || record.payloadFormat || "markdown",
+      content: String(record.markdown || record.content || ""),
+    };
+  }
+  return null;
+}
+
+function collectResolvedPayloadRecordsFromNote(note) {
+  var records = [];
+  var buckets = [
+    note && note.payloadBlocks,
+    note && note.payloads,
+    note && note.embeddedPayloads,
+    note && note.notePayloads,
+    note && note.artifacts,
+  ];
+  for (var i = 0; i < buckets.length; i++) {
+    var bucket = buckets[i];
+    if (!bucket) continue;
+    if (Object.prototype.toString.call(bucket) === "[object Array]") {
+      for (var j = 0; j < bucket.length; j++) records.push(bucket[j]);
+      continue;
+    }
+    if (typeof bucket === "object") {
+      var keys = Object.keys(bucket);
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        var entry = bucket[key];
+        if (entry && typeof entry === "object" && !payloadTypeOf(entry)) {
+          records.push(Object.assign({ payloadType: key }, entry));
+        } else {
+          records.push(entry);
+        }
+      }
+    }
+  }
+  return records;
+}
+
+function resolvedPayloadJsonFromNote(note, payloadKind) {
+  var records = collectResolvedPayloadRecordsFromNote(note);
+  for (var i = 0; i < records.length; i++) {
+    var record = records[i];
+    if (payloadTypeOf(record) !== payloadKind) continue;
+    var payload = payloadObjectOf(record);
+    if (payload) return payload;
+  }
+  return null;
+}
+
 function b64ToUtf8(b64) {
   if (!b64) return "";
   try {
@@ -53,6 +122,9 @@ function b64ToUtf8(b64) {
 function readPayloadJson(payloadKind) {
   var notes = (it && it.notes) ? it.notes : [];
   for (var i = 0; i < notes.length; i++) {
+    var resolved = resolvedPayloadJsonFromNote(notes[i], payloadKind);
+    if (resolved) return resolved;
+
     var raw = notes[i] && notes[i].note ? String(notes[i].note) : "";
     var tag = findPayloadTag(raw, payloadKind);
     if (!tag) continue;

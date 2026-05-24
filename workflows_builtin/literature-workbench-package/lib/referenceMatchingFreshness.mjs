@@ -1,4 +1,4 @@
-import { parseReferencesPayload } from "./referencesNote.mjs";
+import { resolveReferencesPayloadForNote } from "./referencesNote.mjs";
 import { requireHostApi } from "./runtime.mjs";
 
 const SCHEMA_VERSION = "1.0.0";
@@ -486,7 +486,11 @@ export async function filterFreshReferenceMatchingSelection(args) {
           : cleanString(noteEntry?.item?.key || noteEntry?.key);
       const noteItem = args.runtime.helpers.resolveItemRef(noteRef);
       const noteContent = cleanString(noteItem?.getNote?.());
-      const { payload, references } = parseReferencesPayload(noteContent, args.runtime);
+      const { payload, references } = await resolveReferencesPayloadForNote({
+        noteItem,
+        noteContent,
+        runtime: args.runtime,
+      });
       const freshness = await assessReferenceMatchingFreshness({
         payload,
         references,

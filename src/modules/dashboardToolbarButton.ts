@@ -1,6 +1,10 @@
 import { config } from "../../package.json";
 import { getStringOrFallback } from "../utils/locale";
 import { rebuildWorkflowActionPopup } from "./workflowMenu";
+import {
+  installWorkspaceToolbarTaskPopover,
+  uninstallWorkspaceToolbarTaskPopover,
+} from "./workspaceToolbarTaskPopover";
 
 const DASHBOARD_BUTTON_ID = `${config.addonRef}-tb-dashboard`;
 const SKILLRUNNER_BUTTON_ID = `${config.addonRef}-tb-skillrunner`;
@@ -251,6 +255,10 @@ function ensureDashboardOnlyToolbarButton(
   const doc = win.document;
   const existing = doc.getElementById(DASHBOARD_BUTTON_ID);
   if (existing) {
+    installWorkspaceToolbarTaskPopover({
+      window: win,
+      anchor: existing,
+    });
     return;
   }
 
@@ -260,7 +268,7 @@ function ensureDashboardOnlyToolbarButton(
     "Open Zotero Skills Workspace",
   );
   button.id = DASHBOARD_BUTTON_ID;
-  button.setAttribute("class", "zotero-tb-button");
+  button.setAttribute("class", "zotero-tb-button zs-workspace-toolbar-button");
   button.setAttribute("tooltiptext", tooltip);
   button.setAttribute("aria-label", tooltip);
   button.setAttribute("image", PRIMARY_ICON_URI);
@@ -274,6 +282,10 @@ function ensureDashboardOnlyToolbarButton(
   });
   button.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openDashboard", { window: win });
+  });
+  installWorkspaceToolbarTaskPopover({
+    window: win,
+    anchor: button,
   });
   const anchor = resolveInsertAnchor(host, doc);
   insertWithAnchor(
@@ -382,5 +394,6 @@ export function removeDashboardToolbarButton(win: Window | _ZoteroTypes.MainWind
   const skillRunner = doc.getElementById(SKILLRUNNER_BUTTON_ID);
   skillRunner?.remove();
   const existing = doc.getElementById(DASHBOARD_BUTTON_ID);
+  uninstallWorkspaceToolbarTaskPopover({ anchor: existing });
   existing?.remove();
 }

@@ -33,7 +33,9 @@ function closeLists(state, blocks) {
 }
 
 export function renderMarkdownToHtml(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = String(markdown || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
   const blocks = [];
   const state = {
     inCodeBlock: false,
@@ -73,7 +75,9 @@ export function renderMarkdownToHtml(markdown) {
     if (headingMatch) {
       closeLists(state, blocks);
       const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      blocks.push(
+        `<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`,
+      );
       continue;
     }
 
@@ -105,7 +109,9 @@ export function renderMarkdownToHtml(markdown) {
 
   closeLists(state, blocks);
   if (state.inCodeBlock && state.codeLines.length > 0) {
-    blocks.push(`<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`);
+    blocks.push(
+      `<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`,
+    );
   }
   return blocks.join("\n");
 }
@@ -125,12 +131,7 @@ function decodePayloadValue(encoded, runtime, payloadFormat = "json") {
   return JSON.parse(decoded);
 }
 
-export function renderPayloadBlock(
-  payloadType,
-  payload,
-  runtime,
-  args = {},
-) {
+export function renderPayloadBlock(payloadType, payload, runtime, args = {}) {
   const payloadFormat = args.payloadFormat === "text" ? "text" : "json";
   const encoded = encodePayloadValue(payload, runtime, payloadFormat);
   return `<span data-zs-block="payload" data-zs-payload="${escapeAttribute(payloadType)}" data-zs-version="1" data-zs-encoding="base64" data-zs-value="${escapeAttribute(encoded)}"></span>`;
@@ -144,23 +145,24 @@ export function parsePayloadBlock(
 ) {
   const payloadFormat = args.payloadFormat === "text" ? "text" : "json";
   const payloadTagMatch = String(noteContent || "").match(
-    new RegExp(
-      `<span[^>]*data-zs-payload=(["'])${payloadType}\\1[^>]*>`,
-      "i",
-    ),
+    new RegExp(`<span[^>]*data-zs-payload=(["'])${payloadType}\\1[^>]*>`, "i"),
   );
   if (!payloadTagMatch) {
     throw new Error(`${payloadType} payload block not found in note`);
   }
   const payloadTag = payloadTagMatch[0];
-  const encoding = (readTagAttribute(payloadTag, "data-zs-encoding") || "base64")
-    .toLowerCase();
-  const encodedValue = decodeHtmlEntities(readTagAttribute(payloadTag, "data-zs-value"));
+  const encoding = (
+    readTagAttribute(payloadTag, "data-zs-encoding") || "base64"
+  ).toLowerCase();
+  const encodedValue = decodeHtmlEntities(
+    readTagAttribute(payloadTag, "data-zs-value"),
+  );
   let payload = null;
   if (encoding === "base64") {
     payload = decodePayloadValue(encodedValue, runtime, payloadFormat);
   } else if (encoding === "plain" || encoding === "utf8") {
-    payload = payloadFormat === "text" ? encodedValue : JSON.parse(encodedValue);
+    payload =
+      payloadFormat === "text" ? encodedValue : JSON.parse(encodedValue);
   } else {
     throw new Error(`Unsupported ${payloadType} payload encoding: ${encoding}`);
   }
@@ -217,6 +219,11 @@ export function buildStructuredNoteContent(args) {
     }
   }
   parts.push(`<h1>${escapeHtml(String(args.title || ""))}</h1>`);
+  for (const block of args.afterTitleBlocks || []) {
+    if (String(block || "").trim()) {
+      parts.push(String(block));
+    }
+  }
   parts.push(`<div data-zs-view="${escapeAttribute(args.viewName)}">`);
   parts.push(String(args.bodyHtml || ""));
   parts.push("</div>");
@@ -231,6 +238,28 @@ export function buildStructuredNoteContent(args) {
 
 export function buildMarkdownBackedNoteContent(args) {
   return buildStructuredNoteContent({
+    ...args,
+    bodyHtml: renderMarkdownToHtml(args.markdown),
+  });
+}
+
+export function buildLegalGeneratedNoteContent(args) {
+  const parts = ['<div data-schema-version="9">'];
+  parts.push(`<h1>${escapeHtml(String(args.title || ""))}</h1>`);
+  for (const block of args.afterTitleBlocks || []) {
+    if (String(block || "").trim()) {
+      parts.push(String(block));
+    }
+  }
+  if (String(args.bodyHtml || "").trim()) {
+    parts.push(String(args.bodyHtml || ""));
+  }
+  parts.push("</div>");
+  return parts.join("\n");
+}
+
+export function buildLegalGeneratedMarkdownNoteContent(args) {
+  return buildLegalGeneratedNoteContent({
     ...args,
     bodyHtml: renderMarkdownToHtml(args.markdown),
   });

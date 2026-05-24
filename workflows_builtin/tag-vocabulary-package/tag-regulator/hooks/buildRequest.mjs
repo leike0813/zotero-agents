@@ -11,6 +11,7 @@ import {
   requireHostApi,
   requireHostPrefs,
 } from "../../lib/runtime.mjs";
+import { resolveDigestMarkdownForParent } from "../../lib/digestPayload.mjs";
 const dynamicImport = new Function("specifier", "return import(specifier)");
 
 const ALLOWED_VALID_TAGS_FORMATS = new Set(["yaml", "json", "auto"]);
@@ -208,6 +209,30 @@ function buildValidTagsUploadRelativePath() {
   return "inputs/valid_tags/valid_tags.yaml";
 }
 
+async function materializeDigestMarkdown(markdown, parentId, runtime) {
+  const content = String(markdown || "");
+  if (!content.trim()) {
+    return null;
+  }
+  const tempDir = await resolveTempDirectoryPath(runtime);
+  await ensureDirectory(tempDir);
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const fileName =
+    [
+      "digest-markdown-parent",
+      String(parentId || "unknown"),
+      String(Date.now()),
+      nonce,
+    ].join("-") + ".md";
+  const filePath = joinPath(tempDir, fileName);
+  await writeText(filePath, content);
+  return toNativePath(filePath);
+}
+
+function buildDigestMarkdownUploadRelativePath() {
+  return "inputs/digest_markdown/digest.md";
+}
+
 function resolveParentItemFromSelection(selectionContext, runtime) {
   const parentFromSelection = Number(
     selectionContext?.items?.parents?.[0]?.item?.id || 0,
@@ -335,22 +360,40 @@ async function buildRequestImpl({
       runtime,
     );
     const validTagsRelativePath = buildValidTagsUploadRelativePath();
+    const digestMarkdown = await resolveDigestMarkdownForParent(
+      parentItem,
+      runtime,
+    );
+    const digestMarkdownPath = await materializeDigestMarkdown(
+      digestMarkdown,
+      parentItem.id,
+      runtime,
+    );
+    const input = {
+      metadata,
+      input_tags: inputTags,
+      valid_tags: validTagsRelativePath,
+    };
+    const uploadFiles = [
+      {
+        key: "valid_tags",
+        path: validTagsPath,
+      },
+    ];
+    if (digestMarkdownPath) {
+      input.digest_markdown = buildDigestMarkdownUploadRelativePath();
+      uploadFiles.push({
+        key: "digest_markdown",
+        path: digestMarkdownPath,
+      });
+    }
     return {
       kind: "skillrunner.job.v1",
       skill_id: "tag-regulator",
       targetParentID: parentItem.id,
-      input: {
-        metadata,
-        input_tags: inputTags,
-        valid_tags: validTagsRelativePath,
-      },
+      input,
       parameter: resolveRequestParameters(executionOptions),
-      upload_files: [
-        {
-          key: "valid_tags",
-          path: validTagsPath,
-        },
-      ],
+      upload_files: uploadFiles,
       fetch_type: "result",
     };
   } catch (error) {

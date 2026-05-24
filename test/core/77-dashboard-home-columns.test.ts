@@ -50,6 +50,33 @@ describe("dashboard home columns", function () {
     assert.include(ts, "colBackend: localize(\"task-dashboard-col-backend\", \"Backend\")");
   });
 
+  it("filters stale ACP skill run task rows from the home running list", async function () {
+    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
+    const activeTasksTs = await readProjectFile("src/modules/dashboardActiveTasks.ts");
+    assert.include(activeTasksTs, "function isVisibleDashboardActiveTask");
+    assert.include(activeTasksTs, "function isAcpSkillRunTask");
+    assert.include(ts, "listAcpSkillRuns()");
+    assert.include(ts, "filterDashboardActiveTasks");
+    assert.include(activeTasksTs, "visibleAcpRequestIds.has(requestId)");
+    assert.include(activeTasksTs, 'taskId.startsWith("acp-skill-run:")');
+    assert.include(activeTasksTs, "return false;");
+    assert.include(activeTasksTs, "run.status !== \"succeeded\"");
+    assert.include(activeTasksTs, "run.status !== \"failed\"");
+    assert.include(activeTasksTs, "run.status !== \"canceled\"");
+  });
+
+  it("coalesces noisy dashboard task refreshes to keep running-list scrolling stable", async function () {
+    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
+    assert.include(ts, "deferredDashboardRefreshTimer");
+    assert.include(ts, "dashboardRefreshQueued");
+    assert.include(ts, "const isNoisyRefreshReason");
+    assert.include(ts, 'reason === "task-update"');
+    assert.include(ts, 'reason === "backend-health"');
+    assert.include(ts, 'reason === "periodic"');
+    assert.include(ts, "scheduleDeferredDashboardRefresh()");
+    assert.include(ts, "clearDeferredDashboardRefresh()");
+  });
+
   it("routes row-click by backend type and handles missing skillrunner requestId", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     assert.include(ts, 'if (action === "open-running-task")');

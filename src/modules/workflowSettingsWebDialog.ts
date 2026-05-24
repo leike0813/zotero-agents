@@ -10,6 +10,11 @@ import { ACP_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
+import {
+  AUTO_APPROVE_ZOTERO_WRITES_PARAM,
+  normalizeWorkflowRunOptions,
+  type WorkflowRunOptions,
+} from "../workflows/zoteroHostAccessOptions";
 
 type WorkflowSettingsDialogSnapshot = {
   title: string;
@@ -19,11 +24,13 @@ type WorkflowSettingsDialogSnapshot = {
     profileLabel: string;
     workflowParamsTitle: string;
     providerOptionsTitle: string;
+    runOptionsTitle: string;
     persistLabel: string;
     confirmLabel: string;
     cancelLabel: string;
     noWorkflowParams: string;
     noProviderOptions: string;
+    noRunOptions: string;
     noProfiles: string;
     blockedNoProfile: string;
     workflowSettingsNumberInvalid: string;
@@ -71,8 +78,24 @@ type WorkflowSettingsDialogSnapshot = {
       defaultValue?: unknown;
       disabled?: boolean;
     }>;
+    runSchemaEntries: Array<{
+      key: string;
+      type: "string" | "number" | "boolean";
+      title?: string;
+      description?: string;
+      enumValues?: string[];
+      options?: Array<{
+        value: string;
+        label: string;
+        description?: string;
+      }>;
+      allowCustom?: boolean;
+      defaultValue?: unknown;
+      disabled?: boolean;
+    }>;
     workflowParams: Record<string, unknown>;
     providerOptions: Record<string, unknown>;
+    runOptions: Record<string, unknown>;
     hasConfigurableSettings: boolean;
     canRefreshAcpRuntimeCache?: boolean;
   };
@@ -120,7 +143,7 @@ function resolveDialogPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/dashboard/workflow-settings-dialog.html`;
+  return `chrome://${addonRef}/content/dashboard/workflow-settings-dialog.html?ui=20260521-submit-v1`;
 }
 
 function createDialogFrame(doc: Document, pageUrl: string) {
@@ -156,6 +179,16 @@ function normalizeExecutionOptions(raw: unknown): WorkflowExecutionOptions {
       typeof raw.backendId === "string" ? raw.backendId.trim() || undefined : undefined,
     workflowParams: isObject(raw.workflowParams) ? { ...raw.workflowParams } : {},
     providerOptions: isObject(raw.providerOptions) ? { ...raw.providerOptions } : {},
+    runOptions: normalizeWorkflowRunOptions(raw.runOptions),
+  };
+}
+
+function toRunOptionsFormValues(
+  runOptions: WorkflowRunOptions | undefined,
+): Record<string, unknown> {
+  return {
+    [AUTO_APPROVE_ZOTERO_WRITES_PARAM]:
+      runOptions?.zoteroHostAccess?.autoApproveWrites === true,
   };
 }
 
@@ -164,7 +197,8 @@ function normalizeDraftChangedSection(raw: unknown) {
   if (
     section === "backend" ||
     section === "workflowParams" ||
-    section === "providerOptions"
+    section === "providerOptions" ||
+    section === "runOptions"
   ) {
     return section;
   }
@@ -221,10 +255,18 @@ export async function openWorkflowSettingsWebDialog(args: {
     candidateBackends: args.candidateBackends,
     autoSelectFallbackProfile: true,
   });
+  if (descriptor.blockedReason) {
+    return {
+      status: "error",
+      stage: "descriptor",
+      reason: descriptor.blockedReason,
+    };
+  }
   let draft: WorkflowExecutionOptions = {
     backendId: descriptor.selectedProfile || undefined,
     workflowParams: { ...descriptor.workflowParams },
     providerOptions: { ...descriptor.providerOptions },
+    runOptions: normalizeWorkflowRunOptions(descriptor.runOptions),
   };
   let candidateBackends = args.candidateBackends;
   let persistChecked = true;
@@ -266,6 +308,10 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-persisted-provider-options-title",
           "Provider Runtime Options",
         ),
+        runOptionsTitle: localize(
+          "workflow-settings-run-options-title",
+          "Run Options",
+        ),
         persistLabel: localize(
           "workflow-settings-submit-persist-checkbox",
           "Save as default settings",
@@ -279,6 +325,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         noProviderOptions: localize(
           "workflow-settings-no-provider-options",
           "This provider has no configurable runtime options.",
+        ),
+        noRunOptions: localize(
+          "workflow-settings-no-run-options",
+          "This workflow has no configurable run options.",
         ),
         noProfiles: localize(
           "workflow-settings-no-profiles",
@@ -314,8 +364,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         selectedProfile,
         workflowSchemaEntries: descriptor.workflowSchemaEntries,
         providerSchemaEntries: descriptor.providerSchemaEntries,
+        runSchemaEntries: descriptor.runSchemaEntries,
         workflowParams: { ...(draft.workflowParams || {}) },
         providerOptions: { ...(draft.providerOptions || {}) },
+        runOptions: toRunOptionsFormValues(draft.runOptions),
         hasConfigurableSettings: descriptor.hasConfigurableSettings,
         canRefreshAcpRuntimeCache:
           resolveSelectedBackendForSnapshot()?.type === ACP_BACKEND_TYPE,
@@ -341,6 +393,7 @@ export async function openWorkflowSettingsWebDialog(args: {
     draft = {
       ...draft,
       providerOptions: { ...descriptor.providerOptions },
+      runOptions: normalizeWorkflowRunOptions(draft.runOptions),
     };
     const draftBackendId = String(draft.backendId || "").trim();
     if (!draftBackendId) {

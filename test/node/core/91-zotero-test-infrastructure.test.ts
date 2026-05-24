@@ -110,8 +110,27 @@ describe("zotero test infrastructure helpers", function () {
       );
     });
 
-    it("does not inject watch flags for non-zotero targets", function () {
-      assert.deepEqual(buildForwardedTestArgs("test:node:raw", []), []);
+    it("injects Mocha exit for node test targets so wrapper cleanup can run", function () {
+      assert.deepEqual(buildForwardedTestArgs("test:node:raw", []), [
+        "--exit",
+      ]);
+      assert.deepEqual(buildForwardedTestArgs("test:node:raw:core", []), [
+        "--exit",
+      ]);
+    });
+
+    it("does not duplicate explicit Mocha exit flags for node test targets", function () {
+      assert.deepEqual(buildForwardedTestArgs("test:node:raw", ["--exit"]), [
+        "--exit",
+      ]);
+      assert.deepEqual(
+        buildForwardedTestArgs("test:node:raw", ["--no-exit"]),
+        ["--no-exit"],
+      );
+    });
+
+    it("does not inject node-only flags for arbitrary non-zotero targets", function () {
+      assert.deepEqual(buildForwardedTestArgs("lint:check", []), []);
     });
 
     it("parses wrapper cli args without losing explicit test flags", function () {

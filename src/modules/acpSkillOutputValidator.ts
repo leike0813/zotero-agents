@@ -1,31 +1,11 @@
 import Ajv from "ajv";
-import { joinPath } from "../utils/path";
-import { readRuntimeTextFile } from "./runtimePersistence";
+import {
+  loadResolvedAcpSkillJson,
+  resolveAcpSkillSchemaAsset,
+} from "./acpSkillSchemaAssets";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
-}
-
-function resolveSchemaPath(args: {
-  runnerJson: Record<string, unknown>;
-  skillDir: string;
-}) {
-  const schemas = args.runnerJson.schemas;
-  if (!schemas || typeof schemas !== "object" || Array.isArray(schemas)) {
-    return "";
-  }
-  const output = normalizeString((schemas as Record<string, unknown>).output);
-  if (!output) {
-    return "";
-  }
-  return /^[A-Za-z]:[\\/]|^\//.test(output)
-    ? output
-    : joinPath(args.skillDir, output);
-}
-
-async function tryReadJson(filePath: string) {
-  const text = await readRuntimeTextFile(filePath);
-  return JSON.parse(text);
 }
 
 export type AcpSkillOutputValidationResult = {
@@ -48,20 +28,31 @@ export async function validateAcpSkillFinalPayload(args: {
       errors: ["final output must be a JSON object"],
     };
   }
-  const schemaPath = resolveSchemaPath({
+  const resolution = await resolveAcpSkillSchemaAsset({
     runnerJson: args.runnerJson,
     skillDir: args.primarySkillDir,
+    schemaKey: "output",
   });
+  const schemaPath = resolution.path || "";
   if (!schemaPath) {
     return {
-      ok: true,
+      ok: false,
       resultJson,
-      errors: [],
+      errors: [
+        `output schema is missing: ${
+          resolution.fallbackRelpath ||
+          resolution.declaredRelpath ||
+          "assets/output.schema.json"
+        }`,
+      ],
     };
   }
   let schema: unknown;
   try {
-    schema = await tryReadJson(schemaPath);
+    schema = await loadResolvedAcpSkillJson(resolution);
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+      throw new Error("output schema must be a JSON object");
+    }
   } catch (error) {
     return {
       ok: false,

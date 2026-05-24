@@ -7,9 +7,10 @@ import {
 } from "./runtimePersistence";
 
 export type AcpRuntimePromptTemplateId =
-  | "mcp_callable_smoke"
   | "mcp_required_guard"
-  | "recovered_continuation_guard";
+  | "recovered_continuation_guard"
+  | "host_bridge_cli_readme"
+  | "host_bridge_cli_prompt";
 
 export type AcpRuntimePromptTemplate = {
   id: AcpRuntimePromptTemplateId;
@@ -21,16 +22,20 @@ export const ACP_RUNTIME_PROMPT_TEMPLATE_ROOT =
 
 export const ACP_RUNTIME_PROMPT_TEMPLATES = [
   {
-    id: "mcp_callable_smoke",
-    filename: "mcp_callable_smoke.md",
-  },
-  {
     id: "mcp_required_guard",
     filename: "mcp_required_guard.md",
   },
   {
     id: "recovered_continuation_guard",
     filename: "recovered_continuation_guard.md",
+  },
+  {
+    id: "host_bridge_cli_readme",
+    filename: "host_bridge_cli_readme.md",
+  },
+  {
+    id: "host_bridge_cli_prompt",
+    filename: "host_bridge_cli_prompt.md",
   },
 ] satisfies AcpRuntimePromptTemplate[];
 

@@ -38,21 +38,24 @@ result/result.json
 
 ## stdout 规则
 
-stdout 只输出 `result/result.json` 中的 JSON object。canonical persistence 与导出渲染由 host apply 处理。
+stdout 只输出合法业务 JSON object。canonical persistence 与导出渲染由 host apply 处理。
 
 ## stdout 示例
 
 ```json
 {
-  "__SKILL_DONE__": true,
   "kind": "topic_synthesis",
   "operation": "create",
   "analysis_manifest_path": "result/topic-analysis.json",
   "resolver_manifest_path": "runtime/payloads/resolver.json",
   "topic_definition": { "id": "object-detection", "title": "Object Detection" },
-  "base_hashes": { "manifest": "", "artifact": "", "export": "", "metadata": "", "index": "" },
+  "base_hashes": {
+    "manifest": "",
+    "artifact": "",
+    "export": "",
+    "metadata": "",
+    "index": ""
+  },
   "artifact_metadata": {}
 }
 ```
-
-

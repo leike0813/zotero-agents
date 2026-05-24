@@ -44,3 +44,189 @@
   min-width: 16px !important;
   min-height: 16px !important;
 }
+
+.zs-workspace-running-popover-panel {
+  appearance: none;
+  -moz-appearance: none;
+  width: 580px;
+  min-width: 580px;
+  max-width: 580px;
+  min-height: 0;
+  height: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.zs-workspace-running-popover {
+  box-sizing: border-box;
+  width: 580px;
+  min-width: 580px;
+  max-width: 580px;
+  min-height: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  box-shadow:
+    0 12px 30px rgba(15, 23, 42, 0.16),
+    0 2px 6px rgba(15, 23, 42, 0.08);
+  font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.zs-workspace-running-popover-title {
+  margin: 0;
+  padding: 0 2px;
+  color: #334155;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.zs-workspace-running-popover-separator {
+  height: 1px;
+  min-height: 1px;
+  margin: 5px 2px 6px;
+  padding: 0;
+  border: 0;
+  background: rgba(148, 163, 184, 0.42);
+}
+
+.zs-workspace-running-popover-empty {
+  padding: 10px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.zs-workspace-running-popover-list {
+  margin: 0;
+}
+
+.zs-workspace-running-popover-task {
+  width: 580px;
+  min-width: 580px;
+  max-width: 580px;
+  min-height: 0;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.zs-workspace-running-popover-task:hover,
+.zs-workspace-running-popover-task:focus-visible {
+  border-color: #9bbcff;
+  background: #eef5ff;
+  outline: 2px solid transparent;
+}
+
+.zs-workspace-running-popover-led-cell {
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+}
+
+.zs-workspace-running-popover-led {
+  border-radius: 999px;
+}
+
+.zs-workspace-running-popover-task-title,
+.zs-workspace-running-popover-task-subtitle,
+.zs-workspace-running-popover-task-backend {
+  min-width: 0;
+  margin: 0 !important;
+  padding: 3px 6px !important;
+  box-sizing: border-box;
+  overflow: hidden !important;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+  font-size: 11px;
+  line-height: 19px;
+}
+
+.zs-workspace-running-popover-task-title {
+  width: 250px !important;
+  min-width: 250px !important;
+  max-width: 250px !important;
+}
+
+.zs-workspace-running-popover-task-subtitle {
+  width: 144px !important;
+  min-width: 144px !important;
+  max-width: 144px !important;
+}
+
+.zs-workspace-running-popover-task-backend {
+  width: 134px !important;
+  min-width: 134px !important;
+  max-width: 134px !important;
+}
+
+.zs-workspace-running-popover-task-title {
+  color: #0f172a;
+  font-weight: 650;
+}
+
+.zs-workspace-running-popover-task-subtitle {
+  color: #475569;
+  font-size: 9px;
+}
+
+.zs-workspace-running-popover-task-backend {
+  color: #64748b;
+  font-size: 9px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .zs-workspace-running-popover {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: #182235;
+    color: #e5edf8;
+    box-shadow:
+      0 12px 30px rgba(0, 0, 0, 0.35),
+      0 2px 6px rgba(0, 0, 0, 0.22);
+  }
+
+  .zs-workspace-running-popover-title {
+    color: #d5deec;
+  }
+
+  .zs-workspace-running-popover-separator {
+    background: rgba(148, 163, 184, 0.28);
+  }
+
+  .zs-workspace-running-popover-empty {
+    background: rgba(15, 23, 42, 0.5);
+    color: #aab7ca;
+  }
+
+  .zs-workspace-running-popover-task {
+    background: transparent;
+  }
+
+  .zs-workspace-running-popover-task:hover,
+  .zs-workspace-running-popover-task:focus-visible {
+    border-color: rgba(147, 197, 253, 0.45);
+    background: rgba(96, 165, 250, 0.16);
+  }
+
+  .zs-workspace-running-popover-task-title {
+    color: #f8fafc;
+  }
+
+  .zs-workspace-running-popover-task-subtitle,
+  .zs-workspace-running-popover-task-backend {
+    color: #aab7ca;
+  }
+}

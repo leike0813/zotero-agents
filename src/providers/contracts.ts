@@ -38,6 +38,10 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    zotero_host_access?: {
+      required?: boolean;
+      auto_approve_writes?: boolean;
+    };
     [key: string]: unknown;
   };
   poll?: {
@@ -114,6 +118,10 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    zotero_host_access?: {
+      required?: boolean;
+      auto_approve_writes?: boolean;
+    };
     [key: string]: unknown;
   };
   poll?: {

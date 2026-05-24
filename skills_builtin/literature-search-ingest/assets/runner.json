@@ -1,25 +1,16 @@
 {
   "id": "literature-search-ingest",
   "name": "Literature Search Ingest",
-  "description": "Interactive literature search and Zotero ingest through ACP and Zotero MCP.",
+  "description": "Interactive literature search and Zotero ingest through ACP.",
   "version": "0.1.0",
   "execution_modes": ["interactive"],
   "max_attempt": 10,
-  "mcp": {
-    "required_tools": [
-      "list_library_items",
-      "search_items",
-      "synthesis.list_topics",
-      "synthesis.get_library_index",
-      "ingest_papers"
-    ]
-  },
   "schemas": {
     "output": "assets/output.schema.json"
   },
   "entrypoint": {
     "prompts": {
-      "common": "使用中文执行 literature-search-ingest。输入 query={{ parameter.query }}，targetCollection={{ parameter.targetCollection }}。Host 已完成 MCP availability check 和 callable smoke；不要自行搜索 MCP 配置或测试工具注入状态。必须先阅读 SKILL.md，严格执行四段交互：先调用 synthesis.list_topics、synthesis.get_library_index、list_library_items/search_items 读取 Zotero library 与 Synthesis 上下文并确认搜索方案，再搜索候选且不入库，再让用户确认落库列表，最后调用 ingest_papers。不要使用浏览器、Connector、CDP 或登录态自动化；PDF 只做 best-effort。最终只输出 result/result.json 中的 JSON object。"
+      "common": "使用中文执行 literature-search-ingest。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。必须先阅读 SKILL.md，严格执行四段交互：先通过 zotero-bridge synthesis list-topics、zotero-bridge synthesis get-library-index，以及必要的 zotero-bridge item search/get 读取 Zotero library 与 Synthesis 上下文并确认搜索方案。searchMode=auto 时还必须先做一次联网搜索再判断 topic_expansion、paper_seed_expansion 或 targeted_ingest；显式指定模式时不得重新分类。paper_seed_expansion 要尝试 zotero-bridge synthesis read-paper-artifacts 读取 seed paper 的 references/citation artifacts。targeted_ingest 用户确认单篇候选后直接入库，不做额外扩展搜索。PDF best-effort 要尽量尝试 DOI landing、publisher、arXiv/eprint、PMC/Europe PMC、OA 线索、机构仓储、作者/实验室/项目页和 filetype:pdf 搜索，但禁止登录态、机构代理、Sci-Hub/LibGen 等盗版来源。最后为每篇确认候选分别写入 runtime/payloads/ingest-paper-NNN.json，并逐篇调用 zotero-bridge literature ingest --input @runtime/payloads/ingest-paper-NNN.json。每个入库 payload 只能包含单个 paper 字段，禁止使用 papers 或批量入库 payload。最终 JSON 必须包含 missing_pdf_references，列出所有成功入库但 attachmentStatus 为 skipped 或 failed 的论文，并尽量给出 landingUrl/manualSearchLinks 方便用户手动找 PDF。不要使用浏览器、Connector、CDP 或登录态自动化。不要手写或要求写入 result/result.json；最终只输出合法业务 JSON object。"
     }
   }
 }

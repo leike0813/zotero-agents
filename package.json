@@ -27,6 +27,7 @@
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:ssot-invariants": "tsx scripts/check-skillrunner-ssot-invariants.ts",
+    "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",

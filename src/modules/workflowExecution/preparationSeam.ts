@@ -24,6 +24,12 @@ import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
 import type { SkillRunnerJobRequestV1 } from "../../providers/contracts";
 import { adaptSkillRunnerJobToAcpSkillRun } from "../acpSkillRunRequestAdapter";
+import {
+  SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
+  SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
+  stripZoteroHostAccessRuntimeOptionFromRequest,
+  workflowDeclaresRequiredZoteroHostAccess,
+} from "../../workflows/zoteroHostAccessOptions";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -40,14 +46,26 @@ function isNoValidInputUnitsError(error: unknown) {
 
 function adaptRequestsForExecutionContext(args: {
   requests: unknown[];
+  workflow: LoadedWorkflow;
   executionContext: WorkflowExecutionContext;
 }) {
-  if (args.executionContext.requestKind !== ACP_SKILL_RUN_REQUEST_KIND) {
-    return args.requests;
+  if (args.executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND) {
+    return args.requests.map((request) =>
+      adaptSkillRunnerJobToAcpSkillRun(request as SkillRunnerJobRequestV1, {
+        manifest: args.workflow.manifest,
+        runOptions: args.executionContext.runOptions,
+      }),
+    );
   }
-  return args.requests.map((request) =>
-    adaptSkillRunnerJobToAcpSkillRun(request as SkillRunnerJobRequestV1),
-  );
+  if (
+    args.executionContext.requestKind === "skillrunner.job.v1" &&
+    !SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS
+  ) {
+    return args.requests.map((request) =>
+      stripZoteroHostAccessRuntimeOptionFromRequest(request),
+    );
+  }
+  return args.requests;
 }
 
 function resolveSkippedUnitsFromNoValidInputError(error: unknown) {
@@ -92,12 +110,16 @@ export async function runWorkflowPreparationSeam(args: {
   workflow: LoadedWorkflow;
   messageFormatter: WorkflowMessageFormatter;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  selectedItemsOverride?: Zotero.Item[];
+  suppressUiFeedback?: boolean;
 }, deps: Partial<PreparationDeps> = {}): Promise<PreparationSeamResult> {
   const resolved = {
     ...defaultPreparationDeps,
     ...deps,
   };
-  const selectedItems = args.win.ZoteroPane?.getSelectedItems?.() || [];
+  const selectedItems = Array.isArray(args.selectedItemsOverride)
+    ? args.selectedItemsOverride
+    : args.win.ZoteroPane?.getSelectedItems?.() || [];
   if (
     selectedItems.length === 0 &&
     !canWorkflowRunWithoutSelection(args.workflow.manifest)
@@ -109,10 +131,12 @@ export async function runWorkflowPreparationSeam(args: {
       stage: "trigger-rejected-no-selection",
       message: "workflow trigger rejected: no selected items",
     });
-    resolved.alertWindow(
-      args.win,
-      localizeWorkflowText("workflow-execute-no-selection", "No items selected."),
-    );
+    if (!args.suppressUiFeedback) {
+      resolved.alertWindow(
+        args.win,
+        localizeWorkflowText("workflow-execute-no-selection", "No items selected."),
+      );
+    }
     return {
       status: "halted",
     };
@@ -138,15 +162,25 @@ export async function runWorkflowPreparationSeam(args: {
       workflowId: args.workflow.manifest.id,
       stage: "build-requests-start",
       message: "build requests started",
+      details: {
+        allowWriteApprovalBypass:
+          args.workflow.manifest.execution?.zoteroHostAccess
+            ?.allowWriteApprovalBypass === true,
+        autoApproveWritesRequested:
+          args.executionOptionsOverride?.runOptions?.zoteroHostAccess
+            ?.autoApproveWrites === true,
+      },
     });
     let preview: {
       providerId?: string;
       workflowParams?: Record<string, unknown>;
       providerOptions?: Record<string, unknown>;
+      runOptions?: WorkflowExecutionOptions["runOptions"];
     } = {
       providerId: "",
       workflowParams: {},
       providerOptions: {},
+      runOptions: {},
     };
     try {
       preview = resolved.resolveWorkflowExecutionOptionsPreview({
@@ -170,6 +204,7 @@ export async function runWorkflowPreparationSeam(args: {
       executionOptions: {
         workflowParams: preview.workflowParams,
         providerOptions: preview.providerOptions,
+        runOptions: preview.runOptions,
       },
     });
     requests = builtRequests;
@@ -192,6 +227,11 @@ export async function runWorkflowPreparationSeam(args: {
       details: {
         requestCount: requests.length,
         skippedUnits: skippedByFilter,
+        allowWriteApprovalBypass:
+          args.workflow.manifest.execution?.zoteroHostAccess
+            ?.allowWriteApprovalBypass === true,
+        autoApproveWritesRequested:
+          preview.runOptions?.zoteroHostAccess?.autoApproveWrites === true,
       },
     });
   } catch (error) {
@@ -211,7 +251,10 @@ export async function runWorkflowPreparationSeam(args: {
           `[workflow-execute] skipped workflow=${args.workflow.manifest.id} reason=no-valid-input-units`,
         );
       }
-      if (shouldShowWorkflowNotifications(args.workflow.manifest)) {
+      if (
+        !args.suppressUiFeedback &&
+        shouldShowWorkflowNotifications(args.workflow.manifest)
+      ) {
         const upToDateReferenceMatching =
           args.workflow.manifest.id === "reference-matching" && skippedUnits > 0;
         resolved.alertWindow(
@@ -255,17 +298,19 @@ export async function runWorkflowPreparationSeam(args: {
       },
       error,
     });
-    resolved.alertWindow(
-      args.win,
-      localizeWorkflowText(
-        "workflow-execute-cannot-run",
-        `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
-        {
-          workflowLabel: args.workflow.manifest.label,
-          reason,
-        },
-      ),
-    );
+    if (!args.suppressUiFeedback) {
+      resolved.alertWindow(
+        args.win,
+        localizeWorkflowText(
+          "workflow-execute-cannot-run",
+          `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
+          {
+            workflowLabel: args.workflow.manifest.label,
+            reason,
+          },
+        ),
+      );
+    }
     return {
       status: "halted",
     };
@@ -282,7 +327,10 @@ export async function runWorkflowPreparationSeam(args: {
         skippedUnits: Math.max(1, skippedByFilter),
       },
     });
-    if (shouldShowWorkflowNotifications(args.workflow.manifest)) {
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
       resolved.alertWindow(
         args.win,
         buildWorkflowFinishMessage(
@@ -327,17 +375,19 @@ export async function runWorkflowPreparationSeam(args: {
       },
       error,
     });
-    resolved.alertWindow(
-      args.win,
-      localizeWorkflowText(
-        "workflow-execute-cannot-run",
-        `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
-        {
-          workflowLabel: args.workflow.manifest.label,
-          reason,
-        },
-      ),
-    );
+    if (!args.suppressUiFeedback) {
+      resolved.alertWindow(
+        args.win,
+        localizeWorkflowText(
+          "workflow-execute-cannot-run",
+          `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
+          {
+            workflowLabel: args.workflow.manifest.label,
+            reason,
+          },
+        ),
+      );
+    }
     return {
       status: "halted",
     };
@@ -351,17 +401,46 @@ export async function runWorkflowPreparationSeam(args: {
       stage: "execution-context-missing",
       message: "workflow execution context missing",
     });
-    resolved.alertWindow(
-      args.win,
-      localizeWorkflowText(
-        "workflow-execute-cannot-run-context-unavailable",
-        `Workflow ${args.workflow.manifest.label} cannot run: execution context is unavailable`,
-        { workflowLabel: args.workflow.manifest.label },
-      ),
-    );
+    if (!args.suppressUiFeedback) {
+      resolved.alertWindow(
+        args.win,
+        localizeWorkflowText(
+          "workflow-execute-cannot-run-context-unavailable",
+          `Workflow ${args.workflow.manifest.label} cannot run: execution context is unavailable`,
+          { workflowLabel: args.workflow.manifest.label },
+        ),
+      );
+    }
     return {
       status: "halted",
     };
+  }
+
+  if (
+    executionContext.requestKind === "skillrunner.job.v1" &&
+    String(executionContext.backend?.type || "").trim() === "skillrunner" &&
+    workflowDeclaresRequiredZoteroHostAccess(args.workflow.manifest) &&
+    !SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS
+  ) {
+    resolved.appendRuntimeLog({
+      level: "warn",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      backendId: executionContext.backend.id,
+      backendType: executionContext.backend.type,
+      providerId: executionContext.providerId,
+      stage: SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
+      message:
+        "SkillRunner backend does not support ZoteroHostAccess runtime options; the workflow will submit without Host Bridge runtime access.",
+      details: {
+        code: SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
+        temporaryCompatibilitySwitch:
+          "SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS",
+        supportsZoteroHostAccessRuntimeOptions:
+          SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
+        zoteroHostAccessRequired: true,
+      },
+    });
   }
 
   return {
@@ -370,6 +449,7 @@ export async function runWorkflowPreparationSeam(args: {
       workflow: args.workflow,
       requests: adaptRequestsForExecutionContext({
         requests,
+        workflow: args.workflow,
         executionContext,
       }),
       skippedByFilter,

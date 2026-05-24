@@ -12,6 +12,12 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   skillRunnerLocalRuntimeVersion: string;
   skillRunnerLocalRuntimeStateJson: string;
   tagVocabularyStagedJson: string;
+  hostBridgeLanEnabled: boolean;
+  hostBridgePinPortEnabled: boolean;
+  hostBridgePinnedPort: number;
+  hostBridgeToken: string;
+  hostBridgeTokenCreatedAt: string;
+  hostBridgeTokenRotatedAt: string;
 };
 
 const PREFS_PREFIX = config.prefsPrefix;

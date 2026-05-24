@@ -17,36 +17,61 @@ Paper unit 是单篇论文的结构化事实摘取，不做跨论文比较。每
 
 ```json
 {
-  "paper_ref": "1:ABC12345",
-  "bibliographic": { "title": "Sparse DETR", "year": 2021 },
-  "topic_relevance": "high",
-  "research_problem": "Reduce DETR convergence cost.",
-  "method_contribution": "Sparse query selection for transformer detection.",
-  "evaluation_context": "COCO object detection.",
-  "graph_metrics_interpretation": {
-    "role_hints": ["frontier"],
-    "synthesis_use": "Use as a recent efficiency branch example.",
-    "caveat": "Metrics are auxiliary and not claim evidence."
-  },
-  "findings": ["Improves convergence speed under DETR-style training."],
-  "limitations": ["Evidence mostly from object detection benchmarks."],
-  "taxonomy_hints": ["sparse-query-transformer-detectors"],
-  "timeline_candidates": ["efficiency-focused DETR variants"],
-  "claim_support_candidates": ["detr-efficiency-remains-central"],
-  "comparison_facts": [{ "dimension": "training cost", "value": "reduced" }],
-  "external_references": [],
-  "citation_contexts": [],
-  "missing_payloads": []
+  "analyses": [
+    {
+      "paper_ref": "1:ABC12345",
+      "evidence_available": true,
+      "bibliographic": {
+        "title": "Sparse DETR",
+        "year": 2021,
+        "authors": ["Author A", "Author B"]
+      },
+      "topic_relevance": {
+        "level": "core",
+        "reason": "该文直接解决 DETR-style detector 的收敛和查询选择问题。"
+      },
+      "research_problem": {
+        "text": "Reduce DETR convergence cost.",
+        "scope": "DETR-style object detection training."
+      },
+      "method_contribution": {
+        "route": "sparse-query-transformer-detectors",
+        "mechanism": "Sparse query selection for transformer detection.",
+        "claimed_advantage": "Faster convergence with fewer ineffective queries.",
+        "target_bottleneck": "Slow matching/query learning."
+      },
+      "evaluation_context": {
+        "datasets": ["COCO"],
+        "metrics": ["AP", "epochs to convergence"],
+        "baselines": ["DETR"],
+        "setting": "object detection"
+      },
+      "graph_metrics_interpretation": {
+        "role_hints": ["frontier"],
+        "synthesis_use": "Use as a recent efficiency branch example.",
+        "caveat": "Metrics are auxiliary and not claim evidence."
+      },
+      "findings": ["Improves convergence speed under DETR-style training."],
+      "limitations": ["Evidence mostly from object detection benchmarks."],
+      "taxonomy_hints": ["sparse-query-transformer-detectors"],
+      "timeline_candidates": ["efficiency-focused DETR variants"],
+      "claim_support_candidates": ["detr-efficiency-remains-central"],
+      "comparison_facts": [{ "dimension": "training cost", "value": "reduced" }],
+      "external_references": [],
+      "citation_contexts": [],
+      "missing_payloads": []
+    }
+  ]
 }
 ```
 
 ## 字段语义与写作标准
 
-- `bibliographic`：只放可核验的题名、年份、作者、venue 等基础信息。年份不确定时写缺失诊断，不要补猜。
-- `topic_relevance`：说明“为什么这篇论文属于本 topic”，最好点出它对应的问题、路线或评价场景；不要只写 `high/medium/low`。
-- `research_problem`：写论文自己试图解决的具体问题，例如收敛慢、小目标弱、跨尺度特征交互昂贵、实时部署受限。
-- `method_contribution`：写方法机制或系统贡献，不要只写“提出新模型”。要说明它通过什么结构、训练信号、数据策略或评价设计解决问题。
-- `evaluation_context`：写任务、数据集、指标、对照对象和场景边界。后续 comparison/gaps 会依赖这里判断证据适用范围。
+- `bibliographic`：只放可核验的题名、年份、作者、venue 等基础信息；`bibliographic.authors` 必须是数组，不要写 `creators`。年份不确定时写缺失诊断，不要补猜。
+- `topic_relevance`：必须是对象，`level` 只能是 `core` / `related` / `peripheral` / `excluded`，`reason` 说明“为什么这篇论文属于本 topic”。
+- `research_problem`：必须是 `{ "text": "...", "scope": "..." }`，写论文自己试图解决的具体问题，例如收敛慢、小目标弱、跨尺度特征交互昂贵、实时部署受限。
+- `method_contribution`：必须包含 `route`、`mechanism`、`claimed_advantage`、`target_bottleneck`，说明它通过什么结构、训练信号、数据策略或评价设计解决问题。
+- `evaluation_context`：必须包含 `datasets[]`、`metrics[]`、`baselines[]`、`setting`。后续 comparison/gaps 会依赖这里判断证据适用范围。
 - `graph_metrics_interpretation`：解释 role hints 对 synthesis 的用途，例如 foundation/core/frontier/external-heavy；必须附 caveat，metrics 只是辅助排序和覆盖诊断。
 - `findings`：写论文内证据支持的发现，保持 paper-local。不要在这里总结整个领域。
 - `limitations`：写论文证据自己的限制，例如只在 COCO、只测离线精度、缺少部署硬件、缺少跨域实验。
@@ -57,19 +82,44 @@ Paper unit 是单篇论文的结构化事实摘取，不做跨论文比较。每
 - `external_references`：来自 references artifact，说明外部文献被这篇论文如何使用：背景、方法来源、benchmark、理论基础或批评对象。
 - `citation_contexts`：来自 citation analysis artifact，聚焦 report 中可解释 topic 外部依赖的段落。
 - `missing_payloads`：由 host artifact 状态决定。缺 digest 时，不能写主 claim/timeline candidate；缺 references 时，不写 external references；缺 citation analysis 时，不写 citation contexts。
+- `digest_locator` 和 `payload_hash` 由 runtime 管理，不要写入 analysis。digest 缺失时，`evidence_available` 必须是 `false`，且 `claim_support_candidates` 与 `timeline_candidates` 必须为空数组。
 
 ## 合格内容示例
 
 ```json
 {
   "paper_ref": "1:DETR2020",
+  "evidence_available": true,
+  "bibliographic": {
+    "title": "End-to-End Object Detection with Transformers",
+    "year": 2020,
+    "authors": ["Carion et al."]
+  },
   "topic_relevance": {
-    "level": "high",
+    "level": "core",
     "reason": "该文把目标检测重写为 object queries 与 bipartite matching 的 set prediction 问题，是后续 DETR-style 路线的概念起点。"
   },
-  "research_problem": "传统检测 pipeline 依赖 anchor/proposal/NMS 等手工组件，难以形成端到端集合预测框架。",
-  "method_contribution": "使用 transformer encoder-decoder 和 learned object queries 直接预测对象集合，并用 Hungarian matching 训练。",
-  "evaluation_context": "COCO object detection，主要比较 AP、收敛速度和与 Faster R-CNN 等 pipeline 的差异。",
+  "research_problem": {
+    "text": "传统检测 pipeline 依赖 anchor/proposal/NMS 等手工组件，难以形成端到端集合预测框架。",
+    "scope": "object detection pipeline design"
+  },
+  "method_contribution": {
+    "route": "set-prediction-detectors",
+    "mechanism": "使用 transformer encoder-decoder 和 learned object queries 直接预测对象集合，并用 Hungarian matching 训练。",
+    "claimed_advantage": "减少手工检测组件并支持端到端集合预测。",
+    "target_bottleneck": "anchor/proposal/NMS pipeline complexity"
+  },
+  "evaluation_context": {
+    "datasets": ["COCO"],
+    "metrics": ["AP", "convergence speed"],
+    "baselines": ["Faster R-CNN"],
+    "setting": "object detection"
+  },
+  "graph_metrics_interpretation": {
+    "role_hints": ["foundation"],
+    "synthesis_use": "作为 DETR-style set prediction 路线的概念起点。",
+    "caveat": "图指标只辅助定位，不替代 digest 证据。"
+  },
   "findings": [
     "set prediction 证明了端到端检测可行，但训练收敛慢成为后续路线的主要瓶颈。"
   ],
@@ -91,6 +141,9 @@ Paper unit 是单篇论文的结构化事实摘取，不做跨论文比较。每
       "support_scope": "由该文的模型定义和训练目标支持。"
     }
   ],
+  "comparison_facts": [],
+  "external_references": [],
+  "citation_contexts": [],
   "missing_payloads": []
 }
 ```

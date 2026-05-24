@@ -48,6 +48,30 @@ function bindPrefEvents() {
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
+  const hostBridgeLanCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`,
+  ) as HTMLInputElement | null;
+  const hostBridgePinPortCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`,
+  ) as HTMLInputElement | null;
+  const hostBridgePinnedPortInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-pinned-port`,
+  ) as HTMLInputElement | null;
+  const hostBridgeEndpointText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-endpoint`,
+  ) as HTMLElement | null;
+  const hostBridgeStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-status`,
+  ) as HTMLElement | null;
+  const hostBridgeShowEndpointButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-show-endpoint`,
+  ) as XUL.Button | null;
+  const hostBridgeRotateTokenButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-rotate-token`,
+  ) as XUL.Button | null;
+  const hostBridgeInstallCliButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-install-cli`,
+  ) as XUL.Button | null;
   const runtimeDataRoot = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-root`,
   ) as HTMLElement | null;
@@ -245,11 +269,16 @@ function bindPrefEvents() {
   const refreshRuntimeDataUsage = async () => {
     try {
       if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = getString("pref-runtime-data-scanning" as any);
+        runtimeDataSummary.textContent = getString(
+          "pref-runtime-data-scanning" as any,
+        );
       }
-      const snapshot = await addon.hooks.onPrefsEvent("scanRuntimePersistenceUsage", {
-        window: addon.data.prefs?.window,
-      });
+      const snapshot = await addon.hooks.onPrefsEvent(
+        "scanRuntimePersistenceUsage",
+        {
+          window: addon.data.prefs?.window,
+        },
+      );
       renderRuntimeDataUsage(snapshot);
     } catch (error) {
       if (runtimeDataSummary) {
@@ -270,14 +299,20 @@ function bindPrefEvents() {
       return;
     }
     if (runtimeDataSummary) {
-      runtimeDataSummary.textContent = getString("pref-runtime-data-cleaning" as any);
+      runtimeDataSummary.textContent = getString(
+        "pref-runtime-data-cleaning" as any,
+      );
     }
     try {
-      const result = await addon.hooks.onPrefsEvent("cleanupRuntimePersistenceCategory", {
-        window: addon.data.prefs?.window,
-        category,
-      });
-      const usage = (result as { usage?: unknown } | null | undefined)?.usage || result;
+      const result = await addon.hooks.onPrefsEvent(
+        "cleanupRuntimePersistenceCategory",
+        {
+          window: addon.data.prefs?.window,
+          category,
+        },
+      );
+      const usage =
+        (result as { usage?: unknown } | null | undefined)?.usage || result;
       renderRuntimeDataUsage(usage);
     } catch (error) {
       if (runtimeDataSummary) {
@@ -305,9 +340,12 @@ function bindPrefEvents() {
   };
 
   const getProgressStageLabel = (stage: string, fallbackLabel: string) => {
-    const normalized = String(stage || "").trim().toLowerCase();
+    const normalized = String(stage || "")
+      .trim()
+      .toLowerCase();
     const labelKeyByStage: Record<string, string> = {
-      "deploy-release-assets-probe": "pref-skillrunner-local-progress-deploy-step-1",
+      "deploy-release-assets-probe":
+        "pref-skillrunner-local-progress-deploy-step-1",
       "deploy-release-download-checksum":
         "pref-skillrunner-local-progress-deploy-step-2",
       "deploy-release-extract": "pref-skillrunner-local-progress-deploy-step-3",
@@ -318,7 +356,9 @@ function bindPrefEvents() {
         "pref-skillrunner-local-progress-uninstall-step-profile",
     };
     if (normalized.startsWith("uninstall-delete-")) {
-      return getString("pref-skillrunner-local-progress-uninstall-step-delete" as any);
+      return getString(
+        "pref-skillrunner-local-progress-uninstall-step-delete" as any,
+      );
     }
     const key = labelKeyByStage[normalized];
     if (key) {
@@ -330,16 +370,14 @@ function bindPrefEvents() {
   const updateLocalRuntimeProgressFromDetails = (
     details: Record<string, unknown> | null,
   ) => {
-    const progress = (details?.actionProgress || null) as
-      | {
-          action?: unknown;
-          current?: unknown;
-          total?: unknown;
-          percent?: unknown;
-          stage?: unknown;
-          label?: unknown;
-        }
-      | null;
+    const progress = (details?.actionProgress || null) as {
+      action?: unknown;
+      current?: unknown;
+      total?: unknown;
+      percent?: unknown;
+      stage?: unknown;
+      label?: unknown;
+    } | null;
     if (!progress || !progress.action) {
       setProgressVisible(false);
       if (localRuntimeProgressmeter) {
@@ -361,7 +399,9 @@ function bindPrefEvents() {
       String(progress.label || ""),
     );
     const actionLabel =
-      String(progress.action || "").trim().toLowerCase() === "uninstall"
+      String(progress.action || "")
+        .trim()
+        .toLowerCase() === "uninstall"
         ? getString("pref-skillrunner-local-progress-uninstall-title" as any)
         : getString("pref-skillrunner-local-progress-deploy-title" as any);
     if (localRuntimeProgressmeter) {
@@ -382,18 +422,24 @@ function bindPrefEvents() {
       stage?: unknown;
     };
     const runtimeStageMessageKeyByStage: Record<string, string> = {
-      "oneclick-plan-start": "pref-skillrunner-local-status-stage-oneclick-plan-start",
-      "oneclick-plan-deploy": "pref-skillrunner-local-status-stage-oneclick-plan-deploy",
-      "oneclick-preflight": "pref-skillrunner-local-status-stage-oneclick-preflight-failed",
+      "oneclick-plan-start":
+        "pref-skillrunner-local-status-stage-oneclick-plan-start",
+      "oneclick-plan-deploy":
+        "pref-skillrunner-local-status-stage-oneclick-plan-deploy",
+      "oneclick-preflight":
+        "pref-skillrunner-local-status-stage-oneclick-preflight-failed",
       "oneclick-preflight-failed-fallback-deploy":
         "pref-skillrunner-local-status-stage-oneclick-preflight-failed",
-      "oneclick-start-complete": "pref-skillrunner-local-status-stage-oneclick-start-complete",
+      "oneclick-start-complete":
+        "pref-skillrunner-local-status-stage-oneclick-start-complete",
       "oneclick-start-missing-runtime":
         "pref-skillrunner-local-status-stage-oneclick-start-missing-runtime",
-      "oneclick-status": "pref-skillrunner-local-status-stage-oneclick-status-failed",
+      "oneclick-status":
+        "pref-skillrunner-local-status-stage-oneclick-status-failed",
       "oneclick-configure-profile":
         "pref-skillrunner-local-status-stage-oneclick-configure-profile-failed",
-      "oneclick-lease": "pref-skillrunner-local-status-stage-oneclick-lease-failed",
+      "oneclick-lease":
+        "pref-skillrunner-local-status-stage-oneclick-lease-failed",
       "deploy-complete": "pref-skillrunner-local-status-stage-deploy-complete",
       "local-runtime-deploy-succeeded":
         "pref-skillrunner-local-status-stage-deploy-complete",
@@ -401,7 +447,8 @@ function bindPrefEvents() {
         "pref-skillrunner-local-status-stage-deploy-release-assets-probe-failed",
       "deploy-release-install":
         "pref-skillrunner-local-status-stage-deploy-release-install-failed",
-      "deploy-bootstrap": "pref-skillrunner-local-status-stage-deploy-bootstrap-failed",
+      "deploy-bootstrap":
+        "pref-skillrunner-local-status-stage-deploy-bootstrap-failed",
       "deploy-bootstrap-report":
         "pref-skillrunner-local-status-stage-deploy-bootstrap-report-failed",
       "deploy-post-preflight-failed":
@@ -409,7 +456,8 @@ function bindPrefEvents() {
       "post-deploy-preflight":
         "pref-skillrunner-local-status-stage-post-deploy-preflight-failed",
       "start-complete": "pref-skillrunner-local-status-stage-start-complete",
-      "start-backend": "pref-skillrunner-local-status-stage-start-backend-failed",
+      "start-backend":
+        "pref-skillrunner-local-status-stage-start-backend-failed",
       "start-ensure": "pref-skillrunner-local-status-stage-start-ensure-failed",
       "stop-complete": "pref-skillrunner-local-status-stage-stop-complete",
       "stop-down": "pref-skillrunner-local-status-stage-stop-down-failed",
@@ -417,12 +465,16 @@ function bindPrefEvents() {
         "pref-skillrunner-local-status-stage-stop-status-running",
       "stop-status": "pref-skillrunner-local-status-stage-stop-status-failed",
       stop: "pref-skillrunner-local-status-stage-stop-failed",
-      "uninstall-preview": "pref-skillrunner-local-status-stage-uninstall-preview",
-      "uninstall-complete": "pref-skillrunner-local-status-stage-uninstall-complete",
+      "uninstall-preview":
+        "pref-skillrunner-local-status-stage-uninstall-preview",
+      "uninstall-complete":
+        "pref-skillrunner-local-status-stage-uninstall-complete",
       "uninstall-local-root":
         "pref-skillrunner-local-status-stage-uninstall-local-root-failed",
-      "uninstall-down": "pref-skillrunner-local-status-stage-uninstall-down-failed",
-      "uninstall-delete": "pref-skillrunner-local-status-stage-uninstall-delete-failed",
+      "uninstall-down":
+        "pref-skillrunner-local-status-stage-uninstall-down-failed",
+      "uninstall-delete":
+        "pref-skillrunner-local-status-stage-uninstall-delete-failed",
       "uninstall-configure-profile":
         "pref-skillrunner-local-status-stage-uninstall-profile-failed",
       "refresh-managed-model-cache":
@@ -450,7 +502,9 @@ function bindPrefEvents() {
       message = String(typed.message || "").trim();
     }
     if (!message) {
-      message = getString("pref-skillrunner-local-status-result-unknown" as any);
+      message = getString(
+        "pref-skillrunner-local-status-result-unknown" as any,
+      );
     }
     if (typed.conflict === true) {
       return `${getString("pref-skillrunner-local-status-conflict-prefix" as any)} ${message}`;
@@ -462,15 +516,21 @@ function bindPrefEvents() {
   };
 
   const getRuntimeStateLabel = (value: unknown, hasRuntimeInfo: boolean) => {
-    const normalized = String(value || "").trim().toLowerCase();
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
     if (!hasRuntimeInfo) {
-      return getString("pref-skillrunner-local-runtime-state-no-runtime" as any);
+      return getString(
+        "pref-skillrunner-local-runtime-state-no-runtime" as any,
+      );
     }
     if (normalized === "running") {
       return getString("pref-skillrunner-local-runtime-state-running" as any);
     }
     if (normalized === "starting") {
-      return getString("pref-skillrunner-local-runtime-state-reconciling" as any);
+      return getString(
+        "pref-skillrunner-local-runtime-state-reconciling" as any,
+      );
     }
     if (normalized === "stopped") {
       return getString("pref-skillrunner-local-runtime-state-stopped" as any);
@@ -479,7 +539,9 @@ function bindPrefEvents() {
       normalized === "reconciling_after_heartbeat_fail" ||
       normalized === "degraded"
     ) {
-      return getString("pref-skillrunner-local-runtime-state-reconciling" as any);
+      return getString(
+        "pref-skillrunner-local-runtime-state-reconciling" as any,
+      );
     }
     return getString("pref-skillrunner-local-runtime-state-unknown" as any);
   };
@@ -489,7 +551,9 @@ function bindPrefEvents() {
       details?: Record<string, unknown>;
     };
     const details = typed.details || {};
-    const runtimeState = String(details.runtimeState || "").trim().toLowerCase();
+    const runtimeState = String(details.runtimeState || "")
+      .trim()
+      .toLowerCase();
     const hasRuntimeInfo = details.hasRuntimeInfo === true;
     const autoStartEnabled = details.autoStartPaused === false;
     let runtimeClass = "is-gray";
@@ -541,10 +605,7 @@ function bindPrefEvents() {
       localRuntimeUninstallButton,
       actionBusy || running || !hasRuntimeInfo,
     );
-    setButtonDisabled(
-      localRuntimeOpenManagementButton,
-      actionBusy || !running,
-    );
+    setButtonDisabled(localRuntimeOpenManagementButton, actionBusy || !running);
     setButtonDisabled(
       localRuntimeOpenSkillsFolderButton,
       actionBusy || !running,
@@ -558,9 +619,12 @@ function bindPrefEvents() {
 
   const refreshLocalRuntimeStateSummary = async () => {
     try {
-      const state = await addon.hooks.onPrefsEvent("stateSkillRunnerLocalRuntime", {
-        window: addon.data.prefs?.window,
-      });
+      const state = await addon.hooks.onPrefsEvent(
+        "stateSkillRunnerLocalRuntime",
+        {
+          window: addon.data.prefs?.window,
+        },
+      );
       const details = updateLocalRuntimeIndicatorsFromResult(state);
       applyRuntimeButtonGate(details);
       return details;
@@ -577,11 +641,10 @@ function bindPrefEvents() {
       return null;
     }
   };
-  unbindManagedLocalRuntimeStateChange = subscribeManagedLocalRuntimeStateChange(
-    () => {
+  unbindManagedLocalRuntimeStateChange =
+    subscribeManagedLocalRuntimeStateChange(() => {
       void refreshLocalRuntimeStateSummary();
-    },
-  );
+    });
   const prefsWindow = addon.data.prefs?.window as
     | (Window & {
         addEventListener?: (
@@ -614,9 +677,7 @@ function bindPrefEvents() {
     setRuntimeActionButtonsDisabled(true);
     const workingKey = String(options?.workingKey || "").trim();
     setLocalRuntimeStatusText(
-      getString(
-        (workingKey || "pref-skillrunner-local-status-working") as any,
-      ),
+      getString((workingKey || "pref-skillrunner-local-status-working") as any),
     );
     try {
       const response = await addon.hooks.onPrefsEvent(type, {
@@ -695,7 +756,9 @@ function bindPrefEvents() {
         getString("pref-skillrunner-local-uninstall-option-clear-data" as any),
       );
       const clearAgentHome = confirmWithWindow(
-        getString("pref-skillrunner-local-uninstall-option-clear-agent-home" as any),
+        getString(
+          "pref-skillrunner-local-uninstall-option-clear-agent-home" as any,
+        ),
       );
       return Promise.resolve({
         clearData,
@@ -714,7 +777,10 @@ function bindPrefEvents() {
         listener: (event?: unknown) => void,
       ) => {
         const typed = target as unknown as {
-          removeEventListener?: (type: string, listener: (event?: unknown) => void) => void;
+          removeEventListener?: (
+            type: string,
+            listener: (event?: unknown) => void,
+          ) => void;
         };
         if (typeof typed.removeEventListener === "function") {
           typed.removeEventListener("command", listener);
@@ -728,7 +794,8 @@ function bindPrefEvents() {
       const onConfirm = () => {
         const result = {
           clearData: localRuntimeUninstallOptionClearData.checked === true,
-          clearAgentHome: localRuntimeUninstallOptionClearAgentHome.checked === true,
+          clearAgentHome:
+            localRuntimeUninstallOptionClearAgentHome.checked === true,
         };
         cleanup();
         resolve(result);
@@ -737,17 +804,29 @@ function bindPrefEvents() {
         cleanup();
         resolve(null);
       };
-      localRuntimeUninstallOptionsConfirmButton.addEventListener("command", onConfirm);
-      localRuntimeUninstallOptionsCancelButton.addEventListener("command", onCancel);
+      localRuntimeUninstallOptionsConfirmButton.addEventListener(
+        "command",
+        onConfirm,
+      );
+      localRuntimeUninstallOptionsCancelButton.addEventListener(
+        "command",
+        onCancel,
+      );
     });
   };
 
   const confirmUninstallPreview = (previewDetails: Record<string, unknown>) => {
     const removableTargets = Array.isArray(previewDetails.removableTargets)
-      ? (previewDetails.removableTargets as Array<{ path?: unknown; purpose?: unknown }>)
+      ? (previewDetails.removableTargets as Array<{
+          path?: unknown;
+          purpose?: unknown;
+        }>)
       : [];
     const preservedTargets = Array.isArray(previewDetails.preservedTargets)
-      ? (previewDetails.preservedTargets as Array<{ path?: unknown; purpose?: unknown }>)
+      ? (previewDetails.preservedTargets as Array<{
+          path?: unknown;
+          purpose?: unknown;
+        }>)
       : [];
     const removableLines = removableTargets
       .map((entry) => {
@@ -770,12 +849,18 @@ function bindPrefEvents() {
       })
       .filter(Boolean);
     const message = [
-      getString("pref-skillrunner-local-uninstall-final-confirm-message" as any),
+      getString(
+        "pref-skillrunner-local-uninstall-final-confirm-message" as any,
+      ),
       "",
-      getString("pref-skillrunner-local-uninstall-final-confirm-remove-title" as any),
+      getString(
+        "pref-skillrunner-local-uninstall-final-confirm-remove-title" as any,
+      ),
       ...removableLines,
       "",
-      getString("pref-skillrunner-local-uninstall-final-confirm-preserve-title" as any),
+      getString(
+        "pref-skillrunner-local-uninstall-final-confirm-preserve-title" as any,
+      ),
       ...preservedLines,
     ]
       .filter((line) => typeof line === "string")
@@ -785,16 +870,24 @@ function bindPrefEvents() {
 
   const runLocalRuntimeOneclick = async () => {
     setRuntimeActionButtonsDisabled(true);
-    setLocalRuntimeStatusText(getString("pref-skillrunner-local-status-working" as any));
+    setLocalRuntimeStatusText(
+      getString("pref-skillrunner-local-status-working" as any),
+    );
     try {
       const planResponse = (await addon.hooks.onPrefsEvent(
         "planSkillRunnerLocalRuntimeOneclick",
         {
           window: addon.data.prefs?.window,
         },
-      )) as { ok?: unknown; message?: unknown; details?: Record<string, unknown> };
+      )) as {
+        ok?: unknown;
+        message?: unknown;
+        details?: Record<string, unknown>;
+      };
       if (planResponse.ok !== true) {
-        setLocalRuntimeStatusText(formatLocalRuntimeStatusMessage(planResponse));
+        setLocalRuntimeStatusText(
+          formatLocalRuntimeStatusMessage(planResponse),
+        );
         await refreshLocalRuntimeStateSummary();
         return;
       }
@@ -818,10 +911,13 @@ function bindPrefEvents() {
           getString("pref-skillrunner-local-status-working-start" as any),
         );
       }
-      const response = await addon.hooks.onPrefsEvent("deploySkillRunnerLocalRuntime", {
-        window: addon.data.prefs?.window,
-        forcedBranch: plannedAction === "start" ? "start" : "deploy",
-      });
+      const response = await addon.hooks.onPrefsEvent(
+        "deploySkillRunnerLocalRuntime",
+        {
+          window: addon.data.prefs?.window,
+          forcedBranch: plannedAction === "start" ? "start" : "deploy",
+        },
+      );
       setLocalRuntimeStatusText(formatLocalRuntimeStatusMessage(response));
       await refreshLocalRuntimeStateSummary();
     } catch (error) {
@@ -853,7 +949,11 @@ function bindPrefEvents() {
           clearData: options.clearData,
           clearAgentHome: options.clearAgentHome,
         },
-      )) as { ok?: unknown; message?: unknown; details?: Record<string, unknown> };
+      )) as {
+        ok?: unknown;
+        message?: unknown;
+        details?: Record<string, unknown>;
+      };
       if (preview.ok !== true) {
         setLocalRuntimeStatusText(formatLocalRuntimeStatusMessage(preview));
         await refreshLocalRuntimeStateSummary();
@@ -867,11 +967,14 @@ function bindPrefEvents() {
         await refreshLocalRuntimeStateSummary();
         return;
       }
-      const response = await addon.hooks.onPrefsEvent("uninstallSkillRunnerLocalRuntime", {
-        window: addon.data.prefs?.window,
-        clearData: options.clearData,
-        clearAgentHome: options.clearAgentHome,
-      });
+      const response = await addon.hooks.onPrefsEvent(
+        "uninstallSkillRunnerLocalRuntime",
+        {
+          window: addon.data.prefs?.window,
+          clearData: options.clearData,
+          clearAgentHome: options.clearAgentHome,
+        },
+      );
       setLocalRuntimeStatusText(formatLocalRuntimeStatusMessage(response));
       await refreshLocalRuntimeStateSummary();
     } catch (error) {
@@ -901,6 +1004,130 @@ function bindPrefEvents() {
       return normalized;
     }
     return persistWorkflowDir(normalized);
+  };
+
+  const formatHostBridgeStatus = (response: unknown) => {
+    const result = (response || {}) as {
+      ok?: unknown;
+      message?: unknown;
+      details?: Record<string, unknown>;
+    };
+    const details = (result.details || {}) as Record<string, unknown>;
+    const server = (details.server || details || {}) as Record<string, unknown>;
+    const status = String(server.status || "idle").trim() || "idle";
+    const bindMode = String(server.bindMode || "loopback").trim() || "loopback";
+    const portMode = String(server.portMode || "").trim();
+    const pinnedPort = Number(server.pinnedPort || getPref("hostBridgePinnedPort"));
+    const recoveryReason = String(server.lastRecoveryReason || "").trim();
+    const tokenMasked = String(server.tokenMasked || "").trim();
+    const message = String(result.message || "").trim();
+    const runtimeDetails = (details.runtime || {}) as Record<string, unknown>;
+    const runtimeText =
+      result.ok === false
+        ? [
+            String(runtimeDetails.rootURI || "").trim()
+              ? `rootURI=${String(runtimeDetails.rootURI).trim()}`
+              : "",
+            String(runtimeDetails.resourceURI || "").trim()
+              ? `resourceURI=${String(runtimeDetails.resourceURI).trim()}`
+              : "",
+            String(runtimeDetails.rootPath || "").trim()
+              ? `rootPath=${String(runtimeDetails.rootPath).trim()}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" | ")
+        : "";
+    const detailsText =
+      result.ok === false
+        ? [
+            Array.isArray(details.checkedPaths) &&
+            details.checkedPaths.length > 0
+              ? `checkedPaths=${details.checkedPaths.join(" | ")}`
+              : "",
+            Array.isArray(details.checkedUris) && details.checkedUris.length > 0
+              ? `checkedUris=${details.checkedUris.join(" | ")}`
+              : "",
+            runtimeText ? `runtime=${runtimeText}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "";
+    const prefix =
+      result.ok === false
+        ? getString("pref-skillrunner-local-status-failed-prefix" as any)
+        : getString("pref-skillrunner-local-status-ok-prefix" as any);
+    if (message) {
+      return `${prefix} ${message}${detailsText ? ` (${detailsText})` : ""}`;
+    }
+    return [
+      `status=${status}`,
+      `bind=${bindMode}`,
+      portMode ? `portMode=${portMode}` : "",
+      Number.isInteger(pinnedPort) ? `pinnedPort=${pinnedPort}` : "",
+      recoveryReason ? `recovery=${recoveryReason}` : "",
+      tokenMasked ? `token=${tokenMasked}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+
+  const renderHostBridgeState = (response: unknown) => {
+    const result = (response || {}) as {
+      details?: Record<string, unknown>;
+    };
+    const details = (result.details || {}) as Record<string, unknown>;
+    const server = (details.server || details || {}) as Record<string, unknown>;
+    const endpoint = String(server.endpoint || "").trim();
+    const hasServerSnapshot =
+      Boolean(details.server) ||
+      Object.prototype.hasOwnProperty.call(server, "status") ||
+      Object.prototype.hasOwnProperty.call(server, "endpoint");
+    if (hasServerSnapshot && hostBridgeEndpointText) {
+      hostBridgeEndpointText.textContent =
+        endpoint || getString("pref-host-bridge-endpoint-empty" as any);
+    }
+    if (hostBridgeStatusText) {
+      hostBridgeStatusText.textContent = formatHostBridgeStatus(response);
+    }
+    if (hasServerSnapshot && hostBridgeLanCheckbox) {
+      hostBridgeLanCheckbox.checked =
+        server.lanEnabled === true || getPref("hostBridgeLanEnabled") === true;
+    }
+    if (hasServerSnapshot && hostBridgePinPortCheckbox) {
+      hostBridgePinPortCheckbox.checked =
+        server.pinPortEnabled === true ||
+        getPref("hostBridgePinPortEnabled") === true;
+    }
+    if (hasServerSnapshot && hostBridgePinnedPortInput) {
+      hostBridgePinnedPortInput.value = String(
+        Number(server.pinnedPort || getPref("hostBridgePinnedPort") || 26570),
+      );
+      hostBridgePinnedPortInput.disabled =
+        hostBridgePinPortCheckbox?.checked !== true;
+    }
+    if (hasServerSnapshot && hostBridgeShowEndpointButton) {
+      hostBridgeShowEndpointButton.disabled =
+        String(server.status || "").trim() === "running" && Boolean(endpoint);
+    }
+  };
+
+  const refreshHostBridgeState = async () => {
+    try {
+      const response = await addon.hooks.onPrefsEvent("stateHostBridge", {
+        window: addon.data.prefs?.window,
+      });
+      renderHostBridgeState(response);
+      return response;
+    } catch (error) {
+      const response = {
+        ok: false,
+        message: String(error),
+        details: {},
+      };
+      renderHostBridgeState(response);
+      return response;
+    }
   };
 
   const pathExists = async (path: string) => {
@@ -937,7 +1164,9 @@ function bindPrefEvents() {
     return "";
   };
 
-  const resolveWorkflowBrowseStartDir = async (preferredCurrentDir?: string) => {
+  const resolveWorkflowBrowseStartDir = async (
+    preferredCurrentDir?: string,
+  ) => {
     const currentWorkflowDir =
       String(preferredCurrentDir || "").trim() ||
       String(workflowDirInput?.value || "").trim() ||
@@ -973,22 +1202,24 @@ function bindPrefEvents() {
   if (browseWorkflowDirButton) {
     browseWorkflowDirButton.addEventListener("command", () => {
       void (async () => {
-        const runtimeToolkit = (
-          (typeof ztoolkit !== "undefined" ? ztoolkit : undefined) ||
-          (globalThis as {
-            ztoolkit?: {
-              FilePicker?: new (
-                title: string,
-                mode: string,
-                filters: [string, string][],
-                suggestion: string,
-                window: Window | undefined,
-                filterMask?: string,
-                directory?: string,
-              ) => { open: () => Promise<unknown> };
-            };
-          }).ztoolkit
-        ) as {
+        const runtimeToolkit = ((typeof ztoolkit !== "undefined"
+          ? ztoolkit
+          : undefined) ||
+          (
+            globalThis as {
+              ztoolkit?: {
+                FilePicker?: new (
+                  title: string,
+                  mode: string,
+                  filters: [string, string][],
+                  suggestion: string,
+                  window: Window | undefined,
+                  filterMask?: string,
+                  directory?: string,
+                ) => { open: () => Promise<unknown> };
+              };
+            }
+          ).ztoolkit) as {
           FilePicker?: new (
             title: string,
             mode: string,
@@ -1062,6 +1293,112 @@ function bindPrefEvents() {
     });
   }
 
+  if (hostBridgeLanCheckbox) {
+    hostBridgeLanCheckbox.checked = getPref("hostBridgeLanEnabled") === true;
+    hostBridgeLanCheckbox.addEventListener("change", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "setHostBridgeLanEnabled",
+          {
+            window: addon.data.prefs?.window,
+            enabled: hostBridgeLanCheckbox.checked === true,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
+    });
+  }
+
+  const persistHostBridgePinPort = () => {
+    if (!hostBridgePinPortCheckbox || !hostBridgePinnedPortInput) {
+      return;
+    }
+    const port = Number(hostBridgePinnedPortInput.value || 26570);
+    void (async () => {
+      const response = await addon.hooks.onPrefsEvent("setHostBridgePinPort", {
+        window: addon.data.prefs?.window,
+        enabled: hostBridgePinPortCheckbox.checked === true,
+        port,
+      });
+      renderHostBridgeState(response);
+    })();
+  };
+
+  if (hostBridgePinPortCheckbox) {
+    hostBridgePinPortCheckbox.checked =
+      getPref("hostBridgePinPortEnabled") === true;
+    hostBridgePinPortCheckbox.addEventListener("change", () => {
+      if (hostBridgePinnedPortInput) {
+        hostBridgePinnedPortInput.disabled =
+          hostBridgePinPortCheckbox.checked !== true;
+      }
+      persistHostBridgePinPort();
+    });
+  }
+
+  if (hostBridgePinnedPortInput) {
+    hostBridgePinnedPortInput.value = String(
+      Number(getPref("hostBridgePinnedPort") || 26570),
+    );
+    hostBridgePinnedPortInput.disabled =
+      hostBridgePinPortCheckbox?.checked !== true;
+    hostBridgePinnedPortInput.addEventListener("change", () => {
+      persistHostBridgePinPort();
+    });
+  }
+
+  if (hostBridgeShowEndpointButton) {
+    hostBridgeShowEndpointButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "showHostBridgeEndpoint",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
+    });
+  }
+
+  if (hostBridgeRotateTokenButton) {
+    hostBridgeRotateTokenButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "rotateHostBridgeToken",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
+    });
+  }
+
+  if (hostBridgeInstallCliButton) {
+    hostBridgeInstallCliButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "installHostBridgeCli",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
+    });
+  }
+
+  if (
+    hostBridgeEndpointText ||
+    hostBridgeStatusText ||
+    hostBridgeLanCheckbox ||
+    hostBridgePinPortCheckbox ||
+    hostBridgePinnedPortInput
+  ) {
+    void refreshHostBridgeState();
+  }
+
   if (runtimeDataRescanButton) {
     runtimeDataRescanButton.addEventListener("command", () => {
       void refreshRuntimeDataUsage();
@@ -1071,7 +1408,8 @@ function bindPrefEvents() {
   if (runtimeDataCopyRootButton) {
     runtimeDataCopyRootButton.addEventListener("command", () => {
       const text = lastRuntimeDataRoot;
-      const nav = (addon.data.prefs?.window.navigator || globalThis.navigator) as
+      const nav = (addon.data.prefs?.window.navigator ||
+        globalThis.navigator) as
         | { clipboard?: { writeText?: (text: string) => Promise<void> } }
         | undefined;
       if (text && typeof nav?.clipboard?.writeText === "function") {

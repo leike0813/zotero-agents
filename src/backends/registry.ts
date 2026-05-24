@@ -1,9 +1,5 @@
 import {
   ACP_BACKEND_TYPE,
-  ACP_OPENCODE_ARGS,
-  ACP_OPENCODE_BACKEND_ID,
-  ACP_OPENCODE_COMMAND,
-  ACP_OPENCODE_DISPLAY_NAME,
 } from "../config/defaults";
 import { getPref, setPref } from "../utils/prefs";
 import type { LoadedWorkflow } from "../workflows/types";
@@ -12,6 +8,7 @@ import {
 } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
 import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
+import { listBuiltinAcpBackends } from "../modules/acpBackendPresets";
 
 type BackendsDocument = {
   defaultBackendId?: unknown;
@@ -80,26 +77,10 @@ function normalizeAcpOptionArray(value: unknown) {
     .filter((entry) => entry.id && entry.label);
 }
 
-function buildBuiltinAcpBackends() {
-  return [
-    {
-      id: ACP_OPENCODE_BACKEND_ID,
-      displayName: ACP_OPENCODE_DISPLAY_NAME,
-      type: ACP_BACKEND_TYPE,
-      baseUrl: `local://${ACP_OPENCODE_BACKEND_ID}`,
-      command: ACP_OPENCODE_COMMAND,
-      args: [...ACP_OPENCODE_ARGS],
-      auth: {
-        kind: "none" as const,
-      },
-    },
-  ] satisfies BackendInstance[];
-}
-
 function upsertBuiltinBackends(backends: BackendInstance[]) {
   const next = [...backends];
   let changed = false;
-  for (const builtin of buildBuiltinAcpBackends()) {
+  for (const builtin of listBuiltinAcpBackends()) {
     const existingIndex = next.findIndex((entry) => entry.id === builtin.id);
     if (existingIndex < 0) {
       next.push(builtin);

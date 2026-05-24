@@ -1,0 +1,7 @@
+- [x] Add package-local embedded digest payload resolver for tag-regulator.
+- [x] Extend tag-regulator buildRequest to upload optional `input.digest_markdown`.
+- [x] Include the new helper in builtin workflow packaging manifest.
+- [x] Document digest markdown as automatic optional context in tag-regulator workflow README.
+- [x] Add request-building tests for present and absent digest embedded payloads.
+- [x] Add skill repo proposal artifact for upstream `$tag-regulator`.
+- [x] Run targeted workflow tests, builtin workflow manifest check, and OpenSpec validation.

@@ -1,0 +1,19 @@
+{
+  "id": "add-digest-representative-image",
+  "label": "Add Digest Representative Image",
+  "version": "1.0.0",
+  "provider": "pass-through",
+  "parameters": {
+    "markdown_src": {
+      "type": "string",
+      "title": "Markdown Image Source",
+      "description": "Relative image path from the source Markdown file, for example figures/overview.jpg.",
+      "default": ""
+    }
+  },
+  "hooks": {
+    "filterInputs": "hooks/filterInputs.mjs",
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

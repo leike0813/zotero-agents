@@ -54,6 +54,12 @@ import {
   resetZoteroMcpServerForTests,
   shutdownZoteroMcpServer,
 } from "./zoteroMcpServer";
+import { getHostBridgeServerStatus } from "./hostBridgeServer";
+import {
+  applyHostBridgeCliEnvToBackend,
+  materializeHostBridgeCliRunInjection,
+  summarizeHostBridgeCliRunInjection,
+} from "./hostBridgeCliInjection";
 
 type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
@@ -66,6 +72,7 @@ export type AcpSessionSlot = {
   unsubscribeClose: (() => void) | null;
   unsubscribeDiagnostics: (() => void) | null;
   unsubscribePermission: (() => void) | null;
+  hostBridgeCliPromptSnippet: string;
   suppressCloseEvent: boolean;
   activeAssistantItemId: string;
   activeThoughtItemId: string;
@@ -108,6 +115,10 @@ function nextOpaqueId(prefix: string) {
 }
 
 function normalizeBackendId(value: unknown) {
+  return String(value || "").trim();
+}
+
+function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
@@ -179,6 +190,7 @@ function cloneSnapshotValue(value: AcpConversationSnapshot) {
       : null,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
+    hostBridge: getHostBridgeServerStatus(),
   } satisfies AcpConversationSnapshot;
 }
 
@@ -263,6 +275,7 @@ function getOrCreateSlot(backendIdRaw?: string) {
     unsubscribeClose: null,
     unsubscribeDiagnostics: null,
     unsubscribePermission: null,
+    hostBridgeCliPromptSnippet: "",
     suppressCloseEvent: false,
     activeAssistantItemId: "",
     activeThoughtItemId: "",
@@ -1453,8 +1466,33 @@ async function ensureAdapter(backendId?: string) {
     await ensureRuntimeDirectory(slot.snapshot.agentWorkspaceDir || slot.snapshot.sessionCwd);
     await ensureRuntimeDirectory(slot.snapshot.conversationStorageDir);
     await ensureRuntimeDirectory(slot.snapshot.runtimeDir);
-    const nextAdapter = await adapterFactory({
+    const hostBridgeCliInjection = await materializeHostBridgeCliRunInjection({
+      workspaceDir:
+        slot.snapshot.agentWorkspaceDir ||
+        slot.snapshot.workspaceDir ||
+        slot.snapshot.sessionCwd,
+      requestId: slot.snapshot.conversationId || nextOpaqueId("acp-chat"),
+    });
+    slot.hostBridgeCliPromptSnippet = hostBridgeCliInjection.promptSnippet;
+    appendDiagnostic(slot, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: hostBridgeCliInjection.available
+        ? "host_bridge_cli_ready"
+        : "host_bridge_cli_unavailable",
+      level: hostBridgeCliInjection.available ? "info" : "warn",
+      message: hostBridgeCliInjection.available
+        ? "Host Bridge CLI injection prepared for ACP Chat."
+        : "Host Bridge CLI is unavailable for ACP Chat; MCP fallback is disabled by default.",
+      detail: hostBridgeCliInjection.fallbackReason || "",
+      raw: summarizeHostBridgeCliRunInjection(hostBridgeCliInjection),
+    });
+    const backendWithHostBridgeCli = applyHostBridgeCliEnvToBackend({
       backend,
+      injection: hostBridgeCliInjection,
+    });
+    const nextAdapter = await adapterFactory({
+      backend: backendWithHostBridgeCli,
       agentWorkspaceDir: slot.snapshot.agentWorkspaceDir,
       sessionCwd: slot.snapshot.sessionCwd,
       workspaceDir: slot.snapshot.workspaceDir,
@@ -1940,9 +1978,14 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSlotSnapshot(slot);
   try {
+    const hostBridgeCliPromptSnippet = normalizeString(
+      slot.hostBridgeCliPromptSnippet,
+    );
     const response = await adapter.prompt({
       sessionId: slot.snapshot.sessionId,
-      message,
+      message: hostBridgeCliPromptSnippet
+        ? `${message}\n${hostBridgeCliPromptSnippet}`
+        : message,
     });
     slot.snapshot.busy = false;
     slot.snapshot.status = "connected";
@@ -2371,6 +2414,7 @@ export function buildAcpDiagnosticsBundle(backendId?: string): AcpDiagnosticsBun
     },
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
+    hostBridge: getHostBridgeServerStatus(),
     diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })),
     recentItems: snapshot.items.slice(-12).map((entry) => cloneAcpConversationItem(entry)),
     lastHostContext: snapshot.lastHostContext

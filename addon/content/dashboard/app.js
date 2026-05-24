@@ -894,6 +894,19 @@
       args.entry.title || args.entry.key,
     );
     row.appendChild(label);
+    if (args.entry.disabled === true) {
+      const message = Array.isArray(args.entry.diagnostics) && args.entry.diagnostics.length > 0
+        ? String(args.entry.diagnostics[0].message || args.entry.diagnostics[0].code || "")
+        : "No selectable options are available.";
+      row.appendChild(el("div", "workflow-settings-field-desc", message));
+      const disabledControl = document.createElement("input");
+      disabledControl.type = "text";
+      disabledControl.disabled = true;
+      disabledControl.value = "";
+      disabledControl.className = "workflow-settings-field-control";
+      row.appendChild(disabledControl);
+      return row;
+    }
     if (args.entry.description) {
       row.appendChild(
         el("div", "workflow-settings-field-desc", args.entry.description),

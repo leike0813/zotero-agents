@@ -54,7 +54,7 @@ export const ZOTERO_MCP_TOOL_CREATE_CHILD_NOTE = "create_child_note";
 export const ZOTERO_MCP_TOOL_UPDATE_NOTE = "update_note";
 export const ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE = "create_markdown_note";
 export const ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE = "update_markdown_note";
-export const ZOTERO_MCP_TOOL_INGEST_PAPERS = "ingest_papers";
+export const ZOTERO_MCP_TOOL_INGEST_PAPER = "ingest_paper";
 export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
@@ -1537,10 +1537,10 @@ function buildMutationRequest(
         note: args.note || args.target || resolveItemRef(args),
         content: String(args.content || ""),
       };
-    case ZOTERO_MCP_TOOL_INGEST_PAPERS:
+    case ZOTERO_MCP_TOOL_INGEST_PAPER:
       return {
-        operation: "paper.ingest",
-        papers: requireArray(args.papers, "papers") as any,
+        operation: "literature.ingest",
+        paper: requirePlainObject(args.paper, "paper") as any,
         collection: args.collection ? resolveCollectionRef(args) : undefined,
       };
     case ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION:
@@ -2700,23 +2700,23 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     handler: updateMarkdownNoteTool,
   },
   {
-    name: ZOTERO_MCP_TOOL_INGEST_PAPERS,
-    title: "Ingest literature papers",
+    name: ZOTERO_MCP_TOOL_INGEST_PAPER,
+    title: "Ingest one literature paper",
     description:
-      "Permission-gated batch ingest for literature search workflows. Creates or reuses Zotero items from DOI/arXiv/PMID/ISBN or metadata, and attaches public PDF URLs on a best-effort basis.",
-    inputSchema: objectSchema({
-      papers: {
-        type: "array",
-        items: {
+      "Permission-gated single-paper ingest for literature search workflows. Creates or reuses one Zotero item from DOI/arXiv/PMID/ISBN or metadata, and attaches a public PDF URL on a best-effort basis.",
+    inputSchema: objectSchema(
+      {
+        paper: {
           type: "object",
         },
+        collection: {
+          description: "Optional target collection reference.",
+        },
       },
-      collection: {
-        description: "Optional target collection reference.",
-      },
-    }, ["papers"]),
+      ["paper"],
+    ),
     handler: (args, context) =>
-      executeMutationTool(ZOTERO_MCP_TOOL_INGEST_PAPERS, args, context),
+      executeMutationTool(ZOTERO_MCP_TOOL_INGEST_PAPER, args, context),
   },
   {
     name: ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION,

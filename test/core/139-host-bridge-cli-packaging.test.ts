@@ -1,0 +1,565 @@
+import { assert } from "chai";
+import * as fs from "fs/promises";
+import * as os from "os";
+import * as path from "path";
+import {
+  resolveHostBridgeCliBinary,
+  resolveHostBridgeCliPlatform,
+  hostBridgeCliResolverInternalsForTests,
+} from "../../src/modules/hostBridgeCliResolver";
+import {
+  installHostBridgeCli,
+  resolveHostBridgeCliInstallTarget,
+  hostBridgeCliInstallerInternalsForTests,
+} from "../../src/modules/hostBridgeCliInstaller";
+import { packagedAssetResolverInternalsForTests } from "../../src/modules/packagedAssetResolver";
+import {
+  resolveHostBridgeWellKnownProfilePath,
+  writeHostBridgeWellKnownProfile,
+} from "../../src/modules/hostBridgeProfileStore";
+
+describe("host bridge cli packaging and install", function () {
+  it("uses stable bundled platform directory names", function () {
+    assert.deepEqual(resolveHostBridgeCliPlatform({ platform: "win32" }), {
+      dir: "win32-x64",
+      binary: "zotero-bridge.exe",
+    });
+    assert.deepEqual(
+      resolveHostBridgeCliPlatform({ platform: "darwin", arch: "x64" }),
+      {
+        dir: "darwin-x64",
+        binary: "zotero-bridge",
+      },
+    );
+    assert.deepEqual(
+      resolveHostBridgeCliPlatform({ platform: "darwin", arch: "arm64" }),
+      {
+        dir: "darwin-arm64",
+        binary: "zotero-bridge",
+      },
+    );
+    assert.deepEqual(resolveHostBridgeCliPlatform({ platform: "linux" }), {
+      dir: "linux-x64",
+      binary: "zotero-bridge",
+    });
+  });
+
+  it("prefers ZOTERO_BRIDGE_CLI env override when available", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-resolver-"));
+    const binary = path.join(root, "zotero-bridge.exe");
+    await fs.writeFile(binary, "binary");
+    const previous = process.env.ZOTERO_BRIDGE_CLI;
+    process.env.ZOTERO_BRIDGE_CLI = binary;
+    try {
+      const resolved = await resolveHostBridgeCliBinary();
+      assert.isTrue(resolved.available);
+      if (resolved.available) {
+        assert.strictEqual(resolved.binaryPath, binary);
+        assert.strictEqual(resolved.source, "env");
+      }
+    } finally {
+      if (typeof previous === "string") {
+        process.env.ZOTERO_BRIDGE_CLI = previous;
+      } else {
+        delete process.env.ZOTERO_BRIDGE_CLI;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves bundled CLI from plugin rootPath before process cwd", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-root-"));
+    const binaryDir = path.join(root, "bin", "win32-x64");
+    const binary = path.join(binaryDir, "zotero-bridge.exe");
+    await fs.mkdir(binaryDir, { recursive: true });
+    await fs.writeFile(binary, "binary");
+    const previousCli = process.env.ZOTERO_BRIDGE_CLI;
+    const previousRootPath = (globalThis as { rootPath?: string }).rootPath;
+    delete process.env.ZOTERO_BRIDGE_CLI;
+    (globalThis as { rootPath?: string }).rootPath = root;
+    try {
+      const resolved = await resolveHostBridgeCliBinary();
+      assert.isTrue(resolved.available);
+      if (resolved.available) {
+        assert.strictEqual(path.normalize(resolved.binaryPath), binary);
+        assert.strictEqual(resolved.source, "bundled");
+      }
+    } finally {
+      if (typeof previousCli === "string") {
+        process.env.ZOTERO_BRIDGE_CLI = previousCli;
+      }
+      if (typeof previousRootPath === "string") {
+        (globalThis as { rootPath?: string }).rootPath = previousRootPath;
+      } else {
+        delete (globalThis as { rootPath?: string }).rootPath;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves CLI from PATH when no env override or bundled binary is available", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-path-"));
+    const pathDir = path.join(root, "path-bin");
+    const workspace = path.join(root, "workspace");
+    const platform = resolveHostBridgeCliPlatform({
+      platform: process.platform,
+      arch: process.arch,
+    });
+    const binary = path.join(pathDir, platform.binary);
+    await fs.mkdir(pathDir, { recursive: true });
+    await fs.mkdir(workspace, { recursive: true });
+    await fs.writeFile(binary, "binary");
+
+    const previousCli = process.env.ZOTERO_BRIDGE_CLI;
+    const previousPath = process.env.PATH;
+    const previousRootPath = (globalThis as { rootPath?: string }).rootPath;
+    const previousCwd = process.cwd();
+    delete process.env.ZOTERO_BRIDGE_CLI;
+    process.env.PATH = pathDir;
+    (globalThis as { rootPath?: string }).rootPath = workspace;
+    process.chdir(workspace);
+    try {
+      const resolved = await resolveHostBridgeCliBinary();
+      assert.isTrue(resolved.available);
+      if (resolved.available) {
+        assert.strictEqual(path.normalize(resolved.binaryPath), binary);
+        assert.strictEqual(resolved.source, "path");
+      }
+    } finally {
+      process.chdir(previousCwd);
+      if (typeof previousCli === "string") {
+        process.env.ZOTERO_BRIDGE_CLI = previousCli;
+      } else {
+        delete process.env.ZOTERO_BRIDGE_CLI;
+      }
+      if (typeof previousPath === "string") {
+        process.env.PATH = previousPath;
+      } else {
+        delete process.env.PATH;
+      }
+      if (typeof previousRootPath === "string") {
+        (globalThis as { rootPath?: string }).rootPath = previousRootPath;
+      } else {
+        delete (globalThis as { rootPath?: string }).rootPath;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("finds bundled CLI when runtime rootPath points at a nested addon directory", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-nested-"));
+    const addonRoot = path.join(root, "build", "addon");
+    const contentRoot = path.join(addonRoot, "content");
+    const binaryDir = path.join(addonRoot, "bin", "win32-x64");
+    const binary = path.join(binaryDir, "zotero-bridge.exe");
+    await fs.mkdir(contentRoot, { recursive: true });
+    await fs.mkdir(binaryDir, { recursive: true });
+    await fs.writeFile(binary, "binary");
+    const candidates =
+      hostBridgeCliResolverInternalsForTests.buildBundledCandidates({
+        roots: [contentRoot],
+        platformDir: "win32-x64",
+        binary: "zotero-bridge.exe",
+      });
+    assert.include(
+      candidates.map((entry) => path.normalize(entry)),
+      binary,
+    );
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("builds packaged asset candidates from runtime URI and path roots", function () {
+    const previousRootUri = (globalThis as { rootURI?: string }).rootURI;
+    const previousResourceUri = (globalThis as { resourceURI?: string })
+      .resourceURI;
+    const previousRootPath = (globalThis as { rootPath?: string }).rootPath;
+    (globalThis as { rootURI?: string }).rootURI =
+      "https://example.test/addon/";
+    (globalThis as { resourceURI?: string }).resourceURI =
+      "resource://zotero-skills/";
+    (globalThis as { rootPath?: string }).rootPath =
+      "C:\\Users\\A\\Zotero\\Profiles\\p\\extensions\\zotero-skills";
+    try {
+      const candidates =
+        packagedAssetResolverInternalsForTests.buildPackagedAssetCandidates(
+          "bin/win32-x64/zotero-bridge.exe",
+        );
+      assert.include(
+        candidates.checkedUris,
+        "https://example.test/addon/bin/win32-x64/zotero-bridge.exe",
+      );
+      assert.include(
+        candidates.checkedUris,
+        "resource://zotero-skills/bin/win32-x64/zotero-bridge.exe",
+      );
+      assert.isAtLeast(candidates.checkedPaths.length, 2);
+    } finally {
+      if (typeof previousRootUri === "string") {
+        (globalThis as { rootURI?: string }).rootURI = previousRootUri;
+      } else {
+        delete (globalThis as { rootURI?: string }).rootURI;
+      }
+      if (typeof previousResourceUri === "string") {
+        (globalThis as { resourceURI?: string }).resourceURI =
+          previousResourceUri;
+      } else {
+        delete (globalThis as { resourceURI?: string }).resourceURI;
+      }
+      if (typeof previousRootPath === "string") {
+        (globalThis as { rootPath?: string }).rootPath = previousRootPath;
+      } else {
+        delete (globalThis as { rootPath?: string }).rootPath;
+      }
+    }
+  });
+
+  it("returns cli_binary_unavailable when no env or bundled binary exists", async function () {
+    const previous = process.env.ZOTERO_BRIDGE_CLI;
+    delete process.env.ZOTERO_BRIDGE_CLI;
+    try {
+      const resolved = await resolveHostBridgeCliBinary();
+      if (resolved.available) {
+        this.skip();
+      }
+      assert.isFalse(resolved.available);
+      if (!resolved.available) {
+        assert.strictEqual(resolved.code, "cli_binary_unavailable");
+        assert.isAtLeast(resolved.checkedPaths.length, 1);
+      }
+    } finally {
+      if (typeof previous === "string") {
+        process.env.ZOTERO_BRIDGE_CLI = previous;
+      }
+    }
+  });
+
+  it("chooses user-level install targets per platform", function () {
+    assert.include(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "win32",
+        localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      }).targetPath,
+      "Zotero-Skills",
+    );
+    assert.include(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "darwin",
+        homeDir: () => "/Users/a",
+      }).targetPath,
+      "Library",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+      }).targetPath,
+      "/home/a/.local/bin/zotero-bridge",
+    );
+  });
+
+  it("installs an extensionless Windows shell shim beside the exe", async function () {
+    const writes: Array<{ target: string; content: string }> = [];
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+        cliDir: "addon/bin/win32-x64",
+        source: "bundled",
+      }),
+      platform: () => "win32",
+      localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      pathIncludes: () => true,
+      copyFile: async () => undefined,
+      writeTextFile: async (target, content) => {
+        writes.push({ target, content });
+      },
+      chmodExecutable: async () => undefined,
+    });
+
+    assert.isTrue(result.ok);
+    assert.deepEqual(writes.map((entry) => entry.target), [
+      "C:\\Users\\A\\AppData\\Local\\Zotero-Skills\\bin\\zotero-bridge",
+    ]);
+    assert.include(writes[0]?.content || "", "zotero-bridge.exe");
+    assert.include(writes[0]?.content || "", "#!/usr/bin/env sh");
+    assert.strictEqual(
+      hostBridgeCliInstallerInternalsForTests.resolveWindowsShellShimPath({
+        platform: "linux",
+        targetDir: "/home/a/.local/bin",
+      }),
+      "",
+    );
+  });
+
+  it("writes a well-known local CLI profile with endpoint and token", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-profile-"));
+    const previousLocalAppData = process.env.LOCALAPPDATA;
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const previousHome = process.env.HOME;
+    process.env.LOCALAPPDATA = root;
+    process.env.XDG_DATA_HOME = root;
+    process.env.HOME = root;
+    try {
+      const result = await writeHostBridgeWellKnownProfile({
+        endpoint: "http://127.0.0.1:26570/bridge/v1",
+        token: "well-known-token",
+        updatedAt: "2026-05-20T00:00:00.000Z",
+      });
+      assert.isTrue(result.ok);
+      const profilePath = resolveHostBridgeWellKnownProfilePath();
+      assert.strictEqual(result.path, profilePath);
+      const profile = JSON.parse(await fs.readFile(profilePath, "utf8"));
+      assert.strictEqual(profile.schema, "zotero-bridge.profile.v1");
+      assert.strictEqual(profile.endpoint, "http://127.0.0.1:26570/bridge/v1");
+      assert.deepInclude(profile.auth, {
+        type: "bearer",
+        token: "well-known-token",
+      });
+      assert.strictEqual(profile.source, "well-known");
+    } finally {
+      if (typeof previousLocalAppData === "string") {
+        process.env.LOCALAPPDATA = previousLocalAppData;
+      } else {
+        delete process.env.LOCALAPPDATA;
+      }
+      if (typeof previousXdgDataHome === "string") {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      } else {
+        delete process.env.XDG_DATA_HOME;
+      }
+      if (typeof previousHome === "string") {
+        process.env.HOME = previousHome;
+      } else {
+        delete process.env.HOME;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("installs bundled CLI and does not modify PATH when already configured", async function () {
+    const copied: Array<[string, string]> = [];
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/linux-x64/zotero-bridge",
+        cliDir: "addon/bin/linux-x64",
+        source: "bundled",
+      }),
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathIncludes: () => true,
+      copyFile: async (source, target) => {
+        copied.push([source, target]);
+      },
+      chmodExecutable: async () => undefined,
+    });
+
+    assert.isTrue(result.ok);
+    assert.deepEqual(copied[0], [
+      "addon/bin/linux-x64/zotero-bridge",
+      "/home/a/.local/bin/zotero-bridge",
+    ]);
+    if (result.ok) {
+      assert.isTrue(result.pathAlreadyConfigured);
+      assert.isFalse(result.pathUpdated);
+      assert.include(result.message, "PATH is already configured");
+    }
+  });
+
+  it("installs CLI from packaged asset URI when filesystem resolver misses", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-asset-"));
+    const previousRootUri = (globalThis as { rootURI?: string }).rootURI;
+    const previousFetch = globalThis.fetch;
+    const platform = resolveHostBridgeCliPlatform({
+      platform: process.platform,
+      arch: process.arch,
+    });
+    (globalThis as { rootURI?: string }).rootURI =
+      "https://example.test/addon/";
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const uri = String(input);
+      if (!uri.endsWith(`bin/${platform.dir}/${platform.binary}`)) {
+        return {
+          ok: false,
+          status: 404,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        } as Response;
+      }
+      const bytes = new TextEncoder().encode("packaged-binary").buffer;
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => bytes,
+      } as Response;
+    }) as typeof fetch;
+    try {
+      const result = await installHostBridgeCli({
+        resolveCli: async () => ({
+          available: false,
+          code: "cli_binary_unavailable",
+          message: "missing filesystem binary",
+          checkedPaths: ["missing"],
+        }),
+        platform: () => process.platform,
+        homeDir: () => root,
+        localAppDataDir: () => root,
+        pathIncludes: () => true,
+        chmodExecutable: async () => undefined,
+      });
+      assert.isTrue(result.ok);
+      if (result.ok) {
+        assert.include(result.sourcePath, "https://example.test/addon/");
+        const written = await fs.readFile(result.targetPath, "utf8");
+        assert.strictEqual(written, "packaged-binary");
+      }
+    } finally {
+      if (typeof previousRootUri === "string") {
+        (globalThis as { rootURI?: string }).rootURI = previousRootUri;
+      } else {
+        delete (globalThis as { rootURI?: string }).rootURI;
+      }
+      globalThis.fetch = previousFetch;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("requires explicit Windows confirmation before user PATH update", async function () {
+    let copyCount = 0;
+    const declined = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+        cliDir: "addon/bin/win32-x64",
+        source: "bundled",
+      }),
+      platform: () => "win32",
+      localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      pathIncludes: () => false,
+      copyFile: async () => {
+        copyCount += 1;
+      },
+      writeTextFile: async () => undefined,
+      chmodExecutable: async () => undefined,
+      confirmAddToPath: () => false,
+      setWindowsUserPath: async () => {
+        throw new Error("must not update path without confirmation");
+      },
+    });
+
+    assert.isFalse(declined.ok);
+    if (!declined.ok) {
+      assert.strictEqual(declined.code, "cli_path_update_declined");
+    }
+    assert.strictEqual(copyCount, 1);
+
+    const accepted = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+        cliDir: "addon/bin/win32-x64",
+        source: "bundled",
+      }),
+      platform: () => "win32",
+      localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      pathIncludes: () => false,
+      copyFile: async () => undefined,
+      writeTextFile: async () => undefined,
+      chmodExecutable: async () => undefined,
+      confirmAddToPath: () => true,
+      setWindowsUserPath: async () => true,
+    });
+
+    assert.isTrue(accepted.ok);
+    if (accepted.ok) {
+      assert.isTrue(accepted.pathUpdated);
+      assert.isTrue(accepted.terminalRestartRequired);
+      assert.include(accepted.message, "Restart terminals");
+    }
+  });
+
+  it("updates Windows user PATH through Zotero subprocess when available", async function () {
+    const runtime = globalThis as typeof globalThis & {
+      Zotero: {
+        Utilities?: {
+          Internal?: {
+            subprocess?: (command: string, args?: string[]) => Promise<string>;
+          };
+        };
+      };
+    };
+    const previousUtilities = runtime.Zotero.Utilities;
+    const previousInternal = runtime.Zotero.Utilities?.Internal;
+    const previousSubprocess = runtime.Zotero.Utilities?.Internal?.subprocess;
+    const calls: Array<{ command: string; args: string[] }> = [];
+    runtime.Zotero.Utilities = runtime.Zotero.Utilities || {};
+    runtime.Zotero.Utilities.Internal = runtime.Zotero.Utilities.Internal || {};
+    runtime.Zotero.Utilities.Internal.subprocess = async (
+      command: string,
+      args: string[] = [],
+    ) => {
+      calls.push({ command, args });
+      return "updated";
+    };
+    try {
+      const result = await installHostBridgeCli({
+        resolveCli: async () => ({
+          available: true,
+          binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+          cliDir: "addon/bin/win32-x64",
+          source: "bundled",
+        }),
+        platform: () => "win32",
+        localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+        pathIncludes: () => false,
+        copyFile: async () => undefined,
+        writeTextFile: async () => undefined,
+        chmodExecutable: async () => undefined,
+        confirmAddToPath: () => true,
+      });
+
+      assert.isTrue(result.ok);
+      if (result.ok) {
+        assert.isTrue(result.pathUpdated);
+      }
+      assert.isAtLeast(calls.length, 1);
+      assert.match(calls[0].command, /powershell|pwsh/i);
+      assert.include(calls[0].args.join(" "), "SetEnvironmentVariable");
+      assert.include(calls[0].args.join(" "), "Zotero-Skills");
+    } finally {
+      if (previousInternal) {
+        runtime.Zotero.Utilities = runtime.Zotero.Utilities || {};
+        runtime.Zotero.Utilities.Internal = previousInternal;
+        runtime.Zotero.Utilities.Internal.subprocess = previousSubprocess;
+      } else if (runtime.Zotero.Utilities) {
+        delete runtime.Zotero.Utilities.Internal;
+      }
+      if (previousUtilities) {
+        runtime.Zotero.Utilities = previousUtilities;
+      } else {
+        delete runtime.Zotero.Utilities;
+      }
+    }
+  });
+
+  it("declares CLI release packaging workflow and addon bin directories", async function () {
+    const workflow = await fs.readFile(
+      ".github/workflows/build-zotero-bridge-cli.yml",
+      "utf8",
+    );
+    for (const platform of [
+      "win32-x64",
+      "darwin-x64",
+      "darwin-arm64",
+      "linux-x64",
+    ]) {
+      assert.include(workflow, platform);
+      const stat = await fs.stat(path.join("addon", "bin", platform));
+      assert.isTrue(stat.isDirectory());
+    }
+    const packageScript = await fs.readFile(
+      "scripts/package-zotero-bridge-cli.mjs",
+      "utf8",
+    );
+    assert.include(packageScript, "sha256");
+  });
+});

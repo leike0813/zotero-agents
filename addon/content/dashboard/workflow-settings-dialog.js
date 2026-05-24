@@ -5,6 +5,7 @@
       backendId: "",
       workflowParams: {},
       providerOptions: {},
+      runOptions: {},
     },
     fieldCollectors: [],
   };
@@ -86,6 +87,7 @@
         : [],
       workflowSchemaEntries: summarizeEntries(form.workflowSchemaEntries),
       providerSchemaEntries: summarizeEntries(form.providerSchemaEntries),
+      runSchemaEntries: summarizeEntries(form.runSchemaEntries),
     });
   }
 
@@ -188,6 +190,7 @@
       backendId: toText(patch.backendId || "").trim(),
       workflowParams: cloneRecord(patch.workflowParams),
       providerOptions: cloneRecord(patch.providerOptions),
+      runOptions: cloneRecord(patch.runOptions),
     };
     sendAction("update-draft", {
       executionOptions: state.draft,
@@ -200,6 +203,21 @@
   function registerFieldCollector(collector) {
     if (typeof collector === "function") {
       state.fieldCollectors.push(collector);
+    }
+  }
+
+  function markCustomSelectDisabled(element) {
+    if (!element) {
+      return;
+    }
+    element.classList.add("disabled");
+    element.setAttribute("aria-disabled", "true");
+    const trigger = element.querySelector
+      ? element.querySelector(".custom-select-trigger")
+      : null;
+    if (trigger) {
+      trigger.setAttribute("aria-disabled", "true");
+      trigger.setAttribute("tabindex", "-1");
     }
   }
 
@@ -286,9 +304,7 @@
       });
       customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey);
       if (args.entry.disabled === true) {
-        customSelect.element.classList.add("disabled");
-        customSelect.element.style.pointerEvents = "none";
-        customSelect.element.style.opacity = "0.7";
+        markCustomSelectDisabled(customSelect.element);
       }
       registerFieldCollector(function () {
         args.values[args.entry.key] = selectedValue;
@@ -313,6 +329,9 @@
       });
       customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey + ".recommendation");
       customSelect.element.style.flex = "1 1 55%";
+      if (args.entry.disabled === true) {
+        markCustomSelectDisabled(customSelect.element);
+      }
       combo.appendChild(customSelect.element);
       control = document.createElement("input");
       control.type = "text";
@@ -554,6 +573,19 @@
         },
       }),
     );
+    grid.appendChild(
+      renderFormSection({
+        title: snapshot.labels.runOptionsTitle,
+        emptyText: snapshot.labels.noRunOptions,
+        entries: form.runSchemaEntries || [],
+        values: state.draft.runOptions,
+        section: "runOptions",
+        labels: snapshot.labels || {},
+        onChange: function (changeMeta) {
+          updateDraft(state.draft, changeMeta);
+        },
+      }),
+    );
     shell.appendChild(grid);
 
     if (form.profileMissing) {
@@ -599,6 +631,7 @@
             backendId: toText(state.draft.backendId || "").trim(),
             workflowParams: cloneRecord(state.draft.workflowParams),
             providerOptions: cloneRecord(state.draft.providerOptions),
+            runOptions: cloneRecord(state.draft.runOptions),
           },
         });
       });
@@ -627,6 +660,7 @@
           backendId: toText(state.draft.backendId || "").trim(),
           workflowParams: cloneRecord(state.draft.workflowParams),
           providerOptions: cloneRecord(state.draft.providerOptions),
+          runOptions: cloneRecord(state.draft.runOptions),
         },
       });
     });
@@ -654,6 +688,7 @@
         backendId: toText(form.selectedProfile || "").trim(),
         workflowParams: cloneRecord(form.workflowParams),
         providerOptions: cloneRecord(form.providerOptions),
+        runOptions: cloneRecord(form.runOptions),
       };
     }
     render();

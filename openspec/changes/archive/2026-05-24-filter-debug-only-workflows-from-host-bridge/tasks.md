@@ -1,0 +1,5 @@
+- [x] Add OpenSpec proposal, design, tasks, and delta spec.
+- [x] Change Host Bridge workflow list to use visible workflow entries.
+- [x] Change Host Bridge workflow submit lookup to use visible workflow entries.
+- [x] Add tests for debug-only list filtering and direct submit rejection.
+- [x] Run OpenSpec validation, targeted Host Bridge workflow-control tests, and typecheck.

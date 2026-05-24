@@ -38,6 +38,13 @@ import {
   applyPersistedWorkflowSettingsNormalizer,
 } from "./workflowSettingsNormalizer";
 import { resolveWorkflowParameterOptionsSource } from "./workflowParameterOptions";
+import {
+  AUTO_APPROVE_ZOTERO_WRITES_PARAM,
+  buildWorkflowRunOptionsForUi,
+  normalizeWorkflowRunOptions,
+  workflowAllowsWriteApprovalBypass,
+  type WorkflowRunOptions,
+} from "../workflows/zoteroHostAccessOptions";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -46,6 +53,7 @@ type WorkflowExecutionContext = {
   requestKind: string;
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
+  runOptions: WorkflowRunOptions;
   providerId: string;
 };
 
@@ -83,10 +91,32 @@ export type WorkflowSettingsUiDescriptor = {
   selectedProfile: string;
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
+  runOptions: WorkflowRunOptions;
   workflowSchemaEntries: WorkflowSettingsSchemaEntry[];
   providerSchemaEntries: WorkflowSettingsSchemaEntry[];
+  runSchemaEntries: WorkflowSettingsSchemaEntry[];
   hasConfigurableSettings: boolean;
+  blockedReason?: string;
 };
+
+function dynamicOptionsUnavailableReason(args: {
+  key: string;
+  title?: string;
+  sourceKind?: string;
+  diagnostics?: Array<{ code: string; message: string }>;
+}) {
+  const label = String(args.title || args.key || "parameter").trim();
+  const diagnostic = (args.diagnostics || [])
+    .map((entry) => String(entry.message || entry.code || "").trim())
+    .find(Boolean);
+  if (diagnostic) {
+    return `${label} options are unavailable: ${diagnostic}`;
+  }
+  if (args.sourceKind === "synthesis.topics") {
+    return `No updatable synthesis topics are available for ${label}.`;
+  }
+  return `No selectable options are available for ${label}.`;
+}
 
 function readSettingsRecord(): WorkflowSettingsRecord {
   const rawText = String(getPref(WORKFLOW_SETTINGS_PREF_KEY) || "").trim();
@@ -361,6 +391,7 @@ export function updateWorkflowSettings(
   const workflow = resolveLoadedWorkflowById(normalizedWorkflowId);
   record[normalizedWorkflowId] = {
     ...normalized,
+    runOptions: undefined,
     providerOptions: constrainSkillRunnerProviderOptionsByMode({
       workflow,
       options: isObject(normalized.providerOptions) ? normalized.providerOptions : {},
@@ -393,6 +424,28 @@ async function toWorkflowSchemaEntries(
         entry.type === "string"
           ? await resolveWorkflowParameterOptionsSource(entry.optionsSource)
           : { options: [], diagnostics: [] };
+      const sourceKind =
+        entry.optionsSource && typeof entry.optionsSource === "object"
+          ? String(entry.optionsSource.kind || "").trim()
+          : "";
+      const strictDynamicOptionsMissing = Boolean(
+        sourceKind &&
+          entry.type === "string" &&
+          entry.allowCustom !== true &&
+          dynamic.options.length === 0,
+      );
+      const dynamicDiagnostics = [...dynamic.diagnostics];
+      if (strictDynamicOptionsMissing) {
+        dynamicDiagnostics.push({
+          code: "dynamic_options_empty",
+          message: dynamicOptionsUnavailableReason({
+            key,
+            title: entry.title,
+            sourceKind,
+            diagnostics: dynamic.diagnostics,
+          }),
+        });
+      }
       return {
         key,
         type: entry.type,
@@ -402,14 +455,36 @@ async function toWorkflowSchemaEntries(
         options: dynamic.options.length > 0 ? dynamic.options : undefined,
         allowCustom: entry.type === "string" && entry.allowCustom === true,
         defaultValue: entry.default,
+        disabled: strictDynamicOptionsMissing,
         diagnostics:
-          dynamic.diagnostics.length > 0 ? dynamic.diagnostics : undefined,
+          dynamicDiagnostics.length > 0 ? dynamicDiagnostics : undefined,
         min: entry.type === "number" ? entry.min : undefined,
         max: entry.type === "number" ? entry.max : undefined,
       };
     }),
   );
+  if (!workflowAllowsWriteApprovalBypass(workflow.manifest)) {
+    return entries;
+  }
   return entries;
+}
+
+function toRunSchemaEntries(
+  workflow: LoadedWorkflow,
+): WorkflowSettingsSchemaEntry[] {
+  if (!workflowAllowsWriteApprovalBypass(workflow.manifest)) {
+    return [];
+  }
+  return [
+    {
+      key: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
+      type: "boolean",
+      title: "自动批准写库",
+      description:
+        "仅对当前 workflow run 的 Zotero 写库动作生效；workflow 提交本身仍需要审批，且不会保存为默认参数。",
+      defaultValue: false,
+    },
+  ];
 }
 
 function toProviderSchemaEntries(args: {
@@ -548,6 +623,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     backend: selectedBackend,
   });
   const workflowSchemaEntries = await toWorkflowSchemaEntries(args.workflow);
+  const runSchemaEntries = toRunSchemaEntries(args.workflow);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,
     merged.workflowParams,
@@ -557,6 +633,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     rawWorkflowParams:
       (merged.workflowParams as Record<string, unknown> | undefined) || {},
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
+  });
+  const runOptions = buildWorkflowRunOptionsForUi({
+    manifest: args.workflow.manifest,
+    source: merged.runOptions,
   });
   const providerOptions = normalizeProviderRuntimeOptions({
     providerId,
@@ -577,6 +657,11 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     backend: selectedBackend,
     providerOptions: constrainedProviderOptions,
   });
+  const blockedReason = workflowSchemaEntries
+    .filter((entry) => entry.disabled === true)
+    .flatMap((entry) => entry.diagnostics || [])
+    .map((entry) => String(entry.message || entry.code || "").trim())
+    .find(Boolean);
   const profileEditable = requiresBackendProfile && profiles.length > 1;
   const profileMissing = requiresBackendProfile && profiles.length === 0;
   const hasProfileConfigDimension =
@@ -584,7 +669,8 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   const hasConfigurableSettings =
     hasProfileConfigDimension ||
     workflowSchemaEntries.length > 0 ||
-    providerSchemaEntries.length > 0;
+    providerSchemaEntries.length > 0 ||
+    runSchemaEntries.length > 0;
 
   return {
     workflowId: args.workflow.manifest.id,
@@ -597,9 +683,12 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     selectedProfile,
     workflowParams,
     providerOptions: uiProviderOptions,
+    runOptions,
     workflowSchemaEntries,
     providerSchemaEntries,
+    runSchemaEntries,
     hasConfigurableSettings,
+    blockedReason,
   };
 }
 
@@ -724,12 +813,17 @@ export async function resolveWorkflowExecutionContext(args: {
     workflow: args.workflow,
     options: providerOptions,
   });
+  const runOptions = buildWorkflowRunOptionsForUi({
+    manifest: args.workflow.manifest,
+    source: normalizeWorkflowRunOptions(merged.runOptions),
+  });
 
   return {
     backend,
     requestKind,
     workflowParams,
     providerOptions: constrainedProviderOptions,
+    runOptions,
     providerId,
   };
 }
@@ -774,5 +868,9 @@ export function resolveWorkflowExecutionOptionsPreview(args: {
     providerId,
     workflowParams,
     providerOptions: constrainedProviderOptions,
+    runOptions: buildWorkflowRunOptionsForUi({
+      manifest: args.workflow.manifest,
+      source: normalizeWorkflowRunOptions(merged.runOptions),
+    }),
   };
 }

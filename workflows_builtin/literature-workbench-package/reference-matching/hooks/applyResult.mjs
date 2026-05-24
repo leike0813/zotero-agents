@@ -4,11 +4,11 @@ import {
   resolveCitekeyTemplate,
 } from "../../lib/citekeyTemplate.mjs";
 import {
-  parseReferencesPayload,
+  persistReferencesPayloadForNote,
   parseReferencesNoteKind,
   replaceReferencesTable,
+  resolveReferencesPayloadForNote,
   resolveSelectedReferenceNote,
-  updatePayloadBlock,
 } from "../../lib/referencesNote.mjs";
 import { buildReferenceMatchingBaseline } from "../../lib/referenceMatchingFreshness.mjs";
 import {
@@ -686,10 +686,12 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
     runtime,
     workflowId: "reference-matching",
   });
-  const { payload, references, payloadTag } = parseReferencesPayload(
-    noteContent,
-    runtime,
-  );
+  const { payload, references, payloadTag, source } =
+    await resolveReferencesPayloadForNote({
+      noteItem,
+      noteContent,
+      runtime,
+    });
   const candidates = await collectLibraryCandidates(dataSource, parameter, runtime);
   const citekeyTemplate = resolveCitekeyTemplate(parameter);
   const citekeyIndex = buildCitekeyIndex(candidates);
@@ -748,12 +750,14 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
       runtime,
     }),
   };
-  const withPayload = updatePayloadBlock(
+  const withPayload = await persistReferencesPayloadForNote({
+    source,
+    noteItem,
     noteContent,
     payloadTag,
     nextPayload,
     runtime,
-  );
+  });
   const nextNoteContent = replaceReferencesTable(
     withPayload,
     runtime.helpers.renderReferencesTable(nextReferences),

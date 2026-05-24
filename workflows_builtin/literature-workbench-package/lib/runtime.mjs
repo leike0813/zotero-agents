@@ -1,5 +1,5 @@
 const MIN_HOST_API_VERSION = 2;
-const MAX_HOST_API_VERSION = 3;
+const MAX_HOST_API_VERSION = 5;
 const GLOBAL_HOST_API_KEY = "__zsHostApi";
 const GLOBAL_HOST_API_VERSION_KEY = "__zsHostApiVersion";
 const runtimeScopeStack = [];

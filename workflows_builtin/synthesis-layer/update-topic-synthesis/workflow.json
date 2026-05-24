@@ -14,31 +14,14 @@
     "topicId": {
       "type": "string",
       "title": "Topic ID",
-      "description": "Existing synthesis topic id."
-    },
-    "language": {
-      "type": "string",
-      "title": "Language",
-      "description": "Output language, such as auto, zh-CN, or en-US.",
-      "default": "auto"
-    },
-    "updateScope": {
-      "type": "string",
-      "title": "Update Scope",
-      "description": "auto, claims, timeline, external_literature, coverage, or full.",
-      "default": "auto"
-    },
-    "updateMode": {
-      "type": "string",
-      "title": "Update Mode",
-      "description": "auto, update_patch, or update_full.",
-      "default": "auto"
-    },
-    "updateReason": {
-      "type": "string",
-      "title": "Update Reason",
-      "description": "Host-derived stale, incomplete, or dirty reason.",
-      "default": "manual"
+      "description": "Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.",
+      "allowCustom": false,
+      "optionsSource": {
+        "kind": "synthesis.topics",
+        "valueFormat": "topicId",
+        "labelFormat": "title",
+        "filter": "updatable"
+      }
     }
   },
   "request": {
@@ -49,13 +32,8 @@
   },
   "execution": {
     "mode": "auto",
-    "mcp": {
-      "requiredTools": [
-        "synthesis.get_topic_context",
-        "synthesis.resolve_resolver",
-        "synthesis.get_citation_graph_metrics",
-        "synthesis.export_filtered_paper_artifacts"
-      ]
+    "zoteroHostAccess": {
+      "required": true
     },
     "skillrunner_mode": "interactive",
     "timeout_ms": 1200000
@@ -67,6 +45,7 @@
     }
   },
   "hooks": {
+    "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "../hooks/applyTopicSynthesisResult.mjs"
   }
 }

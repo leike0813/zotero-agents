@@ -31,14 +31,8 @@
   },
   "execution": {
     "mode": "auto",
-    "mcp": {
-      "requiredTools": [
-        "synthesis.list_topics",
-        "synthesis.get_library_index",
-        "synthesis.resolve_resolver",
-        "synthesis.get_citation_graph_metrics",
-        "synthesis.export_filtered_paper_artifacts"
-      ]
+    "zoteroHostAccess": {
+      "required": true
     },
     "skillrunner_mode": "interactive",
     "timeout_ms": 1200000

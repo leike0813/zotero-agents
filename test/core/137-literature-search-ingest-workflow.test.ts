@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acpSkillResourceManifest";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
@@ -9,21 +10,13 @@ import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflo
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 
-const REQUIRED_TOOLS = [
-  "list_library_items",
-  "search_items",
-  "synthesis.list_topics",
-  "synthesis.get_library_index",
-  "ingest_papers",
-];
-
 function completedPayload() {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
     query: "foundation models for visual inspection",
     search_mode: "topic_expansion",
-    confirmed_papers: [
+    confirmed_references: [
       {
         title: "A Survey of Visual Inspection Foundation Models",
         doi: "10.5555/example",
@@ -44,6 +37,21 @@ function completedPayload() {
         title: "A Survey of Visual Inspection Foundation Models",
         status: "created",
         attachmentStatus: "skipped",
+      },
+    ],
+    missing_pdf_references: [
+      {
+        index: 1,
+        title: "A Survey of Visual Inspection Foundation Models",
+        status: "created",
+        attachmentStatus: "skipped",
+        doi: "10.5555/example",
+        landingUrl: "https://doi.org/10.5555/example",
+        manualSearchLinks: [
+          "https://doi.org/10.5555/example",
+          "https://scholar.google.com/scholar?q=%22A%20Survey%20of%20Visual%20Inspection%20Foundation%20Models%22",
+        ],
+        reason: "no_public_pdf_url",
       },
     ],
   };
@@ -85,11 +93,23 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(workflow.taskNameTemplate, "Search and ingest literature: {query}");
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
     assert.notProperty(workflow.execution || {}, "supportedBackends");
-    assert.sameMembers(workflow.execution?.mcp?.requiredTools || [], REQUIRED_TOOLS);
+    assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
+    assert.isTrue(
+      workflow.execution?.zoteroHostAccess?.allowWriteApprovalBypass,
+    );
+    assert.notProperty(workflow.execution || {}, "mcp");
     assert.equal(workflow.parameters?.query?.type, "string");
+    assert.equal(workflow.parameters?.searchMode?.type, "string");
+    assert.deepEqual(workflow.parameters?.searchMode?.enum, [
+      "auto",
+      "topic_expansion",
+      "paper_seed_expansion",
+      "targeted_ingest",
+    ]);
+    assert.equal(workflow.parameters?.searchMode?.default, "auto");
     assert.isUndefined(workflow.parameters?.language);
     assert.equal(workflow.parameters?.targetCollection?.type, "string");
-    assert.isTrue(workflow.parameters?.targetCollection?.allowCustom);
+    assert.isFalse(workflow.parameters?.targetCollection?.allowCustom);
     assert.equal(
       workflow.parameters?.targetCollection?.optionsSource?.kind,
       "zotero.collections",
@@ -124,6 +144,49 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(resolved.diagnostics[0]?.code, "unsupported_options_source");
   });
 
+  it("blocks strict dynamic workflow parameters when no selectable options are available", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: {
+        ...workflow!,
+        manifest: {
+          ...workflow!.manifest,
+          parameters: {
+            topicId: {
+              type: "string",
+              title: "Topic ID",
+              allowCustom: false,
+              optionsSource: {
+                kind: "zotero.unknown",
+              },
+            },
+          },
+        },
+      } as any,
+      candidateBackends: [
+        {
+          id: "acp-test",
+          type: "acp",
+          displayName: "ACP Test",
+          baseUrl: "http://127.0.0.1",
+        } as any,
+      ],
+    });
+
+    assert.include(
+      descriptor.blockedReason || "",
+      "Unsupported workflow parameter options source",
+    );
+    assert.isTrue(descriptor.workflowSchemaEntries[0]?.disabled);
+  });
+
   it("injects dynamic collection options into workflow settings descriptors", async function () {
     const collection = await createCollection("Descriptor Collection");
     const loaded = await loadWorkflowManifests("workflows_builtin", {
@@ -148,16 +211,65 @@ describe("Literature Search Ingest workflow contract", function () {
     const targetCollection = descriptor.workflowSchemaEntries.find(
       (entry) => entry.key === "targetCollection",
     );
+    const autoApprove = descriptor.runSchemaEntries.find(
+      (entry) => entry.key === "autoApproveZoteroWrites",
+    );
     const option = targetCollection?.options?.find((entry) =>
       entry.value === `${Zotero.Libraries.userLibraryID}:${collection.key}`,
     );
 
     assert.isOk(option);
     assert.equal(option?.label, "Descriptor Collection");
-    assert.isTrue(targetCollection?.allowCustom);
+    assert.isFalse(targetCollection?.allowCustom);
+    assert.equal(autoApprove?.type, "boolean");
+    assert.isFalse(autoApprove?.defaultValue as boolean);
+    assert.isUndefined(
+      descriptor.workflowSchemaEntries.find(
+        (entry) => entry.key === "autoApproveZoteroWrites",
+      ),
+    );
   });
 
-  it("loads from the builtin literature workbench package and builds one ACP request", async function () {
+  it("does not expose write auto-approval for workflows that do not opt in", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: {
+        ...workflow!,
+        manifest: {
+          ...workflow!.manifest,
+          execution: {
+            ...workflow!.manifest.execution,
+            zoteroHostAccess: {
+              required: true,
+            },
+          },
+        },
+      } as any,
+      candidateBackends: [
+        {
+          id: "acp-test",
+          type: "acp",
+          displayName: "ACP Test",
+          baseUrl: "http://127.0.0.1",
+        } as any,
+      ],
+    });
+
+    assert.isUndefined(
+      descriptor.runSchemaEntries.find(
+        (entry) => entry.key === "autoApproveZoteroWrites",
+      ),
+    );
+  });
+
+  it("does not send ZoteroHostAccess runtime options in the SkillRunner-compatible build request", async function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
@@ -172,7 +284,64 @@ describe("Literature Search Ingest workflow contract", function () {
       executionOptions: {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
+        },
+      },
+    })) as Array<{
+      runtime_options?: Record<string, unknown>;
+    }>;
+
+    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+  });
+
+  it("does not treat write auto-approval as a workflow parameter", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const requests = (await executeBuildRequests({
+      workflow: workflow!,
+      selectionContext: { items: { attachments: [] } },
+      executionOptions: {
+        workflowParams: {
+          query: "retrieval augmented generation evaluation",
+          autoApproveZoteroWrites: true,
+        },
+      },
+    })) as Array<{
+      parameter?: Record<string, unknown>;
+      runtime_options?: Record<string, unknown>;
+    }>;
+
+    assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
+    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+  });
+
+  it("loads from the builtin literature workbench package and builds one SkillRunner-compatible request", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const requests = (await executeBuildRequests({
+      workflow: workflow!,
+      selectionContext: { items: { attachments: [] } },
+      executionOptions: {
+        workflowParams: {
+          query: "retrieval augmented generation evaluation",
+          searchMode: "targeted_ingest",
           targetCollection: "RAG",
+        },
+        runOptions: {
+          zoteroHostAccess: {
+            autoApproveWrites: true,
+          },
         },
       },
     })) as Array<{
@@ -190,9 +359,10 @@ describe("Literature Search Ingest workflow contract", function () {
       requests[0].parameter?.query,
       "retrieval augmented generation evaluation",
     );
-    assert.deepEqual((requests[0] as any).runtime_options?.workflow_mcp, {
-      required_tools: REQUIRED_TOOLS,
-    });
+    assert.equal(requests[0].parameter?.searchMode, "targeted_ingest");
+    assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
+    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
   });
 
   it("registers the workflow package files and skill resource manifest", async function () {
@@ -202,7 +372,9 @@ describe("Literature Search Ingest workflow contract", function () {
         "utf8",
       ),
     );
-    const manifest = JSON.parse(await fs.readFile("workflows_builtin/manifest.json", "utf8"));
+    const manifest = JSON.parse(
+      await fs.readFile("workflows_builtin/manifest.json", "utf8"),
+    );
     assert.include(
       packageJson.workflows,
       "literature-search-ingest/workflow.json",
@@ -215,6 +387,10 @@ describe("Literature Search Ingest workflow contract", function () {
       manifest.files,
       "literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs",
     );
+    assert.include(
+      manifest.files,
+      "literature-workbench-package/lib/representativeImage.mjs",
+    );
 
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const entry = registry.entriesById["literature-search-ingest"];
@@ -226,14 +402,52 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(files, "assets/output.schema.json");
   });
 
+  it("loads literature workbench workflows after syncing only packaged manifest files", async function () {
+    const copyRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-literature-workbench-manifest-"),
+    );
+    const manifest = JSON.parse(
+      await fs.readFile("workflows_builtin/manifest.json", "utf8"),
+    ) as { files?: string[] };
+    for (const relativePath of manifest.files || []) {
+      const sourcePath = path.join("workflows_builtin", relativePath);
+      const targetPath = path.join(copyRoot, relativePath);
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.copyFile(sourcePath, targetPath);
+    }
+
+    const loaded = await loadWorkflowManifests(copyRoot, {
+      workflowSourceKind: "builtin",
+    });
+    const ids = loaded.workflows.map((entry) => entry.manifest.id);
+
+    assert.include(ids, "literature-digest");
+    assert.include(ids, "literature-search-ingest");
+    assert.deepEqual(
+      loaded.diagnostics.filter(
+        (entry) => entry.entry === "literature-workbench-package",
+      ),
+      [],
+    );
+  });
+
   it("validates completed and canceled skill output payloads", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const entry = registry.entriesById["literature-search-ingest"];
-    const runnerJson = JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8"));
+    const runnerJson = JSON.parse(
+      await fs.readFile(entry.runnerJsonPath, "utf8"),
+    );
     const primarySkillDir = path.dirname(path.dirname(entry.runnerJsonPath));
 
     const completed = await validateAcpSkillFinalPayload({
       payload: completedPayload(),
+      runnerJson,
+      primarySkillDir,
+    });
+    const strippedCompleted = completedPayload();
+    delete (strippedCompleted as any).__SKILL_DONE__;
+    const completedAfterConvergence = await validateAcpSkillFinalPayload({
+      payload: strippedCompleted,
       runnerJson,
       primarySkillDir,
     });
@@ -244,10 +458,14 @@ describe("Literature Search Ingest workflow contract", function () {
     });
 
     assert.isTrue(completed.ok, completed.errors.join("; "));
+    assert.isTrue(
+      completedAfterConvergence.ok,
+      completedAfterConvergence.errors.join("; "),
+    );
     assert.isTrue(canceled.ok, canceled.errors.join("; "));
   });
 
-  it("documents two confirmation gates, MCP context, and no browser automation", async function () {
+  it("documents two confirmation gates, host context, and no browser automation", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
       "utf8",
@@ -261,16 +479,32 @@ describe("Literature Search Ingest workflow contract", function () {
     const prompt = runner.entrypoint?.prompts?.common || "";
 
     for (const text of [skill, prompt]) {
-      assert.include(text, "synthesis.list_topics");
-      assert.include(text, "synthesis.get_library_index");
-      assert.include(text, "ingest_papers");
+      assert.include(text, "synthesis list-topics");
+      assert.include(text, "synthesis get-library-index");
+      assert.include(text, "literature ingest");
+      assert.include(text, "targeted_ingest");
+      assert.include(text, "synthesis read-paper-artifacts");
       assert.include(text, "best-effort");
+      assert.include(text, "filetype:pdf");
+      assert.include(text, "missing_pdf_references");
       assert.include(text, "Connector");
       assert.include(text, "CDP");
     }
     assert.include(skill, "等待用户明确确认后再进入搜索");
     assert.include(skill, "等待用户确认");
-    assert.include(skill, "最终只输出 result/result.json");
-    assert.sameMembers(runner.mcp?.required_tools || [], REQUIRED_TOOLS);
+    assert.include(skill, "逐篇调用");
+    assert.include(skill, "ingest-paper-001.json");
+    assert.include(skill, "禁止生成包含 `papers`");
+    assert.include(skill, "最终只输出合法 JSON object");
+    assert.include(skill, "成功入库但未获得 PDF");
+    assert.include(skill, "manualSearchLinks");
+    assert.include(skill, '"missing_pdf_references"');
+    assert.include(skill, '"literature_search_ingest"');
+    assert.include(skill, '"literature_search_ingest_canceled"');
+    assert.notInclude(skill, "confirmed-papers.json");
+    assert.notInclude(prompt, "confirmed-papers.json");
+    assert.isUndefined(runner.mcp);
+    assert.notInclude(skill, "MCP");
+    assert.notInclude(prompt, "MCP");
   });
 });

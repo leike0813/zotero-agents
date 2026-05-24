@@ -5,7 +5,10 @@ import { executeBuildRequests } from "../workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { resolveProvider } from "../providers/registry";
-import { resolveWorkflowExecutionContext } from "./workflowSettings";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  resolveWorkflowExecutionContext,
+} from "./workflowSettings";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
@@ -100,6 +103,14 @@ function appendSkillRunnerSidebarItem(
 function appendMenuSeparator(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const separator = win.document.createXULElement("menuseparator");
   popup.appendChild(separator);
+}
+
+function shouldRunRequestPreflightFromMenu(workflow: LoadedWorkflow) {
+  const parameterCount = Object.keys(workflow.manifest.parameters || {}).length;
+  if (workflow.manifest.inputs?.unit === "workflow" && parameterCount > 0) {
+    return false;
+  }
+  return true;
 }
 
 function compactError(error: unknown) {
@@ -238,14 +249,23 @@ export async function rebuildWorkflowActionPopup(
           requestKind: executionContext.requestKind,
           backend: executionContext.backend,
         });
-        await executeBuildRequests({
+        const descriptor = await buildWorkflowSettingsUiDescriptor({
           workflow,
-          selectionContext,
-          executionOptions: {
-            workflowParams: executionContext.workflowParams,
-            providerOptions: executionContext.providerOptions,
-          },
+          candidateBackends: [executionContext.backend],
         });
+        if (descriptor.blockedReason) {
+          throw new Error(descriptor.blockedReason);
+        }
+        if (shouldRunRequestPreflightFromMenu(workflow)) {
+          await executeBuildRequests({
+            workflow,
+            selectionContext,
+            executionOptions: {
+              workflowParams: executionContext.workflowParams,
+              providerOptions: executionContext.providerOptions,
+            },
+          });
+        }
       } catch (error) {
         disabledReason = resolveDisabledReason(error);
       }

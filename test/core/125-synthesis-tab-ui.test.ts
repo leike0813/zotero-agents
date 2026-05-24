@@ -560,6 +560,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderDigestModal");
     assert.include(source, "openDigestModal");
     assert.include(source, "buildDigestOutline");
+    assert.include(source, "renderDigestRepresentativeImage");
+    assert.include(source, "include_representative_image: true");
+    assert.include(source, "representative_image");
     assert.include(source, "Evidence Explorer");
     assert.include(source, "External Literature Analysis");
     assert.include(source, 'command: "resolveTopicPaperDigest"');
@@ -596,6 +599,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".paper-digest-body");
     assert.include(css, ".digest-outline");
     assert.include(css, ".digest-scroll-body");
+    assert.include(css, ".digest-modal-intro");
+    assert.include(css, ".digest-representative-image");
     assert.include(source, "Select evidence from a claim, taxonomy node, comparison row, or timeline marker.");
     assert.include(source, "state.selectedEvidenceId");
     assert.include(source, "state.evidenceExplorerOpen");
@@ -659,12 +664,38 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
     const uiModel = await fs.readFile("src/modules/synthesis/uiModel.ts", "utf8");
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(uiModel, '"submitTopicSynthesisUpdate"');
     assert.include(source, "findUpdateTopicSynthesisWorkflow");
     assert.include(source, 'entry.manifest.id === "update-topic-synthesis"');
     assert.include(source, 'command === "submitTopicSynthesisUpdate"');
     assert.include(source, "runUpdateTopicSynthesisFromWorkbench");
+    assert.include(source, "settingsGateInitialOptions");
+    assert.include(source, "Topic does not need update");
+    assert.include(app, "topicRowById");
+    assert.include(app, "topic-detail-toolbar-meta");
+    assert.include(app, "topic-detail-toolbar-actions");
+    assert.include(app, '`${numberValue(detail.paper_count)} papers`, "green"');
+    assert.include(app, "makeTopicUpdateButton");
+    assert.include(app, "button.disabled = disabled");
+    assert.include(css, ".topic-detail-toolbar-meta");
+    assert.include(css, ".topic-detail-toolbar .badge.blue");
+    assert.include(css, ".topic-detail-toolbar .badge.green");
+    assert.include(css, ".topic-detail-toolbar .badge.purple");
+    assert.include(css, "--topic-control-bg");
+    assert.include(css, "--topic-control-bg: #dbeafe");
+    assert.include(css, "appearance: none");
+    assert.include(css, "-moz-appearance: none");
+    assert.include(css, "background-image: none");
+    assert.include(css, "background: var(--topic-panel-subtle)");
+    assert.include(css, "box-shadow: var(--topic-control-shadow)");
+    assert.include(css, "button:disabled");
+    assert.include(css, "cursor: not-allowed");
+    assert.notInclude(css, "color-mix(");
+    assert.notInclude(source, "updateMode: \"update_full\"");
+    assert.notInclude(source, "updateScope: \"refresh\"");
     assert.include(source, "Cannot update synthesis: update-topic-synthesis workflow is not loaded");
   });
 
@@ -727,8 +758,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".synthesis-mount");
     assert.include(css, ".theme-switch");
     assert.include(index, "../shared/theme.js");
-    assert.include(index, "../shared/theme.css");
+    assert.include(index, "../shared/theme.css?ui=20260520-controls-v5");
+    assert.include(index, "./styles.css?ui=20260520-controls-v5");
     assert.include(css, ".toolbar .icon-button");
+    assert.include(css, "appearance: none");
+    assert.include(css, "-moz-appearance: none");
+    assert.include(css, "--workspace-control-bg");
+    assert.include(css, "--workspace-control-bg: #dbeafe");
+    assert.include(css, "background: var(--workspace-control-bg)");
+    assert.include(css, "box-shadow: var(--workspace-control-shadow)");
     assert.include(css, ".refresh-icon::before");
     assert.include(css, ".sidebar-icon::before");
     assert.include(css, ".workspace-panel.is-dashboard");
@@ -875,6 +913,20 @@ describe("Synthesis tab UI model", function () {
       updateMode: "update_full",
       actionLabel: "Repair/Rebuild",
     });
+
+    const freshComplete = normalizeSynthesisUiSnapshot({
+      libraryId: 1,
+      artifacts: [
+        {
+          id: "topic-fresh",
+          title: "Fresh Topic",
+          kind: "topic_synthesis",
+          coverage: "complete",
+          freshness: "fresh",
+        },
+      ] as any,
+    });
+    assert.isUndefined((freshComplete.artifacts.rows[0] as any)?.updateIntent);
   });
 
   it("exposes rebuild and confirmed recovery actions for mirror states", function () {

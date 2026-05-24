@@ -794,7 +794,6 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "manifest_hash": sha256_file(resolver_manifest_file) if resolver_manifest_file.exists() else "",
     }
     final = {
-        "__SKILL_DONE__": True,
         "kind": "topic_synthesis",
         "operation": operation,
         "language": language,
@@ -862,7 +861,6 @@ def main() -> None:
     if args.action == "cancel":
         set_stage_state(conn, "stage_11_completed", "canceled")
         canceled = {
-            "__SKILL_DONE__": True,
             "kind": "topic_synthesis_canceled",
             "status": "canceled",
             "reason": "user_cancelled",

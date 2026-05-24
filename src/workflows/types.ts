@@ -25,12 +25,13 @@ export type { WorkflowResultContext } from "../modules/workflowExecution/resultC
 export type WorkflowParameterType = "string" | "number" | "boolean";
 
 export type WorkflowParameterOptionsSource = {
-  kind: "zotero.collections" | string;
+  kind: "zotero.collections" | "synthesis.topics" | string;
   library?: "current" | "user" | number;
   includeEmpty?: boolean;
-  valueFormat?: "collectionRef" | string;
-  labelFormat?: "path" | string;
+  valueFormat?: "collectionRef" | "topicId" | string;
+  labelFormat?: "path" | "title" | string;
   allowStale?: boolean;
+  filter?: "all" | "updatable" | string;
 };
 
 export type WorkflowParameterOption = {
@@ -86,6 +87,10 @@ export type WorkflowExecutionSpec = {
   mode?: "auto" | "sync" | "async";
   mcp?: {
     requiredTools?: string[];
+  };
+  zoteroHostAccess?: {
+    required?: boolean;
+    allowWriteApprovalBypass?: boolean;
   };
   skillrunner_mode?: "auto" | "interactive";
   poll_interval_ms?: number;
@@ -163,7 +168,10 @@ export type HookHelpers = {
     attachments: unknown[],
   ) => T;
   resolveItemRef: (ref: Zotero.Item | number | string) => Zotero.Item;
-  basenameOrFallback: (targetPath: string | undefined, fallback: string) => string;
+  basenameOrFallback: (
+    targetPath: string | undefined,
+    fallback: string,
+  ) => string;
   toHtmlNote: (title: string, body: string) => string;
   normalizeReferenceAuthors: (value: unknown) => string[];
   normalizeReferenceEntry: (
@@ -193,10 +201,7 @@ export type WorkflowHostApi = {
   items: {
     get: (ref: Zotero.Item | number | string) => Zotero.Item | null;
     resolve: (ref: Zotero.Item | number | string) => Zotero.Item;
-    getByLibraryAndKey: (
-      libraryID: number,
-      key: string,
-    ) => Zotero.Item | null;
+    getByLibraryAndKey: (libraryID: number, key: string) => Zotero.Item | null;
     getAll: () => Promise<Zotero.Item[]>;
   };
   context: {
@@ -250,14 +255,39 @@ export type WorkflowHostApi = {
     clear: (key: string, global?: boolean) => void;
   };
   parents: typeof import("../handlers").handlers.parent;
-  notes: typeof import("../handlers").handlers.note;
+  notes: typeof import("../handlers").handlers.note & {
+    importEmbeddedImage: (
+      noteRef: Zotero.Item | number | string,
+      image: WorkflowPreparedNoteImage,
+    ) => Promise<{
+      attachmentKey: string;
+      attachmentItem: Zotero.Item;
+      mimeType: string;
+      bytes: number;
+    }>;
+  };
+  images: {
+    prepareForNoteEmbedding: (
+      source:
+        | string
+        | {
+            path?: string;
+            blob?: Blob;
+            bytes?: Uint8Array | ArrayBuffer;
+            mimeType?: string;
+          },
+      options?: WorkflowImagePreparationOptions,
+    ) => Promise<WorkflowPreparedNoteImage>;
+  };
   attachments: typeof import("../handlers").handlers.attachment;
   tags: typeof import("../handlers").handlers.tag;
   collections: typeof import("../handlers").handlers.collection;
   command: typeof import("../handlers").handlers.command;
   editor: {
     openSession: (
-      args: Parameters<typeof import("../modules/workflowEditorHost").openWorkflowEditorSession>[0],
+      args: Parameters<
+        typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
+      >[0],
     ) => ReturnType<
       typeof import("../modules/workflowEditorHost").openWorkflowEditorSession
     >;
@@ -270,12 +300,17 @@ export type WorkflowHostApi = {
     unregisterRenderer: (rendererId: string) => void;
   };
   notifications: {
-    toast: (args: { text: string; type?: "default" | "success" | "error" }) => void;
+    toast: (args: {
+      text: string;
+      type?: "default" | "success" | "error";
+    }) => void;
   };
   logging: {
     appendRuntimeLog: (
       input: import("../modules/runtimeLogManager").RuntimeLogInput,
-    ) => ReturnType<typeof import("../modules/runtimeLogManager").appendRuntimeLog>;
+    ) => ReturnType<
+      typeof import("../modules/runtimeLogManager").appendRuntimeLog
+    >;
     recordPerformanceSpanForTests?: (args: {
       name: string;
       startedAt: number;
@@ -292,6 +327,12 @@ export type WorkflowHostApi = {
     pathToFile: (path: string) => unknown;
     readText: (path: string) => Promise<string>;
     writeText: (path: string, content: string) => Promise<void>;
+    readBytes: (path: string) => Promise<Uint8Array>;
+    writeBytes: (
+      path: string,
+      bytes: Uint8Array | ArrayBuffer,
+    ) => Promise<void>;
+    copy: (sourcePath: string, targetPath: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
     makeDirectory: (path: string) => Promise<void>;
     getTempDirectoryPath: () => string;
@@ -311,6 +352,28 @@ export type WorkflowHostApi = {
     }) => Promise<string[] | null>;
   };
   synthesis?: SynthesisService;
+};
+
+export type WorkflowImagePreparationOptions = {
+  maxLongEdge?: number;
+  targetBytes?: number;
+  hardMaxBytes?: number;
+  initialQuality?: number;
+  minQuality?: number;
+  background?: string;
+  sourceKind?: string;
+};
+
+export type WorkflowPreparedNoteImage = {
+  blob?: Blob;
+  bytes?: Uint8Array | ArrayBuffer;
+  mimeType: string;
+  width: number;
+  height: number;
+  originalBytes: number;
+  compressedBytes: number;
+  fileName?: string;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type WorkflowRuntimeContext = {
@@ -371,34 +434,36 @@ export type FilterInputsHook = (args: {
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 
-export type NormalizeWorkflowSettingsHook = (args:
-  | {
-      phase: "persisted";
-      workflowId: string;
-      manifest: WorkflowManifest;
-      previous: {
-        backendId?: string;
-        workflowParams?: Record<string, unknown>;
-        providerOptions?: Record<string, unknown>;
-      };
-      incoming: {
-        backendId?: string;
-        workflowParams?: Record<string, unknown>;
-        providerOptions?: Record<string, unknown>;
-      };
-      merged: {
-        backendId?: string;
-        workflowParams?: Record<string, unknown>;
-        providerOptions?: Record<string, unknown>;
-      };
-    }
-  | {
-      phase: "execution";
-      workflowId: string;
-      manifest: WorkflowManifest;
-      rawWorkflowParams: Record<string, unknown>;
-      normalizedWorkflowParams: Record<string, unknown>;
-    }) => unknown;
+export type NormalizeWorkflowSettingsHook = (
+  args:
+    | {
+        phase: "persisted";
+        workflowId: string;
+        manifest: WorkflowManifest;
+        previous: {
+          backendId?: string;
+          workflowParams?: Record<string, unknown>;
+          providerOptions?: Record<string, unknown>;
+        };
+        incoming: {
+          backendId?: string;
+          workflowParams?: Record<string, unknown>;
+          providerOptions?: Record<string, unknown>;
+        };
+        merged: {
+          backendId?: string;
+          workflowParams?: Record<string, unknown>;
+          providerOptions?: Record<string, unknown>;
+        };
+      }
+    | {
+        phase: "execution";
+        workflowId: string;
+        manifest: WorkflowManifest;
+        rawWorkflowParams: Record<string, unknown>;
+        normalizedWorkflowParams: Record<string, unknown>;
+      },
+) => unknown;
 
 export type WorkflowHooksModule = {
   filterInputs?: FilterInputsHook;

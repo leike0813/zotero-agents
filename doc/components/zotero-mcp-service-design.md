@@ -25,7 +25,7 @@ The current registry contains Zotero read/context tools, Synthesis read tools,
 one diagnostic tool, and permission-gated write tools. Four tools are
 note-payload aware: `list_note_payloads`, `get_note_payload`,
 `create_markdown_note`, and `update_markdown_note`. One tool is a paper-reading
-context aggregator: `prepare_paper_reading_context`. `ingest_papers` provides
+context aggregator: `prepare_paper_reading_context`. `ingest_paper` provides
 the controlled batch paper-ingest path for ACP literature-search workflows, with
 PDF attachments handled as explicit best-effort URL imports. Synthesis MCP tools
 expose topic, resolver, registry, graph-slice, and review-input capabilities;
@@ -832,36 +832,35 @@ Rules:
 
 Text disclosure requirements: note ref, note kind, payload type, markdown length, permission/execution outcome, and verification hint using `get_note_payload`.
 
-### `ingest_papers`
+### `ingest_paper`
 
-Purpose: permission-gated batch ingest of literature candidates from an
-interactive ACP workflow.
+Purpose: permission-gated single-paper ingest of one literature candidate from
+an interactive ACP workflow.
 
 Input:
 
 ```json
 {
-  "papers": [
-    {
-      "title": "Paper title",
-      "authors": ["Author One", "Author Two"],
-      "year": 2026,
-      "doi": "10.5555/example",
-      "arxiv": "",
-      "pmid": "",
-      "isbn": "",
-      "landingUrl": "https://publisher.example/paper",
-      "pdfUrl": "https://publisher.example/paper.pdf",
-      "abstract": "Optional abstract",
-      "venue": "Optional venue"
-    }
-  ],
+  "paper": {
+    "title": "Paper title",
+    "authors": ["Author One", "Author Two"],
+    "year": 2026,
+    "doi": "10.5555/example",
+    "arxiv": "",
+    "pmid": "",
+    "isbn": "",
+    "landingUrl": "https://publisher.example/paper",
+    "pdfUrl": "https://publisher.example/paper.pdf",
+    "abstract": "Optional abstract",
+    "venue": "Optional venue"
+  },
   "collection": { "key": "COLLKEY", "libraryId": 1 }
 }
 ```
 
-Required: non-empty `papers`. Each paper must include a title or at least one
-identifier (`doi`, `arxiv`, `pmid`, `isbn`). `collection` is optional.
+Required: `paper`. The paper must include a title or at least one identifier
+(`doi`, `arxiv`, `pmid`, `isbn`). `collection` is optional. Batch input is not
+supported; callers must loop over multiple confirmed candidates.
 
 Rules:
 
@@ -870,11 +869,10 @@ Rules:
   otherwise metadata creates a reasonable bibliographic fallback item.
 - `pdfUrl` is an explicit best-effort attachment URL. Attachment failure is
   reported as `attachmentStatus: "failed"` and must not roll back the item.
-- Batch results are independent: one failed paper does not prevent other papers
-  from being created or reused.
 
-Text disclosure requirements: paper count, target collection if present, PDF
-attempt count, permission/execution outcome, and verification hint.
+Text disclosure requirements: paper title or identifier, target collection if
+present, PDF attempt status, permission/execution outcome, and verification
+hint.
 
 ### `add_items_to_collection`
 

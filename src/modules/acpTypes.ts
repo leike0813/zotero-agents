@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 
 export type AcpConnectionStatus =
   | "idle"
@@ -316,6 +317,7 @@ export type AcpConversationSnapshot = {
   lastLifecycleEvent: string;
   mcpServer?: AcpMcpServerSnapshot;
   mcpHealth?: AcpMcpHealthSnapshot;
+  hostBridge?: HostBridgeStatusSnapshot;
   updatedAt: string;
 };
 
@@ -403,6 +405,7 @@ export type AcpDiagnosticsBundle = {
   };
   mcpServer?: AcpMcpServerSnapshot;
   mcpHealth?: AcpMcpHealthSnapshot;
+  hostBridge?: HostBridgeStatusSnapshot;
   diagnostics: AcpDiagnosticsEntry[];
   recentItems: AcpConversationItem[];
   lastHostContext: AcpHostContext | null;

@@ -88,11 +88,19 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(css, "white-space: nowrap;");
     assert.include(css, ".workflow-bubble-actions {");
     assert.include(css, "flex-wrap: nowrap;");
+    assert.include(css, "--dashboard-control-bg");
+    assert.include(css, "--dashboard-control-bg: #dbeafe");
+    assert.include(css, ".workflow-bubble-btn {");
+    assert.include(css, "appearance: none");
+    assert.include(css, "-moz-appearance: none");
+    assert.include(css, "background-image: none");
+    assert.include(css, "box-shadow: var(--dashboard-control-shadow)");
     assert.include(css, ".workflow-bubble-icon-run {");
-    assert.include(css, 'background-image: url("../icons/icon_workflow_run.svg")');
+    assert.include(css, "background-color: currentColor");
+    assert.include(css, '-webkit-mask-image: url("../icons/icon_workflow_run.svg")');
+    assert.include(css, 'mask-image: url("../icons/icon_workflow_run.svg")');
     const icon = await readProjectFile("addon/content/icons/icon_workflow_run.svg");
     assert.include(icon, "<svg");
-    assert.include(icon, "stroke=\"#334155\"");
   });
 
   it("defines home workflow doc i18n keys in both locales", async function () {

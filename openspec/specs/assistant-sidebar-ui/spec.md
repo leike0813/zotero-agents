@@ -5,23 +5,58 @@ TBD - created by archiving change unify-assistant-sidebar-and-acp-skill-interact
 ## Requirements
 ### Requirement: Unified assistant sidebar shell
 
-The plugin SHALL provide one Zotero side-pane Assistant entry that can switch between SkillRunner, ACP Chat, and ACP Skills views.
+The plugin SHALL provide one Zotero side-pane Assistant entry that can switch
+between SkillRunner, ACP Chat, and ACP Skills views. The shell and child panels
+SHALL load the shared Zotero Skills visual theme foundation.
+
+The unified Assistant Workspace SHALL be the only active sidebar host for these
+views. Legacy standalone sidebar host modules SHALL NOT be imported by active
+source code.
 
 #### Scenario: Tab shell opens existing views
 
 Given the Assistant sidebar is opened
 When the user selects a tab
-Then the shell SHALL show the corresponding existing page without requiring a separate Zotero side-pane button.
+Then the shell SHALL show the corresponding existing page without requiring a
+separate Zotero side-pane button.
+
+#### Scenario: Assistant shell follows selected theme
+
+- **WHEN** the selected visual theme is dark
+- **THEN** the Assistant shell, tab bar, child frames, drawers, transcript
+  surfaces, and reply controls SHALL render using dark-compatible tokens.
+
+#### Scenario: Legacy action names route to the unified workspace
+
+- **WHEN** an existing caller emits `openSkillRunnerSidebar`, `openAcpSidebar`,
+  or `openAcpSkillRunnerSidebar`
+- **THEN** the plugin SHALL open the unified Assistant Workspace
+- **AND** it SHALL select the matching `skillrunner`, `acp-chat`, or
+  `acp-skills` tab.
+
+#### Scenario: Current child pages remain workspace-owned
+
+- **WHEN** the unified Assistant Workspace loads
+- **THEN** it SHALL continue to load `acp-chat.html`, `acp-skill-run.html`, and
+  `run-dialog.html` as child panels.
 
 ### Requirement: ACP visual alignment
 
-ACP Chat and ACP Skills SHALL share the same core visual semantics for running state, permission state, disconnected/error state, tool status LEDs, plan status icons, reply surfaces, and details drawers.
+ACP Chat and ACP Skills SHALL share the same core visual semantics for running state, permission state, disconnected/error state, Host Bridge status, tool status LEDs, plan status icons, reply surfaces, and details drawers.
 
-#### Scenario: Hint priority is consistent
+#### Scenario: Host Bridge indicator is visible
 
-- **Given** an ACP panel has multiple possible hint states
-- **When** the hint widget is resolved
-- **Then** priority is approval first, disconnected/error second, waiting third, running fourth, completed fifth, notice sixth, hidden last.
+- **WHEN** ACP Chat or ACP Skills renders a normal banner
+- **THEN** the banner SHALL include a `host-bridge` indicator derived from the
+  Host Bridge status snapshot
+- **AND** the indicator SHALL show ready, starting/recovering, fallback, or
+  unavailable/error state using the shared indicator tones.
+
+#### Scenario: MCP indicator remains hidden
+
+- **WHEN** ACP Chat or ACP Skills receives MCP diagnostic data
+- **THEN** the normal banner indicators SHALL NOT include an MCP indicator
+- **AND** MCP diagnostic data MAY remain available in diagnostic bundles.
 
 ### Requirement: ACP Skills reply scaffold
 
@@ -260,7 +295,9 @@ ACP Chat, ACP Skills, and SkillRunner SHALL all expose a backend-management tool
 
 ### Requirement: Assistant Sidebar Panels SHALL Share Stable Composer Semantics
 
-The shared assistant panel renderer MUST render normal send state and busy interrupt state consistently across ACP Chat, ACP Skills, and SkillRunner panels.
+The shared assistant panel renderer MUST render normal send state, busy
+interrupt state, and session-local reply history consistently across ACP Chat,
+ACP Skills, and SkillRunner panels.
 
 #### Scenario: Normal composer is ready to send
 
@@ -274,6 +311,15 @@ The shared assistant panel renderer MUST render normal send state and busy inter
 - **THEN** the text input SHALL be disabled
 - **AND** the button SHALL remain enabled with danger styling
 - **AND** clicking the button SHALL emit the configured interrupt action.
+
+#### Scenario: User recalls reply history
+
+- **WHEN** the shared reply textarea has previously sent non-empty messages in
+  the current page session
+- **AND** the textarea is enabled
+- **THEN** ArrowUp at the first line SHALL recall older messages
+- **AND** ArrowDown at the last line SHALL recall newer messages or restore the
+  draft that was present before history navigation.
 
 ### Requirement: Assistant Sidebar Drawers SHALL Only Close On Outside Clicks
 
@@ -330,4 +376,117 @@ ACP Skills workspace activity transcript rows SHALL display a concise file activ
 - **WHEN** the transcript renderer renders it
 - **THEN** it SHALL display a file icon and the relative path
 - **AND** it SHALL NOT display the verbose workspace activity sentence.
+
+### Requirement: Assistant drawers remain interactive during live updates
+
+Assistant drawer task lists SHALL preserve interactive DOM state while live
+task metadata changes.
+
+#### Scenario: Running task timestamp updates while drawer is open
+
+- **WHEN** an assistant drawer is open
+- **AND** a running task only changes update metadata such as `updatedAt`
+- **THEN** the drawer SHALL remain open and interactive
+- **AND** the renderer SHALL NOT replace the whole drawer subtree.
+
+### Requirement: ACP Skills composer reflects running and waiting states
+
+ACP Skills composer controls SHALL use deterministic running and waiting state
+semantics.
+
+#### Scenario: Reconnected run is working again
+
+- **WHEN** an ACP Skills run is reconnected and enters a running state
+- **THEN** the reply textarea SHALL be disabled
+- **AND** the primary composer button SHALL remain enabled as an interrupt or
+  cancel action.
+
+#### Scenario: ACP Skills run waits for user input
+
+- **WHEN** an ACP Skills run is waiting for user input with an available
+  conversation and no pending permission request
+- **THEN** the reply textarea SHALL be enabled
+- **AND** the primary composer button SHALL send the reply.
+
+### Requirement: Unified workspace preserves open assistant sidebar intent
+
+Opening the unified workspace SHALL preserve an already-open assistant sidebar.
+
+#### Scenario: Workspace opens while assistant sidebar is already open
+
+- **WHEN** the assistant sidebar is open
+- **AND** the user opens the unified workspace
+- **THEN** the workspace tab SHALL open
+- **AND** the assistant sidebar SHALL be opened again for the selected Zotero
+  pane.
+
+### Requirement: Dashboard running task entries open selected ACP Skills runs
+
+Dashboard running-task entries SHALL route ACP Skills tasks to the unified
+assistant sidebar.
+
+#### Scenario: User opens an active ACP Skills task
+
+- **WHEN** the user clicks an ACP Skills running task from Dashboard
+- **THEN** the assistant sidebar SHALL open on the ACP Skills tab
+- **AND** the target request id SHALL be selected.
+
+### Requirement: Assistant live refreshes preserve active reply controls
+
+The shared assistant panel renderer SHALL preserve active reply-control DOM
+state when a snapshot changes unrelated panel data.
+
+#### Scenario: Unrelated snapshot keeps focused textarea
+
+- **WHEN** a managed assistant reply textarea is focused
+- **AND** a subsequent snapshot keeps the same reply context and control shape
+- **THEN** the renderer SHALL keep the same textarea DOM node
+- **AND** it SHALL preserve the user's current value and selection.
+
+#### Scenario: Existing composer semantics remain unchanged
+
+- **WHEN** the reply model represents enabled text reply, choice buttons,
+  permission actions, or busy interrupt state
+- **THEN** the renderer SHALL preserve the existing enabled/disabled and action
+  semantics for that state
+- **AND** it SHALL NOT trade a valid button interaction for a disabled text box.
+
+### Requirement: Assistant refresh changes require behavior baselines
+
+Changes to shared assistant UI refresh logic SHALL be protected by tests for
+existing user-visible behavior.
+
+#### Scenario: Refresh hardening keeps drawer behavior
+
+- **WHEN** the drawer is open and live task metadata refreshes
+- **THEN** open/close, row selection, item actions, and section toggles SHALL
+  behave as before
+- **AND** the drawer SHALL NOT be rebuilt for metadata-only changes.
+
+### Requirement: Assistant transcript and detail content SHALL be copy-friendly
+
+Assistant copy surfaces SHALL allow normal text selection and copying across
+conversation, code, details, permission preview, and log-like content.
+
+#### Scenario: User selects Assistant transcript text
+
+- **WHEN** the user drags across transcript, markdown, details, code, or
+  permission preview text
+- **THEN** the text SHALL be selectable
+- **AND** control-only elements such as buttons, selectors, tabs, and disclosure
+  summaries MAY retain non-selection interaction behavior.
+
+### Requirement: Assistant markdown code fences SHALL provide copy handles
+
+Markdown fenced code blocks rendered in Assistant transcripts SHALL expose a
+small copy handle.
+
+#### Scenario: User copies a fenced code block
+
+- **WHEN** a transcript message or process item renders a markdown fenced code
+  block
+- **THEN** the code block SHALL expose a keyboard-focusable copy button
+- **AND** activating the button SHALL copy the code text without including the
+  copy button label
+- **AND** inline code SHALL NOT receive a copy button.
 

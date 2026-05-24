@@ -32,11 +32,6 @@ import {
   type ZoteroMcpServerDescriptor,
 } from "./zoteroMcpServer";
 import type { ZoteroMcpToolPermissionRequest } from "./zoteroMcpProtocol";
-import {
-  createAcpMcpGatewayConnection,
-  type AcpMcpGatewayConnection,
-  type AcpMcpSmokeSpanHandle,
-} from "./acpMcpGateway";
 
 export type AcpConnectionUpdate = SessionNotification;
 export type AcpConnectionUpdateListener = (
@@ -61,7 +56,12 @@ export type AcpConnectionAdapterFactoryArgs = {
   sessionCwd: string;
   workspaceDir: string;
   runtimeDir: string;
+  mcpCompatibilityMode?: AcpMcpCompatibilityMode;
 };
+
+export type AcpMcpCompatibilityMode =
+  | "disabled_by_default"
+  | "explicit_descriptor_injection";
 
 export type AcpConnectionInitializeResult = {
   authMethods: AcpAuthMethod[];
@@ -108,14 +108,6 @@ export type AcpConnectionAdapter = {
   setMode: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel: (args: { sessionId: string; modelId: string }) => Promise<void>;
   authenticate: (args: { methodId: string }) => Promise<void>;
-  wrapMcpServersForSession?: (descriptors: unknown[]) => Promise<unknown[]>;
-  startMcpSmokeSpan?: (args: {
-    sessionId: string;
-    requiredTools: string[];
-    timeoutMs: number;
-  }) => Promise<AcpMcpSmokeSpanHandle>;
-  getMcpGatewayConnectionId?: () => string;
-  getMcpGatewayTransportKinds?: () => string[];
   close: () => Promise<void>;
 };
 
@@ -168,19 +160,36 @@ const ZOTERO_MCP_PROMPT_GUIDANCE = [
   "[/Zotero MCP tool usage]",
 ].join("\n");
 
-function formatZoteroMcpPromptGuidance() {
-  return ZOTERO_MCP_PROMPT_GUIDANCE;
+function formatZoteroMcpPromptGuidance(mode: AcpMcpCompatibilityMode) {
+  return mode === "explicit_descriptor_injection"
+    ? ZOTERO_MCP_PROMPT_GUIDANCE
+    : "";
 }
 
-function buildPromptText(message: string) {
-  return `${String(message || "").trim()}${formatZoteroMcpPromptGuidance()}`;
+function normalizeMcpCompatibilityMode(
+  mode?: AcpMcpCompatibilityMode | string,
+): AcpMcpCompatibilityMode {
+  return mode === "explicit_descriptor_injection"
+    ? "explicit_descriptor_injection"
+    : "disabled_by_default";
+}
+
+function buildPromptText(
+  message: string,
+  mode: AcpMcpCompatibilityMode = "disabled_by_default",
+) {
+  return `${String(message || "").trim()}${formatZoteroMcpPromptGuidance(mode)}`;
 }
 
 export function buildAcpPromptTextForTests(
   message: string,
   _hostContext?: AcpHostContext,
+  options?: { mcpCompatibilityMode?: AcpMcpCompatibilityMode },
 ) {
-  return buildPromptText(message);
+  return buildPromptText(
+    message,
+    normalizeMcpCompatibilityMode(options?.mcpCompatibilityMode),
+  );
 }
 
 function nowIso() {
@@ -236,7 +245,6 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private canUseSseMcp = false;
   private currentSessionId = "";
   private closing = false;
-  private readonly mcpGateway: AcpMcpGatewayConnection;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
     this.emitDiagnostic({
@@ -248,23 +256,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
   };
 
-  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {
-    this.mcpGateway = createAcpMcpGatewayConnection({
-      runtimeDir: this.args.runtimeDir,
-      backendId: this.args.backend.id,
-      backendType: this.args.backend.type,
-      providerId: "acp",
-      emitDiagnostic: (entry) => {
-        this.emitDiagnostic({
-          kind: entry.kind,
-          level: entry.level || "info",
-          message: entry.message,
-          detail: entry.detail,
-          stage: entry.stage,
-          raw: entry.raw,
-        });
-      },
-    });
+  constructor(private readonly args: AcpConnectionAdapterFactoryArgs) {}
+
+  private mcpCompatibilityMode() {
+    return normalizeMcpCompatibilityMode(this.args.mcpCompatibilityMode);
   }
 
   private emitDiagnostic(entry: {
@@ -343,6 +338,20 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   private async resolveMcpServers(stage: string) {
+    const compatibilityMode = this.mcpCompatibilityMode();
+    if (compatibilityMode !== "explicit_descriptor_injection") {
+      this.emitDiagnostic({
+        kind: "mcp_compat_disabled",
+        message:
+          "MCP descriptor injection is disabled by default; Host Bridge CLI is the primary host access path.",
+        detail: JSON.stringify({
+          stage,
+          mcpCompatibilityMode: compatibilityMode,
+        }),
+        stage,
+      });
+      return [];
+    }
     if (!this.canUseHttpMcp) {
       this.emitDiagnostic({
         kind: "zotero_mcp_unavailable",
@@ -368,18 +377,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           this.requestZoteroMcpToolPermission(request),
       });
       markZoteroMcpServerDescriptorInjected();
-      const wrappedDescriptors = await this.wrapMcpServersForSession([
-        descriptor,
-      ]);
       this.emitDiagnostic({
-        kind: "mcp_server_injected",
-        message: "Injected embedded Zotero MCP server",
+        kind: "mcp_compat_descriptor_injected",
+        message: "Injected embedded Zotero MCP server for explicit compatibility mode",
         detail: JSON.stringify(
           redactZoteroMcpServerDescriptor(descriptor as ZoteroMcpServerDescriptor),
         ),
         stage,
       });
-      return wrappedDescriptors;
+      return [descriptor];
     } catch (error) {
       const detail = compactError(error);
       this.emitDiagnostic({
@@ -717,26 +723,6 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     };
   }
 
-  async wrapMcpServersForSession(descriptors: unknown[]) {
-    return await this.mcpGateway.wrapMcpServersForSession(descriptors);
-  }
-
-  async startMcpSmokeSpan(args: {
-    sessionId: string;
-    requiredTools: string[];
-    timeoutMs: number;
-  }) {
-    return await this.mcpGateway.startMcpSmokeSpan(args);
-  }
-
-  getMcpGatewayConnectionId() {
-    return this.mcpGateway.connectionId;
-  }
-
-  getMcpGatewayTransportKinds() {
-    return this.mcpGateway.getTransportKinds();
-  }
-
   async newSession() {
     if (!this.connection) {
       await this.initialize();
@@ -881,7 +867,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         prompt: [
           {
             type: "text",
-            text: buildPromptText(args.message),
+            text: buildPromptText(args.message, this.mcpCompatibilityMode()),
             _meta: {
               requestKind: ACP_PROMPT_REQUEST_KIND,
             },
@@ -966,7 +952,6 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     try {
       this.unsubscribeZoteroMcpDiagnostics();
       this.unsubscribeZoteroMcpDiagnostics = () => undefined;
-      await this.mcpGateway.close();
       await this.transport?.close();
     } finally {
       this.transport = null;

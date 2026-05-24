@@ -6,23 +6,6 @@ import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 
-const REQUIRED_TOOLS = [
-  "synthesis.list_topics",
-  "synthesis.get_review_input",
-  "synthesis.get_paper_registry",
-  "synthesis.get_citation_graph_metrics",
-  "synthesis.get_citation_graph_slice",
-  "synthesis.resolve_topic_paper_digest",
-  "list_library_items",
-  "search_items",
-  "get_item_detail",
-  "get_item_notes",
-  "list_note_payloads",
-  "get_note_payload",
-  "get_item_attachments",
-  "prepare_paper_reading_context",
-];
-
 describe("Manuscript Literature Framing workflow contract", function () {
   it("ships an ACP-only interactive manuscript literature framing workflow", async function () {
     const workflow = JSON.parse(
@@ -40,7 +23,8 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
     assert.equal(workflow.provider, "acp");
     assert.notProperty(workflow.execution || {}, "supportedBackends");
-    assert.sameMembers(workflow.execution?.mcp?.requiredTools || [], REQUIRED_TOOLS);
+    assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
+    assert.notProperty(workflow.execution || {}, "mcp");
     assert.equal(workflow.parameters?.paperTitle?.type, "string");
   });
 
@@ -79,9 +63,8 @@ describe("Manuscript Literature Framing workflow contract", function () {
       requests[0].parameter?.paperTitle,
       "Efficient Detector Adaptation in Degraded Visual Scenes",
     );
-    assert.deepEqual((requests[0] as any).runtime_options?.workflow_mcp, {
-      required_tools: REQUIRED_TOOLS,
-    });
+    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
   });
 
   it("registers the workflow in the builtin synthesis-layer package and packaged manifest", async function () {
@@ -116,7 +99,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.include(files, "scripts/runtime_state.py");
   });
 
-  it("documents interaction gates, MCP usage, citekey policy, and product artifact metadata", async function () {
+  it("documents interaction gates, host usage, citekey policy, and product artifact metadata", async function () {
     const skill = await fs.readFile(
       "skills_builtin/manuscript-literature-framing/SKILL.md",
       "utf8",
@@ -133,17 +116,23 @@ describe("Manuscript Literature Framing workflow contract", function () {
       assert.include(text, "synthesis.list_topics");
       assert.include(text, "synthesis.get_review_input");
       assert.include(text, "prepare_paper_reading_context");
-      assert.include(text, "manuscript context");
-      assert.include(text, "confirmed topics");
+      assert.include(text, "manuscript intent");
+      assert.include(text, "material");
+      assert.include(text, "framing analysis");
+      assert.include(text, "LLM");
+      assert.include(text, "Scripts");
       assert.include(text, "confirmed writing plan");
       assert.include(text, "\\cite{zotero_citekey}");
       assert.include(text, "% TODO citation: paper_ref");
       assert.include(text, "writing.manuscript_literature_framing");
     }
-    assert.include(prompt, "do not search MCP configuration");
+    assert.notInclude(prompt, "MCP");
+    assert.notInclude(skill, "MCP");
     assert.include(skill, "背景动机 → 具体问题 → 现有路线 → gap → 本文定位/贡献 → 结构引导");
     assert.include(skill, "taxonomy / method lines / benchmark dimensions / debates");
     assert.include(skill, "survey-of-surveys");
+    assert.include(skill, "persist_domain_route_analysis");
+    assert.include(skill, "persist_gap_alignment_analysis");
     assert.include(skill, "scientific_introduction_related_work_writing_guide_zh.md");
     assert.notInclude(skill, "introduction_related_work_guide.md");
     assert.notInclude(prompt, "introduction_related_work_guide.md");
@@ -169,6 +158,9 @@ describe("Manuscript Literature Framing workflow contract", function () {
         assets: {
           introduction_tex: "result/introduction.tex",
           related_work_tex: "result/related-work.tex",
+          intent_brief: "result/intent-brief.json",
+          evidence_inventory: "result/evidence-inventory.json",
+          framing_analysis: "result/framing-analysis.json",
           writing_plan: "result/writing-plan.json",
           citation_map: "result/citation-map.json",
           diagnostics: "result/diagnostics.json",
@@ -194,7 +186,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.deepEqual(canceled.errors, []);
   });
 
-  it("runtime scripts expose the required gates and final rendering actions", async function () {
+  it("runtime scripts expose the required gates and final drafting actions", async function () {
     const gate = await fs.readFile(
       "skills_builtin/manuscript-literature-framing/scripts/gate_runtime.py",
       "utf8",
@@ -204,14 +196,27 @@ describe("Manuscript Literature Framing workflow contract", function () {
       "utf8",
     );
 
-    assert.include(gate, "collect_manuscript_context");
-    assert.include(gate, "confirm_topics");
+    assert.include(gate, "persist_intent_brief");
+    assert.include(gate, "confirm_intent");
+    assert.include(gate, "persist_material_plan");
+    assert.include(gate, "confirm_material_scope");
+    assert.include(gate, "persist_domain_route_analysis");
+    assert.include(gate, "persist_timeline_analysis");
+    assert.include(gate, "persist_gap_alignment_analysis");
+    assert.include(gate, "persist_framing_synthesis");
     assert.include(gate, "confirm_writing_plan");
-    assert.include(stage, "persist_manuscript_context");
-    assert.include(stage, "persist_topic_recommendations");
-    assert.include(stage, "confirm_topics");
+    assert.include(stage, "persist_intent_brief");
+    assert.include(stage, "confirm_intent");
+    assert.include(stage, "persist_material_plan");
+    assert.include(stage, "confirm_material_scope");
+    assert.include(stage, "persist_evidence_inventory");
+    assert.include(stage, "persist_domain_route_analysis");
+    assert.include(stage, "persist_timeline_analysis");
+    assert.include(stage, "persist_gap_alignment_analysis");
+    assert.include(stage, "persist_framing_synthesis");
     assert.include(stage, "persist_writing_plan");
     assert.include(stage, "confirm_writing_plan");
-    assert.include(stage, "render_latex");
+    assert.include(gate, "persist_final_draft");
+    assert.include(stage, "persist_final_draft");
   });
 });

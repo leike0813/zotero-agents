@@ -79,6 +79,55 @@ async function addPayloadNote(
   return note;
 }
 
+async function addDigestNoteWithRepresentativeImage(
+  parent: Zotero.Item,
+  markdown: string,
+  imagePath: string,
+) {
+  const note = new Zotero.Item("note");
+  note.libraryID = parent.libraryID;
+  note.parentItemID = parent.id;
+  note.setField("title", "Digest");
+  note.setNote("<div data-zs-note-kind=\"digest\"><h1>Digest</h1></div>");
+  await note.saveTx();
+
+  const image = new Zotero.Item("attachment");
+  image.libraryID = parent.libraryID;
+  image.parentItemID = note.id;
+  image.setField("title", "representative_image.jpg");
+  image.setField("contentType", "image/jpeg");
+  (image as any).setFilePath(imagePath);
+  await image.saveTx();
+
+  note.setNote(
+    [
+      '<div data-zs-note-kind="digest">',
+      "<h1>Digest</h1>",
+      '<div data-zs-block="representative-image" data-zs-version="1"',
+      ' data-zs-representative_image_status="embedded"',
+      ` data-zs-representative_image_attachment_key="${image.key}"`,
+      ' data-zs-representative_image_source_kind="markdown_image_ref"',
+      ' data-zs-representative_image_strategy="markdown_src_hint"',
+      ' data-zs-representative_image_width="320"',
+      ' data-zs-representative_image_height="180"',
+      ' data-zs-representative_image_compressed_bytes="4">',
+      '<figure data-zs-block="representative-image-figure">',
+      `<img data-attachment-key="${image.key}" alt="Figure 2" />`,
+      "<figcaption>Figure 2</figcaption>",
+      "</figure>",
+      "</div>",
+      renderPayloadBlock({
+        payloadType: "digest-markdown",
+        payload: markdown,
+        payloadFormat: "text",
+      }),
+      "</div>",
+    ].join("\n"),
+  );
+  await note.saveTx();
+  return { note, image };
+}
+
 function validBundle(topicId: string, paperRefs: string[]) {
   return {
     kind: "topic_synthesis",
@@ -424,5 +473,59 @@ describe("Synthesis Layer MVP real-data closure", function () {
       "balanced",
       "expanded",
     ]);
+  });
+
+  it("resolves digest representative image data for the topic digest modal", async function () {
+    const root = await makeRoot();
+    const imageBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const imagePath = path.join(root, "representative_image.jpg");
+    await fs.writeFile(imagePath, imageBytes);
+    const paper = await createPaper({
+      title: "Representative Image Paper",
+      date: "2026",
+    });
+    const { note, image } = await addDigestNoteWithRepresentativeImage(
+      paper,
+      "# Representative Digest",
+      imagePath,
+    );
+    const service = createSynthesisService({
+      root,
+      libraryId: Zotero.Libraries.userLibraryID,
+      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+        libraryId: Zotero.Libraries.userLibraryID,
+      }),
+    });
+
+    const result: any = await service.resolveTopicPaperDigest({
+      paper_ref: `${paper.libraryID}:${paper.key}`,
+      digest_ref: {
+        note_key: note.key,
+        payload_type: "digest-markdown",
+      },
+      include_representative_image: true,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.digest_markdown, "# Representative Digest");
+    assert.equal(result.representative_image.status, "available");
+    assert.equal(result.representative_image.attachment_key, image.key);
+    assert.equal(result.representative_image.alt, "Figure 2");
+    assert.equal(result.representative_image.caption, "Figure 2");
+    assert.equal(result.representative_image.width, 320);
+    assert.equal(result.representative_image.height, 180);
+    assert.match(
+      result.representative_image.data_url,
+      /^data:image\/jpeg;base64,/,
+    );
+
+    const defaultResult: any = await service.resolveTopicPaperDigest({
+      paper_ref: `${paper.libraryID}:${paper.key}`,
+      digest_ref: {
+        note_key: note.key,
+        payload_type: "digest-markdown",
+      },
+    });
+    assert.notProperty(defaultResult, "representative_image");
   });
 });

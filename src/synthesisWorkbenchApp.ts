@@ -293,9 +293,11 @@ function makeButton(
   action: string,
   payload: Record<string, unknown> = {},
   active = false,
+  disabled = false,
 ) {
   const button = el("button", active ? "active" : "", label);
   button.type = "button";
+  button.disabled = disabled;
   button.addEventListener("click", () => sendAction(action, payload));
   return button;
 }
@@ -476,6 +478,39 @@ function renderTopicCard(row: Record<string, unknown>) {
   return card;
 }
 
+function topicUpdateIntent(row: Record<string, unknown>) {
+  const intent = row.updateIntent;
+  return intent && typeof intent === "object" && !(intent as Record<string, unknown>).blocked
+    ? (intent as Record<string, unknown>)
+    : null;
+}
+
+function topicRowById(snapshot: Snapshot, topicId: string) {
+  const id = String(topicId || "").trim();
+  if (!id) {
+    return null;
+  }
+  return (
+    snapshot.artifacts.rows.find((row) => String(row.id || "") === id) ||
+    snapshot.artifacts.visibleRows.find((row) => String(row.id || "") === id) ||
+    null
+  );
+}
+
+function makeTopicUpdateButton(row: Record<string, unknown>) {
+  const intent = topicUpdateIntent(row);
+  return makeButton(
+    String(intent?.actionLabel || "Update"),
+    "hostCommand",
+    {
+      command: "submitTopicSynthesisUpdate",
+      args: { topicId: row.id },
+    },
+    false,
+    !intent,
+  );
+}
+
 function renderHome(main: HTMLElement, snapshot: Snapshot) {
   const shell = el("div", "home-shell");
   const insights = el("section", "workspace-section");
@@ -599,6 +634,7 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
               command: "openTopicArtifact",
               args: { topicId: row.id },
             }),
+            makeTopicUpdateButton(row),
             makeButton("Delete", "hostCommand", {
               command: "deleteTopicArtifact",
               args: { topicId: row.id },
@@ -869,6 +905,7 @@ function openDigestModal(evidence: Record<string, unknown>) {
       topicId: state.topicDetail?.topicId,
       paper_ref: evidence.paper_ref || evidence.paperRef,
       digest_ref: evidence.digest_ref || evidence.digestRef,
+      include_representative_image: true,
     },
   });
 }
@@ -2138,16 +2175,28 @@ function renderTopicTimeline(detail: TopicDetailDto) {
 
 function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   const topicId = detail.topicId || snapshot.reader?.topicId || "";
-  const actions = el("div", "toolbar");
-  actions.appendChild(badge(detail.language || "auto", "blue"));
-  actions.appendChild(badge(`${numberValue(detail.paper_count)} papers`));
-  actions.appendChild(badge(`${numberValue(detail.external_literature_count)} external refs`, "purple"));
+  const updateRow = topicRowById(snapshot, topicId);
+  const updateIntent = updateRow ? topicUpdateIntent(updateRow) : null;
+  const toolbar = el("div", "toolbar topic-detail-toolbar");
+  const meta = el("div", "topic-detail-toolbar-meta");
+  meta.appendChild(badge(detail.language || "auto", "blue"));
+  meta.appendChild(badge(`${numberValue(detail.paper_count)} papers`, "green"));
+  meta.appendChild(badge(`${numberValue(detail.external_literature_count)} external refs`, "purple"));
+  toolbar.appendChild(meta);
+
+  const actions = el("div", "topic-detail-toolbar-actions");
   actions.appendChild(makeButton("Back to Topics", "selectTab", { tab: "artifacts" }));
   actions.appendChild(
-    makeButton("Update", "hostCommand", {
-      command: "submitTopicSynthesisUpdate",
-      args: { topicId },
-    }),
+    makeButton(
+      String(updateIntent?.actionLabel || "Update"),
+      "hostCommand",
+      {
+        command: "submitTopicSynthesisUpdate",
+        args: { topicId },
+      },
+      false,
+      !updateIntent,
+    ),
   );
   const copySummary = el("button", "", "Copy Summary");
   copySummary.type = "button";
@@ -2168,7 +2217,8 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
       args: { topicId },
     }),
   );
-  return actions;
+  toolbar.appendChild(actions);
+  return toolbar;
 }
 
 function renderTopicDetail(main: HTMLElement, snapshot: Snapshot) {
@@ -2647,6 +2697,37 @@ function buildDigestOutline(markdownNode: HTMLElement) {
   return outline;
 }
 
+function renderDigestRepresentativeImage(result: Record<string, unknown>) {
+  const image = recordValue(result.representative_image);
+  if (textValue(image.status) !== "available") {
+    return undefined;
+  }
+  const dataUrl = textValue(image.data_url);
+  if (!/^data:image\//i.test(dataUrl)) {
+    return undefined;
+  }
+  const alt = firstText(image, ["alt", "caption"], "Representative image");
+  const figure = el("figure", "digest-representative-image");
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = alt;
+  img.loading = "lazy";
+  const width = numberValue(image.width);
+  const height = numberValue(image.height);
+  if (width > 0) {
+    img.width = width;
+  }
+  if (height > 0) {
+    img.height = height;
+  }
+  figure.appendChild(img);
+  const caption = firstText(image, ["caption", "alt"], "");
+  if (caption) {
+    figure.appendChild(el("figcaption", "", caption));
+  }
+  return figure;
+}
+
 function renderDigestModal(root: HTMLElement) {
   if (!state.digestModal) {
     return;
@@ -2675,8 +2756,9 @@ function renderDigestModal(root: HTMLElement) {
   } else {
     const result = state.digestModal.result || {};
     const content = el("div", "paper-digest-content");
+    const intro = el("div", "digest-modal-intro");
     if (result.source_changed) {
-      content.appendChild(
+      intro.appendChild(
         el(
           "div",
           "digest-warning",
@@ -2684,10 +2766,19 @@ function renderDigestModal(root: HTMLElement) {
         ),
       );
     }
+    const representativeImage = renderDigestRepresentativeImage(result);
+    if (representativeImage) {
+      intro.appendChild(representativeImage);
+    }
     const markdown = textValue(result.digest_markdown);
     if (markdown) {
       const digestBody = el("div", "paper-digest-body");
       const markdownNode = renderMarkdown(markdown);
+      if (intro.childNodes.length) {
+        if (markdownNode instanceof HTMLElement) {
+          markdownNode.prepend(intro);
+        }
+      }
       const outline = markdownNode instanceof HTMLElement ? buildDigestOutline(markdownNode) : undefined;
       if (outline) {
         digestBody.appendChild(outline);
@@ -2699,6 +2790,9 @@ function renderDigestModal(root: HTMLElement) {
       digestBody.appendChild(scrollBody);
       content.appendChild(digestBody);
     } else {
+      if (intro.childNodes.length) {
+        content.appendChild(intro);
+      }
       content.appendChild(
         el("div", "empty", textValue(result.status) || "Digest is unavailable."),
       );

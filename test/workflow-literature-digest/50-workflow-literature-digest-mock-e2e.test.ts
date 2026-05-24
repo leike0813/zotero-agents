@@ -198,6 +198,9 @@ describeLiteratureDigestE2ESuite("integration: literature-digest with mock skill
         bundleReader,
         request: requests[0],
       })) as { notes: Zotero.Item[] };
+      const { parseGeneratedNoteKind } = await dynamicImport(
+        "../../workflows_builtin/literature-workbench-package/lib/referencesNote.mjs",
+      );
       assert.lengthOf(applyResult.notes, 3);
       const firstNote = Zotero.Items.get(applyResult.notes[0].id)!;
       const secondNote = Zotero.Items.get(applyResult.notes[1].id)!;
@@ -206,19 +209,18 @@ describeLiteratureDigestE2ESuite("integration: literature-digest with mock skill
       assert.equal(secondNote.parentItemID, parent.id);
       assert.equal(thirdNote.parentItemID, parent.id);
       assert.match(firstNote.getNote(), /<h1>Digest<\/h1>/);
-      assert.match(firstNote.getNote(), /data-zs-payload="digest-markdown"/);
-      assert.include(
-        firstNote.getNote(),
-        `data-zs-source_attachment_item_key="${attachment.key}"`,
-      );
-      assert.match(firstNote.getNote(), /data-zs-value="/);
+      assert.equal(parseGeneratedNoteKind(firstNote.getNote()), "digest");
+      assert.isAtLeast((firstNote.getAttachments?.() || []).length, 1);
       assert.match(secondNote.getNote(), /<h1>References<\/h1>/);
-      assert.match(secondNote.getNote(), /<table data-zs-view="references-table">/);
-      assert.match(secondNote.getNote(), /data-zs-payload="references-json"/);
-      assert.match(secondNote.getNote(), /data-zs-value="/);
+      assert.match(secondNote.getNote(), /<table\b/);
+      assert.equal(parseGeneratedNoteKind(secondNote.getNote()), "references");
+      assert.isAtLeast((secondNote.getAttachments?.() || []).length, 1);
       assert.match(thirdNote.getNote(), /<h1>Citation Analysis<\/h1>/);
-      assert.match(thirdNote.getNote(), /data-zs-payload="citation-analysis-json"/);
-      assert.match(thirdNote.getNote(), /data-zs-value="/);
+      assert.equal(
+        parseGeneratedNoteKind(thirdNote.getNote()),
+        "citation-analysis",
+      );
+      assert.isAtLeast((thirdNote.getAttachments?.() || []).length, 1);
       const parentNotes = parent.getNotes();
       assert.include(parentNotes, firstNote.id);
       assert.include(parentNotes, secondNote.id);

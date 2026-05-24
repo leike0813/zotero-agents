@@ -11,6 +11,29 @@
   --success: var(--zs-success);
   --danger: var(--zs-danger);
   --warning: var(--zs-warning);
+  --dashboard-control-bg: #dbeafe;
+  --dashboard-control-hover: #c7dcff;
+  --dashboard-control-active-bg: #bfdbfe;
+  --dashboard-control-border: #8fb3f4;
+  --dashboard-control-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-zs-theme="dark"] {
+  --dashboard-control-bg: rgba(96, 165, 250, 0.14);
+  --dashboard-control-hover: rgba(96, 165, 250, 0.22);
+  --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
+  --dashboard-control-border: rgba(147, 197, 253, 0.38);
+  --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-zs-theme="light"]) {
+    --dashboard-control-bg: rgba(96, 165, 250, 0.14);
+    --dashboard-control-hover: rgba(96, 165, 250, 0.22);
+    --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
+    --dashboard-control-border: rgba(147, 197, 253, 0.38);
+    --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  }
 }
 
 * {
@@ -57,29 +80,41 @@ body {
 }
 
 .tab-btn {
+  appearance: none;
+  -moz-appearance: none;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   text-align: left;
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: transparent;
+  background: var(--dashboard-control-bg);
+  background-image: none;
   color: var(--text);
   padding: 10px 12px;
   margin-bottom: 6px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
 .tab-btn:hover {
-  background: var(--zs-surface-hover);
+  background: var(--dashboard-control-hover);
+  border-color: var(--dashboard-control-border);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.16);
 }
 
 .tab-btn.active {
-  background: var(--accent-soft);
+  background: var(--dashboard-control-active-bg);
   border-color: var(--zs-accent-soft-border);
   color: var(--zs-accent-strong);
+  box-shadow: var(--dashboard-control-shadow);
 }
 
 .tab-btn.disabled,
@@ -88,6 +123,8 @@ body {
   color: var(--muted);
   background: var(--zs-panel-alt);
   border-color: var(--line);
+  box-shadow: none;
+  opacity: 0.62;
 }
 
 .tab-disabled-tag {
@@ -231,6 +268,9 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
+  border-color: var(--dashboard-control-border);
+  background: var(--dashboard-control-bg);
+  box-shadow: var(--dashboard-control-shadow);
   margin: 0;
   line-height: 1;
 }
@@ -239,21 +279,28 @@ body {
   width: 16px;
   height: 16px;
   display: inline-block;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 16px 16px;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 16px 16px;
+  mask-size: 16px 16px;
 }
 
 .workflow-bubble-icon-doc {
-  background-image: url("../icons/icon_workflow_doc.svg");
+  -webkit-mask-image: url("../icons/icon_workflow_doc.svg");
+  mask-image: url("../icons/icon_workflow_doc.svg");
 }
 
 .workflow-bubble-icon-run {
-  background-image: url("../icons/icon_workflow_run.svg");
+  -webkit-mask-image: url("../icons/icon_workflow_run.svg");
+  mask-image: url("../icons/icon_workflow_run.svg");
 }
 
 .workflow-bubble-icon-settings {
-  background-image: url("../icons/icon_workflow_settings.svg");
+  -webkit-mask-image: url("../icons/icon_workflow_settings.svg");
+  mask-image: url("../icons/icon_workflow_settings.svg");
 }
 
 .workflow-doc-section {
@@ -392,19 +439,30 @@ tr.clickable {
 }
 
 .btn {
+  appearance: none;
+  -moz-appearance: none;
   border: 1px solid var(--line-strong);
-  background: var(--zs-input-bg);
+  background: var(--dashboard-control-bg);
+  background-image: none;
   color: var(--text);
   border-radius: 8px;
   min-width: 112px;
   height: 30px;
   padding: 6px 10px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
 .btn:hover {
-  background: var(--zs-surface-hover);
+  background: var(--dashboard-control-hover);
+  border-color: var(--dashboard-control-border);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.16);
 }
 
 .btn.primary {
@@ -425,23 +483,35 @@ tr.clickable {
 }
 
 .workflow-subtab-btn {
+  appearance: none;
+  -moz-appearance: none;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: var(--zs-input-bg);
+  background: var(--dashboard-control-bg);
+  background-image: none;
   color: var(--text);
   padding: 6px 12px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
   font-size: 12px;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
 .workflow-subtab-btn:hover {
-  background: var(--zs-surface-hover);
+  background: var(--dashboard-control-hover);
+  border-color: var(--dashboard-control-border);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.16);
 }
 
 .workflow-subtab-btn.active {
-  background: var(--accent-soft);
+  background: var(--dashboard-control-active-bg);
   border-color: var(--zs-accent-soft-border);
   color: var(--zs-accent-strong);
+  box-shadow: var(--dashboard-control-shadow);
 }
 
 .workflow-settings-shell {
@@ -588,6 +658,9 @@ tr.clickable {
 .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  background: var(--zs-panel-alt);
+  border-color: var(--line);
+  box-shadow: none;
 }
 
 .mono {
@@ -995,12 +1068,26 @@ tr.clickable {
 }
 
 .product-card {
+  appearance: none;
+  -moz-appearance: none;
   text-align: left;
   border: 1px solid var(--line);
   background: var(--panel);
+  background-image: none;
   border-radius: 8px;
   padding: 10px 12px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.product-card:hover {
+  border-color: var(--zs-accent-soft-border);
+  background: var(--zs-surface-hover);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.16);
 }
 
 .product-card.active {
@@ -1046,19 +1133,29 @@ tr.clickable {
 }
 
 .product-file-node {
+  appearance: none;
+  -moz-appearance: none;
   width: 100%;
   display: block;
   text-align: left;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: transparent;
+  background: var(--dashboard-control-bg);
+  background-image: none;
   padding: 8px;
+  box-shadow: var(--dashboard-control-shadow);
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .product-file-node.active,
 .product-file-node:hover {
-  background: var(--zs-surface-hover);
+  background: var(--dashboard-control-hover);
+  border-color: var(--dashboard-control-border);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.16);
 }
 
 .product-preview {

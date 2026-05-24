@@ -1,9 +1,14 @@
 import type { WorkflowManifest } from "../workflows/types";
+import {
+  type WorkflowRunOptions,
+  normalizeWorkflowRunOptions,
+} from "../workflows/zoteroHostAccessOptions";
 
 export type WorkflowExecutionOptions = {
   backendId?: string;
   workflowParams?: Record<string, unknown>;
   providerOptions?: Record<string, unknown>;
+  runOptions?: WorkflowRunOptions;
 };
 
 export type WorkflowSettingsRecord = Record<string, WorkflowExecutionOptions>;
@@ -14,6 +19,7 @@ export type WorkflowSettingsDialogInitialState = {
   persistedProviderOptions: Record<string, unknown>;
   runOnceWorkflowParams: Record<string, unknown>;
   runOnceProviderOptions: Record<string, unknown>;
+  runOnceRunOptions: WorkflowRunOptions;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -129,7 +135,6 @@ export function normalizeWorkflowParamsBySchema(
     }
     normalized[key] = coerced;
   }
-
   return normalized;
 }
 
@@ -147,6 +152,7 @@ export function mergeExecutionOptions(
       ...(base?.providerOptions || {}),
       ...(override?.providerOptions || {}),
     },
+    runOptions: normalizeWorkflowRunOptions(override?.runOptions),
   };
 }
 
@@ -175,5 +181,6 @@ export function buildWorkflowSettingsDialogInitialState(
     persistedProviderOptions,
     runOnceWorkflowParams: { ...persistedWorkflowParams },
     runOnceProviderOptions: { ...persistedProviderOptions },
+    runOnceRunOptions: {},
   };
 }

@@ -1,0 +1,21 @@
+{
+  "id": "debug-migrate-note-payloads",
+  "label": "Debug: Migrate Note Payloads",
+  "version": "0.1.0",
+  "provider": "pass-through",
+  "debug_only": true,
+  "inputs": {
+    "unit": "workflow"
+  },
+  "trigger": {
+    "requiresSelection": true
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "hooks": {
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

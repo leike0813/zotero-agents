@@ -16,12 +16,24 @@
       "title": "Search Query",
       "description": "Free-form literature search topic, research direction, paper title, DOI, arXiv, PMID, or related seed."
     },
+    "searchMode": {
+      "type": "string",
+      "title": "Search Mode",
+      "description": "Choose auto mode detection, topic expansion, paper seed expansion, or exact targeted ingest.",
+      "default": "auto",
+      "enum": [
+        "auto",
+        "topic_expansion",
+        "paper_seed_expansion",
+        "targeted_ingest"
+      ]
+    },
     "targetCollection": {
       "type": "string",
       "title": "Target Collection",
       "description": "Optional Zotero collection for created or existing items.",
       "default": "",
-      "allowCustom": true,
+      "allowCustom": false,
       "optionsSource": {
         "kind": "zotero.collections",
         "library": "current",
@@ -39,14 +51,9 @@
   },
   "execution": {
     "mode": "auto",
-    "mcp": {
-      "requiredTools": [
-        "list_library_items",
-        "search_items",
-        "synthesis.list_topics",
-        "synthesis.get_library_index",
-        "ingest_papers"
-      ]
+    "zoteroHostAccess": {
+      "required": true,
+      "allowWriteApprovalBypass": true
     },
     "skillrunner_mode": "interactive",
     "timeout_ms": 1200000

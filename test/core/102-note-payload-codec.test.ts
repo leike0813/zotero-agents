@@ -3,8 +3,14 @@ import {
   buildMarkdownBackedNoteContent,
   getNotePayloadDetail,
   listNotePayloadBlocks,
+  parseEmbeddedNotePayloadBlock,
   renderPayloadBlock,
+  WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
 } from "../../src/modules/notePayloadCodec";
+
+function encodeBase64Utf8(value: string) {
+  return Buffer.from(value, "utf8").toString("base64");
+}
 
 describe("Zotero note payload codec", function () {
   it("round-trips custom markdown notes", function () {
@@ -93,5 +99,38 @@ describe("Zotero note payload codec", function () {
       () => getNotePayloadDetail(html, { payloadType: "custom-markdown" }),
       /payload|base64|Invalid/i,
     );
+  });
+
+  it("decodes attachment-backed workbench payloads", function () {
+    const envelope = {
+      schemaVersion: 1,
+      kind: "zotero-skills-workbench-note-payload",
+      noteKind: "digest",
+      payloadType: "digest-markdown",
+      payload: {
+        version: 1,
+        entry: "artifacts/digest.md",
+        format: "markdown",
+        content: "# Digest\n\nBody",
+      },
+    };
+    const suffix = new TextEncoder().encode(
+      `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodeBase64Utf8(JSON.stringify(envelope))}\n`,
+    );
+    const bytes = new Uint8Array(8 + suffix.length);
+    bytes.set(new Uint8Array([137, 80, 78, 71, 0, 0, 0, 0]), 0);
+    bytes.set(suffix, 8);
+
+    const block = parseEmbeddedNotePayloadBlock(bytes, {
+      key: "PAYLOAD1",
+      id: 42,
+    });
+
+    assert.equal(block?.source, "embedded-image-attachment");
+    assert.equal(block?.payloadType, "digest-markdown");
+    assert.equal(block?.noteKind, "digest");
+    assert.equal(block?.attachmentKey, "PAYLOAD1");
+    assert.equal(block?.markdown, "# Digest\n\nBody");
+    assert.equal((block?.payload as any)?.entry, "artifacts/digest.md");
   });
 });

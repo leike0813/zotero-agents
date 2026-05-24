@@ -55,6 +55,73 @@ function normKey(v) {
   return String(v || "").trim().toUpperCase();
 }
 
+function payloadTypeOf(record) {
+  return String(
+    record?.payloadType ??
+    record?.payload_type ??
+    record?.type ??
+    record?.payload?.payloadType ??
+    record?.envelope?.payloadType ??
+    ""
+  ).trim();
+}
+
+function payloadObjectOf(record) {
+  if (!record || typeof record !== "object") return null;
+  if (record.payload && typeof record.payload === "object") return record.payload;
+  if (record.envelope && record.envelope.payload && typeof record.envelope.payload === "object") {
+    return record.envelope.payload;
+  }
+  if (record.markdown || record.content) {
+    return {
+      version: 1,
+      entry: record.entry || record.payloadEntry || "",
+      format: record.format || record.payloadFormat || "markdown",
+      content: String(record.markdown || record.content || ""),
+    };
+  }
+  return null;
+}
+
+function collectResolvedPayloadRecordsFromNote(note) {
+  const records = [];
+  const buckets = [
+    note && note.payloadBlocks,
+    note && note.payloads,
+    note && note.embeddedPayloads,
+    note && note.notePayloads,
+    note && note.artifacts,
+  ];
+  for (const bucket of buckets) {
+    if (!bucket) continue;
+    if (Object.prototype.toString.call(bucket) === "[object Array]") {
+      for (const entry of bucket) records.push(entry);
+      continue;
+    }
+    if (typeof bucket === "object") {
+      for (const key of Object.keys(bucket)) {
+        const entry = bucket[key];
+        if (entry && typeof entry === "object" && !payloadTypeOf(entry)) {
+          records.push(Object.assign({ payloadType: key }, entry));
+        } else {
+          records.push(entry);
+        }
+      }
+    }
+  }
+  return records;
+}
+
+function extractResolvedPayloadJsonFromNote(note, payloadKind) {
+  const records = collectResolvedPayloadRecordsFromNote(note);
+  for (const record of records) {
+    if (payloadTypeOf(record) !== payloadKind) continue;
+    const payload = payloadObjectOf(record);
+    if (payload) return payload;
+  }
+  return null;
+}
+
 function normalizeAttachmentPath(rawPath) {
   let p = String(rawPath || "").trim();
   if (!p) return "";
@@ -105,6 +172,9 @@ function extractPayloadBase64FromRaw(raw, payloadKind) {
 function extractPayloadJson(payloadKind) {
   const notes = Array.isArray(it.notes) ? it.notes : [];
   for (const n of notes) {
+    const resolved = extractResolvedPayloadJsonFromNote(n, payloadKind);
+    if (resolved) return resolved;
+
     const raw = String((n && n.note) || "");
     const b64 = extractPayloadBase64FromRaw(raw, payloadKind);
     if (!b64) continue;

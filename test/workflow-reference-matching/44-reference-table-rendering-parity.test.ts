@@ -71,13 +71,14 @@ function buildReferencesNoteContent(references: ReferenceEntry[]) {
 
 function extractReferencesTable(noteContent: string) {
   const match = String(noteContent || "").match(
-    /<table[^>]*data-zs-view=(["'])references-table\1[^>]*>[\s\S]*?<\/table>/i,
+    /<table\b[^>]*>[\s\S]*?<\/table>/i,
   );
   return match ? match[0] : "";
 }
 
 function normalizeTableHtml(text: string) {
   return String(text || "")
+    .replace(/\sdata-zs-view=(["'])references-table\1/gi, "")
     .replace(/>\s+</g, "><")
     .replace(/\s+/g, " ")
     .trim();
@@ -191,7 +192,7 @@ describeEditorParitySuite("reference table canonical rendering parity", function
       .map((id) => Zotero.Items.get(id))
       .filter(Boolean) as Zotero.Item[];
     const digestReferencesNote = digestNotes.find((note) =>
-      /data-zs-payload="references-json"/.test(note.getNote()),
+      /<h1[^>]*>\s*References\s*<\/h1>/i.test(note.getNote()),
     );
     assert.isOk(digestReferencesNote, "digest references note should exist");
 

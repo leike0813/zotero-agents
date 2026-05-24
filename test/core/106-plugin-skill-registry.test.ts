@@ -27,12 +27,28 @@ async function writeSkill(args: {
   await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
-    args.skillMd || `# ${args.skillId}\n`,
+    args.skillMd ||
+      ["---", `name: ${args.skillId}`, "---", "", `# ${args.skillId}`, ""].join(
+        "\n",
+      ),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "assets", "output.schema.json"),
+    JSON.stringify({ type: "object" }, null, 2),
     "utf8",
   );
   await fs.writeFile(
     path.join(skillDir, "assets", "runner.json"),
-    JSON.stringify(args.runnerJson || { id: args.skillId }, null, 2),
+    JSON.stringify(
+      args.runnerJson || {
+        id: args.skillId,
+        execution_modes: ["auto"],
+        schemas: { output: "assets/output.schema.json" },
+      },
+      null,
+      2,
+    ),
     "utf8",
   );
   return skillDir;
@@ -131,15 +147,15 @@ describe("plugin skill registry", function () {
     const userRoot = path.join(tempRoot, "skills");
     await writeSkill({
       root: builtinRoot,
-      dirName: "shared",
+      dirName: "shared-skill",
       skillId: "shared-skill",
-      skillMd: "# built-in\n",
+      skillMd: "---\nname: shared-skill\n---\n\n# built-in\n",
     });
     await writeSkill({
       root: userRoot,
-      dirName: "shared",
+      dirName: "shared-skill",
       skillId: "shared-skill",
-      skillMd: "# user\n",
+      skillMd: "---\nname: shared-skill\n---\n\n# user\n",
     });
 
     const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
@@ -232,7 +248,7 @@ describe("plugin skill registry", function () {
       root: builtinRoot,
       dirName: "checksum-demo",
       skillId: "checksum-demo",
-      skillMd: "# first\n",
+      skillMd: "---\nname: checksum-demo\n---\n\n# first\n",
     });
 
     const first = await scanPluginSkillRegistry({ builtinRoot, userRoot });
@@ -242,7 +258,11 @@ describe("plugin skill registry", function () {
       second.entriesById["checksum-demo"].checksum,
     );
 
-    await fs.writeFile(path.join(skillDir, "SKILL.md"), "# changed\n", "utf8");
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: checksum-demo\n---\n\n# changed\n",
+      "utf8",
+    );
     const changed = await scanPluginSkillRegistry({ builtinRoot, userRoot });
     assert.notEqual(
       first.entriesById["checksum-demo"].checksum,
@@ -257,7 +277,7 @@ describe("plugin skill registry", function () {
       root: builtinRoot,
       dirName: "python-cache-demo",
       skillId: "python-cache-demo",
-      skillMd: "# python cache demo\n",
+      skillMd: "---\nname: python-cache-demo\n---\n\n# python cache demo\n",
     });
     const cacheDir = path.join(skillDir, "scripts", "__pycache__");
     await fs.mkdir(cacheDir, { recursive: true });
@@ -285,6 +305,75 @@ describe("plugin skill registry", function () {
       first.entriesById["python-cache-demo"].checksum,
       second.entriesById["python-cache-demo"].checksum,
       "generated Python cache bytes must not affect skill checksum or ACP dispatch",
+    );
+  });
+
+  it("rejects identity mismatches before making a skill effective", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "actual-directory",
+      skillId: "declared-skill",
+    });
+
+    const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+
+    assert.lengthOf(registry.entries, 0);
+    assert.isTrue(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_identity_mismatch" &&
+          entry.reason?.includes("identity_mismatch_directory"),
+      ),
+    );
+  });
+
+  it("rejects invalid runner execution modes and schema annotations", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "bad-mode",
+      skillId: "bad-mode",
+      runnerJson: {
+        id: "bad-mode",
+        execution_modes: ["batch"],
+        schemas: { output: "assets/output.schema.json" },
+      },
+    });
+    const badSchemaDir = await writeSkill({
+      root: builtinRoot,
+      dirName: "bad-schema",
+      skillId: "bad-schema",
+    });
+    await fs.writeFile(
+      path.join(badSchemaDir, "assets", "output.schema.json"),
+      JSON.stringify({
+        type: "object",
+        properties: {
+          report: { type: "string", "x-type": "binary" },
+        },
+      }),
+      "utf8",
+    );
+
+    const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+
+    assert.lengthOf(registry.entries, 0);
+    assert.isTrue(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_runner_json_invalid" &&
+          entry.reason?.includes("invalid_execution_modes"),
+      ),
+    );
+    assert.isTrue(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_schema_invalid" &&
+          entry.reason?.includes("x-type"),
+      ),
     );
   });
 

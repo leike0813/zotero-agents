@@ -1,0 +1,18 @@
+{
+  "id": "debug-digest-apply-fixture",
+  "label": "Debug: Digest Apply Fixture",
+  "version": "0.1.0",
+  "provider": "pass-through",
+  "debug_only": true,
+  "inputs": {
+    "unit": "parent"
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "hooks": {
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

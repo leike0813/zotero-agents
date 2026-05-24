@@ -307,12 +307,12 @@
     const status = safeText(source.status);
     const recovery = safeText(source.conversationRecoveryState);
     const succeeded = status === "succeeded";
-    const failedOrCanceled =
-      ["failed", "canceled", "cancelled"].indexOf(status) >= 0;
+    const failed = status === "failed";
+    const canceled = ["canceled", "cancelled"].indexOf(status) >= 0;
     const activeContinuation =
       source.activePrompt === true ||
       ["submitted", "accepted", "sending"].indexOf(safeText(source.replyState)) >= 0;
-    const errorText = failedOrCanceled
+    const errorText = failed
       ? safeText(
           source.error ||
             source.replyError ||
@@ -321,11 +321,12 @@
         ) || status
       : "";
     const disconnected =
-      failedOrCanceled ||
+      !activeContinuation &&
+      (failed ||
       recovery === "failed" ||
       recovery === "unsupported" ||
       (recovery === "unavailable" &&
-        safeText(source.conversationState) === "error");
+        safeText(source.conversationState) === "error"));
     return {
       items: (Array.isArray(source.transcriptItems) ? source.transcriptItems : [])
         .map(normalizeAssistantItem),
@@ -350,6 +351,10 @@
           status === "succeeded"
             ? "Run completed. Workflow result is ready."
             : safeText(source.error),
+        notice:
+          canceled && !activeContinuation
+            ? "Run canceled. You can send a new instruction to continue this conversation."
+            : "",
       }),
       usage: source.usage || null,
     };

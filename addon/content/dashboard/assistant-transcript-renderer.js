@@ -13,6 +13,101 @@
     node.textContent = "";
   }
 
+  function setCodeCopyButtonState(button, state) {
+    if (!button) return;
+    const normalized = state === "copied" ? "copied" : state === "failed" ? "failed" : "idle";
+    if (button.__assistantCodeCopyResetTimer) {
+      clearTimeout(button.__assistantCodeCopyResetTimer);
+      button.__assistantCodeCopyResetTimer = null;
+    }
+    button.setAttribute("data-assistant-copy-state", normalized);
+    if (normalized === "copied") {
+      button.textContent = "Copied";
+      button.title = "Copied";
+    } else if (normalized === "failed") {
+      button.textContent = "Copy failed";
+      button.title = "Copy failed";
+    } else {
+      button.textContent = "Copy";
+      button.title = "Copy code";
+    }
+    if (normalized !== "idle") {
+      button.__assistantCodeCopyResetTimer = setTimeout(function () {
+        setCodeCopyButtonState(button, "idle");
+      }, 1400);
+    }
+  }
+
+  function copyTextToClipboard(text) {
+    const value = String(text || "");
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === "function"
+    ) {
+      return navigator.clipboard.writeText(value);
+    }
+    return new Promise(function (resolve, reject) {
+      if (
+        typeof document === "undefined" ||
+        !document.body ||
+        typeof document.execCommand !== "function"
+      ) {
+        reject(new Error("Clipboard API unavailable"));
+        return;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        if (copied) resolve();
+        else reject(new Error("Copy command rejected"));
+      } catch (error) {
+        document.body.removeChild(textarea);
+        reject(error);
+      }
+    });
+  }
+
+  function decorateMarkdownCodeBlocks(body) {
+    if (!body || typeof body.querySelectorAll !== "function") return;
+    const codeBlocks = Array.prototype.slice.call(body.querySelectorAll("pre > code"));
+    codeBlocks.forEach(function (code) {
+      const pre = code && (code.parentElement || code.parentNode);
+      if (!pre || typeof pre.getAttribute !== "function") return;
+      if (pre.getAttribute("data-assistant-code-copy") === "true") return;
+      pre.setAttribute("data-assistant-code-copy", "true");
+      if (pre.classList && typeof pre.classList.add === "function") {
+        pre.classList.add("assistant-code-block-with-copy");
+      }
+      const button = el("button", "assistant-code-copy-button", "Copy");
+      button.type = "button";
+      button.setAttribute("aria-label", "Copy code block");
+      button.setAttribute("data-assistant-copy-state", "idle");
+      button.title = "Copy code";
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        copyTextToClipboard(code.textContent || "").then(
+          function () {
+            setCodeCopyButtonState(button, "copied");
+          },
+          function () {
+            setCodeCopyButtonState(button, "failed");
+          },
+        );
+      });
+      pre.appendChild(button);
+    });
+  }
+
   function normalizeStatusToken(status) {
     return String(status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   }
@@ -427,12 +522,14 @@
       meta.appendChild(el("span", "assistant-transcript-time", formatTime(item.createdAt)));
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
+      decorateMarkdownCodeBlocks(body);
       return;
     }
     if (item.kind === "process") {
       meta.textContent = String(item.label || transcriptLabel(options, "thinking", "Thinking"));
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
+      decorateMarkdownCodeBlocks(body);
       return;
     }
     if (item.kind === "permission") {
@@ -617,6 +714,8 @@
     buildTranscriptRenderItems,
     compactAssistantToolName,
     compactAssistantToolSummary,
+    copyTextToClipboard,
+    decorateMarkdownCodeBlocks,
     installAssistantTranscriptStickiness,
     isAssistantTranscriptNearBottom,
     renderAssistantTranscript,

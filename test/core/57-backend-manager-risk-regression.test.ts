@@ -5,6 +5,11 @@ import {
   computeAcpBackendConfigFingerprint,
 } from "../../src/modules/acpBackendProbe";
 import {
+  createAcpBackendFromPreset,
+  listAcpBackendPresets,
+  listBuiltinAcpBackends,
+} from "../../src/modules/acpBackendPresets";
+import {
   collectBackendsFromDialog,
   getBackendRowActionKindsForType,
   launchSkillRunnerManagementFromRow,
@@ -231,6 +236,80 @@ describe("backend manager risk regression", function () {
         EMPTY: "",
       },
     });
+  });
+
+  it("builds common ACP preset backend profiles with stable command metadata", function () {
+    const presets = listAcpBackendPresets();
+    assert.sameMembers(
+      presets.map((preset) => preset.id),
+      ["opencode", "codex", "claude-code", "gemini-cli", "qwen-code"],
+    );
+
+    const codex = createAcpBackendFromPreset("codex");
+    assert.deepEqual(codex, {
+      id: "acp-codex",
+      displayName: "Codex ACP",
+      type: "acp",
+      baseUrl: "local://acp-codex",
+      command: "npx",
+      args: ["@zed-industries/codex-acp@latest"],
+      auth: { kind: "none" },
+      acp: {
+        agentFamily: "codex",
+      },
+    });
+
+    const gemini = createAcpBackendFromPreset("gemini-cli");
+    assert.equal(gemini.command, "npx");
+    assert.deepEqual(gemini.args, [
+      "@google/gemini-cli@latest",
+      "--experimental-acp",
+    ]);
+    assert.equal(gemini.acp?.agentFamily, "gemini-cli");
+  });
+
+  it("keeps only OpenCode as the auto-created built-in ACP backend", function () {
+    const builtins = listBuiltinAcpBackends();
+
+    assert.lengthOf(builtins, 1);
+    assert.equal(builtins[0].id, "acp-opencode");
+    assert.equal(builtins[0].command, "npx");
+    assert.deepEqual(builtins[0].args, ["opencode-ai@latest", "acp"]);
+    assert.equal(builtins[0].acp?.agentFamily, "opencode");
+  });
+
+  it("collects ACP preset rows through the existing dialog collection path", function () {
+    const preset = createAcpBackendFromPreset("qwen-code");
+    const doc = makeDoc([
+      makeRow({
+        type: "acp",
+        internalId: preset.id,
+        displayName: preset.displayName || "",
+        command: preset.command || "",
+        argsText: (preset.args || []).join("\n"),
+        acp: preset.acp,
+      }),
+    ]);
+
+    const collected = collectBackendsFromDialog(doc);
+
+    assert.deepEqual(collected.backends, [
+      {
+        id: "acp-qwen-code",
+        displayName: "Qwen Code ACP",
+        type: "acp",
+        baseUrl: "local://acp-qwen-code",
+        command: "npx",
+        args: [
+          "@qwen-code/qwen-code@latest",
+          "--acp",
+          "--experimental-skills",
+        ],
+        acp: {
+          agentFamily: "qwen-code",
+        },
+      },
+    ]);
   });
 
   it("resolves management launch payload from stable internal id", function () {

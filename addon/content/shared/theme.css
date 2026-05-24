@@ -33,6 +33,8 @@
   --zs-danger-border: #e8b3b3;
   --zs-purple: #7c3aed;
   --zs-purple-soft: #f2ecff;
+  --zs-selection-bg: #bfd4ff;
+  --zs-selection-text: #0f172a;
   --zs-focus-ring: rgba(37, 99, 235, 0.18);
   --zs-shadow-subtle: 0 3px 12px rgba(24, 34, 53, 0.08);
   --zs-shadow-soft: 0 12px 30px rgba(15, 23, 42, 0.1);
@@ -81,6 +83,8 @@
   --zs-danger-border: rgba(255, 138, 128, 0.42);
   --zs-purple: #c4b5fd;
   --zs-purple-soft: rgba(124, 58, 237, 0.18);
+  --zs-selection-bg: rgba(96, 165, 250, 0.42);
+  --zs-selection-text: #f8fafc;
   --zs-focus-ring: rgba(96, 165, 250, 0.26);
   --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
   --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
@@ -121,6 +125,8 @@
     --zs-danger-border: rgba(255, 138, 128, 0.42);
     --zs-purple: #c4b5fd;
     --zs-purple-soft: rgba(124, 58, 237, 0.18);
+    --zs-selection-bg: rgba(96, 165, 250, 0.42);
+    --zs-selection-text: #f8fafc;
     --zs-focus-ring: rgba(96, 165, 250, 0.26);
     --zs-shadow-subtle: 0 3px 12px rgba(0, 0, 0, 0.22);
     --zs-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.32);
@@ -152,6 +158,11 @@ a:focus-visible,
 }
 
 ::selection {
-  background: var(--zs-accent-soft);
-  color: var(--zs-text);
+  background: var(--zs-selection-bg);
+  color: var(--zs-selection-text);
+}
+
+::-moz-selection {
+  background: var(--zs-selection-bg);
+  color: var(--zs-selection-text);
 }
