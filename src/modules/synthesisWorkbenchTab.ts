@@ -9,7 +9,11 @@ import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
+  getSynthesisUiOperationKey,
+  getSynthesisUiOperationLabel,
   type SynthesisUiAction,
+  type SynthesisUiActionOperation,
+  type SynthesisUiLayoutPreset,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
 } from "./synthesis/uiModel";
@@ -46,13 +50,15 @@ type SynthesisWorkbenchBridge = {
 };
 
 type ZoteroTabs = {
-  add?: (options: Record<string, unknown>) => { id?: string; container?: Element };
+  add?: (options: Record<string, unknown>) => {
+    id?: string;
+    container?: Element;
+  };
   select?: (id: string) => unknown;
   close?: (id: string) => unknown;
 };
 
-const SYNTHESIS_WORKBENCH_BRIDGE_KEY =
-  "__zoteroSkillsSynthesisWorkbenchBridge";
+const SYNTHESIS_WORKBENCH_BRIDGE_KEY = "__zoteroSkillsSynthesisWorkbenchBridge";
 
 type SynthesisWorkbenchRuntime = {
   tabId: string;
@@ -67,15 +73,25 @@ type SynthesisWorkbenchRuntime = {
   handshakeComplete: boolean;
   state: SynthesisUiState;
   snapshotInput?: SynthesisUiSnapshotInput;
+  snapshotInputLocked?: boolean;
+  inFlightCommands: Map<string, SynthesisUiActionOperation>;
+  lastCompletedCommand?: SynthesisUiActionOperation;
+  lastFailedCommand?: SynthesisUiActionOperation;
+  actionWarnings: SynthesisUiActionOperation[];
 };
 
 const SYNTHESIS_WORKBENCH_TAB_ID = "zotero-skills-synthesis-workbench";
-const SYNTHESIS_WORKBENCH_EMBEDDED_ID = "zotero-skills-synthesis-workbench-embedded";
+const SYNTHESIS_WORKBENCH_EMBEDDED_ID =
+  "zotero-skills-synthesis-workbench-embedded";
 const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
+let prewarmedSynthesisSnapshotInput: SynthesisUiSnapshotInput | undefined;
+let prewarmSynthesisSnapshotPromise:
+  | Promise<SynthesisUiSnapshotInput | undefined>
+  | undefined;
 
 export type MountedSynthesisWorkbenchRuntime = {
   refresh: () => Promise<void>;
@@ -112,8 +128,7 @@ function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
 
 function resolveZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
   return (
-    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)
-      ?.Zotero_Tabs ||
+    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)?.Zotero_Tabs ||
     ((globalThis as any).Zotero_Tabs as ZoteroTabs | undefined)
   );
 }
@@ -256,7 +271,9 @@ function openPathInSystem(pathValue: string, label: string) {
 }
 
 function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
-  const libraryId = Number((globalThis as any).Zotero?.Libraries?.userLibraryID || 1);
+  const libraryId = Number(
+    (globalThis as any).Zotero?.Libraries?.userLibraryID || 1,
+  );
   return {
     libraryId: Number.isFinite(libraryId) && libraryId > 0 ? libraryId : 1,
     storage: {
@@ -332,7 +349,9 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
 }) {
   const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
   if (!hostWindow) {
-    throw new Error("Cannot update synthesis: Zotero main window is unavailable.");
+    throw new Error(
+      "Cannot update synthesis: Zotero main window is unavailable.",
+    );
   }
   const workflow = findUpdateTopicSynthesisWorkflow();
   if (!workflow) {
@@ -385,28 +404,136 @@ function commandArgsFromPayload(payload?: Record<string, unknown>) {
     : {};
 }
 
+function actionStatusInput(runtime: SynthesisWorkbenchRuntime) {
+  return {
+    inFlight: Array.from(runtime.inFlightCommands.values()),
+    lastCompleted: runtime.lastCompletedCommand,
+    lastFailed: runtime.lastFailedCommand,
+    warnings: runtime.actionWarnings.slice(-4),
+  };
+}
+
+function operationForHostCommand(
+  command: SynthesisUiActionOperation["command"],
+  args: Record<string, unknown>,
+  status: SynthesisUiActionOperation["status"],
+  message?: string,
+): SynthesisUiActionOperation {
+  const timestamp = new Date().toISOString();
+  return {
+    key: getSynthesisUiOperationKey(command, args),
+    command,
+    status,
+    label: getSynthesisUiOperationLabel(command),
+    started_at:
+      status === "running" || status === "pending" ? timestamp : undefined,
+    completed_at:
+      status === "completed" || status === "failed" ? timestamp : undefined,
+    message,
+  };
+}
+
+function recordDuplicateActionWarning(
+  runtime: SynthesisWorkbenchRuntime,
+  operation: SynthesisUiActionOperation,
+) {
+  runtime.actionWarnings.push({
+    ...operation,
+    status: "queued",
+    message: "This action is already running.",
+  });
+  runtime.actionWarnings = runtime.actionWarnings.slice(-6);
+}
+
+function runWorkbenchCommandOnce(
+  runtime: SynthesisWorkbenchRuntime,
+  command: SynthesisUiActionOperation["command"],
+  args: Record<string, unknown>,
+  run: () => Promise<unknown>,
+  options: { refreshFromService?: boolean } = {},
+) {
+  const operation = operationForHostCommand(command, args, "running");
+  if (runtime.inFlightCommands.has(operation.key)) {
+    recordDuplicateActionWarning(runtime, operation);
+    void sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
+    });
+    return;
+  }
+  runtime.inFlightCommands.set(operation.key, operation);
+  void sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: false,
+  });
+  void run()
+    .then(() => {
+      runtime.lastCompletedCommand = {
+        ...operation,
+        status: "completed",
+        completed_at: new Date().toISOString(),
+      };
+      runtime.lastFailedCommand = undefined;
+    })
+    .catch((error) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error || "unknown error");
+      runtime.lastFailedCommand = {
+        ...operation,
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        message,
+      };
+      reportWorkbenchError(error, runtime.window);
+    })
+    .finally(() => {
+      runtime.inFlightCommands.delete(operation.key);
+      void sendSnapshot(runtime, "synthesis:snapshot", {
+        refreshFromService: options.refreshFromService !== false,
+      });
+    });
+}
+
+function failOnDiagnostic<T>(result: T): T {
+  const diagnostic =
+    result &&
+    typeof result === "object" &&
+    "diagnostic" in result &&
+    (result as { diagnostic?: unknown }).diagnostic;
+  if (diagnostic && typeof diagnostic === "object") {
+    const row = diagnostic as Record<string, unknown>;
+    throw new Error(String(row.message || row.code || "Action failed."));
+  }
+  return result;
+}
+
 async function sendSnapshot(
   runtime: SynthesisWorkbenchRuntime,
-  messageType: Extract<SynthesisBridgeMessageType, "synthesis:init" | "synthesis:snapshot">,
+  messageType: Extract<
+    SynthesisBridgeMessageType,
+    "synthesis:init" | "synthesis:snapshot"
+  >,
+  options: { refreshFromService?: boolean } = {},
 ) {
   if (!runtime?.frameWindow) {
     return;
   }
-  if (messageType === "synthesis:init") {
-    postWorkbenchMessage(
-      runtime,
-      messageType,
-      buildSynthesisUiSnapshot(
-        runtime.snapshotInput || buildDefaultSnapshotInput(),
-        runtime.state,
-      ),
-    );
+  const shouldRefresh =
+    options.refreshFromService !== false ||
+    (!runtime.snapshotInput && !runtime.snapshotInputLocked);
+  if (shouldRefresh && !runtime.snapshotInputLocked) {
+    runtime.snapshotInput = await getDefaultSynthesisService()
+      .getSynthesisSnapshotInput(runtime.state)
+      .catch(() => buildDefaultSnapshotInput());
+    prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
   }
-  const snapshot = runtime.snapshotInput
-    ? buildSynthesisUiSnapshot(runtime.snapshotInput, runtime.state)
-    : await getDefaultSynthesisService()
-        .getSynthesisSnapshot(runtime.state)
-        .catch(() => buildSynthesisUiSnapshot(buildDefaultSnapshotInput(), runtime.state));
+  const snapshot = buildSynthesisUiSnapshot(
+    {
+      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
+      actions: actionStatusInput(runtime),
+    },
+    runtime.state,
+  );
   postWorkbenchMessage(runtime, messageType, snapshot);
 }
 
@@ -417,18 +544,20 @@ async function sendArtifactReader(
   if (!runtime?.frameWindow) {
     return;
   }
-  const artifact = await getDefaultSynthesisService().readTopicArtifact({ topicId });
+  const artifact = await getDefaultSynthesisService().readTopicArtifact({
+    topicId,
+  });
   const metadata = {
     ...((artifact.metadata || {}) as Record<string, unknown>),
   };
   const dto: SynthesisArtifactReaderDto = {
     topicId,
     title:
-      String(metadata.title || metadata.topic_title || "").trim() ||
-      topicId,
+      String(metadata.title || metadata.topic_title || "").trim() || topicId,
     markdown: String(artifact.markdown || ""),
     metadata,
-    hash: String(metadata.hash || metadata.markdown_hash || "").trim() || undefined,
+    hash:
+      String(metadata.hash || metadata.markdown_hash || "").trim() || undefined,
     updated_at: String(metadata.updated_at || "").trim() || undefined,
   };
   const result = applySynthesisUiAction(runtime.state, {
@@ -436,7 +565,9 @@ async function sendArtifactReader(
     payload: { topicId },
   });
   runtime.state = result.state;
-  await sendSnapshot(runtime, "synthesis:snapshot");
+  await sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: false,
+  });
   postWorkbenchMessage(runtime, "synthesis:artifact", dto);
 }
 
@@ -447,14 +578,22 @@ async function sendTopicDetail(
   if (!runtime?.frameWindow) {
     return;
   }
-  const detail = await getDefaultSynthesisService().readTopicDetail({ topicId });
+  const detail = await getDefaultSynthesisService().readTopicDetail({
+    topicId,
+  });
   const result = applySynthesisUiAction(runtime.state, {
     action: "showArtifactReader",
     payload: { topicId },
   });
   runtime.state = result.state;
-  await sendSnapshot(runtime, "synthesis:snapshot");
-  postWorkbenchMessage(runtime, "synthesis:topic-detail", detail as SynthesisTopicDetailDto);
+  await sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: false,
+  });
+  postWorkbenchMessage(
+    runtime,
+    "synthesis:topic-detail",
+    detail as SynthesisTopicDetailDto,
+  );
 }
 
 async function sendTopicDigest(
@@ -464,7 +603,8 @@ async function sendTopicDigest(
   if (!runtime?.frameWindow) {
     return;
   }
-  const digest = await getDefaultSynthesisService().resolveTopicPaperDigest(args);
+  const digest =
+    await getDefaultSynthesisService().resolveTopicPaperDigest(args);
   postWorkbenchMessage(runtime, "synthesis:digest", digest);
 }
 
@@ -474,7 +614,9 @@ async function openSynthesisFolderFromWorkbench(args: {
   const commandArgs = commandArgsFromPayload(args.payload);
   const topicId = String(commandArgs.topicId || "").trim();
   if (topicId) {
-    const artifact = await getDefaultSynthesisService().readTopicArtifact({ topicId });
+    const artifact = await getDefaultSynthesisService().readTopicArtifact({
+      topicId,
+    });
     openPathInSystem(artifact.paths.topicRoot, "synthesis topic folder");
     return;
   }
@@ -493,15 +635,20 @@ function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
   );
 }
 
-function confirmWorkbenchAction(message: string, win?: _ZoteroTypes.MainWindow) {
+function confirmWorkbenchAction(
+  message: string,
+  win?: _ZoteroTypes.MainWindow,
+) {
   const hostWindow = resolveWorkflowHostWindow(win);
-  const confirmFn = (hostWindow as unknown as { confirm?: (message: string) => boolean })
-    ?.confirm;
+  const confirmFn = (
+    hostWindow as unknown as { confirm?: (message: string) => boolean }
+  )?.confirm;
   if (typeof confirmFn === "function") {
     return confirmFn.call(hostWindow, message);
   }
-  const globalConfirm = (globalThis as { confirm?: (message: string) => boolean })
-    .confirm;
+  const globalConfirm = (
+    globalThis as { confirm?: (message: string) => boolean }
+  ).confirm;
   return typeof globalConfirm === "function" ? globalConfirm(message) : true;
 }
 
@@ -517,46 +664,290 @@ function handleAction(
     payload: envelope.payload,
   } satisfies SynthesisUiAction);
   if (!result.handled) {
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
+    });
     return;
   }
   runtime.state = result.state;
+  if (envelope.action === "ready" || envelope.action === "refresh") {
+    void sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: true,
+    });
+    return;
+  }
   if (result.hostCommand?.command === "openPreferences") {
     void addon.hooks.onPrefsEvent("openWorkflowSettings", {
       window: runtime.window,
     });
   }
   if (result.hostCommand?.command === "runSynthesizeTopic") {
-    void runCreateTopicSynthesisFromWorkbench({
-      hostWindow: runtime.window,
-    })
-      .catch((error) => reportWorkbenchError(error, runtime.window))
-      .finally(() => {
-        void sendSnapshot(runtime, "synthesis:snapshot");
-      });
+    runWorkbenchCommandOnce(runtime, "runSynthesizeTopic", {}, () =>
+      runCreateTopicSynthesisFromWorkbench({
+        hostWindow: runtime.window,
+      }),
+    );
     return;
   }
   if (result.hostCommand?.command === "submitTopicSynthesisUpdate") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
     const language = String(commandArgs.language || "auto").trim();
-    void runUpdateTopicSynthesisFromWorkbench({
-      hostWindow: runtime.window,
-      topicId,
-      language,
-    })
-      .catch((error) => reportWorkbenchError(error, runtime.window))
-      .finally(() => {
-        void sendSnapshot(runtime, "synthesis:snapshot");
-      });
+    runWorkbenchCommandOnce(
+      runtime,
+      "submitTopicSynthesisUpdate",
+      { topicId, language },
+      () =>
+        runUpdateTopicSynthesisFromWorkbench({
+          hostWindow: runtime.window,
+          topicId,
+          language,
+        }),
+    );
     return;
   }
   if (result.hostCommand?.command === "manualRecomputeLayout") {
-    void getDefaultSynthesisService()
-      .queryCitationGraph()
-      .finally(() => {
-        void sendSnapshot(runtime, "synthesis:snapshot");
-      });
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const preset =
+      String(commandArgs.preset || runtime.state.graph.layoutPreset).trim() ||
+      runtime.state.graph.layoutPreset;
+    runWorkbenchCommandOnce(runtime, "manualRecomputeLayout", { preset }, () =>
+      getDefaultSynthesisService().runCitationGraphLayoutWorker({
+        preset: preset as SynthesisUiLayoutPreset,
+        force: true,
+      }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "validateTagVocabulary") {
+    runWorkbenchCommandOnce(runtime, "validateTagVocabulary", {}, () =>
+      getDefaultSynthesisService().validateTagVocabulary(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "rebuildTagVocabularyIndex") {
+    runWorkbenchCommandOnce(runtime, "rebuildTagVocabularyIndex", {}, () =>
+      getDefaultSynthesisService().rebuildTagVocabularyIndex(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "rebuildConceptKbIndex") {
+    runWorkbenchCommandOnce(runtime, "rebuildConceptKbIndex", {}, () =>
+      getDefaultSynthesisService().rebuildConceptKbIndex(),
+    );
+    return;
+  }
+  if (
+    result.hostCommand?.command === "acceptTopicGraphRelation" ||
+    result.hostCommand?.command === "rejectTopicGraphRelation"
+  ) {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const edgeId = String(commandArgs.edgeId || "").trim();
+    if (edgeId) {
+      const service = getDefaultSynthesisService();
+      const command = result.hostCommand.command;
+      runWorkbenchCommandOnce(runtime, command, { edgeId }, () =>
+        (command === "acceptTopicGraphRelation"
+          ? service.acceptTopicGraphRelation({ edgeId })
+          : service.rejectTopicGraphRelation({ edgeId })
+        ).then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "applyTopicGraphReviewAction") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const reviewId = String(commandArgs.reviewId || "").trim();
+    const action =
+      String(commandArgs.action || "").trim() === "approve_suggested"
+        ? "approve_suggested"
+        : "reject";
+    runWorkbenchCommandOnce(
+      runtime,
+      "applyTopicGraphReviewAction",
+      { reviewId, action },
+      () =>
+        getDefaultSynthesisService()
+          .applyTopicGraphReviewAction({
+            reviewId,
+            action,
+          })
+          .then(failOnDiagnostic),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "updateConceptDisplayText") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const conceptId = String(commandArgs.conceptId || "").trim();
+    const fields =
+      commandArgs.fields && typeof commandArgs.fields === "object"
+        ? (commandArgs.fields as Record<string, string>)
+        : {};
+    if (conceptId && Object.keys(fields).length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "updateConceptDisplayText",
+        { conceptId },
+        () =>
+          getDefaultSynthesisService().updateConceptDisplayText({
+            conceptId,
+            fields,
+          }),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "applyConceptReviewAction") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const reviewId = String(commandArgs.reviewId || "").trim();
+    const action = String(commandArgs.action || "").trim();
+    const targetConceptId = String(commandArgs.targetConceptId || "").trim();
+    if (
+      reviewId &&
+      (action === "approve_create" ||
+        action === "merge_into_existing" ||
+        action === "reject")
+    ) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyConceptReviewAction",
+        { reviewId, action, targetConceptId },
+        () =>
+          getDefaultSynthesisService()
+            .applyConceptReviewAction({
+              reviewId,
+              action,
+              targetConceptId: targetConceptId || undefined,
+            })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "applyLiteratureCleanupAction") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const proposalId = String(commandArgs.proposalId || "").trim();
+    const action = String(commandArgs.action || "").trim();
+    if (
+      proposalId &&
+      (action === "approve" || action === "reject" || action === "skip")
+    ) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyLiteratureCleanupAction",
+        { proposalId, action },
+        () =>
+          getDefaultSynthesisService().applyCleanupProposalAction({
+            proposalId,
+            action,
+          }),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "runLiteratureRegistryJobNow") {
+    runWorkbenchCommandOnce(runtime, "runLiteratureRegistryJobNow", {}, () =>
+      getDefaultSynthesisService().runLiteratureRegistryJobNow(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryLiteratureRegistryJob") {
+    runWorkbenchCommandOnce(runtime, "retryLiteratureRegistryJob", {}, () =>
+      getDefaultSynthesisService().retryLiteratureRegistryJob(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "syncNow") {
+    runWorkbenchCommandOnce(runtime, "syncNow", {}, () =>
+      getDefaultSynthesisService().syncNow(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "pauseGitSync") {
+    runWorkbenchCommandOnce(runtime, "pauseGitSync", {}, () =>
+      getDefaultSynthesisService().pauseGitSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resumeGitSync") {
+    runWorkbenchCommandOnce(runtime, "resumeGitSync", {}, () =>
+      getDefaultSynthesisService().resumeGitSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryGitSync") {
+    runWorkbenchCommandOnce(runtime, "retryGitSync", {}, () =>
+      getDefaultSynthesisService().retryGitSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resolveGitSyncConflict") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const action = String(commandArgs.action || "resolved").trim();
+    runWorkbenchCommandOnce(runtime, "resolveGitSyncConflict", { action }, () =>
+      getDefaultSynthesisService().resolveGitSyncConflict({
+        action: action === "skip" ? "skip" : "resolved",
+      }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "exportTagVocabulary") {
+    runWorkbenchCommandOnce(runtime, "exportTagVocabulary", {}, () =>
+      getDefaultSynthesisService()
+        .exportTagVocabularyForRegulator()
+        .then((tags) =>
+          runtime.hostWindow.navigator?.clipboard?.writeText?.(
+            `${tags.join("\n")}\n`,
+          ),
+        ),
+    );
+    return;
+  }
+  if (
+    result.hostCommand?.command === "importTagVocabulary" ||
+    result.hostCommand?.command === "previewTagVocabularyImport"
+  ) {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    if (typeof commandArgs.payload === "string" && commandArgs.payload.trim()) {
+      runWorkbenchCommandOnce(runtime, "previewTagVocabularyImport", {}, () =>
+        getDefaultSynthesisService().previewTagVocabularyImport(
+          commandArgs.payload as string,
+        ),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "applyTagVocabularyImport") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const action = String(commandArgs.action || "").trim();
+    if (
+      typeof commandArgs.payload === "string" &&
+      commandArgs.payload.trim() &&
+      (action === "use-imported" || action === "merge-non-conflicting")
+    ) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyTagVocabularyImport",
+        { action },
+        () =>
+          getDefaultSynthesisService().applyTagVocabularyImport({
+            payload: commandArgs.payload,
+            action,
+          }),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
     return;
   }
   if (result.hostCommand?.command === "openTopicArtifact") {
@@ -611,17 +1002,15 @@ function handleAction(
       void sendSnapshot(runtime, "synthesis:snapshot");
       return;
     }
-    void getDefaultSynthesisService()
-      .deleteTopicArtifact({ topicId })
-      .then((deleteResult) => {
-        if (!deleteResult.ok) {
-          throw new Error(deleteResult.reason);
-        }
-      })
-      .catch((error) => reportWorkbenchError(error, runtime.window))
-      .finally(() => {
-        void sendSnapshot(runtime, "synthesis:snapshot");
-      });
+    runWorkbenchCommandOnce(runtime, "deleteTopicArtifact", { topicId }, () =>
+      getDefaultSynthesisService()
+        .deleteTopicArtifact({ topicId })
+        .then((deleteResult) => {
+          if (!deleteResult.ok) {
+            throw new Error(deleteResult.reason);
+          }
+        }),
+    );
     return;
   }
   if (result.hostCommand?.command === "purgeDeletedTopicArtifacts") {
@@ -634,15 +1023,51 @@ function handleAction(
       void sendSnapshot(runtime, "synthesis:snapshot");
       return;
     }
-    void getDefaultSynthesisService()
-      .purgeDeletedTopicArtifacts()
-      .catch((error) => reportWorkbenchError(error, runtime.window))
-      .finally(() => {
-        void sendSnapshot(runtime, "synthesis:snapshot");
-      });
+    runWorkbenchCommandOnce(runtime, "purgeDeletedTopicArtifacts", {}, () =>
+      getDefaultSynthesisService().purgeDeletedTopicArtifacts(),
+    );
     return;
   }
-  void sendSnapshot(runtime, "synthesis:snapshot");
+  if (shouldRefreshGraphLayoutForAction(envelope)) {
+    void refreshGraphLayoutIfNeeded(runtime).catch((error) =>
+      reportWorkbenchError(error, runtime.window),
+    );
+  }
+  void sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: false,
+  });
+}
+
+function shouldRefreshGraphLayoutForAction(
+  envelope: SynthesisWorkbenchActionEnvelope,
+) {
+  if (envelope.action === "selectTab") {
+    return String(envelope.payload?.tab || "").trim() === "graph";
+  }
+  return (
+    envelope.action === "setGraphView" &&
+    "layoutPreset" in (envelope.payload || {})
+  );
+}
+
+async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.state.selectedTab !== "graph") {
+    return;
+  }
+  const service = getDefaultSynthesisService();
+  const input = await service.getSynthesisSnapshotInput(runtime.state);
+  runtime.snapshotInput = input;
+  prewarmedSynthesisSnapshotInput = input;
+  const status = input.graph?.layoutStatus || "missing";
+  if (status === "ready" || !input.graph?.graph_hash) {
+    return;
+  }
+  await service.runCitationGraphLayoutWorker({
+    preset: runtime.state.graph.layoutPreset,
+  });
+  await sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: true,
+  });
 }
 
 function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
@@ -701,6 +1126,11 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.handshakeComplete = true;
   stopWorkbenchHandshake(runtime);
+  if (runtime.snapshotInput && !runtime.snapshotInputLocked) {
+    void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
   void sendSnapshot(runtime, "synthesis:init");
 }
 
@@ -721,7 +1151,10 @@ function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
         finalizeWorkbenchHandshake(runtime);
         return;
       }
-      if (runtime.handshakeAttemptCount >= SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS) {
+      if (
+        runtime.handshakeAttemptCount >=
+        SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS
+      ) {
         stopWorkbenchHandshake(runtime);
         if (runtime.handshakeSuccessCount > 0) {
           finalizeWorkbenchHandshake(runtime);
@@ -748,6 +1181,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
   const doc = args.root.ownerDocument || args.hostWindow.document;
   const frame = createSynthesisBrowser(doc);
   args.root.appendChild(frame);
+  const initialSnapshotInput =
+    args.snapshotInput || prewarmedSynthesisSnapshotInput;
   const runtime: SynthesisWorkbenchRuntime = {
     tabId: SYNTHESIS_WORKBENCH_EMBEDDED_ID,
     window: args.chromeWindow,
@@ -758,7 +1193,10 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     handshakeSuccessCount: 0,
     handshakeComplete: false,
     state: createDefaultSynthesisUiState(),
-    snapshotInput: args.snapshotInput,
+    snapshotInput: initialSnapshotInput,
+    snapshotInputLocked: Boolean(args.snapshotInput),
+    inFlightCommands: new Map(),
+    actionWarnings: [],
   };
   attachWorkbenchBridge(runtime);
   setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
@@ -771,14 +1209,18 @@ export async function mountSynthesisWorkbenchRuntime(args: {
   };
 }
 
-export async function openSynthesisWorkbenchTab(args: {
-  window?: _ZoteroTypes.MainWindow;
-  snapshotInput?: SynthesisUiSnapshotInput;
-} = {}) {
+export async function openSynthesisWorkbenchTab(
+  args: {
+    window?: _ZoteroTypes.MainWindow;
+    snapshotInput?: SynthesisUiSnapshotInput;
+  } = {},
+) {
   const hostWindow = resolveWorkflowHostWindow(args.window);
   const tabs = resolveZoteroTabs(hostWindow);
   if (!hostWindow || !tabs?.add || !tabs.select) {
-    throw new Error("Cannot open Synthesis Workbench: Zotero_Tabs is unavailable.");
+    throw new Error(
+      "Cannot open Synthesis Workbench: Zotero_Tabs is unavailable.",
+    );
   }
   const Zotero_Tabs = tabs as ZoteroTabs & {
     add: NonNullable<ZoteroTabs["add"]>;
@@ -798,10 +1240,14 @@ export async function openSynthesisWorkbenchTab(args: {
   });
   const container = result?.container;
   if (!container) {
-    throw new Error("Cannot open Synthesis Workbench: tab container is missing.");
+    throw new Error(
+      "Cannot open Synthesis Workbench: tab container is missing.",
+    );
   }
   const frame = createSynthesisBrowser(hostWindow.document);
   container.appendChild(frame);
+  const initialSnapshotInput =
+    args.snapshotInput || prewarmedSynthesisSnapshotInput;
   const runtime: SynthesisWorkbenchRuntime = {
     tabId: SYNTHESIS_WORKBENCH_TAB_ID,
     window: hostWindow,
@@ -812,13 +1258,38 @@ export async function openSynthesisWorkbenchTab(args: {
     handshakeSuccessCount: 0,
     handshakeComplete: false,
     state: createDefaultSynthesisUiState(),
-    snapshotInput: args.snapshotInput,
+    snapshotInput: initialSnapshotInput,
+    snapshotInputLocked: Boolean(args.snapshotInput),
+    inFlightCommands: new Map(),
+    actionWarnings: [],
   };
   synthesisWorkbenchTab = runtime;
   attachWorkbenchBridge(runtime);
   setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
   scheduleWorkbenchHandshake(runtime);
   Zotero_Tabs.select(SYNTHESIS_WORKBENCH_TAB_ID);
+}
+
+export function prewarmSynthesisWorkbenchSnapshot(): Promise<
+  SynthesisUiSnapshotInput | undefined
+> {
+  if (prewarmedSynthesisSnapshotInput) {
+    return Promise.resolve(prewarmedSynthesisSnapshotInput);
+  }
+  if (prewarmSynthesisSnapshotPromise) {
+    return prewarmSynthesisSnapshotPromise;
+  }
+  prewarmSynthesisSnapshotPromise = getDefaultSynthesisService()
+    .getSynthesisSnapshotInput(createDefaultSynthesisUiState())
+    .then((input) => {
+      prewarmedSynthesisSnapshotInput = input;
+      return input;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      prewarmSynthesisSnapshotPromise = undefined;
+    });
+  return prewarmSynthesisSnapshotPromise;
 }
 
 export async function resetSynthesisWorkbenchTabRuntimeForTests() {

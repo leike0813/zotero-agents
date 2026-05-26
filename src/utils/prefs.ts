@@ -18,6 +18,14 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   hostBridgeToken: string;
   hostBridgeTokenCreatedAt: string;
   hostBridgeTokenRotatedAt: string;
+  synthesisGitSyncEnabled: boolean;
+  synthesisGitSyncRemoteUrl: string;
+  synthesisGitSyncBranch: string;
+  synthesisGitSyncGitCommand: string;
+  synthesisGitSyncTokenEncryptedJson: string;
+  synthesisGitSyncTokenMasked: string;
+  synthesisGitSyncTokenUpdatedAt: string;
+  synthesisGitSyncAutoRetryEnabled: boolean;
 };
 
 const PREFS_PREFIX = config.prefsPrefix;

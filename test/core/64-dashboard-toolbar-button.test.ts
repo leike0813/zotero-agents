@@ -163,9 +163,22 @@ describe("dashboard toolbar button", function () {
     assert.isOk(skillRunnerButton);
     assert.isOk(dashboardButton);
     assert.equal(executeButton!.getAttribute("class"), "zotero-tb-button");
-    assert.include(skillRunnerButton!.getAttribute("class") || "", "zotero-tb-button");
-    assert.include(skillRunnerButton!.getAttribute("image") || "", "icon_backend.png");
-    assert.include(dashboardButton!.getAttribute("class") || "", "zotero-tb-button");
+    assert.include(
+      skillRunnerButton!.getAttribute("class") || "",
+      "zotero-tb-button",
+    );
+    assert.include(
+      skillRunnerButton!.getAttribute("image") || "",
+      "icon_sidebar_32.png",
+    );
+    assert.include(
+      dashboardButton!.getAttribute("image") || "",
+      "icon_workbench_32.png",
+    );
+    assert.include(
+      dashboardButton!.getAttribute("class") || "",
+      "zotero-tb-button",
+    );
     assert.include(
       dashboardButton!.getAttribute("class") || "",
       "zs-workspace-toolbar-button",
@@ -186,8 +199,14 @@ describe("dashboard toolbar button", function () {
     const en = await fs.readFile("addon/locale/en-US/addon.ftl", "utf8");
     const zh = await fs.readFile("addon/locale/zh-CN/addon.ftl", "utf8");
 
-    assert.include(en, "task-dashboard-toolbar-open = Open Zotero Skills Workspace");
-    assert.include(zh, "task-dashboard-toolbar-open = 打开 Zotero Skills 工作区");
+    assert.include(
+      en,
+      "task-dashboard-toolbar-open = Open Zotero Skills Workspace",
+    );
+    assert.include(
+      zh,
+      "task-dashboard-toolbar-open = 打开 Zotero Skills 工作区",
+    );
   });
 
   it("removes existing toolbar button", function () {
@@ -267,7 +286,10 @@ describe("dashboard toolbar button", function () {
     assert.lengthOf(toolbar.children, 1);
     assert.equal(toolbar.children[0].id, "zotero-items-toolbar");
     assert.lengthOf(itemsToolbar.children, 4);
-    assert.equal(itemsToolbar.children[0].id, "zotero-skills-tb-execute-workflow");
+    assert.equal(
+      itemsToolbar.children[0].id,
+      "zotero-skills-tb-execute-workflow",
+    );
     assert.equal(itemsToolbar.children[1].id, "zotero-skills-tb-dashboard");
     assert.equal(itemsToolbar.children[2].id, "zotero-tb-search");
     assert.equal(itemsToolbar.children[3].id, "zotero-skills-tb-skillrunner");

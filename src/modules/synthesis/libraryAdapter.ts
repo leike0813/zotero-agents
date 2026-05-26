@@ -1,12 +1,13 @@
-import {
-  getAllRegularZoteroItems,
-} from "../zoteroHostCapabilityBroker";
+import { getAllRegularZoteroItems } from "../zoteroHostCapabilityBroker";
 import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
 import {
   listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
 } from "../notePayloadCodec";
-import type { CitationGraphPaperInput, CitationGraphReferenceInput } from "./citationGraph";
+import type {
+  CitationGraphPaperInput,
+  CitationGraphReferenceInput,
+} from "./citationGraph";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 import type {
   PaperRegistryInput,
@@ -47,6 +48,15 @@ export type SynthesisLibraryIndex = {
   page_hash?: string;
 };
 
+export type SynthesisRegistryMetadataFingerprint = {
+  library_id: number;
+  item_key: string;
+  paper_ref: string;
+  deleted: boolean;
+  hash: string;
+  updated_at?: string;
+};
+
 export type PaperArtifactReadRequest = {
   paper_refs?: string[];
   paperRefs?: string[];
@@ -79,6 +89,14 @@ export type PaperArtifactReadResult = {
 
 export type SynthesisLibraryAdapter = {
   getRegistryInputs: () => Promise<PaperRegistryInput[]>;
+  getRegistryInputForItem?: (args: {
+    libraryId?: number;
+    itemKey: string;
+  }) => Promise<PaperRegistryInput | null>;
+  getRegistryMetadataFingerprints?: (args?: {
+    libraryId?: number;
+    limit?: number;
+  }) => Promise<SynthesisRegistryMetadataFingerprint[]>;
   getLibraryIndex: () => Promise<SynthesisLibraryIndex>;
   getCitationGraphInputs: () => Promise<CitationGraphPaperInput[]>;
   readPaperArtifacts: (
@@ -143,7 +161,9 @@ function getCitekey(item: any) {
 }
 
 function getYear(date: string) {
-  return cleanString(date).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || "";
+  return (
+    cleanString(date).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || ""
+  );
 }
 
 function getTitle(item: any) {
@@ -205,7 +225,9 @@ function noteTitle(note: any) {
 function zoteroRuntime() {
   const zotero = (globalThis as { Zotero?: any }).Zotero;
   if (!zotero) {
-    throw new Error("Zotero runtime is unavailable for synthesis library adapter");
+    throw new Error(
+      "Zotero runtime is unavailable for synthesis library adapter",
+    );
   }
   return zotero;
 }
@@ -257,6 +279,43 @@ async function paperInputFromItem(
   };
 }
 
+function metadataFingerprintFromItem(
+  item: any,
+  fallbackLibraryId: number,
+): SynthesisRegistryMetadataFingerprint {
+  const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
+  const itemKey = cleanString(item?.key);
+  const date = readField(item, "date");
+  const deleted =
+    typeof item?.isDeleted === "function"
+      ? item.isDeleted()
+      : Boolean(item?.deleted);
+  const metadata = {
+    library_id: libraryId,
+    item_key: itemKey,
+    deleted,
+    title: getTitle(item),
+    year: getYear(date),
+    item_type: cleanString(item?.itemType),
+    creators: getCreators(item),
+    tags: getTags(item),
+    collections: collectionRefs(item),
+    doi: readField(item, "DOI"),
+    url: readField(item, "url"),
+    arxiv: "",
+    citekey: getCitekey(item),
+    date_added: cleanString(item?.dateAdded),
+  };
+  return {
+    library_id: libraryId,
+    item_key: itemKey,
+    paper_ref: `${libraryId}:${itemKey}`,
+    deleted,
+    hash: hashCanonicalJson(metadata),
+    updated_at: cleanString(item?.dateModified || item?.dateAdded) || undefined,
+  };
+}
+
 function isVisibleTopLevelRegular(item: any) {
   const regular =
     typeof item?.isRegularItem === "function"
@@ -267,25 +326,39 @@ function isVisibleTopLevelRegular(item: any) {
       ? item.isTopLevelItem()
       : !Number(item?.parentItemID || item?.parentID || 0);
   const deleted =
-    typeof item?.isDeleted === "function" ? item.isDeleted() : Boolean(item?.deleted);
+    typeof item?.isDeleted === "function"
+      ? item.isDeleted()
+      : Boolean(item?.deleted);
   return regular && topLevel && !deleted;
 }
 
 async function registryInputsFromZotero(libraryId: number) {
   const items = await getAllRegularZoteroItems();
-  const rows = await Promise.all(items
-    .filter(isVisibleTopLevelRegular)
-    .filter((item: any) => normalizeLibraryId(item?.libraryID, libraryId) === libraryId)
-    .map((item) => paperInputFromItem(item, libraryId)));
+  const rows = await Promise.all(
+    items
+      .filter(isVisibleTopLevelRegular)
+      .filter(
+        (item: any) =>
+          normalizeLibraryId(item?.libraryID, libraryId) === libraryId,
+      )
+      .map((item) => paperInputFromItem(item, libraryId)),
+  );
   return rows
     .filter((input) => input.itemKey)
     .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
 }
 
+function itemByLibraryAndKey(libraryId: number, itemKey: string) {
+  const zotero = zoteroRuntime();
+  return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
+}
+
 function resolveCollection(ref: string, libraryId: number) {
   const zotero = zoteroRuntime();
   const numeric = Number(ref);
-  const byId = Number.isFinite(numeric) ? zotero.Collections?.get?.(numeric) : null;
+  const byId = Number.isFinite(numeric)
+    ? zotero.Collections?.get?.(numeric)
+    : null;
   if (byId) {
     return byId;
   }
@@ -309,7 +382,10 @@ function collectionIndex(inputs: PaperRegistryInput[], libraryId: number) {
         id: cleanString((collection as any)?.id || ref),
         key: cleanString((collection as any)?.key || ref),
         name: cleanString((collection as any)?.name || ref),
-        library_id: normalizeLibraryId((collection as any)?.libraryID, libraryId),
+        library_id: normalizeLibraryId(
+          (collection as any)?.libraryID,
+          libraryId,
+        ),
         item_count: count,
       };
     })
@@ -373,7 +449,8 @@ function payloadBlocksForInput(input: PaperRegistryInput) {
   const payloadTypesSeen: string[] = [];
   const decodeErrors: string[] = [];
   for (const note of noteRows) {
-    for (const block of note.payloadBlocks || listNotePayloadBlocks(note.html)) {
+    for (const block of note.payloadBlocks ||
+      listNotePayloadBlocks(note.html)) {
       const payloadType = cleanString(block.payloadType);
       if (payloadType) {
         payloadTypesSeen.push(payloadType);
@@ -390,8 +467,8 @@ function payloadBlocksForInput(input: PaperRegistryInput) {
     rows,
     noteKeysSeen: noteRows.map((note) => cleanString(note.key)).filter(Boolean),
     childNoteCount: noteRows.length,
-    payloadTypesSeen: Array.from(new Set(payloadTypesSeen)).sort((left, right) =>
-      left.localeCompare(right),
+    payloadTypesSeen: Array.from(new Set(payloadTypesSeen)).sort(
+      (left, right) => left.localeCompare(right),
     ),
     decodeErrors,
   };
@@ -418,7 +495,10 @@ function firstPayloadBlock(args: {
   artifactType: RegistryArtifactType;
 }) {
   const payloadType = PAYLOAD_TYPES[args.artifactType];
-  let decodeError: { note: PaperRegistryInputNote; block: ZoteroNotePayloadBlock } | null = null;
+  let decodeError: {
+    note: PaperRegistryInputNote;
+    block: ZoteroNotePayloadBlock;
+  } | null = null;
   for (const row of args.scan.rows) {
     if (row.block.payloadType !== payloadType) {
       continue;
@@ -459,16 +539,21 @@ function rolesByReference(payload: unknown) {
   const byTitle = new Map<string, string[]>();
   const citations = asArray((payload as any)?.citations);
   for (const citation of citations) {
-    const roles = normalizeRoles((citation as any)?.roles || (citation as any)?.role);
+    const roles = normalizeRoles(
+      (citation as any)?.roles || (citation as any)?.role,
+    );
     if (!roles.length) {
       continue;
     }
-    const rawIndex = (citation as any)?.reference_index ?? (citation as any)?.index;
+    const rawIndex =
+      (citation as any)?.reference_index ?? (citation as any)?.index;
     const index = Number(rawIndex);
     if (Number.isFinite(index) && index >= 0) {
       byIndex.set(index, [...(byIndex.get(index) || []), ...roles]);
     }
-    const title = referenceTitleKey((citation as any)?.title || (citation as any)?.reference_title);
+    const title = referenceTitleKey(
+      (citation as any)?.title || (citation as any)?.reference_title,
+    );
     if (title) {
       byTitle.set(title, [...(byTitle.get(title) || []), ...roles]);
     }
@@ -476,7 +561,9 @@ function rolesByReference(payload: unknown) {
   return { byIndex, byTitle };
 }
 
-function extractReferences(input: PaperRegistryInput): CitationGraphReferenceInput[] {
+function extractReferences(
+  input: PaperRegistryInput,
+): CitationGraphReferenceInput[] {
   const scan = payloadBlocksForInput(input);
   const referencesBlock = firstPayloadBlock({
     input,
@@ -496,7 +583,9 @@ function extractReferences(input: PaperRegistryInput): CitationGraphReferenceInp
   const references = asArray(payload?.references || payload?.items || payload);
   return references.map((entry, index): CitationGraphReferenceInput => {
     const source = entry as any;
-    const title = cleanString(source.title || source.paper_title || source.raw_title);
+    const title = cleanString(
+      source.title || source.paper_title || source.raw_title,
+    );
     const raw = cleanString(
       source.rawText || source.raw || source.reference || source.text,
     );
@@ -506,13 +595,17 @@ function extractReferences(input: PaperRegistryInput): CitationGraphReferenceInp
       ...(roleMaps.byTitle.get(referenceTitleKey(title)) || []),
     ];
     return {
-      citekey: cleanString(source.citekey || source.citeKey || source.citationKey),
+      citekey: cleanString(
+        source.citekey || source.citeKey || source.citationKey,
+      ),
       doi: cleanString(source.doi || source.DOI),
       arxiv: cleanString(source.arxiv || source.arXiv),
       url: cleanString(source.url),
       title,
       year: cleanString(source.year || source.date),
-      authors: asStringOrArray(source.author || source.authors || source.creators)
+      authors: asStringOrArray(
+        source.author || source.authors || source.creators,
+      )
         .map((author) =>
           typeof author === "string"
             ? cleanString(author)
@@ -520,7 +613,9 @@ function extractReferences(input: PaperRegistryInput): CitationGraphReferenceInp
         )
         .filter(Boolean),
       raw,
-      roles: Array.from(new Set(roles)).sort((left, right) => left.localeCompare(right)),
+      roles: Array.from(new Set(roles)).sort((left, right) =>
+        left.localeCompare(right),
+      ),
     };
   });
 }
@@ -564,7 +659,9 @@ export function readArtifactsFromRegistryInputs(
       .map(cleanString)
       .filter(Boolean),
   );
-  const requestedTypes = normalizeArtifactTypes(args.artifact_types || args.artifactTypes);
+  const requestedTypes = normalizeArtifactTypes(
+    args.artifact_types || args.artifactTypes,
+  );
   const artifacts: PaperArtifactReadResult[] = [];
   const diagnostics: string[] = [];
   const matchedRefs = new Set<string>();
@@ -585,7 +682,9 @@ export function readArtifactsFromRegistryInputs(
     diagnostics.push(
       `${paperRef}:probe:notes=${scan.childNoteCount}:payloads=${scan.payloadTypesSeen.join(",") || "none"}`,
     );
-    diagnostics.push(...scan.decodeErrors.map((entry) => `${paperRef}:decode_error:${entry}`));
+    diagnostics.push(
+      ...scan.decodeErrors.map((entry) => `${paperRef}:decode_error:${entry}`),
+    );
     for (const type of requestedTypes) {
       const found = firstPayloadBlock({ input, scan, artifactType: type });
       if (!found) {
@@ -607,7 +706,9 @@ export function readArtifactsFromRegistryInputs(
       }
       if (found.decodeError) {
         const errors = found.block.errors || ["decode_error"];
-        diagnostics.push(`${paperRef}:${PAYLOAD_TYPES[type]}:decode_error:${errors.join("; ")}`);
+        diagnostics.push(
+          `${paperRef}:${PAYLOAD_TYPES[type]}:decode_error:${errors.join("; ")}`,
+        );
         artifacts.push({
           ...baseProbe,
           paper_ref: paperRef,
@@ -659,9 +760,11 @@ export function readArtifactsFromRegistryInputs(
   return { artifacts, diagnostics };
 }
 
-export function createZoteroSynthesisLibraryAdapter(args: {
-  libraryId?: number;
-} = {}): SynthesisLibraryAdapter {
+export function createZoteroSynthesisLibraryAdapter(
+  args: {
+    libraryId?: number;
+  } = {},
+): SynthesisLibraryAdapter {
   const libraryId =
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
@@ -670,6 +773,52 @@ export function createZoteroSynthesisLibraryAdapter(args: {
   }
   return {
     getRegistryInputs: inputs,
+    async getRegistryInputForItem(request) {
+      const requestedLibraryId = normalizeLibraryId(
+        request.libraryId,
+        libraryId,
+      );
+      const itemKey = cleanString(request.itemKey);
+      if (!itemKey) {
+        return null;
+      }
+      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
+      if (!item || !isVisibleTopLevelRegular(item)) {
+        return null;
+      }
+      return paperInputFromItem(item, requestedLibraryId);
+    },
+    async getRegistryMetadataFingerprints(request = {}) {
+      const requestedLibraryId = normalizeLibraryId(
+        request.libraryId,
+        libraryId,
+      );
+      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
+      const items = await getAllRegularZoteroItems();
+      const rows = items
+        .filter((item: any) => {
+          const regular =
+            typeof item?.isRegularItem === "function"
+              ? item.isRegularItem()
+              : !item?.isNote?.() && !item?.isAttachment?.();
+          const topLevel =
+            typeof item?.isTopLevelItem === "function"
+              ? item.isTopLevelItem()
+              : !Number(item?.parentItemID || item?.parentID || 0);
+          return (
+            regular &&
+            topLevel &&
+            normalizeLibraryId(item?.libraryID, requestedLibraryId) ===
+              requestedLibraryId
+          );
+        })
+        .map((item: any) =>
+          metadataFingerprintFromItem(item, requestedLibraryId),
+        )
+        .filter((entry) => entry.item_key)
+        .sort((left, right) => left.item_key.localeCompare(right.item_key));
+      return limit > 0 ? rows.slice(0, limit) : rows;
+    },
     async getLibraryIndex() {
       return buildLibraryIndexFromRegistryInputs(libraryId, await inputs());
     },

@@ -24,6 +24,14 @@ declare namespace _ZoteroTypes {
       "hostBridgeToken": string;
       "hostBridgeTokenCreatedAt": string;
       "hostBridgeTokenRotatedAt": string;
+      "synthesisGitSyncEnabled": boolean;
+      "synthesisGitSyncRemoteUrl": string;
+      "synthesisGitSyncBranch": string;
+      "synthesisGitSyncGitCommand": string;
+      "synthesisGitSyncTokenEncryptedJson": string;
+      "synthesisGitSyncTokenMasked": string;
+      "synthesisGitSyncTokenUpdatedAt": string;
+      "synthesisGitSyncAutoRetryEnabled": boolean;
     };
   }
 }

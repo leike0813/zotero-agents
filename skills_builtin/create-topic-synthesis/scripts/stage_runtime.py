@@ -99,6 +99,8 @@ FINAL_REWRITE_PATHS = {
     "result/topic-analysis.json",
     "result/topic-analysis.patch.json",
 }
+CONCEPT_CARDS_PROPOSAL_PATH = "result/sidecars/concept-cards-proposal.json"
+TOPIC_GRAPH_RELATION_PROPOSALS_PATH = "result/sidecars/topic-graph-relation-proposals.json"
 
 ROUTE_TIMELINE_SECTIONS = ("taxonomy", "timeline_events")
 CORE_SECTIONS = (
@@ -189,10 +191,12 @@ def action_stage(action_name: str) -> str:
         "persist_core_sections",
     }:
         return "stage_8_core_sections"
+    if action_name == "persist_kg_proposals":
+        return "stage_9_kg_proposals"
     if action_name == "persist_external_statistics_report":
-        return "stage_9_external_statistics_report"
+        return "stage_10_external_statistics_report"
     if action_name == "validate_final_artifacts":
-        return "stage_10_render_and_validate"
+        return "stage_11_render_and_validate"
     if action_name in {"persist_library_index_page", "persist_resolver"}:
         return "stage_2_resolver_and_workset"
     if action_name in {"persist_topic_intent", "persist_topic_context"}:
@@ -566,7 +570,7 @@ def _load_validated_payload_artifact(
     relative_path = str(get_meta(conn, path_meta, "") or "")
     expected_hash = str(get_meta(conn, hash_meta, "") or "")
     if not relative_path or not expected_hash:
-        raise RuntimeError(f"{label} must be validated before Stage 9")
+        raise RuntimeError(f"{label} must be validated before Stage 10")
     verify_registered_file_hash(conn, run_root, relative_path)
     actual_hash = sha256_file(run_root / relative_path)
     if actual_hash != expected_hash:
@@ -602,14 +606,14 @@ def _stage9_payload_sections(payload: dict, *, operation: str) -> dict:
     protected = sorted(set(sections) & (set(ROUTE_TIMELINE_SECTIONS) | set(CORE_SECTIONS)))
     if protected:
         raise ValueError(
-            "Stage 9 payload must not overwrite validated Stage 7/8 sections: "
+            "Stage 10 payload must not overwrite validated Stage 7/8 sections: "
             + ", ".join(protected)
         )
     if operation != "update_patch":
         missing = [name for name in STAGE9_AUTHORED_SECTIONS if name not in sections]
         if missing:
             raise ValueError(
-                "persist_external_statistics_report.sections missing Stage 9 sections: "
+                "persist_external_statistics_report.sections missing Stage 10 sections: "
                 + ", ".join(missing)
             )
     elif not sections:
@@ -684,6 +688,109 @@ def persist_external_statistics_report_payload(
     }
 
 
+def _topic_id(conn) -> str:
+    topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
+    if isinstance(topic_definition, dict):
+        return str(topic_definition.get("id") or "").strip()
+    return ""
+
+
+def _require_array(value: dict, key: str, *, label: str) -> list:
+    rows = value.get(key)
+    if rows is None:
+        rows = []
+    if not isinstance(rows, list):
+        raise ValueError(f"{label}.{key} must be an array")
+    return rows
+
+
+def _normalize_concept_cards_sidecar(value: object, *, topic_id: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("kg_proposals.concept_cards_proposal must be an object")
+    cards = _require_array(value, "cards", label="concept_cards_proposal")
+    diagnostics = _require_array(value, "diagnostics", label="concept_cards_proposal")
+    result = dict(value)
+    result["schema_id"] = "synthesis.concept_cards_proposal"
+    result["schema_version"] = str(result.get("schema_version") or "1.0.0")
+    if topic_id and not str(result.get("topic_id") or "").strip():
+        result["topic_id"] = topic_id
+    result["cards"] = cards
+    result["diagnostics"] = diagnostics
+    return result
+
+
+def _normalize_topic_graph_sidecar(value: object, *, topic_id: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("kg_proposals.topic_graph_relation_proposals must be an object")
+    proposals = _require_array(value, "proposals", label="topic_graph_relation_proposals")
+    diagnostics = _require_array(value, "diagnostics", label="topic_graph_relation_proposals")
+    result = dict(value)
+    result["schema_id"] = "synthesis.topic_graph_relation_proposals"
+    result["schema_version"] = str(result.get("schema_version") or "1.0.0")
+    if topic_id and not str(result.get("source_topic_id") or "").strip():
+        result["source_topic_id"] = topic_id
+    result["proposals"] = proposals
+    result["diagnostics"] = diagnostics
+    return result
+
+
+def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
+    if payload.get("schema_id") not in (None, "synthesis.topic_synthesis_kg_proposals"):
+        raise ValueError("kg proposal payload schema_id must be synthesis.topic_synthesis_kg_proposals")
+    if "concept_cards_proposal" not in payload or "topic_graph_relation_proposals" not in payload:
+        raise ValueError(
+            "kg proposal payload requires concept_cards_proposal and topic_graph_relation_proposals"
+        )
+    topic_id = _topic_id(conn)
+    concept_sidecar = _normalize_concept_cards_sidecar(
+        payload.get("concept_cards_proposal", {}),
+        topic_id=topic_id,
+    )
+    relation_sidecar = _normalize_topic_graph_sidecar(
+        payload.get("topic_graph_relation_proposals", {}),
+        topic_id=topic_id,
+    )
+    concept_hash = write_json(run_root / CONCEPT_CARDS_PROPOSAL_PATH, concept_sidecar)
+    relation_hash = write_json(
+        run_root / TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+        relation_sidecar,
+    )
+    register_artifact(
+        conn,
+        path=CONCEPT_CARDS_PROPOSAL_PATH,
+        hash_value=concept_hash,
+        content_type="json",
+        schema_id="synthesis.concept_cards_proposal",
+        stage="stage_9_kg_proposals",
+        validated=True,
+    )
+    register_artifact(
+        conn,
+        path=TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+        hash_value=relation_hash,
+        content_type="json",
+        schema_id="synthesis.topic_graph_relation_proposals",
+        stage="stage_9_kg_proposals",
+        validated=True,
+    )
+    set_meta(conn, "concept_cards_proposal_path", CONCEPT_CARDS_PROPOSAL_PATH)
+    set_meta(conn, "topic_graph_relation_proposals_path", TOPIC_GRAPH_RELATION_PROPOSALS_PATH)
+    return {
+        "concept_cards_proposal_path": CONCEPT_CARDS_PROPOSAL_PATH,
+        "concept_cards_proposal_hash": concept_hash,
+        "topic_graph_relation_proposals_path": TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+        "topic_graph_relation_proposals_hash": relation_hash,
+    }
+
+
+def _require_registered_sidecar(conn, run_root: Path, relative_path: str, *, label: str) -> str:
+    path = run_root / relative_path
+    if not path.exists():
+        raise RuntimeError(f"{label} sidecar is required before final validation: {relative_path}")
+    verify_registered_file_hash(conn, run_root, relative_path)
+    return sha256_file(path)
+
+
 def _is_final_rewrite_integrity_error(error: str) -> bool:
     if any(path in error for path in FINAL_REWRITE_PATHS):
         return True
@@ -691,8 +798,8 @@ def _is_final_rewrite_integrity_error(error: str) -> bool:
         return True
     return (
         "runtime_integrity_non_monotonic_stage_state:" in error
-        and "stage_10_render_and_validate=" in error
-        and "before completed stage_11_completed" in error
+        and "stage_11_render_and_validate=" in error
+        and "before completed stage_12_completed" in error
     )
 
 
@@ -793,6 +900,18 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "paper_refs_count": len(paper_refs(conn)),
         "manifest_hash": sha256_file(resolver_manifest_file) if resolver_manifest_file.exists() else "",
     }
+    _require_registered_sidecar(
+        conn,
+        run_root,
+        CONCEPT_CARDS_PROPOSAL_PATH,
+        label="concept cards proposal",
+    )
+    _require_registered_sidecar(
+        conn,
+        run_root,
+        TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+        label="topic graph relation proposals",
+    )
     final = {
         "kind": "topic_synthesis",
         "operation": operation,
@@ -807,6 +926,8 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "resolver_diagnostics": resolver_diagnostics,
         "artifact_metadata": get_meta(conn, "artifact_metadata", {}),
         "analysis_manifest_path": manifest_path,
+        "concept_cards_proposal_path": CONCEPT_CARDS_PROPOSAL_PATH,
+        "topic_graph_relation_proposals_path": TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
     }
     if operation == "update_patch":
         final["topic_id"] = (
@@ -820,7 +941,7 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         hash_value=manifest_hash,
         content_type="json",
         schema_id=manifest["schema_id"],
-        stage="stage_10_render_and_validate",
+        stage="stage_11_render_and_validate",
         validated=True,
     )
     register_artifact(
@@ -829,11 +950,11 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         hash_value=final_hash,
         content_type="json",
         schema_id="synthesis.topic_synthesis_final_bundle",
-        stage="stage_10_render_and_validate",
+        stage="stage_11_render_and_validate",
         validated=True,
     )
-    set_stage_state(conn, "stage_10_render_and_validate", "completed")
-    set_stage_state(conn, "stage_11_completed", "completed")
+    set_stage_state(conn, "stage_11_render_and_validate", "completed")
+    set_stage_state(conn, "stage_12_completed", "completed")
     _post_final_integrity_check(conn, run_root)
     return {
         "manifest_path": manifest_path,
@@ -859,7 +980,7 @@ def main() -> None:
         print(json.dumps(next_action(conn), ensure_ascii=False, sort_keys=True))
         return
     if args.action == "cancel":
-        set_stage_state(conn, "stage_11_completed", "canceled")
+        set_stage_state(conn, "stage_12_completed", "canceled")
         canceled = {
             "kind": "topic_synthesis_canceled",
             "status": "canceled",
@@ -995,7 +1116,15 @@ def main() -> None:
             payload = require_payload(args)
             result = validate_core_analytical_sections(conn, payload, Path(args.run_root))
             set_stage_state(conn, "stage_8_core_sections", "completed")
-            set_stage_state(conn, "stage_9_external_statistics_report", "running")
+            set_stage_state(conn, "stage_9_kg_proposals", "running")
+            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action == "persist_kg_proposals":
+            payload = require_payload(args)
+            result = persist_kg_proposals_payload(conn, payload, Path(args.run_root))
+            set_stage_state(conn, "stage_9_kg_proposals", "completed")
+            set_stage_state(conn, "stage_10_external_statistics_report", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
@@ -1010,8 +1139,8 @@ def main() -> None:
                 operation=operation,
                 language=language,
             )
-            set_stage_state(conn, "stage_9_external_statistics_report", "completed")
-            set_stage_state(conn, "stage_10_render_and_validate", "running")
+            set_stage_state(conn, "stage_10_external_statistics_report", "completed")
+            set_stage_state(conn, "stage_11_render_and_validate", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 

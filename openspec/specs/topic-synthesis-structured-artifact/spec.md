@@ -218,3 +218,34 @@ the host.
 - **THEN** validation fails before host persistence
 - **AND** host apply renders canonical `current/export.md` only after the
   structured artifact has been materialized.
+
+### Requirement: Relation proposals remain sidecar artifacts
+
+Topic graph relation proposals SHALL NOT become structured topic artifact sections or Markdown export source content.
+
+#### Scenario: Structured artifact is assembled
+
+- **WHEN** a topic synthesis final bundle includes `topic_graph_relation_proposals_path`
+- **THEN** the host SHALL keep relation proposals outside the structured artifact sections
+- **AND** structured artifact validation SHALL NOT require a relation proposal section.
+
+### Requirement: Concept card proposals remain sidecar artifacts
+
+Concept card proposals SHALL NOT become structured topic artifact sections or Markdown export source content.
+
+#### Scenario: Structured artifact is assembled
+
+- **WHEN** a topic synthesis final bundle includes `concept_cards_proposal_path`
+- **THEN** the host SHALL keep concept card proposals outside structured artifact sections
+- **AND** structured artifact validation SHALL NOT require a concept card section.
+
+### Requirement: KG proposals remain outside structured topic artifact source of truth
+
+Concept card proposals and topic graph relation proposals SHALL remain sidecars and SHALL NOT become sections or embedded fields in the structured topic synthesis artifact.
+
+#### Scenario: Final structured artifact is assembled
+
+- **WHEN** runtime assembles `result/topic-analysis.json` or `result/topic-analysis.patch.json`
+- **THEN** it SHALL NOT include concept cards or topic graph relation proposal bodies
+- **AND** host apply SHALL consume those proposals only through final bundle sidecar paths.
+

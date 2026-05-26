@@ -152,19 +152,26 @@ describe("host bridge capability calls", function () {
   });
 
   it("exposes Synthesis host capabilities through Host Bridge CLI-compatible calls", async function () {
-    const token = configureHostBridgeServerForTests({ token: "synthesis-token" });
+    const token = configureHostBridgeServerForTests({
+      token: "synthesis-token",
+    });
 
     const parsed = await callBridgeCapability({
       token,
-      capability: "synthesis.list_topics",
-      input: {},
+      capability: "synthesis.get_paper_registry",
+      input: { limit: 1 },
     });
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
-    assert.strictEqual(parsed.json.result.capability, "synthesis.list_topics");
+    assert.strictEqual(
+      parsed.json.result.capability,
+      "synthesis.get_paper_registry",
+    );
     assert.strictEqual(parsed.json.result.approval, "none");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
+    assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
+    assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
   });
 
   it("allows mutation preview without executing a write", async function () {
@@ -204,7 +211,10 @@ describe("host bridge capability calls", function () {
     });
     assert.strictEqual(canonical.status, 200);
     assert.isTrue(canonical.json.result.data.ok);
-    assert.strictEqual(canonical.json.result.data.operation, "literature.ingest");
+    assert.strictEqual(
+      canonical.json.result.data.operation,
+      "literature.ingest",
+    );
     assert.include(canonical.json.result.data.summary, "one paper");
   });
 

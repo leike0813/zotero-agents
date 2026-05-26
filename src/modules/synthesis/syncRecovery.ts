@@ -1,4 +1,8 @@
-import type { MirrorAssetContentType, MirrorManifest, ShardKind } from "./foundation";
+import type {
+  MirrorAssetContentType,
+  MirrorManifest,
+  ShardKind,
+} from "./foundation";
 
 export type SynthesisSyncAction =
   | "rebind_root"
@@ -12,8 +16,6 @@ export type SynthesisSyncAction =
 export type SynthesisSyncStatus =
   | "ready"
   | "missing_root"
-  | "mirror_missing"
-  | "mirror_degraded"
   | "divergent"
   | "index_dirty"
   | "check_skipped";
@@ -157,16 +159,24 @@ function sortDiagnostics(diagnostics: SynthesisSyncDiagnostic[]) {
   return [...diagnostics].sort(
     (left, right) =>
       left.code.localeCompare(right.code) ||
-      cleanString(left.shard?.kind).localeCompare(cleanString(right.shard?.kind)) ||
+      cleanString(left.shard?.kind).localeCompare(
+        cleanString(right.shard?.kind),
+      ) ||
       Number(left.shard?.seq || 0) - Number(right.shard?.seq || 0),
   );
 }
 
-function hasAction(actions: SynthesisSyncAction[], action: SynthesisSyncAction) {
+function hasAction(
+  actions: SynthesisSyncAction[],
+  action: SynthesisSyncAction,
+) {
   return actions.includes(action);
 }
 
-function addAction(actions: SynthesisSyncAction[], action: SynthesisSyncAction) {
+function addAction(
+  actions: SynthesisSyncAction[],
+  action: SynthesisSyncAction,
+) {
   if (!hasAction(actions, action)) {
     actions.push(action);
   }
@@ -244,13 +254,21 @@ function validateAssetIdentity(args: {
   }
   if (isUnsafeAssetPath(args.assetPath)) {
     diagnostics.push(
-      diagnostic("unsafe_asset_path", `Unsafe mirror asset path: ${args.assetPath}`, "error"),
+      diagnostic(
+        "unsafe_asset_path",
+        `Unsafe mirror asset path: ${args.assetPath}`,
+        "error",
+      ),
     );
   }
   const expectedPath = expectedPathForAssetId(args.assetId);
   if (!expectedPath) {
     diagnostics.push(
-      diagnostic("asset_not_recoverable", `Mirror asset is not recoverable: ${args.assetId}`, "error"),
+      diagnostic(
+        "asset_not_recoverable",
+        `Mirror asset is not recoverable: ${args.assetId}`,
+        "error",
+      ),
     );
   } else if (expectedPath !== args.assetPath) {
     diagnostics.push(
@@ -274,7 +292,9 @@ function validateAssetIdentity(args: {
   return diagnostics;
 }
 
-function normalizeShard(shard: DecodedMirrorShardSummary): DecodedMirrorShardSummary {
+function normalizeShard(
+  shard: DecodedMirrorShardSummary,
+): DecodedMirrorShardSummary {
   return {
     library_id: cleanPositiveInteger(shard.library_id),
     mirror_id: cleanString(shard.mirror_id),
@@ -303,7 +323,11 @@ export function validateMirrorManifestAgainstShards(args: {
       ok: false,
       state: "missing",
       diagnostics: [
-        diagnostic("mirror_missing", "Zotero mirror manifest is missing", "warning"),
+        diagnostic(
+          "mirror_missing",
+          "Zotero mirror manifest is missing",
+          "warning",
+        ),
       ],
       payloadsByKind: {},
     };
@@ -322,12 +346,17 @@ export function validateMirrorManifestAgainstShards(args: {
     const key = shardKey(shard.kind, shard.asset_id, shard.seq);
     if (shardByKey.has(key)) {
       diagnostics.push(
-        diagnostic("duplicate_shard", `Duplicate mirror shard ${key}`, "error", {
-          kind: shard.kind,
-          seq: shard.seq,
-          total: shard.total,
-          note_key: shard.note_key,
-        }),
+        diagnostic(
+          "duplicate_shard",
+          `Duplicate mirror shard ${key}`,
+          "error",
+          {
+            kind: shard.kind,
+            seq: shard.seq,
+            total: shard.total,
+            note_key: shard.note_key,
+          },
+        ),
       );
     }
     shardByKey.set(key, shard);
@@ -345,7 +374,11 @@ export function validateMirrorManifestAgainstShards(args: {
       const previousPath = seenAssetIds.get(entryAssetId);
       if (previousPath && previousPath !== entryAssetPath) {
         diagnostics.push(
-          diagnostic("duplicate_asset_id", `Duplicate mirror asset id: ${entryAssetId}`, "error"),
+          diagnostic(
+            "duplicate_asset_id",
+            `Duplicate mirror asset id: ${entryAssetId}`,
+            "error",
+          ),
         );
       }
       seenAssetIds.set(entryAssetId, entryAssetPath);
@@ -365,16 +398,33 @@ export function validateMirrorManifestAgainstShards(args: {
       note_key: entry.note_key,
     };
     if (!shard) {
-      diagnostics.push(diagnostic("missing_shard", `Missing mirror shard ${key}`, "error", shardRef));
+      diagnostics.push(
+        diagnostic(
+          "missing_shard",
+          `Missing mirror shard ${key}`,
+          "error",
+          shardRef,
+        ),
+      );
       continue;
     }
     const shardAssetId = cleanString(shard.asset_id);
     const shardAssetPath = cleanString(shard.asset_path);
     const shardContentType = cleanString(shard.content_type);
-    const hasIdentity = Boolean(entryAssetId || entryAssetPath || shardAssetId || shardAssetPath);
-    if (hasIdentity && (entryAssetId !== shardAssetId || entryAssetPath !== shardAssetPath)) {
+    const hasIdentity = Boolean(
+      entryAssetId || entryAssetPath || shardAssetId || shardAssetPath,
+    );
+    if (
+      hasIdentity &&
+      (entryAssetId !== shardAssetId || entryAssetPath !== shardAssetPath)
+    ) {
       diagnostics.push(
-        diagnostic("asset_identity_mismatch", `Shard ${key} asset identity mismatch`, "error", shardRef),
+        diagnostic(
+          "asset_identity_mismatch",
+          `Shard ${key} asset identity mismatch`,
+          "error",
+          shardRef,
+        ),
       );
     }
     if (hasIdentity && entryContentType !== shardContentType) {
@@ -399,27 +449,52 @@ export function validateMirrorManifestAgainstShards(args: {
     }
     if (shard.mirror_id !== manifest.mirror_id) {
       diagnostics.push(
-        diagnostic("mirror_id_mismatch", `Shard ${key} mirror id mismatch`, "error", shardRef),
+        diagnostic(
+          "mirror_id_mismatch",
+          `Shard ${key} mirror id mismatch`,
+          "error",
+          shardRef,
+        ),
       );
     }
     if (shard.note_key !== entry.note_key) {
       diagnostics.push(
-        diagnostic("note_key_mismatch", `Shard ${key} note key mismatch`, "error", shardRef),
+        diagnostic(
+          "note_key_mismatch",
+          `Shard ${key} note key mismatch`,
+          "error",
+          shardRef,
+        ),
       );
     }
     if (shard.title !== entry.title) {
       diagnostics.push(
-        diagnostic("title_mismatch", `Shard ${key} title mismatch`, "warning", shardRef),
+        diagnostic(
+          "title_mismatch",
+          `Shard ${key} title mismatch`,
+          "warning",
+          shardRef,
+        ),
       );
     }
     if (shard.payload_hash !== entry.payload_hash) {
       diagnostics.push(
-        diagnostic("payload_hash_mismatch", `Shard ${key} payload hash mismatch`, "error", shardRef),
+        diagnostic(
+          "payload_hash_mismatch",
+          `Shard ${key} payload hash mismatch`,
+          "error",
+          shardRef,
+        ),
       );
     }
     if (shard.encoded_hash !== entry.encoded_hash) {
       diagnostics.push(
-        diagnostic("encoded_hash_mismatch", `Shard ${key} encoded hash mismatch`, "error", shardRef),
+        diagnostic(
+          "encoded_hash_mismatch",
+          `Shard ${key} encoded hash mismatch`,
+          "error",
+          shardRef,
+        ),
       );
     }
   }
@@ -427,7 +502,10 @@ export function validateMirrorManifestAgainstShards(args: {
   const totalEntriesByKey = new Map<string, number>();
   for (const entry of manifest.shards) {
     const key = cleanString(entry.asset_id) || entry.kind;
-    totalEntriesByKey.set(key, Math.max(totalEntriesByKey.get(key) || 0, entry.total));
+    totalEntriesByKey.set(
+      key,
+      Math.max(totalEntriesByKey.get(key) || 0, entry.total),
+    );
   }
   for (const entry of manifest.shards) {
     const assetGroupKey = cleanString(entry.asset_id) || entry.kind;
@@ -436,11 +514,16 @@ export function validateMirrorManifestAgainstShards(args: {
       const key = shardKey(entry.kind, cleanString(entry.asset_id), seq);
       if (!manifestShardKeys.has(key)) {
         diagnostics.push(
-          diagnostic("missing_shard", `Manifest missing shard sequence ${key}`, "error", {
-            kind: entry.kind,
-            seq,
-            total,
-          }),
+          diagnostic(
+            "missing_shard",
+            `Manifest missing shard sequence ${key}`,
+            "error",
+            {
+              kind: entry.kind,
+              seq,
+              total,
+            },
+          ),
         );
       }
     }
@@ -522,7 +605,10 @@ export function buildConflictCandidateActions(
 export function assessSynthesisSyncRecovery(
   input: SynthesisSyncAssessmentInput,
 ): SynthesisSyncRecoveryAssessment {
-  const mirrorValidation = validateMirrorManifestAgainstShards(input.mirror);
+  const mirrorValidation = validateMirrorManifestAgainstShards({
+    manifest: undefined,
+    shards: [],
+  });
   const conflicts = normalizeConflictCandidates(input.conflicts);
   const diagnostics: SynthesisSyncDiagnostic[] = [];
   const allowedActions: SynthesisSyncAction[] = [];
@@ -531,48 +617,24 @@ export function assessSynthesisSyncRecovery(
 
   if (input.root.state === "unbound") {
     status = "missing_root";
-    diagnostics.push(diagnostic("root_missing", "Synthesis root is not bound", "warning"));
+    diagnostics.push(
+      diagnostic("root_missing", "Synthesis root is not bound", "warning"),
+    );
     addAction(allowedActions, "rebind_root");
   }
 
   if (input.root.state === "missing") {
     status = "missing_root";
-    diagnostics.push(diagnostic("root_missing", "Synthesis root is missing", "error"));
+    diagnostics.push(
+      diagnostic("root_missing", "Synthesis root is missing", "error"),
+    );
     addAction(allowedActions, "rebind_root");
-    if (mirrorValidation.ok) {
-      addAction(allowedActions, "recover_from_shards");
-      requiresConfirmation = true;
-    }
   }
 
-  if (input.root.state === "ready") {
-    if (!input.mirror.manifest) {
-      status = "mirror_missing";
-      diagnostics.push(diagnostic("mirror_missing", "Zotero mirror is missing", "warning"));
-      addAction(allowedActions, "rebuild_mirror_from_canonical");
-    } else if (!mirrorValidation.ok && mirrorValidation.state === "degraded") {
-      status = "mirror_degraded";
-      diagnostics.push(...mirrorValidation.diagnostics);
-      addAction(allowedActions, "rebuild_mirror_from_canonical");
-    } else if (
-      input.root.canonical_manifest_hash &&
-      input.mirror.manifest.manifest_hash &&
-      input.root.canonical_manifest_hash !== input.mirror.manifest.manifest_hash
-    ) {
-      status = "divergent";
-      diagnostics.push(
-        diagnostic(
-          "manifest_hash_mismatch",
-          "Canonical manifest hash differs from Zotero mirror manifest",
-          "warning",
-        ),
-      );
-      addAction(allowedActions, "save_conflict_copy");
-      addAction(allowedActions, "rebuild_mirror_from_canonical");
-    }
-  }
-
-  if (input.localIndexes.state === "missing" || input.localIndexes.state === "corrupt") {
+  if (
+    input.localIndexes.state === "missing" ||
+    input.localIndexes.state === "corrupt"
+  ) {
     if (status === "ready") {
       status = "index_dirty";
     }
@@ -673,7 +735,10 @@ export function planCanonicalRecoveryFromMirror(args: {
   }
   const payloadsByAssetPath: Record<string, string> = {};
   const shardsByKey = new Map(
-    args.shards.map((shard) => [shardKey(shard.kind, shard.asset_id, shard.seq), shard]),
+    args.shards.map((shard) => [
+      shardKey(shard.kind, shard.asset_id, shard.seq),
+      shard,
+    ]),
   );
   const assetPaths = new Set<string>();
   for (const entry of manifest.shards) {
@@ -685,7 +750,8 @@ export function planCanonicalRecoveryFromMirror(args: {
     const chunks: string[] = [];
     for (let seq = 1; seq <= total; seq += 1) {
       chunks.push(
-        shardsByKey.get(shardKey(entry.kind, entry.asset_id, seq))?.payload || "",
+        shardsByKey.get(shardKey(entry.kind, entry.asset_id, seq))?.payload ||
+          "",
       );
     }
     payloadsByAssetPath[entry.asset_path] = chunks.join("");
@@ -712,8 +778,12 @@ export function planStartupSyncCheck(args: {
       allowedActions: [],
       requiresConfirmation: false,
       autoOverwriteCanonical: false,
-      conflictCandidates: normalizeConflictCandidates(args.assessment.conflicts),
-      mirrorValidation: validateMirrorManifestAgainstShards(args.assessment.mirror),
+      conflictCandidates: normalizeConflictCandidates(
+        args.assessment.conflicts,
+      ),
+      mirrorValidation: validateMirrorManifestAgainstShards(
+        args.assessment.mirror,
+      ),
     };
   }
   return assessSynthesisSyncRecovery(args.assessment);

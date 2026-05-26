@@ -15,7 +15,10 @@ import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
-import { openSynthesisWorkbenchTab } from "./modules/synthesisWorkbenchTab";
+import {
+  openSynthesisWorkbenchTab,
+  prewarmSynthesisWorkbenchSnapshot,
+} from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
@@ -70,6 +73,10 @@ import {
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistence";
 import {
+  cleanupPersistenceIssues,
+  scanPersistenceIntegrity,
+} from "./modules/persistenceIntegrity";
+import {
   ensureHostBridgeServer,
   getHostBridgeServerStatus,
   restartHostBridgeServer,
@@ -80,10 +87,13 @@ import {
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
+import { getDefaultSynthesisService } from "./modules/synthesis/service";
+import { recordSynthesisZoteroItemNotifications } from "./modules/synthesis/itemObserver";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
+const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 
 function registerPrefsPane() {
   const runtimeRootURI =
@@ -134,6 +144,35 @@ export function setSkillRunnerStartupBackendReconcileRunnerForTests(
 
 async function delayMs(ms: number) {
   await delay(ms);
+}
+
+function prewarmSynthesisWorkbenchAfterStartup() {
+  void (async () => {
+    await delay(SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS);
+    const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
+    const popupWin = ProgressWindow
+      ? new ProgressWindow(addon.data.config.addonName, {
+          closeOnClick: true,
+          closeTime: -1,
+        })
+          .createLine({
+            text: "Preloading Synthesis Workbench...",
+            type: "default",
+            progress: 15,
+          })
+          .show()
+      : null;
+    const snapshot = await prewarmSynthesisWorkbenchSnapshot();
+    if (popupWin) {
+      popupWin.changeLine({
+        progress: 100,
+        text: snapshot
+          ? "Synthesis Workbench is ready."
+          : "Synthesis Workbench will load on first open.",
+      });
+      popupWin.startCloseTimer(3000);
+    }
+  })().catch(() => undefined);
 }
 
 function getRuntimeToolkit() {
@@ -251,6 +290,9 @@ async function onStartup() {
   }
   startManagedLocalRuntimeAutoEnsureLoop();
   startHostBridgeSupervisor();
+  void getDefaultSynthesisService()
+    .runSynthesisStartupReconcile({ batchLimit: 500 })
+    .catch(() => undefined);
 
   registerPrefsPane();
 
@@ -261,6 +303,7 @@ async function onStartup() {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
+  prewarmSynthesisWorkbenchAfterStartup();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
@@ -344,6 +387,12 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
+  void recordSynthesisZoteroItemNotifications({
+    event,
+    type,
+    ids,
+    extraData,
+  }).catch(() => undefined);
   return;
 }
 
@@ -426,28 +475,32 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         initialView: "dashboard",
       });
       break;
-    case "listDashboardActiveTasksForPopover":
-      {
-        const [activeTasks, acpSkillRuns, filter, displayName] = await Promise.all([
+    case "listDashboardActiveTasksForPopover": {
+      const [activeTasks, acpSkillRuns, filter, displayName] =
+        await Promise.all([
           import("./modules/taskRuntime"),
           import("./modules/acpSkillRunStore"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);
-        const backendMetaById = new Map(
-          (await loadBackendsRegistry()).backends.map((entry) => [
-            String(entry.id || "").trim(),
-            {
-              displayName: String(entry.displayName || "").trim(),
-            },
-          ]),
-        );
-        return filter.filterDashboardActiveTasks({
+      const backendMetaById = new Map(
+        (await loadBackendsRegistry()).backends.map((entry) => [
+          String(entry.id || "").trim(),
+          {
+            displayName: String(entry.displayName || "").trim(),
+          },
+        ]),
+      );
+      return filter
+        .filterDashboardActiveTasks({
           activeTasks: activeTasks.listActiveWorkflowTasks(),
           acpSkillRuns: acpSkillRuns.listAcpSkillRuns(),
-        }).map((entry) => {
+        })
+        .map((entry) => {
           const backendId = String(entry.backendId || "").trim();
-          const backendMeta = backendId ? backendMetaById.get(backendId) : undefined;
+          const backendMeta = backendId
+            ? backendMetaById.get(backendId)
+            : undefined;
           return {
             ...entry,
             backendLabel: backendId
@@ -458,7 +511,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
               : "",
           };
         });
-      }
+    }
     case "openSynthesisWorkbench":
       await openSynthesisWorkbenchTab({
         window: data.window,
@@ -516,6 +569,27 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return cleanupRuntimePersistenceCategory(
         String(data.category || "") as RuntimePersistenceCategory,
       );
+    case "scanPersistenceGovernance": {
+      const [usage, integrity] = await Promise.all([
+        scanRuntimePersistenceUsage(),
+        scanPersistenceIntegrity(),
+      ]);
+      return { usage, integrity };
+    }
+    case "cleanupPersistenceGovernanceIssues": {
+      const issueIds = Array.isArray(data.issueIds)
+        ? data.issueIds.map((entry: unknown) => String(entry || "").trim())
+        : [];
+      const cleanup = await cleanupPersistenceIssues({
+        issueIds: issueIds.filter(Boolean),
+        dryRun: data.dryRun !== false,
+      });
+      const [usage, integrity] = await Promise.all([
+        scanRuntimePersistenceUsage(),
+        scanPersistenceIntegrity(),
+      ]);
+      return { cleanup, usage, integrity };
+    }
     case "openRuntimePersistenceRoot":
       try {
         openFolderInSystemFileManager(getRuntimePersistencePaths().root, {

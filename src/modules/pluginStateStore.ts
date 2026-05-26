@@ -1,7 +1,6 @@
 import { joinPath } from "../utils/path";
 import { getPref, setPref } from "../utils/prefs";
 import {
-  getLegacyPluginStateDatabasePath,
   getRuntimePersistencePaths,
   registerPluginTaskDomainClearer,
   registerPluginTaskDomainExceptRowScopesClearer,
@@ -19,7 +18,13 @@ type SqlAdapter = {
   transaction: <T>(fn: () => T) => T;
 };
 
-type PluginTaskScope = "active" | "history" | "skill-runs" | "products";
+type PluginTaskScope =
+  | "active"
+  | "history"
+  | "skill-runs"
+  | "products"
+  | "synthesis-update-events"
+  | "synthesis-update-state";
 
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
@@ -51,7 +56,6 @@ export type PluginTaskRowEntry = {
   payload: string;
 };
 
-const SQLITE_FILE_NAME = "zotero-skills.db";
 const SQLITE_MIGRATION_META_KEY = "migration_task_state_v1";
 
 let adapter: SqlAdapter | null = null;
@@ -135,7 +139,9 @@ function buildStorageExecutionError(args: {
 
 function logInfo(message: string, payload?: unknown) {
   const runtime = globalThis as {
-    console?: { info?: (message?: unknown, ...optionalParams: unknown[]) => void };
+    console?: {
+      info?: (message?: unknown, ...optionalParams: unknown[]) => void;
+    };
     Zotero?: { debug?: (message: string) => void };
   };
   if (runtime.console && typeof runtime.console.info === "function") {
@@ -151,7 +157,9 @@ function logInfo(message: string, payload?: unknown) {
 
 function logWarn(message: string, payload?: unknown) {
   const runtime = globalThis as {
-    console?: { warn?: (message?: unknown, ...optionalParams: unknown[]) => void };
+    console?: {
+      warn?: (message?: unknown, ...optionalParams: unknown[]) => void;
+    };
     Zotero?: { debug?: (message: string) => void };
   };
   if (runtime.console && typeof runtime.console.warn === "function") {
@@ -176,9 +184,9 @@ function getDataDirectoryPath() {
   }
   const cwd = runtime.process?.cwd?.();
   if (cwd) {
-    return joinPath(cwd, ".zotero-skills-runtime");
+    return joinPath(cwd, ".zotero-agents");
   }
-  return ".zotero-skills-runtime";
+  return ".zotero-agents";
 }
 
 export function getPluginDataDirectoryPath() {
@@ -229,43 +237,9 @@ export function getPluginStateDatabasePath() {
 }
 
 function migrateLegacyStateDatabaseIfNeeded() {
-  const runtime = globalThis as {
-    Zotero?: {
-      File?: {
-        pathToFile?: (path: string) => any;
-      };
-    };
-  };
-  const targetPath = getPluginStateDatabasePath();
-  const legacyPath = getLegacyPluginStateDatabasePath();
-  if (!runtime.Zotero?.File?.pathToFile || targetPath === legacyPath) {
-    return;
-  }
-  try {
-    const target = runtime.Zotero.File.pathToFile(targetPath);
-    if (typeof target?.exists === "function" && target.exists()) {
-      return;
-    }
-    const legacy = runtime.Zotero.File.pathToFile(legacyPath);
-    if (typeof legacy?.exists !== "function" || !legacy.exists()) {
-      return;
-    }
-    const parent = target?.parent;
-    if (!parent || typeof legacy.copyTo !== "function") {
-      return;
-    }
-    legacy.copyTo(parent, SQLITE_FILE_NAME);
-    logInfo("[pluginStateStore] migrated legacy state database", {
-      legacyPath,
-      targetPath,
-    });
-  } catch (error) {
-    logWarn("[pluginStateStore] failed to migrate legacy state database", {
-      legacyPath,
-      targetPath,
-      error: String(error),
-    });
-  }
+  // Legacy database migration is now handled only by the explicit one-shot
+  // persistence migration script. Runtime startup must not silently read or copy
+  // the old zotero-skills state database.
 }
 
 function ensureStateDirectory() {
@@ -375,7 +349,9 @@ function buildMemoryAdapter(): SqlAdapter {
         memoryTables.meta.clear();
         return;
       }
-      if (normalizedSql.startsWith("insert or replace into plugin_task_requests")) {
+      if (
+        normalizedSql.startsWith("insert or replace into plugin_task_requests")
+      ) {
         const domain = normalizeString(params.domain);
         const requestId = normalizeString(params.request_id);
         if (!domain || !requestId) {
@@ -413,7 +389,9 @@ function buildMemoryAdapter(): SqlAdapter {
         }
         return;
       }
-      if (normalizedSql.startsWith("insert or replace into plugin_task_contexts")) {
+      if (
+        normalizedSql.startsWith("insert or replace into plugin_task_contexts")
+      ) {
         const domain = normalizeString(params.domain);
         const contextId = normalizeString(params.context_id);
         if (!domain || !contextId) {
@@ -483,29 +461,33 @@ function buildMemoryAdapter(): SqlAdapter {
       if (normalizedSql.includes("from plugin_task_requests")) {
         const domain = normalizeString(params.domain);
         const requestId = normalizeString(params.request_id);
-        const rows = Array.from(memoryTables.requests.values()).filter((row) => {
-          if (domain && row.domain !== domain) {
-            return false;
-          }
-          if (requestId && row.request_id !== requestId) {
-            return false;
-          }
-          return true;
-        });
+        const rows = Array.from(memoryTables.requests.values()).filter(
+          (row) => {
+            if (domain && row.domain !== domain) {
+              return false;
+            }
+            if (requestId && row.request_id !== requestId) {
+              return false;
+            }
+            return true;
+          },
+        );
         return byUpdatedDesc(rows).map((row) => ({ ...row }));
       }
       if (normalizedSql.includes("from plugin_task_contexts")) {
         const domain = normalizeString(params.domain);
         const contextId = normalizeString(params.context_id);
-        const rows = Array.from(memoryTables.contexts.values()).filter((row) => {
-          if (domain && row.domain !== domain) {
-            return false;
-          }
-          if (contextId && row.context_id !== contextId) {
-            return false;
-          }
-          return true;
-        });
+        const rows = Array.from(memoryTables.contexts.values()).filter(
+          (row) => {
+            if (domain && row.domain !== domain) {
+              return false;
+            }
+            if (contextId && row.context_id !== contextId) {
+              return false;
+            }
+            return true;
+          },
+        );
         return byUpdatedDesc(rows).map((row) => ({ ...row }));
       }
       if (normalizedSql.includes("from plugin_task_rows")) {
@@ -528,13 +510,19 @@ function buildMemoryAdapter(): SqlAdapter {
           const row = memoryTables.meta.get(key);
           return row ? [{ ...row }] : [];
         }
-        return Array.from(memoryTables.meta.values()).map((row) => ({ ...row }));
+        return Array.from(memoryTables.meta.values()).map((row) => ({
+          ...row,
+        }));
       }
       return [];
     },
     get(sql, params = {}) {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
-      if (normalizedSql.startsWith("select count(*) as value from plugin_task_requests")) {
+      if (
+        normalizedSql.startsWith(
+          "select count(*) as value from plugin_task_requests",
+        )
+      ) {
         const domain = normalizeString(params.domain);
         const backendId = normalizeString(params.backend_id);
         let count = 0;
@@ -549,7 +537,11 @@ function buildMemoryAdapter(): SqlAdapter {
         }
         return { value: count };
       }
-      if (normalizedSql.startsWith("select count(*) as value from plugin_task_contexts")) {
+      if (
+        normalizedSql.startsWith(
+          "select count(*) as value from plugin_task_contexts",
+        )
+      ) {
         const domain = normalizeString(params.domain);
         const backendId = normalizeString(params.backend_id);
         let count = 0;
@@ -564,7 +556,11 @@ function buildMemoryAdapter(): SqlAdapter {
         }
         return { value: count };
       }
-      if (normalizedSql.startsWith("select count(*) as value from plugin_task_rows")) {
+      if (
+        normalizedSql.startsWith(
+          "select count(*) as value from plugin_task_rows",
+        )
+      ) {
         const domain = normalizeString(params.domain);
         const backendId = normalizeString(params.backend_id);
         let count = 0;
@@ -579,7 +575,9 @@ function buildMemoryAdapter(): SqlAdapter {
         }
         return { value: count };
       }
-      if (normalizedSql.startsWith("select count(*) as value from plugin_meta")) {
+      if (
+        normalizedSql.startsWith("select count(*) as value from plugin_meta")
+      ) {
         return { value: memoryTables.meta.size };
       }
       const rows = this.all(sql, params);
@@ -629,7 +627,11 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
       const normalized = normalizeSqlParam(params[key]);
       const bindValue = normalized === null ? "" : normalized;
       let bound = false;
-      const bindByIndex = (statement as { bindByIndex?: (idx: number, value: SqlPrimitive) => void }).bindByIndex;
+      const bindByIndex = (
+        statement as {
+          bindByIndex?: (idx: number, value: SqlPrimitive) => void;
+        }
+      ).bindByIndex;
       if (typeof bindByIndex === "function") {
         try {
           bindByIndex.call(statement, index, bindValue);
@@ -640,7 +642,11 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
       }
       if (!bound) {
         const candidates = [key, `:${key}`, `@${key}`, `$${key}`];
-        const bindByName = (statement as { bindByName?: (name: string, value: SqlPrimitive) => void }).bindByName;
+        const bindByName = (
+          statement as {
+            bindByName?: (name: string, value: SqlPrimitive) => void;
+          }
+        ).bindByName;
         if (typeof bindByName === "function") {
           for (const name of candidates) {
             try {
@@ -863,17 +869,22 @@ function parseLegacyDocument(rawValue: string) {
 }
 
 function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
-  const migrated = db.get(
-    "SELECT value FROM plugin_meta WHERE key=@meta_key",
-    { meta_key: SQLITE_MIGRATION_META_KEY },
-  );
+  const migrated = db.get("SELECT value FROM plugin_meta WHERE key=@meta_key", {
+    meta_key: SQLITE_MIGRATION_META_KEY,
+  });
   if (normalizeString(migrated?.value) === "done") {
     return;
   }
 
-  const requestRows = parseLegacyDocument(String(getPref("skillRunnerRequestLedgerJson") || ""));
-  const contextRows = parseLegacyDocument(String(getPref("skillRunnerDeferredTasksJson") || ""));
-  const historyRows = parseLegacyDocument(String(getPref("taskDashboardHistoryJson") || ""));
+  const requestRows = parseLegacyDocument(
+    String(getPref("skillRunnerRequestLedgerJson") || ""),
+  );
+  const contextRows = parseLegacyDocument(
+    String(getPref("skillRunnerDeferredTasksJson") || ""),
+  );
+  const historyRows = parseLegacyDocument(
+    String(getPref("taskDashboardHistoryJson") || ""),
+  );
   const migratedAt = nowIso();
   const invalidReasons: string[] = [];
   const counters = {
@@ -894,10 +905,9 @@ function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
     historyTotal: counters.historyTotal,
   });
   db.transaction(() => {
-    db.run(
-      "DELETE FROM plugin_task_requests WHERE domain=@domain",
-      { domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER },
-    );
+    db.run("DELETE FROM plugin_task_requests WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    });
     for (let index = 0; index < requestRows.length; index += 1) {
       const raw = requestRows[index];
       if (!isObject(raw)) {
@@ -929,10 +939,9 @@ function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
       counters.requestInserted += 1;
     }
 
-    db.run(
-      "DELETE FROM plugin_task_contexts WHERE domain=@domain",
-      { domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER },
-    );
+    db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    });
     for (let index = 0; index < contextRows.length; index += 1) {
       const raw = contextRows[index];
       if (!isObject(raw)) {
@@ -1039,9 +1048,13 @@ function getAdapter() {
   if (!initialized) {
     try {
       ensureSchema(adapter);
-      const schemaProbe = adapter.get("SELECT COUNT(*) AS value FROM plugin_meta");
+      const schemaProbe = adapter.get(
+        "SELECT COUNT(*) AS value FROM plugin_meta",
+      );
       if (schemaProbe === null || typeof schemaProbe.value === "undefined") {
-        throw new Error("[pluginStateStore] schema probe failed for plugin_meta");
+        throw new Error(
+          "[pluginStateStore] schema probe failed for plugin_meta",
+        );
       }
       migrateLegacyPrefsIntoSqlite(adapter);
       const migrationProbe = adapter.get(
@@ -1096,7 +1109,10 @@ export function listPluginTaskRequestEntries(domain: string) {
   }));
 }
 
-export function getPluginTaskRequestEntry(domain: string, requestIdRaw: string) {
+export function getPluginTaskRequestEntry(
+  domain: string,
+  requestIdRaw: string,
+) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     return null;
@@ -1172,7 +1188,10 @@ export function replacePluginTaskRequestEntries(
   });
 }
 
-export function deletePluginTaskRequestEntry(domainRaw: string, requestIdRaw: string) {
+export function deletePluginTaskRequestEntry(
+  domainRaw: string,
+  requestIdRaw: string,
+) {
   const domain = normalizeString(domainRaw);
   const requestId = normalizeString(requestIdRaw);
   if (!domain || !requestId) {
@@ -1288,7 +1307,10 @@ export function replacePluginTaskContextEntries(
   });
 }
 
-export function deletePluginTaskContextEntry(domainRaw: string, contextIdRaw: string) {
+export function deletePluginTaskContextEntry(
+  domainRaw: string,
+  contextIdRaw: string,
+) {
   const domain = normalizeString(domainRaw);
   const contextId = normalizeString(contextIdRaw);
   if (!domain || !contextId) {
@@ -1414,7 +1436,10 @@ export function replacePluginTaskRowEntries(
   });
 }
 
-export function clearPluginTaskRowEntries(domainRaw: string, scopeRaw: PluginTaskScope) {
+export function clearPluginTaskRowEntries(
+  domainRaw: string,
+  scopeRaw: PluginTaskScope,
+) {
   const domain = normalizeString(domainRaw);
   const scope = normalizeString(scopeRaw);
   if (!domain || !scope) {
@@ -1611,10 +1636,10 @@ export function clearPluginTaskScope(domainRaw: string, scopeRaw: string) {
       { domain, scope },
     )?.value || 0,
   );
-  db.run(
-    "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope",
-    { domain, scope },
-  );
+  db.run("DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope", {
+    domain,
+    scope,
+  });
   return Number.isFinite(rowCount) ? rowCount : 0;
 }
 
@@ -1632,10 +1657,9 @@ export function resetPluginStateStoreForTests() {
 
 export function getPluginStateMigrationStatus() {
   const db = getAdapter();
-  const row = db.get(
-    "SELECT value FROM plugin_meta WHERE key=@meta_key",
-    { meta_key: SQLITE_MIGRATION_META_KEY },
-  );
+  const row = db.get("SELECT value FROM plugin_meta WHERE key=@meta_key", {
+    meta_key: SQLITE_MIGRATION_META_KEY,
+  });
   return normalizeString(row?.value);
 }
 
@@ -1658,7 +1682,9 @@ export function inspectPluginStateStoreCounts() {
 }
 
 registerPluginTaskDomainClearer(clearPluginTaskDomain);
-registerPluginTaskDomainExceptRowScopesClearer(clearPluginTaskDomainExceptRowScopes);
+registerPluginTaskDomainExceptRowScopesClearer(
+  clearPluginTaskDomainExceptRowScopes,
+);
 registerPluginTaskScopeClearer(clearPluginTaskScope);
 
 export function exportPluginStateStoreRowsForTests() {

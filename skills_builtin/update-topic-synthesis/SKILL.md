@@ -87,7 +87,9 @@ update 的目标是在保持 current topic
     "warnings": []
   },
   "artifact_metadata": {},
-  "analysis_manifest_path": "result/topic-analysis.patch.json"
+  "analysis_manifest_path": "result/topic-analysis.patch.json",
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
 }
 ```
 
@@ -113,15 +115,17 @@ update 的目标是在保持 current topic
   `{ topicId, mode: "update", includeArtifact: true, includeManifest: true }`。
 - `get_topic_context` 返回的 current hashes、section hashes、recommended_update、current artifact/manifest 是 update 的 base truth。
 - update 成功的最终响应只包含合法业务 JSON 对象。
-- `update_full` 成功必须生成：
+- `update_full` 成功必须生成公开可消费产物：
   - `result/topic-analysis.json`
   - `result/result.json`
+  - `result/sidecars/concept-cards-proposal.json`
+  - `result/sidecars/topic-graph-relation-proposals.json`
   - `result/sections/*.json`
-  - `runtime/payloads/*.json`
-  - `runtime/views/*.md` / `runtime/views/*.json`
-- `update_patch` 成功必须生成：
+- `update_patch` 成功必须生成公开可消费产物：
   - `result/topic-analysis.patch.json`
   - `result/result.json`
+  - `result/sidecars/concept-cards-proposal.json`
+  - `result/sidecars/topic-graph-relation-proposals.json`
   - changed `result/sections/*.json`
   - `read_section_hashes`
 - `update_patch` 是 section_patch 合同，只能替换 changed sections。
@@ -183,9 +187,10 @@ role hints、coverage/gaps 和 external-heavy 诊断，不能替代 digest evide
 - `stage_6_cross_paper_map`
 - `stage_7_route_timeline`
 - `stage_8_core_sections`
-- `stage_9_external_statistics_report`
-- `stage_10_render_and_validate`
-- `stage_11_completed`
+- `stage_9_kg_proposals`
+- `stage_10_external_statistics_report`
+- `stage_11_render_and_validate`
+- `stage_12_completed`
 
 执行纪律：
 
@@ -223,6 +228,8 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action c
 - cross-paper evidence map 聚合
 - taxonomy / timeline 分析
 - claims / comparison / debates / gaps / review_outline 写作
+- concept card proposal 语义抽取与 diagnostics
+- topic graph relation proposal 语义判断与 diagnostics
 - external literature / coverage / statistics / synthesis_report 写作
 - final section JSON 写作
 
@@ -275,9 +282,40 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `evidence_map_refs`：最终 claims、timeline、taxonomy、comparison、debates、gaps 追溯到 evidence map candidate 的引用。
 - `taxonomy`：研究路线分析 section。
 - `timeline_events`：历史沿革分析 section，必须是 `{summary, events}`。
+- `kg_proposals`：`persist_kg_proposals` 的组合 payload，包含 concept 与 topic graph 两类 proposal。
+- `concept_cards_proposal`：agent-authored concept card proposal；只能描述待摄取概念、别名、定义、证据和 diagnostics，不写 canonical concept id。
+- `concept_cards_proposal_path`：最终 bundle 中的 concept proposal sidecar 路径，固定为 `result/sidecars/concept-cards-proposal.json`。
+- `topic_graph_relation_proposals`：agent-authored topic graph relation proposal；只能使用允许的 relation proposal type，不写 canonical edge id。
+- `topic_graph_relation_proposals_path`：最终 bundle 中的 relation proposal sidecar 路径，固定为 `result/sidecars/topic-graph-relation-proposals.json`。
 - `result/sections/*.json`：最终 section 内容真源。
 - `analysis_manifest_path`：最终 topic-analysis manifest 或 patch manifest 路径。
 - `coverage_verdict`：覆盖判断，至少用于 external literature、coverage 和 statistics。
+
+## 枚举值速查
+
+执行中遇到以下字段时必须直接使用列出的值，不要临时创造同义枚举。
+
+- `operation`：update skill 只允许 `update_full` / `update_patch`。
+- host `get-topic-context.mode`：只允许 `update`。
+- update patch manifest `patch.mode`：只允许 `section_replace`。
+- update patch manifest `patch.unchanged_section_policy`：只允许 `inherit_current`。
+- final `kind`：成功为 `topic_synthesis`；取消为 `topic_synthesis_canceled`。
+- final canceled `status`：只允许 `canceled`。
+- stage state：`pending` / `running` / `completed` / `failed_retryable` / `failed_terminal` / `canceled`。
+- `artifact_type`：`digest` / `references` / `citation_analysis`。
+- `payload_type`：`digest-markdown` / `references-json` / `citation-analysis-json`。
+- artifact `status`：`available` / `missing` / `decode_error` / `unsupported`。
+- `topic.topic_granularity`：`method_family` / `task` / `problem` / `application_scenario` / `theory_concept` / `mechanism` / `dataset_or_benchmark` / `mixed`。
+- `paper_unit.topic_relevance.level`：`core` / `related` / `peripheral` / `excluded`。
+- Stage 6 `gap_candidates[].gap_type`：`library_coverage_gap` / `evidence_gap` / `method_gap` / `evaluation_gap` / `review_gap`。
+- Final/core `gaps[].gap_type` 当前 runtime 接受：`research_gap` / `library_coverage_gap` / `evidence_gap` / `evaluation_gap`。
+  schema 还描述了 `method_gap` / `engineering_gap` / `review_gap`，但当前 stage runtime 会拒绝这些值，执行时不要用于 final/core gaps。
+- `gaps[].severity`：`low` / `medium` / `high` / `critical` / `unknown`。
+- `coverage_verdict`：`sufficient` / `partial` / `insufficient` / `severely_missing` / `unknown`。
+- `representative_references[].information_completeness`：`complete` / `partial` / `minimal` / `unknown`。
+- `suggested_additions[].priority`：`high` / `medium` / `low` / `unknown`。
+- `concept_cards_proposal.cards[].concept_type` 建议控制词表：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
+- `topic_graph_relation_proposals.proposals[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
 
 ## 最小执行主路径
 
@@ -296,6 +334,9 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 ```
 
 作用：初始化 SQLite、固化 operation/language/run root，并进入 `stage_1_topic_context`。
+执行纪律：每次先运行 gate，只执行 gate 返回的 `next_action` 和 `command_example`；
+如果当前 action 失败，只修正当前 stage payload 后重试，不跳到后续 stage；需要取消时运行
+`stage_runtime.py --action cancel`。
 
 ### 1. `persist_topic_context`
 
@@ -308,6 +349,8 @@ runtime/payloads/topic-context.json
 
 然后执行 gate 返回的 persist 命令。payload 必须包含 `topic_definition.id` 与
 `topic_definition.title`，并保存 `current_hashes`、`section_hashes`、`recommended_update`。
+必须保留 current resolver/paper set、base hashes 与已存在 artifact/manifest 信息。
+`recommended_update` 是后续 full/patch 和 resolver 复用决策的输入，不要把 update 当作无条件重生成。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"
@@ -324,6 +367,10 @@ runtime/payloads/resolver.json
 ```
 
 runtime 从 resolver result 派生 paper workset。
+Patch 模式不得静默改变 paper set；如果 paper set、language、schema 或 topic boundary
+需要改变，必须走 full update。若需要重新解析 paper workset，library index page payload
+至少保留 `papers[]`、`cursor`、`next_cursor`、`has_more` 与 `index_hash`。
+Resolver 必须可复现，并在 diagnostics 中说明沿用、替换或排除 paper 的理由。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_library_index_page --payload-file "runtime/payloads/library-index-page-0.json"
@@ -339,6 +386,9 @@ runtime/payloads/citation-graph-metrics-batch.json
 ```
 
 metrics 缺失不阻断，但必须进入 diagnostics。
+Metrics 只能作为辅助结构信号：`core` / `foundation` 可影响背景脉络和路线排序；
+`frontier` 可影响近期趋势；`isolated` 进入 coverage caveat；`external-heavy`
+进入外部文献分析或 coverage diagnostics。不得因为 PageRank、in-degree 等指标较高就把论文写成 claim 或 milestone。
 
 payload 顶层必须包含请求批次的 `paper_refs[]`，并保留 bridge 返回的 metrics 结果：
 
@@ -377,6 +427,8 @@ runtime/payloads/paper-artifacts-manifest.json
 `payload_types_seen[]`。若某个 artifact 缺失且 host 没有看到对应 payload type，
 `payload_types_seen` 必须是空数组；如果 missing row 中包含自己的 `payload_type`，
 runtime 会判定 manifest 自相矛盾。
+缺 artifact 不是 blocker，但必须进入 diagnostics；agent 不复制 hash，不手写 artifact manifest，
+只消费 host 写出的 manifest 和 filtered content files。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_filtered_artifact_manifest --payload-file "runtime/payloads/paper-artifacts-manifest.json"
@@ -452,7 +504,7 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 
 ### 7. `persist_route_timeline`
 
-读取 `references/step_06_taxonomy_timeline.md` 和已校验 evidence map，写：
+读取 `references/step_07_taxonomy_timeline.md` 和已校验 evidence map，写：
 
 ```text
 runtime/payloads/route-timeline-synthesis.json
@@ -469,7 +521,7 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 
 ### 8. `persist_core_sections`
 
-读取 `references/step_07_core_sections.md`，写：
+读取 `references/step_08_core_sections.md`，写：
 
 ```text
 runtime/payloads/core-analytical-sections.json
@@ -485,22 +537,49 @@ comparison 解释路线/方法的关键差异；debates 解释评价口径或立
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_core_sections --payload-file "runtime/payloads/core-analytical-sections.json"
 ```
 
-### 9. `persist_external_statistics_report`
+### 9. `persist_kg_proposals`
 
-读取 `references/step_08_external_statistics_report.md` 和所有已校验 stage artifacts，
-写 Stage 9 payload：
+读取 `references/step_09_kg_proposals.md`、已校验 route/timeline、core sections、cross-paper context 和 evidence map，写：
+
+```text
+runtime/payloads/kg-proposals.json
+```
+
+payload 必须包含 `concept_cards_proposal.cards[]`、`concept_cards_proposal.diagnostics[]`、
+`topic_graph_relation_proposals.proposals[]` 与 `topic_graph_relation_proposals.diagnostics[]`。
+relation proposal type 只允许 `broader_topic_candidate`、`related_topic_candidate`、
+`overlap_topic_candidate`、`contrast_topic_candidate`；concept card 只能描述 proposal，
+不能写 canonical concept id 或 canonical graph edge id。
+runtime 会校验并物化两个必交 sidecar：
+
+```text
+result/sidecars/concept-cards-proposal.json
+result/sidecars/topic-graph-relation-proposals.json
+```
+
+没有可靠 proposal 时也必须写空数组和 diagnostics，不能跳过本阶段。skill 只写 proposal，
+不得写 canonical concept、sense、alias、topic graph node/edge、SQLite 或 Git sync metadata。
+
+```bash
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_kg_proposals --payload-file "runtime/payloads/kg-proposals.json"
+```
+
+### 10. `persist_external_statistics_report`
+
+读取 `references/step_10_external_statistics_report.md` 和所有已校验 stage artifacts，
+写 Stage 10 payload：
 
 ```text
 runtime/payloads/external-statistics-report.json
 ```
 
-payload 顶层必须是 `sections` object。Full update 时只包含 Stage 9 首次生成的
+payload 顶层必须是 `sections` object。Full update 时只包含 Stage 10 首次生成的
 `topic`、`summary`、`paper_evidence`、`external_literature_analysis`、`coverage`、
 `statistics`、`synthesis_report`、`evidence_map`、`source_artifacts`、`diagnostics`。
-Patch update 至少包含实际替换的 Stage 9 section。不要把前序已验证的
+Patch update 至少包含实际替换的 Stage 10 section。不要把前序已验证的
 `taxonomy`、`timeline_events`、`positioning`、`claims`、`comparison_matrix`、
 `debates`、`gaps`、`review_outline` 写入这个 payload；runtime 会保真合并 Stage 7/8
-已验证工件，并在 Stage 9 校验通过后物化 `result/sections/*.json`。
+已验证工件，并在 Stage 10 校验通过后物化 `result/sections/*.json`。
 其中 `synthesis_report` 必须是带 `title` 的连续报告正文，并覆盖 topic definition/scope、research routes、historical progression、core findings、comparison/debates、gaps/coverage、external literature/collection suggestion；深度在本 stage 首次校验。
 
 语义目标：external literature 判断库内覆盖相对 topic 应有范围的充分程度并给出入库建议；
@@ -513,7 +592,7 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action persist_external_statistics_report --payload-file "runtime/payloads/external-statistics-report.json"
 ```
 
-### 10. `validate_final_artifacts`
+### 11. `validate_final_artifacts`
 
 Full update：
 
@@ -535,7 +614,7 @@ result/topic-analysis.patch.json
 result/result.json
 ```
 
-### 11. `emit_final_json`
+### 12. `emit_final_json`
 
 只读取 runtime 生成的最终业务 JSON 并作为最终响应输出：
 
@@ -549,15 +628,12 @@ Get-Content -Encoding UTF8 "result/result.json"
 
 只按 gate 返回的 `instruction_refs` 读取以下文档：
 
-- [step_00_runtime_gate.md](references/step_00_runtime_gate.md)：gate/state/repair/cancel。
-- [step_01_topic_context.md](references/step_01_topic_context.md)：update topic context、base hashes、patch/full 决策。
-- [step_02_resolver_workset.md](references/step_02_resolver_workset.md)：resolver、paper workset、必要时 library index。
-- [step_03_metrics_artifacts.md](references/step_03_metrics_artifacts.md)：graph metrics 与 filtered artifacts。
-- [step_04_paper_units.md](references/step_04_paper_units.md)：paper unit 分析。
-- [step_05_cross_paper_map.md](references/step_05_cross_paper_map.md)：cross-paper evidence map。
-- [step_06_taxonomy_timeline.md](references/step_06_taxonomy_timeline.md)：taxonomy 与 timeline。
-- [step_07_core_sections.md](references/step_07_core_sections.md)：claims、comparison、debates、gaps、review outline。
-- [step_08_external_statistics_report.md](references/step_08_external_statistics_report.md)：external、coverage、statistics、report。
-- [step_09_render_validate.md](references/step_09_render_validate.md)：final manifest/stdout。
+- [step_05_paper_units.md](references/step_05_paper_units.md)：paper unit 分析。
+- [step_06_cross_paper_map.md](references/step_06_cross_paper_map.md)：cross-paper evidence map。
+- [step_07_taxonomy_timeline.md](references/step_07_taxonomy_timeline.md)：taxonomy 与 timeline。
+- [step_08_core_sections.md](references/step_08_core_sections.md)：claims、comparison、debates、gaps、review outline。
+- [step_09_kg_proposals.md](references/step_09_kg_proposals.md)：concept card 与 topic graph relation proposal sidecar。
+- [step_10_external_statistics_report.md](references/step_10_external_statistics_report.md)：external、coverage、statistics、report。
+- [step_11_render_validate.md](references/step_11_render_validate.md)：final manifest/stdout。
 - [topic_synthesis_content_contract.md](references/topic_synthesis_content_contract.md)：完整内容协议。
 - [section_examples.md](references/section_examples.md)：合格内容示例与反例。

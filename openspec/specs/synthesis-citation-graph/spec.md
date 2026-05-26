@@ -5,14 +5,13 @@ TBD - created by archiving change add-synthesis-citation-graph. Update Purpose a
 ## Requirements
 ### Requirement: Citation graph is deterministic and plugin-owned
 
-Unified Citation Graph SHALL be built by deterministic plugin code and SHALL NOT
-depend on LLM inference.
+Unified Citation Graph SHALL be built by deterministic plugin code from canonical literature registry records and SHALL NOT depend on LLM inference.
 
-#### Scenario: Graph is built from paper and reference inputs
+#### Scenario: Graph is built from canonical papers and references
 
-- **WHEN** library papers and references are provided
-- **THEN** the graph SHALL contain library paper nodes, target reference nodes,
-  and citation edges directed from citing paper to cited target.
+- **WHEN** canonical paper and reference instance records are available
+- **THEN** the graph SHALL contain library paper nodes, target reference nodes, and citation edges directed from citing paper to cited target
+- **AND** repeated rebuilds from the same canonical records SHALL produce the same graph hash.
 
 ### Requirement: External references use provisional reference keys
 
@@ -93,18 +92,85 @@ as citation facts.
 
 ### Requirement: Citation graph rebuild persists metrics
 
-Citation graph rebuild SHALL persist graph, layout, and metrics snapshots
-together.
+Citation graph rebuild SHALL persist graph, layout, and metrics snapshots together as rebuildable projection DTOs derived from canonical literature registry records.
 
 #### Scenario: Graph is rebuilt
 
 - **WHEN** `queryCitationGraph()` rebuilds the graph
-- **THEN** `state/unified-citation-graph-metrics.json` SHALL be written
-- **AND** the metrics snapshot SHALL record the current `graph_hash`.
+- **THEN** `synthesis/state/citation-graph-index.json`, metrics, and layout projection files SHALL be written
+- **AND** the metrics snapshot SHALL record the current `graph_hash`
+- **AND** latest usable snapshot state SHALL be updated.
 
 #### Scenario: Metrics are stale
 
-- **WHEN** persisted metrics exist but their `graph_hash` differs from the
-  persisted graph
-- **THEN** metrics reads SHALL report stale status instead of rebuilding.
+- **WHEN** persisted metrics exist but their `graph_hash` differs from the persisted graph
+- **THEN** metrics reads SHALL report stale status instead of returning misleading ready data.
+
+### Requirement: Citation graph structure updates incrementally
+
+Citation graph structure SHALL update from affected source papers, target works,
+or reference resolution scopes instead of requiring full graph rebuild for
+routine maintenance.
+
+#### Scenario: One paper reference set changes
+
+- **WHEN** one paper reference facet changes
+- **THEN** citation structure work SHALL recompute that paper's outgoing edges
+- **AND** unrelated source papers SHALL NOT be recomputed.
+
+#### Scenario: Work resolution changes
+
+- **WHEN** a reference target work resolution changes
+- **THEN** citation structure work SHALL update affected source and target edge
+  groups
+- **AND** latest usable graph projection SHALL remain readable during the work.
+
+### Requirement: Citation metrics are layered
+
+Citation graph metrics SHALL separate lightweight metrics from complex metrics.
+
+#### Scenario: Structure worker runs
+
+- **WHEN** citation structure is updated
+- **THEN** lightweight metrics such as degree-like counts and resolution counts
+  SHALL update with structure when possible.
+
+#### Scenario: Complex metrics are stale
+
+- **WHEN** complex metrics require graph-wide or large-subgraph computation
+- **THEN** they SHALL be marked stale or partial
+- **AND** a low-priority background metrics job SHALL update them.
+
+### Requirement: Citation graph layout is on demand
+
+Citation graph layout SHALL be recomputed only when graph UI or an explicit
+command needs a newer layout.
+
+#### Scenario: Graph UI opens with stale layout
+
+- **WHEN** Graph UI opens and the layout `source_graph_hash` is older than the
+  current structure hash
+- **THEN** latest usable graph data SHALL be shown immediately
+- **AND** layout work MAY be queued in the background.
+
+#### Scenario: MCP reads graph metrics
+
+- **WHEN** MCP or CLI reads graph metrics
+- **THEN** layout recomputation SHALL NOT be triggered.
+
+### Requirement: Citation graph projection exposes latest usable snapshot state
+
+Synthesis Citation Graph SHALL expose stale/missing/running state without deleting the latest usable JSON projection.
+
+#### Scenario: Background rebuild fails
+
+- **WHEN** citation graph rebuild fails retryably
+- **THEN** the previous usable graph projection SHALL remain readable
+- **AND** diagnostics SHALL report retry state rather than returning raw library objects.
+
+#### Scenario: Projection backend is JSON DTO
+
+- **WHEN** citation graph projection is rebuilt
+- **THEN** the projection SHALL declare backend `json-dto`
+- **AND** no SQLite/FTS/BM25 artifact SHALL be created.
 

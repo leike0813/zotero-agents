@@ -15,6 +15,11 @@ unified Workspace.
 - **THEN** it SHALL load the shared theme stylesheet
 - **AND** it SHALL use the shared theme runtime before page-specific rendering.
 
+#### Scenario: Plugin brand icons use the current Zotero Agents assets
+
+- **WHEN** the plugin loads favicon or full-logo assets
+- **THEN** the bundled assets SHALL use the current Zotero Agents icon set.
+
 ### Requirement: Theme choice MUST support system, light, and dark
 
 The plugin SHALL expose System, Light, and Dark theme choices for browser UI
@@ -38,4 +43,21 @@ shared `--zs-*` token family.
 - **THEN** panel background, text, borders, transcript rows, drawers, and reply
   inputs SHALL use dark-compatible shared tokens
 - **AND** the page SHALL NOT force `color-scheme: light`.
+
+### Requirement: Toolbar and workflow entrypoint icons SHALL match their action roles
+
+The plugin SHALL use distinct icons for workflow execution, workspace opening,
+and sidebar opening entrypoints.
+
+#### Scenario: Workflow execution entrypoints use the play icon
+
+- **WHEN** a workflow execution toolbar or shortcut menu entrypoint is rendered
+- **THEN** it SHALL use the bundled `icon_play.png` asset.
+
+#### Scenario: Workspace and sidebar entrypoints use dedicated icons
+
+- **WHEN** the unified workspace toolbar entrypoint is rendered
+- **THEN** it SHALL use `icon_workbench.png`.
+- **WHEN** the assistant/sidebar toolbar entrypoint is rendered
+- **THEN** it SHALL use `icon_sidebar.png`.
 

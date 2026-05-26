@@ -4,9 +4,9 @@ import os from "os";
 import path from "path";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
+  buildSynthesisKnowledgeGraphPaths,
   buildSynthesisStoragePaths,
   createCanonicalEnvelope,
-  decodeNoteShard,
   hashMarkdown,
 } from "../../src/modules/synthesis/foundation";
 import {
@@ -357,7 +357,7 @@ async function topicReasonCodes(root: string, topicId = "topic-alpha") {
 }
 
 describe("Synthesis Layer v1 integration service", function () {
-  it("persists a topic synthesis bundle as canonical assets and refreshes mirror shards", async function () {
+  it("persists a topic synthesis bundle as canonical assets without mirror writes", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();
     const service = createSynthesisService({
@@ -370,7 +370,9 @@ describe("Synthesis Layer v1 integration service", function () {
     const result = await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
     const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
-    const metadata = JSON.parse(await fs.readFile(paths.currentMetadata, "utf8"));
+    const metadata = JSON.parse(
+      await fs.readFile(paths.currentMetadata, "utf8"),
+    );
     const index = JSON.parse(await fs.readFile(paths.index, "utf8"));
 
     assert.equal(result.status, "persisted");
@@ -378,11 +380,10 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(metadata.schema_id, "synthesis.topic_artifact_metadata");
     assert.equal(metadata.data.topic_id, "topic-alpha");
     assert.equal(index.data.topics[0].topic_id, "topic-alpha");
-    assert.isAtLeast(mirror.upserts.length, 3);
-    assert.equal(decodeNoteShard(mirror.upserts[0].html).envelope.anchor_key, "ANCHOR01");
+    assert.lengthOf(mirror.upserts, 0);
   });
 
-  it("writes a fresh baseline after topic apply and mirrors artifact-state shards", async function () {
+  it("writes a fresh baseline after topic apply without mirror artifact-state shards", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();
     const service = createSynthesisService({
@@ -390,7 +391,10 @@ describe("Synthesis Layer v1 integration service", function () {
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
       mirrorAdapter: mirror.adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
+      registryInputs: [
+        registryInput({ itemKey: "A" }),
+        registryInput({ itemKey: "B" }),
+      ],
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -403,170 +407,101 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(state.baseline_input_hash, state.current_input_hash);
     assert.equal(snapshot.artifacts.rows[0]?.freshness, "fresh");
     assert.equal(snapshot.artifacts.rows[0]?.coverage, "complete");
+    assert.lengthOf(mirror.upserts, 0);
+  });
+
+  it("refreshes topic freshness from paper registry dirty events without rewriting topic artifacts", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-11T00:00:00.000Z",
+      registryInputs: [
+        registryInput({ itemKey: "A" }),
+        registryInput({ itemKey: "B" }),
+      ],
+    });
+    await service.runLiteratureRegistryJobNow();
+    await service.applyTopicSynthesisResult(validBundle());
+    const paths = buildSynthesisStoragePaths(root, "topic-alpha");
+    const beforeMarkdown = await fs.readFile(
+      paths.currentExportMarkdown,
+      "utf8",
+    );
+    const beforeMetadata = await fs.readFile(paths.currentMetadata, "utf8");
+
+    const updated = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({ itemKey: "A", digest: "# Updated Digest A" }),
+        registryInput({ itemKey: "B" }),
+      ],
+    });
+    await updated.recordSynthesisUpdateEvent({
+      eventType: "zotero_item_updated",
+      source: "test",
+      scope: { kind: "zotero_item", ref: "A" },
+    });
+    await updated.runPaperRegistryIncrementalWorker({
+      batchLimit: 1,
+      timeBudgetMs: 1000,
+    });
+    const queued = await topicFreshnessState(root);
+    const events = await updated.listSynthesisUpdateEvents();
+
+    assert.equal(queued.freshness, "queued");
     assert.include(
-      mirror.upserts.map((entry) => entry.kind),
-      "artifact_state",
+      events.map((event) => event.event_type),
+      "topic_freshness_dirty",
+    );
+
+    const result = await updated.runTopicFreshnessWorker({
+      batchLimit: 1,
+      timeBudgetMs: 1000,
+    });
+    const refreshed = await topicFreshnessState(root);
+    const snapshot = await updated.getSynthesisSnapshot();
+
+    assert.equal(result.completed, 1);
+    assert.equal(refreshed.freshness, "stale");
+    assert.include(await topicReasonCodes(root), "artifact_changed");
+    assert.equal(snapshot.artifacts.rows[0]?.freshness, "stale");
+    assert.equal(
+      await fs.readFile(paths.currentExportMarkdown, "utf8"),
+      beforeMarkdown,
+    );
+    assert.equal(
+      await fs.readFile(paths.currentMetadata, "utf8"),
+      beforeMetadata,
     );
   });
 
-  it("initializes a legacy topic freshness baseline on first snapshot scan", async function () {
+  it("keeps snapshot reads side-effect free when artifact state is missing", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
-    });
-
-    await service.applyTopicSynthesisResult(validBundle());
-    await fs.rm(buildSynthesisStoragePaths(root).artifactState, { force: true });
-    const snapshot = await service.getSynthesisSnapshot();
-    const state = await topicFreshnessState(root);
-    const log = await fs.readFile(buildSynthesisStoragePaths(root).log, "utf8");
-
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "fresh");
-    assert.equal(state.freshness, "fresh");
-    assert.match(state.baseline_input_hash || "", /^sha256:/);
-    assert.match(log, /baseline_initialized/);
-  });
-
-  it("marks a topic stale when the resolver paper set changes", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
-    });
-
-    await service.applyTopicSynthesisResult(validBundle());
-    const changed = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:10:00.000Z",
       mirrorAdapter: createMirrorRecorder().adapter,
       registryInputs: [
         registryInput({ itemKey: "A" }),
         registryInput({ itemKey: "B" }),
-        registryInput({ itemKey: "C" }),
       ],
-    });
-
-    const snapshot = await changed.getSynthesisSnapshot();
-    const reasons = await topicReasonCodes(root);
-
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "stale");
-    assert.include(reasons, "paper_set_changed");
-  });
-
-  it("marks stale when paper artifacts change or become available", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [
-        registryInput({ itemKey: "A" }),
-        registryInput({ itemKey: "B", digest: null }),
-      ],
-    });
-
-    await service.applyTopicSynthesisResult(validBundle());
-    const changed = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:10:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [
-        registryInput({ itemKey: "A", digest: "# Digest A changed" }),
-        registryInput({ itemKey: "B", digest: "# Digest B now available" }),
-      ],
-    });
-
-    await changed.getSynthesisSnapshot();
-    const reasons = await topicReasonCodes(root);
-
-    assert.include(reasons, "artifact_changed");
-    assert.include(reasons, "artifact_available");
-  });
-
-  it("marks stale when a baseline paper artifact disappears", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
-    });
-
-    await service.applyTopicSynthesisResult(validBundle());
-    const missing = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:10:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [
-        registryInput({ itemKey: "A" }),
-        registryInput({ itemKey: "B", digest: null }),
-      ],
-    });
-
-    await missing.getSynthesisSnapshot();
-    const reasons = await topicReasonCodes(root);
-
-    assert.include(reasons, "artifact_missing");
-  });
-
-  it("marks stale when the persisted citation graph hash changes", async function () {
-    const root = await makeRoot();
-    await writeGraphSnapshot(root);
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
     });
 
     await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root);
-    const graph = JSON.parse(await fs.readFile(paths.unifiedCitationGraph, "utf8"));
-    graph.data.graph_hash = "sha256:graph-changed";
-    await fs.writeFile(paths.unifiedCitationGraph, `${JSON.stringify(graph, null, 2)}\n`);
-
-    await service.getSynthesisSnapshot();
-    const reasons = await topicReasonCodes(root);
-
-    assert.include(reasons, "graph_changed");
-  });
-
-  it("marks dirty when current artifact files no longer match the active index", async function () {
-    const root = await makeRoot();
-    const service = createSynthesisService({
-      root,
-      libraryId: 1,
-      now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
-      registryInputs: [registryInput({ itemKey: "A" }), registryInput({ itemKey: "B" })],
+    await fs.rm(paths.artifactState, {
+      force: true,
     });
-
-    await service.applyTopicSynthesisResult(validBundle());
-    await fs.writeFile(
-      buildSynthesisStoragePaths(root, "topic-alpha").currentExportMarkdown,
-      "# Tampered",
-    );
     const snapshot = await service.getSynthesisSnapshot();
-    const reasons = await topicReasonCodes(root);
 
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "dirty");
-    assert.include(reasons, "index_hash_mismatch");
+    assert.equal(snapshot.artifacts.rows[0]?.id, "topic-alpha");
+    assert.isFalse(await exists(paths.artifactState));
   });
 
-  it("keeps canonical apply successful when mirror refresh fails", async function () {
+  it("keeps canonical apply independent of mirror adapter failures", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
@@ -590,8 +525,8 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(result.status, "persisted");
     assert.equal(markdown, "# Alpha Topic\n");
     if (result.ok) {
-      assert.match(result.mirrorError || "", /zotero anchor unavailable/);
-      assert.include(result.warnings || [], "mirror_refresh_failed");
+      assert.isUndefined(result.mirrorError);
+      assert.notInclude(result.warnings || [], "mirror_refresh_failed");
     }
   });
 
@@ -679,10 +614,14 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.applyTopicSynthesisResult(validBundle());
-    await service.queryCitationGraph();
+    await service.runLiteratureRegistryJobNow();
     const snapshot = await service.getSynthesisSnapshot();
-    const reviewInput = await service.getReviewInput({ topicId: "topic-alpha" });
-    const topicContext = await service.getTopicContext({ topicId: "topic-alpha" }) as {
+    const reviewInput = await service.getReviewInput({
+      topicId: "topic-alpha",
+    });
+    const topicContext = (await service.getTopicContext({
+      topicId: "topic-alpha",
+    })) as {
       freshness?: { freshness?: string };
     };
 
@@ -694,7 +633,10 @@ describe("Synthesis Layer v1 integration service", function () {
       snapshot.registry.rows.map((row) => row.paper_ref),
       ["1:A", "1:B"],
     );
-    assert.equal(snapshot.graph.nodes.some((node) => node.id === "zotero:item:A"), true);
+    assert.equal(
+      snapshot.graph.nodes.some((node) => node.id === "zotero:item:A"),
+      true,
+    );
     assert.equal(reviewInput.topic.topic_id, "topic-alpha");
     assert.equal(reviewInput.topic.markdown, "# Alpha Topic");
     assert.equal(
@@ -704,7 +646,10 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.isArray(reviewInput.structured_topic?.claims);
     assert.isObject(reviewInput.structured_topic?.timeline_events);
     assert.isArray(reviewInput.structured_topic?.paper_evidence);
-    assert.include(["fresh", "stale", "dirty"], topicContext.freshness?.freshness);
+    assert.include(
+      ["fresh", "stale", "dirty"],
+      topicContext.freshness?.freshness,
+    );
     assert.deepEqual(
       reviewInput.resolved_paper_set.papers.map((paper) => paper.paper_ref),
       ["1:A", "1:B"],
@@ -778,7 +723,9 @@ describe("Synthesis Layer v1 integration service", function () {
 
     await service.applyTopicSynthesisResult(validBundle());
     const beforeDeleteUpserts = mirror.upserts.length;
-    const result = await service.deleteTopicArtifact({ topicId: "topic-alpha" });
+    const result = await service.deleteTopicArtifact({
+      topicId: "topic-alpha",
+    });
     const snapshot = await service.getSynthesisSnapshot();
     const inventory = await service.listTopics();
     const deleted = await service.listDeletedTopicArtifacts();
@@ -794,7 +741,7 @@ describe("Synthesis Layer v1 integration service", function () {
       ["topic-alpha"],
     );
     assert.equal(snapshot.deletedArtifacts.count, 1);
-    assert.isAbove(mirror.upserts.length, beforeDeleteUpserts);
+    assert.equal(mirror.upserts.length, beforeDeleteUpserts);
   });
 
   it("purges deleted topic artifact stores idempotently without touching active topics", async function () {
@@ -829,7 +776,9 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.applyTopicSynthesisResult(validBundle());
-    const result = await service.deleteTopicArtifact({ topicId: "missing-topic" });
+    const result = await service.deleteTopicArtifact({
+      topicId: "missing-topic",
+    });
     const snapshot = await service.getSynthesisSnapshot();
 
     assert.equal(result.ok, false);
@@ -890,7 +839,10 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.equal(slice.ok, false);
     assert.equal(slice.diagnostics.snapshot_found, false);
-    assert.include(slice.diagnostics.warnings.join("\n"), "snapshot is missing");
+    assert.include(
+      slice.diagnostics.warnings.join("\n"),
+      "snapshot is missing",
+    );
     assert.equal(await exists(paths.unifiedCitationGraph), false);
     assert.equal(await exists(paths.unifiedCitationLayouts), false);
   });
@@ -981,8 +933,14 @@ describe("Synthesis Layer v1 integration service", function () {
     await fs.writeFile(paths.unifiedCitationLayouts, "layout sentinel\n");
     await fs.writeFile(paths.unifiedCitationGraphMetrics, "metrics sentinel\n");
     const beforeGraph = await fs.readFile(paths.unifiedCitationGraph, "utf8");
-    const beforeLayout = await fs.readFile(paths.unifiedCitationLayouts, "utf8");
-    const beforeMetrics = await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8");
+    const beforeLayout = await fs.readFile(
+      paths.unifiedCitationLayouts,
+      "utf8",
+    );
+    const beforeMetrics = await fs.readFile(
+      paths.unifiedCitationGraphMetrics,
+      "utf8",
+    );
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -999,9 +957,18 @@ describe("Synthesis Layer v1 integration service", function () {
     const slice = await service.getCitationGraphSlice({ paperRef: "1:A" });
 
     assert.equal(slice.ok, true);
-    assert.equal(await fs.readFile(paths.unifiedCitationGraph, "utf8"), beforeGraph);
-    assert.equal(await fs.readFile(paths.unifiedCitationLayouts, "utf8"), beforeLayout);
-    assert.equal(await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"), beforeMetrics);
+    assert.equal(
+      await fs.readFile(paths.unifiedCitationGraph, "utf8"),
+      beforeGraph,
+    );
+    assert.equal(
+      await fs.readFile(paths.unifiedCitationLayouts, "utf8"),
+      beforeLayout,
+    );
+    assert.equal(
+      await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"),
+      beforeMetrics,
+    );
   });
 
   it("serves Workbench graph snapshots from persisted graph and layout assets", async function () {
@@ -1019,7 +986,7 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.queryCitationGraph();
+    await service.runLiteratureRegistryJobNow();
     const reloaded = createSynthesisService({
       root,
       libraryId: 1,
@@ -1027,15 +994,22 @@ describe("Synthesis Layer v1 integration service", function () {
     });
     const snapshot = await reloaded.getSynthesisSnapshot();
 
-    assert.equal(snapshot.graph.nodes.some((node) => node.id === "zotero:item:A"), true);
-    assert.equal(snapshot.graph.nodes.some((node) => node.id.startsWith("ref:raw:")), true);
-    assert.isNumber(snapshot.graph.nodes.find((node) => node.id === "zotero:item:A")?.x);
+    assert.equal(
+      snapshot.graph.nodes.some((node) => node.id === "zotero:item:A"),
+      true,
+    );
+    assert.equal(
+      snapshot.graph.nodes.some((node) => node.id.startsWith("ref:raw:")),
+      true,
+    );
+    assert.isNumber(
+      snapshot.graph.nodes.find((node) => node.id === "zotero:item:A")?.x,
+    );
     assert.equal(snapshot.graph.layoutStatus, "ready");
   });
 
   it("persists and reads citation graph metrics with graph rebuilds", async function () {
     const root = await makeRoot();
-    const paths = buildSynthesisStoragePaths(root);
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -1045,7 +1019,9 @@ describe("Synthesis Layer v1 integration service", function () {
           itemKey: "A",
           title: "Alpha Paper",
           year: "2020",
-          references: [{ title: "Beta Paper", year: "2024", authors: ["Beta"] }],
+          references: [
+            { title: "Beta Paper", year: "2024", authors: ["Beta"] },
+          ],
         },
         {
           libraryId: 1,
@@ -1057,28 +1033,40 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.queryCitationGraph();
-    const metricsEnvelope = JSON.parse(
-      await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"),
+    await service.runLiteratureRegistryJobNow();
+    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
+    const citationIndex = JSON.parse(
+      await fs.readFile(
+        path.join(kgPaths.stateRoot, "citation-graph-index.json"),
+        "utf8",
+      ),
     );
     const metrics = await service.getCitationGraphMetrics({ limit: 2 });
-    const byPaper = await service.getCitationGraphMetrics({ paperRefs: ["1:B"] });
-    const slice = await service.getCitationGraphSlice({ paperRef: "1:B", direction: "incoming" });
+    const byPaper = await service.getCitationGraphMetrics({
+      paperRefs: ["1:B"],
+    });
+    const slice = await service.getCitationGraphSlice({
+      paperRef: "1:B",
+      direction: "incoming",
+    });
 
-    assert.equal(metricsEnvelope.data.schema_id, "synthesis.unified_citation_graph_metrics");
+    assert.equal(
+      citationIndex.metrics.schema_id,
+      "synthesis.unified_citation_graph_metrics",
+    );
     assert.equal(metrics.ok, true);
     assert.equal(metrics.items[0].node_id, "zotero:item:B");
     assert.equal(byPaper.items[0].paper_ref, "1:B");
     assert.isAtLeast(byPaper.items[0].internal_in_degree, 1);
     assert.equal(
-      slice.nodes.find((node: any) => node.node_id === "zotero:item:B")?.metrics?.internal_in_degree,
+      slice.nodes.find((node: any) => node.node_id === "zotero:item:B")?.metrics
+        ?.internal_in_degree,
       1,
     );
   });
 
   it("marks citation graph metrics stale when graph hash changes", async function () {
     const root = await makeRoot();
-    const paths = buildSynthesisStoragePaths(root);
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -1087,10 +1075,20 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.queryCitationGraph();
-    const graphEnvelope = JSON.parse(await fs.readFile(paths.unifiedCitationGraph, "utf8"));
-    graphEnvelope.data.graph_hash = "sha256:changed";
-    await fs.writeFile(paths.unifiedCitationGraph, `${JSON.stringify(graphEnvelope, null, 2)}\n`);
+    await service.runLiteratureRegistryJobNow();
+    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
+    const citationIndexPath = path.join(
+      kgPaths.stateRoot,
+      "citation-graph-index.json",
+    );
+    const citationIndex = JSON.parse(
+      await fs.readFile(citationIndexPath, "utf8"),
+    );
+    citationIndex.graph.graph_hash = "sha256:changed";
+    await fs.writeFile(
+      citationIndexPath,
+      `${JSON.stringify(citationIndex, null, 2)}\n`,
+    );
 
     const metrics = await service.getCitationGraphMetrics();
 
@@ -1124,7 +1122,8 @@ describe("topic synthesis applyResult host delegation", function () {
       markdown_path: "result/synthesis.md",
     });
     assert.deepInclude(
-      (calls[0] as { artifact_metadata: Record<string, unknown> }).artifact_metadata,
+      (calls[0] as { artifact_metadata: Record<string, unknown> })
+        .artifact_metadata,
       {
         markdown_path: "result/synthesis.md",
       },
@@ -1150,7 +1149,9 @@ describe("topic synthesis applyResult host delegation", function () {
                   ok: false,
                   status: "conflict",
                   topicId: "topic-alpha",
-                  mismatches: [{ name: "artifact", base: "", current: "sha256:a" }],
+                  mismatches: [
+                    { name: "artifact", base: "", current: "sha256:a" },
+                  ],
                 };
               },
             },
@@ -1173,7 +1174,10 @@ describe("topic synthesis applyResult host delegation", function () {
       });
       assert.fail("expected applyResult to reject");
     } catch (error) {
-      assert.match(String((error as Error).message || error), /hostApi\.synthesis/i);
+      assert.match(
+        String((error as Error).message || error),
+        /hostApi\.synthesis/i,
+      );
     }
   });
 
@@ -1294,15 +1298,25 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
       topic_id: "object-detection",
       depends_on: {
         papers: ["1:DETR"],
-        artifacts: ["digest-markdown", "references-json", "citation-analysis-json"],
+        artifacts: [
+          "digest-markdown",
+          "references-json",
+          "citation-analysis-json",
+        ],
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
+    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_path:
+      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
 
-function v2SectionContext(sections: Record<string, unknown>) {
+function v2SectionContext(
+  sections: Record<string, unknown>,
+  extraFiles: Record<string, unknown> = {},
+) {
   const sectionEntries = Object.fromEntries(
     Object.keys(sections).map((section) => [
       section,
@@ -1323,6 +1337,22 @@ function v2SectionContext(sections: Record<string, unknown>) {
   const files = new Map<string, string>([
     ["result/topic-analysis.json", JSON.stringify(manifest)],
     [
+      "result/sidecars/concept-cards-proposal.json",
+      JSON.stringify({
+        schema_id: "synthesis.concept_cards_proposal",
+        cards: [],
+        diagnostics: [],
+      }),
+    ],
+    [
+      "result/sidecars/topic-graph-relation-proposals.json",
+      JSON.stringify({
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        proposals: [],
+        diagnostics: [],
+      }),
+    ],
+    [
       "runtime/payloads/resolver.json",
       JSON.stringify({
         resolver: {
@@ -1337,10 +1367,20 @@ function v2SectionContext(sections: Record<string, unknown>) {
         },
       }),
     ],
-    ...Object.entries(sections).map(([section, value]) => [
-      `result/sections/${section.replace(/_/g, "-")}.json`,
-      JSON.stringify(value),
-    ] as const),
+    ...Object.entries(sections).map(
+      ([section, value]) =>
+        [
+          `result/sections/${section.replace(/_/g, "-")}.json`,
+          JSON.stringify(value),
+        ] as const,
+    ),
+    ...Object.entries(extraFiles).map(
+      ([filePath, value]) =>
+        [
+          filePath,
+          typeof value === "string" ? value : JSON.stringify(value),
+        ] as const,
+    ),
   ]);
   return {
     bundleReader: {
@@ -1360,7 +1400,8 @@ function v2SectionsWithEvidence(payloadHash: string) {
     topic: {
       id: "object-detection",
       title: "Object Detection",
-      definition: "The task of detecting instances of visual objects of certain classes in digital images.",
+      definition:
+        "The task of detecting instances of visual objects of certain classes in digital images.",
       discipline: "Computer Science",
       research_field: "Computer Vision",
       scope_boundary: { include: ["DETR"], exclude: [] },
@@ -1401,7 +1442,8 @@ function v2SectionsWithEvidence(payloadHash: string) {
       {
         id: "claim:detr",
         text: "DETR introduced end-to-end detection.",
-        analysis: "The fixture claim is supported by DETR's set-prediction formulation.",
+        analysis:
+          "The fixture claim is supported by DETR's set-prediction formulation.",
         evidence_refs: ["paper:1:DETR"],
         evidence_map_refs: ["claim:detr"],
         confidence: 0.8,
@@ -1419,7 +1461,8 @@ function v2SectionsWithEvidence(payloadHash: string) {
           label: "DETR",
           description: "DETR introduced set-prediction object detection.",
           phase: "paradigm_shift",
-          progression_logic: "Later detector transformer work builds on this formulation.",
+          progression_logic:
+            "Later detector transformer work builds on this formulation.",
           evidence_refs: ["paper:1:DETR"],
           evidence_map_refs: ["claim:detr"],
         },
@@ -1448,16 +1491,30 @@ function v2SectionsWithEvidence(payloadHash: string) {
       coverage_verdict: "partial",
       suggested_additions: [],
     },
-    debates: [{ id: "debate:detr", evidence_type: "methodological_tradeoff", evidence_map_refs: ["debate:detr"] }],
+    debates: [
+      {
+        id: "debate:detr",
+        evidence_type: "methodological_tradeoff",
+        evidence_map_refs: ["debate:detr"],
+      },
+    ],
     coverage: {
       paper_count: 1,
       external_literature_count: 0,
       coverage_verdict: "partial",
       route_coverage_summary: "Fixture covers one DETR route.",
     },
-    gaps: [{ id: "gap:coverage", gap_type: "library_coverage_gap", evidence_map_refs: ["gap:coverage"] }],
+    gaps: [
+      {
+        id: "gap:coverage",
+        gap_type: "library_coverage_gap",
+        evidence_map_refs: ["gap:coverage"],
+      },
+    ],
     review_outline: {
-      introduction_logic: [{ id: "intro:why", evidence_map_refs: ["claim:detr"] }],
+      introduction_logic: [
+        { id: "intro:why", evidence_map_refs: ["claim:detr"] },
+      ],
       related_work_logic: [],
       body_sections: [],
     },
@@ -1473,14 +1530,19 @@ function v2SectionsWithEvidence(payloadHash: string) {
         research_routes: "taxonomy.summary",
         historical_progression: "timeline_events.summary",
       },
-      body:
-        "This fixture topic synthesis describes object detection through a single DETR evidence paper. DETR introduced a set-prediction framing that reduced reliance on hand-designed post-processing and made query-based detection a coherent research route. Because the fixture contains only one paper, the taxonomy, timeline, claims, and external literature analysis are intentionally partial and should be treated as a minimal validation artifact rather than a full domain synthesis.",
+      body: "This fixture topic synthesis describes object detection through a single DETR evidence paper. DETR introduced a set-prediction framing that reduced reliance on hand-designed post-processing and made query-based detection a coherent research route. Because the fixture contains only one paper, the taxonomy, timeline, claims, and external literature analysis are intentionally partial and should be treated as a minimal validation artifact rather than a full domain synthesis.",
     },
     evidence_map: {
       path: "runtime/payloads/cross-paper-evidence-map.json",
       hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       candidate_counts: {},
-      candidate_ids: ["tax:detr", "cmp:detr", "claim:detr", "debate:detr", "gap:coverage"],
+      candidate_ids: [
+        "tax:detr",
+        "cmp:detr",
+        "claim:detr",
+        "debate:detr",
+        "gap:coverage",
+      ],
     },
     source_artifacts: [],
     diagnostics: { warnings: [] },
@@ -1502,28 +1564,63 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
 
     assert.equal(
       paths.currentManifest,
-      path.join(root, "synthesis", "topics", "object-detection", "current", "manifest.json"),
+      path.join(
+        root,
+        "synthesis",
+        "topics",
+        "object-detection",
+        "current",
+        "manifest.json",
+      ),
     );
     assert.equal(
       paths.currentArtifact,
-      path.join(root, "synthesis", "topics", "object-detection", "current", "artifact.json"),
+      path.join(
+        root,
+        "synthesis",
+        "topics",
+        "object-detection",
+        "current",
+        "artifact.json",
+      ),
     );
     assert.equal(
       paths.currentMetadata,
-      path.join(root, "synthesis", "topics", "object-detection", "current", "metadata.json"),
+      path.join(
+        root,
+        "synthesis",
+        "topics",
+        "object-detection",
+        "current",
+        "metadata.json",
+      ),
     );
     assert.equal(
       paths.currentExportMarkdown,
-      path.join(root, "synthesis", "topics", "object-detection", "current", "export.md"),
+      path.join(
+        root,
+        "synthesis",
+        "topics",
+        "object-detection",
+        "current",
+        "export.md",
+      ),
     );
     assert.equal(
       paths.currentSectionsRoot,
-      path.join(root, "synthesis", "topics", "object-detection", "current", "sections"),
+      path.join(
+        root,
+        "synthesis",
+        "topics",
+        "object-detection",
+        "current",
+        "sections",
+      ),
     );
     assert.notProperty(paths, "currentMarkdown");
   });
 
-  it("applies structured topic results into current/ assets and refreshes mirror from canonical current state", async function () {
+  it("applies structured topic results into current/ assets without mirror writes", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();
     const service = createSynthesisService({
@@ -1546,33 +1643,19 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
     );
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
-    const reviewInput = await service.getReviewInput({ topicId: "object-detection" });
+    const reviewInput = await service.getReviewInput({
+      topicId: "object-detection",
+    });
 
     assert.equal(result.status, "persisted");
     assert.isTrue(await exists(paths.currentManifest));
     assert.isTrue(await exists(paths.currentArtifact));
     assert.isTrue(await exists(paths.currentMetadata));
     assert.isTrue(await exists(paths.currentExportMarkdown));
-    assert.isTrue(await exists(path.join(paths.currentSectionsRoot, "claims.json")));
-    assert.isAtLeast(mirror.upserts.length, 1);
-    const mirrorEnvelopes = mirror.upserts.map((entry) => decodeNoteShard(entry.html).envelope);
-    assert.include(mirrorEnvelopes.map((entry) => entry.kind), "manifest");
-    assert.includeMembers(
-      mirrorEnvelopes.map((entry) => entry.asset_id),
-      [
-        "state:index",
-        "state:topic-definitions",
-        "state:resolvers",
-        "state:resolved-paper-sets",
-        "state:artifact-state",
-        "topic:object-detection:current-manifest",
-        "topic:object-detection:current-metadata",
-        "topic:object-detection:current-artifact",
-        "topic:object-detection:current-export",
-        "topic:object-detection:section:claims",
-      ],
+    assert.isTrue(
+      await exists(path.join(paths.currentSectionsRoot, "claims.json")),
     );
-    assert.notInclude(mirrorEnvelopes.map((entry) => entry.asset_id), "state:unified-citation-graph");
+    assert.lengthOf(mirror.upserts, 0);
     assert.include(reviewInput.topic.markdown, "# Object Detection");
     assert.equal(
       reviewInput.structured_topic?.artifact.schema_id,
@@ -1582,6 +1665,85 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.isObject(reviewInput.structured_topic?.timeline_events);
     assert.isArray(reviewInput.structured_topic?.paper_evidence);
     assert.isObject(reviewInput.structured_topic?.external_literature_analysis);
+  });
+
+  it("upserts topic graph nodes and ingests relation proposal sidecars after structured apply", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
+    });
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle({
+        concept_cards_proposal_path:
+          "result/sidecars/concept-cards-proposal.json",
+        topic_graph_relation_proposals_path:
+          "result/sidecars/topic-graph-relation-proposals.json",
+      }),
+      v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR")), {
+        "result/sidecars/concept-cards-proposal.json": {
+          schema_id: "synthesis.concept_cards_proposal",
+          cards: [
+            {
+              label: "DETR",
+              aliases: ["DEtection TRansformer"],
+              concept_type: "method_family",
+              domain: "computer vision",
+              short_definition: "End-to-end object detector.",
+              definition: "DETR formulates object detection as set prediction.",
+              confidence: 0.9,
+            },
+          ],
+        },
+        "result/sidecars/topic-graph-relation-proposals.json": {
+          schema_id: "synthesis.topic_graph_relation_proposals",
+          source_topic_id: "object-detection",
+          proposals: [
+            {
+              proposal_type: "broader_topic_candidate",
+              target_topic_id: "computer-vision",
+              target_title: "Computer Vision",
+            },
+            {
+              proposal_type: "related_topic_candidate",
+              target_topic_id: "set-prediction",
+              target_title: "Set Prediction",
+            },
+          ],
+        },
+      }),
+    );
+
+    const graph = await service.loadTopicGraph();
+    const concepts = await service.loadConceptKb();
+    assert.equal(result.status, "persisted");
+    assert.deepEqual(
+      concepts.concepts.map((entry) => entry.label),
+      ["DETR"],
+    );
+    assert.includeMembers(
+      graph.nodes.map((node) => node.topic_id),
+      ["object-detection", "computer-vision", "set-prediction"],
+    );
+    assert.includeMembers(
+      graph.edges.map((edge) => edge.relation),
+      ["broader_than", "related_to"],
+    );
+    const materialized = graph.nodes.find(
+      (node) => node.topic_id === "object-detection",
+    );
+    assert.equal(materialized?.node_type, "materialized");
+    assert.equal(materialized?.paper_count, 1);
   });
 
   it("accepts structured paper evidence when digest_ref hash matches current Zotero artifact", async function () {
@@ -1620,7 +1782,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     const originalReadText = context.bundleReader.readText;
     context.bundleReader.readText = async (pathValue: string) => {
       if (pathValue === "runtime/payloads/resolver.json") {
-        throw new Error("missing test run artifact: runtime/payloads/resolver.json");
+        throw new Error(
+          "missing test run artifact: runtime/payloads/resolver.json",
+        );
       }
       return originalReadText(pathValue);
     };
@@ -1669,8 +1833,14 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
   it("marks legacy current.md/current.json topic directories as needs_recreate without fallback reading", async function () {
     const root = await makeRoot();
     const paths = buildSynthesisStoragePaths(root, "legacy-topic");
-    await fs.mkdir(path.dirname((paths as any).legacyCurrentMarkdown), { recursive: true });
-    await fs.writeFile((paths as any).legacyCurrentMarkdown, "# Legacy Markdown\n", "utf8");
+    await fs.mkdir(path.dirname((paths as any).legacyCurrentMarkdown), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      (paths as any).legacyCurrentMarkdown,
+      "# Legacy Markdown\n",
+      "utf8",
+    );
     await fs.writeFile(
       (paths as any).legacyCurrentMetadata,
       JSON.stringify({ schema_id: "synthesis.topic_artifact_metadata" }),
@@ -1684,7 +1854,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     });
 
     const snapshot = await service.getSynthesisSnapshot();
-    const row = snapshot.artifacts.rows.find((entry: any) => entry.id === "legacy-topic");
+    const row = snapshot.artifacts.rows.find(
+      (entry: any) => entry.id === "legacy-topic",
+    );
 
     assert.isOk(row);
     assert.include(["legacy_invalid", "needs_recreate"], (row as any).status);
@@ -1737,12 +1909,16 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
   });
 
   it("allows non-overlapping section patches despite unrelated artifact hash drift", async function () {
-    const module = await importOptional("../../src/modules/synthesis/topicStructuredArtifact");
+    const module = await importOptional(
+      "../../src/modules/synthesis/topicStructuredArtifact",
+    );
 
     assert.isUndefined(
       module.__loadError,
       `expected topicStructuredArtifact module to load before checking patch apply: ${
-        module.__loadError instanceof Error ? module.__loadError.message : String(module.__loadError)
+        module.__loadError instanceof Error
+          ? module.__loadError.message
+          : String(module.__loadError)
       }`,
     );
     assert.isFunction((module as any).applyTopicSectionPatch);
@@ -1783,7 +1959,13 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     });
 
     assert.equal(result.status, "applied");
-    assert.equal(result.nextManifest.section_hashes.claims, "sha256:new-claims");
-    assert.equal(result.nextManifest.section_hashes.coverage, "sha256:newer-coverage");
+    assert.equal(
+      result.nextManifest.section_hashes.claims,
+      "sha256:new-claims",
+    );
+    assert.equal(
+      result.nextManifest.section_hashes.coverage,
+      "sha256:newer-coverage",
+    );
   });
 });

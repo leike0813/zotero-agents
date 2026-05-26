@@ -58,7 +58,10 @@ PageRank、foundation/frontier role hints、artifact availability 和 route cove
 {
   "claim": "DETR 系列完成了从端到端可行性验证到实时部署的路线扩展。",
   "allowed_evidence": ["pe:1_eimsdeu3", "pe:1_cbjwe4jx"],
-  "not_allowed_as_primary_evidence": ["external:vaswani2017", "metrics:foundation_score"],
+  "not_allowed_as_primary_evidence": [
+    "external:vaswani2017",
+    "metrics:foundation_score"
+  ],
   "usage_note": "Transformer 原始论文可用于 external_literature_analysis，citation graph metrics 可用于说明 DETR 是 foundation paper，但 claim 本身仍必须由库内 paper evidence 支撑。"
 }
 ```
@@ -96,6 +99,29 @@ diagnostics
   `coverage`、`statistics`、`review_outline`、`synthesis_report` 是主要内容层。
 - Markdown export 只是兼容视图，不是展示真源。
 
+### KG proposal sidecars
+
+Completed final bundle 还必须包含两个 KG proposal sidecar path：
+
+```json
+{
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+这两个文件必须存在，但它们不是 structured topic artifact 的正文 section。没有实质 proposal
+时也必须写空数组和 diagnostics；不能因为 proposal “可空”就省略 sidecar 或 final bundle path。
+
+- `concept_cards_proposal.json` 是 agent-authored concept card proposal，用于插件 apply
+  阶段摄取为 Concept KB 候选。
+- `topic-graph-relation-proposals.json` 是 agent-authored topic graph relation proposal，用于
+  插件 apply 阶段摄取为 Topic Graph 候选关系。
+- 两个 sidecar 不进入 `topic`、`summary`、`taxonomy`、`claims`、`diagnostics`
+  等 structured sections，也不是 `synthesis_report` 的内容来源。
+- Agent 不能写 canonical concept id、canonical edge id、SQLite state 或 Git sync metadata；
+  canonical 摄取由插件服务完成。
+
 ## 4. `topic`：概念、定义与范围
 
 ### 目标
@@ -116,6 +142,10 @@ diagnostics
 - `scope_boundary`：纳入范围、排除范围、灰区。
 - `topic_granularity`：该 topic 是方法族、任务、问题、应用场景还是理论概念。
 
+`topic_granularity` 只能使用：`method_family` / `task` / `problem` /
+`application_scenario` / `theory_concept` / `mechanism` /
+`dataset_or_benchmark` / `mixed`。
+
 ### 粒度
 
 定义应足够具体，避免把 topic 写成过大的学科领域。例如“Object Detection”可以是
@@ -131,7 +161,11 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
   "definition": "本 topic 指以 object queries、集合预测和二分图匹配为核心的目标检测方法族。它关注如何用端到端预测替代传统 proposal、anchor 和 NMS pipeline，并围绕收敛效率、小目标表现、实时部署和多模态/3D 扩展形成若干研究路线。",
   "discipline": "Computer Science",
   "research_field": "Computer Vision",
-  "aliases": ["Detection Transformer", "DETR variants", "Query-based detection"],
+  "aliases": [
+    "Detection Transformer",
+    "DETR variants",
+    "Query-based detection"
+  ],
   "topic_granularity": "method_family",
   "scope_boundary": {
     "include": [
@@ -142,9 +176,7 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
       "泛化的 CNN object detection survey",
       "只使用 transformer backbone 但不采用 query/set prediction 的检测器"
     ],
-    "gray_zone": [
-      "YOLO/anchor-free 方法仅在与 DETR 路线比较或外部背景中出现"
-    ]
+    "gray_zone": ["YOLO/anchor-free 方法仅在与 DETR 路线比较或外部背景中出现"]
   }
 }
 ```
@@ -165,6 +197,9 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
 - `key_takeaways`：3–7 条最重要结论。
 - `route_count` / `timeline_span` / `coverage_verdict`：给前端快速展示。
 
+`coverage_verdict` 只能使用：`sufficient` / `partial` / `insufficient` /
+`severely_missing` / `unknown`。
+
 ### 粒度
 
 摘要不应重复 topic definition，而应说明“这个 topic 的研究脉络大概是什么、当前库
@@ -183,7 +218,7 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
     "3D 和多视角扩展表明该范式具有跨场景迁移潜力。"
   ],
   "route_count": 5,
-  "timeline_span": {"start_year": 2020, "end_year": 2026},
+  "timeline_span": { "start_year": 2020, "end_year": 2026 },
   "coverage_verdict": "partial"
 }
 ```
@@ -269,8 +304,15 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
   "axis_rationale": "DETR 系列论文的主要差异不在任务定义，而在它们分别针对收敛速度、注意力计算、query 表征、实时部署和跨场景扩展等瓶颈提出机制。",
   "summary": {
     "text": "DETR-style object detection 的路线版图可以理解为围绕 query-based set prediction 实用化瓶颈展开的多线并进。注意力效率路线首先解决全局 attention 的计算和小目标问题，收敛加速路线随后集中处理 matching 不稳定和训练周期过长，高性能组合路线把这些机制整合为强 baseline，实时部署路线则说明该范式开始进入工程可用阶段。跨场景扩展路线不是独立替代前几条路线，而是把 query-based detection 的表示方式迁移到 3D、多视角和复杂感知任务中。因此，这个 topic 的核心不是单一方法取代另一种方法，而是同一范式在效率、学习信号、系统集成和部署约束上的逐层补强。",
-    "dominant_routes": ["route:attention-efficiency", "route:convergence-acceleration", "route:high-performance-integration"],
-    "emerging_routes": ["route:real-time-deployment", "route:cross-scenario-extension"],
+    "dominant_routes": [
+      "route:attention-efficiency",
+      "route:convergence-acceleration",
+      "route:high-performance-integration"
+    ],
+    "emerging_routes": [
+      "route:real-time-deployment",
+      "route:cross-scenario-extension"
+    ],
     "route_relationships": [
       {
         "from": "route:attention-efficiency",
@@ -292,7 +334,11 @@ attention for detection”是机制级 topic。Skill 必须说明当前 synthesi
       "definition": "针对原始 DETR 训练慢、匹配不稳定的问题，通过去噪训练、动态 anchor query 和改进 query selection 缩短训练周期。",
       "core_problem": "原始 DETR 需要很长训练周期，早期 query-object matching 不稳定。",
       "mechanism": "用 denoising queries、anchor-like dynamic query 或 improved matching supervision 给 decoder 提供更稳定的学习信号。",
-      "representative_papers": ["pe:1_nxligkf5", "pe:1_iy3fmwqm", "pe:1_hplz65z2"],
+      "representative_papers": [
+        "pe:1_nxligkf5",
+        "pe:1_iy3fmwqm",
+        "pe:1_hplz65z2"
+      ],
       "main_contributions": [
         "把 DETR 训练从 500 epoch 级别压缩到 12–50 epoch 级别。",
         "让 query-based detector 更接近传统检测器的训练成本。"
@@ -369,7 +415,11 @@ phase 作为 timeline 分组，将 event 作为 marker。
         "logic": "将机制组合为高性能系统，并向实时部署和跨场景应用扩展。"
       }
     ],
-    "milestone_event_refs": ["event:detr-2020", "event:deformable-detr-2021", "event:dino-2022"],
+    "milestone_event_refs": [
+      "event:detr-2020",
+      "event:deformable-detr-2021",
+      "event:dino-2022"
+    ],
     "report_chapter_hint": "可作为 synthesis_report 中“历史沿革和递进逻辑”章节的直接上游材料。"
   },
   "events": [
@@ -419,7 +469,13 @@ paper evidence 得出的 synthesis-level finding。
     "id": "claim:detr-practicality-shift",
     "text": "DETR-style detectors 的研究重心已经从证明端到端检测可行，转向如何让 query-based detection 在训练成本、实时性和部署谱系上可用。",
     "analysis": "原始 DETR 提供集合预测范式，但其训练周期和小目标表现限制了实用性。后续 Deformable DETR、DN-DETR、DINO、RT-DETR 和轻量化路线分别围绕注意力、匹配、query selection 和实时编码器解决这些瓶颈，显示该 topic 的主线已从 paradigm proposal 转入 system optimization。",
-    "evidence_refs": ["pe:1_eimsdeu3", "pe:1_5hbhawiv", "pe:1_nxligkf5", "pe:1_hplz65z2", "pe:1_cbjwe4jx"],
+    "evidence_refs": [
+      "pe:1_eimsdeu3",
+      "pe:1_5hbhawiv",
+      "pe:1_nxligkf5",
+      "pe:1_hplz65z2",
+      "pe:1_cbjwe4jx"
+    ],
     "evidence_map_refs": ["claim:detr-practicality-shift"],
     "confidence": 0.86,
     "scope": "适用于库内 DETR-style object detection 文献；不等价于所有 object detection 方法的发展趋势。",
@@ -532,14 +588,16 @@ paper evidence 得出的 synthesis-level finding。
 
 ### Gap 类型
 
-建议使用：
+当前 runtime 接受的 `gaps[].gap_type` 只能是 `research_gap` / `library_coverage_gap` /
+`evidence_gap` / `evaluation_gap`；`gaps[].severity` 只能是 `low` / `medium` / `high` /
+`critical` / `unknown`。不要在 final/core `gaps[]` 中使用会被 runtime 拒绝的临时同义值。
+
+语义判断口径：
 
 - `research_gap`：文献显示该问题真实未解决。
 - `library_coverage_gap`：当前库缺文献，无法判断或覆盖不充分。
 - `evidence_gap`：artifact 缺失或 digest 信息不足。
-- `method_gap`：方法机制尚未充分探索。
 - `evaluation_gap`：缺少统一 benchmark、跨场景评估或公平对比。
-- `engineering_gap`：部署、鲁棒性、可维护性、系统集成不足。
 
 ### 示例
 
@@ -586,6 +644,10 @@ topic 的背景、概念来源、方法脉络和覆盖缺口。
 4. 半定性覆盖结论：`sufficient`、`partial`、`insufficient`、
    `severely_missing`、`unknown`。
 5. 下一步入库建议和建议入库文献清单。
+
+枚举字段：`representative_references[].information_completeness` 只能是
+`complete` / `partial` / `minimal` / `unknown`；`suggested_additions[].priority`
+只能是 `high` / `medium` / `low` / `unknown`。
 
 ### 覆盖档位
 
@@ -715,7 +777,7 @@ topic 的背景、概念来源、方法脉络和覆盖缺口。
 {
   "paper_count": 21,
   "evidence_paper_count": 20,
-  "time_span": {"start_year": 2020, "end_year": 2026},
+  "time_span": { "start_year": 2020, "end_year": 2026 },
   "route_count": 5,
   "route_coverage": "核心 DETR variants 路线覆盖较完整，传统检测器背景不足。",
   "coverage_verdict": "partial",
@@ -729,9 +791,9 @@ topic 的背景、概念来源、方法脉络和覆盖缺口。
     "external-heavy": 6
   },
   "artifact_availability": {
-    "digest": {"available": 20, "missing": 1},
-    "references": {"available": 18, "missing": 3},
-    "citation_analysis": {"available": 17, "missing": 4}
+    "digest": { "available": 20, "missing": 1 },
+    "references": { "available": 18, "missing": 3 },
+    "citation_analysis": { "available": 17, "missing": 4 }
   }
 }
 ```
@@ -771,7 +833,10 @@ Framing、Related Work 和 survey writing。
       "id": "rw:detr-route-taxonomy",
       "organization": "按技术路线组织：attention efficiency、convergence acceleration、query design、real-time deployment、3D expansion。",
       "source_sections": ["taxonomy", "timeline_events", "comparison_matrix"],
-      "evidence_map_refs": ["tax:convergence-acceleration", "tax:real-time-detr"]
+      "evidence_map_refs": [
+        "tax:convergence-acceleration",
+        "tax:real-time-detr"
+      ]
     }
   ],
   "body_sections": [
@@ -853,7 +918,7 @@ Framing、Related Work 和 survey writing。
 
 ### `evidence_map`
 
-`evidence_map` 连接 Stage 5 cross-paper evidence map 与最终 sections。前端通常不直接
+`evidence_map` 连接 Stage 6 cross-paper evidence map 与最终 sections。前端通常不直接
 展示完整 evidence map，但 workflow 和 validator 要用它检查引用闭环。
 
 ```json
@@ -890,7 +955,10 @@ Framing、Related Work 和 survey writing。
     "3 papers lack citation-analysis-json; external literature analysis may miss citation context.",
     "Traditional detector background is a library coverage gap, not a field-wide research gap."
   ],
-  "quality_flags": ["external_literature_partial", "comparison_hardware_inconsistent"]
+  "quality_flags": [
+    "external_literature_partial",
+    "comparison_hardware_inconsistent"
+  ]
 }
 ```
 
@@ -900,14 +968,18 @@ Framing、Related Work 和 survey writing。
 
 后续 workflow 修改应遵循：
 
-- Stage 4 per-paper analysis 必须抽取路线、timeline、claim、debate、gap 和外部文献信号。
-- Stage 5 cross-paper context 必须支持生成研究路线分析和历史递进逻辑。
-- final section authoring 应先生成 `taxonomy.summary` 与 `timeline_events.summary`，
-  再生成 `synthesis_report`，使报告中的“主要研究路线”和“历史沿革”章节有明确上游。
-- final section authoring 必须先满足本文档的内容合同，再通过 schema/runtime 校验。
-- `update-topic-synthesis` 做 section patch 时，若触及 `taxonomy`、`timeline_events`、
-  `claims`、`external_literature_analysis`、`statistics` 或 `synthesis_report`，
-  必须保持同等内容深度。
+- Stage 5 `persist_paper_units` 必须抽取路线、timeline、claim、debate、gap 和外部文献信号。
+- Stage 6 `persist_cross_paper_evidence_map` 必须支持生成研究路线分析和历史递进逻辑。
+- Stage 7/8 应先形成 `taxonomy.summary`、`timeline_events.summary` 和核心分析 sections。
+- Stage 9 `persist_kg_proposals` 只生成 KG proposal sidecars；它不写 structured artifact
+  sections，也不写 canonical KG assets。
+- Stage 10 `persist_external_statistics_report` 必须先满足本文档的内容合同，再通过
+  schema/runtime 校验，并由 runtime 合并前序已验证 sections。
+- Stage 11 `validate_final_artifacts` 必须检查 final bundle 中的
+  `concept_cards_proposal_path` 与 `topic_graph_relation_proposals_path`，并要求对应
+  `result/sidecars/` 文件已注册。
+- section patch 或局部刷新若触及 `taxonomy`、`timeline_events`、`claims`、
+  `external_literature_analysis`、`statistics` 或 `synthesis_report`，必须保持同等内容深度。
 
 ### Frontend
 

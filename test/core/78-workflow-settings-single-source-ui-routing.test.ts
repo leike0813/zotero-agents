@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -10,7 +14,7 @@ describe("workflow settings single-source routing", function () {
   it("routes prefs openWorkflowSettings to dashboard workflow-options tab", async function () {
     const ts = await readProjectFile("src/hooks.ts");
     assert.include(ts, 'case "openWorkflowSettings"');
-    assert.include(ts, "initialTabKey: \"workflow-options\"");
+    assert.include(ts, 'initialTabKey: "workflow-options"');
     assert.include(ts, "initialWorkflowId:");
   });
 
@@ -28,11 +32,16 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, "if (dialogResult.persist)");
     assert.include(ts, "updateWorkflowSettings(");
     assert.include(ts, 'dialogResult.status === "canceled"');
-    assert.include(ts, 'stage: canceled ? "settings-gate-canceled" : "settings-gate-failed"');
+    assert.include(
+      ts,
+      'stage: canceled ? "settings-gate-canceled" : "settings-gate-failed"',
+    );
   });
 
   it("uses compact web dialog layout without framework-level extra cancel button", async function () {
-    const ts = await readProjectFile("src/modules/workflowSettingsWebDialog.ts");
+    const ts = await readProjectFile(
+      "src/modules/workflowSettingsWebDialog.ts",
+    );
     assert.include(ts, "Save as default settings");
     assert.include(ts, "resizeTo(760, 620)");
     assert.include(ts, "isStructuralDraftChange");
@@ -53,8 +62,10 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, 'if (action === "workflow-settings-draft")');
     assert.include(ts, "workflowSettingsSaveStateById");
     assert.include(ts, 'reason === "periodic" || reason === "task-update"');
-    assert.include(ts, "const changedSection = normalizeDraftChangedSection(payload.changedSection)");
-    assert.include(ts, "const changedKey = normalizeDraftChangedKey(payload.changedKey)");
+    assert.include(ts, "const changedSection = normalizeDraftChangedSection(");
+    assert.include(ts, "payload.changedSection");
+    assert.include(ts, "const changedKey = normalizeDraftChangedKey(");
+    assert.include(ts, "payload.changedKey");
     assert.include(ts, "isWorkflowSettingsStructuralRefreshChange");
     assert.notInclude(
       ts,
@@ -77,10 +88,14 @@ describe("workflow settings single-source routing", function () {
   });
 
   it("aligns skillrunner runtime options by execution mode", async function () {
-    const providerTs = await readProjectFile("src/providers/skillrunner/provider.ts");
+    const providerTs = await readProjectFile(
+      "src/providers/skillrunner/provider.ts",
+    );
     assert.include(providerTs, "interactive_auto_reply");
     assert.include(providerTs, "hard_timeout_seconds");
-    const clientTs = await readProjectFile("src/providers/skillrunner/client.ts");
+    const clientTs = await readProjectFile(
+      "src/providers/skillrunner/client.ts",
+    );
     assert.include(clientTs, 'executionMode === "interactive"');
     assert.include(clientTs, "runtimeOptions.hard_timeout_seconds");
   });
@@ -88,12 +103,20 @@ describe("workflow settings single-source routing", function () {
   it("uses default-settings wording in active workflow settings locales", async function () {
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
-    assert.include(en, "workflow-settings-submit-persist-checkbox = Save as default settings");
-    assert.include(zh, "workflow-settings-submit-persist-checkbox = 保存为默认配置");
+    assert.include(
+      en,
+      "workflow-settings-submit-persist-checkbox = Save as default settings",
+    );
+    assert.include(
+      zh,
+      "workflow-settings-submit-persist-checkbox = 保存为默认配置",
+    );
   });
 
   it("keeps submit dialog updates metadata-aware for structural refresh gating", async function () {
-    const js = await readProjectFile("addon/content/dashboard/workflow-settings-dialog.js");
+    const js = await readProjectFile(
+      "addon/content/dashboard/workflow-settings-dialog.js",
+    );
     assert.include(js, "flushDraftFromControls");
     assert.include(js, "captureActiveFormState");
     assert.include(js, "restoreActiveFormState");

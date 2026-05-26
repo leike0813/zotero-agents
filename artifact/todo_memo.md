@@ -69,7 +69,8 @@
 - [x] workspace activity 有时会打断完整信息（当流式输出未结束时）
 - [x] synthesis页面中的run synthesis按钮语义应该改为create topic
 - [x] 四个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮；活动中的acp skills任务如果有新动作，会话抽屉中的任务卡片的更新时间会刷新，在刷新时会导致抽屉无法交互
-- [ ] **Topic graph 和知识库**
+- [p] **Topic graph 和知识库**
+- [ ] **进一步优化synthesis skills**，每一步的细节指令要结合payload schema来说，明确各字段的语义及写作建议、示例，进一步约束agent行为，降低错误率，提高质量
 - [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
 - [ ] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示

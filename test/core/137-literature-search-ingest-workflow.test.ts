@@ -89,8 +89,14 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.equal(workflow.id, "literature-search-ingest");
     assert.equal(workflow.provider, "acp");
-    assert.equal(workflow.request?.create?.skill_id, "literature-search-ingest");
-    assert.equal(workflow.taskNameTemplate, "Search and ingest literature: {query}");
+    assert.equal(
+      workflow.request?.create?.skill_id,
+      "literature-search-ingest",
+    );
+    assert.equal(
+      workflow.taskNameTemplate,
+      "Search and ingest literature: {query}",
+    );
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
     assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
@@ -126,8 +132,9 @@ describe("Literature Search Ingest workflow contract", function () {
       labelFormat: "path",
     });
 
-    const option = resolved.options.find((entry) =>
-      entry.value === `${Zotero.Libraries.userLibraryID}:${child.key}`,
+    const option = resolved.options.find(
+      (entry) =>
+        entry.value === `${Zotero.Libraries.userLibraryID}:${child.key}`,
     );
     assert.isOk(option);
     assert.equal(option?.label, "Vision / Object Detection");
@@ -142,6 +149,44 @@ describe("Literature Search Ingest workflow contract", function () {
 
     assert.deepEqual(resolved.options, []);
     assert.equal(resolved.diagnostics[0]?.code, "unsupported_options_source");
+  });
+
+  it("resolves synthesis topic options through the bounded service facade", async function () {
+    let requestedFilter = "";
+    const resolved = await resolveWorkflowParameterOptionsSource(
+      {
+        kind: "synthesis.topics",
+        filter: "updatable",
+      },
+      {
+        synthesisService: {
+          async listWorkflowTopicOptions(args) {
+            requestedFilter = String(args?.filter || "");
+            return {
+              options: [
+                {
+                  value: "topic-alpha",
+                  label: "Alpha",
+                  description: "Update · freshness stale · topic-alpha",
+                  meta: {
+                    kind: "synthesis.topic",
+                    topicId: "topic-alpha",
+                  },
+                },
+              ],
+              diagnostics: [],
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(requestedFilter, "updatable");
+    assert.deepEqual(
+      resolved.options.map((entry) => entry.value),
+      ["topic-alpha"],
+    );
+    assert.deepEqual(resolved.diagnostics, []);
   });
 
   it("blocks strict dynamic workflow parameters when no selectable options are available", async function () {
@@ -187,6 +232,48 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.isTrue(descriptor.workflowSchemaEntries[0]?.disabled);
   });
 
+  it("can build lightweight descriptors without resolving dynamic options", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const descriptor = await buildWorkflowSettingsUiDescriptor({
+      workflow: {
+        ...workflow!,
+        manifest: {
+          ...workflow!.manifest,
+          parameters: {
+            topicId: {
+              type: "string",
+              title: "Topic ID",
+              allowCustom: false,
+              optionsSource: {
+                kind: "zotero.unknown",
+              },
+            },
+          },
+        },
+      } as any,
+      candidateBackends: [
+        {
+          id: "acp-test",
+          type: "acp",
+          displayName: "ACP Test",
+          baseUrl: "http://127.0.0.1",
+        } as any,
+      ],
+      resolveDynamicOptions: false,
+    });
+
+    assert.isUndefined(descriptor.blockedReason);
+    assert.isFalse(descriptor.workflowSchemaEntries[0]?.disabled === true);
+    assert.isUndefined(descriptor.workflowSchemaEntries[0]?.options);
+  });
+
   it("injects dynamic collection options into workflow settings descriptors", async function () {
     const collection = await createCollection("Descriptor Collection");
     const loaded = await loadWorkflowManifests("workflows_builtin", {
@@ -214,8 +301,9 @@ describe("Literature Search Ingest workflow contract", function () {
     const autoApprove = descriptor.runSchemaEntries.find(
       (entry) => entry.key === "autoApproveZoteroWrites",
     );
-    const option = targetCollection?.options?.find((entry) =>
-      entry.value === `${Zotero.Libraries.userLibraryID}:${collection.key}`,
+    const option = targetCollection?.options?.find(
+      (entry) =>
+        entry.value === `${Zotero.Libraries.userLibraryID}:${collection.key}`,
     );
 
     assert.isOk(option);
@@ -290,7 +378,9 @@ describe("Literature Search Ingest workflow contract", function () {
       runtime_options?: Record<string, unknown>;
     }>;
 
-    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined(
+      (requests[0] as any).runtime_options?.zotero_host_access,
+    );
   });
 
   it("does not treat write auto-approval as a workflow parameter", async function () {
@@ -317,7 +407,9 @@ describe("Literature Search Ingest workflow contract", function () {
     }>;
 
     assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
-    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined(
+      (requests[0] as any).runtime_options?.zotero_host_access,
+    );
   });
 
   it("loads from the builtin literature workbench package and builds one SkillRunner-compatible request", async function () {
@@ -361,7 +453,9 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     assert.equal(requests[0].parameter?.searchMode, "targeted_ingest");
     assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
-    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined(
+      (requests[0] as any).runtime_options?.zotero_host_access,
+    );
     assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
   });
 

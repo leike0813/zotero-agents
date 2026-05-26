@@ -14,6 +14,8 @@ export type SynthesisResultBundle = {
   resolver_diagnostics: Record<string, unknown>;
   artifact_metadata: Record<string, unknown>;
   analysis_manifest_path?: string;
+  concept_cards_proposal_path?: string;
+  topic_graph_relation_proposals_path?: string;
   markdown: string;
   markdown_path?: string;
   timeline?: string | Record<string, unknown> | unknown[];
@@ -72,7 +74,9 @@ export function validateSynthesisResultBundle(input: unknown): {
   }
   for (const key of Object.keys(input)) {
     if (DIRECT_WRITE_KEYS.has(key)) {
-      throw new Error(`synthesis result bundle contains direct write instruction: ${key}`);
+      throw new Error(
+        `synthesis result bundle contains direct write instruction: ${key}`,
+      );
     }
   }
   if (input.kind !== "topic_synthesis") {
@@ -85,13 +89,26 @@ export function validateSynthesisResultBundle(input: unknown): {
       operation !== "update_full" &&
       operation !== "update_patch"
     ) {
-      throw new Error("synthesis result bundle operation must be create, update_full, or update_patch");
+      throw new Error(
+        "synthesis result bundle operation must be create, update_full, or update_patch",
+      );
     }
     if (cleanString(input.markdown)) {
       throw new Error("synthesis result bundle must not embed markdown");
     }
     const analysisManifestPath = requireString(input, "analysis_manifest_path");
-    const baseHashes = requireObject(input, "base_hashes") as Record<string, string>;
+    const relationProposalsPath = requireString(
+      input,
+      "topic_graph_relation_proposals_path",
+    );
+    const conceptCardsProposalPath = requireString(
+      input,
+      "concept_cards_proposal_path",
+    );
+    const baseHashes = requireObject(input, "base_hashes") as Record<
+      string,
+      string
+    >;
     const artifactMetadata = requireObject(input, "artifact_metadata");
     const language = requireString(input, "language");
     if (operation === "update_patch") {
@@ -106,33 +123,42 @@ export function validateSynthesisResultBundle(input: unknown): {
           mode: "update",
           language,
           base_hashes: baseHashes,
-          read_section_hashes: requireObject(input, "read_section_hashes") as Record<string, string>,
+          read_section_hashes: requireObject(
+            input,
+            "read_section_hashes",
+          ) as Record<string, string>,
           topic_definition: {},
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
+          concept_cards_proposal_path: conceptCardsProposalPath,
+          topic_graph_relation_proposals_path: relationProposalsPath,
           markdown: "",
         },
       };
     }
     if (cleanString(input.markdown_path)) {
-      throw new Error("structured topic synthesis bundle must not depend on markdown_path");
+      throw new Error(
+        "structured topic synthesis bundle must not depend on markdown_path",
+      );
     }
     return {
       ok: true,
-        bundle: {
-          kind: "topic_synthesis",
-          operation,
-          mode: operation === "create" ? "create" : "update",
-          language,
-          base_hashes: baseHashes,
-          topic_definition: requireTopicDefinition(input),
-          resolver_manifest_path: requireString(input, "resolver_manifest_path"),
-          resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
-          artifact_metadata: artifactMetadata,
-          analysis_manifest_path: analysisManifestPath,
-          markdown: "",
-        },
+      bundle: {
+        kind: "topic_synthesis",
+        operation,
+        mode: operation === "create" ? "create" : "update",
+        language,
+        base_hashes: baseHashes,
+        topic_definition: requireTopicDefinition(input),
+        resolver_manifest_path: requireString(input, "resolver_manifest_path"),
+        resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
+        artifact_metadata: artifactMetadata,
+        analysis_manifest_path: analysisManifestPath,
+        concept_cards_proposal_path: conceptCardsProposalPath,
+        topic_graph_relation_proposals_path: relationProposalsPath,
+        markdown: "",
+      },
     };
   }
   if (input.mode !== "create" && input.mode !== "update") {
@@ -159,7 +185,9 @@ export function validateSynthesisResultBundle(input: unknown): {
     artifact_metadata: requireObject(input, "artifact_metadata"),
     markdown: requireString(input, "markdown"),
     markdown_path:
-      typeof input.markdown_path === "string" ? input.markdown_path.trim() : undefined,
+      typeof input.markdown_path === "string"
+        ? input.markdown_path.trim()
+        : undefined,
     timeline,
   };
   return { ok: true, bundle };

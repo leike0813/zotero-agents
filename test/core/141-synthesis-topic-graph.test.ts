@@ -1,0 +1,433 @@
+import { assert } from "chai";
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
+import {
+  buildSynthesisKnowledgeGraphPaths,
+  readProjectionRegistryState,
+} from "../../src/modules/synthesis/foundation";
+import {
+  createSynthesisTopicGraphService,
+  deterministicTopicGraphEdgeId,
+} from "../../src/modules/synthesis/topicGraph";
+import { createSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  readRuntimeTextFile,
+  removeRuntimePath,
+  runtimePathExists,
+} from "../../src/modules/runtimePersistence";
+
+async function makeRuntimeRoot() {
+  return fs.mkdtemp(path.join(os.tmpdir(), "zs-topic-graph-"));
+}
+
+describe("Synthesis topic graph", function () {
+  it("initializes canonical topic graph assets in an empty KG store", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+
+    const snapshot = await service.loadTopicGraph();
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+
+    assert.deepEqual(snapshot.nodes, []);
+    assert.deepEqual(snapshot.edges, []);
+    assert.isTrue(
+      await runtimePathExists(path.join(paths.topicGraphRoot, "topics")),
+    );
+    assert.isTrue(
+      await runtimePathExists(path.join(paths.topicGraphRoot, "edges")),
+    );
+    assert.isTrue(
+      await runtimePathExists(path.join(paths.topicGraphRoot, "manifest.json")),
+    );
+  });
+
+  it("writes nodes and edges with deterministic ids and marks projection stale", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    const edgeId = deterministicTopicGraphEdgeId({
+      relation: "related_to",
+      sourceTopicId: "topic-z",
+      targetTopicId: "topic-a",
+    });
+
+    await service.saveTopicGraph({
+      transactionId: "topic-graph-write",
+      nodes: [
+        { topic_id: "topic-a", title: "Alpha", node_type: "materialized" },
+        { topic_id: "topic-z", title: "Zeta", node_type: "placeholder" },
+      ],
+      edges: [
+        {
+          source_topic_id: "topic-z",
+          target_topic_id: "topic-a",
+          relation: "related_to",
+          status: "suggested",
+        },
+      ],
+    });
+
+    const snapshot = await service.loadTopicGraph();
+    assert.deepEqual(
+      snapshot.nodes.map((node) => node.topic_id),
+      ["topic-a", "topic-z"],
+    );
+    assert.equal(snapshot.edges[0]?.edge_id, edgeId);
+    assert.equal(edgeId, "edge:related_to:topic-a:topic-z");
+
+    const registry = await readProjectionRegistryState(root);
+    assert.isTrue(registry.projections["topic-graph-index"].stale);
+    assert.equal(
+      registry.projections["topic-graph-index"].last_transaction_id,
+      "topic-graph-write",
+    );
+  });
+
+  it("ingests broader, related, overlap, and contrast proposals safely", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.upsertMaterializedTopic({
+      transactionId: "topic-source",
+      topicId: "topic-child",
+      title: "Child",
+    });
+
+    const result = await service.ingestRelationProposals({
+      sourceTopicId: "topic-child",
+      transactionId: "topic-proposals",
+      payload: {
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        proposals: [
+          {
+            proposal_type: "broader_topic_candidate",
+            target_topic_id: "topic-parent",
+            target_title: "Parent",
+          },
+          {
+            proposal_type: "related_topic_candidate",
+            target_topic_id: "topic-peer",
+          },
+          {
+            proposal_type: "overlap_topic_candidate",
+            target_topic_id: "topic-overlap",
+          },
+          {
+            proposal_type: "contrast_topic_candidate",
+            target_topic_id: "topic-contrast",
+          },
+        ],
+      },
+    });
+
+    assert.lengthOf(result.accepted_edges, 4);
+    const snapshot = await service.loadTopicGraph();
+    const broader = snapshot.edges.find(
+      (edge) => edge.relation === "broader_than",
+    );
+    assert.equal(broader?.source_topic_id, "topic-parent");
+    assert.equal(broader?.target_topic_id, "topic-child");
+    assert.includeMembers(
+      snapshot.edges.map((edge) => edge.relation),
+      ["related_to", "overlaps_with", "contrasts_with"],
+    );
+    assert.includeMembers(
+      snapshot.nodes.map((node) => node.topic_id),
+      ["topic-parent", "topic-peer", "topic-overlap", "topic-contrast"],
+    );
+  });
+
+  it("rejects self edges, broader cycles, and agent overwrite of user decisions", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.saveTopicGraph({
+      nodes: [
+        { topic_id: "topic-a", title: "A", node_type: "materialized" },
+        { topic_id: "topic-b", title: "B", node_type: "materialized" },
+      ],
+      edges: [
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "broader_than",
+          status: "confirmed",
+        },
+      ],
+    });
+
+    const result = await service.ingestRelationProposals({
+      sourceTopicId: "topic-a",
+      payload: {
+        proposals: [
+          {
+            proposal_type: "related_topic_candidate",
+            target_topic_id: "topic-a",
+          },
+          {
+            proposal_type: "broader_topic_candidate",
+            target_topic_id: "topic-b",
+          },
+          {
+            proposal_type: "broader_topic_candidate",
+            target_topic_id: "topic-a",
+          },
+        ],
+      },
+    });
+
+    assert.deepEqual(result.diagnostics.map((entry) => entry.code).sort(), [
+      "broader_cycle_rejected",
+      "self_edge_rejected",
+      "self_edge_rejected",
+    ]);
+    const snapshot = await service.loadTopicGraph();
+    assert.lengthOf(snapshot.edges, 1);
+    assert.equal(snapshot.edges[0]?.status, "confirmed");
+
+    const preserved = await service.ingestRelationProposals({
+      sourceTopicId: "topic-b",
+      payload: {
+        proposals: [
+          {
+            proposal_type: "broader_topic_candidate",
+            target_topic_id: "topic-a",
+          },
+        ],
+      },
+    });
+    assert.deepEqual(
+      preserved.diagnostics.map((entry) => entry.code),
+      ["user_decision_preserved"],
+    );
+  });
+
+  it("accepts and rejects suggested edges through canonical review decisions", async function () {
+    const root = await makeRuntimeRoot();
+    const graph = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    await graph.saveTopicGraph({
+      transactionId: "seed-suggested-edge",
+      nodes: [
+        { topic_id: "topic-a", title: "A", node_type: "materialized" },
+        { topic_id: "topic-b", title: "B", node_type: "placeholder" },
+        { topic_id: "topic-c", title: "C", node_type: "placeholder" },
+      ],
+      edges: [
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "related_to",
+          status: "suggested",
+          provenance: [{ source: "agent" }],
+          evidence_refs: [{ section: "taxonomy" }],
+        },
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-c",
+          relation: "contrasts_with",
+          status: "suggested",
+        },
+      ],
+    });
+    const service = createSynthesisService({ root, libraryId: 1 });
+    const initial = await graph.loadTopicGraph();
+    const relatedEdge = initial.edges.find(
+      (edge) => edge.relation === "related_to",
+    )!;
+    const contrastEdge = initial.edges.find(
+      (edge) => edge.relation === "contrasts_with",
+    )!;
+
+    const accepted = await service.acceptTopicGraphRelation({
+      edgeId: relatedEdge.edge_id,
+    });
+    const rejected = await service.rejectTopicGraphRelation({
+      edgeId: contrastEdge.edge_id,
+    });
+
+    assert.isUndefined(accepted.diagnostic);
+    assert.isUndefined(rejected.diagnostic);
+    const snapshot = await graph.loadTopicGraph();
+    const acceptedEdge = snapshot.edges.find(
+      (edge) => edge.edge_id === relatedEdge.edge_id,
+    );
+    const rejectedEdge = snapshot.edges.find(
+      (edge) => edge.edge_id === contrastEdge.edge_id,
+    );
+    assert.equal(acceptedEdge?.status, "confirmed");
+    assert.deepEqual(acceptedEdge?.provenance, [{ source: "agent" }]);
+    assert.deepEqual(acceptedEdge?.evidence_refs, [{ section: "taxonomy" }]);
+    assert.equal(rejectedEdge?.status, "rejected");
+
+    const registry = await readProjectionRegistryState(root);
+    assert.isTrue(registry.projections["topic-graph-index"].stale);
+
+    const preserved = await graph.ingestRelationProposals({
+      sourceTopicId: "topic-a",
+      payload: {
+        proposals: [
+          {
+            proposal_type: "related_topic_candidate",
+            target_topic_id: "topic-b",
+          },
+          {
+            proposal_type: "contrast_topic_candidate",
+            target_topic_id: "topic-c",
+          },
+        ],
+      },
+    });
+    assert.deepEqual(
+      preserved.diagnostics.map((entry) => entry.code),
+      ["user_decision_preserved", "user_decision_preserved"],
+    );
+  });
+
+  it("queues low-confidence relation proposals for review before creating suggested edges", async function () {
+    const root = await makeRuntimeRoot();
+    const graph = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    await graph.upsertMaterializedTopic({
+      topicId: "topic-source",
+      title: "Source",
+    });
+
+    const queued = await graph.ingestRelationProposals({
+      sourceTopicId: "topic-source",
+      payload: {
+        proposals: [
+          {
+            proposal_type: "related_topic_candidate",
+            target_topic_id: "topic-target",
+            target_title: "Target",
+            confidence: 0.2,
+            evidence_refs: [{ section: "weak" }],
+          },
+        ],
+      },
+    });
+
+    assert.lengthOf(queued.accepted_edges, 0);
+    assert.lengthOf(queued.review_items, 1);
+    let snapshot = await graph.loadTopicGraph();
+    assert.lengthOf(snapshot.edges, 0);
+    assert.equal(snapshot.review_items[0]?.status, "open");
+
+    const service = createSynthesisService({ root, libraryId: 1 });
+    const approved = await service.applyTopicGraphReviewAction({
+      reviewId: snapshot.review_items[0]!.review_id,
+      action: "approve_suggested",
+    });
+
+    assert.isUndefined(approved.diagnostic);
+    snapshot = await graph.loadTopicGraph();
+    assert.equal(snapshot.review_items[0]?.status, "approved");
+    assert.equal(snapshot.edges[0]?.status, "suggested");
+    assert.deepEqual(snapshot.edges[0]?.evidence_refs, [{ section: "weak" }]);
+  });
+
+  it("rejects topic graph review items without creating edges", async function () {
+    const root = await makeRuntimeRoot();
+    const graph = createSynthesisTopicGraphService({ root });
+    await graph.ingestRelationProposals({
+      sourceTopicId: "topic-source",
+      payload: {
+        proposals: [
+          {
+            proposal_type: "contrast_topic_candidate",
+            target_topic_id: "topic-target",
+            confidence: 0.1,
+          },
+        ],
+      },
+    });
+    const reviewId = (await graph.loadTopicGraph()).review_items[0]!.review_id;
+
+    await createSynthesisService({
+      root,
+      libraryId: 1,
+    }).applyTopicGraphReviewAction({ reviewId, action: "reject" });
+
+    const snapshot = await graph.loadTopicGraph();
+    assert.equal(snapshot.review_items[0]?.status, "rejected");
+    assert.lengthOf(snapshot.edges, 0);
+  });
+
+  it("returns diagnostics for invalid topic graph review decisions", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisService({ root, libraryId: 1 });
+    const missing = await service.acceptTopicGraphRelation({
+      edgeId: "edge:missing",
+    });
+
+    assert.equal(missing.diagnostic?.code, "topic_graph_edge_missing");
+
+    const graph = createSynthesisTopicGraphService({ root });
+    await graph.saveTopicGraph({
+      edges: [
+        {
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "related_to",
+          status: "confirmed",
+        },
+      ],
+    });
+    const edgeId = (await graph.loadTopicGraph()).edges[0]!.edge_id;
+    const alreadyConfirmed = await service.rejectTopicGraphRelation({ edgeId });
+    assert.equal(
+      alreadyConfirmed.diagnostic?.code,
+      "topic_graph_edge_not_suggested",
+    );
+  });
+
+  it("rebuilds topic-graph-index projection from canonical files after cache deletion", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.upsertMaterializedTopic({
+      topicId: "topic-root",
+      title: "Root",
+      isRoot: true,
+      level: "top",
+    });
+    await service.upsertMaterializedTopic({
+      topicId: "topic-free",
+      title: "Free",
+    });
+
+    const state = await service.rebuildTopicGraphIndexProjection();
+    assert.isFalse(state.stale);
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const projectionPath = path.join(paths.stateRoot, "topic-graph-index.json");
+    assert.isTrue(await runtimePathExists(projectionPath));
+    await removeRuntimePath(projectionPath);
+
+    const projection = await service.readTopicGraphIndexProjection();
+    assert.deepEqual(projection.roots, ["topic-root"]);
+    assert.deepEqual(projection.unplaced, ["topic-free"]);
+  });
+
+  it("writes sanitized diagnostics for malformed sidecars", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+
+    await service.ingestRelationProposals({
+      sourceTopicId: `${root}\\secret\\token=abc123`,
+      transactionId: "topic-sensitive",
+      payload: { proposals: "not-array" },
+    });
+
+    const diagnostics = await readRuntimeTextFile(
+      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
+    );
+    assert.notInclude(diagnostics, root);
+    assert.notInclude(diagnostics, "abc123");
+    assert.match(diagnostics, /path:|invalid_proposals_payload/);
+  });
+});

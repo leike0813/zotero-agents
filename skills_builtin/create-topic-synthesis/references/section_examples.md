@@ -6,6 +6,17 @@
 所有示例里的 `pe:*` 必须替换为本次 runtime 注入的真实 `paper_evidence.id`；
 所有 `evidence_map_refs` 必须引用本次已校验的 cross-paper evidence map candidate。
 
+## 枚举字段速查
+
+- `topic_granularity`：`method_family` / `task` / `problem` / `application_scenario` / `theory_concept` / `mechanism` / `dataset_or_benchmark` / `mixed`。
+- `coverage_verdict`：`sufficient` / `partial` / `insufficient` / `severely_missing` / `unknown`。
+- `gaps[].gap_type`：`research_gap` / `library_coverage_gap` / `evidence_gap` / `evaluation_gap`。
+- `gaps[].severity`：`low` / `medium` / `high` / `critical` / `unknown`。
+- `representative_references[].information_completeness`：`complete` / `partial` / `minimal` / `unknown`。
+- `suggested_additions[].priority`：`high` / `medium` / `low` / `unknown`。
+- `concept_cards_proposal.cards[].concept_type`：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
+- `topic_graph_relation_proposals.proposals[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
+
 ## Topic
 
 ```json
@@ -15,7 +26,11 @@
   "definition": "本 topic 指以 object queries、集合预测和二分图匹配为核心的目标检测方法族。",
   "discipline": "Computer Science",
   "research_field": "Computer Vision",
-  "aliases": ["Detection Transformer", "DETR variants", "Query-based detection"],
+  "aliases": [
+    "Detection Transformer",
+    "DETR variants",
+    "Query-based detection"
+  ],
   "topic_granularity": "method_family",
   "scope_boundary": {
     "include": ["DETR 及其 query-based detection variants"],
@@ -66,7 +81,10 @@
   "axis_rationale": "DETR 系列主要围绕收敛速度、注意力计算、query 表征、实时部署和跨场景扩展等瓶颈分化。",
   "summary": {
     "text": "DETR-style object detection 的路线版图可以理解为围绕 query-based set prediction 实用化瓶颈展开的多线并进。注意力效率路线解决全局 attention 的计算和小目标问题，收敛加速路线稳定 object query 学习过程，高性能组合路线整合多种机制，实时部署路线则把该范式推向工程可用。",
-    "dominant_routes": ["route:attention-efficiency", "route:convergence-acceleration"],
+    "dominant_routes": [
+      "route:attention-efficiency",
+      "route:convergence-acceleration"
+    ],
     "emerging_routes": ["route:real-time-deployment"],
     "route_relationships": [
       {
@@ -156,7 +174,13 @@
 
 ```json
 {
-  "dimensions": ["target_bottleneck", "core_mechanism", "training_dependency", "deployment_implication", "main_limitation"],
+  "dimensions": [
+    "target_bottleneck",
+    "core_mechanism",
+    "training_dependency",
+    "deployment_implication",
+    "main_limitation"
+  ],
   "rows": [
     {
       "id": "cmp:deformable-detr",
@@ -419,7 +443,7 @@
   "missing_artifacts": [
     {
       "paper_ref": "1:ABC12345",
-      "artifact_type": "citation-analysis-json",
+      "artifact_type": "citation_analysis",
       "impact": "external literature analysis confidence reduced"
     }
   ],
@@ -427,6 +451,100 @@
     "Claims and timeline use only library paper evidence.",
     "External references are used only for background and collection suggestions."
   ]
+}
+```
+
+## KG Proposal Sidecars
+
+KG proposal sidecars 是 final bundle 的必交可空旁路产物，不是 structured topic artifact
+section。Completed final bundle 应引用：
+
+```json
+{
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+`result/sidecars/concept-cards-proposal.json` 合格示例：
+
+```json
+{
+  "schema_id": "synthesis.concept_cards_proposal",
+  "schema_version": "1.0.0",
+  "topic_id": "detr-style-object-detection",
+  "cards": [
+    {
+      "local_id": "concept:set-prediction",
+      "label": "Set prediction",
+      "aliases": ["bipartite matching prediction", "object-query matching"],
+      "concept_type": "method_family",
+      "domain": "object detection",
+      "short_definition": "A detection formulation that predicts a globally matched set of objects.",
+      "definition": "在本 topic 中，set prediction 指用 object queries 和 bipartite matching 替代 proposal/NMS pipeline 的检测范式。",
+      "disambiguation": "不要与泛化的 sequence set prediction 合并，除非上下文明确是 object detection matching。",
+      "topic_relevance": "它解释了 DETR-style detection 的路线边界和后续 convergence 改进的共同问题。",
+      "evidence": {
+        "paper_refs": ["pe:1_eimsdeu3"],
+        "evidence_map_refs": ["claim:detr-practicality-shift"]
+      },
+      "merge_hints": ["set prediction", "Hungarian matching detection"],
+      "confidence": 0.88
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+`result/sidecars/topic-graph-relation-proposals.json` 合格示例：
+
+```json
+{
+  "schema_id": "synthesis.topic_graph_relation_proposals",
+  "schema_version": "1.0.0",
+  "source_topic_id": "detr-style-object-detection",
+  "proposals": [
+    {
+      "proposal_type": "broader_topic_candidate",
+      "target_topic_title": "Object Detection",
+      "rationale": "当前 topic 限定为 DETR-style detection，而 target 覆盖更广泛的检测任务和非 transformer baseline。",
+      "evidence": {
+        "section_refs": ["positioning", "gaps:traditional-detector-background"],
+        "paper_refs": ["pe:1_eimsdeu3"]
+      },
+      "confidence": 0.82
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+空 proposal 也是合格输出，只要写明 diagnostics：
+
+```json
+{
+  "concept_cards_proposal": {
+    "schema_id": "synthesis.concept_cards_proposal",
+    "schema_version": "1.0.0",
+    "cards": [],
+    "diagnostics": [
+      {
+        "code": "no_stable_concept_candidates",
+        "message": "No concept recurs across enough evidence-backed sections."
+      }
+    ]
+  },
+  "topic_graph_relation_proposals": {
+    "schema_id": "synthesis.topic_graph_relation_proposals",
+    "schema_version": "1.0.0",
+    "proposals": [],
+    "diagnostics": [
+      {
+        "code": "insufficient_topic_context",
+        "message": "No neighboring topic has enough boundary evidence for a relation proposal."
+      }
+    ]
+  }
 }
 ```
 
@@ -463,6 +581,19 @@
   "synthesis_report": {
     "title": "Report",
     "body": "这个 topic 很重要，方法很多，未来还有很多工作。"
+  },
+  "concept_cards_proposal": {
+    "cards": [{ "label": "DETR", "canonical_concept_id": "concept:detr" }]
+  },
+  "topic_graph_relation_proposals": {
+    "proposals": [
+      {
+        "proposal_type": "related_topic_candidate",
+        "canonical_edge_id": "edge:related_to:detr:transformer",
+        "target_topic_title": "Transformer",
+        "rationale": "名称相似。"
+      }
+    ]
   }
 }
 ```
@@ -475,3 +606,7 @@
 - external literature 没有说明库外概念/方法与 topic 的关系，也没有入库建议。
 - synthesis report 没有把 topic definition、research routes、historical progression、core findings、
   comparison/debates、gaps/coverage、external literature 串成连续报告。
+- concept/relation proposal 被错误写进 structured sections，而不是 `result/sidecars/`。
+- 缺失 `concept_cards_proposal_path` 或 `topic_graph_relation_proposals_path` 会破坏 final bundle 合同。
+- KG proposal 不得写 `canonical_concept_id` 或 `canonical_edge_id`；canonical 摄取由插件 apply 阶段完成。
+- 不能因为 sidecar “必交可空”就跳过文件；无候选时也要写空数组和 diagnostics。

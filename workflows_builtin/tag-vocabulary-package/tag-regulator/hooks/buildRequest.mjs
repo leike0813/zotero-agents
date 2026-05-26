@@ -18,7 +18,9 @@ const ALLOWED_VALID_TAGS_FORMATS = new Set(["yaml", "json", "auto"]);
 const DEFAULT_TAG_NOTE_LANGUAGE = "zh-CN";
 
 function normalizePath(value) {
-  return String(value || "").replace(/[\\/]+/g, "/").trim();
+  return String(value || "")
+    .replace(/[\\/]+/g, "/")
+    .trim();
 }
 
 function toNativePath(value) {
@@ -51,9 +53,7 @@ function joinPath(...segments) {
       clean.length > 0 && clean[0].toLowerCase() === drive.toLowerCase()
         ? clean.slice(1)
         : clean;
-    return toNativePath(
-      `${drive}${separator}${withoutDrive.join(separator)}`,
-    );
+    return toNativePath(`${drive}${separator}${withoutDrive.join(separator)}`);
   }
   const body = clean.join(separator);
   if (isPosixAbs) {
@@ -114,7 +114,9 @@ function parsePersistedVocabularyPayload(rawText) {
   if (parsed && typeof parsed === "object" && Array.isArray(parsed.entries)) {
     return parsed.entries;
   }
-  throw new Error("tag-regulator vocabulary payload must contain entries array");
+  throw new Error(
+    "tag-regulator vocabulary payload must contain entries array",
+  );
 }
 
 function normalizeVocabularyTags(entries) {
@@ -138,7 +140,9 @@ function normalizeVocabularyTags(entries) {
     }
     const tag = String(entry.tag || "").trim();
     if (!tag) {
-      throw new Error(`tag-regulator vocabulary entry[${i}] missing field 'tag'`);
+      throw new Error(
+        `tag-regulator vocabulary entry[${i}] missing field 'tag'`,
+      );
     }
     if (Boolean(entry.deprecated)) {
       continue;
@@ -172,6 +176,36 @@ function loadControlledVocabularyTagsOrThrow(runtime) {
     throw new Error("tag-regulator vocabulary missing usable tags");
   }
   return tags;
+}
+
+async function loadSynthesisVocabularyTags(runtime) {
+  const synthesis = requireHostApi(runtime)?.synthesis;
+  if (
+    !synthesis ||
+    typeof synthesis.exportTagVocabularyForRegulator !== "function"
+  ) {
+    return [];
+  }
+  try {
+    const exported = await synthesis.exportTagVocabularyForRegulator();
+    if (Array.isArray(exported)) {
+      return normalizeVocabularyTags(exported);
+    }
+    if (exported && typeof exported === "object") {
+      return normalizeVocabularyTags(exported.entries || exported.tags || []);
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+async function loadPreferredControlledVocabularyTags(runtime) {
+  const synthesisTags = await loadSynthesisVocabularyTags(runtime);
+  if (synthesisTags.length) {
+    return synthesisTags;
+  }
+  return loadControlledVocabularyTagsOrThrow(runtime);
 }
 
 function renderYamlTagList(tags) {
@@ -267,7 +301,9 @@ function normalizeCreatorName(entry) {
 }
 
 function collectMetadataFromParent(item) {
-  const creators = Array.isArray(item.getCreators?.()) ? item.getCreators() : [];
+  const creators = Array.isArray(item.getCreators?.())
+    ? item.getCreators()
+    : [];
   const creatorNames = creators
     .map((entry) => normalizeCreatorName(entry))
     .filter(Boolean);
@@ -350,10 +386,13 @@ async function buildRequestImpl({
   runtime,
 }) {
   try {
-    const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
+    const parentItem = resolveParentItemFromSelection(
+      selectionContext,
+      runtime,
+    );
     const metadata = collectMetadataFromParent(parentItem);
     const inputTags = collectInputTagsFromParent(parentItem);
-    const controlledTags = loadControlledVocabularyTagsOrThrow(runtime);
+    const controlledTags = await loadPreferredControlledVocabularyTags(runtime);
     const validTagsPath = await materializeValidTagsYaml(
       controlledTags,
       parentItem.id,
@@ -410,4 +449,6 @@ export const __tagRegulatorBuildRequestTestOnly = {
   resolveTagVocabularyPrefsKey,
   parsePersistedVocabularyPayload,
   normalizeVocabularyTags,
+  loadSynthesisVocabularyTags,
+  loadPreferredControlledVocabularyTags,
 };

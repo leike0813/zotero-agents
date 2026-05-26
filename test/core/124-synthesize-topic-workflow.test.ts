@@ -104,12 +104,24 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.equal(createWorkflow.request?.create?.skill_id, "create-topic-synthesis");
-    assert.equal(updateWorkflow.request?.create?.skill_id, "update-topic-synthesis");
+    assert.equal(
+      createWorkflow.request?.create?.skill_id,
+      "create-topic-synthesis",
+    );
+    assert.equal(
+      updateWorkflow.request?.create?.skill_id,
+      "update-topic-synthesis",
+    );
     assert.equal(createWorkflow.inputs?.unit, "workflow");
     assert.equal(updateWorkflow.inputs?.unit, "workflow");
-    assert.equal(createWorkflow.taskNameTemplate, "Create synthesis: {topic seed}");
-    assert.equal(updateWorkflow.taskNameTemplate, "Update synthesis: {topicId}");
+    assert.equal(
+      createWorkflow.taskNameTemplate,
+      "Create synthesis: {topic seed}",
+    );
+    assert.equal(
+      updateWorkflow.taskNameTemplate,
+      "Update synthesis: {topicId}",
+    );
     assert.equal(createWorkflow.provider, "acp");
     assert.equal(updateWorkflow.provider, "acp");
     assert.notProperty(createWorkflow.execution || {}, "supportedBackends");
@@ -162,7 +174,9 @@ describe("Synthesize topic workflow contract", function () {
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].taskName, "Create synthesis: DETR");
-    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined(
+      (requests[0] as any).runtime_options?.zotero_host_access,
+    );
     assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
     assert.equal(requests[0].targetParentID, 8);
     assert.deepEqual(requests[0].sourceAttachmentPaths, [
@@ -268,8 +282,14 @@ describe("Synthesize topic workflow contract", function () {
     );
     assert.equal(createWorkflow?.packageId, "synthesis-layer");
     assert.equal(updateWorkflow?.packageId, "synthesis-layer");
-    assert.equal(createWorkflow?.manifest.request?.create?.skill_id, "create-topic-synthesis");
-    assert.equal(updateWorkflow?.manifest.request?.create?.skill_id, "update-topic-synthesis");
+    assert.equal(
+      createWorkflow?.manifest.request?.create?.skill_id,
+      "create-topic-synthesis",
+    );
+    assert.equal(
+      updateWorkflow?.manifest.request?.create?.skill_id,
+      "update-topic-synthesis",
+    );
   });
 
   it("ships create/update topic synthesis workflows in the packaged builtin manifest", async function () {
@@ -288,7 +308,10 @@ describe("Synthesize topic workflow contract", function () {
       files,
       "synthesis-layer/update-topic-synthesis/workflow.json",
     );
-    assert.include(files, "synthesis-layer/hooks/applyTopicSynthesisResult.mjs");
+    assert.include(
+      files,
+      "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    );
     assert.notInclude(files, "synthesis-layer/synthesize-topic/workflow.json");
   });
 
@@ -340,7 +363,10 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("ships and documents the create topic synthesis section-manifest contract", async function () {
-    const skillText = await fs.readFile("skills_builtin/create-topic-synthesis/SKILL.md", "utf8");
+    const skillText = await fs.readFile(
+      "skills_builtin/create-topic-synthesis/SKILL.md",
+      "utf8",
+    );
     const resolverSchema = JSON.parse(
       await fs.readFile(
         "skills_builtin/create-topic-synthesis/assets/schemas/topic_analysis_manifest.schema.json",
@@ -353,9 +379,15 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "ACP interactive confirmation");
     assert.include(skillText, "analysis_manifest_path");
     assert.include(skillText, "result/topic-analysis.json");
-    assert.include(skillText, "zotero-bridge synthesis get-citation-graph-metrics");
+    assert.include(
+      skillText,
+      "zotero-bridge synthesis get-citation-graph-metrics",
+    );
     assert.include(skillText, "persist_citation_graph_metrics");
-    assert.include(skillText, "zotero-bridge synthesis export-filtered-paper-artifacts");
+    assert.include(
+      skillText,
+      "zotero-bridge synthesis export-filtered-paper-artifacts",
+    );
     assert.include(skillText, "persist_filtered_artifact_manifest");
     assert.include(skillText, "export_cross_paper_context");
     assert.include(skillText, "cross-paper-context.md");
@@ -374,7 +406,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "bounded");
     assert.notInclude(skillText, "synthesis.validate_resolver");
     assert.notInclude(skillText, "synthesis.query_citation_graph");
-    assert.include(skillText, "zotero-bridge synthesis export-filtered-paper-artifacts");
+    assert.include(
+      skillText,
+      "zotero-bridge synthesis export-filtered-paper-artifacts",
+    );
     assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(skillText, "synthesis.read_paper_artifacts");
     assert.notInclude(skillText, "`markdown` must contain");
@@ -392,14 +427,24 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("documents semantic duplicate detection before create-mode synthesis", async function () {
-    const skillText = await fs.readFile("skills_builtin/create-topic-synthesis/SKILL.md", "utf8");
+    const skillText = await fs.readFile(
+      "skills_builtin/create-topic-synthesis/SKILL.md",
+      "utf8",
+    );
     const runner = JSON.parse(
-      await fs.readFile("skills_builtin/create-topic-synthesis/assets/runner.json", "utf8"),
+      await fs.readFile(
+        "skills_builtin/create-topic-synthesis/assets/runner.json",
+        "utf8",
+      ),
     );
 
-    assert.match(skillText, /topicSeed[\s\S]+zotero-bridge synthesis list-topics/);
+    assert.match(
+      skillText,
+      /topicSeed[\s\S]+zotero-bridge synthesis list-topics/,
+    );
     assert.match(skillText, /title\/description\/aliases/);
-    assert.match(skillText, /疑似重复[\s\S]+update-topic-synthesis/);
+    assert.match(skillText, /疑似重复[\s\S]+topic_synthesis_canceled/);
+    assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
     assert.match(skillText, /不得内嵌 `markdown`/);
     assert.match(skillText, /zotero-bridge synthesis resolve-resolver/);
@@ -408,7 +453,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(runner.entrypoint.prompts.common, "instruction_refs");
     assert.include(runner.entrypoint.prompts.common, "schema_refs");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
-    assert.notInclude(runner.entrypoint.prompts.common, "topic-synthesis-runtime");
+    assert.notInclude(
+      runner.entrypoint.prompts.common,
+      "topic-synthesis-runtime",
+    );
   });
 
   it("ships package-local runtime resources for create and update topic synthesis skills", async function () {
@@ -416,16 +464,13 @@ describe("Synthesize topic workflow contract", function () {
       "scripts/gate_runtime.py",
       "scripts/stage_runtime.py",
       "scripts/runtime_db.py",
-      "references/step_00_runtime_gate.md",
-      "references/step_01_topic_context.md",
-      "references/step_02_resolver_workset.md",
-      "references/step_03_metrics_artifacts.md",
-      "references/step_04_paper_units.md",
-      "references/step_05_cross_paper_map.md",
-      "references/step_06_taxonomy_timeline.md",
-      "references/step_07_core_sections.md",
-      "references/step_08_external_statistics_report.md",
-      "references/step_09_render_validate.md",
+      "references/step_05_paper_units.md",
+      "references/step_06_cross_paper_map.md",
+      "references/step_07_taxonomy_timeline.md",
+      "references/step_08_core_sections.md",
+      "references/step_09_kg_proposals.md",
+      "references/step_10_external_statistics_report.md",
+      "references/step_11_render_validate.md",
       "references/topic_synthesis_content_contract.md",
       "references/section_examples.md",
       "assets/schemas/topic_context_payload.schema.json",
@@ -447,18 +492,30 @@ describe("Synthesize topic workflow contract", function () {
       for (const relativePath of requiredRelativePaths) {
         await fs.readFile(path.join(skillRoot, relativePath), "utf8");
       }
-      const skillText = await fs.readFile(path.join(skillRoot, "SKILL.md"), "utf8");
-      const runnerText = await fs.readFile(path.join(skillRoot, "assets/runner.json"), "utf8");
+      const skillText = await fs.readFile(
+        path.join(skillRoot, "SKILL.md"),
+        "utf8",
+      );
+      const runnerText = await fs.readFile(
+        path.join(skillRoot, "assets/runner.json"),
+        "utf8",
+      );
       assert.notInclude(skillText, "topic-synthesis-runtime");
       assert.notInclude(runnerText, "topic-synthesis-runtime");
-      assert.notInclude(runnerText, "\"required_tools\"");
+      assert.notInclude(runnerText, '"required_tools"');
       assert.notInclude(runnerText, "synthesis.read_paper_artifacts");
     }
   });
 
   it("documents minimum executable SKILL instructions, host dependency, script calls, and optional references", async function () {
-    const createSkill = await fs.readFile("skills_builtin/create-topic-synthesis/SKILL.md", "utf8");
-    const updateSkill = await fs.readFile("skills_builtin/update-topic-synthesis/SKILL.md", "utf8");
+    const createSkill = await fs.readFile(
+      "skills_builtin/create-topic-synthesis/SKILL.md",
+      "utf8",
+    );
+    const updateSkill = await fs.readFile(
+      "skills_builtin/update-topic-synthesis/SKILL.md",
+      "utf8",
+    );
 
     for (const skillText of [createSkill, updateSkill]) {
       assert.include(skillText, "## 产品目标与质量标准");
@@ -482,16 +539,25 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "zotero-bridge synthesis");
       assert.include(skillText, "scripts/gate_runtime.py");
       assert.include(skillText, "scripts/stage_runtime.py");
-      assert.include(skillText, "python scripts/gate_runtime.py --db \"runtime/topic-synthesis.sqlite\"");
-      assert.include(skillText, "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --action cancel");
+      assert.include(
+        skillText,
+        'python scripts/gate_runtime.py --db "runtime/topic-synthesis.sqlite"',
+      );
+      assert.include(
+        skillText,
+        'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action cancel',
+      );
       assert.include(skillText, "SQLite");
       assert.include(skillText, "runtime/topic-synthesis.sqlite");
       assert.include(skillText, "prompt memory");
       assert.include(skillText, "stage_0_runtime_setup");
-      assert.include(skillText, "stage_11_completed");
+      assert.include(skillText, "stage_12_completed");
       assert.include(skillText, "artifact_registry");
       assert.include(skillText, "只执行 gate 返回的 `next_action`");
-      assert.include(skillText, "zotero-bridge synthesis get-citation-graph-metrics");
+      assert.include(
+        skillText,
+        "zotero-bridge synthesis get-citation-graph-metrics",
+      );
       assert.include(skillText, "persist_citation_graph_metrics");
       assert.include(skillText, "graph_metrics_interpretation");
       assert.include(skillText, "Topic Synthesis 内容合同");
@@ -502,8 +568,13 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "连续知识报告");
       assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
-      assert.include(skillText, "references/step_04_paper_units.md");
-      assert.include(skillText, "references/topic_synthesis_content_contract.md");
+      assert.include(skillText, "references/step_05_paper_units.md");
+      assert.include(skillText, "concept_cards_proposal_path");
+      assert.include(skillText, "topic_graph_relation_proposals_path");
+      assert.include(
+        skillText,
+        "references/topic_synthesis_content_contract.md",
+      );
       assert.notInclude(skillText, "后台自动化纪律");
       assert.notInclude(skillText, "不得向用户提问");
       assert.notInclude(skillText, "host preflight 注入");
@@ -515,13 +586,20 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(createSkill, "zotero-bridge synthesis list-topics");
     assert.include(createSkill, "zotero-bridge synthesis resolve-resolver");
     assert.include(createSkill, "zotero-bridge synthesis get-library-index");
-    assert.include(createSkill, "zotero-bridge synthesis get-citation-graph-metrics");
+    assert.include(
+      createSkill,
+      "zotero-bridge synthesis get-citation-graph-metrics",
+    );
     assert.include(createSkill, "persist_library_index_page");
     assert.include(createSkill, "has_more");
     assert.include(createSkill, "index_hash");
+    assert.include(createSkill, "duplicate check");
+    assert.include(createSkill, "不要用全文相似度臆断重复");
+    assert.notInclude(createSkill, "update_full");
+    assert.notInclude(createSkill, "update_patch");
     assert.include(
       createSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation create --language \"zh-CN\" --action validate_final_artifacts",
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation create --language "zh-CN" --action validate_final_artifacts',
     );
 
     assert.include(updateSkill, "topicId");
@@ -531,20 +609,29 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(updateSkill, "zotero-bridge synthesis get-topic-context");
     assert.include(updateSkill, "zotero-bridge synthesis resolve-resolver");
     assert.include(updateSkill, "recommended_update");
+    assert.include(updateSkill, "Patch 模式不得静默改变 paper set");
+    assert.notInclude(updateSkill, "synthesis list-topics --input '{}'");
+    assert.notInclude(updateSkill, "duplicate check。写");
     assert.include(
       updateSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_full --language \"zh-CN\" --action validate_final_artifacts",
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action validate_final_artifacts',
     );
     assert.include(
       updateSkill,
-      "python scripts/stage_runtime.py --db \"runtime/topic-synthesis.sqlite\" --run-root \".\" --operation update_patch --language \"zh-CN\" --action validate_final_artifacts",
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action validate_final_artifacts',
     );
   });
 
   it("documents update topic synthesis context, mode selection, and section patch rules", async function () {
-    const skillText = await fs.readFile("skills_builtin/update-topic-synthesis/SKILL.md", "utf8");
+    const skillText = await fs.readFile(
+      "skills_builtin/update-topic-synthesis/SKILL.md",
+      "utf8",
+    );
     const runner = JSON.parse(
-      await fs.readFile("skills_builtin/update-topic-synthesis/assets/runner.json", "utf8"),
+      await fs.readFile(
+        "skills_builtin/update-topic-synthesis/assets/runner.json",
+        "utf8",
+      ),
     );
 
     assert.include(skillText, "zotero-bridge synthesis get-topic-context");
@@ -559,7 +646,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(runner.entrypoint.prompts.common, "next_action");
     assert.include(runner.entrypoint.prompts.common, "instruction_refs");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
-    assert.notInclude(runner.entrypoint.prompts.common, "topic-synthesis-runtime");
+    assert.notInclude(
+      runner.entrypoint.prompts.common,
+      "topic-synthesis-runtime",
+    );
   });
 
   it("rejects ACP skill output that embeds markdown in final JSON", async function () {
@@ -687,10 +777,17 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
     artifact_metadata: {
       depends_on: {
         papers: ["1:DETR"],
-        artifacts: ["digest-markdown", "references-json", "citation-analysis-json"],
+        artifacts: [
+          "digest-markdown",
+          "references-json",
+          "citation-analysis-json",
+        ],
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
+    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_path:
+      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
@@ -712,6 +809,9 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
       claims: "sha256:old-claims",
     },
     analysis_manifest_path: "result/topic-analysis.patch.json",
+    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_path:
+      "result/sidecars/topic-graph-relation-proposals.json",
     artifact_metadata: {
       update_reason: "digest_changed",
     },
@@ -748,8 +848,14 @@ describe("Synthesize topic workflow v2 structured contract", function () {
 
       assert.isTrue(result.ok);
       assert.equal((result.bundle as any).operation, operation);
-      assert.equal((result.bundle as any).analysis_manifest_path, "result/topic-analysis.json");
-      assert.equal((result.bundle as any).resolver_manifest_path, "runtime/payloads/resolver.json");
+      assert.equal(
+        (result.bundle as any).analysis_manifest_path,
+        "result/topic-analysis.json",
+      );
+      assert.equal(
+        (result.bundle as any).resolver_manifest_path,
+        "runtime/payloads/resolver.json",
+      );
       assert.equal((result.bundle as any).language, "zh-CN");
       assert.notProperty(result.bundle, "markdown_path");
       assert.notProperty(result.bundle, "topic_resolver");
@@ -804,6 +910,33 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     assert.notProperty(result.bundle, "markdown_path");
   });
 
+  it("requires KG proposal sidecars outside structured artifact sections", function () {
+    const result = validateSynthesisResultBundle(
+      v2CompleteBundle({
+        concept_cards_proposal_path:
+          "result/sidecars/concept-cards-proposal.json",
+        topic_graph_relation_proposals_path:
+          "result/sidecars/topic-graph-relation-proposals.json",
+      }),
+    );
+    const patch = validateSynthesisResultBundle(v2PatchBundle());
+
+    assert.equal(
+      result.bundle.concept_cards_proposal_path,
+      "result/sidecars/concept-cards-proposal.json",
+    );
+    assert.equal(
+      result.bundle.topic_graph_relation_proposals_path,
+      "result/sidecars/topic-graph-relation-proposals.json",
+    );
+    assert.equal(
+      patch.bundle.topic_graph_relation_proposals_path,
+      "result/sidecars/topic-graph-relation-proposals.json",
+    );
+    assert.notProperty(result.bundle, "topic_graph_relation_proposals");
+    assert.notProperty(result.bundle, "concept_cards");
+  });
+
   it("rejects embedded markdown in v2 final bundles", function () {
     assert.throws(
       () =>
@@ -828,6 +961,27 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
+  it("rejects v2 final bundles missing KG proposal sidecar paths", function () {
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle(
+          v2CompleteBundle({
+            concept_cards_proposal_path: "",
+          }),
+        ),
+      /concept_cards_proposal_path/i,
+    );
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle(
+          v2PatchBundle({
+            topic_graph_relation_proposals_path: "",
+          }),
+        ),
+      /topic_graph_relation_proposals_path/i,
+    );
+  });
+
   it("keeps update workflow user input limited to topicId and derives update parameters in the build hook", async function () {
     const createWorkflow = JSON.parse(
       await fs.readFile(
@@ -843,7 +997,9 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
 
     assert.include(JSON.stringify(createWorkflow), "language");
-    assert.sameMembers(Object.keys(updateWorkflow.parameters || {}), ["topicId"]);
+    assert.sameMembers(Object.keys(updateWorkflow.parameters || {}), [
+      "topicId",
+    ]);
     assert.equal(
       updateWorkflow.parameters?.topicId?.optionsSource?.kind,
       "synthesis.topics",
@@ -854,5 +1010,46 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
     assert.isFalse(updateWorkflow.parameters?.topicId?.allowCustom);
     assert.equal(updateWorkflow.hooks?.buildRequest, "hooks/buildRequest.mjs");
+  });
+
+  it("documents and packages required KG proposal sidecars", async function () {
+    const createSkill = await fs.readFile(
+      "skills_builtin/create-topic-synthesis/SKILL.md",
+      "utf8",
+    );
+    const updateSkill = await fs.readFile(
+      "skills_builtin/update-topic-synthesis/SKILL.md",
+      "utf8",
+    );
+    const createRuntime = await fs.readFile(
+      "skills_builtin/create-topic-synthesis/scripts/stage_runtime.py",
+      "utf8",
+    );
+    const createSchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/create-topic-synthesis/assets/output.schema.json",
+        "utf8",
+      ),
+    );
+
+    assert.include(createSkill, "persist_kg_proposals");
+    assert.include(createSkill, "result/sidecars/concept-cards-proposal.json");
+    assert.include(
+      createSkill,
+      "result/sidecars/topic-graph-relation-proposals.json",
+    );
+    assert.notInclude(createSkill, "stage_5_6_topic_graph_relation_proposals");
+    assert.notInclude(createSkill, "stage_5_5_concept_cards");
+    assert.include(createSkill, "concept_cards_proposal_path");
+    assert.include(updateSkill, "broader_topic_candidate");
+    assert.include(updateSkill, "canonical concept");
+    assert.include(createRuntime, "topic_graph_relation_proposals_path");
+    assert.include(createRuntime, "concept_cards_proposal_path");
+    assert.include(createRuntime, "persist_kg_proposals");
+    assert.include(
+      JSON.stringify(createSchema),
+      "topic_graph_relation_proposals_path",
+    );
+    assert.include(JSON.stringify(createSchema), "concept_cards_proposal_path");
   });
 });

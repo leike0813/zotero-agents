@@ -60,7 +60,15 @@ export type WorkflowProductPreview = {
   exists: boolean;
   previewable: boolean;
   truncated: boolean;
-  kind: "markdown" | "json" | "yaml" | "toml" | "latex" | "text" | "binary" | "missing";
+  kind:
+    | "markdown"
+    | "json"
+    | "yaml"
+    | "toml"
+    | "latex"
+    | "text"
+    | "binary"
+    | "missing";
   language: string;
   text: string;
   formattedText?: string;
@@ -86,7 +94,9 @@ export type RegisterProductInput = {
 };
 
 export type ProductStorageApi = {
-  registerProduct: (input: RegisterProductInput) => Promise<WorkflowProductRecord>;
+  registerProduct: (
+    input: RegisterProductInput,
+  ) => Promise<WorkflowProductRecord>;
   cacheBundleAsset: (
     input: ProductStorageAssetInput,
   ) => Promise<WorkflowProductAsset>;
@@ -146,10 +156,14 @@ function extensionOf(path: string) {
   return index >= 0 ? base.slice(index + 1).toLowerCase() : "";
 }
 
-function inferPreviewKind(path: string, contentType?: string): WorkflowProductPreview["kind"] {
+function inferPreviewKind(
+  path: string,
+  contentType?: string,
+): WorkflowProductPreview["kind"] {
   const type = cleanString(contentType).toLowerCase();
   const ext = extensionOf(path);
-  if (type.includes("markdown") || ext === "md" || ext === "markdown") return "markdown";
+  if (type.includes("markdown") || ext === "md" || ext === "markdown")
+    return "markdown";
   if (type.includes("json") || ext === "json") return "json";
   if (type.includes("yaml") || ext === "yaml" || ext === "yml") return "yaml";
   if (type.includes("toml") || ext === "toml") return "toml";
@@ -231,14 +245,18 @@ function normalizeAsset(raw: unknown, index = 0): WorkflowProductAsset {
         : "missing",
     localPath: cleanString(source.localPath) || undefined,
     entryPath: cleanString(source.entryPath) || undefined,
-    size: Number.isFinite(Number(source.size)) ? Math.max(0, Number(source.size)) : undefined,
+    size: Number.isFinite(Number(source.size))
+      ? Math.max(0, Number(source.size))
+      : undefined,
     diagnostics: Array.isArray(source.diagnostics)
       ? source.diagnostics.map(cleanString).filter(Boolean)
       : undefined,
   };
 }
 
-function normalizeProductRecord(raw: Record<string, unknown>): WorkflowProductRecord {
+function normalizeProductRecord(
+  raw: Record<string, unknown>,
+): WorkflowProductRecord {
   const productId = safeId(raw.productId || raw.id);
   const now = nowIso();
   return {
@@ -318,7 +336,9 @@ function resolveRequestId(source: unknown) {
 function resolveRunId(source: unknown) {
   if (!isRecord(source)) return "";
   const response = isRecord(source.responseJson) ? source.responseJson : {};
-  return cleanString(source.runId || source.run_id || response.runId || response.run_id);
+  return cleanString(
+    source.runId || source.run_id || response.runId || response.run_id,
+  );
 }
 
 function resolveBackendType(source: unknown) {
@@ -334,7 +354,12 @@ function resolveBackendType(source: unknown) {
 function resolveBackendId(source: unknown) {
   if (!isRecord(source)) return "";
   const response = isRecord(source.responseJson) ? source.responseJson : {};
-  return cleanString(source.backendId || source.backend_id || response.backendId || response.backend_id);
+  return cleanString(
+    source.backendId ||
+      source.backend_id ||
+      response.backendId ||
+      response.backend_id,
+  );
 }
 
 async function statAsset(path?: string) {
@@ -367,7 +392,7 @@ export function createProductStorageApi(args: {
     const productKey = safeId(productKeyRaw || "default");
     const productId = safeId(`${requestId}:${productKey}`);
     const cacheDir = joinPath(
-      getRuntimePersistencePaths().root,
+      getRuntimePersistencePaths().runtimeRoot,
       "workflow-products",
       "assets",
       safeSegment(productId),
@@ -393,9 +418,14 @@ export function createProductStorageApi(args: {
     cacheDir: string,
     forceCache: boolean,
   ): Promise<WorkflowProductAsset> => {
-    const assetId = safeId(input.assetId || input.label || input.productAssetPath);
+    const assetId = safeId(
+      input.assetId || input.label || input.productAssetPath,
+    );
     const relativePath = safeSegment(
-      input.productAssetPath || input.fallbackPath || resolved?.entryPath || assetId,
+      input.productAssetPath ||
+        input.fallbackPath ||
+        resolved?.entryPath ||
+        assetId,
       assetId,
     );
     const label = cleanString(input.label) || assetId;
@@ -410,7 +440,11 @@ export function createProductStorageApi(args: {
         diagnostics: ["artifact not resolved"],
       };
     }
-    if (!forceCache && resolved.sourceKind === "local-path" && resolved.sourcePath) {
+    if (
+      !forceCache &&
+      resolved.sourceKind === "local-path" &&
+      resolved.sourcePath
+    ) {
       return {
         assetId,
         label,
@@ -441,14 +475,28 @@ export function createProductStorageApi(args: {
   const api: ProductStorageApi = {
     async cacheBundleAsset(input) {
       const { productId, cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), productId, cacheDir, true);
+      return makeAsset(
+        input,
+        await resolveInput(input),
+        productId,
+        cacheDir,
+        true,
+      );
     },
     async registerLocalAsset(input) {
       const { productId, cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), productId, cacheDir, false);
+      return makeAsset(
+        input,
+        await resolveInput(input),
+        productId,
+        cacheDir,
+        false,
+      );
     },
     async registerProduct(input) {
-      const { productId, productKey, cacheDir } = productBase(input.productKey || input.kind);
+      const { productId, productKey, cacheDir } = productBase(
+        input.productKey || input.kind,
+      );
       const existing = getWorkflowProduct(productId);
       const createdAt = existing?.createdAt || nowIso();
       const assets: WorkflowProductAsset[] = [];
@@ -468,15 +516,23 @@ export function createProductStorageApi(args: {
           assets.push({
             assetId: safeId(assetInput.assetId || assetInput.label),
             label: cleanString(assetInput.label) || safeId(assetInput.assetId),
-            path: safeSegment(assetInput.productAssetPath || assetInput.fallbackPath),
-            relativePath: safeSegment(assetInput.productAssetPath || assetInput.fallbackPath),
+            path: safeSegment(
+              assetInput.productAssetPath || assetInput.fallbackPath,
+            ),
+            relativePath: safeSegment(
+              assetInput.productAssetPath || assetInput.fallbackPath,
+            ),
             contentType: cleanString(assetInput.contentType) || undefined,
             sourceKind: "missing",
-            diagnostics: [error instanceof Error ? error.message : String(error)],
+            diagnostics: [
+              error instanceof Error ? error.message : String(error),
+            ],
           });
         }
       }
-      const hasCached = assets.some((asset) => asset.sourceKind === "bundle-entry");
+      const hasCached = assets.some(
+        (asset) => asset.sourceKind === "bundle-entry",
+      );
       const record: WorkflowProductRecord = {
         productId,
         productKey,
@@ -488,7 +544,8 @@ export function createProductStorageApi(args: {
         backendType,
         requestId,
         runId,
-        storageMode: hasCached || !workspaceDir ? "cached-bundle" : "local-workspace",
+        storageMode:
+          hasCached || !workspaceDir ? "cached-bundle" : "local-workspace",
         workspaceDir: workspaceDir || undefined,
         cacheDir: hasCached ? cacheDir : undefined,
         resultJsonPath: resultJsonPath || undefined,
@@ -507,7 +564,8 @@ export function createProductStorageApi(args: {
       const product = getWorkflowProduct(productId);
       if (!product) return null;
       return (
-        product.assets.find((asset) => asset.assetId === safeId(assetId)) || null
+        product.assets.find((asset) => asset.assetId === safeId(assetId)) ||
+        null
       );
     },
     readProductAssetPreview,
@@ -547,7 +605,10 @@ export async function readProductAssetPreview(
   }
   const stat = await statRuntimePath(path);
   const kind = inferPreviewKind(path, asset.contentType);
-  const maxBytes = Math.max(4096, Number(options?.maxBytes || DEFAULT_PREVIEW_BYTES) || DEFAULT_PREVIEW_BYTES);
+  const maxBytes = Math.max(
+    4096,
+    Number(options?.maxBytes || DEFAULT_PREVIEW_BYTES) || DEFAULT_PREVIEW_BYTES,
+  );
   if (kind === "binary") {
     return {
       productId: product.productId,

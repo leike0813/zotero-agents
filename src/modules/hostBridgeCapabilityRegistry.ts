@@ -302,22 +302,22 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   synthesisCapability(
     "synthesis.get_paper_registry",
-    "Return Synthesis paper registry metadata for selected paper references.",
+    "Return bounded read-only Synthesis paper registry metadata, freshness diagnostics, and recommended maintenance commands for selected paper references.",
     "getPaperRegistry",
   ),
   synthesisCapability(
     "synthesis.query_citation_graph",
-    "Query the Synthesis citation graph projection.",
+    "Query the read-only Synthesis citation graph projection with bounded maintenance diagnostics.",
     "queryCitationGraph",
   ),
   synthesisCapability(
     "synthesis.get_citation_graph_slice",
-    "Return a bounded citation graph slice for selected paper references.",
+    "Return a bounded read-only citation graph slice with freshness diagnostics for selected paper references.",
     "getCitationGraphSlice",
   ),
   synthesisCapability(
     "synthesis.get_citation_graph_metrics",
-    "Return citation graph metrics for selected paper references.",
+    "Return bounded read-only citation graph metrics, freshness diagnostics, and recommended maintenance commands for selected paper references.",
     "getCitationGraphMetrics",
   ),
   synthesisCapability(

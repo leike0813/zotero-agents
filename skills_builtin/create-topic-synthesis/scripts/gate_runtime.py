@@ -48,9 +48,10 @@ STAGE_ORDER = (
     "stage_6_cross_paper_map",
     "stage_7_route_timeline",
     "stage_8_core_sections",
-    "stage_9_external_statistics_report",
-    "stage_10_render_and_validate",
-    "stage_11_completed",
+    "stage_9_kg_proposals",
+    "stage_10_external_statistics_report",
+    "stage_11_render_and_validate",
+    "stage_12_completed",
 )
 
 STAGE_ALIASES: dict[str, str] = {}
@@ -58,17 +59,22 @@ STAGE_ALIASES: dict[str, str] = {}
 ACTION_ALIASES: dict[str, str] = {}
 
 INSTRUCTION_REFS_BY_STAGE = {
-    "stage_0_runtime_setup": ["references/step_00_runtime_gate.md"],
-    "stage_1_topic_context": ["references/step_01_topic_context.md"],
-    "stage_2_resolver_and_workset": ["references/step_02_resolver_workset.md"],
-    "stage_3_graph_metrics": ["references/step_03_metrics_artifacts.md"],
-    "stage_4_evidence_collection": ["references/step_03_metrics_artifacts.md"],
-    "stage_5_paper_units": ["references/step_04_paper_units.md"],
-    "stage_6_cross_paper_map": ["references/step_05_cross_paper_map.md"],
-    "stage_7_route_timeline": ["references/step_06_taxonomy_timeline.md"],
-    "stage_8_core_sections": ["references/step_07_core_sections.md"],
-    "stage_9_external_statistics_report": ["references/step_08_external_statistics_report.md"],
-    "stage_10_render_and_validate": ["references/step_09_render_validate.md"],
+    "stage_0_runtime_setup": ["SKILL.md#最小执行主路径 / 0. confirm_runtime_setup"],
+    "stage_1_topic_context": ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
+    "stage_2_resolver_and_workset": [
+        "SKILL.md#最小执行主路径 / 2. persist_library_index_page / persist_resolver"
+    ],
+    "stage_3_graph_metrics": ["SKILL.md#最小执行主路径 / 3. persist_citation_graph_metrics"],
+    "stage_4_evidence_collection": [
+        "SKILL.md#最小执行主路径 / 4. persist_filtered_artifact_manifest"
+    ],
+    "stage_5_paper_units": ["references/step_05_paper_units.md"],
+    "stage_6_cross_paper_map": ["references/step_06_cross_paper_map.md"],
+    "stage_7_route_timeline": ["references/step_07_taxonomy_timeline.md"],
+    "stage_8_core_sections": ["references/step_08_core_sections.md"],
+    "stage_9_kg_proposals": ["references/step_09_kg_proposals.md"],
+    "stage_10_external_statistics_report": ["references/step_10_external_statistics_report.md"],
+    "stage_11_render_and_validate": ["references/step_11_render_validate.md"],
 }
 
 SCHEMA_REFS_BY_ACTION = {
@@ -80,6 +86,7 @@ SCHEMA_REFS_BY_ACTION = {
     "persist_cross_paper_evidence_map": ["assets/schemas/cross_paper_evidence_map.schema.json"],
     "persist_route_timeline": ["assets/schemas/route_timeline_synthesis.schema.json"],
     "persist_core_sections": ["assets/schemas/core_analytical_sections.schema.json"],
+    "persist_kg_proposals": ["assets/schemas/kg_proposals.schema.json"],
     "persist_external_statistics_report": ["assets/schemas/topic_synthesis_artifact.schema.json"],
     "validate_final_artifacts": ["assets/schemas/topic_synthesis_artifact.schema.json"],
 }
@@ -125,15 +132,114 @@ SEMANTIC_HINTS_BY_STAGE = {
         "quality_focus": "Claims are topic-level findings; comparison dimensions are explanatory; debates need positions and evaluation axes; gaps must separate research gaps from library coverage gaps.",
         "common_pitfalls": "Do not restate paper abstracts as claims; do not present weak local coverage as a field-wide research gap.",
     },
-    "stage_9_external_statistics_report": {
+    "stage_9_kg_proposals": {
+        "semantic_goal": "Draft KG proposal sidecars from validated topic synthesis context without writing canonical KG assets.",
+        "quality_focus": "Concept cards and relation proposals should be grounded in core sections; empty arrays are valid only with diagnostics.",
+        "common_pitfalls": "Do not skip the sidecars; do not write canonical concept ids, graph edge ids, SQLite rows, or Git metadata.",
+    },
+    "stage_10_external_statistics_report": {
         "semantic_goal": "Finalize external literature, coverage/statistics interpretation, and a continuous synthesis report.",
         "quality_focus": "External analysis must identify related outside concepts/methods, coverage verdict, and collection suggestions; report must connect topic definition, routes, history, findings, debates, gaps, and external literature.",
         "common_pitfalls": "Do not write a brief summary; the report should be a dense reader-facing knowledge synthesis grounded in prior sections.",
     },
-    "stage_10_render_and_validate": {
+    "stage_11_render_and_validate": {
         "semantic_goal": "Validate that semantic sections form a coherent, evidence-closed topic synthesis artifact.",
         "quality_focus": "Final validation checks schema, evidence closure, report depth, and provenance; repair the relevant section if validation rejects it.",
         "common_pitfalls": "Do not bypass validation by editing final files; fix the authored section payload and rerun the gate-directed action.",
+    },
+}
+
+ENUM_CONTRACTS_BY_STAGE = {
+    "stage_0_runtime_setup": {
+        "operation": ["create"],
+        "stage_state": [
+            "pending",
+            "running",
+            "completed",
+            "failed_retryable",
+            "failed_terminal",
+            "canceled",
+        ],
+    },
+    "stage_1_topic_context": {"operation": ["create"]},
+    "stage_4_evidence_collection": {
+        "artifact_type": ["digest", "references", "citation_analysis"],
+        "payload_type": {
+            "digest": "digest-markdown",
+            "references": "references-json",
+            "citation_analysis": "citation-analysis-json",
+        },
+        "artifact_status": ["available", "missing", "decode_error", "unsupported"],
+    },
+    "stage_5_paper_units": {
+        "topic_relevance.level": ["core", "related", "peripheral", "excluded"],
+    },
+    "stage_6_cross_paper_map": {
+        "gap_candidates[].gap_type": [
+            "library_coverage_gap",
+            "evidence_gap",
+            "method_gap",
+            "evaluation_gap",
+            "review_gap",
+        ],
+    },
+    "stage_8_core_sections": {
+        "gaps[].gap_type": [
+            "research_gap",
+            "library_coverage_gap",
+            "evidence_gap",
+            "evaluation_gap",
+        ],
+        "gaps[].severity": ["low", "medium", "high", "critical", "unknown"],
+    },
+    "stage_9_kg_proposals": {
+        "concept_cards_proposal.cards[].concept_type": [
+            "method_family",
+            "mechanism",
+            "task",
+            "benchmark",
+            "dataset",
+            "evaluation_axis",
+            "training_signal",
+            "theoretical_construct",
+        ],
+        "topic_graph_relation_proposals.proposals[].proposal_type": [
+            "broader_topic_candidate",
+            "related_topic_candidate",
+            "overlap_topic_candidate",
+            "contrast_topic_candidate",
+        ],
+    },
+    "stage_10_external_statistics_report": {
+        "topic.topic_granularity": [
+            "method_family",
+            "task",
+            "problem",
+            "application_scenario",
+            "theory_concept",
+            "mechanism",
+            "dataset_or_benchmark",
+            "mixed",
+        ],
+        "coverage_verdict": [
+            "sufficient",
+            "partial",
+            "insufficient",
+            "severely_missing",
+            "unknown",
+        ],
+        "representative_references[].information_completeness": [
+            "complete",
+            "partial",
+            "minimal",
+            "unknown",
+        ],
+        "suggested_additions[].priority": ["high", "medium", "low", "unknown"],
+    },
+    "stage_11_render_and_validate": {
+        "final.kind": ["topic_synthesis", "topic_synthesis_canceled"],
+        "final.operation": ["create"],
+        "canceled.status": ["canceled"],
     },
 }
 
@@ -177,6 +283,9 @@ def action_payload(
         "schema_refs": SCHEMA_REFS_BY_ACTION.get(next_action, []),
         "progress": progress or {},
     }
+    enum_contracts = ENUM_CONTRACTS_BY_STAGE.get(stage)
+    if enum_contracts:
+        value["enum_contracts"] = enum_contracts
     value.update(SEMANTIC_HINTS_BY_STAGE.get(stage, {}))
     if blocker:
         value["blocker"] = blocker
@@ -193,7 +302,7 @@ def next_action(conn) -> dict:
     if has_any_state(conn, ("canceled",)):
         return action_payload(
             status="canceled",
-            stage="stage_11_completed",
+            stage="stage_12_completed",
             next_action="emit_topic_synthesis_canceled",
             execution_note="Run is canceled. Do not render sections.",
             command=f'python scripts/stage_runtime.py --db "{DB}" --action cancel',
@@ -203,7 +312,7 @@ def next_action(conn) -> dict:
     if has_any_state(conn, ("failed_terminal",)):
         return action_payload(
             status="failed_terminal",
-            stage="stage_11_completed",
+            stage="stage_12_completed",
             next_action="stop",
             execution_note="A terminal failure is recorded. Stop or emit a schema-compatible canceled result.",
             command="",
@@ -487,7 +596,8 @@ def next_action(conn) -> dict:
         "stage_6_cross_paper_map" not in completed
         or "stage_7_route_timeline" not in completed
         or "stage_8_core_sections" not in completed
-        or "stage_9_external_statistics_report" not in completed
+        or "stage_9_kg_proposals" not in completed
+        or "stage_10_external_statistics_report" not in completed
     ):
         if missing_bundles:
             return action_payload(
@@ -589,7 +699,7 @@ def next_action(conn) -> dict:
                 next_action="persist_route_timeline",
                 execution_note=(
                     "Draft route/timeline synthesis before final section writing. "
-                    "Read step_06_taxonomy_timeline.md and section_examples.md. "
+                    "Read step_07_taxonomy_timeline.md and section_examples.md. "
                     "Payload must contain taxonomy.summary, taxonomy.nodes, timeline_events.summary, and timeline_events.events. "
                     "timeline_events must be an object, not an array."
                 ),
@@ -598,7 +708,7 @@ def next_action(conn) -> dict:
                     '--action persist_route_timeline --payload-file "runtime/payloads/route-timeline-synthesis.json"'
                 ),
                 required_reads=[
-                    "references/step_06_taxonomy_timeline.md",
+                    "references/step_07_taxonomy_timeline.md",
                     "references/section_examples.md",
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/cross-paper-evidence-index.json",
@@ -618,7 +728,7 @@ def next_action(conn) -> dict:
                 next_action="persist_core_sections",
                 execution_note=(
                     "Draft claims, comparison, debates, gaps, review_outline, and positioning as a separate payload. "
-                    "Read step_07_core_sections.md and the validated route/timeline synthesis. "
+                    "Read step_08_core_sections.md and the validated route/timeline synthesis. "
                     "Do not rewrite taxonomy/timeline here."
                 ),
                 command=(
@@ -626,7 +736,7 @@ def next_action(conn) -> dict:
                     '--action persist_core_sections --payload-file "runtime/payloads/core-analytical-sections.json"'
                 ),
                 required_reads=[
-                    "references/step_07_core_sections.md",
+                    "references/step_08_core_sections.md",
                     "runtime/payloads/route-timeline-synthesis.json",
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/external-literature-context.md",
@@ -638,13 +748,46 @@ def next_action(conn) -> dict:
                 ],
                 progress={"completed_stages": sorted(completed)},
             )
+        kg_concept_path = str(get_meta(conn, "concept_cards_proposal_path", "") or "")
+        kg_relation_path = str(get_meta(conn, "topic_graph_relation_proposals_path", "") or "")
+        if not kg_concept_path or not kg_relation_path:
+            return action_payload(
+                status="ready",
+                stage="stage_9_kg_proposals",
+                next_action="persist_kg_proposals",
+                execution_note=(
+                    "Draft the required-form KG proposal payload after core sections. "
+                    "Read step_09_kg_proposals.md, validated route/timeline and core sections, both context markdown files, and the evidence map. "
+                    "The payload must contain concept_cards_proposal.cards[] and topic_graph_relation_proposals.proposals[]. "
+                    "If no reliable proposals exist, write empty arrays with diagnostics; do not skip the sidecars and do not write canonical KG assets."
+                ),
+                command=(
+                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                    '--action persist_kg_proposals --payload-file "runtime/payloads/kg-proposals.json"'
+                ),
+                required_reads=[
+                    "references/step_09_kg_proposals.md",
+                    "runtime/payloads/route-timeline-synthesis.json",
+                    "runtime/payloads/core-analytical-sections.json",
+                    "runtime/views/cross-paper-context.md",
+                    "runtime/views/external-literature-context.md",
+                    "runtime/payloads/cross-paper-evidence-map.json",
+                ],
+                required_writes=[
+                    "runtime/payloads/kg-proposals.json",
+                    "result/sidecars/concept-cards-proposal.json",
+                    "result/sidecars/topic-graph-relation-proposals.json",
+                    "validated KG proposal receipt",
+                ],
+                progress={"completed_stages": sorted(completed)},
+            )
         return action_payload(
             status="ready",
-            stage="stage_9_external_statistics_report",
+            stage="stage_10_external_statistics_report",
             next_action="persist_external_statistics_report",
             execution_note=(
-                "Write the Stage 9 payload first; runtime will prevalidate and materialize result/sections/*.json only after the payload passes. "
-                "Read step_08_external_statistics_report.md, route-timeline synthesis, core analytical sections, both context markdown files, and the validated evidence map. "
+                "Write the Stage 10 payload first; runtime will prevalidate and materialize result/sections/*.json only after the payload passes. "
+                "Read step_10_external_statistics_report.md, route-timeline synthesis, core analytical sections, both context markdown files, and the validated evidence map. "
                 "The payload must contain sections for topic, summary, paper_evidence, external_literature_analysis, coverage, statistics, synthesis_report, evidence_map, source_artifacts, and diagnostics. "
                 "Do not include taxonomy, timeline_events, positioning, claims, comparison_matrix, debates, gaps, or review_outline in this payload; runtime preserves those from validated Stage 7/8 artifacts. "
                 "synthesis_report.source_section_chapters must bind research_routes to taxonomy.summary and historical_progression to timeline_events.summary. "
@@ -656,7 +799,7 @@ def next_action(conn) -> dict:
                 '--payload-file "runtime/payloads/external-statistics-report.json"'
             ),
             required_reads=[
-                "references/step_08_external_statistics_report.md",
+                "references/step_10_external_statistics_report.md",
                 "references/section_examples.md",
                 "runtime/payloads/route-timeline-synthesis.json",
                 "runtime/payloads/core-analytical-sections.json",
@@ -669,7 +812,7 @@ def next_action(conn) -> dict:
             ],
             required_writes=[
                 "runtime/payloads/external-statistics-report.json",
-                "prevalidated Stage 9 sections",
+                "prevalidated Stage 10 sections",
                 "runtime-materialized result/sections/*.json",
             ],
             progress={"completed_stages": sorted(completed)},
@@ -678,7 +821,7 @@ def next_action(conn) -> dict:
     if missing_bundles or missing:
         return action_payload(
             status="blocked",
-            stage="stage_10_render_and_validate",
+            stage="stage_11_render_and_validate",
             next_action="repair_stage4_action_receipts_before_render",
             execution_note=(
                 "Render is blocked because Stage 4 rows are not backed by package-local "
@@ -695,10 +838,10 @@ def next_action(conn) -> dict:
             blocker="stage4_action_receipts_incomplete",
         )
 
-    if "stage_10_render_and_validate" not in completed:
+    if "stage_11_render_and_validate" not in completed:
         return action_payload(
             status="ready",
-            stage="stage_10_render_and_validate",
+            stage="stage_11_render_and_validate",
             next_action="validate_final_artifacts",
             execution_note=(
                 "Validate agent-authored result/sections JSON files, generate the structured manifest/result bundle, "
@@ -716,7 +859,7 @@ def next_action(conn) -> dict:
     if not all_required_final_artifacts_registered(conn, operation=operation):
         return action_payload(
             status="blocked",
-            stage="stage_11_completed",
+            stage="stage_12_completed",
             next_action="register_validated_section_manifest_and_final_stdout",
             execution_note="Final manifest and stdout are not registered in artifact_registry.",
             command=(
@@ -728,10 +871,10 @@ def next_action(conn) -> dict:
             blocker="final_artifacts_unregistered",
         )
 
-    if stage_state(conn, "stage_11_completed") != "completed":
+    if stage_state(conn, "stage_12_completed") != "completed":
         return action_payload(
             status="ready",
-            stage="stage_11_completed",
+            stage="stage_12_completed",
             next_action="complete",
             execution_note="Artifacts are registered; emit the generated business JSON and stop.",
             command='Get-Content -Encoding UTF8 "result/result.json"',
@@ -741,7 +884,7 @@ def next_action(conn) -> dict:
 
     return action_payload(
         status="completed",
-        stage="stage_11_completed",
+        stage="stage_12_completed",
         next_action="none",
         execution_note="Run is complete. Do not append explanation after final JSON.",
         command="",

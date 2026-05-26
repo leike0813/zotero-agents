@@ -185,6 +185,28 @@ function appendRepresentativeImageApplyLog(args) {
   }
 }
 
+async function recordSynthesisDirtyEvent(args) {
+  try {
+    const service = requireHostApi(args.runtime)?.synthesis;
+    const record = service?.recordSynthesisUpdateEvent;
+    if (typeof record !== "function") {
+      return;
+    }
+    const itemKey = String(args.parentItem?.key || "").trim();
+    if (!itemKey) {
+      return;
+    }
+    await record({
+      eventType: args.eventType,
+      source: args.source,
+      scope: { kind: "zotero_item", ref: itemKey },
+      sourceHash: args.sourceHash,
+    });
+  } catch {
+    // Synthesis maintenance hints must not affect apply-result.
+  }
+}
+
 async function readResultJson({ resultContext, bundleReader }) {
   if (
     resultContext &&
@@ -457,6 +479,30 @@ async function applyResultImpl({
     ...applied,
     representative_image: representativeImage,
   };
+  const artifactSourceHash = [
+    digestResolved.entryPath,
+    digestResolved.text.length,
+    referencesResolved.entryPath,
+    referencesResolved.text.length,
+    citationAnalysisResolved.entryPath,
+    citationAnalysisResolved.text.length,
+  ]
+    .filter(Boolean)
+    .join(":");
+  await recordSynthesisDirtyEvent({
+    runtime,
+    parentItem,
+    eventType: "digest_applied",
+    source: "literature-digest.applyResult",
+    sourceHash: artifactSourceHash,
+  });
+  await recordSynthesisDirtyEvent({
+    runtime,
+    parentItem,
+    eventType: "paper_artifact_changed",
+    source: "literature-digest.applyResult",
+    sourceHash: artifactSourceHash,
+  });
   const autoReferenceMatching = {
     enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
     attempted: false,
@@ -495,6 +541,13 @@ async function applyResultImpl({
           manifest: { version: "0.1.0" },
         }),
     );
+    await recordSynthesisDirtyEvent({
+      runtime,
+      parentItem,
+      eventType: "reference_matching_applied",
+      source: "literature-digest.autoReferenceMatching",
+      sourceHash: `${matchingResult?.matched || 0}:${matchingResult?.total || 0}`,
+    });
     return {
       ...appliedWithRepresentativeImage,
       auto_reference_matching: {

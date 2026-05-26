@@ -31,6 +31,29 @@ export type PaperRegistryArtifact = {
   diagnostics: PaperRegistryDiagnostic[];
 };
 
+export type PaperRegistryFacetStatus =
+  | "ready"
+  | "partial"
+  | "missing"
+  | "stale"
+  | "deleted"
+  | "unknown";
+
+export type PaperRegistryFacet = {
+  hash: string;
+  status: PaperRegistryFacetStatus;
+  updated_at?: string;
+};
+
+export type PaperRegistryFacets = {
+  identity: PaperRegistryFacet;
+  metadata: PaperRegistryFacet;
+  artifact: PaperRegistryFacet;
+  reference: PaperRegistryFacet;
+  readiness: PaperRegistryFacet;
+  topic_usage: PaperRegistryFacet;
+};
+
 export type PaperRegistryInputNote = {
   key: string;
   title?: string;
@@ -71,6 +94,7 @@ export type PaperRegistryRow = {
   readiness: "ready" | "partial";
   coverage: "complete" | "partial" | "missing";
   diagnostics: PaperRegistryDiagnostic[];
+  facets: PaperRegistryFacets;
   row_hash: string;
 };
 
@@ -86,7 +110,9 @@ function normalizeString(value: unknown) {
 
 function normalizeStringList(values: unknown[] | undefined) {
   return Array.from(
-    new Set((values || []).map((entry) => normalizeString(entry)).filter(Boolean)),
+    new Set(
+      (values || []).map((entry) => normalizeString(entry)).filter(Boolean),
+    ),
   ).sort((left, right) => left.localeCompare(right));
 }
 
@@ -102,7 +128,9 @@ function artifactLabel(type: RegistryArtifactType) {
   return type;
 }
 
-function missingDiagnostic(type: RegistryArtifactType): PaperRegistryDiagnostic {
+function missingDiagnostic(
+  type: RegistryArtifactType,
+): PaperRegistryDiagnostic {
   return {
     code: "payload_missing",
     artifact_type: type,
@@ -153,7 +181,9 @@ function hashPayload(block: ReturnType<typeof listNotePayloadBlocks>[number]) {
   return hashMarkdown(block.decodedText || "");
 }
 
-function buildMissingArtifact(type: RegistryArtifactType): PaperRegistryArtifact {
+function buildMissingArtifact(
+  type: RegistryArtifactType,
+): PaperRegistryArtifact {
   const diagnostic = missingDiagnostic(type);
   return {
     type,
@@ -178,9 +208,9 @@ function discoverArtifact(
   const diagnostics: PaperRegistryDiagnostic[] = [];
 
   for (const note of sortedNotes) {
-    const blocks = (note.payloadBlocks || listNotePayloadBlocks(note.html)).filter(
-      (entry) => entry.payloadType === payloadType,
-    );
+    const blocks = (
+      note.payloadBlocks || listNotePayloadBlocks(note.html)
+    ).filter((entry) => entry.payloadType === payloadType);
     for (const block of blocks) {
       if (block.version !== "1") {
         diagnostics.push(unsupportedVersionDiagnostic(type, block.version));
@@ -225,7 +255,8 @@ function readinessForArtifacts(
   const statuses = Object.values(artifacts).map((entry) => entry.status);
   const available = statuses.filter((entry) => entry === "available").length;
   return {
-    readiness: available === statuses.length ? ("ready" as const) : ("partial" as const),
+    readiness:
+      available === statuses.length ? ("ready" as const) : ("partial" as const),
     coverage:
       available === statuses.length
         ? ("complete" as const)
@@ -235,7 +266,112 @@ function readinessForArtifacts(
   };
 }
 
-export function buildPaperRegistryRow(input: PaperRegistryInput): PaperRegistryRow {
+function latestUpdatedAt(values: Array<string | undefined>) {
+  return values
+    .map(normalizeString)
+    .filter(Boolean)
+    .sort((left, right) => right.localeCompare(left))[0];
+}
+
+function buildFacet(
+  value: unknown,
+  status: PaperRegistryFacetStatus,
+  updatedAt?: string,
+): PaperRegistryFacet {
+  return {
+    hash: hashCanonicalJson(value),
+    status,
+    updated_at: normalizeString(updatedAt) || undefined,
+  };
+}
+
+function facetStatusFromCoverage(
+  coverage: PaperRegistryRow["coverage"],
+): PaperRegistryFacetStatus {
+  if (coverage === "complete") {
+    return "ready";
+  }
+  return coverage;
+}
+
+function buildRegistryFacets(args: {
+  input: PaperRegistryInput;
+  artifacts: Record<RegistryArtifactType, PaperRegistryArtifact>;
+  readiness: PaperRegistryRow["readiness"];
+  coverage: PaperRegistryRow["coverage"];
+}) {
+  const identity = {
+    library_id: normalizeLibraryId(args.input.libraryId),
+    item_key: normalizeString(args.input.itemKey),
+    paper_ref: `${normalizeLibraryId(args.input.libraryId)}:${normalizeString(args.input.itemKey)}`,
+    citekey: normalizeString(args.input.citekey),
+    date_added: normalizeString(args.input.dateAdded),
+  };
+  const metadata = {
+    title: normalizeString(args.input.title),
+    year: normalizeString(args.input.year),
+    item_type: normalizeString(args.input.itemType),
+    creators: normalizeStringList(args.input.creators),
+    tags: normalizeStringList(args.input.tags),
+    collections: normalizeStringList(args.input.collections),
+    doi: normalizeString(args.input.doi),
+    arxiv: normalizeString(args.input.arxiv),
+    url: normalizeString(args.input.url),
+  };
+  const artifact = Object.fromEntries(
+    Object.entries(args.artifacts).map(([type, row]) => [
+      type,
+      {
+        status: row.status,
+        hash: normalizeString(row.hash),
+        payload_type: row.payload_type,
+        note_key: normalizeString(row.note_key),
+      },
+    ]),
+  );
+  const reference = {
+    references_status: args.artifacts.references.status,
+    references_hash: normalizeString(args.artifacts.references.hash),
+    citation_analysis_status: args.artifacts.citation_analysis.status,
+    citation_analysis_hash: normalizeString(
+      args.artifacts.citation_analysis.hash,
+    ),
+  };
+  const readiness = {
+    readiness: args.readiness,
+    coverage: args.coverage,
+    missing_artifacts: Object.entries(args.artifacts)
+      .filter(([, row]) => row.status !== "available")
+      .map(([type]) => type)
+      .sort(),
+  };
+  const artifactUpdatedAt = latestUpdatedAt(
+    Object.values(args.artifacts).map((row) => row.updated_at),
+  );
+  return {
+    identity: buildFacet(identity, "ready", args.input.dateAdded),
+    metadata: buildFacet(metadata, "ready"),
+    artifact: buildFacet(
+      artifact,
+      facetStatusFromCoverage(args.coverage),
+      artifactUpdatedAt,
+    ),
+    reference: buildFacet(
+      reference,
+      args.artifacts.references.status === "available" ? "ready" : "missing",
+      latestUpdatedAt([
+        args.artifacts.references.updated_at,
+        args.artifacts.citation_analysis.updated_at,
+      ]),
+    ),
+    readiness: buildFacet(readiness, args.readiness),
+    topic_usage: buildFacet({ topic_ids: [] }, "unknown"),
+  } satisfies PaperRegistryFacets;
+}
+
+export function buildPaperRegistryRow(
+  input: PaperRegistryInput,
+): PaperRegistryRow {
   const libraryId = normalizeLibraryId(input.libraryId);
   const itemKey = normalizeString(input.itemKey);
   if (!libraryId) {
@@ -254,6 +390,12 @@ export function buildPaperRegistryRow(input: PaperRegistryInput): PaperRegistryR
     (artifact) => artifact.diagnostics,
   );
   const state = readinessForArtifacts(artifacts);
+  const facets = buildRegistryFacets({
+    input,
+    artifacts,
+    readiness: state.readiness,
+    coverage: state.coverage,
+  });
   const rowWithoutHash = {
     paper_ref: `${libraryId}:${itemKey}`,
     library_id: libraryId,
@@ -267,6 +409,7 @@ export function buildPaperRegistryRow(input: PaperRegistryInput): PaperRegistryR
     readiness: state.readiness,
     coverage: state.coverage,
     diagnostics,
+    facets,
   };
   return {
     ...rowWithoutHash,
@@ -277,11 +420,15 @@ export function buildPaperRegistryRow(input: PaperRegistryInput): PaperRegistryR
 export function buildPaperRegistryRows(inputs: PaperRegistryInput[]) {
   return [...inputs]
     .sort((left, right) => {
-      const library = normalizeLibraryId(left.libraryId) - normalizeLibraryId(right.libraryId);
+      const library =
+        normalizeLibraryId(left.libraryId) -
+        normalizeLibraryId(right.libraryId);
       if (library !== 0) {
         return library;
       }
-      return normalizeString(left.itemKey).localeCompare(normalizeString(right.itemKey));
+      return normalizeString(left.itemKey).localeCompare(
+        normalizeString(right.itemKey),
+      );
     })
     .map(buildPaperRegistryRow);
 }

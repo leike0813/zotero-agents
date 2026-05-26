@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-SCHEMA_VERSION = "topic-synthesis-skill-runtime/8"
+SCHEMA_VERSION = "topic-synthesis-skill-runtime/9"
 SHA256_HASH_RE = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 STAGE_STATES = (
@@ -41,9 +41,10 @@ STAGES = (
     "stage_6_cross_paper_map",
     "stage_7_route_timeline",
     "stage_8_core_sections",
-    "stage_9_external_statistics_report",
-    "stage_10_render_and_validate",
-    "stage_11_completed",
+    "stage_9_kg_proposals",
+    "stage_10_external_statistics_report",
+    "stage_11_render_and_validate",
+    "stage_12_completed",
 )
 
 LEGACY_STAGE_ALIASES = {
@@ -53,8 +54,11 @@ LEGACY_STAGE_ALIASES = {
     "stage_3_paper_workset": "stage_2_resolver_and_workset",
     "stage_4_per_paper_analysis": "stage_5_paper_units",
     "stage_5_cross_paper_synthesis": "stage_6_cross_paper_map",
-    "stage_6_render_and_validate": "stage_10_render_and_validate",
-    "stage_7_completed": "stage_11_completed",
+    "stage_6_render_and_validate": "stage_11_render_and_validate",
+    "stage_7_completed": "stage_12_completed",
+    "stage_9_external_statistics_report": "stage_10_external_statistics_report",
+    "stage_10_render_and_validate": "stage_11_render_and_validate",
+    "stage_11_completed": "stage_12_completed",
 }
 
 ACTION_ALIASES = {
@@ -2531,7 +2535,7 @@ def register_section_output(
     path: str,
     hash_value: str,
     content_type: str = "json",
-    stage: str = "stage_10_render_and_validate",
+    stage: str = "stage_11_render_and_validate",
 ) -> None:
     conn.execute(
         """
@@ -2554,7 +2558,12 @@ def all_required_final_artifacts_registered(conn: sqlite3.Connection, *, operati
         if operation == "update_patch"
         else "result/topic-analysis.json"
     )
-    required = {manifest_path, "result/result.json"}
+    required = {
+        manifest_path,
+        "result/result.json",
+        "result/sidecars/concept-cards-proposal.json",
+        "result/sidecars/topic-graph-relation-proposals.json",
+    }
     rows = conn.execute("select path from artifact_registry where validated = 1").fetchall()
     registered = {row["path"] for row in rows}
     return required.issubset(registered)

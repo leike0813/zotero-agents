@@ -6,13 +6,17 @@ import {
   planStartupSyncCheck,
   validateMirrorManifestAgainstShards,
 } from "../../src/modules/synthesis/syncRecovery";
-import { buildMirrorManifest, type MirrorManifest } from "../../src/modules/synthesis/foundation";
+import {
+  buildMirrorManifest,
+  type MirrorManifest,
+} from "../../src/modules/synthesis/foundation";
 
 function manifest(overrides: Partial<MirrorManifest> = {}) {
   return buildMirrorManifest({
     libraryId: 1,
     anchorKey: "ANCHOR",
-    mirrorId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    mirrorId:
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     updatedAt: "2026-05-10T00:00:00.000Z",
     shards: [
       {
@@ -21,8 +25,10 @@ function manifest(overrides: Partial<MirrorManifest> = {}) {
         total: 1,
         noteKey: "NOTE1",
         title: "ZS Synthesis Mirror [1] topics 001/001",
-        payloadHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        encodedHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        payloadHash:
+          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        encodedHash:
+          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       },
     ],
     ...overrides,
@@ -30,7 +36,7 @@ function manifest(overrides: Partial<MirrorManifest> = {}) {
 }
 
 describe("Synthesis sync recovery", function () {
-  it("requires confirmation before recovering a missing canonical root from valid shards", function () {
+  it("does not advertise mirror recovery when canonical root is missing", function () {
     const result = assessSynthesisSyncRecovery({
       root: { state: "missing" },
       mirror: {
@@ -38,15 +44,18 @@ describe("Synthesis sync recovery", function () {
         shards: [
           {
             library_id: 1,
-            mirror_id: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            mirror_id:
+              "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             kind: "topics",
             seq: 1,
             total: 1,
             note_key: "NOTE1",
             title: "ZS Synthesis Mirror [1] topics 001/001",
-            payload_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-            payload: "{\"ok\":true}",
+            payload_hash:
+              "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            encoded_hash:
+              "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            payload: '{"ok":true}',
           },
         ],
       },
@@ -55,12 +64,12 @@ describe("Synthesis sync recovery", function () {
     });
 
     assert.equal(result.status, "missing_root");
-    assert.include(result.allowedActions, "recover_from_shards");
-    assert.isTrue(result.requiresConfirmation);
+    assert.notInclude(result.allowedActions, "recover_from_shards");
+    assert.isFalse(result.requiresConfirmation);
     assert.isFalse(result.autoOverwriteCanonical);
   });
 
-  it("prefers canonical assets over stale mirrors", function () {
+  it("ignores stale mirrors during normal runtime recovery assessment", function () {
     const result = assessSynthesisSyncRecovery({
       root: {
         state: "ready",
@@ -79,9 +88,9 @@ describe("Synthesis sync recovery", function () {
       conflicts: [],
     });
 
-    assert.equal(result.status, "divergent");
-    assert.include(result.allowedActions, "rebuild_mirror_from_canonical");
-    assert.include(result.allowedActions, "save_conflict_copy");
+    assert.equal(result.status, "ready");
+    assert.notInclude(result.allowedActions, "rebuild_mirror_from_canonical");
+    assert.notInclude(result.allowedActions, "save_conflict_copy");
     assert.notInclude(result.allowedActions, "recover_from_shards");
     assert.isFalse(result.autoOverwriteCanonical);
   });
@@ -92,14 +101,17 @@ describe("Synthesis sync recovery", function () {
       shards: [
         {
           library_id: 1,
-          mirror_id: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          mirror_id:
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           kind: "topics",
           seq: 1,
           total: 1,
           note_key: "NOTE1",
           title: "ZS Synthesis Mirror [1] topics 001/001",
-          payload_hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payload_hash:
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          encoded_hash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           payload: "{}",
         },
       ],
@@ -107,12 +119,18 @@ describe("Synthesis sync recovery", function () {
 
     assert.isFalse(result.ok);
     assert.equal(result.state, "degraded");
-    assert.include(result.diagnostics.map((entry) => entry.code), "payload_hash_mismatch");
+    assert.include(
+      result.diagnostics.map((entry) => entry.code),
+      "payload_hash_mismatch",
+    );
   });
 
   it("plans local index rebuild without marking canonical assets corrupt", function () {
     const result = assessSynthesisSyncRecovery({
-      root: { state: "ready", canonical_manifest_hash: manifest().manifest_hash },
+      root: {
+        state: "ready",
+        canonical_manifest_hash: manifest().manifest_hash,
+      },
       mirror: { manifest: manifest(), shards: [] },
       localIndexes: { state: "corrupt" },
       conflicts: [],
@@ -120,7 +138,10 @@ describe("Synthesis sync recovery", function () {
 
     assert.equal(result.status, "index_dirty");
     assert.include(result.allowedActions, "rebuild_local_indexes");
-    assert.notInclude(result.diagnostics.map((entry) => entry.code), "canonical_corrupt");
+    assert.notInclude(
+      result.diagnostics.map((entry) => entry.code),
+      "canonical_corrupt",
+    );
   });
 
   it("skips startup checks when the preference is disabled", function () {
@@ -144,24 +165,29 @@ describe("Synthesis sync recovery", function () {
         id: "old",
         topic_id: "topic-a",
         created_at: "2026-05-09T00:00:00.000Z",
-        bundle_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        bundle_hash:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         reason: "base_hash_mismatch",
       },
       {
         id: "new",
         topic_id: "topic-a",
         created_at: "2026-05-10T00:00:00.000Z",
-        bundle_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        bundle_hash:
+          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         reason: "base_hash_mismatch",
       },
     ]);
     const actions = buildConflictCandidateActions(candidates[0]);
 
-    assert.deepEqual(candidates.map((entry) => entry.id), ["new", "old"]);
-    assert.deepEqual(actions.map((entry) => entry.action), [
-      "retry_update",
-      "clear_conflict_candidate",
-    ]);
+    assert.deepEqual(
+      candidates.map((entry) => entry.id),
+      ["new", "old"],
+    );
+    assert.deepEqual(
+      actions.map((entry) => entry.action),
+      ["retry_update", "clear_conflict_candidate"],
+    );
     assert.isTrue(actions.every((entry) => entry.localOnly));
   });
 
@@ -169,7 +195,8 @@ describe("Synthesis sync recovery", function () {
     const result = buildMirrorManifest({
       libraryId: 1,
       anchorKey: "ANCHOR",
-      mirrorId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      mirrorId:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       updatedAt: "2026-05-10T00:00:00.000Z",
       shards: [
         {
@@ -178,8 +205,10 @@ describe("Synthesis sync recovery", function () {
           total: 1,
           noteKey: "NOTE1",
           title: "ZS Synthesis Mirror topic current",
-          payloadHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encodedHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payloadHash:
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encodedHash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           asset_id: "topic:object-detection:current-manifest",
           asset_path: "topics/object-detection/current/manifest.json",
           content_type: "json",
@@ -187,7 +216,10 @@ describe("Synthesis sync recovery", function () {
       ],
     });
 
-    assert.equal((result.shards[0] as any).asset_id, "topic:object-detection:current-manifest");
+    assert.equal(
+      (result.shards[0] as any).asset_id,
+      "topic:object-detection:current-manifest",
+    );
     assert.equal(
       (result.shards[0] as any).asset_path,
       "topics/object-detection/current/manifest.json",
@@ -205,8 +237,10 @@ describe("Synthesis sync recovery", function () {
           total: 1,
           note_key: "NOTE1",
           title: "ZS Synthesis Mirror topic current",
-          payload_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payload_hash:
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encoded_hash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           asset_id: "topic:object-detection:section:claims",
           asset_path: "../outside/current/sections/claims.json",
           content_type: "json",
@@ -217,8 +251,10 @@ describe("Synthesis sync recovery", function () {
           total: 2,
           note_key: "NOTE2",
           title: "ZS Synthesis Mirror topic current 2",
-          payload_hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          encoded_hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          payload_hash:
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          encoded_hash:
+            "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
           asset_id: "topic:object-detection:section:claims",
           asset_path: "topics/object-detection/current/sections/coverage.json",
           content_type: "json",
@@ -236,8 +272,10 @@ describe("Synthesis sync recovery", function () {
           total: 1,
           note_key: "NOTE1",
           title: "ZS Synthesis Mirror topic current",
-          payload_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payload_hash:
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encoded_hash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           payload: "{}",
           asset_id: "topic:object-detection:section:claims",
           asset_path: "../outside/current/sections/claims.json",
@@ -251,8 +289,10 @@ describe("Synthesis sync recovery", function () {
           total: 2,
           note_key: "NOTE2",
           title: "ZS Synthesis Mirror topic current 2",
-          payload_hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          encoded_hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          payload_hash:
+            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          encoded_hash:
+            "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
           payload: "{}",
           asset_id: "topic:object-detection:section:claims",
           asset_path: "topics/object-detection/current/sections/coverage.json",
@@ -278,8 +318,10 @@ describe("Synthesis sync recovery", function () {
           total: 1,
           note_key: "NOTE1",
           title: "ZS Synthesis Mirror graph",
-          payload_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payload_hash:
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encoded_hash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           asset_id: "state:unified-citation-graph",
           asset_path: "state/unified-citation-graph.json",
           content_type: "json",
@@ -297,8 +339,10 @@ describe("Synthesis sync recovery", function () {
           total: 1,
           note_key: "NOTE1",
           title: "ZS Synthesis Mirror graph",
-          payload_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encoded_hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          payload_hash:
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          encoded_hash:
+            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           payload: "{}",
           asset_id: "state:unified-citation-graph",
           asset_path: "state/unified-citation-graph.json",
@@ -308,7 +352,10 @@ describe("Synthesis sync recovery", function () {
     });
 
     assert.isFalse(result.ok);
-    assert.include(result.diagnostics.map((entry) => entry.code), "asset_not_recoverable");
+    assert.include(
+      result.diagnostics.map((entry) => entry.code),
+      "asset_not_recoverable",
+    );
   });
 
   it("rejects ambiguous manifests and requires temporary-directory restore before promote", async function () {
@@ -318,15 +365,24 @@ describe("Synthesis sync recovery", function () {
     const plan = (module as any).planCanonicalRecoveryFromMirror({
       canonicalRoot: { state: "missing" },
       manifests: [
-        manifest({ manifest_hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111" }),
-        manifest({ manifest_hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222" }),
+        manifest({
+          manifest_hash:
+            "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        }),
+        manifest({
+          manifest_hash:
+            "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        }),
       ],
       shards: [],
       confirm: true,
     });
 
     assert.equal(plan.status, "degraded");
-    assert.include(plan.diagnostics.map((entry: any) => entry.code), "ambiguous_manifest");
+    assert.include(
+      plan.diagnostics.map((entry: any) => entry.code),
+      "ambiguous_manifest",
+    );
     assert.isFalse(plan.executable);
     assert.equal(plan.writeMode, "temporary_then_promote");
   });

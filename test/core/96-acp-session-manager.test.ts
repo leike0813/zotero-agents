@@ -109,7 +109,11 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
     currentModelId: "gpt-5.4",
     availableModels: [
       { modelId: "gpt-5.4", name: "GPT-5.4", description: "Default model" },
-      { modelId: "gpt-5.4-mini", name: "GPT-5.4 Mini", description: "Smaller model" },
+      {
+        modelId: "gpt-5.4-mini",
+        name: "GPT-5.4 Mini",
+        description: "Smaller model",
+      },
     ],
   };
   omitSessionRuntimeOptions = false;
@@ -227,20 +231,20 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             },
           }
         : this.omitSessionRuntimeOptions
-        ? {}
-        : {
-            modes: {
-              currentModeId: "plan",
-              availableModes: [
-                { id: "plan", name: "Plan", description: "Reason first" },
-                { id: "code", name: "Code", description: "Act directly" },
-              ],
-            },
-            models: {
-              currentModelId: this.modelState.currentModelId,
-              availableModels: this.modelState.availableModels,
-            },
-          }),
+          ? {}
+          : {
+              modes: {
+                currentModeId: "plan",
+                availableModes: [
+                  { id: "plan", name: "Plan", description: "Reason first" },
+                  { id: "code", name: "Code", description: "Act directly" },
+                ],
+              },
+              models: {
+                currentModelId: this.modelState.currentModelId,
+                availableModels: this.modelState.availableModels,
+              },
+            }),
     };
   }
 
@@ -316,9 +320,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
     };
   }
 
-  private async emitUpdate(
-    update: SessionNotification,
-  ) {
+  private async emitUpdate(update: SessionNotification) {
     for (const listener of this.updates) {
       await listener(update);
     }
@@ -546,12 +548,8 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
 }
 
 describe("acp session manager", function () {
-  let lastAdapter:
-    | FakeAcpConnectionAdapter
-    | null;
-  let lastFactoryArgs:
-    | AcpConnectionAdapterFactoryArgs
-    | null;
+  let lastAdapter: FakeAcpConnectionAdapter | null;
+  let lastFactoryArgs: AcpConnectionAdapterFactoryArgs | null;
   let previousBackendsPref: unknown;
 
   beforeEach(function () {
@@ -885,10 +883,14 @@ describe("acp session manager", function () {
     });
 
     const toolItem = getAcpConversationSnapshot().items.find(
-      (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-summary",
+      (entry) =>
+        entry.kind === "tool_call" && entry.toolCallId === "tool-summary",
     );
     assert.equal(toolItem?.toolName, "Tool");
-    assert.include(String(toolItem?.inputSummary || ""), "artifact/todo_memo.md");
+    assert.include(
+      String(toolItem?.inputSummary || ""),
+      "artifact/todo_memo.md",
+    );
     assert.include(String(toolItem?.summary || ""), "artifact/todo_memo.md");
     assert.notEqual(toolItem?.summary, "Tool Call");
   });
@@ -974,7 +976,10 @@ describe("acp session manager", function () {
         entry.kind === "tool_call" && entry.toolCallId === "tool-normalized",
     );
     assert.equal(toolItem?.toolName, "read_file");
-    assert.include(String(toolItem?.inputSummary || ""), "artifact/todo_memo.md");
+    assert.include(
+      String(toolItem?.inputSummary || ""),
+      "artifact/todo_memo.md",
+    );
     assert.equal(toolItem?.resultSummary, "read file completed");
     assert.notEqual(toolItem?.inputSummary, "[]");
     assert.notInclude(String(toolItem?.summary || ""), "read file completed");
@@ -1093,9 +1098,14 @@ describe("acp session manager", function () {
     });
 
     const snapshot = getAcpConversationSnapshot();
-    const toolItems = snapshot.items.filter((entry) => entry.kind === "tool_call");
+    const toolItems = snapshot.items.filter(
+      (entry) => entry.kind === "tool_call",
+    );
     assert.lengthOf(toolItems, 1);
-    assert.equal(snapshot.items[snapshot.items.length - 1]?.id, toolItems[0]?.id);
+    assert.equal(
+      snapshot.items[snapshot.items.length - 1]?.id,
+      toolItems[0]?.id,
+    );
     assert.deepInclude(toolItems[0], {
       toolCallId: "tool-1",
       state: "completed",
@@ -1121,28 +1131,34 @@ describe("acp session manager", function () {
     assert.notInclude(promptText, "search_items");
     assert.notInclude(promptText, "zotero.get_current_view");
     assert.notInclude(promptText, "zotero.search_items");
-    assert.notInclude(promptText, "Never write directly to Zotero's SQLite database");
+    assert.notInclude(
+      promptText,
+      "Never write directly to Zotero's SQLite database",
+    );
     assert.notInclude(promptText, "[Zotero host context]");
     assert.notInclude(promptText, "Private Item Title");
-    assert.notInclude(promptText, "\"selectionEmpty\"");
+    assert.notInclude(promptText, '"selectionEmpty"');
   });
 
   it("keeps Zotero MCP guidance available for explicit compatibility prompts", function () {
-    const promptText = buildAcpPromptTextForTests(
-      "Inspect Zotero",
-      undefined,
-      { mcpCompatibilityMode: "explicit_descriptor_injection" },
-    );
+    const promptText = buildAcpPromptTextForTests("Inspect Zotero", undefined, {
+      mcpCompatibilityMode: "explicit_descriptor_injection",
+    });
 
     assert.include(promptText, "[Zotero MCP tool usage]");
     assert.include(promptText, 'MCP server named "zotero"');
     assert.include(promptText, "get_current_view");
     assert.include(promptText, "search_items");
-    assert.include(promptText, "Never write directly to Zotero's SQLite database");
+    assert.include(
+      promptText,
+      "Never write directly to Zotero's SQLite database",
+    );
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
-    (Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }).DataDirectory = {
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
       dir: "D:\\ZoteroData",
     };
     await sendAcpConversationPrompt({
@@ -1164,8 +1180,14 @@ describe("acp session manager", function () {
       ACP_OPENCODE_BACKEND_ID,
       snapshot.conversationId,
     );
-    assert.equal(snapshot.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
-    assert.equal(snapshot.conversationStorageDir, expectedStoragePaths.conversationStorageDir);
+    assert.equal(
+      snapshot.agentWorkspaceDir,
+      expectedStoragePaths.agentWorkspaceDir,
+    );
+    assert.equal(
+      snapshot.conversationStorageDir,
+      expectedStoragePaths.conversationStorageDir,
+    );
     assert.equal(snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(snapshot.workspaceDir, expectedStoragePaths.agentWorkspaceDir);
     assert.equal(snapshot.lastLifecycleEvent, "prompt_finished");
@@ -1191,7 +1213,9 @@ describe("acp session manager", function () {
     });
     assert.isAtLeast(snapshot.items.length, 5);
     assert.deepInclude(
-      snapshot.items.find((entry) => entry.kind === "message" && entry.role === "user") || {},
+      snapshot.items.find(
+        (entry) => entry.kind === "message" && entry.role === "user",
+      ) || {},
       {
         role: "user",
         text: "Hello ACP",
@@ -1218,7 +1242,9 @@ describe("acp session manager", function () {
       ["completed", "skipped"],
     );
     assert.deepInclude(
-      snapshot.items.find((entry) => entry.kind === "message" && entry.role === "assistant") || {},
+      snapshot.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      ) || {},
       {
         role: "assistant",
         text: "Echo: Hello ACP",
@@ -1238,16 +1264,19 @@ describe("acp session manager", function () {
       lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
       ".zotero-bridge",
     );
-    assert.equal(lastFactoryArgs?.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
-    assert.equal(lastFactoryArgs?.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(
+      lastFactoryArgs?.agentWorkspaceDir,
+      expectedStoragePaths.agentWorkspaceDir,
+    );
+    assert.equal(
+      lastFactoryArgs?.sessionCwd,
+      expectedStoragePaths.agentWorkspaceDir,
+    );
     assert.equal(
       lastFactoryArgs?.workspaceDir,
       expectedStoragePaths.agentWorkspaceDir,
     );
-    assert.equal(
-      lastFactoryArgs?.runtimeDir,
-      expectedStoragePaths.runtimeDir,
-    );
+    assert.equal(lastFactoryArgs?.runtimeDir, expectedStoragePaths.runtimeDir);
 
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(persisted.snapshot.sessionId, "");
@@ -1258,12 +1287,23 @@ describe("acp session manager", function () {
     assert.equal(persisted.snapshot.currentMode?.id, "code");
     assert.equal(persisted.snapshot.currentModel?.id, "gpt-5.4");
     assert.equal(persisted.snapshot.lastStopReason, "end_turn");
-    assert.equal(persisted.snapshot.agentWorkspaceDir, expectedStoragePaths.agentWorkspaceDir);
-    assert.equal(persisted.snapshot.conversationStorageDir, expectedStoragePaths.conversationStorageDir);
-    assert.equal(persisted.snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
+    assert.equal(
+      persisted.snapshot.agentWorkspaceDir,
+      expectedStoragePaths.agentWorkspaceDir,
+    );
+    assert.equal(
+      persisted.snapshot.conversationStorageDir,
+      expectedStoragePaths.conversationStorageDir,
+    );
+    assert.equal(
+      persisted.snapshot.sessionCwd,
+      expectedStoragePaths.agentWorkspaceDir,
+    );
     assert.isAtLeast(persisted.items.length, 5);
     assert.equal(
-      persisted.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text,
+      persisted.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text,
       "Echo: Hello ACP",
     );
   });
@@ -1311,11 +1351,15 @@ describe("acp session manager", function () {
     assert.equal(one.backendId, "acp-one");
     assert.equal(two.backendId, "acp-two");
     assert.equal(
-      one.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text,
+      one.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text,
       "Echo: hello one",
     );
     assert.equal(
-      two.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text,
+      two.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text,
       "Echo: hello two",
     );
     assert.include(adapters.get("acp-one")?.prompts[0] || "", "hello one");
@@ -1335,12 +1379,17 @@ describe("acp session manager", function () {
 
     await setAcpConversationMode({ modeId: "plan" });
     assert.deepEqual(adapters.get("acp-one")?.modeSelections, []);
-    assert.deepEqual(adapters.get("acp-two")?.modeSelections, ["session-1:plan"]);
+    assert.deepEqual(adapters.get("acp-two")?.modeSelections, [
+      "session-1:plan",
+    ]);
 
     const frontend = getAcpFrontendSnapshot();
     assert.equal(frontend.activeBackendId, "acp-two");
     assert.equal(frontend.connectedCount, 2);
-    assert.equal(frontend.totalMessageCount, one.items.length + two.items.length);
+    assert.equal(
+      frontend.totalMessageCount,
+      one.items.length + two.items.length,
+    );
     assert.deepEqual(
       frontend.backendChatSessions.map((entry) => entry.backendId),
       ["acp-two", "acp-one"],
@@ -1353,7 +1402,10 @@ describe("acp session manager", function () {
     assert.isAtLeast(loadAcpConversationState("acp-one").items.length, 1);
     assert.lengthOf(loadAcpConversationState("acp-two").items, 0);
     assert.isAtLeast(listAcpChatSessions("acp-two").length, 2);
-    assert.notEqual(getAcpConversationSnapshot("acp-two").conversationId, beforeNew);
+    assert.notEqual(
+      getAcpConversationSnapshot("acp-two").conversationId,
+      beforeNew,
+    );
   });
 
   it("creates a new local conversation without deleting the previous transcript", async function () {
@@ -1394,10 +1446,13 @@ describe("acp session manager", function () {
     assert.equal(firstAdapter?.closeCalls, 1);
 
     await sendAcpConversationPrompt({ message: "Second local session" });
-    assert.equal(getAcpConversationSnapshot().conversationId, secondConversationId);
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      secondConversationId,
+    );
     assert.include(
-      getAcpConversationSnapshot().items
-        .filter((entry) => entry.kind === "message")
+      getAcpConversationSnapshot()
+        .items.filter((entry) => entry.kind === "message")
         .map((entry) => ("text" in entry ? entry.text : ""))
         .join("\n"),
       "Second local session",
@@ -1507,7 +1562,9 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.resumeSessionIds, ["session-1"]);
     assert.deepEqual(lastAdapter?.sessionIds, ["preexisting", "session-2"]);
     assert.isOk(
-      snapshot.diagnostics.find((entry) => entry.kind === "session_new_fallback"),
+      snapshot.diagnostics.find(
+        (entry) => entry.kind === "session_new_fallback",
+      ),
     );
     assert.isOk(
       snapshot.items.find(
@@ -1580,7 +1637,10 @@ describe("acp session manager", function () {
       )?.title,
       "Archived Reference",
     );
-    assert.equal(getAcpConversationSnapshot().conversationId, secondConversationId);
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      secondConversationId,
+    );
 
     await archiveAcpConversation({
       conversationId: firstConversationId,
@@ -1605,7 +1665,10 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     assert.notEqual(snapshot.conversationId, secondConversationId);
     assert.lengthOf(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID), 1);
-    assert.equal(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID)[0].messageCount, 0);
+    assert.equal(
+      listAcpChatSessions(ACP_OPENCODE_BACKEND_ID)[0].messageCount,
+      0,
+    );
   });
 
   it("throttles streaming snapshot notifications while preserving the final transcript", async function () {
@@ -1633,7 +1696,9 @@ describe("acp session manager", function () {
     assert.isBelow(snapshotCount, 40);
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(
-      persisted.items.find((entry) => entry.kind === "message" && entry.role === "assistant")?.text.length,
+      persisted.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text.length,
       100,
     );
   });
@@ -1942,9 +2007,21 @@ describe("acp session manager", function () {
       lastAdapter.modelState = {
         currentModelId: "gpt-5@high",
         availableModels: [
-          { modelId: "gpt-5@low", name: "GPT-5 Low", description: "Low effort" },
-          { modelId: "gpt-5@medium", name: "GPT-5 Medium", description: "Medium effort" },
-          { modelId: "gpt-5@high", name: "GPT-5 High", description: "High effort" },
+          {
+            modelId: "gpt-5@low",
+            name: "GPT-5 Low",
+            description: "Low effort",
+          },
+          {
+            modelId: "gpt-5@medium",
+            name: "GPT-5 Medium",
+            description: "Medium effort",
+          },
+          {
+            modelId: "gpt-5@high",
+            name: "GPT-5 High",
+            description: "High effort",
+          },
           { modelId: "claude-4@default", name: "Claude 4 Default" },
           { modelId: "claude-4@high", name: "Claude 4 High" },
         ],
@@ -2054,7 +2131,10 @@ describe("acp session manager", function () {
           { modelId: "openai-gpt-5-medium", name: "GPT-5 Medium" },
           { modelId: "openai-gpt-5-high", name: "GPT-5 High" },
           { modelId: "anthropic-claude-sonnet", name: "Claude Sonnet (low)" },
-          { modelId: "anthropic-claude-sonnet-fast", name: "Claude Sonnet (high)" },
+          {
+            modelId: "anthropic-claude-sonnet-fast",
+            name: "Claude Sonnet (high)",
+          },
         ],
       };
       return lastAdapter;
@@ -2092,7 +2172,8 @@ describe("acp session manager", function () {
 describe("acp conversation store", function () {
   afterEach(function () {
     resetPluginStateStoreForTests();
-    delete (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory;
+    delete (Zotero as typeof Zotero & { DataDirectory?: unknown })
+      .DataDirectory;
   });
 
   it("migrates legacy per-backend conversation storage into a default chat session", function () {
@@ -2158,23 +2239,17 @@ describe("acp conversation store", function () {
       const primary = resolveAcpChatRuntimePaths(ACP_OPENCODE_BACKEND_ID);
       assert.equal(
         primary.agentWorkspaceDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\workspace",
       );
-      assert.equal(
-        primary.workspaceDir,
-        primary.agentWorkspaceDir,
-      );
+      assert.equal(primary.workspaceDir, primary.agentWorkspaceDir);
       assert.equal(
         primary.conversationStorageDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\conversations\\acp-opencode",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\conversations\\acp-opencode",
       );
-      assert.equal(
-        primary.storageDir,
-        primary.conversationStorageDir,
-      );
+      assert.equal(primary.storageDir, primary.conversationStorageDir);
       assert.equal(
         primary.runtimeDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\runtime\\acp-opencode",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\runtime\\acp-opencode",
       );
 
       const withConversation = resolveAcpChatRuntimePaths(
@@ -2183,11 +2258,11 @@ describe("acp conversation store", function () {
       );
       assert.equal(
         withConversation.agentWorkspaceDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\workspace",
       );
       assert.equal(
         withConversation.conversationStorageDir,
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\conversations\\acp-opencode\\conversation-1",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\conversations\\acp-opencode\\conversation-1",
       );
       assert.isFalse(
         withConversation.conversationStorageDir.startsWith(
@@ -2206,16 +2281,19 @@ describe("acp conversation store", function () {
   it("resolves ACP session cwd to the shared ACP chat workspace", function () {
     const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = "D:\\ZoteroSkillsRuntime";
-    (Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }).DataDirectory = {
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
       dir: "D:\\ZoteroData",
     };
     try {
       assert.equal(
         resolveAcpSessionCwd(),
-        "D:\\ZoteroSkillsRuntime\\acp\\chat\\workspace",
+        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\workspace",
       );
     } finally {
-      delete (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory;
+      delete (Zotero as typeof Zotero & { DataDirectory?: unknown })
+        .DataDirectory;
       if (typeof previousRoot === "undefined") {
         delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
       } else {

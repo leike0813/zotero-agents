@@ -150,3 +150,30 @@ SHALL NOT be mirrored to Zotero note shards.
 - **THEN** conflict candidate files SHALL be excluded from mirror shards
 - **AND** recovery from shards SHALL NOT recreate conflict candidates.
 
+### Requirement: Synthesis sync recovery treats canonical files as source of truth
+
+Synthesis sync recovery SHALL keep Zotero mirror recovery separate from Git Sync and SHALL NOT use mirror shards as the Git remote synchronization mechanism.
+
+#### Scenario: Git Sync is disabled
+
+- **WHEN** Git Sync has no configured adapter or remote
+- **THEN** Zotero mirror recovery SHALL continue to provide its existing local recovery behavior
+- **AND** mirror recovery SHALL NOT require Git Sync state.
+
+#### Scenario: Git Sync conflict exists
+
+- **WHEN** Git Sync is blocked by a remote conflict
+- **THEN** Zotero mirror recovery SHALL NOT automatically resolve or import the conflicted Git worktree content.
+
+### Requirement: Recovery excludes normal note mirror operation
+
+Synthesis recovery SHALL treat Zotero note mirror as a legacy migration source
+only.
+
+#### Scenario: Mirror recovery action is not advertised
+
+- **WHEN** Synthesis sync/recovery status is computed during normal plugin
+  runtime
+- **THEN** it SHALL NOT advertise `rebuild_mirror_from_canonical` or
+  `recover_canonical_from_mirror` as normal actions.
+

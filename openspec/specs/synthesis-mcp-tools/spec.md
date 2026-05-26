@@ -29,20 +29,13 @@ expose raw Zotero objects.
 
 ### Requirement: Synthesis MCP tools are read-only
 
-Synthesis MCP tools SHALL expose read-only host capabilities for synthesis and
-review workflow jobs.
+Synthesis MCP tools SHALL expose read-only host capabilities for synthesis and review workflow jobs.
 
-#### Scenario: Job-time synthesis tool surface is bounded
+#### Scenario: Canonical-backed graph tools are listed
 
 - **WHEN** an MCP client lists Synthesis tools
-- **THEN** `synthesis.list_topics`, `synthesis.get_topic_context`,
-  `synthesis.get_library_index`, `synthesis.resolve_resolver`,
-  `synthesis.get_paper_registry`, `synthesis.get_citation_graph_slice`,
-  `synthesis.get_review_input`, and
-  `synthesis.export_filtered_paper_artifacts` SHALL be present
-- **AND** `synthesis.get_paper_artifact_manifest`,
-  `synthesis.read_paper_artifacts`, and
-  `synthesis.export_paper_artifact_bundle` SHALL NOT be present.
+- **THEN** existing paper registry, citation graph slice, and citation graph metrics tools SHALL remain read-only
+- **AND** no cleanup write tool SHALL be exposed through MCP in this phase.
 
 ### Requirement: Synthesis MCP inputs are strict
 
@@ -109,26 +102,13 @@ SHALL expose deterministic freshness for update workflows.
 
 ### Requirement: Citation graph metrics are available through bounded MCP
 
-The embedded Zotero MCP protocol SHALL expose a read-only
-`synthesis.get_citation_graph_metrics` tool for bounded library-paper graph
-metrics.
+The embedded Zotero MCP protocol SHALL expose read-only `synthesis.get_citation_graph_metrics` values from canonical-backed citation graph projections.
 
-#### Scenario: Metrics tool is listed
+#### Scenario: Metrics projection is stale
 
-- **WHEN** an MCP client calls `tools/list`
-- **THEN** `synthesis.get_citation_graph_metrics` SHALL be present.
-
-#### Scenario: Metrics tool is called
-
-- **WHEN** an MCP client calls `synthesis.get_citation_graph_metrics`
-- **THEN** the MCP layer SHALL route to the Synthesis service
-- **AND** return a bounded DTO without returning the full citation graph.
-
-#### Scenario: Metrics are filtered by paper refs
-
-- **WHEN** a caller supplies `paperRefs`
-- **THEN** the result SHALL include metrics rows only for matching library paper
-  nodes.
+- **WHEN** a caller requests citation graph metrics and the projection is missing or stale
+- **THEN** the MCP response SHALL report structured missing or stale diagnostics
+- **AND** it SHALL NOT return raw Zotero objects or an unbounded full graph.
 
 ### Requirement: Review input returns structured topic synthesis content
 
@@ -173,19 +153,13 @@ artifact content files into the current ACP skill run workspace.
 
 ### Requirement: Synthesis registry reads are paged
 
-`synthesis.get_paper_registry` SHALL support bounded paper registry reads.
+`synthesis.get_paper_registry` SHALL support bounded paper registry reads from canonical-backed projection state.
 
 #### Scenario: Registry page is requested
 
-- **WHEN** a client calls `synthesis.get_paper_registry` with `cursor` and
-  `limit`
-- **THEN** the result SHALL include a bounded row page, `cursor`,
-  `next_cursor`, `has_more`, `returned`, and `total`.
-
-#### Scenario: Registry refs filter is requested
-
-- **WHEN** a client passes `paperRefs`
-- **THEN** the result SHALL include only matching registry rows.
+- **WHEN** a client calls `synthesis.get_paper_registry` with `cursor` and `limit`
+- **THEN** the result SHALL include a bounded row page, `cursor`, `next_cursor`, `has_more`, `returned`, and `total`
+- **AND** rows SHALL come from the canonical-backed registry projection when available.
 
 ### Requirement: Resolver results are paged
 
@@ -231,4 +205,51 @@ unless explicitly requested.
 - **THEN** the response SHALL truncate bounded sections
 - **AND** diagnostics SHALL state what was truncated and how to request more
   specific context.
+
+### Requirement: Synthesis MCP reads do not trigger maintenance work
+
+Synthesis MCP read-only tools SHALL NOT enqueue rebuild jobs, write projection
+state, write durable job state, or schedule retries.
+
+#### Scenario: Paper registry projection is stale
+
+- **WHEN** an MCP client calls `synthesis.get_paper_registry` and the registry
+  projection is stale
+- **THEN** the response SHALL include bounded rows or diagnostics
+- **AND** no registry rebuild job SHALL be enqueued by that call.
+
+#### Scenario: Citation graph projection is missing
+
+- **WHEN** an MCP client calls `synthesis.get_citation_graph_slice` or
+  `synthesis.get_citation_graph_metrics` and projection state is missing
+- **THEN** the response SHALL be bounded and diagnostic
+- **AND** no graph rebuild or layout job SHALL start from that read.
+
+### Requirement: Synthesis MCP exposes freshness without raw state
+
+Synthesis MCP read results SHALL expose freshness and latest usable state
+without returning raw Zotero objects or unbounded graph data.
+
+#### Scenario: Stale data is returned
+
+- **WHEN** an MCP read returns stale-but-usable Synthesis data
+- **THEN** the DTO SHALL indicate stale or partial status
+- **AND** it SHALL include an explicit recommended host command when available.
+
+### Requirement: Synthesis MCP read-only tools handle stale literature projections
+
+Synthesis MCP read-only registry tools SHALL avoid synchronous full rebuilds while serving bounded responses.
+
+#### Scenario: Paper registry projection is missing
+
+- **WHEN** a read-only paper registry request is served without a registry projection
+- **THEN** the service SHALL return bounded best-effort rows with diagnostics
+- **AND** it SHALL enqueue a background literature rebuild best-effort
+- **AND** it SHALL NOT synchronously rebuild canonical registry state.
+
+#### Scenario: Paper registry projection is stale
+
+- **WHEN** a read-only paper registry request observes a stale projection
+- **THEN** the service SHALL include bounded diagnostics
+- **AND** it SHALL NOT return raw Zotero objects.
 

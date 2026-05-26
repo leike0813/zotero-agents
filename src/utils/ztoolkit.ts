@@ -6,7 +6,10 @@ export { createZToolkit, copyText, resolveClipboardCtor };
 
 function resolveClipboardCtor() {
   return resolveToolkitMember<
-    | (new () => { addText: (text: string, mime: string) => unknown; copy: () => unknown })
+    | (new () => {
+        addText: (text: string, mime: string) => unknown;
+        copy: () => unknown;
+      })
     | undefined
   >("Clipboard");
 }
@@ -15,7 +18,10 @@ function copyText(text: string) {
   const Clipboard = resolveClipboardCtor();
   if (Clipboard) {
     const helper = new Clipboard() as {
-      addText: (payload: string, mime: string) => { copy?: () => unknown } | void;
+      addText: (
+        payload: string,
+        mime: string,
+      ) => { copy?: () => unknown } | void;
       copy?: () => unknown;
     };
     const chained = helper.addText(text, "text/unicode");
@@ -30,9 +36,11 @@ function copyText(text: string) {
     return;
   }
   try {
-    const helper = (Components as any).classes?.["@mozilla.org/widget/clipboardhelper;1"]?.getService(
-      Components.interfaces.nsIClipboardHelper,
-    ) as { copyString?: (value: string) => void };
+    const helper = (Components as any).classes?.[
+      "@mozilla.org/widget/clipboardhelper;1"
+    ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+      copyString?: (value: string) => void;
+    };
     if (helper?.copyString) {
       helper.copyString(text);
       return;
@@ -71,7 +79,7 @@ function initZToolkit(_ztoolkit: ReturnType<typeof createZToolkit>) {
   );
   _ztoolkit.ProgressWindow.setIconURI(
     "skillrunner-backend",
-    `chrome://${config.addonRef}/content/icons/icon_backend.png`,
+    `chrome://${config.addonRef}/content/icons/icon_sidebar_32.png`,
   );
 }
 

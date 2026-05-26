@@ -121,7 +121,9 @@ function renderThemeSwitch() {
     node.type = "button";
     node.dataset.theme = theme;
     node.setAttribute("aria-pressed", state.theme === theme ? "true" : "false");
-    node.addEventListener("click", () => setThemeChoice(theme as WorkspaceTheme));
+    node.addEventListener("click", () =>
+      setThemeChoice(theme as WorkspaceTheme),
+    );
     group.appendChild(node);
   });
   return group;
@@ -132,7 +134,9 @@ function updateThemeSwitchState() {
   if (!group) {
     return;
   }
-  const buttons = Array.from(group.querySelectorAll("button")) as HTMLButtonElement[];
+  const buttons = Array.from(
+    group.querySelectorAll("button"),
+  ) as HTMLButtonElement[];
   buttons.forEach((node) => {
     const active = node.dataset.theme === state.theme;
     node.classList.toggle("active", active);
@@ -148,20 +152,32 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   brand.appendChild(el("span", "muted", "Dashboard and Synthesis workspace"));
   header.appendChild(brand);
 
-  const segmented = el("nav", "segmented");
+  const segmented = el(
+    "nav",
+    snapshot.selectedView === "synthesis"
+      ? "segmented workspace-view-switch is-synthesis"
+      : "segmented workspace-view-switch is-dashboard",
+  );
   segmented.setAttribute("aria-label", "Workspace views");
+  const thumb = el("span", "segmented-thumb");
+  thumb.setAttribute("aria-hidden", "true");
+  segmented.appendChild(thumb);
   [
     ["dashboard", "Dashboard"],
     ["synthesis", "Synthesis"],
   ].forEach(([view, label]) => {
-    segmented.appendChild(
-      button(
-        label,
-        "select-view",
-        { view },
-        snapshot.selectedView === view ? "active" : "",
-      ),
+    const node = button(
+      label,
+      "select-view",
+      { view },
+      snapshot.selectedView === view ? "active" : "",
     );
+    node.dataset.view = view;
+    node.setAttribute(
+      "aria-pressed",
+      snapshot.selectedView === view ? "true" : "false",
+    );
+    segmented.appendChild(node);
   });
   header.appendChild(segmented);
 
@@ -197,23 +213,77 @@ function renderWorkspacePanel(snapshot: WorkspaceSnapshot) {
       ? "workspace-panel is-dashboard"
       : "workspace-panel is-synthesis",
   );
-  if (selected === "synthesis") {
-    const mount = el("div", "synthesis-mount");
-    mount.id = "synthesis-mount";
-    panel.appendChild(mount);
-    window.setTimeout(() => sendAction("synthesis-mount-ready"), 0);
-    return panel;
-  }
-  const mount = el("div", "dashboard-mount");
-  mount.id = "dashboard-mount";
-  panel.appendChild(mount);
+  const dashboardMount = el(
+    "div",
+    selected === "dashboard"
+      ? "workspace-view-mount dashboard-mount is-active"
+      : "workspace-view-mount dashboard-mount",
+  );
+  dashboardMount.id = "dashboard-mount";
+  dashboardMount.setAttribute(
+    "aria-hidden",
+    selected === "dashboard" ? "false" : "true",
+  );
+  panel.appendChild(dashboardMount);
+
+  const synthesisMount = el(
+    "div",
+    selected === "synthesis"
+      ? "workspace-view-mount synthesis-mount is-active"
+      : "workspace-view-mount synthesis-mount",
+  );
+  synthesisMount.id = "synthesis-mount";
+  synthesisMount.setAttribute(
+    "aria-hidden",
+    selected === "synthesis" ? "false" : "true",
+  );
+  panel.appendChild(synthesisMount);
   window.setTimeout(() => sendAction("dashboard-mount-ready"), 0);
+  window.setTimeout(() => sendAction("synthesis-mount-ready"), 0);
   return panel;
+}
+
+function updateWorkspaceVisibility(snapshot: WorkspaceSnapshot) {
+  const selected = snapshot.selectedView;
+  const panel = document.querySelector<HTMLElement>(".workspace-panel");
+  panel?.classList.toggle("is-dashboard", selected === "dashboard");
+  panel?.classList.toggle("is-synthesis", selected === "synthesis");
+  const dashboardMount = document.getElementById("dashboard-mount");
+  const synthesisMount = document.getElementById("synthesis-mount");
+  [
+    [dashboardMount, "dashboard"],
+    [synthesisMount, "synthesis"],
+  ].forEach(([mount, view]) => {
+    if (!(mount instanceof HTMLElement)) {
+      return;
+    }
+    const active = selected === view;
+    mount.classList.toggle("is-active", active);
+    mount.setAttribute("aria-hidden", active ? "false" : "true");
+  });
+  const buttons = Array.from(
+    document.querySelectorAll(".segmented button"),
+  ) as HTMLButtonElement[];
+  buttons.forEach((node) => {
+    const active = node.dataset.view === selected;
+    node.classList.toggle("active", active);
+    node.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  const switcher = document.querySelector<HTMLElement>(
+    ".workspace-view-switch",
+  );
+  switcher?.classList.toggle("is-dashboard", selected === "dashboard");
+  switcher?.classList.toggle("is-synthesis", selected === "synthesis");
 }
 
 function render() {
   const root = document.getElementById("app") as HTMLElement | null;
   if (!root) {
+    return;
+  }
+  if (root.querySelector(".workspace-panel")) {
+    updateWorkspaceVisibility(state.snapshot);
+    updateThemeSwitchState();
     return;
   }
   clear(root);
@@ -234,9 +304,11 @@ window.addEventListener("message", (event: MessageEvent) => {
         ? (data.payload as Partial<WorkspaceSnapshot>)
         : {};
     const nextSnapshot = {
-      selectedView: payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
+      selectedView:
+        payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
     } satisfies WorkspaceSnapshot;
-    const viewChanged = state.snapshot.selectedView !== nextSnapshot.selectedView;
+    const viewChanged =
+      state.snapshot.selectedView !== nextSnapshot.selectedView;
     state.snapshot = nextSnapshot;
     if (viewChanged) {
       render();

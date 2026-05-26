@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis KG Proposals",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "concept_cards_proposal",
+    "topic_graph_relation_proposals"
+  ],
+  "properties": {
+    "schema_id": { "const": "synthesis.topic_synthesis_kg_proposals" },
+    "schema_version": { "type": "string", "minLength": 1 },
+    "concept_cards_proposal": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["cards", "diagnostics"],
+      "properties": {
+        "schema_id": { "const": "synthesis.concept_cards_proposal" },
+        "schema_version": { "type": "string" },
+        "topic_id": { "type": "string" },
+        "cards": { "type": "array" },
+        "diagnostics": { "type": "array" }
+      }
+    },
+    "topic_graph_relation_proposals": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["proposals", "diagnostics"],
+      "properties": {
+        "schema_id": { "const": "synthesis.topic_graph_relation_proposals" },
+        "schema_version": { "type": "string" },
+        "source_topic_id": { "type": "string" },
+        "proposals": { "type": "array" },
+        "diagnostics": { "type": "array" }
+      }
+    }
+  }
+}

@@ -221,48 +221,96 @@ function bindPrefEvents() {
   };
 
   const renderRuntimeDataUsage = (snapshot: any) => {
-    const root = String(snapshot?.root || "").trim();
+    const usage = snapshot?.usage?.categories ? snapshot.usage : snapshot;
+    const integrity = snapshot?.integrity || snapshot?.cleanup?.report || {};
+    const root = String(usage?.root || integrity?.root || "").trim();
     lastRuntimeDataRoot = root;
     if (runtimeDataRoot) {
       runtimeDataRoot.textContent = root || "-";
     }
     if (runtimeDataSummary) {
-      const total = formatBytes(snapshot?.totalBytes);
-      const scannedAt = String(snapshot?.scannedAt || "").trim();
-      runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total}${scannedAt ? ` · ${scannedAt}` : ""}`;
+      const total = formatBytes(usage?.totalBytes);
+      const scannedAt = String(usage?.scannedAt || "").trim();
+      const issueCount = Number(integrity?.issueCount || 0);
+      const issueText = `${getString("pref-runtime-data-issue-count" as any)} ${issueCount}`;
+      runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
     }
     if (!runtimeDataCategories) {
       return;
     }
     runtimeDataCategories.textContent = "";
-    const categories = Array.isArray(snapshot?.categories)
-      ? snapshot.categories
-      : [];
-    for (const category of categories) {
-      const id = String(category?.category || "").trim();
-      const label = String(category?.label || id || "-").trim();
-      const path = String(category?.path || "").trim();
+    const appendRow = (
+      label: string,
+      detail: string,
+      actionLabel: string,
+      enabled: boolean,
+      onCommand?: () => void,
+      title?: string,
+    ) => {
       const rowLabel = doc.createElement("span");
       rowLabel.className = "zs-runtime-data-category";
       rowLabel.textContent = label;
-      if (path) {
-        rowLabel.setAttribute("title", path);
+      if (title) {
+        rowLabel.setAttribute("title", title);
       }
       const rowSize = doc.createElement("span");
       rowSize.className = "zs-runtime-data-size";
-      rowSize.textContent = formatBytes(category?.bytes);
+      rowSize.textContent = detail;
       const action = doc.createElement("button") as unknown as XUL.Button;
-      action.textContent = getString("pref-runtime-data-cleanup" as any);
-      if (category?.cleanable !== true || !id) {
+      action.textContent = actionLabel;
+      if (!enabled || !onCommand) {
         action.setAttribute("disabled", "true");
       } else {
-        action.addEventListener("command", () => {
-          void cleanupRuntimeDataCategory(id, label, rowSize.textContent || "");
-        });
+        action.addEventListener("command", onCommand);
       }
       runtimeDataCategories.appendChild(rowLabel);
       runtimeDataCategories.appendChild(rowSize);
       runtimeDataCategories.appendChild(action);
+    };
+    appendRow(
+      getString("pref-runtime-data-protected-label" as any),
+      getString("pref-runtime-data-protected-detail" as any),
+      getString("pref-runtime-data-cleanup" as any),
+      false,
+    );
+    const categories = Array.isArray(usage?.categories) ? usage.categories : [];
+    for (const category of categories) {
+      const id = String(category?.category || "").trim();
+      const label = String(category?.label || id || "-").trim();
+      const path = String(category?.path || "").trim();
+      appendRow(
+        label,
+        formatBytes(category?.bytes),
+        getString("pref-runtime-data-cleanup" as any),
+        false,
+        undefined,
+        path,
+      );
+    }
+    const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
+    for (const issue of issues) {
+      const issueId = String(issue?.id || "").trim();
+      const type = String(issue?.type || "issue").trim();
+      const severity = String(issue?.severity || "info").trim();
+      const relativePath = String(
+        issue?.relativePath || issue?.owner || issue?.path || "",
+      ).trim();
+      const reason = String(issue?.reason || "").trim();
+      const label = `${severity}: ${type}`;
+      appendRow(
+        label,
+        relativePath || "-",
+        getString("pref-runtime-data-cleanup" as any),
+        issue?.eligibleForCleanup === true && Boolean(issueId),
+        () => {
+          void cleanupPersistenceGovernanceIssue(
+            issueId,
+            label,
+            relativePath || reason || issueId,
+          );
+        },
+        reason,
+      );
     }
   };
 
@@ -274,7 +322,7 @@ function bindPrefEvents() {
         );
       }
       const snapshot = await addon.hooks.onPrefsEvent(
-        "scanRuntimePersistenceUsage",
+        "scanPersistenceGovernance",
         {
           window: addon.data.prefs?.window,
         },
@@ -287,33 +335,41 @@ function bindPrefEvents() {
     }
   };
 
-  const cleanupRuntimeDataCategory = async (
-    category: string,
+  const cleanupPersistenceGovernanceIssue = async (
+    issueId: string,
     label: string,
-    sizeText: string,
+    detailText: string,
   ) => {
-    const confirmed = confirmWithWindow(
-      `${getString("pref-runtime-data-cleanup-confirm" as any)}\n\n${label}: ${sizeText}`,
-    );
-    if (!confirmed) {
-      return;
-    }
     if (runtimeDataSummary) {
       runtimeDataSummary.textContent = getString(
         "pref-runtime-data-cleaning" as any,
       );
     }
     try {
-      const result = await addon.hooks.onPrefsEvent(
-        "cleanupRuntimePersistenceCategory",
+      const preview = await addon.hooks.onPrefsEvent(
+        "cleanupPersistenceGovernanceIssues",
         {
           window: addon.data.prefs?.window,
-          category,
+          issueIds: [issueId],
+          dryRun: true,
         },
       );
-      const usage =
-        (result as { usage?: unknown } | null | undefined)?.usage || result;
-      renderRuntimeDataUsage(usage);
+      const confirmed = confirmWithWindow(
+        `${getString("pref-runtime-data-cleanup-confirm" as any)}\n\n${label}: ${detailText}`,
+      );
+      if (!confirmed) {
+        renderRuntimeDataUsage(preview);
+        return;
+      }
+      const result = await addon.hooks.onPrefsEvent(
+        "cleanupPersistenceGovernanceIssues",
+        {
+          window: addon.data.prefs?.window,
+          issueIds: [issueId],
+          dryRun: false,
+        },
+      );
+      renderRuntimeDataUsage(result);
     } catch (error) {
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
@@ -1017,7 +1073,9 @@ function bindPrefEvents() {
     const status = String(server.status || "idle").trim() || "idle";
     const bindMode = String(server.bindMode || "loopback").trim() || "loopback";
     const portMode = String(server.portMode || "").trim();
-    const pinnedPort = Number(server.pinnedPort || getPref("hostBridgePinnedPort"));
+    const pinnedPort = Number(
+      server.pinnedPort || getPref("hostBridgePinnedPort"),
+    );
     const recoveryReason = String(server.lastRecoveryReason || "").trim();
     const tokenMasked = String(server.tokenMasked || "").trim();
     const message = String(result.message || "").trim();

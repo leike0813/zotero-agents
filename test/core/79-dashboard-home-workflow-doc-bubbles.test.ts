@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -15,7 +19,10 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(ts, "homeWorkflowDocView?: {");
     assert.include(ts, "buildHomeWorkflowSummaries");
     assert.include(ts, "buildHomeWorkflowDocView");
-    assert.include(ts, 'const readmePath = joinPath(matched.rootDir, "README.md")');
+    assert.include(
+      ts,
+      'const readmePath = joinPath(matched.rootDir, "README.md")',
+    );
     assert.include(ts, "renderMarkdownToSafeHtml");
   });
 
@@ -35,11 +42,17 @@ describe("dashboard home workflow doc bubbles", function () {
     const js = await readProjectFile("addon/content/dashboard/app.js");
     assert.include(js, "workflow-bubbles-section");
     assert.include(js, 'sendAction("run-home-workflow", {');
-    assert.include(js, "runButton.disabled = workflow.quickRunEnabled !== true;");
+    assert.include(
+      js,
+      "runButton.disabled = workflow.quickRunEnabled !== true;",
+    );
     assert.include(js, "workflow.quickRunDisabledReason");
     assert.include(js, 'sendAction("open-home-workflow-doc", {');
     assert.include(js, 'sendAction("open-home-workflow-settings", {');
-    assert.include(js, "settingsButton.disabled = workflow.configurable !== true;");
+    assert.include(
+      js,
+      "settingsButton.disabled = workflow.configurable !== true;",
+    );
     assert.include(js, "function renderHomeWorkflowDoc(main, snapshot)");
     assert.include(js, 'sendAction("close-home-workflow-doc", {});');
     assert.include(js, "if (snapshot.homeWorkflowDocView)");
@@ -57,10 +70,9 @@ describe("dashboard home workflow doc bubbles", function () {
       'Workflow "${workflowId}" exists in builtin and user directories; using user workflow',
     );
 
-    assert.include(
-      dialog,
-      'builtin: getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin"',
-    );
+    assert.include(dialog, "builtin:");
+    assert.include(dialog, "getLoadedWorkflowSourceById(workflow.manifest.id)");
+    assert.include(dialog, '"builtin"');
 
     assert.include(app, "if (workflow.builtin === true)");
     assert.include(app, "workflow-bubble-builtin-badge");
@@ -69,7 +81,10 @@ describe("dashboard home workflow doc bubbles", function () {
   it("reuses the workflow menu trigger for dashboard quick-run actions", async function () {
     const menu = await readProjectFile("src/modules/workflowMenu.ts");
     const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
-    assert.include(menu, "export async function triggerWorkflowFromUnifiedEntry");
+    assert.include(
+      menu,
+      "export async function triggerWorkflowFromUnifiedEntry",
+    );
     assert.include(menu, "executeWorkflowFromCurrentSelection({");
     assert.include(menu, "requireSettingsGate: true");
     assert.include(menu, 'source: "workflow-menu"');
@@ -97,9 +112,14 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(css, "box-shadow: var(--dashboard-control-shadow)");
     assert.include(css, ".workflow-bubble-icon-run {");
     assert.include(css, "background-color: currentColor");
-    assert.include(css, '-webkit-mask-image: url("../icons/icon_workflow_run.svg")');
+    assert.include(
+      css,
+      '-webkit-mask-image: url("../icons/icon_workflow_run.svg")',
+    );
     assert.include(css, 'mask-image: url("../icons/icon_workflow_run.svg")');
-    const icon = await readProjectFile("addon/content/icons/icon_workflow_run.svg");
+    const icon = await readProjectFile(
+      "addon/content/icons/icon_workflow_run.svg",
+    );
     assert.include(icon, "<svg");
   });
 
@@ -109,15 +129,33 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(en, "task-dashboard-home-workflows-title = Workflows");
     assert.include(en, "task-dashboard-home-workflow-doc = Description");
     assert.include(en, "task-dashboard-home-workflow-run = Run workflow");
-    assert.include(en, "task-dashboard-home-workflow-run-disabled-selection = Requires a Zotero selection");
-    assert.include(en, "task-dashboard-home-workflow-run-disabled-settings = Requires settings before running");
+    assert.include(
+      en,
+      "task-dashboard-home-workflow-run-disabled-selection = Requires a Zotero selection",
+    );
+    assert.include(
+      en,
+      "task-dashboard-home-workflow-run-disabled-settings = Requires settings before running",
+    );
     assert.include(en, "task-dashboard-home-workflow-settings = Settings");
-    assert.include(en, "task-dashboard-home-workflow-doc-back = Back to Dashboard");
+    assert.include(
+      en,
+      "task-dashboard-home-workflow-doc-back = Back to Dashboard",
+    );
     assert.include(zh, "task-dashboard-home-workflow-doc = 说明");
     assert.include(zh, "task-dashboard-home-workflow-run = 调用 workflow");
-    assert.include(zh, "task-dashboard-home-workflow-run-disabled-selection = 需要 Zotero 选区");
-    assert.include(zh, "task-dashboard-home-workflow-run-disabled-settings = 运行前需要配置");
+    assert.include(
+      zh,
+      "task-dashboard-home-workflow-run-disabled-selection = 需要 Zotero 选区",
+    );
+    assert.include(
+      zh,
+      "task-dashboard-home-workflow-run-disabled-settings = 运行前需要配置",
+    );
     assert.include(zh, "task-dashboard-home-workflow-settings = 设置");
-    assert.include(zh, "task-dashboard-home-workflow-doc-back = 回到 Dashboard");
+    assert.include(
+      zh,
+      "task-dashboard-home-workflow-doc-back = 回到 Dashboard",
+    );
   });
 });

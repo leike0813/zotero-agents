@@ -75,20 +75,29 @@
     if (!root) return result;
     const active = document.activeElement;
     if (active && root.contains(active)) {
-      const key = active.getAttribute && active.getAttribute("data-synthesis-control-key");
+      const key =
+        active.getAttribute &&
+        active.getAttribute("data-synthesis-control-key");
       if (key) {
         result.activeControlKey = key;
-        result.activeValue = typeof active.value === "string" ? active.value : "";
-        result.selectionStart = typeof active.selectionStart === "number" ? active.selectionStart : null;
-        result.selectionEnd = typeof active.selectionEnd === "number" ? active.selectionEnd : null;
+        result.activeValue =
+          typeof active.value === "string" ? active.value : "";
+        result.selectionStart =
+          typeof active.selectionStart === "number"
+            ? active.selectionStart
+            : null;
+        result.selectionEnd =
+          typeof active.selectionEnd === "number" ? active.selectionEnd : null;
       }
     }
-    Array.from(root.querySelectorAll("[data-synthesis-scroll-key]")).forEach(function (node) {
-      const key = node.getAttribute("data-synthesis-scroll-key");
-      if (key && typeof node.scrollTop === "number") {
-        result.scrollPositions[key] = node.scrollTop;
-      }
-    });
+    Array.from(root.querySelectorAll("[data-synthesis-scroll-key]")).forEach(
+      function (node) {
+        const key = node.getAttribute("data-synthesis-scroll-key");
+        if (key && typeof node.scrollTop === "number") {
+          result.scrollPositions[key] = node.scrollTop;
+        }
+      },
+    );
     return result;
   }
 
@@ -96,14 +105,18 @@
     const stateToRestore = preservedState || {};
     const scrollPositions = stateToRestore.scrollPositions || {};
     Object.keys(scrollPositions).forEach(function (key) {
-      const node = root.querySelector('[data-synthesis-scroll-key="' + key + '"]');
+      const node = root.querySelector(
+        '[data-synthesis-scroll-key="' + key + '"]',
+      );
       if (node && typeof node.scrollTop === "number") {
         node.scrollTop = scrollPositions[key];
       }
     });
     const activeKey = stateToRestore.activeControlKey;
     if (!activeKey) return;
-    const active = root.querySelector('[data-synthesis-control-key="' + activeKey + '"]');
+    const active = root.querySelector(
+      '[data-synthesis-control-key="' + activeKey + '"]',
+    );
     if (!active) return;
     if (typeof active.value === "string") {
       active.value = stateToRestore.activeValue || "";
@@ -116,7 +129,10 @@
       typeof stateToRestore.selectionStart === "number" &&
       typeof stateToRestore.selectionEnd === "number"
     ) {
-      active.setSelectionRange(stateToRestore.selectionStart, stateToRestore.selectionEnd);
+      active.setSelectionRange(
+        stateToRestore.selectionStart,
+        stateToRestore.selectionEnd,
+      );
     }
   }
 
@@ -184,8 +200,6 @@
     const grid = el("div", "status-grid");
     [
       ["Storage root", snapshot.storage.rootState],
-      ["Zotero anchor", snapshot.storage.anchorState],
-      ["Mirror shards", snapshot.storage.mirrorState],
       ["Artifacts", String(snapshot.artifacts.rows.length)],
       ["Registry rows", String(snapshot.registry.rows.length)],
       ["Graph nodes", String(snapshot.graph.nodes.length)],
@@ -197,7 +211,10 @@
           : "0",
       ],
       ["Graph rebuild", snapshot.preferences.graphRebuildMode],
-      ["Staleness scan", snapshot.preferences.stalenessScanEnabled ? "on" : "off"],
+      [
+        "Staleness scan",
+        snapshot.preferences.stalenessScanEnabled ? "on" : "off",
+      ],
     ].forEach(function (entry) {
       const box = el("div", "status-box");
       box.appendChild(el("strong", "", entry[0]));
@@ -205,16 +222,28 @@
       grid.appendChild(box);
     });
     main.appendChild(grid);
-    if (snapshot.sync && snapshot.sync.diagnostics && snapshot.sync.diagnostics.length) {
+    if (
+      snapshot.sync &&
+      snapshot.sync.diagnostics &&
+      snapshot.sync.diagnostics.length
+    ) {
       const panel = el("div", "panel");
       panel.style.marginTop = "12px";
       const header = el("div", "panel-header");
       header.appendChild(el("strong", "", "Sync Diagnostics"));
       panel.appendChild(header);
       panel.appendChild(
-        tableView(["Severity", "Code", "Message"], snapshot.sync.diagnostics, function (row) {
-          return [badge(row.severity, row.severity === "error" ? "danger" : "warn"), row.code, row.message];
-        }),
+        tableView(
+          ["Severity", "Code", "Message"],
+          snapshot.sync.diagnostics,
+          function (row) {
+            return [
+              badge(row.severity, row.severity === "error" ? "danger" : "warn"),
+              row.code,
+              row.message,
+            ];
+          },
+        ),
       );
       main.appendChild(panel);
     }
@@ -229,17 +258,21 @@
       header.appendChild(el("strong", "", "Local Conflict Candidates"));
       panel.appendChild(header);
       panel.appendChild(
-        tableView(["Topic", "Reason", "Created", "Action"], snapshot.conflicts.candidates, function (row) {
-          return [
-            row.topic_id || row.id,
-            row.reason || "-",
-            row.created_at || "-",
-            makeButton("Retry", "hostCommand", {
-              command: "runSynthesizeTopic",
-              args: { conflictCandidateId: row.id },
-            }),
-          ];
-        }),
+        tableView(
+          ["Topic", "Reason", "Created", "Action"],
+          snapshot.conflicts.candidates,
+          function (row) {
+            return [
+              row.topic_id || row.id,
+              row.reason || "-",
+              row.created_at || "-",
+              makeButton("Retry", "hostCommand", {
+                command: "runSynthesizeTopic",
+                args: { conflictCandidateId: row.id },
+              }),
+            ];
+          },
+        ),
       );
       main.appendChild(panel);
     }
@@ -259,28 +292,41 @@
         artifacts: { search: search.value },
       });
     });
-    const coverage = selectControl(["all", "complete", "partial", "missing"], snapshot.artifacts.filters.coverage, function (value) {
-      sendAction("setFilters", { artifacts: { coverage: value } });
-    });
+    const coverage = selectControl(
+      ["all", "complete", "partial", "missing"],
+      snapshot.artifacts.filters.coverage,
+      function (value) {
+        sendAction("setFilters", { artifacts: { coverage: value } });
+      },
+    );
     filters.appendChild(search);
     filters.appendChild(coverage);
     filters.appendChild(
-      makeButton("Create Topic", "hostCommand", { command: "runSynthesizeTopic" }, false),
+      makeButton(
+        "Create Topic",
+        "hostCommand",
+        { command: "runSynthesizeTopic" },
+        false,
+      ),
     );
     header.appendChild(filters);
     panel.appendChild(header);
-    const table = tableView(["Title", "Coverage", "Freshness", "Updated", "Action"], snapshot.artifacts.visibleRows, function (row) {
-      return [
-        row.title,
-        badge(row.coverage, toneFor(row.coverage)),
-        badge(row.freshness, toneFor(row.freshness)),
-        row.updated_at || "-",
-        makeButton("Open", "hostCommand", {
-          command: "openCanonicalMarkdown",
-          args: { topicId: row.id },
-        }),
-      ];
-    });
+    const table = tableView(
+      ["Title", "Coverage", "Freshness", "Updated", "Action"],
+      snapshot.artifacts.visibleRows,
+      function (row) {
+        return [
+          row.title,
+          badge(row.coverage, toneFor(row.coverage)),
+          badge(row.freshness, toneFor(row.freshness)),
+          row.updated_at || "-",
+          makeButton("Open", "hostCommand", {
+            command: "openCanonicalMarkdown",
+            args: { topicId: row.id },
+          }),
+        ];
+      },
+    );
     table.setAttribute("data-synthesis-scroll-key", "artifacts.table");
     panel.appendChild(table);
     main.appendChild(panel);
@@ -298,26 +344,38 @@
     search.addEventListener("input", function () {
       sendAction("setFilters", { registry: { search: search.value } });
     });
-    const readiness = selectControl(["all", "ready", "partial"], snapshot.registry.filters.readiness, function (value) {
-      sendAction("setFilters", { registry: { readiness: value } });
-    });
-    const missing = selectControl(["all", "digest", "references", "citation_analysis"], snapshot.registry.filters.missingArtifact, function (value) {
-      sendAction("setFilters", { registry: { missingArtifact: value } });
-    });
+    const readiness = selectControl(
+      ["all", "ready", "partial"],
+      snapshot.registry.filters.readiness,
+      function (value) {
+        sendAction("setFilters", { registry: { readiness: value } });
+      },
+    );
+    const missing = selectControl(
+      ["all", "digest", "references", "citation_analysis"],
+      snapshot.registry.filters.missingArtifact,
+      function (value) {
+        sendAction("setFilters", { registry: { missingArtifact: value } });
+      },
+    );
     filters.appendChild(search);
     filters.appendChild(readiness);
     filters.appendChild(missing);
     header.appendChild(filters);
     panel.appendChild(header);
-    const table = tableView(["Title", "Year", "Readiness", "Coverage", "Missing"], snapshot.registry.visibleRows, function (row) {
-      return [
-        row.title,
-        row.year || "-",
-        badge(row.readiness, toneFor(row.readiness)),
-        badge(row.coverage, toneFor(row.coverage)),
-        row.missing_artifacts.length ? row.missing_artifacts.join(", ") : "-",
-      ];
-    });
+    const table = tableView(
+      ["Title", "Year", "Readiness", "Coverage", "Missing"],
+      snapshot.registry.visibleRows,
+      function (row) {
+        return [
+          row.title,
+          row.year || "-",
+          badge(row.readiness, toneFor(row.readiness)),
+          badge(row.coverage, toneFor(row.coverage)),
+          row.missing_artifacts.length ? row.missing_artifacts.join(", ") : "-",
+        ];
+      },
+    );
     table.setAttribute("data-synthesis-scroll-key", "registry.table");
     panel.appendChild(table);
     main.appendChild(panel);
@@ -355,10 +413,25 @@
       );
     });
     controls.appendChild(filters);
-    controls.appendChild(el("p", "muted", snapshot.graph.visibleNodes.length + " nodes, " + snapshot.graph.visibleEdges.length + " edges"));
+    controls.appendChild(
+      el(
+        "p",
+        "muted",
+        snapshot.graph.visibleNodes.length +
+          " nodes, " +
+          snapshot.graph.visibleEdges.length +
+          " edges",
+      ),
+    );
     const selected = snapshot.graph.selectedElement;
     controls.appendChild(el("h3", "", "Selection"));
-    controls.appendChild(el("pre", "", selected ? JSON.stringify(selected, null, 2) : "No selection"));
+    controls.appendChild(
+      el(
+        "pre",
+        "",
+        selected ? JSON.stringify(selected, null, 2) : "No selection",
+      ),
+    );
     detail.appendChild(controls);
     shell.appendChild(detail);
     main.appendChild(shell);
@@ -369,7 +442,8 @@
     svg.setAttribute("viewBox", "-320 -220 640 440");
     const nodeMap = new Map();
     snapshot.graph.visibleNodes.forEach(function (node, index) {
-      const angle = (Math.PI * 2 * index) / Math.max(1, snapshot.graph.visibleNodes.length);
+      const angle =
+        (Math.PI * 2 * index) / Math.max(1, snapshot.graph.visibleNodes.length);
       nodeMap.set(node.id, {
         node,
         x: typeof node.x === "number" ? node.x : Math.cos(angle) * 180,
@@ -380,7 +454,10 @@
       const source = nodeMap.get(edge.source);
       const target = nodeMap.get(edge.target);
       if (!source || !target) return;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      const line = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "line",
+      );
       line.setAttribute("class", "graph-edge");
       line.setAttribute("x1", String(source.x));
       line.setAttribute("y1", String(source.y));
@@ -390,20 +467,35 @@
     });
     Array.from(nodeMap.values()).forEach(function (entry) {
       const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      const selected = snapshot.graph.selectedElement &&
+      const selected =
+        snapshot.graph.selectedElement &&
         snapshot.graph.selectedElement.kind === "node" &&
         snapshot.graph.selectedElement.id === entry.node.id;
-      group.setAttribute("class", "graph-node " + entry.node.kind.replace("_reference", "") + (selected ? " selected" : ""));
-      group.setAttribute("transform", "translate(" + entry.x + " " + entry.y + ")");
+      group.setAttribute(
+        "class",
+        "graph-node " +
+          entry.node.kind.replace("_reference", "") +
+          (selected ? " selected" : ""),
+      );
+      group.setAttribute(
+        "transform",
+        "translate(" + entry.x + " " + entry.y + ")",
+      );
       group.addEventListener("click", function () {
         sendAction("setGraphView", {
           selectedElement: { kind: "node", id: entry.node.id },
         });
       });
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const circle = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "circle",
+      );
       circle.setAttribute("r", "7");
       group.appendChild(circle);
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      const text = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
       text.setAttribute("class", "graph-label");
       text.setAttribute("x", "10");
       text.setAttribute("y", "4");

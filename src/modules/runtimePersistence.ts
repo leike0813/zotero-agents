@@ -19,6 +19,9 @@ export type RuntimePersistenceCategory =
 
 export type RuntimePersistencePaths = {
   root: string;
+  runtimeRoot: string;
+  dataDir: string;
+  synthesisDataRoot: string;
   stateDir: string;
   stateDbPath: string;
   logsDir: string;
@@ -52,8 +55,87 @@ export type RuntimePersistenceUsageSnapshot = {
   categories: RuntimePersistenceCategoryUsage[];
 };
 
-const APP_NAME = "Zotero-Skills";
-const SQLITE_FILE_NAME = "zotero-skills.db";
+export type ManagedPathDiagnosticCode =
+  | "managed_path_invalid"
+  | "managed_path_reserved_name"
+  | "managed_path_segment_too_long"
+  | "managed_relative_path_too_long"
+  | "managed_path_case_collision"
+  | "managed_absolute_path_long";
+
+export type ManagedPathDiagnostic = {
+  code: ManagedPathDiagnosticCode;
+  severity: "warning" | "error";
+  message: string;
+  path_kind?: "managed_relative_path" | "managed_absolute_path";
+  relativePath?: string;
+  segment?: string;
+  limit?: number;
+  actual?: number;
+  details?: Record<string, unknown>;
+};
+
+export type ManagedPathPolicyOptions = {
+  pathKind?: "managed_relative_path" | "managed_absolute_path";
+  maxSegmentLength?: number;
+  maxRelativePathLength?: number;
+  absolutePathWarningLength?: number;
+  allowedSegmentPattern?: RegExp;
+};
+
+export type ManagedRelativePathValidationResult = {
+  ok: boolean;
+  normalizedPath: string;
+  diagnostics: ManagedPathDiagnostic[];
+};
+
+export class ManagedPathPolicyError extends Error {
+  readonly diagnostics: ManagedPathDiagnostic[];
+
+  readonly code: ManagedPathDiagnosticCode;
+
+  constructor(message: string, diagnostics: ManagedPathDiagnostic[]) {
+    super(message);
+    this.name = "ManagedPathPolicyError";
+    this.diagnostics = diagnostics;
+    this.code = diagnostics[0]?.code || "managed_path_invalid";
+  }
+}
+
+export const MANAGED_PATH_MAX_SEGMENT_LENGTH = 96;
+export const MANAGED_RELATIVE_PATH_MAX_LENGTH = 220;
+export const MANAGED_TRANSACTION_ID_MAX_LENGTH = 64;
+
+const DEFAULT_MANAGED_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/;
+const WINDOWS_RESERVED_BASENAMES = new Set([
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  "COM1",
+  "COM2",
+  "COM3",
+  "COM4",
+  "COM5",
+  "COM6",
+  "COM7",
+  "COM8",
+  "COM9",
+  "LPT1",
+  "LPT2",
+  "LPT3",
+  "LPT4",
+  "LPT5",
+  "LPT6",
+  "LPT7",
+  "LPT8",
+  "LPT9",
+]);
+
+const INTERNAL_APP_DIR_NAME = "zotero-agents";
+const LEGACY_APP_DIR_NAME = "zotero-skills";
+const SQLITE_FILE_NAME = "zotero-agents.db";
+const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
 
 let runtimeLogClearer: (() => void) | null = null;
@@ -61,9 +143,8 @@ let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesClearer:
   | ((domain: string, preservedRowScopes: string[]) => number)
   | null = null;
-let pluginTaskScopeClearer:
-  | ((domain: string, scope: string) => number)
-  | null = null;
+let pluginTaskScopeClearer: ((domain: string, scope: string) => number) | null =
+  null;
 let acpSkillRunsMemoryClearer: (() => void) | null = null;
 
 export function registerRuntimeLogClearer(clearer: (() => void) | null) {
@@ -88,7 +169,9 @@ export function registerPluginTaskScopeClearer(
   pluginTaskScopeClearer = clearer;
 }
 
-export function registerAcpSkillRunsMemoryClearer(clearer: (() => void) | null) {
+export function registerAcpSkillRunsMemoryClearer(
+  clearer: (() => void) | null,
+) {
   acpSkillRunsMemoryClearer = clearer;
 }
 
@@ -98,6 +181,249 @@ function normalizeString(value: unknown) {
 
 function normalizeSlashes(path: string) {
   return normalizeString(path).replace(/\\/g, "/");
+}
+
+function isAbsolutePathLike(path: string) {
+  return (
+    /^(?:[A-Za-z]:)?\//.test(path) ||
+    /^[A-Za-z]:\//.test(path) ||
+    /^[A-Za-z]:/.test(path) ||
+    /^[A-Za-z]:$/.test(path) ||
+    /^\/\//.test(path)
+  );
+}
+
+function createManagedPathDiagnostic(args: ManagedPathDiagnostic) {
+  return args;
+}
+
+function reservedBaseName(segment: string) {
+  const baseNamePart = segment.split(".")[0]?.toUpperCase() || "";
+  return WINDOWS_RESERVED_BASENAMES.has(baseNamePart);
+}
+
+export function validateManagedRelativePath(
+  value: unknown,
+  options: ManagedPathPolicyOptions = {},
+): ManagedRelativePathValidationResult {
+  const maxSegmentLength =
+    options.maxSegmentLength || MANAGED_PATH_MAX_SEGMENT_LENGTH;
+  const maxRelativePathLength =
+    options.maxRelativePathLength || MANAGED_RELATIVE_PATH_MAX_LENGTH;
+  const allowedSegmentPattern =
+    options.allowedSegmentPattern || DEFAULT_MANAGED_SEGMENT_PATTERN;
+  const input = normalizeSlashes(String(value ?? ""));
+  const diagnostics: ManagedPathDiagnostic[] = [];
+
+  if (!input) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_path_invalid",
+        severity: "error",
+        message: "Managed relative path must be non-empty.",
+        path_kind: "managed_relative_path",
+      }),
+    );
+    return { ok: false, normalizedPath: "", diagnostics };
+  }
+  if (isAbsolutePathLike(input)) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_path_invalid",
+        severity: "error",
+        message: "Managed relative path must not be absolute.",
+        path_kind: "managed_relative_path",
+        relativePath: input,
+      }),
+    );
+  }
+
+  const rawParts = input.split("/");
+  const parts = rawParts.filter(Boolean);
+  const normalizedPath = parts.join("/");
+  if (
+    parts.length === 0 ||
+    rawParts.some((part, index) => part === "" && index > 0)
+  ) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_path_invalid",
+        severity: "error",
+        message: "Managed relative path contains empty segments.",
+        path_kind: "managed_relative_path",
+        relativePath: input,
+      }),
+    );
+  }
+  if (parts.some((part) => part === "." || part === "..")) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_path_invalid",
+        severity: "error",
+        message: "Managed relative path must not traverse directories.",
+        path_kind: "managed_relative_path",
+        relativePath: normalizedPath,
+      }),
+    );
+  }
+  if (normalizedPath.length > maxRelativePathLength) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_relative_path_too_long",
+        severity: "error",
+        message: "Managed relative path exceeds the configured budget.",
+        path_kind: "managed_relative_path",
+        relativePath: normalizedPath,
+        limit: maxRelativePathLength,
+        actual: normalizedPath.length,
+      }),
+    );
+  }
+
+  for (const segment of parts) {
+    if (segment.length > maxSegmentLength) {
+      diagnostics.push(
+        createManagedPathDiagnostic({
+          code: "managed_path_segment_too_long",
+          severity: "error",
+          message: "Managed path segment exceeds the configured budget.",
+          path_kind: "managed_relative_path",
+          relativePath: normalizedPath,
+          segment,
+          limit: maxSegmentLength,
+          actual: segment.length,
+        }),
+      );
+    }
+    if (reservedBaseName(segment)) {
+      diagnostics.push(
+        createManagedPathDiagnostic({
+          code: "managed_path_reserved_name",
+          severity: "error",
+          message: "Managed path segment uses a reserved device name.",
+          path_kind: "managed_relative_path",
+          relativePath: normalizedPath,
+          segment,
+        }),
+      );
+    }
+    if (/[. ]$/.test(segment)) {
+      diagnostics.push(
+        createManagedPathDiagnostic({
+          code: "managed_path_invalid",
+          severity: "error",
+          message: "Managed path segment must not end with a dot or space.",
+          path_kind: "managed_relative_path",
+          relativePath: normalizedPath,
+          segment,
+        }),
+      );
+    }
+    if (!allowedSegmentPattern.test(segment)) {
+      diagnostics.push(
+        createManagedPathDiagnostic({
+          code: "managed_path_invalid",
+          severity: "error",
+          message: "Managed path segment contains unsupported characters.",
+          path_kind: "managed_relative_path",
+          relativePath: normalizedPath,
+          segment,
+        }),
+      );
+    }
+  }
+
+  return {
+    ok: !diagnostics.some((entry) => entry.severity === "error"),
+    normalizedPath,
+    diagnostics,
+  };
+}
+
+export function assertManagedRelativePath(
+  value: unknown,
+  options: ManagedPathPolicyOptions = {},
+) {
+  const result = validateManagedRelativePath(value, options);
+  if (!result.ok) {
+    throw new ManagedPathPolicyError(
+      result.diagnostics[0]?.message || "Managed relative path is invalid.",
+      result.diagnostics,
+    );
+  }
+  return result.normalizedPath;
+}
+
+export function validateManagedRelativePathSet(
+  values: unknown[],
+  options: ManagedPathPolicyOptions = {},
+) {
+  const diagnostics: ManagedPathDiagnostic[] = [];
+  const normalizedPaths: string[] = [];
+  const byDirectoryAndName = new Map<string, string>();
+  for (const value of values) {
+    const result = validateManagedRelativePath(value, options);
+    diagnostics.push(...result.diagnostics);
+    if (!result.normalizedPath) {
+      continue;
+    }
+    normalizedPaths.push(result.normalizedPath);
+    const index = result.normalizedPath.lastIndexOf("/");
+    const directory = index >= 0 ? result.normalizedPath.slice(0, index) : "";
+    const name =
+      index >= 0
+        ? result.normalizedPath.slice(index + 1)
+        : result.normalizedPath;
+    const key = `${directory.toLowerCase()}/${name.toLowerCase()}`;
+    const existing = byDirectoryAndName.get(key);
+    if (existing && existing !== result.normalizedPath) {
+      diagnostics.push(
+        createManagedPathDiagnostic({
+          code: "managed_path_case_collision",
+          severity: "error",
+          message: "Managed paths collide on case-insensitive filesystems.",
+          path_kind: "managed_relative_path",
+          relativePath: result.normalizedPath,
+          details: { existing },
+        }),
+      );
+    } else {
+      byDirectoryAndName.set(key, result.normalizedPath);
+    }
+  }
+  return {
+    ok: !diagnostics.some((entry) => entry.severity === "error"),
+    normalizedPaths,
+    diagnostics,
+  };
+}
+
+export function validateManagedAbsolutePath(
+  value: unknown,
+  options: ManagedPathPolicyOptions = {},
+) {
+  const input = normalizeString(value);
+  const platform = getPlatform();
+  const warningLength =
+    options.absolutePathWarningLength || (platform === "win32" ? 240 : 900);
+  const diagnostics: ManagedPathDiagnostic[] = [];
+  if (input && input.length > warningLength) {
+    diagnostics.push(
+      createManagedPathDiagnostic({
+        code: "managed_absolute_path_long",
+        severity: "warning",
+        message: "Managed absolute path is longer than the platform guidance.",
+        path_kind: "managed_absolute_path",
+        limit: warningLength,
+        actual: input.length,
+      }),
+    );
+  }
+  return {
+    ok: true,
+    normalizedPath: input,
+    diagnostics,
+  };
 }
 
 function baseName(pathRaw: string) {
@@ -156,6 +482,14 @@ function resolvePlatformDataRoot() {
     return override;
   }
 
+  const zoteroDataDir = normalizeString(
+    (globalThis as { Zotero?: { DataDirectory?: { dir?: string } } }).Zotero
+      ?.DataDirectory?.dir,
+  );
+  if (zoteroDataDir) {
+    return joinPath(zoteroDataDir, INTERNAL_APP_DIR_NAME);
+  }
+
   const platform = getPlatform();
   if (platform === "win32") {
     const localAppData =
@@ -164,40 +498,52 @@ function resolvePlatformDataRoot() {
       readEnv("APPDATA") ||
       readEnv("AppData");
     if (localAppData) {
-      return joinPath(localAppData, APP_NAME, "runtime");
+      return joinPath(localAppData, INTERNAL_APP_DIR_NAME);
     }
   }
 
   if (platform === "darwin") {
     const home = readEnv("HOME") || readEnv("Home");
     if (home) {
-      return joinPath(home, "Library", "Application Support", APP_NAME, "runtime");
+      return joinPath(
+        home,
+        "Library",
+        "Application Support",
+        INTERNAL_APP_DIR_NAME,
+      );
     }
   }
 
   const xdgDataHome = readEnv("XDG_DATA_HOME");
   if (xdgDataHome) {
-    return joinPath(xdgDataHome, APP_NAME, "runtime");
+    return joinPath(xdgDataHome, INTERNAL_APP_DIR_NAME);
   }
   const home = readEnv("HOME") || readEnv("Home") || readEnv("USERPROFILE");
   if (home) {
-    return joinPath(home, ".local", "share", APP_NAME, "runtime");
+    return joinPath(home, ".local", "share", INTERNAL_APP_DIR_NAME);
   }
 
-  return joinPath(getRuntimeCwd(), ".zotero-skills-runtime");
+  return joinPath(getRuntimeCwd(), ".zotero-agents");
 }
 
 export function resolveRuntimePersistenceRoot() {
   return resolvePlatformDataRoot();
 }
 
-export function getRuntimePersistencePaths(rootRaw?: string): RuntimePersistencePaths {
+export function getRuntimePersistencePaths(
+  rootRaw?: string,
+): RuntimePersistencePaths {
   const root = normalizeString(rootRaw) || resolveRuntimePersistenceRoot();
+  const runtimeRoot = joinPath(root, "runtime");
+  const dataDir = joinPath(root, "data");
   const stateDir = joinPath(root, "state");
-  const logsDir = joinPath(root, "logs");
-  const acpChatRoot = joinPath(root, "acp", "chat");
+  const logsDir = joinPath(runtimeRoot, "logs");
+  const acpChatRoot = joinPath(runtimeRoot, "acp", "chat");
   return {
     root,
+    runtimeRoot,
+    dataDir,
+    synthesisDataRoot: joinPath(dataDir, "synthesis"),
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
     logsDir,
@@ -207,9 +553,9 @@ export function getRuntimePersistencePaths(rootRaw?: string): RuntimePersistence
     acpChatConversationsDir: joinPath(acpChatRoot, "conversations"),
     legacyAcpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
     acpChatRuntimeDir: joinPath(acpChatRoot, "runtime"),
-    acpSkillRunsDir: joinPath(root, "acp", "skill-runs"),
-    cacheDir: joinPath(root, "cache"),
-    tmpDir: joinPath(root, "tmp"),
+    acpSkillRunsDir: joinPath(runtimeRoot, "acp", "skill-runs"),
+    cacheDir: joinPath(runtimeRoot, "cache"),
+    tmpDir: joinPath(runtimeRoot, "tmp"),
     legacyDir: joinPath(root, "legacy"),
   };
 }
@@ -229,10 +575,15 @@ export function resolveLegacyZoteroPluginDataRoot() {
 export function getLegacyPluginStateDatabasePath() {
   return joinPath(
     resolveLegacyZoteroPluginDataRoot(),
-    "zotero-skills",
+    LEGACY_APP_DIR_NAME,
     "state",
-    SQLITE_FILE_NAME,
+    LEGACY_SQLITE_FILE_NAME,
   );
+}
+
+export function getLegacyRuntimeRootPath() {
+  const dataRoot = resolveLegacyZoteroPluginDataRoot();
+  return joinPath(dataRoot, LEGACY_APP_DIR_NAME);
 }
 
 export function getLegacyAcpRootPath() {
@@ -309,7 +660,9 @@ export async function ensureRuntimeDirectory(pathRaw: string) {
     return;
   }
   const runtime = globalThis as {
-    IOUtils?: { makeDirectory?: (path: string, options?: unknown) => Promise<void> };
+    IOUtils?: {
+      makeDirectory?: (path: string, options?: unknown) => Promise<void>;
+    };
     Zotero?: {
       File?: {
         pathToFile?: (path: string) => {
@@ -365,7 +718,10 @@ export async function copyRuntimeFileIfMissing(args: {
   if (!sourcePath || !targetPath || sourcePath === targetPath) {
     return false;
   }
-  if (!(await runtimePathExists(sourcePath)) || (await runtimePathExists(targetPath))) {
+  if (
+    !(await runtimePathExists(sourcePath)) ||
+    (await runtimePathExists(targetPath))
+  ) {
     return false;
   }
   await copyRuntimeFile({ sourcePath, targetPath });
@@ -398,7 +754,11 @@ export async function copyRuntimeFile(args: {
       File?: {
         copy?: (source: string, target: string) => Promise<void>;
         read?: (path: string, options?: unknown) => Promise<Uint8Array>;
-        writeAtomic?: (path: string, data: Uint8Array, options?: unknown) => Promise<void>;
+        writeAtomic?: (
+          path: string,
+          data: Uint8Array,
+          options?: unknown,
+        ) => Promise<void>;
       };
     };
   };
@@ -406,7 +766,10 @@ export async function copyRuntimeFile(args: {
     typeof runtime.IOUtils?.read === "function" &&
     typeof runtime.IOUtils.write === "function"
   ) {
-    await runtime.IOUtils.write(targetPath, await runtime.IOUtils.read(sourcePath));
+    await runtime.IOUtils.write(
+      targetPath,
+      await runtime.IOUtils.read(sourcePath),
+    );
     return true;
   }
   if (
@@ -430,7 +793,10 @@ export async function copyRuntimeFile(args: {
   // Last resort for Zotero runtimes that only expose UTF-8 helpers. Built-in
   // skills are text-only, so this path is safer than relying on IOUtils.copy.
   try {
-    await writeRuntimeTextFile(targetPath, await readRuntimeTextFile(sourcePath));
+    await writeRuntimeTextFile(
+      targetPath,
+      await readRuntimeTextFile(sourcePath),
+    );
     return true;
   } catch {
     // Fall back to native copy APIs so non-text callers still get a chance.
@@ -529,8 +895,14 @@ export async function readRuntimeTextFile(pathRaw: string) {
   }
   const runtime = globalThis as {
     IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-    OS?: { File?: { read?: (path: string, options?: unknown) => Promise<Uint8Array> } };
-    TextDecoder?: new (encoding?: string) => { decode: (input: Uint8Array) => string };
+    OS?: {
+      File?: {
+        read?: (path: string, options?: unknown) => Promise<Uint8Array>;
+      };
+    };
+    TextDecoder?: new (encoding?: string) => {
+      decode: (input: Uint8Array) => string;
+    };
   };
   if (typeof runtime.IOUtils?.readUTF8 === "function") {
     return runtime.IOUtils.readUTF8(path);
@@ -554,10 +926,16 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   }
   await ensureRuntimeDirectory(parentPath(path));
   const runtime = globalThis as {
-    IOUtils?: { writeUTF8?: (path: string, content: string) => Promise<unknown> };
+    IOUtils?: {
+      writeUTF8?: (path: string, content: string) => Promise<unknown>;
+    };
     OS?: {
       File?: {
-        writeAtomic?: (path: string, data: Uint8Array, options?: unknown) => Promise<void>;
+        writeAtomic?: (
+          path: string,
+          data: Uint8Array,
+          options?: unknown,
+        ) => Promise<void>;
       };
     };
     TextEncoder?: new () => { encode: (input: string) => Uint8Array };
@@ -591,7 +969,12 @@ export async function statRuntimePath(pathRaw: string): Promise<{
   }
   const runtime = globalThis as {
     IOUtils?: {
-      stat?: (path: string) => Promise<{ type?: string; size?: number; lastModified?: number; lastModifiedTime?: number }>;
+      stat?: (path: string) => Promise<{
+        type?: string;
+        size?: number;
+        lastModified?: number;
+        lastModifiedTime?: number;
+      }>;
     };
   };
   if (typeof runtime.IOUtils?.stat === "function") {
@@ -601,10 +984,11 @@ export async function statRuntimePath(pathRaw: string): Promise<{
         exists: true,
         isDir: String(stat.type || "").toLowerCase() === "directory",
         size: Math.max(0, Number(stat.size || 0) || 0),
-        lastModified: Math.max(
-          0,
-          Number(stat.lastModified || stat.lastModifiedTime || 0) || 0,
-        ) || undefined,
+        lastModified:
+          Math.max(
+            0,
+            Number(stat.lastModified || stat.lastModifiedTime || 0) || 0,
+          ) || undefined,
       };
     } catch {
       return { exists: false, isDir: false, size: 0 };
@@ -616,7 +1000,8 @@ export async function statRuntimePath(pathRaw: string): Promise<{
       const stat = await fs.stat(path);
       return {
         exists: true,
-        isDir: typeof stat.isDirectory === "function" ? stat.isDirectory() : false,
+        isDir:
+          typeof stat.isDirectory === "function" ? stat.isDirectory() : false,
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified: Math.max(0, Number(stat.mtimeMs || 0) || 0) || undefined,
       };
@@ -747,7 +1132,9 @@ export async function removeRuntimePath(pathRaw: string) {
   }
   const runtime = globalThis as {
     IOUtils?: { remove?: (path: string, options?: unknown) => Promise<void> };
-    OS?: { File?: { removeDir?: (path: string, options?: unknown) => Promise<void> } };
+    OS?: {
+      File?: { removeDir?: (path: string, options?: unknown) => Promise<void> };
+    };
   };
   if (typeof runtime.IOUtils?.remove === "function") {
     await runtime.IOUtils.remove(path, { recursive: true });
@@ -765,7 +1152,10 @@ export async function removeRuntimePath(pathRaw: string) {
   return false;
 }
 
-export async function copyRuntimeDirectory(args: { sourceDir: string; targetDir: string }) {
+export async function copyRuntimeDirectory(args: {
+  sourceDir: string;
+  targetDir: string;
+}) {
   const sourceDir = normalizeString(args.sourceDir);
   const targetDir = normalizeString(args.targetDir);
   if (!sourceDir || !targetDir) {
@@ -795,8 +1185,18 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
     path?: string;
     cleanable: boolean;
   }> = [
-    { category: "state", label: "State database", path: paths.stateDbPath, cleanable: false },
-    { category: "logs", label: "Runtime logs", path: paths.logsDir, cleanable: true },
+    {
+      category: "state",
+      label: "State database",
+      path: paths.stateDbPath,
+      cleanable: false,
+    },
+    {
+      category: "logs",
+      label: "Runtime logs",
+      path: paths.logsDir,
+      cleanable: true,
+    },
     {
       category: "skillrunner-ledger",
       label: "SkillRunner local ledger",
@@ -815,20 +1215,34 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       path: paths.acpSkillRunsDir,
       cleanable: true,
     },
-    { category: "cache", label: "Cache", path: paths.cacheDir, cleanable: true },
-    { category: "tmp", label: "Temporary files", path: paths.tmpDir, cleanable: true },
-    { category: "legacy", label: "Legacy runtime data", cleanable: true },
-  ];
-  const legacyPaths = [getLegacyAcpRootPath(), getLegacyAcpSkillRunnerRootPath()].filter(
-    (entry, index, array) => {
-      const normalized = normalizeSlashes(entry);
-      return (
-        normalized &&
-        !normalized.startsWith(normalizeSlashes(paths.root)) &&
-        array.findIndex((candidate) => normalizeSlashes(candidate) === normalized) === index
-      );
+    {
+      category: "cache",
+      label: "Cache",
+      path: paths.cacheDir,
+      cleanable: true,
     },
-  );
+    {
+      category: "tmp",
+      label: "Temporary files",
+      path: paths.tmpDir,
+      cleanable: true,
+    },
+    { category: "legacy", label: "Legacy runtime data", cleanable: false },
+  ];
+  const legacyPaths = [
+    getLegacyRuntimeRootPath(),
+    getLegacyAcpRootPath(),
+    getLegacyAcpSkillRunnerRootPath(),
+  ].filter((entry, index, array) => {
+    const normalized = normalizeSlashes(entry);
+    return (
+      normalized &&
+      !normalized.startsWith(normalizeSlashes(paths.root)) &&
+      array.findIndex(
+        (candidate) => normalizeSlashes(candidate) === normalized,
+      ) === index
+    );
+  });
 
   const categories: RuntimePersistenceCategoryUsage[] = [];
   for (const def of categoryDefs) {
@@ -904,12 +1318,8 @@ export async function cleanupRuntimePersistenceCategory(
   } else if (category === "tmp") {
     await removeAndTrack(paths.tmpDir);
   } else if (category === "legacy") {
-    for (const legacyPath of [getLegacyAcpRootPath(), getLegacyAcpSkillRunnerRootPath()]) {
-      const normalized = normalizeSlashes(legacyPath);
-      if (normalized && !normalized.startsWith(normalizeSlashes(paths.root))) {
-        await removeAndTrack(legacyPath);
-      }
-    }
+    details.reason =
+      "legacy data requires the explicit one-shot migration script";
   }
 
   return {

@@ -114,3 +114,41 @@ Tags in `suggest_tags` MUST NOT be written directly to parent items, and SHALL s
 - **WHEN** manifests are loaded
 - **THEN** the language options declared by `tag-regulator` and `literature-digest` SHALL be equivalent
 - **AND** both defaults SHALL be `zh-CN`
+
+### Requirement: Tag regulator SHALL prefer Synthesis canonical vocabulary
+
+The tag-regulator workflow SHALL use Synthesis KG tag vocabulary as the preferred source for `valid_tags` while retaining the existing prefs-backed vocabulary as fallback.
+
+#### Scenario: Canonical vocabulary is available
+
+- **WHEN** tag-regulator builds a request and Synthesis canonical vocabulary can export active tags
+- **THEN** the workflow SHALL materialize `valid_tags` from the Synthesis export
+- **AND** it SHALL keep the existing `valid_tags` upload contract unchanged.
+
+#### Scenario: Canonical vocabulary is unavailable
+
+- **WHEN** Synthesis canonical vocabulary export is unavailable or empty
+- **THEN** the workflow SHALL fall back to the existing prefs vocabulary resolution path
+- **AND** request building SHALL keep existing deterministic missing-vocabulary diagnostics if no fallback is usable.
+
+#### Scenario: Export shape remains compatible
+
+- **WHEN** tag-regulator consumes tags from Synthesis
+- **THEN** the generated payload SHALL remain compatible with the existing tag-regulator skill contract.
+
+### Requirement: Tag regulator consumes Synthesis canonical vocabulary first
+
+The tag-regulator workflow SHALL continue to prefer Synthesis canonical vocabulary when available, including vocabularies stored in TagVocab-compatible canonical shape.
+
+#### Scenario: Canonical TagVocab vocabulary is available
+
+- **WHEN** Synthesis canonical vocabulary contains active TagVocab entries
+- **THEN** the tag-regulator request builder SHALL use the exported active tag strings as `valid_tags`
+- **AND** the `valid_tags` payload shape SHALL remain compatible with existing tag-regulator skills.
+
+#### Scenario: Canonical vocabulary is unavailable
+
+- **WHEN** Synthesis canonical vocabulary cannot be loaded
+- **THEN** the workflow MAY continue to use the existing prefs fallback path
+- **AND** the failure SHALL NOT expose raw canonical metadata or diagnostics in the tag-regulator prompt payload.
+

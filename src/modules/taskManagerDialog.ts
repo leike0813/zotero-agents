@@ -20,17 +20,13 @@ import {
   normalizeDashboardBackends,
   normalizeDashboardTabKey,
 } from "./taskDashboardSnapshot";
-import {
-  getLoadedWorkflowSourceById,
-} from "./workflowRuntime";
+import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import {
   listActiveWorkflowTasks,
   subscribeWorkflowTasks,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import {
-  filterDashboardActiveTasks,
-} from "./dashboardActiveTasks";
+import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
 import { openSkillRunnerManagementDialog } from "./skillRunnerManagementDialog";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config } from "../../package.json";
@@ -81,7 +77,10 @@ type DashboardState = {
   selectedLogEntryByBackendId: Map<string, string>;
   selectedWorkflowOptionsWorkflowId: string;
   workflowSettingsDraftById: Map<string, WorkflowExecutionOptions>;
-  workflowSettingsSaveStateById: Map<string, "idle" | "saving" | "saved" | "error">;
+  workflowSettingsSaveStateById: Map<
+    string,
+    "idle" | "saving" | "saved" | "error"
+  >;
   workflowSettingsSaveErrorById: Map<string, string>;
   workflowSettingsSaveTimerById: Map<string, number>;
   runtimeLogFilters: {
@@ -355,7 +354,10 @@ function sanitizeRenderedMarkdownHtml(html: string) {
           child.removeAttribute(attr.name);
           continue;
         }
-        if ((name === "href" || name === "src") && /^javascript:/i.test(value)) {
+        if (
+          (name === "href" || name === "src") &&
+          /^javascript:/i.test(value)
+        ) {
           child.removeAttribute(attr.name);
         }
       }
@@ -386,7 +388,9 @@ function renderInlineMarkdownFallback(value: string) {
 }
 
 function renderMarkdownFallback(markdown: string) {
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
   const html: string[] = [];
   let inCodeBlock = false;
   let codeLines: string[] = [];
@@ -424,7 +428,9 @@ function renderMarkdownFallback(markdown: string) {
       flushParagraph();
       closeLists();
       if (inCodeBlock) {
-        html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        html.push(
+          `<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+        );
         codeLines = [];
         inCodeBlock = false;
       } else {
@@ -544,7 +550,9 @@ function fromBackendTabKey(tabKey: string) {
 }
 
 function compactError(error: unknown) {
-  const text = String(error || "").replace(/\s+/g, " ").trim();
+  const text = String(error || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "unknown error";
   }
@@ -576,11 +584,9 @@ function isWorkflowSettingsStructuralRefreshChange(args: {
   }
   if (
     args.changedSection === "providerOptions" &&
-    (
-      args.changedKey === "engine" ||
+    (args.changedKey === "engine" ||
       args.changedKey === "provider_id" ||
-      args.changedKey === "model"
-    )
+      args.changedKey === "model")
   ) {
     return true;
   }
@@ -610,7 +616,9 @@ function isBackendReconcileFlagged(args: {
   backendType?: string;
 }) {
   const backendId = String(args.backendId || "").trim();
-  const backendType = String(args.backendType || "").trim().toLowerCase();
+  const backendType = String(args.backendType || "")
+    .trim()
+    .toLowerCase();
   if (!backendId || backendType !== "skillrunner") {
     return false;
   }
@@ -672,7 +680,9 @@ function mapTaskRow(task: WorkflowTaskRecord): DashboardRow {
   return mapTaskRowWithMeta(task);
 }
 
-function mapAcpSkillRunToWorkflowTask(run: AcpSkillRunRecord): WorkflowTaskRecord {
+function mapAcpSkillRunToWorkflowTask(
+  run: AcpSkillRunRecord,
+): WorkflowTaskRecord {
   const status =
     run.status === "repairing"
       ? "running"
@@ -684,7 +694,8 @@ function mapAcpSkillRunToWorkflowTask(run: AcpSkillRunRecord): WorkflowTaskRecor
     runId: String(run.runId || run.requestId || "").trim() || run.requestId,
     jobId: String(run.jobId || "").trim() || "-",
     requestId: run.requestId,
-    workflowId: String(run.workflowId || run.skillId || "").trim() || "acp-skill-run",
+    workflowId:
+      String(run.workflowId || run.skillId || "").trim() || "acp-skill-run",
     workflowLabel:
       String(run.workflowLabel || run.skillId || "").trim() || "ACP Skill Run",
     taskName:
@@ -820,7 +831,9 @@ function toLogFilter(row: DashboardRow) {
   };
 }
 
-function mapLogRow(entry: ReturnType<typeof listRuntimeLogs>[number]): DashboardLogRow {
+function mapLogRow(
+  entry: ReturnType<typeof listRuntimeLogs>[number],
+): DashboardLogRow {
   return {
     id: entry.id,
     ts: entry.ts,
@@ -861,18 +874,22 @@ function createDashboardFrame(doc: Document, pageUrl: string) {
     browser.setAttribute("type", "content");
     browser.setAttribute("flex", "1");
     browser.setAttribute("src", pageUrl);
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("width", "100%");
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("height", "100%");
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("min-height", "0");
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("flex", "1");
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "width",
+      "100%",
+    );
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "height",
+      "100%",
+    );
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "min-height",
+      "0",
+    );
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "flex",
+      "1",
+    );
     return browser;
   }
   const frame = doc.createElement("iframe");
@@ -933,6 +950,7 @@ async function buildWorkflowOptionsView(args: {
       descriptor: await buildWorkflowSettingsUiDescriptor({
         workflow,
         candidateBackends: args.backends,
+        resolveDynamicOptions: false,
       }),
     })),
   );
@@ -947,7 +965,9 @@ async function buildWorkflowOptionsView(args: {
     };
   }
   const selectedWorkflowId = configurable.some(
-    (entry) => entry.workflow.manifest.id === args.state.selectedWorkflowOptionsWorkflowId,
+    (entry) =>
+      entry.workflow.manifest.id ===
+      args.state.selectedWorkflowOptionsWorkflowId,
   )
     ? args.state.selectedWorkflowOptionsWorkflowId
     : configurable[0].workflow.manifest.id;
@@ -964,9 +984,8 @@ async function buildWorkflowOptionsView(args: {
     : undefined;
   const saveState =
     args.state.workflowSettingsSaveStateById.get(selectedWorkflowId) || "idle";
-  const saveError = args.state.workflowSettingsSaveErrorById.get(
-    selectedWorkflowId,
-  );
+  const saveError =
+    args.state.workflowSettingsSaveErrorById.get(selectedWorkflowId);
   return {
     workflows: configurable.map((entry) => ({
       workflowId: entry.workflow.manifest.id,
@@ -989,13 +1008,15 @@ async function buildHomeWorkflowSummaries(args: {
       const descriptor = await buildWorkflowSettingsUiDescriptor({
         workflow,
         candidateBackends: args.backends,
+        resolveDynamicOptions: false,
       });
       return {
         workflowId: workflow.manifest.id,
         workflowLabel: workflow.manifest.label,
         providerId: descriptor.providerId,
         configurable: descriptor.hasConfigurableSettings,
-        builtin: getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
+        builtin:
+          getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
         quickRunEnabled:
           canWorkflowRunWithoutSelection(workflow.manifest) &&
           !descriptor.blockedReason,
@@ -1024,7 +1045,10 @@ async function resolveHomeWorkflowQuickRun(args: {
     return {
       workflow: undefined,
       enabled: false,
-      reason: localize("task-dashboard-home-workflow-run-missing", "Workflow is not loaded"),
+      reason: localize(
+        "task-dashboard-home-workflow-run-missing",
+        "Workflow is not loaded",
+      ),
     };
   }
   if (!canWorkflowRunWithoutSelection(workflow.manifest)) {
@@ -1040,6 +1064,7 @@ async function resolveHomeWorkflowQuickRun(args: {
   const descriptor = await buildWorkflowSettingsUiDescriptor({
     workflow,
     candidateBackends: args.backends,
+    resolveDynamicOptions: false,
   });
   if (descriptor.blockedReason) {
     return {
@@ -1060,13 +1085,13 @@ async function buildHomeWorkflowDocView(args: {
   workflowId: string;
 }) {
   const loaded = getVisibleLoadedWorkflowEntries();
-  const matched = loaded.find(
-    (entry) => entry.manifest.id === args.workflowId,
-  );
+  const matched = loaded.find((entry) => entry.manifest.id === args.workflowId);
   if (!matched) {
     return undefined;
   }
-  const cached = args.state.homeWorkflowDocCacheByWorkflowId.get(args.workflowId);
+  const cached = args.state.homeWorkflowDocCacheByWorkflowId.get(
+    args.workflowId,
+  );
   if (cached) {
     return {
       workflowId: args.workflowId,
@@ -1203,11 +1228,23 @@ async function buildDashboardSnapshot(args: {
     colMessage: localize("task-dashboard-col-message", "Message"),
     colUpdatedAt: localize("task-dashboard-col-updated-at", "Updated At"),
     colActions: localize("task-dashboard-col-actions", "Actions"),
-    noBackends: localize("task-dashboard-sidebar-empty", "No backend profiles."),
+    noBackends: localize(
+      "task-dashboard-sidebar-empty",
+      "No backend profiles.",
+    ),
     noRunning: localize("task-dashboard-running-empty", "No active tasks."),
-    noHistory: localize("task-dashboard-detail-empty", "Select one backend from sidebar."),
-    backendNoTasks: localize("task-dashboard-backend-empty", "No tasks for this backend."),
-    openManagement: localize("task-dashboard-open-management", "Open Backend UI"),
+    noHistory: localize(
+      "task-dashboard-detail-empty",
+      "Select one backend from sidebar.",
+    ),
+    backendNoTasks: localize(
+      "task-dashboard-backend-empty",
+      "No tasks for this backend.",
+    ),
+    openManagement: localize(
+      "task-dashboard-open-management",
+      "Open Backend UI",
+    ),
     refreshModelCache: localize(
       "backend-manager-refresh-model-cache",
       "Refresh Model Cache",
@@ -1215,15 +1252,30 @@ async function buildDashboardSnapshot(args: {
     openRun: localize("task-dashboard-open-run", "Open Run"),
     cancelRun: localize("task-dashboard-skillrunner-cancel", "Cancel Run"),
     logsTitle: localize("task-dashboard-generic-logs-title", "Runtime Logs"),
-    logsEmpty: localize("task-dashboard-generic-logs-empty", "No runtime logs captured."),
-    logsBoundTask: localize("task-dashboard-generic-logs-bound-task", "Bound Task"),
+    logsEmpty: localize(
+      "task-dashboard-generic-logs-empty",
+      "No runtime logs captured.",
+    ),
+    logsBoundTask: localize(
+      "task-dashboard-generic-logs-bound-task",
+      "Bound Task",
+    ),
     logsBoundRequestId: localize(
       "task-dashboard-generic-logs-bound-request-id",
       "Bound Request ID",
     ),
-    logsBoundJobId: localize("task-dashboard-generic-logs-bound-job-id", "Bound Job ID"),
-    logsDetailTitle: localize("task-dashboard-generic-logs-detail-title", "Log Details"),
-    logsViewTask: localize("task-dashboard-generic-logs-view-task", "Bind Logs"),
+    logsBoundJobId: localize(
+      "task-dashboard-generic-logs-bound-job-id",
+      "Bound Job ID",
+    ),
+    logsDetailTitle: localize(
+      "task-dashboard-generic-logs-detail-title",
+      "Log Details",
+    ),
+    logsViewTask: localize(
+      "task-dashboard-generic-logs-view-task",
+      "Bind Logs",
+    ),
     logsOpenDiagnostics: localize(
       "task-dashboard-generic-logs-open-diagnostics",
       "Diagnostic Export",
@@ -1328,10 +1380,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-products-open-workspace",
       "Open Folder",
     ),
-    productsOpenRun: localize(
-      "task-dashboard-products-open-run",
-      "Open Run",
-    ),
+    productsOpenRun: localize("task-dashboard-products-open-run", "Open Run"),
     productsRemove: localize(
       "task-dashboard-products-remove",
       "Remove From Products",
@@ -1342,7 +1391,7 @@ async function buildDashboardSnapshot(args: {
     ),
     runtimeLogsContextScope: localize(
       "task-dashboard-runtime-logs-context-scope",
-      "Active Context Filters: "
+      "Active Context Filters: ",
     ),
     homeWorkflowTitle: localize(
       "task-dashboard-home-workflows-title",
@@ -1432,7 +1481,9 @@ async function buildDashboardSnapshot(args: {
 
   const resolvedSelectedTabKey = args.state.selectedTabKey;
   const selectedBackendId = fromBackendTabKey(resolvedSelectedTabKey);
-  const selectedBackend = args.backends.find((entry) => entry.id === selectedBackendId);
+  const selectedBackend = args.backends.find(
+    (entry) => entry.id === selectedBackendId,
+  );
 
   const snapshot: DashboardSnapshot = {
     generatedAt: new Date().toISOString(),
@@ -1464,7 +1515,9 @@ async function buildDashboardSnapshot(args: {
   if (resolvedSelectedTabKey === "products") {
     const products = listWorkflowProducts();
     const selectedProduct =
-      products.find((entry) => entry.productId === args.state.selectedProductId) ||
+      products.find(
+        (entry) => entry.productId === args.state.selectedProductId,
+      ) ||
       products[0] ||
       null;
     args.state.selectedProductId = selectedProduct?.productId || "";
@@ -1492,9 +1545,8 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (resolvedSelectedTabKey === "runtime-logs") {
-    const { getRuntimeLogDiagnosticMode, snapshotRuntimeLogs } = await import(
-      "./runtimeLogManager"
-    );
+    const { getRuntimeLogDiagnosticMode, snapshotRuntimeLogs } =
+      await import("./runtimeLogManager");
     const diagnosticMode = getRuntimeLogDiagnosticMode();
     const logSnapshot = snapshotRuntimeLogs();
     const rawLogs = listRuntimeLogs({
@@ -1509,24 +1561,31 @@ async function buildDashboardSnapshot(args: {
       if (entry.workflowId) uniqueWorkflows.add(entry.workflowId);
     }
 
-    const { getVisibleLoadedWorkflowEntries } = await import("./workflowVisibility");
+    const { getVisibleLoadedWorkflowEntries } =
+      await import("./workflowVisibility");
     const loadedWorkflows = getVisibleLoadedWorkflowEntries();
 
-    const mappedBackends = Array.from(uniqueBackends).sort().map((bId) => {
-      const foundBackend = args.backends.find(b => b.id === bId);
-      return {
-        value: bId,
-        label: foundBackend ? resolveBackendDisplayName(bId, foundBackend.displayName) : bId,
-      };
-    });
+    const mappedBackends = Array.from(uniqueBackends)
+      .sort()
+      .map((bId) => {
+        const foundBackend = args.backends.find((b) => b.id === bId);
+        return {
+          value: bId,
+          label: foundBackend
+            ? resolveBackendDisplayName(bId, foundBackend.displayName)
+            : bId,
+        };
+      });
 
-    const mappedWorkflows = Array.from(uniqueWorkflows).sort().map((wId) => {
-      const match = loadedWorkflows.find(w => w.manifest.id === wId);
-      return {
-        value: wId,
-        label: match ? match.manifest.label : wId,
-      };
-    });
+    const mappedWorkflows = Array.from(uniqueWorkflows)
+      .sort()
+      .map((wId) => {
+        const match = loadedWorkflows.find((w) => w.manifest.id === wId);
+        return {
+          value: wId,
+          label: match ? match.manifest.label : wId,
+        };
+      });
 
     snapshot.runtimeLogsView = {
       filters: args.state.runtimeLogFilters,
@@ -1569,14 +1628,18 @@ async function buildDashboardSnapshot(args: {
     backendType: selectedBackend.type,
     backendBaseUrl: selectedBackend.baseUrl,
     title: isSkillRunnerBackend(selectedBackend)
-      ? localize("task-dashboard-skillrunner-title", "SkillRunner Backend: {id}", {
-          args: {
-            id: resolveBackendDisplayName(
-              selectedBackend.id,
-              selectedBackend.displayName,
-            ),
+      ? localize(
+          "task-dashboard-skillrunner-title",
+          "SkillRunner Backend: {id}",
+          {
+            args: {
+              id: resolveBackendDisplayName(
+                selectedBackend.id,
+                selectedBackend.displayName,
+              ),
+            },
           },
-        })
+        )
       : isAcpBackend(selectedBackend)
         ? localize("task-dashboard-acp-backend-title", "ACP Backend: {id}", {
             args: {
@@ -1586,14 +1649,18 @@ async function buildDashboardSnapshot(args: {
               ),
             },
           })
-      : localize("task-dashboard-generic-title", "Generic HTTP Backend: {id}", {
-          args: {
-            id: resolveBackendDisplayName(
-              selectedBackend.id,
-              selectedBackend.displayName,
-            ),
-          },
-        }),
+        : localize(
+            "task-dashboard-generic-title",
+            "Generic HTTP Backend: {id}",
+            {
+              args: {
+                id: resolveBackendDisplayName(
+                  selectedBackend.id,
+                  selectedBackend.displayName,
+                ),
+              },
+            },
+          ),
     rows,
     emptyRowsText: labels.backendNoTasks,
     logRows: [],
@@ -1612,15 +1679,22 @@ async function buildDashboardSnapshot(args: {
       backendMetaById,
     });
     backendView.emptyRowsText =
-      backendView.emptyRowsText || labels.backendNoTasks || "No ACP skill runs.";
+      backendView.emptyRowsText ||
+      labels.backendNoTasks ||
+      "No ACP skill runs.";
     snapshot.backendView = backendView;
     return snapshot;
   }
 
   const selectedLogTaskId =
-    args.state.selectedLogTaskByBackendId.get(selectedBackend.id) || rows[0]?.id || "";
+    args.state.selectedLogTaskByBackendId.get(selectedBackend.id) ||
+    rows[0]?.id ||
+    "";
   if (selectedLogTaskId) {
-    args.state.selectedLogTaskByBackendId.set(selectedBackend.id, selectedLogTaskId);
+    args.state.selectedLogTaskByBackendId.set(
+      selectedBackend.id,
+      selectedLogTaskId,
+    );
   } else {
     args.state.selectedLogTaskByBackendId.delete(selectedBackend.id);
   }
@@ -1636,15 +1710,21 @@ async function buildDashboardSnapshot(args: {
     }).map((entry) => mapLogRow(entry));
     backendView.logRows = logs;
     const selectedLogEntryId =
-      args.state.selectedLogEntryByBackendId.get(selectedBackend.id) || logs[0]?.id || "";
+      args.state.selectedLogEntryByBackendId.get(selectedBackend.id) ||
+      logs[0]?.id ||
+      "";
     if (selectedLogEntryId) {
-      args.state.selectedLogEntryByBackendId.set(selectedBackend.id, selectedLogEntryId);
+      args.state.selectedLogEntryByBackendId.set(
+        selectedBackend.id,
+        selectedLogEntryId,
+      );
     } else {
       args.state.selectedLogEntryByBackendId.delete(selectedBackend.id);
     }
     backendView.selectedLogEntryId = selectedLogEntryId || undefined;
     backendView.selectedLogEntryPayload =
-      logs.find((entry) => entry.id === selectedLogEntryId)?.detailPayload || undefined;
+      logs.find((entry) => entry.id === selectedLogEntryId)?.detailPayload ||
+      undefined;
   } else {
     args.state.selectedLogEntryByBackendId.delete(selectedBackend.id);
     backendView.logRows = [];
@@ -1692,8 +1772,9 @@ export async function openTaskManagerDialog(args?: {
     selectedTabKey: String(args?.initialTabKey || "home").trim() || "home",
     selectedLogTaskByBackendId: new Map(),
     selectedLogEntryByBackendId: new Map(),
-    selectedWorkflowOptionsWorkflowId:
-      String(args?.initialWorkflowId || "").trim(),
+    selectedWorkflowOptionsWorkflowId: String(
+      args?.initialWorkflowId || "",
+    ).trim(),
     workflowSettingsDraftById: new Map(),
     workflowSettingsSaveStateById: new Map(),
     workflowSettingsSaveErrorById: new Map(),
@@ -1716,7 +1797,8 @@ export async function openTaskManagerDialog(args?: {
   let dashboardRefreshQueued = false;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
-  const getRuntimeWindow = () => args?.hostWindow || taskManagerDialog?.window || null;
+  const getRuntimeWindow = () =>
+    args?.hostWindow || taskManagerDialog?.window || null;
   const getChromeWindow = () =>
     args?.chromeWindow ||
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
@@ -1890,7 +1972,10 @@ export async function openTaskManagerDialog(args?: {
     if (action === "select-tab") {
       const requestedTabKey = String(payload.tabKey || "home").trim() || "home";
       const requestedBackendId = fromBackendTabKey(requestedTabKey);
-      if (requestedBackendId && !ensureBackendInteractable(requestedBackendId)) {
+      if (
+        requestedBackendId &&
+        !ensureBackendInteractable(requestedBackendId)
+      ) {
         return;
       }
       state.selectedTabKey = requestedTabKey;
@@ -1915,8 +2000,12 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "open-product-folder") {
-      const product = getWorkflowProduct(String(payload.productId || "").trim());
-      const folder = String(product?.workspaceDir || product?.cacheDir || "").trim();
+      const product = getWorkflowProduct(
+        String(payload.productId || "").trim(),
+      );
+      const folder = String(
+        product?.workspaceDir || product?.cacheDir || "",
+      ).trim();
       if (folder) {
         openFolderInSystemFileManager(folder, { label: "product folder" });
       }
@@ -2011,7 +2100,9 @@ export async function openTaskManagerDialog(args?: {
       const workflowId = String(payload.workflowId || "").trim();
       const executionOptions =
         (payload.executionOptions as WorkflowExecutionOptions) || {};
-      const changedSection = normalizeDraftChangedSection(payload.changedSection);
+      const changedSection = normalizeDraftChangedSection(
+        payload.changedSection,
+      );
       const changedKey = normalizeDraftChangedKey(payload.changedKey);
       if (!workflowId) {
         return;
@@ -2073,11 +2164,9 @@ export async function openTaskManagerDialog(args?: {
       const requestKind = String(payload.requestKind || "").trim();
       if (
         requestId &&
-        (
-          payloadBackendType === "acp" ||
+        (payloadBackendType === "acp" ||
           requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
-          taskId.startsWith("acp-skill-run:")
-        )
+          taskId.startsWith("acp-skill-run:"))
       ) {
         selectAcpSkillRun(requestId);
         await openAssistantWorkspaceSidebar({
@@ -2193,7 +2282,8 @@ export async function openTaskManagerDialog(args?: {
           backendId: backend.id,
           backendType: backend.type,
         };
-        const { setRuntimeLogDiagnosticMode } = await import("./runtimeLogManager");
+        const { setRuntimeLogDiagnosticMode } =
+          await import("./runtimeLogManager");
         setRuntimeLogDiagnosticMode(true);
         refresh("user-action");
         return;
@@ -2207,7 +2297,8 @@ export async function openTaskManagerDialog(args?: {
         jobId: selected.jobId,
         runId: selected.runId,
       };
-      const { setRuntimeLogDiagnosticMode } = await import("./runtimeLogManager");
+      const { setRuntimeLogDiagnosticMode } =
+        await import("./runtimeLogManager");
       setRuntimeLogDiagnosticMode(true);
       refresh("user-action");
       return;
@@ -2260,11 +2351,15 @@ export async function openTaskManagerDialog(args?: {
         });
       } catch (error) {
         alertRuntimeWindow(
-          localize("task-dashboard-open-management-failed", "Failed to open management UI: {error}", {
-            args: {
-              error: compactError(error),
+          localize(
+            "task-dashboard-open-management-failed",
+            "Failed to open management UI: {error}",
+            {
+              args: {
+                error: compactError(error),
+              },
             },
-          }),
+          ),
         );
       }
       return;
@@ -2320,11 +2415,15 @@ export async function openTaskManagerDialog(args?: {
           await cancelAcpSkillRun(requestId);
         } catch (error) {
           alertRuntimeWindow(
-            localize("task-dashboard-skillrunner-cancel-failed", "Failed to cancel run: {error}", {
-              args: {
-                error: compactError(error),
+            localize(
+              "task-dashboard-skillrunner-cancel-failed",
+              "Failed to cancel run: {error}",
+              {
+                args: {
+                  error: compactError(error),
+                },
               },
-            }),
+            ),
           );
         }
         refresh("user-action");
@@ -2356,18 +2455,23 @@ export async function openTaskManagerDialog(args?: {
         });
       } catch (error) {
         alertRuntimeWindow(
-          localize("task-dashboard-skillrunner-cancel-failed", "Failed to cancel run: {error}", {
-            args: {
-              error: compactError(error),
+          localize(
+            "task-dashboard-skillrunner-cancel-failed",
+            "Failed to cancel run: {error}",
+            {
+              args: {
+                error: compactError(error),
+              },
             },
-          }),
+          ),
         );
       }
       refresh("user-action");
       return;
     }
     if (action === "runtime-logs-toggle-diagnostic") {
-      const { setRuntimeLogDiagnosticMode } = await import("./runtimeLogManager");
+      const { setRuntimeLogDiagnosticMode } =
+        await import("./runtimeLogManager");
       setRuntimeLogDiagnosticMode(Boolean(payload.enabled));
       refresh("user-action");
       return;
@@ -2375,7 +2479,10 @@ export async function openTaskManagerDialog(args?: {
     if (action === "runtime-logs-set-filters") {
       const incomingFilters = payload.filters;
       if (incomingFilters && typeof incomingFilters === "object") {
-        state.runtimeLogFilters = { ...state.runtimeLogFilters, ...incomingFilters };
+        state.runtimeLogFilters = {
+          ...state.runtimeLogFilters,
+          ...incomingFilters,
+        };
       }
       refresh("user-action");
       return;
@@ -2406,72 +2513,106 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "runtime-logs-copy-selected") {
       const format = String(payload.format || "pretty-json").trim();
-      const entries = listRuntimeLogs({ order: "desc" }).filter(e => state.runtimeLogSelectedIdSet.has(e.id));
+      const entries = listRuntimeLogs({ order: "desc" }).filter((e) =>
+        state.runtimeLogSelectedIdSet.has(e.id),
+      );
       if (entries.length === 0) {
-         alertRuntimeWindow(
-           localize("task-dashboard-runtime-logs-copy-empty", "No log entries selected to copy.")
-         );
-         return;
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-empty",
+            "No log entries selected to copy.",
+          ),
+        );
+        return;
       }
       try {
         const { buildLogCopyPayload } = await import("./runtimeLogManager");
         const { copyText } = await import("../utils/ztoolkit");
-        const textToCopy = buildLogCopyPayload({ entries, format: format as any });
-        
-        const helper = (Components as any).classes?.["@mozilla.org/widget/clipboardhelper;1"]?.getService(
-          Components.interfaces.nsIClipboardHelper,
-        ) as { copyString?: (value: string) => void };
+        const textToCopy = buildLogCopyPayload({
+          entries,
+          format: format as any,
+        });
+
+        const helper = (Components as any).classes?.[
+          "@mozilla.org/widget/clipboardhelper;1"
+        ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+          copyString?: (value: string) => void;
+        };
         if (helper?.copyString) {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         alertRuntimeWindow(
-           localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
-             args: { error: compactError(error) },
-           }),
-         );
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-failed",
+            "Failed to copy logs: {error}",
+            {
+              args: { error: compactError(error) },
+            },
+          ),
+        );
       }
     }
     if (action === "runtime-logs-copy-diagnostic-bundle") {
       try {
-        const { buildRuntimeDiagnosticBundle } = await import("./runtimeLogManager");
+        const { buildRuntimeDiagnosticBundle } =
+          await import("./runtimeLogManager");
         const bundle = buildRuntimeDiagnosticBundle({
-          filters: { ...state.runtimeLogFilters, levels: ["debug", "info", "warn", "error"] }
+          filters: {
+            ...state.runtimeLogFilters,
+            levels: ["debug", "info", "warn", "error"],
+          },
         });
         const textToCopy = JSON.stringify(bundle, null, 2);
-        const helper = (Components as any).classes?.["@mozilla.org/widget/clipboardhelper;1"]?.getService(
-          Components.interfaces.nsIClipboardHelper,
-        ) as { copyString?: (value: string) => void };
+        const helper = (Components as any).classes?.[
+          "@mozilla.org/widget/clipboardhelper;1"
+        ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+          copyString?: (value: string) => void;
+        };
         if (helper?.copyString) {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         alertRuntimeWindow(
-           localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
-             args: { error: compactError(error) },
-           }),
-         );
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-failed",
+            "Failed to copy logs: {error}",
+            {
+              args: { error: compactError(error) },
+            },
+          ),
+        );
       }
       return;
     }
     if (action === "runtime-logs-copy-issue-summary") {
       try {
-        const { buildRuntimeIssueSummary } = await import("./runtimeLogManager");
+        const { buildRuntimeIssueSummary } =
+          await import("./runtimeLogManager");
         const textToCopy = buildRuntimeIssueSummary({
-          filters: { ...state.runtimeLogFilters, levels: ["debug", "info", "warn", "error"] }
+          filters: {
+            ...state.runtimeLogFilters,
+            levels: ["debug", "info", "warn", "error"],
+          },
         });
-        const helper = (Components as any).classes?.["@mozilla.org/widget/clipboardhelper;1"]?.getService(
-          Components.interfaces.nsIClipboardHelper,
-        ) as { copyString?: (value: string) => void };
+        const helper = (Components as any).classes?.[
+          "@mozilla.org/widget/clipboardhelper;1"
+        ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+          copyString?: (value: string) => void;
+        };
         if (helper?.copyString) {
           helper.copyString(textToCopy);
         }
       } catch (error) {
-         alertRuntimeWindow(
-           localize("task-dashboard-runtime-logs-copy-failed", "Failed to copy logs: {error}", {
-             args: { error: compactError(error) },
-           }),
-         );
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-failed",
+            "Failed to copy logs: {error}",
+            {
+              args: { error: compactError(error) },
+            },
+          ),
+        );
       }
       return;
     }
@@ -2480,7 +2621,10 @@ export async function openTaskManagerDialog(args?: {
   let mountedFrame: Element | null = null;
   let exposesExternalSelectTab = false;
 
-  const selectDashboardTab = (next: { tabKey?: string; workflowId?: string }) => {
+  const selectDashboardTab = (next: {
+    tabKey?: string;
+    workflowId?: string;
+  }) => {
     if (typeof next.tabKey === "string" && next.tabKey.trim()) {
       const requestedTabKey = next.tabKey.trim();
       const requestedBackendId = fromBackendTabKey(requestedTabKey);
@@ -2545,7 +2689,10 @@ export async function openTaskManagerDialog(args?: {
   ): MountedTaskDashboardRuntime => {
     root.innerHTML = "";
     const ownerDocument = root.ownerDocument || hostWindow.document;
-    const frame = createDashboardFrame(ownerDocument, resolveDashboardPageUrl());
+    const frame = createDashboardFrame(
+      ownerDocument,
+      resolveDashboardPageUrl(),
+    );
     mountedFrame = frame;
     root.appendChild(frame);
     frameWindow = resolveDashboardFrameWindow(frame);
@@ -2619,9 +2766,9 @@ export async function openTaskManagerDialog(args?: {
       } catch {
         // ignore
       }
-      const root = doc.getElementById("zs-task-manager-root") as
-        | HTMLElement
-        | null;
+      const root = doc.getElementById(
+        "zs-task-manager-root",
+      ) as HTMLElement | null;
       if (!root) {
         return;
       }

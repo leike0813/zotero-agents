@@ -361,3 +361,81 @@ content through package-local stage validation before final workflow apply.
 - **THEN** the workflow apply hook SHALL receive a normal topic synthesis
   result bundle.
 
+### Requirement: Topic synthesis may emit relation proposal sidecar
+
+Create and update topic synthesis workflows SHALL support an optional topic graph relation proposal sidecar after cross-paper synthesis.
+
+#### Scenario: Final bundle references proposal sidecar
+
+- **WHEN** topic synthesis generates relation proposals
+- **THEN** the final bundle MAY include `topic_graph_relation_proposals_path`
+- **AND** the path SHALL point to a run-workspace JSON sidecar.
+
+#### Scenario: Agent does not write canonical graph assets
+
+- **WHEN** topic synthesis proposes topic relations
+- **THEN** it SHALL write only the sidecar proposal payload
+- **AND** it SHALL NOT write canonical topic graph node or edge files.
+
+### Requirement: Topic graph proposal stage is documented
+
+Create and update topic synthesis skills SHALL document `stage_5_6_topic_graph_relation_proposals` as an agent-authored semantic proposal stage.
+
+#### Scenario: Skill instructions are read
+
+- **WHEN** create or update topic synthesis instructions are inspected
+- **THEN** they SHALL describe relation proposal generation after cross-paper synthesis
+- **AND** they SHALL describe allowed proposal types and direction conversion.
+
+### Requirement: Topic synthesis may emit concept card proposal sidecar
+
+Create and update topic synthesis workflows SHALL support an optional concept card proposal sidecar after cross-paper synthesis and before topic graph relation proposals.
+
+#### Scenario: Final bundle references concept sidecar
+
+- **WHEN** topic synthesis generates concept card proposals
+- **THEN** the final bundle MAY include `concept_cards_proposal_path`
+- **AND** the path SHALL point to a run-workspace JSON sidecar.
+
+#### Scenario: Agent does not write canonical concept assets
+
+- **WHEN** topic synthesis proposes concept cards
+- **THEN** it SHALL write only the sidecar proposal payload
+- **AND** it SHALL NOT write canonical concept, sense, alias, relation, projection, or topic concept-link files.
+
+### Requirement: Concept card proposal stage is documented
+
+Create and update topic synthesis skills SHALL document `stage_5_5_concept_cards` as an agent-authored semantic proposal stage.
+
+#### Scenario: Skill instructions are read
+
+- **WHEN** create or update topic synthesis instructions are inspected
+- **THEN** they SHALL describe concept card generation after cross-paper synthesis
+- **AND** they SHALL describe plugin-owned IDs and canonical ingestion boundaries.
+
+### Requirement: Topic synthesis workflows produce required-form KG proposal sidecars
+
+Create and update topic synthesis workflows SHALL produce concept card and topic graph relation proposal sidecars as required-form run outputs.
+
+#### Scenario: Completed bundle contains KG proposal paths
+
+- **WHEN** `validate_final_artifacts` writes a completed create, update_full, or update_patch result bundle
+- **THEN** the bundle SHALL include `concept_cards_proposal_path`
+- **AND** it SHALL include `topic_graph_relation_proposals_path`
+- **AND** both paths SHALL point under `result/sidecars/`.
+
+#### Scenario: No reliable KG proposal exists
+
+- **WHEN** the agent has no reliable concept or relation proposals
+- **THEN** the workflow SHALL still write both sidecar files
+- **AND** the sidecars MAY contain empty proposal arrays with diagnostics.
+
+### Requirement: KG proposal generation is an independent gated stage
+
+The workflow SHALL expose KG proposal generation as a dedicated gate-approved action after core sections and before external/statistics/report authoring.
+
+#### Scenario: Core sections are complete
+
+- **WHEN** route/timeline and core analytical sections have been validated
+- **THEN** the next semantic action before external/statistics/report authoring SHALL be `persist_kg_proposals`.
+

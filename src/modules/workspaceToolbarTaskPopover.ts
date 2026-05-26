@@ -58,9 +58,11 @@ const BACKEND_LABEL_WIDTH = 134;
 const localize = getStringOrFallback;
 
 function createXulElement(doc: Document, tag: string) {
-  const factory = (doc as Document & {
-    createXULElement?: (name: string) => XULElement;
-  }).createXULElement;
+  const factory = (
+    doc as Document & {
+      createXULElement?: (name: string) => XULElement;
+    }
+  ).createXULElement;
   if (typeof factory === "function") {
     return factory.call(doc, tag);
   }
@@ -68,6 +70,13 @@ function createXulElement(doc: Document, tag: string) {
     "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul",
     tag,
   ) as XULElement;
+}
+
+function supportsNoAutoFocusWithNoAutoHide() {
+  const runtime = globalThis as {
+    Zotero?: { isLinux?: boolean; isMac?: boolean; isWin?: boolean };
+  };
+  return runtime.Zotero?.isLinux !== true;
 }
 
 function xulElement(doc: Document, tag: string, className = "") {
@@ -206,7 +215,9 @@ async function listVisibleRows(runtime: PopoverRuntime) {
 }
 
 function resolveBackendLabel(row: ToolbarTaskRow) {
-  return normalizeString(row.backendLabel) || normalizeString(row.backendId) || "-";
+  return (
+    normalizeString(row.backendLabel) || normalizeString(row.backendId) || "-"
+  );
 }
 
 function estimatePopoverHeight(rowCount: number) {
@@ -261,6 +272,35 @@ function clearTimers(runtime: PopoverRuntime) {
   }
 }
 
+function eventTargetIsWithin(target: EventTarget | null, root: Element | null) {
+  if (!target || !root) {
+    return false;
+  }
+  if (target === root) {
+    return true;
+  }
+  const contains = (root as Element & { contains?: (node: Node) => boolean })
+    .contains;
+  if (typeof contains !== "function" || typeof target !== "object") {
+    return false;
+  }
+  try {
+    return contains.call(root, target as Node);
+  } catch {
+    return false;
+  }
+}
+
+function isActivationInsidePopoverRuntime(
+  runtime: PopoverRuntime,
+  event: Event,
+) {
+  return (
+    eventTargetIsWithin(event.target, runtime.anchor) ||
+    eventTargetIsWithin(event.target, runtime.popover)
+  );
+}
+
 function positionPopover(runtime: PopoverRuntime) {
   const popover = runtime.popover;
   if (!popover) {
@@ -275,22 +315,27 @@ async function renderPopover(runtime: PopoverRuntime) {
   const doc = runtime.win.document;
   const rows = (await listVisibleRows(runtime))
     .slice()
-    .sort((a, b) => normalizeString(b.updatedAt).localeCompare(normalizeString(a.updatedAt)))
+    .sort((a, b) =>
+      normalizeString(b.updatedAt).localeCompare(normalizeString(a.updatedAt)),
+    )
     .slice(0, MAX_VISIBLE_TASKS);
   let popover = runtime.popover;
   if (!popover) {
     popover = createXulElement(doc, "panel") as XulPanelElement;
     popover.classList.add("zs-workspace-running-popover-panel");
     popover.setAttribute("type", "arrow");
-    popover.setAttribute("noautofocus", "true");
+    popover.setAttribute("noautohide", "true");
+    if (supportsNoAutoFocusWithNoAutoHide()) {
+      popover.setAttribute("noautofocus", "true");
+    }
     popover.setAttribute("consumeoutsideclicks", "false");
     popover.setAttribute("width", String(POPOVER_WIDTH));
     popover.setAttribute("orient", "vertical");
     popover.setAttribute("role", "dialog");
-    popover.setAttribute("aria-label", localize(
-      "task-dashboard-toolbar-running-popover-title",
-      "Running Tasks",
-    ));
+    popover.setAttribute(
+      "aria-label",
+      localize("task-dashboard-toolbar-running-popover-title", "Running Tasks"),
+    );
     popover.addEventListener("mouseenter", () => {
       if (runtime.closeTimer) {
         clearTimeout(runtime.closeTimer);
@@ -329,7 +374,11 @@ async function renderPopover(runtime: PopoverRuntime) {
     ].join("; "),
   );
   content.appendChild(title);
-  const separator = xulElement(doc, "box", "zs-workspace-running-popover-separator");
+  const separator = xulElement(
+    doc,
+    "box",
+    "zs-workspace-running-popover-separator",
+  );
   separator.setAttribute(
     "style",
     [
@@ -348,7 +397,10 @@ async function renderPopover(runtime: PopoverRuntime) {
       xulLabel(
         doc,
         "zs-workspace-running-popover-empty",
-        localize("task-dashboard-toolbar-running-popover-empty", "No active tasks."),
+        localize(
+          "task-dashboard-toolbar-running-popover-empty",
+          "No active tasks.",
+        ),
         POPOVER_WIDTH - 18,
         64,
       ),
@@ -362,7 +414,11 @@ async function renderPopover(runtime: PopoverRuntime) {
     const item = xulElement(doc, "hbox", "zs-workspace-running-popover-task");
     forceXulBoxWidth(
       item,
-      LED_CELL_WIDTH + TASK_NAME_WIDTH + WORKFLOW_LABEL_WIDTH + BACKEND_LABEL_WIDTH + 24,
+      LED_CELL_WIDTH +
+        TASK_NAME_WIDTH +
+        WORKFLOW_LABEL_WIDTH +
+        BACKEND_LABEL_WIDTH +
+        24,
     );
     item.setAttribute("role", "button");
     item.setAttribute("tabindex", "0");
@@ -372,8 +428,14 @@ async function renderPopover(runtime: PopoverRuntime) {
     if (requestKind) {
       item.setAttribute("data-request-kind", requestKind);
     }
-    const taskName = normalizeString(row.taskName) || normalizeString(row.workflowLabel) || "-";
-    const workflowLabel = normalizeString(row.workflowLabel) || normalizeString(row.workflowId) || "-";
+    const taskName =
+      normalizeString(row.taskName) ||
+      normalizeString(row.workflowLabel) ||
+      "-";
+    const workflowLabel =
+      normalizeString(row.workflowLabel) ||
+      normalizeString(row.workflowId) ||
+      "-";
     const backendLabel = resolveBackendLabel(row);
     item.setAttribute(
       "tooltiptext",
@@ -488,6 +550,11 @@ function scheduleClose(runtime: PopoverRuntime) {
   }, CLOSE_DELAY_MS);
 }
 
+function dismissForPrimaryActivation(runtime: PopoverRuntime) {
+  clearTimers(runtime);
+  closePopover(runtime);
+}
+
 function refreshIfOpen(runtime: PopoverRuntime) {
   if (runtime.popover) {
     void renderPopover(runtime);
@@ -519,18 +586,30 @@ export function installWorkspaceToolbarTaskPopover(args: {
     if (
       typeof (target as { addEventListener?: unknown }).addEventListener !==
         "function" ||
-      typeof (target as { removeEventListener?: unknown }).removeEventListener !==
-        "function"
+      typeof (target as { removeEventListener?: unknown })
+        .removeEventListener !== "function"
     ) {
       return;
     }
     target.addEventListener(type, listener);
-    runtime.removeListeners.push(() => target.removeEventListener(type, listener));
+    runtime.removeListeners.push(() =>
+      target.removeEventListener(type, listener),
+    );
   };
   addListener(args.anchor, "mouseenter", () => scheduleOpen(runtime));
   addListener(args.anchor, "mouseleave", () => scheduleClose(runtime));
-  addListener(args.anchor, "focus", () => scheduleOpen(runtime));
-  addListener(args.anchor, "blur", () => scheduleClose(runtime));
+  addListener(args.anchor, "mousedown", () =>
+    dismissForPrimaryActivation(runtime),
+  );
+  addListener(args.anchor, "click", () => dismissForPrimaryActivation(runtime));
+  addListener(args.anchor, "command", () =>
+    dismissForPrimaryActivation(runtime),
+  );
+  addListener(args.window, "mousedown", (event: Event) => {
+    if (!isActivationInsidePopoverRuntime(runtime, event)) {
+      scheduleClose(runtime);
+    }
+  });
   addListener(args.window, "resize", () => positionPopover(runtime));
   addListener(args.window, "keydown", (event: Event) => {
     const keyboardEvent = event as KeyboardEvent;

@@ -11,10 +11,10 @@ const SKILLRUNNER_BUTTON_ID = `${config.addonRef}-tb-skillrunner`;
 const EXECUTE_WORKFLOW_BUTTON_ID = `${config.addonRef}-tb-execute-workflow`;
 const EXECUTE_WORKFLOW_POPUP_ID = `${config.addonRef}-tb-execute-workflow-popup`;
 const NOTE_ADD_BUTTON_ID = "zotero-tb-note-add";
-const PRIMARY_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`;
+const PRIMARY_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_workbench_32.png`;
 const FALLBACK_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon.png`;
-const EXECUTE_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_play.png`;
-export const SKILLRUNNER_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_backend.png`;
+const EXECUTE_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_play_32.png`;
+export const SKILLRUNNER_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_sidebar_32.png`;
 
 const localize = getStringOrFallback;
 
@@ -158,10 +158,9 @@ export function syncToolbarButtonIconFill(
   };
   apply();
   if (typeof (win as { setTimeout?: unknown }).setTimeout === "function") {
-    (win as { setTimeout: (handler: () => void, timeout?: number) => number }).setTimeout(
-      apply,
-      0,
-    );
+    (
+      win as { setTimeout: (handler: () => void, timeout?: number) => number }
+    ).setTimeout(apply, 0);
   }
 }
 
@@ -272,7 +271,10 @@ function ensureDashboardOnlyToolbarButton(
   button.setAttribute("tooltiptext", tooltip);
   button.setAttribute("aria-label", tooltip);
   button.setAttribute("image", PRIMARY_ICON_URI);
-  applyToolbarButtonStyling(button as Element & { style?: CSSStyleDeclaration }, PRIMARY_ICON_URI);
+  applyToolbarButtonStyling(
+    button as Element & { style?: CSSStyleDeclaration },
+    PRIMARY_ICON_URI,
+  );
   button.addEventListener("error", () => {
     button.setAttribute("image", FALLBACK_ICON_URI);
     applyToolbarButtonStyling(
@@ -319,7 +321,10 @@ function ensureSkillRunnerToolbarButton(
     "Open/Close Assistant Sidebar",
   );
   button.id = SKILLRUNNER_BUTTON_ID;
-  button.setAttribute("class", "zotero-tb-button zs-skillrunner-toolbar-button");
+  button.setAttribute(
+    "class",
+    "zotero-tb-button zs-skillrunner-toolbar-button",
+  );
   button.setAttribute("tooltiptext", tooltip);
   button.setAttribute("aria-label", tooltip);
   button.setAttribute("image", SKILLRUNNER_ICON_URI);
@@ -384,7 +389,9 @@ export function updateSkillRunnerToolbarButtonBadge(
   }
 }
 
-export function removeDashboardToolbarButton(win: Window | _ZoteroTypes.MainWindow) {
+export function removeDashboardToolbarButton(
+  win: Window | _ZoteroTypes.MainWindow,
+) {
   const doc = (win as _ZoteroTypes.MainWindow)?.document;
   if (!doc) {
     return;

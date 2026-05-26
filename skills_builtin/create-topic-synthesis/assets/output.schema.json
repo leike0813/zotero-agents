@@ -19,7 +19,9 @@
         "resolver_manifest_path",
         "resolver_diagnostics",
         "artifact_metadata",
-        "analysis_manifest_path"
+        "analysis_manifest_path",
+        "concept_cards_proposal_path",
+        "topic_graph_relation_proposals_path"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
@@ -37,7 +39,13 @@
         "resolver_manifest_path": { "type": "string", "minLength": 1 },
         "resolver_diagnostics": { "type": "object" },
         "artifact_metadata": { "type": "object" },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 }
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "concept_cards_proposal_path": {
+          "const": "result/sidecars/concept-cards-proposal.json"
+        },
+        "topic_graph_relation_proposals_path": {
+          "const": "result/sidecars/topic-graph-relation-proposals.json"
+        }
       }
     },
     {

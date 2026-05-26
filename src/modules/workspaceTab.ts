@@ -18,7 +18,10 @@ import {
 type WorkspaceView = "dashboard" | "synthesis";
 
 type ZoteroTabs = {
-  add?: (options: Record<string, unknown>) => { id?: string; container?: Element };
+  add?: (options: Record<string, unknown>) => {
+    id?: string;
+    container?: Element;
+  };
   select?: (id: string) => unknown;
   close?: (id: string) => unknown;
 };
@@ -65,8 +68,7 @@ function resolveHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
 
 function resolveZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
   return (
-    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)
-      ?.Zotero_Tabs ||
+    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)?.Zotero_Tabs ||
     ((globalThis as any).Zotero_Tabs as ZoteroTabs | undefined)
   );
 }
@@ -167,7 +169,10 @@ function clearBridge(runtime: WorkspaceRuntime) {
   writeBridge(wrappedTarget);
 }
 
-function postSnapshot(runtime: WorkspaceRuntime, type: "workspace:init" | "workspace:snapshot") {
+function postSnapshot(
+  runtime: WorkspaceRuntime,
+  type: "workspace:init" | "workspace:snapshot",
+) {
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
   if (!frameWindow) {
     return;
@@ -225,8 +230,7 @@ function scheduleWorkspaceHandshake(runtime: WorkspaceRuntime) {
         runtime.handshakeSuccessCount += 1;
       }
       if (
-        runtime.handshakeSuccessCount >=
-        WORKSPACE_HANDSHAKE_REQUIRED_SUCCESSES
+        runtime.handshakeSuccessCount >= WORKSPACE_HANDSHAKE_REQUIRED_SUCCESSES
       ) {
         finalizeWorkspaceHandshake(runtime);
         return;
@@ -244,13 +248,13 @@ function scheduleWorkspaceHandshake(runtime: WorkspaceRuntime) {
 }
 
 async function mountDashboardRuntimeIfReady(runtime: WorkspaceRuntime) {
-  if (runtime.selectedView !== "dashboard" || runtime.dashboardRuntime) {
+  if (runtime.dashboardRuntime) {
     return;
   }
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
-  const root = frameWindow?.document?.getElementById("dashboard-mount") as
-    | HTMLElement
-    | null;
+  const root = frameWindow?.document?.getElementById(
+    "dashboard-mount",
+  ) as HTMLElement | null;
   if (!frameWindow || !root) {
     return;
   }
@@ -268,13 +272,13 @@ function cleanupDashboardRuntime(runtime: WorkspaceRuntime) {
 }
 
 async function mountSynthesisRuntimeIfReady(runtime: WorkspaceRuntime) {
-  if (runtime.selectedView !== "synthesis" || runtime.synthesisRuntime) {
+  if (runtime.synthesisRuntime) {
     return;
   }
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
-  const root = frameWindow?.document?.getElementById("synthesis-mount") as
-    | HTMLElement
-    | null;
+  const root = frameWindow?.document?.getElementById(
+    "synthesis-mount",
+  ) as HTMLElement | null;
   if (!frameWindow || !root) {
     return;
   }
@@ -298,7 +302,10 @@ async function handleAction(
 ) {
   const action = String(actionRaw || "").trim();
   if (action === "ready" || action === "refresh") {
-    postSnapshot(runtime, action === "ready" ? "workspace:init" : "workspace:snapshot");
+    postSnapshot(
+      runtime,
+      action === "ready" ? "workspace:init" : "workspace:snapshot",
+    );
     await mountDashboardRuntimeIfReady(runtime);
     await mountSynthesisRuntimeIfReady(runtime);
     if (action === "refresh") {
@@ -309,12 +316,10 @@ async function handleAction(
   }
   if (action === "select-view") {
     const nextView = payload.view === "synthesis" ? "synthesis" : "dashboard";
-    if (runtime.selectedView !== nextView) {
-      cleanupDashboardRuntime(runtime);
-      cleanupSynthesisRuntime(runtime);
-    }
     runtime.selectedView = nextView;
     postSnapshot(runtime, "workspace:snapshot");
+    await mountDashboardRuntimeIfReady(runtime);
+    await mountSynthesisRuntimeIfReady(runtime);
     return;
   }
   if (action === "dashboard-mount-ready") {
@@ -359,7 +364,11 @@ function attachBridge(runtime: WorkspaceRuntime) {
     scheduleWorkspaceHandshake(runtime);
   });
   const onMessage = (event: MessageEvent) => {
-    const data = event.data as { type?: unknown; action?: unknown; payload?: unknown };
+    const data = event.data as {
+      type?: unknown;
+      action?: unknown;
+      payload?: unknown;
+    };
     if (!data || data.type !== "workspace:action") {
       return;
     }
@@ -377,20 +386,26 @@ function attachBridge(runtime: WorkspaceRuntime) {
   };
 }
 
-export async function openZoteroSkillsWorkspaceTab(args: {
-  window?: _ZoteroTypes.MainWindow;
-  initialView?: WorkspaceView;
-} = {}) {
+export async function openZoteroSkillsWorkspaceTab(
+  args: {
+    window?: _ZoteroTypes.MainWindow;
+    initialView?: WorkspaceView;
+  } = {},
+) {
   const hostWindow = resolveHostWindow(args.window);
   const tabs = resolveZoteroTabs(hostWindow);
   if (!hostWindow || !tabs?.add || !tabs.select) {
-    throw new Error("Cannot open Zotero Skills Workspace: Zotero_Tabs is unavailable.");
+    throw new Error(
+      "Cannot open Zotero Skills Workspace: Zotero_Tabs is unavailable.",
+    );
   }
   const Zotero_Tabs = tabs as ZoteroTabs & {
     add: NonNullable<ZoteroTabs["add"]>;
     select: NonNullable<ZoteroTabs["select"]>;
   };
-  const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen({ window: hostWindow });
+  const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen({
+    window: hostWindow,
+  });
   if (workspaceTab) {
     workspaceTab.selectedView = args.initialView || workspaceTab.selectedView;
     Zotero_Tabs.select(WORKSPACE_TAB_ID);
@@ -412,7 +427,9 @@ export async function openZoteroSkillsWorkspaceTab(args: {
   });
   const container = result?.container;
   if (!container) {
-    throw new Error("Cannot open Zotero Skills Workspace: tab container is missing.");
+    throw new Error(
+      "Cannot open Zotero Skills Workspace: tab container is missing.",
+    );
   }
   const frame = createWorkspaceBrowser(hostWindow.document);
   container.appendChild(frame);

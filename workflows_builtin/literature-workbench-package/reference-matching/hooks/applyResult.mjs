@@ -102,12 +102,9 @@ function normalizeCitekeyLookupKey(value) {
     .trim();
 }
 
-
 function normalizeAuthors(value) {
   if (Array.isArray(value)) {
-    return value
-      .map((entry) => normalizeText(entry))
-      .filter(Boolean);
+    return value.map((entry) => normalizeText(entry)).filter(Boolean);
   }
   if (typeof value === "string") {
     return value
@@ -314,7 +311,9 @@ async function postJsonRpc(url, payload, runtime) {
     );
   }
   if (parsed && typeof parsed === "object" && parsed.error) {
-    throw new Error(`bbt-json rpc error (${url}): ${JSON.stringify(parsed.error)}`);
+    throw new Error(
+      `bbt-json rpc error (${url}): ${JSON.stringify(parsed.error)}`,
+    );
   }
   return parsed?.result;
 }
@@ -386,12 +385,16 @@ function buildCandidateFromBbtEntry(entry) {
 
 async function collectLibraryItemsFromBbtJson(parameter, runtime) {
   const endpoint = resolveBbtRpcEndpoint(parameter);
-  const result = await postJsonRpc(endpoint, {
-    jsonrpc: "2.0",
-    method: "item.search",
-    params: [""],
-    id: `zotero-skills-reference-matching-${Date.now()}`,
-  }, runtime);
+  const result = await postJsonRpc(
+    endpoint,
+    {
+      jsonrpc: "2.0",
+      method: "item.search",
+      params: [""],
+      id: `zotero-skills-reference-matching-${Date.now()}`,
+    },
+    runtime,
+  );
   if (Array.isArray(result)) {
     return result;
   }
@@ -501,8 +504,7 @@ function computeMatchScore(reference, candidate) {
   const yearScore =
     referenceYear && candidate.year && referenceYear === candidate.year ? 1 : 0;
 
-  let score =
-    titleScore * 0.82 + authorScore * 0.13 + yearScore * 0.05;
+  let score = titleScore * 0.82 + authorScore * 0.13 + yearScore * 0.05;
   if (exactTitle) {
     score = Math.max(score, 0.98);
   }
@@ -574,7 +576,8 @@ function resolveReferenceMatch(reference, candidates, options) {
 }
 
 function resolveParentItemForReferenceNote(noteItem, runResult, runtime) {
-  const selectionParentId = runResult?.resultJson?.selectionContext?.items?.notes?.[0]?.parent?.id;
+  const selectionParentId =
+    runResult?.resultJson?.selectionContext?.items?.notes?.[0]?.parent?.id;
   if (typeof selectionParentId === "number" && selectionParentId > 0) {
     try {
       return runtime.helpers.resolveItemRef(selectionParentId);
@@ -601,9 +604,7 @@ function resolveParentItemForReferenceNote(noteItem, runResult, runtime) {
 
 function listRelatedKeys(item) {
   const raw = Array.isArray(item?.relatedItems) ? item.relatedItems : [];
-  return raw
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean);
+  return raw.map((entry) => String(entry || "").trim()).filter(Boolean);
 }
 
 function resolveMatchedItem(candidate, runtime) {
@@ -677,6 +678,28 @@ async function syncParentRelatedItems({
   };
 }
 
+async function recordSynthesisReferenceMatchingEvent(args) {
+  try {
+    const service = requireHostApi(args.runtime)?.synthesis;
+    const record = service?.recordSynthesisUpdateEvent;
+    if (typeof record !== "function") {
+      return;
+    }
+    const itemKey = String(args.parentItem?.key || "").trim();
+    if (!itemKey) {
+      return;
+    }
+    await record({
+      eventType: "reference_matching_applied",
+      source: "reference-matching.applyResult",
+      scope: { kind: "zotero_item", ref: itemKey },
+      sourceHash: `${args.matched || 0}:${args.total || 0}`,
+    });
+  } catch {
+    // Synthesis maintenance hints must not affect reference matching apply.
+  }
+}
+
 export async function applyResultImpl({ runResult, runtime, manifest }) {
   const parameter = runResult?.resultJson?.parameter || {};
   const dataSource = String(parameter?.data_source || "zotero-api").trim();
@@ -692,7 +715,11 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
       noteContent,
       runtime,
     });
-  const candidates = await collectLibraryCandidates(dataSource, parameter, runtime);
+  const candidates = await collectLibraryCandidates(
+    dataSource,
+    parameter,
+    runtime,
+  );
   const citekeyTemplate = resolveCitekeyTemplate(parameter);
   const citekeyIndex = buildCitekeyIndex(candidates);
   const matchedCandidates = [];
@@ -765,7 +792,11 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
   await requireHostApi(runtime).notes.update(noteItem, {
     content: nextNoteContent,
   });
-  const parentItem = resolveParentItemForReferenceNote(noteItem, runResult, runtime);
+  const parentItem = resolveParentItemForReferenceNote(
+    noteItem,
+    runResult,
+    runtime,
+  );
   const related = await syncParentRelatedItems({
     parentItem,
     matchedCandidates,
@@ -775,6 +806,12 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
   const matched = nextReferences.filter((entry) =>
     String(entry?.citekey || "").trim(),
   ).length;
+  await recordSynthesisReferenceMatchingEvent({
+    runtime,
+    parentItem,
+    matched,
+    total: nextReferences.length,
+  });
   return {
     updated: 1,
     matched,

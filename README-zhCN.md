@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../addon/content/icons/icon_full.png" alt="Zotero Skills" width="128" />
+  <img src="addon/content/icons/icon_full.png" alt="Zotero Skills" width="128" />
 </p>
 
 <h1 align="center">Zotero Skills</h1>

@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
-import { buildSynthesisStoragePaths } from "../../src/modules/synthesis/foundation";
+import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
 import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 
@@ -88,7 +88,7 @@ async function addDigestNoteWithRepresentativeImage(
   note.libraryID = parent.libraryID;
   note.parentItemID = parent.id;
   note.setField("title", "Digest");
-  note.setNote("<div data-zs-note-kind=\"digest\"><h1>Digest</h1></div>");
+  note.setNote('<div data-zs-note-kind="digest"><h1>Digest</h1></div>');
   await note.saveTx();
 
   const image = new Zotero.Item("attachment");
@@ -146,7 +146,10 @@ function validBundle(topicId: string, paperRefs: string[]) {
       query: { and: ["topic:alpha"] },
     },
     resolved_paper_set: {
-      papers: paperRefs.map((paper_ref) => ({ paper_ref, match_reasons: ["tag_query"] })),
+      papers: paperRefs.map((paper_ref) => ({
+        paper_ref,
+        match_reasons: ["tag_query"],
+      })),
     },
     resolver_diagnostics: {
       final_count: paperRefs.length,
@@ -162,7 +165,11 @@ function validBundle(topicId: string, paperRefs: string[]) {
   };
 }
 
-function mcpRequest(id: number, name: string, args: Record<string, unknown> = {}) {
+function mcpRequest(
+  id: number,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
   return {
     jsonrpc: "2.0",
     id,
@@ -228,6 +235,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const artifactManifest = await service.getPaperArtifactManifest({
       paper_ref: `${alpha.libraryID}:${alpha.key}`,
     });
+    await service.runLiteratureRegistryJobNow();
     const registry = await service.getPaperRegistry();
 
     assert.deepEqual(
@@ -315,6 +323,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
       paper_refs: [`${alpha.libraryID}:${alpha.key}`],
       artifact_types: ["references-json", "citation-analysis-json"] as any,
     });
+    await service.runLiteratureRegistryJobNow();
     const graph = await service.queryCitationGraph();
 
     assert.deepEqual(
@@ -328,7 +337,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
     );
     assert.equal(
       artifacts.artifacts.every(
-        (artifact) => artifact.probe_source === "synthesis.read_paper_artifacts",
+        (artifact) =>
+          artifact.probe_source === "synthesis.read_paper_artifacts",
       ),
       true,
     );
@@ -369,7 +379,10 @@ describe("Synthesis Layer MVP real-data closure", function () {
 
     assert.isFalse(resolved.ok);
     assert.equal(resolved.diagnostics.rejected, true);
-    assert.match(resolved.errors.join("\n"), /mode|selection_strategy|tag_criteria/i);
+    assert.match(
+      resolved.errors.join("\n"),
+      /mode|selection_strategy|tag_criteria/i,
+    );
     assert.lengthOf(resolved.papers, 0);
   });
 
@@ -443,20 +456,25 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
 
     const paperRef = `${alpha.libraryID}:${alpha.key}`;
-    await service.applyTopicSynthesisResult(validBundle("topic-alpha", [paperRef]));
+    await service.applyTopicSynthesisResult(
+      validBundle("topic-alpha", [paperRef]),
+    );
+    await service.runLiteratureRegistryJobNow();
     const graph = await service.queryCitationGraph();
     const snapshot = await service.getSynthesisSnapshot();
-    const reviewInput = await service.getReviewInput({ topicId: "topic-alpha" });
+    const reviewInput = await service.getReviewInput({
+      topicId: "topic-alpha",
+    });
     const mcpResponse: any = await handleZoteroMcpRequestForTests(
       mcpRequest(1, "synthesis.get_paper_registry"),
       { resolveSynthesisService: () => service },
     );
-    const paths = buildSynthesisStoragePaths(root);
-    const persistedGraph = JSON.parse(
-      await fs.readFile(paths.unifiedCitationGraph, "utf8"),
-    );
-    const persistedLayouts = JSON.parse(
-      await fs.readFile(paths.unifiedCitationLayouts, "utf8"),
+    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
+    const citationIndex = JSON.parse(
+      await fs.readFile(
+        path.join(kgPaths.stateRoot, "citation-graph-index.json"),
+        "utf8",
+      ),
     );
 
     assert.equal(snapshot.artifacts.rows[0].id, "topic-alpha");
@@ -467,8 +485,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
       mcpResponse.result.structuredContent.result.rows[0].paper_ref,
       paperRef,
     );
-    assert.equal(persistedGraph.data.graph_hash, graph.graph_hash);
-    assert.hasAllKeys(persistedLayouts.data.layouts, [
+    assert.equal(citationIndex.graph.graph_hash, graph.graph_hash);
+    assert.hasAllKeys(citationIndex.layouts, [
       "compact",
       "balanced",
       "expanded",

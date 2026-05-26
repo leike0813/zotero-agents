@@ -13,7 +13,10 @@ declare const document: Document;
 type MarkdownItPlugin = (...args: unknown[]) => unknown;
 
 type MarkdownItLike = {
-  use: (plugin: MarkdownItPlugin, options?: Record<string, unknown>) => MarkdownItLike;
+  use: (
+    plugin: MarkdownItPlugin,
+    options?: Record<string, unknown>,
+  ) => MarkdownItLike;
   render: (source: string) => string;
 };
 
@@ -49,10 +52,39 @@ type GraphEdge = {
 
 type Snapshot = {
   libraryId: number;
-  selectedTab: "overview" | "artifacts" | "registry" | "graph" | "reader";
+  selectedTab:
+    | "overview"
+    | "artifacts"
+    | "registry"
+    | "tags"
+    | "concepts"
+    | "graph"
+    | "reader";
+  actions?: {
+    inFlight?: ActionOperation[];
+    lastCompleted?: ActionOperation;
+    lastFailed?: ActionOperation;
+    warnings?: ActionOperation[];
+  };
   storage: Record<string, string>;
   preferences: Record<string, unknown>;
-  sync?: { status?: string; diagnostics?: Array<Record<string, unknown>> };
+  sync?: {
+    status?: string;
+    diagnostics?: Array<Record<string, unknown>>;
+    git?: {
+      queue_state?: string;
+      paused?: boolean;
+      adapter_configured?: boolean;
+      remote_url?: string;
+      branch?: string;
+      last_run_status?: string;
+      last_run_at?: string;
+      conflict_count?: number;
+      conflict_assets?: Array<{ asset_path?: string; reason?: string }>;
+      diagnostics?: Array<Record<string, unknown>>;
+      allowedActions?: string[];
+    };
+  };
   conflicts?: { candidates?: Array<Record<string, unknown>> };
   deletedArtifacts: {
     count: number;
@@ -67,6 +99,114 @@ type Snapshot = {
     filters: Record<string, string>;
     rows: Array<Record<string, unknown>>;
     visibleRows: Array<Record<string, unknown>>;
+    cleanupProposals?: Array<Record<string, unknown>>;
+    literatureJob?: {
+      queue_state?: string;
+      retry_attempt?: number;
+      next_retry_at?: string;
+      last_run_status?: string;
+      diagnostics?: Array<Record<string, unknown>>;
+      allowedActions?: string[];
+    };
+    projection?: {
+      target?: string;
+      stale?: boolean;
+      last_rebuild_at?: string;
+      diagnostics?: unknown[];
+    };
+  };
+  tags: {
+    filters: Record<string, string>;
+    facets: string[];
+    rows: Array<Record<string, unknown>>;
+    visibleRows: Array<Record<string, unknown>>;
+    selected?: Record<string, unknown>;
+    validationWarnings: Array<Record<string, unknown>>;
+    projection: {
+      target?: string;
+      stale?: boolean;
+      last_rebuild_at?: string;
+      diagnostics?: unknown[];
+    };
+    manifest: Record<string, unknown>;
+    importPreview?: {
+      additions?: Array<Record<string, unknown>>;
+      unchanged?: Array<Record<string, unknown>>;
+      conflicts?: Array<Record<string, unknown>>;
+      warnings?: Array<Record<string, unknown>>;
+    };
+    importDraft: string;
+  };
+  topicGraph: {
+    filters: {
+      mode: "hierarchy" | "neighborhood" | "unplaced";
+      search: string;
+      selectedTopicId?: string;
+    };
+    nodes: Array<Record<string, unknown>>;
+    edges: Array<Record<string, unknown>>;
+    reviewItems: Array<Record<string, unknown>>;
+    visibleNodes: Array<Record<string, unknown>>;
+    visibleEdges: Array<Record<string, unknown>>;
+    inspector: {
+      topic?: Record<string, unknown>;
+      parents: Array<Record<string, unknown>>;
+      children: Array<Record<string, unknown>>;
+      related: Array<{
+        relation: string;
+        status: string;
+        node: Record<string, unknown>;
+      }>;
+      suggestedRelations: Array<{
+        edge_id: string;
+        relation: string;
+        status: string;
+        node: Record<string, unknown>;
+        source_topic_id?: string;
+        target_topic_id?: string;
+        confidence?: number;
+        provenance?: unknown[];
+        evidence_refs?: unknown[];
+      }>;
+      relationReviewItems: Array<Record<string, unknown>>;
+      suggestedCount: number;
+    };
+    manifest: Record<string, unknown>;
+    projection: {
+      target?: string;
+      stale?: boolean;
+      last_rebuild_at?: string;
+      diagnostics?: unknown[];
+    };
+    diagnostics: unknown[];
+  };
+  concepts: {
+    filters: {
+      search: string;
+      conceptType: string;
+      status: string;
+      topicId: string;
+      selectedConceptId?: string;
+      overlayEnabled: boolean;
+      reviewMergeTargets: Record<string, string>;
+    };
+    rows: Array<Record<string, unknown>>;
+    visibleRows: Array<Record<string, unknown>>;
+    selected?: Record<string, unknown>;
+    senses: Array<Record<string, unknown>>;
+    aliases: Array<Record<string, unknown>>;
+    relations: Array<Record<string, unknown>>;
+    reviewItems: Array<Record<string, unknown>>;
+    overlayEntries: Array<Record<string, unknown>>;
+    conceptTypes: string[];
+    projection: {
+      target?: string;
+      stale?: boolean;
+      last_rebuild_at?: string;
+      diagnostics?: unknown[];
+    };
+    manifest: Record<string, unknown>;
+    diagnostics: unknown[];
   };
   graph: {
     filters: {
@@ -77,7 +217,7 @@ type Snapshot = {
       showLowSignalUnresolved: boolean;
     };
     graph_hash: string;
-    layoutStatus: "missing" | "ready" | "dirty";
+    layoutStatus: "missing" | "ready" | "dirty" | "running" | "failed";
     layoutPreset: string;
     selectedElement?: { kind: "node" | "edge"; id: string };
     nodes: GraphNode[];
@@ -88,7 +228,13 @@ type Snapshot = {
   };
   reader?: {
     topicId: string;
-    previousTab: "overview" | "artifacts" | "registry" | "graph";
+    previousTab:
+      | "overview"
+      | "artifacts"
+      | "registry"
+      | "tags"
+      | "concepts"
+      | "graph";
   };
 };
 
@@ -148,8 +294,30 @@ type DigestModalState = {
   result?: Record<string, unknown>;
 };
 
+type ActionOperation = {
+  key: string;
+  command: string;
+  status: "pending" | "running" | "queued" | "completed" | "failed";
+  label?: string;
+  started_at?: string;
+  completed_at?: string;
+  message?: string;
+};
+
+type OptimisticReviewDecision = {
+  key: string;
+  operationKey: string;
+  createdAt: number;
+};
+
+const STATUSBAR_COMPLETED_TIMEOUT_MS = 4000;
+const STATUSBAR_FAILED_TIMEOUT_MS = 8000;
+const STATUSBAR_WARNING_TIMEOUT_MS = 8000;
+const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
+
 const state: {
   snapshot: Snapshot | null;
+  lastSnapshotSignature?: string;
   artifactReader?: ArtifactReaderDto;
   topicDetail?: TopicDetailDto;
   topicDetailSection: TopicDetailSection;
@@ -162,12 +330,23 @@ const state: {
   sigmaResizeObserver?: ResizeObserver;
   graph?: Graph;
   hoveredNode?: string;
+  localPendingActions: Map<string, ActionOperation>;
+  optimisticReviewDecisions: Map<string, OptimisticReviewDecision>;
+  lastLocalAction?: ActionOperation;
+  statusbarExpirations: Map<string, number>;
+  statusbarTimer?: number;
+  tagImportOpen: boolean;
+  dismissedTagImportPreviewSignature?: string;
 } = {
   snapshot: null,
   topicDetailSection: "overview",
   evidenceExplorerOpen: false,
   sidebarExpanded: false,
   explorerWidth: 360,
+  localPendingActions: new Map(),
+  optimisticReviewDecisions: new Map(),
+  statusbarExpirations: new Map(),
+  tagImportOpen: false,
 };
 
 const colors: Record<GraphNodeKind, string> = {
@@ -177,6 +356,29 @@ const colors: Record<GraphNodeKind, string> = {
 };
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
+  if (action === "hostCommand") {
+    const command = textValue(payload.command);
+    const args = recordValue(payload.args);
+    const key = operationKey(command, args);
+    if (key) {
+      const reviewKey = reviewDecisionKey(command, args);
+      if (reviewKey) {
+        state.optimisticReviewDecisions.set(reviewKey, {
+          key: reviewKey,
+          operationKey: key,
+          createdAt: Date.now(),
+        });
+      }
+      state.localPendingActions.set(key, {
+        key,
+        command,
+        status: "pending",
+        label: operationLabel(command),
+        started_at: new Date().toISOString(),
+      });
+      render();
+    }
+  }
   const direct = window.__zoteroSkillsSynthesisWorkbenchBridge;
   if (direct && typeof direct.postMessage === "function") {
     void Promise.resolve(direct.postMessage(action, payload)).catch(() => {
@@ -200,6 +402,174 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
   }
 }
 
+function reviewDecisionKey(
+  command: string,
+  args: Record<string, unknown> = {},
+) {
+  switch (command) {
+    case "applyLiteratureCleanupAction":
+      return `cleanup:${keyPart(args.proposalId)}`;
+    case "acceptTopicGraphRelation":
+    case "rejectTopicGraphRelation":
+      return `topic-edge:${keyPart(args.edgeId)}`;
+    case "applyTopicGraphReviewAction":
+      return `topic-review:${keyPart(args.reviewId)}`;
+    case "applyConceptReviewAction":
+      return `concept-review:${keyPart(args.reviewId)}`;
+    case "applyTagVocabularyImport":
+      return `tag-import:${keyPart(args.action)}`;
+    case "resolveGitSyncConflict":
+      return `git-conflict:${keyPart(args.assetPath, "current")}:${keyPart(args.action)}`;
+    default:
+      return "";
+  }
+}
+
+function isReviewOptimisticallyResolved(kind: string, id: unknown) {
+  const key = `${kind}:${keyPart(id)}`;
+  return state.optimisticReviewDecisions.has(key);
+}
+
+function keyPart(value: unknown, fallback = "all") {
+  return textValue(value, fallback).replace(/\s+/g, "_") || fallback;
+}
+
+function operationKey(command: string, args: Record<string, unknown> = {}) {
+  if (!command) return "";
+  switch (command) {
+    case "manualRecomputeLayout":
+      return `${command}:${keyPart(args.preset, "balanced")}`;
+    case "applyConceptReviewAction":
+      return `${command}:${keyPart(args.reviewId)}`;
+    case "applyTopicGraphReviewAction":
+      return `${command}:${keyPart(args.reviewId)}`;
+    case "acceptTopicGraphRelation":
+    case "rejectTopicGraphRelation":
+      return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
+    case "applyLiteratureCleanupAction":
+      return `${command}:${keyPart(args.proposalId)}`;
+    case "applyTagVocabularyImport":
+      return `${command}:${keyPart(args.action)}`;
+    case "submitTopicSynthesisUpdate":
+      return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
+    case "openTopicArtifact":
+    case "openCanonicalMarkdown":
+    case "copyTopicMarkdownExport":
+    case "deleteTopicArtifact":
+    case "resolveTopicPaperDigest":
+      return `${command}:${keyPart(args.topicId)}`;
+    default:
+      return command;
+  }
+}
+
+function operationLabel(command: string) {
+  const labels: Record<string, string> = {
+    manualRecomputeLayout: "Rebuilding graph layout",
+    validateTagVocabulary: "Validating tags",
+    previewTagVocabularyImport: "Previewing tag import",
+    applyTagVocabularyImport: "Applying tag import",
+    exportTagVocabulary: "Exporting tags",
+    rebuildTagVocabularyIndex: "Rebuilding tag index",
+    rebuildConceptKbIndex: "Rebuilding concept index",
+    applyConceptReviewAction: "Applying concept review",
+    updateConceptDisplayText: "Updating concept text",
+    acceptTopicGraphRelation: "Accepting topic relation",
+    rejectTopicGraphRelation: "Rejecting topic relation",
+    applyTopicGraphReviewAction: "Applying topic graph review",
+    applyLiteratureCleanupAction: "Applying cleanup action",
+    runLiteratureRegistryJobNow: "Rebuilding literature registry",
+    retryLiteratureRegistryJob: "Retrying literature registry job",
+    runSynthesizeTopic: "Starting topic synthesis",
+    submitTopicSynthesisUpdate: "Starting topic update",
+    syncNow: "Running sync",
+    pauseGitSync: "Pausing sync",
+    resumeGitSync: "Resuming sync",
+    retryGitSync: "Retrying sync",
+    resolveGitSyncConflict: "Resolving sync conflict",
+    deleteTopicArtifact: "Deleting topic artifact",
+    purgeDeletedTopicArtifacts: "Purging deleted artifacts",
+  };
+  return labels[command] || command;
+}
+
+function snapshotInFlightKeys(snapshot = state.snapshot) {
+  return new Set((snapshot?.actions?.inFlight || []).map((entry) => entry.key));
+}
+
+function isOperationPending(
+  command: string,
+  args: Record<string, unknown> = {},
+) {
+  const key = operationKey(command, args);
+  return Boolean(
+    key &&
+    (state.localPendingActions.has(key) || snapshotInFlightKeys().has(key)),
+  );
+}
+
+function clearResolvedLocalPending(snapshot: Snapshot | null) {
+  if (!snapshot) return;
+  const serverKeys = snapshotInFlightKeys(snapshot);
+  const completedKey = snapshot.actions?.lastCompleted?.key;
+  const failedKey = snapshot.actions?.lastFailed?.key;
+  for (const key of Array.from(state.localPendingActions.keys())) {
+    if (!serverKeys.has(key) || key === completedKey || key === failedKey) {
+      state.localPendingActions.delete(key);
+    }
+  }
+  if (failedKey) {
+    for (const [key, decision] of state.optimisticReviewDecisions) {
+      if (decision.operationKey === failedKey) {
+        state.optimisticReviewDecisions.delete(key);
+      }
+    }
+  }
+  pruneOptimisticReviewDecisions(snapshot);
+  state.lastLocalAction =
+    snapshot.actions?.lastFailed ||
+    snapshot.actions?.lastCompleted ||
+    state.lastLocalAction;
+}
+
+function snapshotHasReviewItem(snapshot: Snapshot, key: string) {
+  const separator = key.indexOf(":");
+  if (separator < 0) return false;
+  const kind = key.slice(0, separator);
+  const id = key.slice(separator + 1);
+  if (!id) return false;
+  if (kind === "cleanup") {
+    return (snapshot.registry.cleanupProposals || []).some(
+      (proposal) =>
+        proposal.status === "open" && keyPart(proposal.proposal_id) === id,
+    );
+  }
+  if (kind === "topic-edge") {
+    return (snapshot.topicGraph.inspector.suggestedRelations || []).some(
+      (relation) => keyPart(relation.edge_id) === id,
+    );
+  }
+  if (kind === "topic-review") {
+    return (snapshot.topicGraph.inspector.relationReviewItems || []).some(
+      (item) => item.status === "open" && keyPart(item.review_id) === id,
+    );
+  }
+  if (kind === "concept-review") {
+    return (snapshot.concepts.reviewItems || []).some(
+      (item) => item.status === "open" && keyPart(item.review_id) === id,
+    );
+  }
+  return true;
+}
+
+function pruneOptimisticReviewDecisions(snapshot: Snapshot) {
+  for (const key of Array.from(state.optimisticReviewDecisions.keys())) {
+    if (!snapshotHasReviewItem(snapshot, key)) {
+      state.optimisticReviewDecisions.delete(key);
+    }
+  }
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className = "",
@@ -215,16 +585,23 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function iconSvg(name: "home" | "topics" | "graph" | "index" | "panel-open" | "panel-close") {
+function iconSvg(
+  name:
+    | "home"
+    | "topics"
+    | "graph"
+    | "index"
+    | "tags"
+    | "concepts"
+    | "panel-open"
+    | "panel-close",
+) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
   const paths: Record<typeof name, string[]> = {
-    home: [
-      "M3.5 10.5 12 3.5l8.5 7",
-      "M5.5 9.5V20h4.8v-5.7h3.4V20h4.8V9.5",
-    ],
+    home: ["M3.5 10.5 12 3.5l8.5 7", "M5.5 9.5V20h4.8v-5.7h3.4V20h4.8V9.5"],
     topics: [
       "M7 4.5h8.5L19 8v11.5H7z",
       "M15.5 4.5V8H19",
@@ -249,16 +626,17 @@ function iconSvg(name: "home" | "topics" | "graph" | "index" | "panel-open" | "p
       "M4 12h.01",
       "M4 18h.01",
     ],
-    "panel-open": [
-      "M4 5h16v14H4z",
-      "M9 5v14",
-      "M13 9l3 3-3 3",
+    tags: ["M20 12.5 12.5 20 4 11.5V4h7.5z", "M8.5 8.5h.01", "M14 7l3 3"],
+    concepts: [
+      "M9 18h6",
+      "M10 21h4",
+      "M8.5 14.5c-1.7-1.2-2.5-2.9-2.5-5a6 6 0 1 1 12 0c0 2.1-.9 3.8-2.5 5l-1.2.9c-.5.4-.8 1-.8 1.6H10c0-.7-.3-1.2-.8-1.6z",
+      "M12 4.5v2",
+      "M8.8 6.1 7.4 4.7",
+      "M15.2 6.1l1.4-1.4",
     ],
-    "panel-close": [
-      "M4 5h16v14H4z",
-      "M9 5v14",
-      "M16 9l-3 3 3 3",
-    ],
+    "panel-open": ["M4 5h16v14H4z", "M9 5v14", "M13 9l3 3-3 3"],
+    "panel-close": ["M4 5h16v14H4z", "M9 5v14", "M16 9l-3 3 3 3"],
   };
   paths[name].forEach((data) => {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -295,21 +673,212 @@ function makeButton(
   active = false,
   disabled = false,
 ) {
+  const hostCommand =
+    action === "hostCommand" ? textValue(payload.command) : "";
+  const hostArgs = action === "hostCommand" ? recordValue(payload.args) : {};
+  const pending = hostCommand
+    ? isOperationPending(hostCommand, hostArgs)
+    : false;
+  const button = el(
+    "button",
+    `${active ? "active" : ""}${pending ? " is-busy" : ""}`.trim(),
+    label,
+  );
+  button.type = "button";
+  button.disabled = disabled || pending;
+  if (pending) {
+    button.setAttribute("aria-busy", "true");
+    button.title = `${operationLabel(hostCommand)} is in progress`;
+    const spinner = el("span", "button-spinner");
+    spinner.setAttribute("aria-hidden", "true");
+    button.prepend(spinner);
+  }
+  button.addEventListener("click", () => sendAction(action, payload));
+  return button;
+}
+
+function makeLocalButton(label: string, onClick: () => void, active = false) {
   const button = el("button", active ? "active" : "", label);
   button.type = "button";
-  button.disabled = disabled;
-  button.addEventListener("click", () => sendAction(action, payload));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    onClick();
+  });
   return button;
 }
 
 function titleForTab(tab: Snapshot["selectedTab"]) {
   if (tab === "reader") {
-    return state.topicDetail?.title || state.artifactReader?.title || "Topic Detail";
+    return (
+      state.topicDetail?.title || state.artifactReader?.title || "Topic Detail"
+    );
   }
   if (tab === "artifacts") return "Topics";
   if (tab === "registry") return "Index";
+  if (tab === "tags") return "Tags";
+  if (tab === "concepts") return "Concepts";
   if (tab === "graph") return "Citation Graph";
   return "Home";
+}
+
+function actionStatusbarKey(
+  entry: ActionOperation,
+  statusOverride: ActionOperation["status"] | "warning" = entry.status,
+) {
+  const identity =
+    entry.key || entry.command || entry.label || entry.message || "unknown";
+  const stamp = entry.completed_at || entry.started_at || entry.message || "";
+  return `${statusOverride}:${identity}:${stamp}`;
+}
+
+function scheduleStatusbarExpiry(delayMs: number) {
+  if (state.statusbarTimer) {
+    window.clearTimeout(state.statusbarTimer);
+  }
+  state.statusbarTimer = window.setTimeout(
+    () => {
+      state.statusbarTimer = undefined;
+      render();
+    },
+    Math.max(0, delayMs) + STATUSBAR_EXPIRY_RENDER_GRACE_MS,
+  );
+}
+
+function pruneExpiredStatusbarEntries(now = Date.now()) {
+  for (const [key, expiresAt] of Array.from(state.statusbarExpirations)) {
+    if (expiresAt <= now) {
+      state.statusbarExpirations.delete(key);
+    }
+  }
+}
+
+function shouldShowTimedStatusbarEntry(
+  entry: ActionOperation | undefined,
+  timeoutMs: number,
+  statusOverride:
+    | ActionOperation["status"]
+    | "warning"
+    | undefined = entry?.status,
+) {
+  if (!entry || !statusOverride) {
+    return false;
+  }
+  const now = Date.now();
+  pruneExpiredStatusbarEntries(now);
+  const key = actionStatusbarKey(entry, statusOverride);
+  let expiresAt = state.statusbarExpirations.get(key);
+  if (!expiresAt) {
+    expiresAt = now + timeoutMs;
+    state.statusbarExpirations.set(key, expiresAt);
+  }
+  if (expiresAt <= now) {
+    return false;
+  }
+  scheduleStatusbarExpiry(expiresAt - now);
+  return true;
+}
+
+function statusbarMessage(entry: ActionOperation) {
+  const label = textValue(entry.label, entry.command || "Action");
+  const message = textValue(entry.message);
+  return message ? `${label} - ${message}` : label;
+}
+
+function renderActionStatusbar(snapshot: Snapshot) {
+  const pending = [
+    ...Array.from(state.localPendingActions.values()),
+    ...(snapshot.actions?.inFlight || []),
+  ];
+  const seen = new Set<string>();
+  const uniquePending = pending.filter((entry) => {
+    if (!entry.key || seen.has(entry.key)) {
+      return false;
+    }
+    seen.add(entry.key);
+    return true;
+  });
+  const latestWarning = (snapshot.actions?.warnings || []).slice(-1)[0];
+  const failed =
+    snapshot.actions?.lastFailed ||
+    (state.lastLocalAction?.status === "failed"
+      ? state.lastLocalAction
+      : undefined);
+  const completed =
+    snapshot.actions?.lastCompleted ||
+    (state.lastLocalAction?.status === "completed"
+      ? state.lastLocalAction
+      : undefined);
+  const statusbar = el("footer", "action-statusbar is-idle");
+  statusbar.setAttribute("role", "status");
+  statusbar.setAttribute("aria-live", "polite");
+
+  if (uniquePending.length) {
+    const latest = uniquePending[0];
+    const label =
+      latest.status === "queued"
+        ? "Queued"
+        : latest.status === "running"
+          ? "Running"
+          : "Submitting";
+    statusbar.className = "action-statusbar is-busy";
+    const spinner = el("span", "button-spinner");
+    spinner.setAttribute("aria-hidden", "true");
+    statusbar.appendChild(spinner);
+    statusbar.appendChild(el("span", "action-statusbar-state", label));
+    statusbar.appendChild(
+      el("span", "action-statusbar-message", statusbarMessage(latest)),
+    );
+    if (uniquePending.length > 1) {
+      statusbar.appendChild(
+        el("span", "action-statusbar-count", `+${uniquePending.length - 1}`),
+      );
+    }
+    return statusbar;
+  }
+
+  if (
+    shouldShowTimedStatusbarEntry(failed, STATUSBAR_FAILED_TIMEOUT_MS, "failed")
+  ) {
+    statusbar.className = "action-statusbar is-danger";
+    statusbar.appendChild(el("span", "action-statusbar-state", "Failed"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-message", statusbarMessage(failed!)),
+    );
+    return statusbar;
+  }
+
+  if (
+    shouldShowTimedStatusbarEntry(
+      latestWarning,
+      STATUSBAR_WARNING_TIMEOUT_MS,
+      "warning",
+    )
+  ) {
+    statusbar.className = "action-statusbar is-warn";
+    statusbar.appendChild(el("span", "action-statusbar-state", "Warning"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-message", statusbarMessage(latestWarning!)),
+    );
+    return statusbar;
+  }
+
+  if (
+    shouldShowTimedStatusbarEntry(
+      completed,
+      STATUSBAR_COMPLETED_TIMEOUT_MS,
+      "completed",
+    )
+  ) {
+    statusbar.className = "action-statusbar is-ok";
+    statusbar.appendChild(el("span", "action-statusbar-state", "Completed"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-message", statusbarMessage(completed!)),
+    );
+    return statusbar;
+  }
+
+  statusbar.appendChild(el("span", "action-statusbar-state", "Ready"));
+  return statusbar;
 }
 
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
@@ -328,35 +897,54 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   logo.src = "../icons/favicon.png";
   logo.alt = "Zotero Skills";
   brand.appendChild(logo);
-  const sidebarToggle = el(
-    "button",
-    "sidebar-collapse-toggle icon-only",
-  );
+  const sidebarToggle = el("button", "sidebar-collapse-toggle icon-only");
   sidebarToggle.type = "button";
-  sidebarToggle.title = state.sidebarExpanded ? "Collapse navigation" : "Expand navigation";
+  sidebarToggle.title = state.sidebarExpanded
+    ? "Collapse navigation"
+    : "Expand navigation";
   sidebarToggle.setAttribute("aria-label", sidebarToggle.title);
-  sidebarToggle.setAttribute("aria-expanded", state.sidebarExpanded ? "true" : "false");
-  sidebarToggle.appendChild(iconSvg(state.sidebarExpanded ? "panel-close" : "panel-open"));
+  sidebarToggle.setAttribute(
+    "aria-expanded",
+    state.sidebarExpanded ? "true" : "false",
+  );
+  sidebarToggle.appendChild(
+    iconSvg(state.sidebarExpanded ? "panel-close" : "panel-open"),
+  );
   sidebarToggle.addEventListener("click", () => {
     state.sidebarExpanded = !state.sidebarExpanded;
     render();
   });
   brand.appendChild(sidebarToggle);
   sidebar.appendChild(brand);
-  const libraryLabel = el("div", "muted sidebar-library", `Library ${snapshot.libraryId}`);
+  const libraryLabel = el(
+    "div",
+    "muted sidebar-library",
+    `Library ${snapshot.libraryId}`,
+  );
   sidebar.appendChild(libraryLabel);
   const nav = el("div", "nav");
   [
     ["overview", "Home", "home"],
     ["artifacts", "Topics", "topics"],
+    ["tags", "Tags", "tags"],
+    ["concepts", "Concepts", "concepts"],
     ["graph", "Graph", "graph"],
     ["registry", "Index", "index"],
   ].forEach(([tab, label, iconName]) => {
-    const button = makeButton("", "selectTab", { tab }, snapshot.selectedTab === tab);
+    const button = makeButton(
+      "",
+      "selectTab",
+      { tab },
+      snapshot.selectedTab === tab,
+    );
     button.title = label;
     button.setAttribute("aria-label", label);
     const icon = el("span", `nav-icon nav-icon-${iconName}`);
-    icon.appendChild(iconSvg(iconName as "home" | "topics" | "graph" | "index"));
+    icon.appendChild(
+      iconSvg(
+        iconName as "home" | "topics" | "graph" | "index" | "tags" | "concepts",
+      ),
+    );
     button.appendChild(icon);
     button.appendChild(el("span", "nav-label", label));
     nav.appendChild(button);
@@ -374,6 +962,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   const main = el("section", "main");
   renderCurrentView(main, snapshot);
   content.appendChild(main);
+  content.appendChild(renderActionStatusbar(snapshot));
   root.appendChild(content);
 }
 
@@ -406,6 +995,10 @@ function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
     renderTopics(main, snapshot);
   } else if (snapshot.selectedTab === "registry") {
     renderIndex(main, snapshot);
+  } else if (snapshot.selectedTab === "tags") {
+    renderTags(main, snapshot);
+  } else if (snapshot.selectedTab === "concepts") {
+    renderConcepts(main, snapshot);
   } else if (snapshot.selectedTab === "graph") {
     renderGraph(main, snapshot);
   } else {
@@ -420,20 +1013,30 @@ function topicPaperCount(row: Record<string, unknown>) {
 
 function topicCompletion(row: Record<string, unknown>) {
   const value = Number(row.completion || 0);
-  return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.floor(value))) : 0;
+  return Number.isFinite(value)
+    ? Math.max(0, Math.min(100, Math.floor(value)))
+    : 0;
 }
 
 function sortedTopTopics(snapshot: Snapshot) {
   return [...snapshot.artifacts.rows]
-    .sort((left, right) =>
-      topicPaperCount(right) - topicPaperCount(left) ||
-      String(right.updated_at || "").localeCompare(String(left.updated_at || "")) ||
-      String(left.title || "").localeCompare(String(right.title || "")),
+    .sort(
+      (left, right) =>
+        topicPaperCount(right) - topicPaperCount(left) ||
+        String(right.updated_at || "").localeCompare(
+          String(left.updated_at || ""),
+        ) ||
+        String(left.title || "").localeCompare(String(right.title || "")),
     )
     .slice(0, 8);
 }
 
-function renderInsightCard(label: string, value: unknown, detail: string, tone = "") {
+function renderInsightCard(
+  label: string,
+  value: unknown,
+  detail: string,
+  tone = "",
+) {
   const card = el("div", `insight-card ${tone}`.trim());
   card.appendChild(el("span", "insight-label", label));
   card.appendChild(el("strong", "insight-value", String(value || "0")));
@@ -480,7 +1083,9 @@ function renderTopicCard(row: Record<string, unknown>) {
 
 function topicUpdateIntent(row: Record<string, unknown>) {
   const intent = row.updateIntent;
-  return intent && typeof intent === "object" && !(intent as Record<string, unknown>).blocked
+  return intent &&
+    typeof intent === "object" &&
+    !(intent as Record<string, unknown>).blocked
     ? (intent as Record<string, unknown>)
     : null;
 }
@@ -551,6 +1156,7 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
   );
   insights.appendChild(grid);
   shell.appendChild(insights);
+  shell.appendChild(renderGitSyncPanel(snapshot));
 
   const topics = el("section", "workspace-section");
   const topicHeader = el("div", "section-heading");
@@ -571,6 +1177,152 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(shell);
 }
 
+function renderGitSyncPanel(snapshot: Snapshot) {
+  const section = el("section", "workspace-section");
+  const header = el("div", "section-heading");
+  header.appendChild(el("h2", "", "Sync"));
+  section.appendChild(header);
+  const git = snapshot.sync?.git || {};
+  const grid = el("div", "insight-grid");
+  grid.appendChild(
+    renderInsightCard(
+      "Git exchange",
+      git.queue_state || "disabled",
+      git.paused ? "Paused" : "Canonical store exchange state",
+      git.queue_state === "blocked_conflict" ? "orange" : "teal",
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Remote",
+      git.remote_url || "Not configured",
+      git.branch ? `Branch ${git.branch}` : "Single remote branch",
+      "blue",
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Last run",
+      git.last_run_status || "-",
+      git.last_run_at || "No sync run recorded",
+    ),
+  );
+  grid.appendChild(
+    renderInsightCard(
+      "Review items",
+      git.conflict_count || 0,
+      "Canonical assets waiting for conflict review",
+      "orange",
+    ),
+  );
+  section.appendChild(grid);
+  const actions = el("div", "toolbar");
+  const allowed = new Set(git.allowedActions || []);
+  actions.appendChild(
+    makeButton(
+      "Sync now",
+      "hostCommand",
+      { command: "syncNow" },
+      false,
+      !allowed.has("syncNow"),
+    ),
+  );
+  actions.appendChild(
+    makeButton(
+      git.paused ? "Resume" : "Pause",
+      "hostCommand",
+      { command: git.paused ? "resumeGitSync" : "pauseGitSync" },
+      false,
+      git.paused ? !allowed.has("resumeGitSync") : !allowed.has("pauseGitSync"),
+    ),
+  );
+  actions.appendChild(
+    makeButton(
+      "Retry",
+      "hostCommand",
+      { command: "retryGitSync" },
+      false,
+      !allowed.has("retryGitSync"),
+    ),
+  );
+  actions.appendChild(
+    makeButton(
+      "Mark reviewed",
+      "hostCommand",
+      {
+        command: "resolveGitSyncConflict",
+        args: { action: "resolved" },
+      },
+      false,
+      !allowed.has("resolveGitSyncConflict"),
+    ),
+  );
+  section.appendChild(actions);
+  const diagnostics = [
+    ...(snapshot.sync?.diagnostics || []),
+    ...(git.diagnostics || []),
+  ];
+  if (diagnostics.length) {
+    const list = el("div", "details");
+    diagnostics.slice(0, 4).forEach((entry) => {
+      list.appendChild(
+        el(
+          "div",
+          "muted",
+          `${textValue(entry.code)}: ${textValue(entry.message)}`,
+        ),
+      );
+    });
+    section.appendChild(list);
+  }
+  if (git.queue_state === "blocked_conflict" && git.conflict_assets?.length) {
+    const asset = git.conflict_assets[0];
+    section.appendChild(
+      renderReviewPanel(
+        renderReviewCard({
+          kind: "Sync review",
+          title: textValue(asset.asset_path, "Canonical asset conflict"),
+          meta:
+            git.conflict_assets.length > 1
+              ? `${git.conflict_assets.length - 1} more asset(s) waiting`
+              : "One asset waiting",
+          body: "This canonical asset changed in more than one place. Review the affected asset before allowing sync to continue.",
+          details: [
+            ["reason", asset.reason || "both_changed"],
+            ["queue state", git.queue_state],
+            ["remote", git.remote_url || "not configured"],
+            ["branch", git.branch || "-"],
+          ],
+          actions: [
+            makeButton(
+              "Mark reviewed",
+              "hostCommand",
+              {
+                command: "resolveGitSyncConflict",
+                args: { action: "resolved" },
+              },
+              false,
+              !allowed.has("resolveGitSyncConflict"),
+            ),
+            makeButton(
+              "Skip",
+              "hostCommand",
+              {
+                command: "resolveGitSyncConflict",
+                args: { action: "skip" },
+              },
+              false,
+              !allowed.has("resolveGitSyncConflict"),
+            ),
+          ],
+        }),
+        "sync-review-panel",
+      ),
+    );
+  }
+  return section;
+}
+
 function renderTopics(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const filters = el("div", "filters");
@@ -582,8 +1334,18 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
   );
   filters.appendChild(search);
   filters.appendChild(
-    selectControl(["title", "paper_count", "updated_at"], snapshot.artifacts.filters.sort || "title", (value) =>
-      sendAction("setFilters", { artifacts: { sort: value } }),
+    selectControl(
+      ["title", "paper_count", "updated_at"],
+      snapshot.artifacts.filters.sort || "title",
+      (value) => sendAction("setFilters", { artifacts: { sort: value } }),
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "Graph",
+      "setFilters",
+      { artifacts: { viewMode: "graph" } },
+      snapshot.artifacts.filters.viewMode === "graph",
     ),
   );
   filters.appendChild(
@@ -591,7 +1353,7 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
       "List",
       "setFilters",
       { artifacts: { viewMode: "list" } },
-      snapshot.artifacts.filters.viewMode !== "grid",
+      snapshot.artifacts.filters.viewMode === "list",
     ),
   );
   filters.appendChild(
@@ -613,17 +1375,32 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
     }),
   );
   panel.appendChild(renderPanelToolbar(filters));
-  if (snapshot.artifacts.filters.viewMode === "grid") {
+  if (snapshot.artifacts.filters.viewMode === "graph") {
+    panel.appendChild(renderTopicsGraph(snapshot));
+  } else if (snapshot.artifacts.filters.viewMode === "grid") {
     const grid = el("div", "topic-grid panel-grid");
-    snapshot.artifacts.visibleRows.forEach((row) => grid.appendChild(renderTopicCard(row)));
+    snapshot.artifacts.visibleRows.forEach((row) =>
+      grid.appendChild(renderTopicCard(row)),
+    );
     panel.appendChild(grid);
   } else {
     panel.appendChild(
       tableView(
-        ["Title", "Papers", "Completion", "Coverage", "Freshness", "Updated", "Action"],
+        [
+          "Title",
+          "Papers",
+          "Completion",
+          "Coverage",
+          "Freshness",
+          "Updated",
+          "Action",
+        ],
         snapshot.artifacts.visibleRows,
         (row) => [
-          titleWithSummary(String(row.title || ""), String(row.summary || row.markdown_preview || "")),
+          titleWithSummary(
+            String(row.title || ""),
+            String(row.summary || row.markdown_preview || ""),
+          ),
           topicPaperCount(row),
           `${topicCompletion(row)}%`,
           badge(row.coverage, toneFor(row.coverage)),
@@ -655,6 +1432,529 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(panel);
 }
 
+function renderTopicsGraph(snapshot: Snapshot) {
+  const shell = el("div", "topic-graph-layout");
+  const board = el("section", "topic-graph-board");
+  const toolbar = el("div", "filters topic-graph-controls");
+  const modes = [
+    ["hierarchy", "Hierarchy"],
+    ["neighborhood", "Neighborhood"],
+    ["unplaced", "Unplaced"],
+  ] as const;
+  modes.forEach(([mode, label]) => {
+    toolbar.appendChild(
+      makeButton(
+        label,
+        "setTopicGraphView",
+        { mode },
+        snapshot.topicGraph.filters.mode === mode,
+      ),
+    );
+  });
+  const search = el("input");
+  search.placeholder = "Search topics";
+  search.value = snapshot.topicGraph.filters.search || "";
+  search.addEventListener("input", () =>
+    sendAction("setTopicGraphView", { search: search.value }),
+  );
+  toolbar.appendChild(search);
+  toolbar.appendChild(
+    makeButton("Rebuild Index", "hostCommand", {
+      command: "rebuildTopicGraphIndex",
+    }),
+  );
+  board.appendChild(toolbar);
+
+  const summary = el("div", "topic-graph-summary");
+  summary.appendChild(
+    badge(`${snapshot.topicGraph.visibleNodes.length} topics`, "ok"),
+  );
+  summary.appendChild(
+    badge(`${snapshot.topicGraph.visibleEdges.length} relations`, "warn"),
+  );
+  summary.appendChild(badge(snapshot.topicGraph.filters.mode));
+  board.appendChild(summary);
+
+  if (!snapshot.topicGraph.visibleNodes.length) {
+    const empty = el("div", "topic-graph-canvas is-empty");
+    empty.appendChild(el("div", "empty", "No topics in this graph view."));
+    board.appendChild(empty);
+  } else {
+    board.appendChild(renderTopicGraphCanvas(snapshot));
+  }
+  shell.appendChild(board);
+  shell.appendChild(renderTopicInspector(snapshot));
+  return shell;
+}
+
+type TopicGraphLayoutNode = {
+  node: Record<string, unknown>;
+  x: number;
+  y: number;
+  role: string;
+};
+
+function createSvgElement(tag: string) {
+  return document.createElementNS("http://www.w3.org/2000/svg", tag);
+}
+
+function topicGraphNodeId(node: Record<string, unknown>) {
+  return textValue(node.topic_id);
+}
+
+function distribute(index: number, count: number, min = 14, max = 86) {
+  if (count <= 1) {
+    return 50;
+  }
+  return min + ((max - min) * index) / (count - 1);
+}
+
+function clampPosition(value: number) {
+  return Math.max(8, Math.min(92, value));
+}
+
+function topicGraphNodeRole(node: Record<string, unknown>, fallback: string) {
+  if (node.is_root || node.level === "top") {
+    return "root";
+  }
+  if (Array.isArray(node.relation_statuses)) {
+    if (node.relation_statuses.includes("suggested")) {
+      return "suggested";
+    }
+    if (node.relation_statuses.includes("confirmed")) {
+      return "linked";
+    }
+  }
+  return fallback;
+}
+
+function computeTopicGraphLayout(snapshot: Snapshot): TopicGraphLayoutNode[] {
+  const nodes = snapshot.topicGraph.visibleNodes;
+  const byId = new Map(nodes.map((node) => [topicGraphNodeId(node), node]));
+  const placed = new Map<string, TopicGraphLayoutNode>();
+  const place = (
+    node: Record<string, unknown> | undefined,
+    x: number,
+    y: number,
+    role: string,
+  ) => {
+    if (!node) return;
+    const id = topicGraphNodeId(node);
+    if (!id || placed.has(id)) return;
+    placed.set(id, {
+      node,
+      x: clampPosition(x),
+      y: clampPosition(y),
+      role: topicGraphNodeRole(node, role),
+    });
+  };
+
+  if (
+    snapshot.topicGraph.filters.mode === "neighborhood" &&
+    snapshot.topicGraph.inspector.topic
+  ) {
+    const selected = byId.get(
+      topicGraphNodeId(snapshot.topicGraph.inspector.topic),
+    );
+    place(selected, 50, 50, "selected");
+    snapshot.topicGraph.inspector.parents.forEach((node, index, group) =>
+      place(
+        byId.get(topicGraphNodeId(node)),
+        distribute(index, group.length),
+        18,
+        "parent",
+      ),
+    );
+    snapshot.topicGraph.inspector.children.forEach((node, index, group) =>
+      place(
+        byId.get(topicGraphNodeId(node)),
+        distribute(index, group.length),
+        82,
+        "child",
+      ),
+    );
+    snapshot.topicGraph.inspector.related.forEach((entry, index, group) => {
+      const side = index % 2 === 0 ? 20 : 80;
+      const row = Math.floor(index / 2);
+      const rows = Math.ceil(group.length / 2);
+      place(
+        byId.get(topicGraphNodeId(entry.node)),
+        side,
+        distribute(row, rows, 34, 66),
+        "related",
+      );
+    });
+    const leftovers = nodes.filter(
+      (node) => !placed.has(topicGraphNodeId(node)),
+    );
+    leftovers.forEach((node, index) =>
+      place(node, distribute(index, leftovers.length, 20, 80), 66, "related"),
+    );
+    return [...placed.values()];
+  }
+
+  if (snapshot.topicGraph.filters.mode === "unplaced") {
+    const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
+    const rows = Math.max(1, Math.ceil(nodes.length / columns));
+    nodes.forEach((node, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      place(
+        node,
+        distribute(column, columns, 18, 82),
+        distribute(row, rows, 24, 76),
+        "unplaced",
+      );
+    });
+    return [...placed.values()];
+  }
+
+  const depths = new Map(nodes.map((node) => [topicGraphNodeId(node), 0]));
+  const broaderEdges = snapshot.topicGraph.visibleEdges.filter(
+    (edge) =>
+      textValue(edge.relation) === "broader_than" &&
+      byId.has(textValue(edge.source_topic_id)) &&
+      byId.has(textValue(edge.target_topic_id)),
+  );
+  for (let pass = 0; pass < nodes.length; pass += 1) {
+    broaderEdges.forEach((edge) => {
+      const parentId = textValue(edge.source_topic_id);
+      const childId = textValue(edge.target_topic_id);
+      depths.set(
+        childId,
+        Math.max(depths.get(childId) || 0, (depths.get(parentId) || 0) + 1),
+      );
+    });
+  }
+  const maxDepth = Math.max(0, ...Array.from(depths.values()));
+  const groups = new Map<number, Array<Record<string, unknown>>>();
+  nodes.forEach((node) => {
+    const depth = depths.get(topicGraphNodeId(node)) || 0;
+    groups.set(depth, [...(groups.get(depth) || []), node]);
+  });
+  Array.from(groups.entries())
+    .sort(([left], [right]) => left - right)
+    .forEach(([depth, group]) => {
+      group
+        .sort((left, right) =>
+          textValue(left.title).localeCompare(textValue(right.title)),
+        )
+        .forEach((node, index) =>
+          place(
+            node,
+            distribute(index, group.length, 16, 84),
+            maxDepth ? distribute(depth, maxDepth + 1, 18, 82) : 50,
+            depth === 0 ? "root" : "child",
+          ),
+        );
+    });
+  return [...placed.values()];
+}
+
+function renderTopicGraphCanvas(snapshot: Snapshot) {
+  const canvas = el(
+    "div",
+    `topic-graph-canvas mode-${snapshot.topicGraph.filters.mode}`,
+  );
+  const layout = computeTopicGraphLayout(snapshot);
+  const positions = new Map(
+    layout.map((entry) => [topicGraphNodeId(entry.node), entry]),
+  );
+  const svg = createSvgElement("svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+
+  const defs = createSvgElement("defs");
+  const marker = createSvgElement("marker");
+  marker.setAttribute("id", "topic-graph-arrow");
+  marker.setAttribute("markerWidth", "8");
+  marker.setAttribute("markerHeight", "8");
+  marker.setAttribute("refX", "7");
+  marker.setAttribute("refY", "4");
+  marker.setAttribute("orient", "auto");
+  const arrow = createSvgElement("path");
+  arrow.setAttribute("d", "M0,0 L8,4 L0,8 Z");
+  marker.appendChild(arrow);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  snapshot.topicGraph.visibleEdges.forEach((edge) => {
+    const source = positions.get(textValue(edge.source_topic_id));
+    const target = positions.get(textValue(edge.target_topic_id));
+    if (!source || !target) return;
+    const path = createSvgElement("path");
+    const relation = textValue(edge.relation, "related_to");
+    const status = textValue(edge.status, "suggested");
+    const midY = (source.y + target.y) / 2;
+    path.setAttribute(
+      "d",
+      `M${source.x},${source.y} C${source.x},${midY} ${target.x},${midY} ${target.x},${target.y}`,
+    );
+    path.setAttribute(
+      "class",
+      `topic-graph-link relation-${relation} status-${status}`,
+    );
+    if (relation === "broader_than") {
+      path.setAttribute("marker-end", "url(#topic-graph-arrow)");
+    }
+    const title = createSvgElement("title");
+    title.textContent = `${relation}: ${textValue(edge.source_topic_id)} -> ${textValue(edge.target_topic_id)} (${status})`;
+    path.appendChild(title);
+    svg.appendChild(path);
+  });
+  canvas.appendChild(svg);
+
+  layout.forEach((entry) => {
+    const node = renderTopicGraphNode(entry.node, snapshot);
+    node.classList.add(`role-${entry.role}`);
+    node.style.left = `${entry.x}%`;
+    node.style.top = `${entry.y}%`;
+    canvas.appendChild(node);
+  });
+
+  const legend = el("div", "topic-graph-legend");
+  [
+    ["broader_than", "Hierarchy"],
+    ["related_to", "Related"],
+    ["overlaps_with", "Overlap"],
+    ["contrasts_with", "Contrast"],
+  ].forEach(([relation, label]) => {
+    const item = el("span", `topic-graph-legend-item relation-${relation}`);
+    item.appendChild(el("span", "topic-graph-legend-line"));
+    item.appendChild(el("span", "", label));
+    legend.appendChild(item);
+  });
+  canvas.appendChild(legend);
+  return canvas;
+}
+
+function renderTopicGraphNode(
+  node: Record<string, unknown>,
+  snapshot: Snapshot,
+) {
+  const selected =
+    textValue(node.topic_id) === snapshot.topicGraph.inspector.topic?.topic_id;
+  const card = el(
+    "button",
+    selected ? "topic-graph-node active" : "topic-graph-node",
+  );
+  card.type = "button";
+  card.addEventListener("click", () =>
+    sendAction("setTopicGraphView", {
+      selectedTopicId: textValue(node.topic_id),
+      mode:
+        snapshot.topicGraph.filters.mode === "unplaced"
+          ? "unplaced"
+          : "neighborhood",
+    }),
+  );
+  card.appendChild(el("span", "topic-node-title", textValue(node.title)));
+  const meta = el(
+    "span",
+    "topic-node-meta",
+    `${numberValue(node.paper_count, 0)} papers`,
+  );
+  card.appendChild(meta);
+  const badges = el("span", "tag-row");
+  badges.appendChild(badge(textValue(node.node_type)));
+  if (node.is_root || node.level === "top") {
+    badges.appendChild(badge("top", "ok"));
+  }
+  if (Array.isArray(node.relation_statuses)) {
+    node.relation_statuses.forEach((status) =>
+      badges.appendChild(badge(status, toneFor(status))),
+    );
+  }
+  card.appendChild(badges);
+  return card;
+}
+
+function renderTopicInspector(snapshot: Snapshot) {
+  const inspector = el("aside", "topic-inspector");
+  inspector.appendChild(el("h3", "", "Topic Inspector"));
+  const topic = snapshot.topicGraph.inspector.topic;
+  if (!topic) {
+    inspector.appendChild(el("div", "empty", "No topic selected."));
+    return inspector;
+  }
+  inspector.appendChild(el("h4", "", textValue(topic.title)));
+  inspector.appendChild(el("p", "muted", textValue(topic.topic_id)));
+  const metrics = el("div", "metric-grid");
+  metrics.appendChild(metric("Papers", numberValue(topic.paper_count, 0)));
+  metrics.appendChild(
+    metric("Suggested", snapshot.topicGraph.inspector.suggestedCount),
+  );
+  metrics.appendChild(
+    metric("Last synthesis", textValue(topic.last_synthesis_at, "-")),
+  );
+  inspector.appendChild(metrics);
+  inspector.appendChild(
+    relationSection("Parents", snapshot.topicGraph.inspector.parents),
+  );
+  inspector.appendChild(
+    relationSection("Children", snapshot.topicGraph.inspector.children),
+  );
+  const related = el("div", "relation-section");
+  related.appendChild(el("h4", "", "Related"));
+  if (!snapshot.topicGraph.inspector.related.length) {
+    related.appendChild(el("p", "muted", "-"));
+  } else {
+    snapshot.topicGraph.inspector.related.forEach((entry) => {
+      const row = el("div", "relation-row");
+      row.appendChild(badge(entry.relation, toneFor(entry.status)));
+      row.appendChild(el("span", "", textValue(entry.node.title)));
+      row.appendChild(badge(entry.status, toneFor(entry.status)));
+      related.appendChild(row);
+    });
+  }
+  inspector.appendChild(related);
+  const reviewPanel = renderTopicGraphReviewPanel(snapshot);
+  if (reviewPanel) {
+    inspector.appendChild(reviewPanel);
+  }
+  return inspector;
+}
+
+function renderTopicGraphReviewPanel(snapshot: Snapshot) {
+  const topic = snapshot.topicGraph.inspector.topic;
+  const suggestions = (
+    snapshot.topicGraph.inspector.suggestedRelations || []
+  ).filter(
+    (relation) =>
+      !isReviewOptimisticallyResolved("topic-edge", relation.edge_id),
+  );
+  const relationReviews = (
+    snapshot.topicGraph.inspector.relationReviewItems || []
+  ).filter(
+    (item) => !isReviewOptimisticallyResolved("topic-review", item.review_id),
+  );
+  const nodesById = new Map(
+    (snapshot.topicGraph.nodes || []).map((node) => [
+      textValue(node.topic_id),
+      node,
+    ]),
+  );
+  const firstSuggestion = suggestions[0];
+  if (firstSuggestion) {
+    const sourceTitle =
+      textValue(
+        nodesById.get(textValue(firstSuggestion.source_topic_id))?.title,
+      ) || textValue(firstSuggestion.source_topic_id, "Source topic");
+    const targetTitle =
+      textValue(
+        nodesById.get(textValue(firstSuggestion.target_topic_id))?.title,
+      ) || textValue(firstSuggestion.target_topic_id, "Target topic");
+    return renderReviewPanel(
+      renderReviewCard({
+        kind: "Topic relation",
+        title: `${sourceTitle} -> ${textValue(firstSuggestion.relation)} -> ${targetTitle}`,
+        meta:
+          suggestions.length + relationReviews.length > 1
+            ? `${suggestions.length + relationReviews.length - 1} more review item(s)`
+            : "Suggested relation",
+        body: "Accepting confirms this suggested topic graph relation; rejecting keeps it out of the active graph.",
+        details: [
+          ["current topic", topic?.title || topic?.topic_id],
+          ["source topic", sourceTitle],
+          ["target topic", targetTitle],
+          ["relation", firstSuggestion.relation],
+          ["confidence", firstSuggestion.confidence],
+          ["evidence", firstSuggestion.evidence_refs],
+          ["provenance", firstSuggestion.provenance],
+          ["status", firstSuggestion.status || "suggested"],
+        ],
+        actions: [
+          makeButton("Accept", "hostCommand", {
+            command: "acceptTopicGraphRelation",
+            args: { edgeId: textValue(firstSuggestion.edge_id) },
+          }),
+          makeButton("Reject", "hostCommand", {
+            command: "rejectTopicGraphRelation",
+            args: { edgeId: textValue(firstSuggestion.edge_id) },
+          }),
+        ],
+      }),
+      "topic-review-panel",
+    );
+  }
+  const item = relationReviews[0];
+  if (!item) {
+    return null;
+  }
+  const sourceTitle =
+    textValue(nodesById.get(textValue(item.source_topic_id))?.title) ||
+    textValue(item.source_topic_id, "Source topic");
+  const targetTitle =
+    textValue(item.target_title) ||
+    textValue(nodesById.get(textValue(item.target_topic_id))?.title) ||
+    textValue(item.target_topic_id, "Target topic");
+  return renderReviewPanel(
+    renderReviewCard({
+      kind: "Relation review",
+      title: `${sourceTitle} -> ${textValue(item.relation)} -> ${targetTitle}`,
+      meta:
+        relationReviews.length > 1
+          ? `${relationReviews.length - 1} more review item(s)`
+          : "Open review item",
+      body:
+        textValue(item.reason) ||
+        "Review whether this low-confidence relation proposal should become a suggested topic graph edge.",
+      details: [
+        ["relation", item.relation || item.proposal_type],
+        ["source topic", sourceTitle],
+        ["target topic", targetTitle],
+        ["confidence", item.confidence],
+        ["evidence", item.evidence_refs || item.evidence],
+        ["provenance", item.provenance],
+        ["diagnostics", item.diagnostics],
+      ],
+      actions: [
+        makeButton("Approve", "hostCommand", {
+          command: "applyTopicGraphReviewAction",
+          args: {
+            reviewId: textValue(item.review_id),
+            action: "approve_suggested",
+          },
+        }),
+        makeButton("Reject", "hostCommand", {
+          command: "applyTopicGraphReviewAction",
+          args: { reviewId: textValue(item.review_id), action: "reject" },
+        }),
+      ],
+    }),
+    "topic-review-panel",
+  );
+}
+
+function metric(label: string, value: unknown) {
+  const item = el("div", "metric");
+  item.appendChild(el("strong", "", String(value || "-")));
+  item.appendChild(el("span", "muted", label));
+  return item;
+}
+
+function relationSection(title: string, rows: Array<Record<string, unknown>>) {
+  const section = el("div", "relation-section");
+  section.appendChild(el("h4", "", title));
+  if (!rows.length) {
+    section.appendChild(el("p", "muted", "-"));
+    return section;
+  }
+  rows.forEach((row) => {
+    const item = el("button", "link-button", textValue(row.title));
+    item.type = "button";
+    item.addEventListener("click", () =>
+      sendAction("setTopicGraphView", {
+        selectedTopicId: textValue(row.topic_id),
+        mode: "neighborhood",
+      }),
+    );
+    section.appendChild(item);
+  });
+  return section;
+}
+
 function renderPanelToolbar(content: HTMLElement) {
   const header = el("div", "panel-header panel-toolbar");
   header.appendChild(content);
@@ -675,6 +1975,91 @@ function actionGroup(buttons: HTMLElement[]) {
   const group = el("div", "action-group");
   buttons.forEach((button) => group.appendChild(button));
   return group;
+}
+
+type ReviewCardOptions = {
+  kind: string;
+  title: string;
+  tone?: string;
+  meta?: string;
+  body?: string;
+  details?: Array<[string, unknown]>;
+  badges?: Array<[string, string?]>;
+  children?: HTMLElement[];
+  actions?: HTMLElement[];
+};
+
+function renderReviewPanel(card: HTMLElement, className = "") {
+  const panel = el(
+    "section",
+    `review-panel review-panel-enter ${className}`.trim(),
+  );
+  panel.appendChild(card);
+  return panel;
+}
+
+function renderReviewCard(options: ReviewCardOptions) {
+  const card = el("article", "review-card");
+  const header = el("div", "review-card-header");
+  const title = el("div", "review-card-title");
+  title.appendChild(badge(options.kind, options.tone || "warn"));
+  title.appendChild(el("strong", "", options.title));
+  header.appendChild(title);
+  if (options.meta) {
+    header.appendChild(el("span", "muted", options.meta));
+  }
+  card.appendChild(header);
+  const badgeList = options.badges?.filter(([value]) => textValue(value)) || [];
+  if (badgeList.length) {
+    const row = el("div", "review-card-badges");
+    badgeList.forEach(([value, tone]) => row.appendChild(badge(value, tone)));
+    card.appendChild(row);
+  }
+  if (options.body) {
+    card.appendChild(el("p", "review-card-body", options.body));
+  }
+  const details =
+    options.details?.filter(([, value]) => hasStructuredContent(value)) || [];
+  if (details.length) {
+    const list = el("div", "review-card-details");
+    details.forEach(([label, value]) => {
+      const row = el("div", "detail-row");
+      row.appendChild(el("span", "muted", label));
+      row.appendChild(el("strong", "", compactReviewValue(value)));
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+  }
+  (options.children || []).forEach((child) => card.appendChild(child));
+  if (options.actions?.length) {
+    card.appendChild(actionGroup(options.actions));
+  }
+  return card;
+}
+
+function compactReviewValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (isRecord(entry)) {
+          return (
+            firstText(entry, ["label", "title", "tag", "id", "code"]) ||
+            JSON.stringify(entry)
+          );
+        }
+        return textValue(entry);
+      })
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(", ");
+  }
+  if (isRecord(value)) {
+    return (
+      firstText(value, ["message", "summary", "label", "title", "code"]) ||
+      JSON.stringify(value)
+    );
+  }
+  return textValue(value, "-");
 }
 
 function getMarkdownParser() {
@@ -702,12 +2087,114 @@ function getMarkdownParser() {
   return parser;
 }
 
+function conceptOverlayEntries(snapshot?: Snapshot | null) {
+  if (!snapshot?.concepts?.filters?.overlayEnabled) {
+    return [] as Array<Record<string, unknown>>;
+  }
+  return Array.isArray(snapshot.concepts.overlayEntries)
+    ? snapshot.concepts.overlayEntries
+    : [];
+}
+
+function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
+  const entries = conceptOverlayEntries(snapshot);
+  if (!entries.length) {
+    return root;
+  }
+  const escaped = entries
+    .map((entry) => textValue(entry.alias))
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+    .map((entry) => entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!escaped.length) {
+    return root;
+  }
+  const byAlias = new Map(
+    entries.map((entry) => [textValue(entry.alias).toLowerCase(), entry]),
+  );
+  const pattern = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
+  const linkedSenseIds = new Set<string>();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const parent = node.parentElement;
+    if (
+      parent?.closest(
+        "a, code, pre, kbd, samp, script, style, .katex, .math, .concept-link",
+      )
+    ) {
+      continue;
+    }
+    if (node.nodeValue && pattern.test(node.nodeValue)) {
+      textNodes.push(node);
+    }
+    pattern.lastIndex = 0;
+  }
+  for (const textNode of textNodes) {
+    const text = textNode.nodeValue || "";
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    text.replace(pattern, (match, _alias, offset: number) => {
+      const entry = byAlias.get(match.toLowerCase());
+      const senseKey = textValue(entry?.sense_id || entry?.concept_id);
+      if (!entry || linkedSenseIds.has(senseKey)) {
+        return match;
+      }
+      fragment.appendChild(
+        document.createTextNode(text.slice(lastIndex, offset)),
+      );
+      const link = el("button", "concept-link", match);
+      link.type = "button";
+      link.setAttribute("data-concept-id", textValue(entry.concept_id));
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        showConceptBubble(link, entry);
+      });
+      fragment.appendChild(link);
+      linkedSenseIds.add(senseKey);
+      lastIndex = offset + match.length;
+      return match;
+    });
+    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+    textNode.parentNode?.replaceChild(fragment, textNode);
+  }
+  return root;
+}
+
+function showConceptBubble(
+  anchor: HTMLElement,
+  entry: Record<string, unknown>,
+) {
+  document
+    .querySelectorAll(".concept-bubble")
+    .forEach((node: Element) => node.remove());
+  const bubble = el("div", "concept-bubble");
+  bubble.appendChild(el("strong", "", textValue(entry.label || entry.alias)));
+  bubble.appendChild(
+    el(
+      "p",
+      "muted",
+      textValue(entry.short_definition || entry.definition, "No definition."),
+    ),
+  );
+  const open = makeButton("Open Concept", "selectConcept", {
+    conceptId: textValue(entry.concept_id),
+  });
+  bubble.appendChild(open);
+  const rect = anchor.getBoundingClientRect();
+  bubble.style.position = "fixed";
+  bubble.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 260))}px`;
+  bubble.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 160)}px`;
+  document.body?.appendChild(bubble);
+}
+
 function renderMarkdown(markdown: string) {
   const parser = getMarkdownParser();
   if (!parser) {
     const pre = el("pre", "markdown-fallback");
     pre.textContent = markdown;
-    return pre;
+    return applyConceptOverlay(pre, state.snapshot);
   }
   const body = el("article", "reader-body markdown-body");
   body.innerHTML = sanitizeRenderedMarkdown(parser.render(markdown));
@@ -720,7 +2207,7 @@ function renderMarkdown(markdown: string) {
     anchor.setAttribute("target", "_blank");
     anchor.setAttribute("rel", "noreferrer noopener");
   });
-  return body;
+  return applyConceptOverlay(body, state.snapshot);
 }
 
 function sanitizeRenderedMarkdown(html: string) {
@@ -786,7 +2273,11 @@ function hasStructuredContent(value: unknown) {
   return !!textValue(value);
 }
 
-function firstText(row: Record<string, unknown>, keys: string[], fallback = "") {
+function firstText(
+  row: Record<string, unknown>,
+  keys: string[],
+  fallback = "",
+) {
   for (const key of keys) {
     const value = textValue(row[key]);
     if (value) {
@@ -799,16 +2290,23 @@ function firstText(row: Record<string, unknown>, keys: string[], fallback = "") 
 function renderParagraphs(value: unknown) {
   const box = el("div", "topic-prose");
   if (Array.isArray(value)) {
-    value.map((entry) => textValue(entry)).filter(Boolean).forEach((entry) => {
-      box.appendChild(el("p", "", entry));
-    });
+    value
+      .map((entry) => textValue(entry))
+      .filter(Boolean)
+      .forEach((entry) => {
+        box.appendChild(el("p", "", entry));
+      });
     return box;
   }
   const text = textValue(value);
   if (text) {
-    text.split(/\n{2,}/).map((entry) => entry.trim()).filter(Boolean).forEach((entry) => {
-      box.appendChild(el("p", "", entry));
-    });
+    text
+      .split(/\n{2,}/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .forEach((entry) => {
+        box.appendChild(el("p", "", entry));
+      });
   }
   return box;
 }
@@ -820,12 +2318,18 @@ function renderKeyValueList(value: Record<string, unknown>): HTMLElement {
     row.appendChild(el("span", "muted", key.replace(/_/g, " ")));
     if (raw === null || raw === undefined) {
       row.appendChild(el("strong", "", "-"));
-    } else if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+    } else if (
+      typeof raw === "string" ||
+      typeof raw === "number" ||
+      typeof raw === "boolean"
+    ) {
       row.appendChild(el("strong", "", String(raw)));
     } else if (Array.isArray(raw)) {
       const arrWrap = el("div", "kv-array-wrap");
       raw.forEach((item) => {
-        arrWrap.appendChild(badge(typeof item === "object" ? JSON.stringify(item) : String(item)));
+        arrWrap.appendChild(
+          badge(typeof item === "object" ? JSON.stringify(item) : String(item)),
+        );
       });
       row.appendChild(arrWrap);
     } else if (typeof raw === "object") {
@@ -833,7 +2337,13 @@ function renderKeyValueList(value: Record<string, unknown>): HTMLElement {
       Object.entries(raw as Record<string, unknown>).forEach(([subK, subV]) => {
         const subRow = el("div", "kv-sub-row");
         subRow.appendChild(el("span", "muted", subK.replace(/_/g, " ") + ": "));
-        subRow.appendChild(el("span", "", typeof subV === "object" ? JSON.stringify(subV) : String(subV)));
+        subRow.appendChild(
+          el(
+            "span",
+            "",
+            typeof subV === "object" ? JSON.stringify(subV) : String(subV),
+          ),
+        );
         subList.appendChild(subRow);
       });
       row.appendChild(subList);
@@ -860,7 +2370,13 @@ function evidenceCode(evidence: Record<string, unknown>, index = 0) {
 }
 
 function evidenceId(evidence: Record<string, unknown>) {
-  return firstText(evidence, ["id", "paper_ref", "paperRef", "item_key", "itemKey"]);
+  return firstText(evidence, [
+    "id",
+    "paper_ref",
+    "paperRef",
+    "item_key",
+    "itemKey",
+  ]);
 }
 
 function evidenceRefKeys(evidence: Record<string, unknown>) {
@@ -886,12 +2402,19 @@ function evidenceForRef(detail: TopicDetailDto, ref: unknown) {
   });
 }
 
-function primaryEvidenceForEvent(detail: TopicDetailDto, event: Record<string, unknown>) {
+function primaryEvidenceForEvent(
+  detail: TopicDetailDto,
+  event: Record<string, unknown>,
+) {
   const refs = stringArray(event.evidence_refs);
   if (refs.length) {
     return evidenceForRef(detail, refs[0]);
   }
-  const direct = firstText(event, ["paper_evidence_id", "evidence_id", "paper_ref"]);
+  const direct = firstText(event, [
+    "paper_evidence_id",
+    "evidence_id",
+    "paper_ref",
+  ]);
   return direct ? evidenceForRef(detail, direct) : undefined;
 }
 
@@ -929,7 +2452,11 @@ function selectEvidenceRef(detail: TopicDetailDto, ref: unknown) {
   render();
 }
 
-function evidenceRefChips(detail: TopicDetailDto, refs: unknown, tone = "blue") {
+function evidenceRefChips(
+  detail: TopicDetailDto,
+  refs: unknown,
+  tone = "blue",
+) {
   const chips = el("div", "evidence-chips");
   stringArray(refs).forEach((ref) => {
     const chip = el("button", `chip ${tone}`, ref);
@@ -951,12 +2478,20 @@ function renderEmptyStructuredState(label = "No structured data") {
   const empty = el("div", "structured-empty");
   empty.appendChild(el("strong", "", label));
   empty.appendChild(
-    el("p", "muted", "This section was not materialized in the current structured artifact."),
+    el(
+      "p",
+      "muted",
+      "This section was not materialized in the current structured artifact.",
+    ),
   );
   return empty;
 }
 
-function renderContentCard(title: string, body?: Node | string, className = "content-card") {
+function renderContentCard(
+  title: string,
+  body?: Node | string,
+  className = "content-card",
+) {
   const card = el("section", className);
   card.appendChild(el("h3", "", title));
   if (typeof body === "string") {
@@ -970,14 +2505,14 @@ function renderContentCard(title: string, body?: Node | string, className = "con
 function renderTopicOverviewSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", "Overview"));
-  
+
   const summaryText =
     detail.summary?.text ||
     detail.summary?.brief ||
     detail.summary?.summary ||
     detail.summary?.long_summary ||
     detail.positioning?.review_position;
-    
+
   if (summaryText) {
     const summaryCard = el("div", "overview-summary-hero");
     summaryCard.appendChild(el("h3", "hero-title", "Synthesis Summary"));
@@ -988,7 +2523,13 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   const positioning = detail.positioning || {};
   if (hasStructuredContent(positioning)) {
     const dash = el("div", "overview-dashboard");
-    ["importance", "timeliness", "review_position", "concept_position", "why_synthesize"].forEach((key) => {
+    [
+      "importance",
+      "timeliness",
+      "review_position",
+      "concept_position",
+      "why_synthesize",
+    ].forEach((key) => {
       const text = textValue(positioning[key]);
       if (text) {
         const metric = el("div", "dashboard-metric");
@@ -1001,7 +2542,9 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
     if (hasStructuredContent(boundary)) {
       const metric = el("div", "dashboard-metric span-2");
       metric.appendChild(el("div", "metric-label", "Scope Boundary"));
-      metric.appendChild(renderKeyValueList(boundary as Record<string, unknown>));
+      metric.appendChild(
+        renderKeyValueList(boundary as Record<string, unknown>),
+      );
       dash.appendChild(metric);
     }
     if (dash.childElementCount) section.appendChild(dash);
@@ -1017,28 +2560,45 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   if (outlineRows.length) {
     const outlineSection = el("div", "overview-outline-section");
     outlineSection.appendChild(el("h3", "", "Review Outline"));
-    
+
     const stepper = el("div", "outline-stepper");
     outlineRows.slice(0, 8).forEach((row, index) => {
       const step = el("div", "outline-step");
-      
+
       const marker = el("div", "step-marker");
       marker.appendChild(el("span", "step-number", `${index + 1}`));
       step.appendChild(marker);
-      
+
       const content = el("div", "step-content");
-      content.appendChild(el("h4", "", firstText(row, ["title", "heading", "purpose", "id"], `Step ${index + 1}`)));
-      
-      const text = firstText(row, ["summary", "description", "purpose", "rationale"]);
+      content.appendChild(
+        el(
+          "h4",
+          "",
+          firstText(
+            row,
+            ["title", "heading", "purpose", "id"],
+            `Step ${index + 1}`,
+          ),
+        ),
+      );
+
+      const text = firstText(row, [
+        "summary",
+        "description",
+        "purpose",
+        "rationale",
+      ]);
       if (text) content.appendChild(el("p", "", text));
-      
-      const refs = stringArray(row.evidence_map_refs || row.source_section_refs);
+
+      const refs = stringArray(
+        row.evidence_map_refs || row.source_section_refs,
+      );
       if (refs.length) {
         const foot = el("div", "step-footer");
         foot.appendChild(traceChips(refs));
         content.appendChild(foot);
       }
-      
+
       step.appendChild(content);
       stepper.appendChild(step);
     });
@@ -1059,87 +2619,128 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
   const summary = recordValue(taxonomy.summary);
   const summaryText = firstText(summary, ["text", "analysis", "overview"]);
   if (summaryText) {
-    section.appendChild(renderContentCard("Route Synthesis", renderParagraphs(summaryText)));
+    section.appendChild(
+      renderContentCard("Route Synthesis", renderParagraphs(summaryText)),
+    );
   }
-  const axis = firstText(taxonomy, ["primary_axis", "axis", "classification_axis"]);
-  const rationale = firstText(taxonomy, ["axis_rationale", "rationale", "reason"]);
+  const axis = firstText(taxonomy, [
+    "primary_axis",
+    "axis",
+    "classification_axis",
+  ]);
+  const rationale = firstText(taxonomy, [
+    "axis_rationale",
+    "rationale",
+    "reason",
+  ]);
   if (axis || rationale) {
     const head = el("div", "taxonomy-head");
     if (axis) head.appendChild(badge(axis, "blue"));
     if (rationale) head.appendChild(renderParagraphs(rationale));
     section.appendChild(renderContentCard("Classification Axis", head));
   }
-  const nodes = recordArray(taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes);
+  const nodes = recordArray(
+    taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes,
+  );
   if (nodes.length) {
     const list = el("div", "taxonomy-list");
     nodes.forEach((node, index) => {
       const card = el("article", "taxonomy-list-item");
-      
+
       const header = el("header", "taxonomy-item-header");
       const titleWrap = el("div", "taxonomy-item-title");
       titleWrap.appendChild(el("span", "claim-index", `T${index + 1}`));
-      titleWrap.appendChild(el("h3", "", firstText(node, ["title", "label", "name", "id"], `Node ${index + 1}`)));
+      titleWrap.appendChild(
+        el(
+          "h3",
+          "",
+          firstText(
+            node,
+            ["title", "label", "name", "id"],
+            `Node ${index + 1}`,
+          ),
+        ),
+      );
       header.appendChild(titleWrap);
-      
-      const maturity = firstText(node, ["maturity", "status", "development_stage"]);
+
+      const maturity = firstText(node, [
+        "maturity",
+        "status",
+        "development_stage",
+      ]);
       if (maturity) header.appendChild(badge(maturity, "purple"));
       card.appendChild(header);
 
-      const text = firstText(node, ["description", "summary", "rationale", "definition"]);
+      const text = firstText(node, [
+        "description",
+        "summary",
+        "rationale",
+        "definition",
+      ]);
       if (text) card.appendChild(el("p", "taxonomy-item-desc", text));
-      
+
       const detailsWrap = el("div", "taxonomy-item-details");
-      
+
       const probMech = el("div", "taxonomy-detail-group");
-      const prob = firstText(node, ["core_problem", "problem", "target_problem"]);
+      const prob = firstText(node, [
+        "core_problem",
+        "problem",
+        "target_problem",
+      ]);
       if (prob) {
-          const pDiv = el("div", "taxonomy-detail-row");
-          pDiv.appendChild(el("span", "muted", "Problem"));
-          pDiv.appendChild(el("strong", "", prob));
-          probMech.appendChild(pDiv);
+        const pDiv = el("div", "taxonomy-detail-row");
+        pDiv.appendChild(el("span", "muted", "Problem"));
+        pDiv.appendChild(el("strong", "", prob));
+        probMech.appendChild(pDiv);
       }
-      const mech = firstText(node, ["mechanism", "technical_mechanism", "core_mechanism"]);
+      const mech = firstText(node, [
+        "mechanism",
+        "technical_mechanism",
+        "core_mechanism",
+      ]);
       if (mech) {
-          const mDiv = el("div", "taxonomy-detail-row");
-          mDiv.appendChild(el("span", "muted", "Mechanism"));
-          mDiv.appendChild(el("strong", "", mech));
-          probMech.appendChild(mDiv);
+        const mDiv = el("div", "taxonomy-detail-row");
+        mDiv.appendChild(el("span", "muted", "Mechanism"));
+        mDiv.appendChild(el("strong", "", mech));
+        probMech.appendChild(mDiv);
       }
       if (probMech.childElementCount) detailsWrap.appendChild(probMech);
 
       const prosCons = el("div", "taxonomy-detail-group pros-cons");
       const strengths = stringArray(node.strengths || node.advantages);
       if (strengths.length) {
-          const sDiv = el("div", "taxonomy-detail-row");
-          sDiv.appendChild(el("span", "muted", "Strengths"));
-          const sList = el("ul", "taxonomy-bullet-list");
-          strengths.forEach((st) => sList.appendChild(el("li", "pro-item", st)));
-          sDiv.appendChild(sList);
-          prosCons.appendChild(sDiv);
+        const sDiv = el("div", "taxonomy-detail-row");
+        sDiv.appendChild(el("span", "muted", "Strengths"));
+        const sList = el("ul", "taxonomy-bullet-list");
+        strengths.forEach((st) => sList.appendChild(el("li", "pro-item", st)));
+        sDiv.appendChild(sList);
+        prosCons.appendChild(sDiv);
       }
       const limits = stringArray(node.limitations || node.weaknesses);
       if (limits.length) {
-          const lDiv = el("div", "taxonomy-detail-row");
-          lDiv.appendChild(el("span", "muted", "Limitations"));
-          const lList = el("ul", "taxonomy-bullet-list");
-          limits.forEach((lt) => lList.appendChild(el("li", "con-item", lt)));
-          lDiv.appendChild(lList);
-          prosCons.appendChild(lDiv);
+        const lDiv = el("div", "taxonomy-detail-row");
+        lDiv.appendChild(el("span", "muted", "Limitations"));
+        const lList = el("ul", "taxonomy-bullet-list");
+        limits.forEach((lt) => lList.appendChild(el("li", "con-item", lt)));
+        lDiv.appendChild(lList);
+        prosCons.appendChild(lDiv);
       }
       if (prosCons.childElementCount) detailsWrap.appendChild(prosCons);
-      
+
       if (detailsWrap.childElementCount) card.appendChild(detailsWrap);
 
-      const refs = node.evidence_refs || node.paper_refs || node.paper_unit_refs;
+      const refs =
+        node.evidence_refs || node.paper_refs || node.paper_unit_refs;
       if (stringArray(refs).length) {
-          const foot = el("footer", "taxonomy-item-footer");
-          foot.appendChild(evidenceRefChips(detail, refs, "blue"));
-          if (stringArray(node.evidence_map_refs).length) foot.appendChild(traceChips(node.evidence_map_refs));
-          card.appendChild(foot);
-      } else if (stringArray(node.evidence_map_refs).length) {
-          const foot = el("footer", "taxonomy-item-footer");
+        const foot = el("footer", "taxonomy-item-footer");
+        foot.appendChild(evidenceRefChips(detail, refs, "blue"));
+        if (stringArray(node.evidence_map_refs).length)
           foot.appendChild(traceChips(node.evidence_map_refs));
-          card.appendChild(foot);
+        card.appendChild(foot);
+      } else if (stringArray(node.evidence_map_refs).length) {
+        const foot = el("footer", "taxonomy-item-footer");
+        foot.appendChild(traceChips(node.evidence_map_refs));
+        card.appendChild(foot);
       }
       list.appendChild(card);
     });
@@ -1174,20 +2775,47 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
   const list = el("div", "claims-list");
   claims.forEach((claim, index) => {
     const card = el("article", "claim-row");
-    
+
     // Left column: Claim text and rationale
     const leftCol = el("div", "claim-content");
     const header = el("div", "claim-header");
-    header.appendChild(el("span", "claim-index", firstText(claim, ["id"], `C${index + 1}`)));
-    const strength = firstText(claim, ["strength", "claim_strength", "support_level"]);
+    header.appendChild(
+      el("span", "claim-index", firstText(claim, ["id"], `C${index + 1}`)),
+    );
+    const strength = firstText(claim, [
+      "strength",
+      "claim_strength",
+      "support_level",
+    ]);
     if (strength) {
-        const tone = strength.toLowerCase() === "strong" ? "ok" : (strength.toLowerCase() === "weak" ? "warn" : "");
-        header.appendChild(badge(strength, tone as any));
+      const tone =
+        strength.toLowerCase() === "strong"
+          ? "ok"
+          : strength.toLowerCase() === "weak"
+            ? "warn"
+            : "";
+      header.appendChild(badge(strength, tone as any));
     }
     leftCol.appendChild(header);
-    leftCol.appendChild(el("h3", "", firstText(claim, ["text", "claim", "title", "id"], `Claim ${index + 1}`)));
-    
-    const rationale = firstText(claim, ["analysis", "rationale", "support", "summary", "explanation"]);
+    leftCol.appendChild(
+      el(
+        "h3",
+        "",
+        firstText(
+          claim,
+          ["text", "claim", "title", "id"],
+          `Claim ${index + 1}`,
+        ),
+      ),
+    );
+
+    const rationale = firstText(claim, [
+      "analysis",
+      "rationale",
+      "support",
+      "summary",
+      "explanation",
+    ]);
     if (rationale) leftCol.appendChild(el("p", "", rationale));
     card.appendChild(leftCol);
 
@@ -1195,42 +2823,56 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
     const rightCol = el("div", "claim-evidence");
     const eRefs = stringArray(claim.evidence_refs || claim.paper_evidence_refs);
     if (eRefs.length) {
-      rightCol.appendChild(el("h4", "evidence-group-title", "Supporting Evidence"));
+      rightCol.appendChild(
+        el("h4", "evidence-group-title", "Supporting Evidence"),
+      );
       const eList = el("div", "claim-evidence-list");
       eRefs.forEach((ref) => {
         const rows = evidenceRows(detail);
-        const ev = rows.find(r => evidenceRefKeys(r).has(ref));
-        
+        const ev = rows.find((r) => evidenceRefKeys(r).has(ref));
+
         if (ev) {
-            const eCard = el("button", "mini-evidence-card");
-            eCard.type = "button";
-            eCard.title = "View in Evidence Explorer";
-            const id = evidenceId(ev);
-            if (id) {
-                eCard.addEventListener("click", () => {
-                   openEvidenceExplorer(id);
-                });
-            }
-            const code = evidenceCode(ev, Math.max(0, rows.findIndex(r => evidenceId(r) === id)));
-            const title = evidenceTitle(ev, Math.max(0, rows.findIndex(r => evidenceId(r) === id)));
-            eCard.appendChild(el("span", "evidence-code", code));
-            eCard.appendChild(el("span", "evidence-title", title));
-            eList.appendChild(eCard);
+          const eCard = el("button", "mini-evidence-card");
+          eCard.type = "button";
+          eCard.title = "View in Evidence Explorer";
+          const id = evidenceId(ev);
+          if (id) {
+            eCard.addEventListener("click", () => {
+              openEvidenceExplorer(id);
+            });
+          }
+          const code = evidenceCode(
+            ev,
+            Math.max(
+              0,
+              rows.findIndex((r) => evidenceId(r) === id),
+            ),
+          );
+          const title = evidenceTitle(
+            ev,
+            Math.max(
+              0,
+              rows.findIndex((r) => evidenceId(r) === id),
+            ),
+          );
+          eCard.appendChild(el("span", "evidence-code", code));
+          eCard.appendChild(el("span", "evidence-title", title));
+          eList.appendChild(eCard);
         } else {
-            // Fallback to chip if not found in paper evidence
-            eList.appendChild(badge(ref, "green"));
+          // Fallback to chip if not found in paper evidence
+          eList.appendChild(badge(ref, "green"));
         }
       });
       rightCol.appendChild(eList);
     }
-    
+
     const tRefs = stringArray(claim.evidence_map_refs);
     if (tRefs.length) {
-       const tList = el("div", "claim-evidence-list");
-       tRefs.forEach((r) => tList.appendChild(badge(r, "purple")));
-       rightCol.appendChild(tList);
+      const tList = el("div", "claim-evidence-list");
+      tRefs.forEach((r) => tList.appendChild(badge(r, "purple")));
+      rightCol.appendChild(tList);
     }
-    
+
     card.appendChild(rightCol);
     list.appendChild(card);
   });
@@ -1240,14 +2882,16 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
 
 function renderTopicReferencesSection(detail: TopicDetailDto) {
   const container = el("div", "references-section");
-  
+
   const header = el("div", "references-header");
   const rows = evidenceRows(detail);
-  
+
   const titleContainer = el("div", "references-title-row");
-  titleContainer.appendChild(el("h3", "", `Associated Literature References (${rows.length})`));
+  titleContainer.appendChild(
+    el("h3", "", `Associated Literature References (${rows.length})`),
+  );
   header.appendChild(titleContainer);
-  
+
   const searchBar = el("div", "references-search-bar");
   const input = el("input", "references-search-input") as HTMLInputElement;
   input.type = "text";
@@ -1255,23 +2899,30 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
   searchBar.appendChild(input);
   header.appendChild(searchBar);
   container.appendChild(header);
-  
+
   const grid = el("div", "references-grid");
   container.appendChild(grid);
-  
+
   function updateGrid(filterText = "") {
     grid.innerHTML = "";
     const query = filterText.toLowerCase();
-    
+
     rows.forEach((r, idx) => {
       const title = evidenceTitle(r, idx);
       const year = firstText(r, ["year", "publication_year"]) || "";
       const refKey = firstText(r, ["paper_ref", "paperRef"]) || "";
-      const summary = firstText(r, ["summary", "evidence_summary", "topic_relevance", "rationale"]) || "";
+      const summary =
+        firstText(r, [
+          "summary",
+          "evidence_summary",
+          "topic_relevance",
+          "rationale",
+        ]) || "";
       const code = evidenceCode(r, idx);
-      const status = firstText(r, ["synthesis_role", "status", "freshness"]) || "";
+      const status =
+        firstText(r, ["synthesis_role", "status", "freshness"]) || "";
       const isSelected = state.selectedEvidenceId === evidenceId(r);
-      
+
       if (
         query &&
         !title.toLowerCase().includes(query) &&
@@ -1282,12 +2933,12 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
       ) {
         return;
       }
-      
+
       const card = el("div", `reference-card${isSelected ? " active" : ""}`);
-      
+
       const cardHead = el("div", "ref-card-head");
       const badgeContainer = el("div", "ref-badge-container");
-      
+
       // Code Badge
       const codeEl = el("span", "ref-code-badge", code);
       badgeContainer.appendChild(codeEl);
@@ -1295,41 +2946,44 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
         badgeContainer.appendChild(badge(status, toneFor(status)));
       }
       cardHead.appendChild(badgeContainer);
-      
+
       if (year) {
         cardHead.appendChild(el("span", "ref-year-label", year));
       }
       card.appendChild(cardHead);
-      
+
       card.appendChild(el("h4", "ref-title", title));
-      
+
       if (refKey) {
         card.appendChild(el("div", "ref-key-badge", refKey));
       }
-      
+
       if (summary) {
-        const sumText = summary.length > 130 ? summary.substring(0, 127) + "..." : summary;
+        const sumText =
+          summary.length > 130 ? summary.substring(0, 127) + "..." : summary;
         card.appendChild(el("p", "ref-summary", sumText));
       }
-      
+
       card.addEventListener("click", () => {
         openEvidenceExplorer(evidenceId(r) || undefined);
       });
-      
+
       grid.appendChild(card);
     });
-    
+
     if (!grid.childElementCount) {
-      grid.appendChild(renderEmptyStructuredState("No matching references found"));
+      grid.appendChild(
+        renderEmptyStructuredState("No matching references found"),
+      );
     }
   }
-  
+
   input.addEventListener("input", (e) => {
     updateGrid((e.target as HTMLInputElement).value);
   });
-  
+
   updateGrid();
-  
+
   return container;
 }
 
@@ -1341,15 +2995,21 @@ function comparisonRows(matrix: Record<string, unknown>) {
 }
 
 function renderMethodComparisonCard(row: Record<string, unknown>) {
-  const methods = recordArray(row.methods_comparison || row.methods || row.entries);
+  const methods = recordArray(
+    row.methods_comparison || row.methods || row.entries,
+  );
   if (!methods.length) return undefined;
-  return tableView(["Method", "AP", "FPS", "Epochs", "Backbone"], methods, (method) => [
-    firstText(method, ["method", "name"], "-"),
-    firstText(method, ["ap", "mAP"], "-"),
-    firstText(method, ["fps", "speed"], "-"),
-    firstText(method, ["epochs", "schedule"], "-"),
-    firstText(method, ["backbone", "model"], "-"),
-  ]);
+  return tableView(
+    ["Method", "AP", "FPS", "Epochs", "Backbone"],
+    methods,
+    (method) => [
+      firstText(method, ["method", "name"], "-"),
+      firstText(method, ["ap", "mAP"], "-"),
+      firstText(method, ["fps", "speed"], "-"),
+      firstText(method, ["epochs", "schedule"], "-"),
+      firstText(method, ["backbone", "model"], "-"),
+    ],
+  );
 }
 
 function renderTopicCompareSection(detail: TopicDetailDto) {
@@ -1371,7 +3031,7 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     // 2. Build the table
     const tableWrap = el("div", "matrix-table-wrap");
     const table = el("table", "matrix-table");
-    
+
     // Header
     const thead = el("thead");
     const trHead = el("tr");
@@ -1390,39 +3050,63 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
       const tdDim = el("td", "matrix-td matrix-dim-col");
       const dimTitle = el("div", "matrix-dim-title");
       dimTitle.appendChild(el("span", "claim-index", `M${i + 1}`));
-      dimTitle.appendChild(el("strong", "", firstText(r, ["name", "title", "dimension", "label", "id"], `Dimension ${i + 1}`)));
+      dimTitle.appendChild(
+        el(
+          "strong",
+          "",
+          firstText(
+            r,
+            ["name", "title", "dimension", "label", "id"],
+            `Dimension ${i + 1}`,
+          ),
+        ),
+      );
       tdDim.appendChild(dimTitle);
       const desc = firstText(r, ["description", "summary", "rationale"]);
       if (desc) tdDim.appendChild(el("p", "matrix-dim-desc", desc));
-      
+
       const methodTable = renderMethodComparisonCard(r);
       if (methodTable) {
-         tdDim.appendChild(methodTable);
+        tdDim.appendChild(methodTable);
       }
-      
+
       tr.appendChild(tdDim);
 
       // Value columns
       const comps = recordArray(r.comparisons);
       routes.forEach((route) => {
         const td = el("td", "matrix-td");
-        const match = comps.find((c) => firstText(c, ["route", "method", "name"]) === route);
+        const match = comps.find(
+          (c) => firstText(c, ["route", "method", "name"]) === route,
+        );
         if (match) {
           const val = firstText(match, ["value", "result"], "-");
           td.appendChild(renderParagraphs(val));
           // Apply subtle coloring based on text content as a heuristic
           const lowerVal = val.toLowerCase();
-          if (lowerVal.includes("high") || lowerVal.includes("strong") || lowerVal.includes("good") || lowerVal.includes("better")) {
-             td.classList.add("highlight-positive");
-          } else if (lowerVal.includes("low") || lowerVal.includes("weak") || lowerVal.includes("poor") || lowerVal.includes("worse") || lowerVal.includes("limited") || lowerVal.includes("high cost")) {
-             td.classList.add("highlight-negative");
+          if (
+            lowerVal.includes("high") ||
+            lowerVal.includes("strong") ||
+            lowerVal.includes("good") ||
+            lowerVal.includes("better")
+          ) {
+            td.classList.add("highlight-positive");
+          } else if (
+            lowerVal.includes("low") ||
+            lowerVal.includes("weak") ||
+            lowerVal.includes("poor") ||
+            lowerVal.includes("worse") ||
+            lowerVal.includes("limited") ||
+            lowerVal.includes("high cost")
+          ) {
+            td.classList.add("highlight-negative");
           }
         } else {
           td.appendChild(el("span", "muted", "-"));
         }
         tr.appendChild(td);
       });
-      
+
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1437,13 +3121,33 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     debates.forEach((debate, index) => {
       const card = el("article", "debate-card");
       card.appendChild(el("span", "claim-index", `D${index + 1}`));
-      card.appendChild(el("h3", "", firstText(debate, ["name", "title", "text", "debate", "topic", "id"], `Debate ${index + 1}`)));
+      card.appendChild(
+        el(
+          "h3",
+          "",
+          firstText(
+            debate,
+            ["name", "title", "text", "debate", "topic", "id"],
+            `Debate ${index + 1}`,
+          ),
+        ),
+      );
       const type = firstText(debate, ["evidence_type", "type"]);
       if (type) card.appendChild(badge(type, "orange"));
-      const text = firstText(debate, ["synthesis_judgment", "summary", "description", "tension", "rationale"]);
+      const text = firstText(debate, [
+        "synthesis_judgment",
+        "summary",
+        "description",
+        "tension",
+        "rationale",
+      ]);
       if (text) card.appendChild(el("p", "", text));
-      if (stringArray(debate.evidence_refs).length) card.appendChild(evidenceRefChips(detail, debate.evidence_refs, "orange"));
-      if (stringArray(debate.evidence_map_refs).length) card.appendChild(traceChips(debate.evidence_map_refs));
+      if (stringArray(debate.evidence_refs).length)
+        card.appendChild(
+          evidenceRefChips(detail, debate.evidence_refs, "orange"),
+        );
+      if (stringArray(debate.evidence_map_refs).length)
+        card.appendChild(traceChips(debate.evidence_map_refs));
       section.appendChild(card);
     });
   }
@@ -1461,8 +3165,15 @@ function renderTopicExternalSection(detail: TopicDetailDto) {
     hero.appendChild(renderParagraphs(summary));
     section.appendChild(hero);
   }
-  const verdict = firstText(external, ["coverage_verdict", "coverage_judgment"]);
-  const reason = firstText(external, ["coverage_reason", "reason", "limitations"]);
+  const verdict = firstText(external, [
+    "coverage_verdict",
+    "coverage_judgment",
+  ]);
+  const reason = firstText(external, [
+    "coverage_reason",
+    "reason",
+    "limitations",
+  ]);
   if (verdict || reason) {
     const verdictCard = el("div", "coverage-verdict-card");
     if (verdict) {
@@ -1483,7 +3194,13 @@ function renderTopicExternalSection(detail: TopicDetailDto) {
     const grid = el("div", "topic-card-grid");
     themes.forEach((theme) => {
       const card = el("article", "external-theme-card");
-      card.appendChild(el("strong", "", firstText(theme, ["title", "theme", "label", "id"], "Theme")));
+      card.appendChild(
+        el(
+          "strong",
+          "",
+          firstText(theme, ["title", "theme", "label", "id"], "Theme"),
+        ),
+      );
       const text = firstText(theme, ["analysis", "summary", "description"]);
       if (text) card.appendChild(el("p", "", text));
       grid.appendChild(card);
@@ -1494,24 +3211,54 @@ function renderTopicExternalSection(detail: TopicDetailDto) {
   if (references.length) {
     section.appendChild(el("h3", "", "Representative References"));
     section.appendChild(
-      matrixTableView(["Reference", "Context", "Completeness"], references, (row) => {
-        const titleStrong = el("strong", "", firstText(row, ["title", "label", "id"], "Reference"));
-        const contextSpan = el("span", "muted", firstText(row, ["citation_context", "context", "reason"], "-"));
-        const completenessSpan = el("span", "muted", firstText(row, ["information_completeness", "completeness", "status"], "-"));
-        return [titleStrong, contextSpan, completenessSpan];
-      }),
+      matrixTableView(
+        ["Reference", "Context", "Completeness"],
+        references,
+        (row) => {
+          const titleStrong = el(
+            "strong",
+            "",
+            firstText(row, ["title", "label", "id"], "Reference"),
+          );
+          const contextSpan = el(
+            "span",
+            "muted",
+            firstText(row, ["citation_context", "context", "reason"], "-"),
+          );
+          const completenessSpan = el(
+            "span",
+            "muted",
+            firstText(
+              row,
+              ["information_completeness", "completeness", "status"],
+              "-",
+            ),
+          );
+          return [titleStrong, contextSpan, completenessSpan];
+        },
+      ),
     );
   }
   if (external.limitations) {
-    section.appendChild(renderContentCard("Limitations", renderParagraphs(external.limitations)));
+    section.appendChild(
+      renderContentCard("Limitations", renderParagraphs(external.limitations)),
+    );
   }
   const additions = recordArray(external.suggested_additions);
   if (additions.length) {
     section.appendChild(el("h3", "", "Suggested Additions"));
     section.appendChild(
       matrixTableView(["Candidate", "Reason", "Priority"], additions, (row) => {
-        const titleStrong = el("strong", "", firstText(row, ["title", "label", "id"], "Candidate"));
-        const reasonSpan = el("span", "", firstText(row, ["reason", "rationale", "why"], "-"));
+        const titleStrong = el(
+          "strong",
+          "",
+          firstText(row, ["title", "label", "id"], "Candidate"),
+        );
+        const reasonSpan = el(
+          "span",
+          "",
+          firstText(row, ["reason", "rationale", "why"], "-"),
+        );
         const pText = firstText(row, ["priority", "urgency"], "-");
         const priorityCell = pText.toLowerCase().includes("high")
           ? badge(pText, "warn")
@@ -1521,19 +3268,28 @@ function renderTopicExternalSection(detail: TopicDetailDto) {
     );
   }
   if (section.childElementCount <= 1) {
-    section.appendChild(renderEmptyStructuredState("No external literature data"));
+    section.appendChild(
+      renderEmptyStructuredState("No external literature data"),
+    );
   }
   return section;
 }
 
 function renderEvidenceMapSummary(detail: TopicDetailDto) {
   const map = detail.evidence_map || {};
-  const card = renderContentCard("Evidence Map", undefined, "content-card evidence-map-summary");
+  const card = renderContentCard(
+    "Evidence Map",
+    undefined,
+    "content-card evidence-map-summary",
+  );
   const rows = el("div", "topic-kv-list");
   [
     ["path", map.path],
     ["hash", map.hash],
-    ["candidate ids", stringArray(map.candidate_ids).length || textValue(map.candidate_ids)],
+    [
+      "candidate ids",
+      stringArray(map.candidate_ids).length || textValue(map.candidate_ids),
+    ],
   ].forEach(([key, value]) => {
     if (!textValue(value)) return;
     const row = el("div", "topic-kv-row");
@@ -1550,7 +3306,8 @@ function renderEvidenceMapSummary(detail: TopicDetailDto) {
     });
   }
   if (rows.childElementCount) card.appendChild(rows);
-  else card.appendChild(renderEmptyStructuredState("No evidence map provenance"));
+  else
+    card.appendChild(renderEmptyStructuredState("No evidence map provenance"));
   return card;
 }
 
@@ -1575,9 +3332,14 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
       const header = el("div", "claim-header");
       header.appendChild(el("span", "claim-index", `G${i + 1}`));
       const type = firstText(gap, ["gap_type", "type"]);
-      if (type) header.appendChild(badge(type, type === "library_coverage_gap" ? "orange" : "warn"));
+      if (type)
+        header.appendChild(
+          badge(type, type === "library_coverage_gap" ? "orange" : "warn"),
+        );
       leftCol.appendChild(header);
-      leftCol.appendChild(el("h3", "", firstText(gap, ["title", "gap", "id"], "Gap")));
+      leftCol.appendChild(
+        el("h3", "", firstText(gap, ["title", "gap", "id"], "Gap")),
+      );
       const text = firstText(gap, ["text", "description", "impact", "summary"]);
       if (text) leftCol.appendChild(el("p", "", text));
       card.appendChild(leftCol);
@@ -1587,10 +3349,24 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
   }
   section.appendChild(renderEvidenceMapSummary(detail));
   if (hasStructuredContent(detail.diagnostics)) {
-    section.appendChild(renderContentCard("Diagnostics", renderKeyValueList(isRecord(detail.diagnostics) ? detail.diagnostics : { value: detail.diagnostics })));
+    section.appendChild(
+      renderContentCard(
+        "Diagnostics",
+        renderKeyValueList(
+          isRecord(detail.diagnostics)
+            ? detail.diagnostics
+            : { value: detail.diagnostics },
+        ),
+      ),
+    );
   }
   if (hasStructuredContent(detail.source_artifacts)) {
-    section.appendChild(renderContentCard("Source Artifacts", renderParagraphs(JSON.stringify(detail.source_artifacts, null, 2))));
+    section.appendChild(
+      renderContentCard(
+        "Source Artifacts",
+        renderParagraphs(JSON.stringify(detail.source_artifacts, null, 2)),
+      ),
+    );
   }
   if (section.childElementCount <= 2) {
     section.appendChild(renderEmptyStructuredState("No coverage data"));
@@ -1628,7 +3404,9 @@ function renderTopicStatisticsSection(detail: TopicDetailDto) {
       rcCard.appendChild(el("div", "metric-label", "Route Coverage"));
       rcCard.appendChild(
         renderKeyValueList(
-          isRecord(stats.route_coverage) ? stats.route_coverage : { value: stats.route_coverage },
+          isRecord(stats.route_coverage)
+            ? stats.route_coverage
+            : { value: stats.route_coverage },
         ),
       );
       dash2.appendChild(rcCard);
@@ -1647,7 +3425,9 @@ function renderTopicStatisticsSection(detail: TopicDetailDto) {
     section.appendChild(dash2);
   }
   if (hasStructuredContent(detail.coverage)) {
-    section.appendChild(renderContentCard("Coverage", renderKeyValueList(detail.coverage || {})));
+    section.appendChild(
+      renderContentCard("Coverage", renderKeyValueList(detail.coverage || {})),
+    );
   }
   if (section.childElementCount <= 1) {
     section.appendChild(renderEmptyStructuredState("No statistics data"));
@@ -1663,13 +3443,17 @@ function renderTopicReportSection(detail: TopicDetailDto) {
   if (title) section.appendChild(el("h3", "", title));
   const body = firstText(report, ["body", "markdown", "text", "report"]);
   if (body) {
-    section.appendChild(renderContentCard("Report Body", renderParagraphs(body), "report-card"));
+    section.appendChild(
+      renderContentCard("Report Body", renderParagraphs(body), "report-card"),
+    );
   }
   const sourceChapters = isRecord(report.source_section_chapters)
     ? report.source_section_chapters
     : {};
   if (hasStructuredContent(sourceChapters)) {
-    section.appendChild(renderContentCard("Source Chapters", renderKeyValueList(sourceChapters)));
+    section.appendChild(
+      renderContentCard("Source Chapters", renderKeyValueList(sourceChapters)),
+    );
   }
   if (section.childElementCount <= 1) {
     section.appendChild(renderEmptyStructuredState("No synthesis report"));
@@ -1678,14 +3462,22 @@ function renderTopicReportSection(detail: TopicDetailDto) {
 }
 
 function renderTopicSection(detail: TopicDetailDto) {
-  if (state.topicDetailSection === "taxonomy") return renderTopicTaxonomySection(detail);
-  if (state.topicDetailSection === "claims") return renderTopicClaimsSection(detail);
-  if (state.topicDetailSection === "references") return renderTopicReferencesSection(detail);
-  if (state.topicDetailSection === "compare") return renderTopicCompareSection(detail);
-  if (state.topicDetailSection === "external") return renderTopicExternalSection(detail);
-  if (state.topicDetailSection === "coverage") return renderTopicCoverageSection(detail);
-  if (state.topicDetailSection === "statistics") return renderTopicStatisticsSection(detail);
-  if (state.topicDetailSection === "report") return renderTopicReportSection(detail);
+  if (state.topicDetailSection === "taxonomy")
+    return renderTopicTaxonomySection(detail);
+  if (state.topicDetailSection === "claims")
+    return renderTopicClaimsSection(detail);
+  if (state.topicDetailSection === "references")
+    return renderTopicReferencesSection(detail);
+  if (state.topicDetailSection === "compare")
+    return renderTopicCompareSection(detail);
+  if (state.topicDetailSection === "external")
+    return renderTopicExternalSection(detail);
+  if (state.topicDetailSection === "coverage")
+    return renderTopicCoverageSection(detail);
+  if (state.topicDetailSection === "statistics")
+    return renderTopicStatisticsSection(detail);
+  if (state.topicDetailSection === "report")
+    return renderTopicReportSection(detail);
   return renderTopicOverviewSection(detail);
 }
 
@@ -1703,7 +3495,11 @@ function renderTopicTabs() {
     ["report", "Report"],
   ];
   entries.forEach(([id, label]) => {
-    const button = el("button", state.topicDetailSection === id ? "active" : "", label);
+    const button = el(
+      "button",
+      state.topicDetailSection === id ? "active" : "",
+      label,
+    );
     button.type = "button";
     button.addEventListener("click", () => {
       state.topicDetailSection = id;
@@ -1719,10 +3515,15 @@ function selectedEvidence(detail: TopicDetailDto) {
   if (!state.selectedEvidenceId) {
     return undefined;
   }
-  return rows.find((row) => evidenceRefKeys(row).has(state.selectedEvidenceId || ""));
+  return rows.find((row) =>
+    evidenceRefKeys(row).has(state.selectedEvidenceId || ""),
+  );
 }
 
-function derivedEvidenceLinks(detail: TopicDetailDto, evidence: Record<string, unknown>) {
+function derivedEvidenceLinks(
+  detail: TopicDetailDto,
+  evidence: Record<string, unknown>,
+) {
   const keys = evidenceRefKeys(evidence);
   const matches = {
     claims: [] as string[],
@@ -1732,28 +3533,42 @@ function derivedEvidenceLinks(detail: TopicDetailDto, evidence: Record<string, u
   recordArray(detail.claims).forEach((claim, index) => {
     const refs = stringArray(claim.evidence_refs || claim.paper_evidence_refs);
     if (refs.some((ref) => keys.has(ref))) {
-      matches.claims.push(firstText(claim, ["id", "label", "text", "claim"], `C${index + 1}`));
+      matches.claims.push(
+        firstText(claim, ["id", "label", "text", "claim"], `C${index + 1}`),
+      );
     }
   });
   topicTimelineEvents(detail).forEach((event, index) => {
     const eventEvidence = primaryEvidenceForEvent(detail, event);
     if (eventEvidence && evidenceId(eventEvidence) === evidenceId(evidence)) {
-      matches.timeline.push(firstText(event, ["id", "label", "title"], `T${index + 1}`));
+      matches.timeline.push(
+        firstText(event, ["id", "label", "title"], `T${index + 1}`),
+      );
     }
   });
   recordArray(detail.taxonomy?.nodes).forEach((node, index) => {
-    const refs = stringArray(node.evidence_refs || node.paper_unit_refs || node.paper_refs);
+    const refs = stringArray(
+      node.evidence_refs || node.paper_unit_refs || node.paper_refs,
+    );
     if (refs.some((ref) => keys.has(ref))) {
-      matches.taxonomy.push(firstText(node, ["id", "label", "title", "name"], `N${index + 1}`));
+      matches.taxonomy.push(
+        firstText(node, ["id", "label", "title", "name"], `N${index + 1}`),
+      );
     }
   });
   return matches;
 }
 
-function renderSelectedEvidenceCard(detail: TopicDetailDto, selected: Record<string, unknown>) {
+function renderSelectedEvidenceCard(
+  detail: TopicDetailDto,
+  selected: Record<string, unknown>,
+) {
   const card = el("div", "selected-evidence-card");
   const rows = evidenceRows(detail);
-  const index = Math.max(0, rows.findIndex((row) => evidenceId(row) === evidenceId(selected)));
+  const index = Math.max(
+    0,
+    rows.findIndex((row) => evidenceId(row) === evidenceId(selected)),
+  );
   const chipRow = el("div", "chip-row");
   chipRow.appendChild(badge("selected evidence", "blue"));
   const status = firstText(selected, ["status", "freshness", "source_status"]);
@@ -1764,9 +3579,16 @@ function renderSelectedEvidenceCard(detail: TopicDetailDto, selected: Record<str
   const meta = [
     firstText(selected, ["year", "publication_year"]),
     firstText(selected, ["paper_ref", "paperRef", "item_key", "itemKey"]),
-  ].filter(Boolean).join(" | ");
+  ]
+    .filter(Boolean)
+    .join(" | ");
   if (meta) card.appendChild(el("p", "muted", meta));
-  const summary = firstText(selected, ["summary", "evidence_summary", "topic_relevance", "rationale"]);
+  const summary = firstText(selected, [
+    "summary",
+    "evidence_summary",
+    "topic_relevance",
+    "rationale",
+  ]);
   if (summary) card.appendChild(renderParagraphs(summary));
   const links = derivedEvidenceLinks(detail, selected);
   const linkList = el("div", "evidence-stack");
@@ -1822,8 +3644,14 @@ function renderEvidenceExplorer(detail: TopicDetailDto) {
 }
 
 function renderEvidenceDrawer(detail: TopicDetailDto) {
-  const drawer = el("div", `evidence-drawer${state.evidenceExplorerOpen ? " open" : ""}`);
-  drawer.setAttribute("aria-hidden", state.evidenceExplorerOpen ? "false" : "true");
+  const drawer = el(
+    "div",
+    `evidence-drawer${state.evidenceExplorerOpen ? " open" : ""}`,
+  );
+  drawer.setAttribute(
+    "aria-hidden",
+    state.evidenceExplorerOpen ? "false" : "true",
+  );
   drawer.addEventListener("click", (event) => {
     if (event.target === drawer) {
       state.evidenceExplorerOpen = false;
@@ -1882,17 +3710,37 @@ type TimelineItem = {
   evidence?: Record<string, unknown>;
   event?: Record<string, unknown>;
   weight: number;
-  tone: "paper" | "milestone" | "frontier" | "foundation" | "external" | "warning";
+  tone:
+    | "paper"
+    | "milestone"
+    | "frontier"
+    | "foundation"
+    | "external"
+    | "warning";
 };
 
-function timelineLeft(index: number, total: number, year: number, minYear: number, maxYear: number) {
-  if (Number.isFinite(year) && Number.isFinite(minYear) && Number.isFinite(maxYear) && maxYear > minYear) {
+function timelineLeft(
+  index: number,
+  total: number,
+  year: number,
+  minYear: number,
+  maxYear: number,
+) {
+  if (
+    Number.isFinite(year) &&
+    Number.isFinite(minYear) &&
+    Number.isFinite(maxYear) &&
+    maxYear > minYear
+  ) {
     return ((year - minYear) / (maxYear - minYear)) * 100;
   }
   return total <= 1 ? 50 : (index / (total - 1)) * 100;
 }
 
-function timelineAxisTicks(minYear: number, maxYear: number): { label: string; left: number }[] {
+function timelineAxisTicks(
+  minYear: number,
+  maxYear: number,
+): { label: string; left: number }[] {
   if (!Number.isFinite(minYear) || !Number.isFinite(maxYear)) {
     return [
       { label: "Start", left: 0 },
@@ -1933,7 +3781,9 @@ function evidenceYear(evidence: Record<string, unknown>) {
 }
 
 function eventYear(event: Record<string, unknown>) {
-  return numericYear(event.year || event.date || event.publication_year || event.publicationYear);
+  return numericYear(
+    event.year || event.date || event.publication_year || event.publicationYear,
+  );
 }
 
 function timelineItemSortKey(item: TimelineItem) {
@@ -1943,14 +3793,21 @@ function timelineItemSortKey(item: TimelineItem) {
   return (itemKey || item.key || item.label || item.title || "").toLowerCase();
 }
 
-function eventRefsPaper(event: Record<string, unknown>, evidence: Record<string, unknown>) {
+function eventRefsPaper(
+  event: Record<string, unknown>,
+  evidence: Record<string, unknown>,
+) {
   const keys = evidenceRefKeys(evidence);
   const refs = [
     ...stringArray(event.evidence_refs),
     ...stringArray(event.paper_evidence_refs),
     ...stringArray(event.paper_refs),
   ];
-  const direct = firstText(event, ["paper_evidence_id", "evidence_id", "paper_ref"]);
+  const direct = firstText(event, [
+    "paper_evidence_id",
+    "evidence_id",
+    "paper_ref",
+  ]);
   if (direct) refs.push(direct);
   return refs.some((ref) => keys.has(ref));
 }
@@ -1962,23 +3819,44 @@ function metricNumber(value: unknown) {
 
 function nestedMetric(evidence: Record<string, unknown>, key: string) {
   if (key in evidence) return evidence[key];
-  for (const containerKey of ["graph_metrics", "metrics", "citation_graph_metrics"]) {
+  for (const containerKey of [
+    "graph_metrics",
+    "metrics",
+    "citation_graph_metrics",
+  ]) {
     const container = recordValue(evidence[containerKey]);
     if (key in container) return container[key];
   }
   return undefined;
 }
 
-function timelineWeight(evidence: Record<string, unknown> | undefined, event: Record<string, unknown> | undefined) {
-  const explicit = metricNumber(event?.importance || event?.weight || evidence?.importance || evidence?.weight);
-  if (Number.isFinite(explicit)) return Math.max(0.85, Math.min(1.35, 0.95 + explicit * 0.2));
-  const foundation = metricNumber(nestedMetric(evidence || {}, "foundation_score"));
+function timelineWeight(
+  evidence: Record<string, unknown> | undefined,
+  event: Record<string, unknown> | undefined,
+) {
+  const explicit = metricNumber(
+    event?.importance ||
+      event?.weight ||
+      evidence?.importance ||
+      evidence?.weight,
+  );
+  if (Number.isFinite(explicit))
+    return Math.max(0.85, Math.min(1.35, 0.95 + explicit * 0.2));
+  const foundation = metricNumber(
+    nestedMetric(evidence || {}, "foundation_score"),
+  );
   const frontier = metricNumber(nestedMetric(evidence || {}, "frontier_score"));
-  const score = Math.max(Number.isFinite(foundation) ? foundation : 0, Number.isFinite(frontier) ? frontier : 0);
+  const score = Math.max(
+    Number.isFinite(foundation) ? foundation : 0,
+    Number.isFinite(frontier) ? frontier : 0,
+  );
   return event ? 1.22 : Math.max(0.9, Math.min(1.2, 0.92 + score * 0.22));
 }
 
-function timelineTone(evidence: Record<string, unknown> | undefined, event: Record<string, unknown> | undefined): TimelineItem["tone"] {
+function timelineTone(
+  evidence: Record<string, unknown> | undefined,
+  event: Record<string, unknown> | undefined,
+): TimelineItem["tone"] {
   const status = `${textValue(event?.status)} ${textValue(evidence?.status)} ${textValue(evidence?.freshness)}`;
   if (status.match(/stale|dirty|missing|incomplete/i)) return "warning";
   const roleHints = [
@@ -1996,10 +3874,14 @@ function timelineItems(detail: TopicDetailDto) {
   const events = topicTimelineEvents(detail);
   const usedEvents = new Set<Record<string, unknown>>();
   const items: TimelineItem[] = evidenceRows(detail).map((evidence, index) => {
-    const matchedEvent = events.find((event) => eventRefsPaper(event, evidence));
+    const matchedEvent = events.find((event) =>
+      eventRefsPaper(event, evidence),
+    );
     if (matchedEvent) usedEvents.add(matchedEvent);
     const year = eventYear(matchedEvent || {}) || evidenceYear(evidence);
-    const title = firstText(matchedEvent || {}, ["event", "title", "label", "summary"]) || evidenceTitle(evidence, index);
+    const title =
+      firstText(matchedEvent || {}, ["event", "title", "label", "summary"]) ||
+      evidenceTitle(evidence, index);
     return {
       key: `paper:${evidenceId(evidence) || index}`,
       kind: matchedEvent ? "event" : "paper",
@@ -2020,7 +3902,11 @@ function timelineItems(detail: TopicDetailDto) {
       kind: "event",
       year,
       label: firstText(event, ["code", "short_id"], `E${index + 1}`),
-      title: firstText(event, ["event", "title", "label", "summary"], `Event ${index + 1}`),
+      title: firstText(
+        event,
+        ["event", "title", "label", "summary"],
+        `Event ${index + 1}`,
+      ),
       event,
       weight: timelineWeight(undefined, event),
       tone: timelineTone(undefined, event),
@@ -2038,23 +3924,30 @@ function renderTimelineClusters(
   const byYear = new Map<string, TimelineItem[]>();
   items.forEach((item, index) => {
     const year = item.year;
-    const key = Number.isFinite(year) ? String(Math.floor(year)) : `phase-${index + 1}`;
+    const key = Number.isFinite(year)
+      ? String(Math.floor(year))
+      : `phase-${index + 1}`;
     const list = byYear.get(key) || [];
     list.push(item);
     byYear.set(key, list);
   });
-  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(([key, clusterItems], index, all) => {
-    const year = Number(key);
-    const title = firstText(clusterItems[0].event || {}, ["phase", "phase_title", "label", "title"]);
-    return {
-      key,
-      label: Number.isFinite(year)
-        ? ""
-        : title || `Phase ${index + 1}`,
-      left: timelineLeft(index, all.length, year, minYear, maxYear),
-      items: clusterItems,
-    };
-  });
+  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(
+    ([key, clusterItems], index, all) => {
+      const year = Number(key);
+      const title = firstText(clusterItems[0].event || {}, [
+        "phase",
+        "phase_title",
+        "label",
+        "title",
+      ]);
+      return {
+        key,
+        label: Number.isFinite(year) ? "" : title || `Phase ${index + 1}`,
+        left: timelineLeft(index, all.length, year, minYear, maxYear),
+        items: clusterItems,
+      };
+    },
+  );
   const fragment = document.createDocumentFragment();
   clusters.forEach((cluster, clusterIndex, allClusters) => {
     const year = Number(cluster.key);
@@ -2066,7 +3959,13 @@ function renderTimelineClusters(
         ? year + (itemIndex + 0.5) / sortedItems.length
         : NaN;
       const left = Number.isFinite(coordinate)
-        ? timelineLeft(clusterIndex, allClusters.length, coordinate, minYear, maxYear)
+        ? timelineLeft(
+            clusterIndex,
+            allClusters.length,
+            coordinate,
+            minYear,
+            maxYear,
+          )
         : cluster.left;
       const phase = el("section", "timeline-phase");
       phase.style.left = `${left}%`;
@@ -2077,9 +3976,14 @@ function renderTimelineClusters(
       phase.appendChild(title);
       const markerList = el("div", "marker-list");
       const evidence = item.evidence;
-      const markerClasses = ["timeline-marker", `timeline-${item.kind}`, `timeline-tone-${item.tone}`];
+      const markerClasses = [
+        "timeline-marker",
+        `timeline-${item.kind}`,
+        `timeline-tone-${item.tone}`,
+      ];
       if (sortedItems.length > 4) markerClasses.push("too-dense");
-      if (evidence && evidenceId(evidence) === state.selectedEvidenceId) markerClasses.push("selected");
+      if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
+        markerClasses.push("selected");
       const marker = el("button", markerClasses.join(" "));
       marker.type = "button";
       marker.style.left = "0";
@@ -2124,23 +4028,27 @@ function renderTopicTimeline(detail: TopicDetailDto) {
 
   // Legend
   const legend = el("div", "timeline-legend");
-  
+
   const legEvent = el("div", "legend-item");
   const dotEvent = el("span", "legend-icon legend-icon-event");
   legEvent.appendChild(dotEvent);
   legEvent.appendChild(el("span", "legend-label", "Key Milestones"));
   legend.appendChild(legEvent);
-  
+
   const legPaper = el("div", "legend-item");
   const dotPaper = el("span", "legend-icon legend-icon-paper");
   legPaper.appendChild(dotPaper);
   legPaper.appendChild(el("span", "legend-label", "Literature Papers"));
   legend.appendChild(legPaper);
-  
+
   head.appendChild(legend);
   rail.appendChild(head);
 
-  const summaryText = firstText(topicTimelineSummary(detail), ["text", "analysis", "overview"]);
+  const summaryText = firstText(topicTimelineSummary(detail), [
+    "text",
+    "analysis",
+    "overview",
+  ]);
   if (summaryText) {
     const summBlock = el("div", "timeline-summary");
     summBlock.appendChild(renderParagraphs(summaryText));
@@ -2151,9 +4059,7 @@ function renderTopicTimeline(detail: TopicDetailDto) {
   const timeline = el("div", "horizontal-timeline");
   const trackInner = el("div", "timeline-inner-rail");
 
-  const years = items
-    .map((item) => item.year)
-    .filter(Number.isFinite);
+  const years = items.map((item) => item.year).filter(Number.isFinite);
   const minYear = years.length ? Math.min(...years) : NaN;
   const maxYear = years.length ? Math.max(...years) + 1 : NaN;
   const axis = el("div", "time-axis");
@@ -2166,7 +4072,9 @@ function renderTopicTimeline(detail: TopicDetailDto) {
     axis.appendChild(stepEl);
   });
   trackInner.appendChild(axis);
-  trackInner.appendChild(renderTimelineClusters(detail, items, minYear, maxYear));
+  trackInner.appendChild(
+    renderTimelineClusters(detail, items, minYear, maxYear),
+  );
   timeline.appendChild(trackInner);
   scroll.appendChild(timeline);
   rail.appendChild(scroll);
@@ -2181,11 +4089,18 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   const meta = el("div", "topic-detail-toolbar-meta");
   meta.appendChild(badge(detail.language || "auto", "blue"));
   meta.appendChild(badge(`${numberValue(detail.paper_count)} papers`, "green"));
-  meta.appendChild(badge(`${numberValue(detail.external_literature_count)} external refs`, "purple"));
+  meta.appendChild(
+    badge(
+      `${numberValue(detail.external_literature_count)} external refs`,
+      "purple",
+    ),
+  );
   toolbar.appendChild(meta);
 
   const actions = el("div", "topic-detail-toolbar-actions");
-  actions.appendChild(makeButton("Back to Topics", "selectTab", { tab: "artifacts" }));
+  actions.appendChild(
+    makeButton("Back to Topics", "selectTab", { tab: "artifacts" }),
+  );
   actions.appendChild(
     makeButton(
       String(updateIntent?.actionLabel || "Update"),
@@ -2201,7 +4116,9 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   const copySummary = el("button", "", "Copy Summary");
   copySummary.type = "button";
   copySummary.addEventListener("click", () => {
-    const summary = textValue(detail.summary?.brief || detail.summary?.summary || detail.title);
+    const summary = textValue(
+      detail.summary?.brief || detail.summary?.summary || detail.title,
+    );
     void navigator.clipboard?.writeText(summary);
   });
   actions.appendChild(copySummary);
@@ -2247,12 +4164,15 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
 }
 
 function renderArtifactReader(main: HTMLElement, snapshot: Snapshot) {
-  const topicId = state.artifactReader?.topicId || snapshot.reader?.topicId || "";
+  const topicId =
+    state.artifactReader?.topicId || snapshot.reader?.topicId || "";
   const reader = state.artifactReader;
   const panel = el("div", "reader-panel immersive-reader");
   const header = el("div", "reader-header");
   const titleGroup = el("div", "reader-title");
-  titleGroup.appendChild(el("strong", "", reader?.title || topicId || "Artifact"));
+  titleGroup.appendChild(
+    el("strong", "", reader?.title || topicId || "Artifact"),
+  );
   const metaLine = [
     reader?.updated_at ? `Updated ${reader.updated_at}` : "",
     reader?.hash ? `Hash ${reader.hash}` : "",
@@ -2303,19 +4223,636 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     sendAction("setFilters", { registry: { search: search.value } }),
   );
   filters.appendChild(search);
+  filters.appendChild(
+    selectControl(
+      [
+        "all",
+        "library",
+        "reference-only",
+        "matched",
+        "ambiguous",
+        "unresolved",
+        "needs-cleanup",
+        "stale",
+      ],
+      snapshot.registry.filters.literature || "all",
+      (literature) => sendAction("setFilters", { registry: { literature } }),
+    ),
+  );
+  filters.appendChild(
+    badge(
+      snapshot.registry.literatureJob?.queue_state
+        ? `literature ${snapshot.registry.literatureJob.queue_state}`
+        : snapshot.registry.projection?.stale
+          ? "literature index stale"
+          : "literature index ready",
+      snapshot.registry.literatureJob?.queue_state === "ready" &&
+        !snapshot.registry.projection?.stale
+        ? "ok"
+        : snapshot.registry.projection?.stale ||
+            snapshot.registry.literatureJob?.queue_state !== "ready"
+          ? "warn"
+          : "ok",
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "Rebuild",
+      "hostCommand",
+      {
+        command: "runLiteratureRegistryJobNow",
+      },
+      false,
+      ["queued", "running"].includes(
+        textValue(snapshot.registry.literatureJob?.queue_state),
+      ),
+    ),
+  );
+  if (snapshot.registry.literatureJob?.queue_state === "failed_retryable") {
+    filters.appendChild(
+      makeButton("Retry", "hostCommand", {
+        command: "retryLiteratureRegistryJob",
+      }),
+    );
+  }
   panel.appendChild(renderPanelToolbar(filters));
   panel.appendChild(
-    tableView(["Title", "Year", "Readiness", "Coverage", "Missing"], snapshot.registry.visibleRows, (row) => [
-      row.title,
-      row.year || "-",
-      badge(row.readiness, toneFor(row.readiness)),
-      badge(row.coverage, toneFor(row.coverage)),
-      Array.isArray(row.missing_artifacts) && row.missing_artifacts.length
-        ? row.missing_artifacts.join(", ")
-        : "-",
-    ]),
+    tableView(
+      ["Title", "Year", "Readiness", "Coverage", "Status", "Missing"],
+      snapshot.registry.visibleRows,
+      (row) => [
+        row.title,
+        row.year || "-",
+        badge(row.readiness, toneFor(row.readiness)),
+        badge(row.coverage, toneFor(row.coverage)),
+        row.cleanup_count
+          ? badge("needs cleanup", "warn")
+          : badge(row.literature_status || "library", "ok"),
+        Array.isArray(row.missing_artifacts) && row.missing_artifacts.length
+          ? row.missing_artifacts.join(", ")
+          : "-",
+      ],
+    ),
   );
+  const cleanup = (snapshot.registry.cleanupProposals || []).filter(
+    (proposal) =>
+      proposal.status === "open" &&
+      !isReviewOptimisticallyResolved("cleanup", proposal.proposal_id),
+  );
+  if (cleanup.length) {
+    const proposal = cleanup[0];
+    const sourceTitle =
+      textValue(proposal.source_paper_title) ||
+      textValue(proposal.source_paper_ref, "Source paper");
+    const referenceTitle =
+      textValue(proposal.reference_title) ||
+      textValue(proposal.reference_raw) ||
+      textValue(proposal.provisional_key) ||
+      "Unresolved reference";
+    const targetTitle =
+      textValue(proposal.target_paper_title) ||
+      textValue(proposal.target_work_title);
+    panel.appendChild(
+      renderReviewPanel(
+        renderReviewCard({
+          kind: "Cleanup",
+          title: `${sourceTitle} -> ${referenceTitle}`,
+          meta:
+            cleanup.length > 1
+              ? `${cleanup.length - 1} more proposal(s)`
+              : "Open cleanup proposal",
+          body:
+            textValue(proposal.decision_summary) ||
+            "Decide how this unresolved reference should be handled in the literature registry.",
+          details: [
+            ["source paper", sourceTitle],
+            ["reference", referenceTitle],
+            ["target", targetTitle],
+            ["kind", proposal.kind],
+            ["reason", proposal.reason],
+            ["diagnostics", proposal.diagnostics],
+          ],
+          actions: ["approve", "reject", "skip"].map((action) =>
+            makeButton(action, "hostCommand", {
+              command: "applyLiteratureCleanupAction",
+              args: { proposalId: proposal.proposal_id, action },
+            }),
+          ),
+        }),
+        "cleanup-review-panel",
+      ),
+    );
+  }
   main.appendChild(panel);
+}
+
+function tagWarningsFor(row: Record<string, unknown>) {
+  return Array.isArray(row.validation_warnings)
+    ? (row.validation_warnings as Array<Record<string, unknown>>)
+    : [];
+}
+
+function renderTagInspector(snapshot: Snapshot) {
+  const selected = snapshot.tags.selected;
+  const panel = el("aside", "panel details");
+  const header = el("div", "panel-header");
+  header.appendChild(el("strong", "", "Tag Inspector"));
+  panel.appendChild(header);
+  const details = el("div", "details");
+  if (!selected) {
+    details.appendChild(el("div", "empty", "No tag selected."));
+    panel.appendChild(details);
+    return panel;
+  }
+  const fields: Array<[string, unknown]> = [
+    ["canonical tag", selected.tag],
+    ["facet", selected.facet],
+    ["note", selected.note || "-"],
+    [
+      "aliases",
+      Array.isArray(selected.aliases) ? selected.aliases.join(", ") : "-",
+    ],
+    [
+      "abbrev",
+      Array.isArray(selected.abbrev) ? selected.abbrev.join(", ") : "-",
+    ],
+    ["deprecated", selected.deprecated ? "yes" : "no"],
+    ["replacement", selected.replacement || "-"],
+    ["usage count", selected.usage_count || 0],
+    ["source", selected.source || "-"],
+    ["last synced", selected.last_synced_at || "-"],
+  ];
+  fields.forEach(([label, value]) => {
+    const row = el("div", "detail-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("strong", "", String(value)));
+    details.appendChild(row);
+  });
+  const warnings = tagWarningsFor(selected);
+  if (warnings.length) {
+    const warningBox = el("div", "details");
+    warningBox.appendChild(el("strong", "", "Validation Warnings"));
+    warnings.forEach((warning) => {
+      warningBox.appendChild(
+        badge(
+          `${warning.code}: ${warning.message || ""}`,
+          warning.severity === "error" ? "danger" : "warn",
+        ),
+      );
+    });
+    details.appendChild(warningBox);
+  }
+  panel.appendChild(details);
+  return panel;
+}
+
+function renderTags(main: HTMLElement, snapshot: Snapshot) {
+  const shell = el("div", "graph-shell");
+  const panel = el("div", "panel");
+  const filters = el("div", "filters");
+  const search = el("input");
+  search.placeholder = "Search tags";
+  search.value = snapshot.tags.filters.search || "";
+  search.addEventListener("input", () =>
+    sendAction("setFilters", { tags: { search: search.value } }),
+  );
+  filters.appendChild(search);
+  filters.appendChild(
+    selectControl(
+      ["all", ...snapshot.tags.facets],
+      snapshot.tags.filters.facet || "all",
+      (value) => sendAction("setFilters", { tags: { facet: value } }),
+    ),
+  );
+  filters.appendChild(
+    selectControl(
+      ["all", "active", "deprecated", "warning"],
+      snapshot.tags.filters.status || "all",
+      (value) => sendAction("setFilters", { tags: { status: value } }),
+    ),
+  );
+  filters.appendChild(
+    makeButton("Validate", "hostCommand", {
+      command: "validateTagVocabulary",
+    }),
+  );
+  filters.appendChild(
+    makeButton("Export", "hostCommand", {
+      command: "exportTagVocabulary",
+    }),
+  );
+  filters.appendChild(
+    makeButton("Rebuild Index", "hostCommand", {
+      command: "rebuildTagVocabularyIndex",
+    }),
+  );
+  const importToggle = makeLocalButton("Import Tags", () => {
+    state.tagImportOpen = true;
+    state.dismissedTagImportPreviewSignature = undefined;
+    render();
+  });
+  filters.appendChild(importToggle);
+  panel.appendChild(renderPanelToolbar(filters));
+  const status = el("div", "details");
+  status.appendChild(
+    badge(
+      snapshot.tags.projection.stale ? "tag-index stale" : "tag-index ready",
+      snapshot.tags.projection.stale ? "warn" : "ok",
+    ),
+  );
+  status.appendChild(
+    el(
+      "span",
+      "muted",
+      `${snapshot.tags.rows.length} tags, ${snapshot.tags.validationWarnings.length} warning(s)`,
+    ),
+  );
+  panel.appendChild(status);
+  panel.appendChild(
+    tableView(
+      ["Tag", "Facet", "Aliases", "Abbrev", "Status", "Usage"],
+      snapshot.tags.visibleRows,
+      (row) => [
+        makeButton(String(row.tag || ""), "selectTag", { tag: row.tag }),
+        row.facet || "-",
+        Array.isArray(row.aliases) && row.aliases.length
+          ? row.aliases.join(", ")
+          : "-",
+        Array.isArray(row.abbrev) && row.abbrev.length
+          ? row.abbrev.join(", ")
+          : "-",
+        tagWarningsFor(row).length
+          ? badge("warning", "warn")
+          : badge(
+              row.deprecated ? "deprecated" : "active",
+              row.deprecated ? "danger" : "ok",
+            ),
+        row.usage_count || 0,
+      ],
+    ),
+  );
+  const tagImportPanel = renderTagImportPanel(snapshot);
+  if (tagImportPanel) {
+    panel.appendChild(tagImportPanel);
+  }
+  shell.appendChild(panel);
+  shell.appendChild(renderTagInspector(snapshot));
+  main.appendChild(shell);
+}
+
+function tagImportPreviewSignature(snapshot: Snapshot) {
+  const preview = snapshot.tags.importPreview;
+  if (!preview) return "";
+  return [
+    snapshot.tags.importDraft?.length || 0,
+    preview.additions?.length || 0,
+    preview.conflicts?.length || 0,
+    preview.unchanged?.length || 0,
+    preview.warnings?.length || 0,
+  ].join(":");
+}
+
+function renderTagImportPanel(snapshot: Snapshot) {
+  if (
+    isReviewOptimisticallyResolved("tag-import", "merge-non-conflicting") ||
+    isReviewOptimisticallyResolved("tag-import", "use-imported")
+  ) {
+    return null;
+  }
+  const preview = snapshot.tags.importPreview;
+  const signature = tagImportPreviewSignature(snapshot);
+  const shouldShow =
+    state.tagImportOpen ||
+    (preview && state.dismissedTagImportPreviewSignature !== signature);
+  if (!shouldShow) {
+    return null;
+  }
+  const draft = snapshot.tags.importDraft || "";
+  const importDraft = document.createElement("textarea");
+  importDraft.rows = 5;
+  importDraft.placeholder = "Paste Tag Vocabulary JSON";
+  importDraft.value = draft;
+  importDraft.addEventListener("input", () => {
+    state.dismissedTagImportPreviewSignature = undefined;
+    sendAction("setFilters", { tags: { importDraft: importDraft.value } });
+  });
+  const close = makeLocalButton("Close", () => {
+    state.tagImportOpen = false;
+    state.dismissedTagImportPreviewSignature = signature || undefined;
+    render();
+  });
+  const children: HTMLElement[] = [importDraft];
+  const actions = [
+    makeButton(
+      "Preview Import",
+      "hostCommand",
+      {
+        command: "previewTagVocabularyImport",
+        args: { payload: draft },
+      },
+      false,
+      !draft.trim(),
+    ),
+    close,
+  ];
+  if (preview) {
+    const conflict = preview.conflicts?.[0];
+    const importedConflict = recordValue(conflict?.imported);
+    const localConflict = recordValue(conflict?.local);
+    children.push(
+      el(
+        "p",
+        "review-card-body",
+        conflict
+          ? `First conflict: ${textValue(conflict.tag || importedConflict.tag || localConflict.tag, "unknown tag")}`
+          : "No conflicts detected in the current import preview.",
+      ),
+    );
+    actions.unshift(
+      makeButton(
+        "Merge Non-conflicting",
+        "hostCommand",
+        {
+          command: "applyTagVocabularyImport",
+          args: {
+            payload: draft,
+            action: "merge-non-conflicting",
+          },
+        },
+        false,
+        !draft.trim(),
+      ),
+      makeButton(
+        "Use Imported",
+        "hostCommand",
+        {
+          command: "applyTagVocabularyImport",
+          args: {
+            payload: draft,
+            action: "use-imported",
+          },
+        },
+        false,
+        !draft.trim(),
+      ),
+    );
+  }
+  return renderReviewPanel(
+    renderReviewCard({
+      kind: "Tag import",
+      title: preview ? "Review tag import preview" : "Import tag vocabulary",
+      meta: preview
+        ? `${preview.additions?.length || 0} addition(s), ${preview.conflicts?.length || 0} conflict(s)`
+        : "Paste TagVocab JSON to preview changes",
+      body: preview
+        ? "Review additions, unchanged tags, conflicts, and warnings before applying this vocabulary to the canonical store."
+        : "Import is preview-first. The pasted vocabulary will not change canonical tags until you choose an explicit apply action.",
+      details: preview
+        ? [
+            ["additions", preview.additions],
+            ["conflicts", preview.conflicts],
+            ["unchanged", preview.unchanged],
+            ["warnings", preview.warnings],
+          ]
+        : [],
+      children,
+      actions,
+    }),
+    "tag-import-popover",
+  );
+}
+
+function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
+  const shell = el("div", "graph-shell concepts-shell");
+  const panel = el("div", "panel");
+  const filters = el("div", "filters");
+  const search = el("input");
+  search.placeholder = "Search concepts";
+  search.value = snapshot.concepts.filters.search || "";
+  search.addEventListener("input", () =>
+    sendAction("setFilters", { concepts: { search: search.value } }),
+  );
+  filters.appendChild(search);
+  filters.appendChild(
+    selectControl(
+      ["all", ...snapshot.concepts.conceptTypes],
+      snapshot.concepts.filters.conceptType || "all",
+      (value) => sendAction("setFilters", { concepts: { conceptType: value } }),
+    ),
+  );
+  filters.appendChild(
+    selectControl(
+      ["all", "active", "review", "deprecated"],
+      snapshot.concepts.filters.status || "all",
+      (value) => sendAction("setFilters", { concepts: { status: value } }),
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      snapshot.concepts.filters.overlayEnabled ? "Overlay On" : "Overlay Off",
+      "setConceptOverlay",
+      { enabled: !snapshot.concepts.filters.overlayEnabled },
+      snapshot.concepts.filters.overlayEnabled,
+    ),
+  );
+  filters.appendChild(
+    makeButton("Rebuild Index", "hostCommand", {
+      command: "rebuildConceptKbIndex",
+    }),
+  );
+  panel.appendChild(renderPanelToolbar(filters));
+  const status = el("div", "details");
+  status.appendChild(
+    badge(
+      snapshot.concepts.projection.stale
+        ? "concept-kb-index stale"
+        : "concept-kb-index ready",
+      snapshot.concepts.projection.stale ? "warn" : "ok",
+    ),
+  );
+  status.appendChild(
+    el("span", "muted", `${snapshot.concepts.rows.length} concepts`),
+  );
+  panel.appendChild(status);
+  panel.appendChild(
+    tableView(
+      ["Concept", "Type", "Domain", "Aliases", "Status"],
+      snapshot.concepts.visibleRows,
+      (row) => [
+        makeButton(String(row.label || ""), "selectConcept", {
+          conceptId: row.concept_id,
+        }),
+        row.concept_type || "-",
+        row.domain || "-",
+        Array.isArray(row.aliases) && row.aliases.length
+          ? row.aliases.join(", ")
+          : "-",
+        badge(row.status || "active", toneFor(row.status)),
+      ],
+    ),
+  );
+  const reviewItems = (snapshot.concepts.reviewItems || []).filter(
+    (item) =>
+      textValue(item.status) === "open" &&
+      !isReviewOptimisticallyResolved("concept-review", item.review_id),
+  );
+  if (reviewItems.length) {
+    panel.appendChild(renderConceptReviewPanel(snapshot, reviewItems[0]));
+  }
+  shell.appendChild(panel);
+  shell.appendChild(renderConceptInspector(snapshot));
+  main.appendChild(shell);
+}
+
+function renderConceptReviewPanel(
+  snapshot: Snapshot,
+  item: Record<string, unknown>,
+) {
+  const candidateIds = Array.isArray(item.candidate_concept_ids)
+    ? item.candidate_concept_ids
+        .map((candidate) => textValue(candidate))
+        .filter(Boolean)
+    : [];
+  const reviewId = textValue(item.review_id);
+  const actions = [
+    makeButton("Approve as New", "hostCommand", {
+      command: "applyConceptReviewAction",
+      args: {
+        reviewId,
+        action: "approve_create",
+      },
+    }),
+    makeButton("Reject", "hostCommand", {
+      command: "applyConceptReviewAction",
+      args: { reviewId, action: "reject" },
+    }),
+  ];
+  const children: HTMLElement[] = [];
+  if (candidateIds.length) {
+    const selectedTarget =
+      snapshot.concepts.filters.reviewMergeTargets?.[reviewId] || "";
+    const selectorRow = el("div", "review-card-field");
+    selectorRow.appendChild(el("span", "muted", "merge target"));
+    selectorRow.appendChild(
+      selectControl(["", ...candidateIds], selectedTarget, (value) =>
+        sendAction("setFilters", {
+          concepts: {
+            reviewMergeTargets: {
+              ...(snapshot.concepts.filters.reviewMergeTargets || {}),
+              [reviewId]: value,
+            },
+          },
+        }),
+      ),
+    );
+    children.push(selectorRow);
+    actions.splice(
+      1,
+      0,
+      makeButton(
+        "Merge",
+        "hostCommand",
+        {
+          command: "applyConceptReviewAction",
+          args: {
+            reviewId,
+            action: "merge_into_existing",
+            targetConceptId: selectedTarget,
+          },
+        },
+        false,
+        !selectedTarget,
+      ),
+    );
+  }
+  return renderReviewPanel(
+    renderReviewCard({
+      kind: "Concept review",
+      title: textValue(item.label, "Concept proposal"),
+      meta: textValue(item.reason, "Open review item"),
+      body:
+        textValue(item.short_definition || item.definition) ||
+        "This concept proposal was not merged automatically because confidence or identity matching requires a human decision.",
+      details: [
+        ["confidence", item.confidence],
+        ["type", item.concept_type],
+        ["domain", item.domain],
+        ["topic relevance", item.topic_relevance],
+        ["candidates", candidateIds],
+        ["evidence", item.evidence],
+        ["diagnostics", item.diagnostics],
+      ],
+      children,
+      actions,
+    }),
+    "concept-review-panel",
+  );
+}
+
+function renderConceptInspector(snapshot: Snapshot) {
+  const selected = snapshot.concepts.selected;
+  const panel = el("aside", "panel details concept-inspector");
+  const header = el("div", "panel-header");
+  header.appendChild(el("strong", "", "Concept Detail"));
+  panel.appendChild(header);
+  const details = el("div", "details");
+  if (!selected) {
+    details.appendChild(el("div", "empty", "No concept selected."));
+    panel.appendChild(details);
+    return panel;
+  }
+  const fields: Array<[string, unknown]> = [
+    ["concept_id", selected.concept_id],
+    ["label", selected.label],
+    ["type", selected.concept_type],
+    ["domain", selected.domain],
+    ["status", selected.status],
+    [
+      "aliases",
+      Array.isArray(selected.aliases) ? selected.aliases.join(", ") : "-",
+    ],
+    ["short_definition", selected.short_definition || "-"],
+    ["definition", selected.definition || "-"],
+    ["usage_note", selected.usage_note || "-"],
+    ["editorial_note", selected.editorial_note || "-"],
+  ];
+  fields.forEach(([label, value]) => {
+    const row = el("div", "detail-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("strong", "", String(value)));
+    details.appendChild(row);
+  });
+  details.appendChild(
+    makeButton("Edit Display Text", "hostCommand", {
+      command: "updateConceptDisplayText",
+      args: {
+        conceptId: selected.concept_id,
+        allowedFields: [
+          "short_definition",
+          "definition",
+          "usage_note",
+          "editorial_note",
+        ],
+      },
+    }),
+  );
+  const senses = snapshot.concepts.senses.filter(
+    (sense) => sense.concept_id === selected.concept_id,
+  );
+  const senseBox = el("div", "details");
+  senseBox.appendChild(el("strong", "", "Senses"));
+  senses.forEach((sense) => {
+    senseBox.appendChild(
+      el(
+        "p",
+        "muted",
+        `${sense.label || sense.sense_id}: ${sense.short_definition || sense.definition || ""}`,
+      ),
+    );
+  });
+  details.appendChild(senseBox);
+  panel.appendChild(details);
+  return panel;
 }
 
 function roleOptions(snapshot: Snapshot) {
@@ -2368,7 +4905,10 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     empty.appendChild(
       makeButton("Rebuild graph", "hostCommand", {
         command: "manualRecomputeLayout",
-        args: { reason: "graph_tab" },
+        args: {
+          reason: "graph_tab",
+          preset: snapshot.graph.filters.layoutPreset,
+        },
       }),
     );
     stage.appendChild(empty);
@@ -2389,20 +4929,34 @@ function renderGraphControls(snapshot: Snapshot) {
   });
   filters.appendChild(search);
 
-  const role = selectControl(["all", ...roleOptions(snapshot)], snapshot.graph.filters.role, (value) =>
-    sendAction("setFilters", { graph: { role: value } }),
+  const role = selectControl(
+    ["all", ...roleOptions(snapshot)],
+    snapshot.graph.filters.role,
+    (value) => sendAction("setFilters", { graph: { role: value } }),
   );
   filters.appendChild(role);
   filters.appendChild(
-    makeButton("Rebuild graph", "hostCommand", {
-      command: "manualRecomputeLayout",
-      args: { reason: "user" },
-    }),
+    makeButton(
+      "Rebuild graph",
+      "hostCommand",
+      {
+        command: "manualRecomputeLayout",
+        args: { reason: "user", preset: snapshot.graph.filters.layoutPreset },
+      },
+      false,
+      snapshot.graph.layoutStatus === "running",
+    ),
   );
   wrap.appendChild(filters);
 
   const kinds = el("div", "filters");
-  (["library_paper", "external_reference", "unresolved_reference"] as GraphNodeKind[]).forEach((kind) => {
+  (
+    [
+      "library_paper",
+      "external_reference",
+      "unresolved_reference",
+    ] as GraphNodeKind[]
+  ).forEach((kind) => {
     const label = el("label", "checkbox-label");
     const input = document.createElement("input");
     input.type = "checkbox";
@@ -2448,7 +5002,9 @@ function renderGraphControls(snapshot: Snapshot) {
 
 function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const graph = new Graph({ multi: false, type: "directed" });
-  const visibleIds = new Set(snapshot.graph.visibleNodes.map((node) => node.id));
+  const visibleIds = new Set(
+    snapshot.graph.visibleNodes.map((node) => node.id),
+  );
   for (const node of snapshot.graph.visibleNodes) {
     graph.addNode(node.id, {
       title: node.label,
@@ -2480,7 +5036,8 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     nodeReducer(node: string, data: Record<string, unknown>) {
       if (!state.hoveredNode) return data;
       const neighbor =
-        node === state.hoveredNode || graph.areNeighbors(node, state.hoveredNode);
+        node === state.hoveredNode ||
+        graph.areNeighbors(node, state.hoveredNode);
       const showHoverLabel =
         node === state.hoveredNode ||
         (neighbor && data.kind === "library_paper");
@@ -2495,7 +5052,8 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       if (!state.hoveredNode) return data;
       const source = graph.source(edge);
       const target = graph.target(edge);
-      const neighbor = source === state.hoveredNode || target === state.hoveredNode;
+      const neighbor =
+        source === state.hoveredNode || target === state.hoveredNode;
       return {
         ...data,
         hidden: !neighbor,
@@ -2537,11 +5095,16 @@ function focusSearch(query: string) {
   if (!match || !state.graph.hasNode(match.id)) {
     return;
   }
-  const attrs = state.graph.getNodeAttributes(match.id) as { x?: number; y?: number };
-  state.sigma.getCamera().animate(
-    { x: attrs.x || 0, y: attrs.y || 0, ratio: 0.35 },
-    { duration: 250 },
-  );
+  const attrs = state.graph.getNodeAttributes(match.id) as {
+    x?: number;
+    y?: number;
+  };
+  state.sigma
+    .getCamera()
+    .animate(
+      { x: attrs.x || 0, y: attrs.y || 0, ratio: 0.35 },
+      { duration: 250 },
+    );
 }
 
 function renderSelectedDetail(snapshot: Snapshot) {
@@ -2638,6 +5201,45 @@ function tableView(
   return wrap;
 }
 
+type WorkbenchRenderState = {
+  selectedTab?: string;
+  mainScrollTop: number;
+  scrollTops: number[];
+};
+
+function captureWorkbenchRenderState(root: HTMLElement): WorkbenchRenderState {
+  const main = root.querySelector(".main") as HTMLElement | null;
+  const scrollContainers = Array.from(
+    root.querySelectorAll(".table-wrap, .matrix-table-wrap, .reader-shell"),
+  ) as HTMLElement[];
+  return {
+    selectedTab: state.snapshot?.selectedTab,
+    mainScrollTop: main?.scrollTop || 0,
+    scrollTops: scrollContainers.map((node) => node.scrollTop || 0),
+  };
+}
+
+function restoreWorkbenchRenderState(
+  root: HTMLElement,
+  previous: WorkbenchRenderState,
+) {
+  if (previous.selectedTab !== state.snapshot?.selectedTab) {
+    return;
+  }
+  const main = root.querySelector(".main") as HTMLElement | null;
+  if (main) {
+    main.scrollTop = previous.mainScrollTop;
+  }
+  const scrollContainers = Array.from(
+    root.querySelectorAll(".table-wrap, .matrix-table-wrap, .reader-shell"),
+  ) as HTMLElement[];
+  scrollContainers.forEach((node, index) => {
+    if (typeof previous.scrollTops[index] === "number") {
+      node.scrollTop = previous.scrollTops[index];
+    }
+  });
+}
+
 function selectControl(
   options: string[],
   value: string,
@@ -2661,15 +5263,27 @@ function render() {
     clear(root);
     const loading = el("div", "loading-shell");
     loading.appendChild(el("div", "loading-spinner"));
-    loading.appendChild(el("div", "loading-title", "Loading Synthesis Workbench"));
     loading.appendChild(
-      el("div", "loading-subtitle", "Preparing Zotero bridge and library state..."),
+      el("div", "loading-title", "Loading Synthesis Workbench"),
+    );
+    loading.appendChild(
+      el(
+        "div",
+        "loading-subtitle",
+        "Preparing Zotero bridge and library state...",
+      ),
     );
     root.appendChild(loading);
     return;
   }
+  const renderState = captureWorkbenchRenderState(root as HTMLElement);
   renderShell(root as HTMLElement, state.snapshot);
+  restoreWorkbenchRenderState(root as HTMLElement, renderState);
   renderDigestModal(root as HTMLElement);
+}
+
+function snapshotPayloadSignature(snapshot: Snapshot | null) {
+  return snapshot ? JSON.stringify(snapshot) : "";
 }
 
 function buildDigestOutline(markdownNode: HTMLElement) {
@@ -2686,7 +5300,11 @@ function buildDigestOutline(markdownNode: HTMLElement) {
     const id = `digest-heading-${index + 1}`;
     heading.id = id;
     const level = Number(heading.tagName.replace(/\D/g, "")) || 2;
-    const link = el("a", `digest-outline-link depth-${Math.max(1, Math.min(4, level))}`, heading.textContent || `Section ${index + 1}`);
+    const link = el(
+      "a",
+      `digest-outline-link depth-${Math.max(1, Math.min(4, level))}`,
+      heading.textContent || `Section ${index + 1}`,
+    );
     link.href = `#${id}`;
     link.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2779,7 +5397,10 @@ function renderDigestModal(root: HTMLElement) {
           markdownNode.prepend(intro);
         }
       }
-      const outline = markdownNode instanceof HTMLElement ? buildDigestOutline(markdownNode) : undefined;
+      const outline =
+        markdownNode instanceof HTMLElement
+          ? buildDigestOutline(markdownNode)
+          : undefined;
       if (outline) {
         digestBody.appendChild(outline);
       } else {
@@ -2794,7 +5415,11 @@ function renderDigestModal(root: HTMLElement) {
         content.appendChild(intro);
       }
       content.appendChild(
-        el("div", "empty", textValue(result.status) || "Digest is unavailable."),
+        el(
+          "div",
+          "empty",
+          textValue(result.status) || "Digest is unavailable.",
+        ),
       );
     }
     dialog.appendChild(content);
@@ -2824,7 +5449,14 @@ window.addEventListener("message", (event: MessageEvent) => {
     return;
   }
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {
-    state.snapshot = data.payload || null;
+    const nextSnapshot = (data.payload || null) as Snapshot | null;
+    const nextSignature = snapshotPayloadSignature(nextSnapshot);
+    if (nextSignature === state.lastSnapshotSignature) {
+      return;
+    }
+    state.snapshot = nextSnapshot;
+    state.lastSnapshotSignature = nextSignature;
+    clearResolvedLocalPending(state.snapshot);
     render();
   }
   if (data.type === "synthesis:artifact") {

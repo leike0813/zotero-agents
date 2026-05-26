@@ -17,7 +17,7 @@ import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 
 const ROOT_MENU_ID = `${config.addonRef}-workflows-menu`;
 const ROOT_POPUP_ID = `${config.addonRef}-workflows-popup`;
-const MENU_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`;
+const MENU_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_play_32.png`;
 
 export type WorkflowActionPopupBuildOptions = {
   includeSkillRunnerSidebarItem?: boolean;
@@ -52,7 +52,10 @@ function appendDisabledItem(
   popup.appendChild(item);
 }
 
-function appendTaskManagerItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
+function appendTaskManagerItem(
+  win: _ZoteroTypes.MainWindow,
+  popup: XULElement,
+) {
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
@@ -114,7 +117,9 @@ function shouldRunRequestPreflightFromMenu(workflow: LoadedWorkflow) {
 }
 
 function compactError(error: unknown) {
-  const text = String(error || "").replace(/\s+/g, " ").trim();
+  const text = String(error || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "invalid selection";
   }
@@ -239,7 +244,10 @@ export async function rebuildWorkflowActionPopup(
       selectedItems.length === 0 &&
       !canWorkflowRunWithoutSelection(workflow.manifest)
     ) {
-      disabledReason = getMenuLabel("menu-workflow-no-selection", "no selection");
+      disabledReason = getMenuLabel(
+        "menu-workflow-no-selection",
+        "no selection",
+      );
     } else if (shouldPreflightWorkflowInputs) {
       try {
         const executionContext = await resolveWorkflowExecutionContext({
@@ -252,6 +260,7 @@ export async function rebuildWorkflowActionPopup(
         const descriptor = await buildWorkflowSettingsUiDescriptor({
           workflow,
           candidateBackends: [executionContext.backend],
+          resolveDynamicOptions: false,
         });
         if (descriptor.blockedReason) {
           throw new Error(descriptor.blockedReason);

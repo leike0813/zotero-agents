@@ -37,7 +37,10 @@ function validateWithSchema(schemaPath: string, value: unknown) {
   const ok = validate(value);
   return {
     ok,
-    errors: validate.errors?.map((error) => `${error.instancePath} ${error.message}`) ?? [],
+    errors:
+      validate.errors?.map(
+        (error) => `${error.instancePath} ${error.message}`,
+      ) ?? [],
   };
 }
 
@@ -81,14 +84,18 @@ function registryInputForDetr() {
       }),
       artifactNote({
         payloadType: "citation-analysis-json",
-        value: JSON.stringify({ report_md: "No external citation report in fixture." }),
+        value: JSON.stringify({
+          report_md: "No external citation report in fixture.",
+        }),
         format: "json",
       }),
     ],
   };
 }
 
-function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string, unknown> {
+function baseSections(
+  digestHash = hashMarkdown(DIGEST_MARKDOWN),
+): Record<string, unknown> {
   return {
     topic: {
       id: "object-detection",
@@ -106,7 +113,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
       },
     },
     summary: {
-      brief: "DETR-style detection reframes object detection as set prediction.",
+      brief:
+        "DETR-style detection reframes object detection as set prediction.",
       overview:
         "This fixture captures the minimum structured synthesis needed to test the protocol between skill output, host persistence, and Workbench topic detail rendering.",
       key_takeaways: [
@@ -128,7 +136,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
         "The fixture can seed a Related Work paragraph about the shift from proposal pipelines to set prediction.",
       scope_boundary: {
         covered: "DETR-style set prediction detection.",
-        not_covered: "The full history of anchor-based and anchor-free detectors.",
+        not_covered:
+          "The full history of anchor-based and anchor-free detectors.",
       },
       evidence_map_refs: ["pos:route-shift"],
     },
@@ -137,8 +146,7 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
       axis_rationale:
         "The fixture has one route because it exists to verify the protocol, but the route still carries the required analysis depth.",
       summary: {
-        text:
-          "The taxonomy contains one route: end-to-end set prediction. It explains how DETR replaces hand-designed proposals and NMS with object queries and bipartite matching. Even as a minimal fixture, the route summary can feed the synthesis report's research-routes chapter and remains distinct from timeline narration.",
+        text: "The taxonomy contains one route: end-to-end set prediction. It explains how DETR replaces hand-designed proposals and NMS with object queries and bipartite matching. Even as a minimal fixture, the route summary can feed the synthesis report's research-routes chapter and remains distinct from timeline narration.",
         dominant_routes: ["route:set-prediction"],
         emerging_routes: [],
         route_relationships: [
@@ -167,8 +175,13 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
           mechanism:
             "Transformer decoder queries predict object sets, and bipartite matching aligns predictions with ground truth.",
           representative_papers: ["pe:1_detr"],
-          main_contributions: ["Established a coherent query-based detection route."],
-          strengths: ["Unified formulation", "Reduced hand-designed post-processing"],
+          main_contributions: [
+            "Established a coherent query-based detection route.",
+          ],
+          strengths: [
+            "Unified formulation",
+            "Reduced hand-designed post-processing",
+          ],
           limitations: ["Early DETR variants are known for slow convergence."],
           maturity: "foundation route in this fixture",
           relation_to_other_routes:
@@ -182,8 +195,7 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
     },
     timeline_events: {
       summary: {
-        text:
-          "The timeline treats DETR as a minimal milestone: it establishes the set-prediction formulation in 2020 and creates the problem chain that later work addresses through convergence and efficiency improvements.",
+        text: "The timeline treats DETR as a minimal milestone: it establishes the set-prediction formulation in 2020 and creates the problem chain that later work addresses through convergence and efficiency improvements.",
         phases: [
           {
             id: "phase:paradigm-establishment",
@@ -221,15 +233,17 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
     claims: [
       {
         id: "claim:set-prediction-shift",
-        text:
-          "DETR-style detection shifts the central modeling unit from hand-designed proposals to learned object queries.",
+        text: "DETR-style detection shifts the central modeling unit from hand-designed proposals to learned object queries.",
         analysis:
           "The fixture claim is supported by DETR's direct set prediction formulation and its use of bipartite matching. This is a synthesis-level claim because it interprets the method as a route shift rather than restating a paper title.",
         evidence_refs: ["pe:1_detr"],
         evidence_map_refs: ["claim:set-prediction-shift"],
         confidence: 0.82,
-        scope: "This claim is limited to the DETR-style object detection route.",
-        limitations: ["The fixture contains one evidence paper, so broader detector history is partial."],
+        scope:
+          "This claim is limited to the DETR-style object detection route.",
+        limitations: [
+          "The fixture contains one evidence paper, so broader detector history is partial.",
+        ],
         review_usage:
           "Use as a topic sentence for a Related Work paragraph introducing query-based detection.",
       },
@@ -252,7 +266,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
     debates: [
       {
         id: "debate:end-to-end-practicality",
-        title: "Whether end-to-end detection simplicity offsets early training cost",
+        title:
+          "Whether end-to-end detection simplicity offsets early training cost",
         positions: [
           {
             stance:
@@ -318,7 +333,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
         {
           citing_paper_ref: "pe:1_detr",
           reference_id: "external:faster-rcnn",
-          usage: "Background comparison for non-end-to-end detection pipelines.",
+          usage:
+            "Background comparison for non-end-to-end detection pipelines.",
         },
       ],
       coverage_verdict: "partial",
@@ -327,7 +343,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
       suggested_additions: [
         {
           title: "Faster R-CNN",
-          reason: "Add first-hand digest coverage for proposal-based detection.",
+          reason:
+            "Add first-hand digest coverage for proposal-based detection.",
           priority: "high",
         },
       ],
@@ -344,11 +361,14 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
       citation_analysis_coverage: "1/1",
       route_coverage_summary: "One route is covered for protocol validation.",
       claim_coverage_summary: "The fixture claim has one evidence paper.",
-      timeline_coverage_summary: "The fixture timeline has one milestone event.",
+      timeline_coverage_summary:
+        "The fixture timeline has one milestone event.",
       external_literature_coverage_summary:
         "External literature coverage is intentionally minimal.",
       coverage_verdict: "partial",
-      warnings: ["Fixture content should not be treated as a complete domain synthesis."],
+      warnings: [
+        "Fixture content should not be treated as a complete domain synthesis.",
+      ],
     },
     statistics: {
       paper_count: 1,
@@ -386,7 +406,8 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
       related_work_logic: [
         {
           id: "rw:set-prediction-route",
-          purpose: "Organize Related Work around the query-based set-prediction route.",
+          purpose:
+            "Organize Related Work around the query-based set-prediction route.",
           organization: "method route",
           source_sections: ["taxonomy", "timeline_events", "comparison_matrix"],
           candidate_citations: ["pe:1_detr"],
@@ -406,8 +427,7 @@ function baseSections(digestHash = hashMarkdown(DIGEST_MARKDOWN)): Record<string
         research_routes: "taxonomy.summary",
         historical_progression: "timeline_events.summary",
       },
-      body:
-        "This fixture synthesis defines object detection through a narrow DETR-style set-prediction lens so that the skill, workflow, host, and Workbench contracts can be tested together. The research-route chapter is grounded in taxonomy.summary: it identifies end-to-end set prediction as the route that replaces hand-designed proposals and post-processing with object queries and bipartite matching. The historical-progress chapter is grounded in timeline_events.summary: it treats DETR as a 2020 milestone that establishes the route and creates the later problem chain around convergence, attention efficiency, and deployment. The claim, comparison, debate, gap, external literature, coverage, statistics, and review outline sections remain deliberately compact, but each preserves evidence references and diagnostics so downstream UI and writing workflows can consume the artifact without relying on Markdown or legacy fields.",
+      body: "This fixture synthesis defines object detection through a narrow DETR-style set-prediction lens so that the skill, workflow, host, and Workbench contracts can be tested together. The research-route chapter is grounded in taxonomy.summary: it identifies end-to-end set prediction as the route that replaces hand-designed proposals and post-processing with object queries and bipartite matching. The historical-progress chapter is grounded in timeline_events.summary: it treats DETR as a 2020 milestone that establishes the route and creates the later problem chain around convergence, attention efficiency, and deployment. The claim, comparison, debate, gap, external literature, coverage, statistics, and review outline sections remain deliberately compact, but each preserves evidence references and diagnostics so downstream UI and writing workflows can consume the artifact without relying on Markdown or legacy fields.",
     },
     paper_evidence: [
       {
@@ -495,10 +515,17 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
       topic_id: "object-detection",
       depends_on: {
         papers: ["1:DETR"],
-        artifacts: ["digest-markdown", "references-json", "citation-analysis-json"],
+        artifacts: [
+          "digest-markdown",
+          "references-json",
+          "citation-analysis-json",
+        ],
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
+    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_path:
+      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
@@ -546,10 +573,18 @@ function createResolverManifest() {
   };
 }
 
-async function writeJsonFile(root: string, relativePath: string, value: unknown) {
+async function writeJsonFile(
+  root: string,
+  relativePath: string,
+  value: unknown,
+) {
   const absolutePath = path.join(root, relativePath);
   await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-  await fs.writeFile(absolutePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    absolutePath,
+    `${JSON.stringify(value, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function createRunWorkspace(args: {
@@ -558,13 +593,39 @@ async function createRunWorkspace(args: {
   analysisManifest?: Record<string, unknown>;
 }) {
   const runRoot = await makeRoot("zs-topic-contract-run-");
-  const analysisManifest = args.analysisManifest || createAnalysisManifest(args.sections);
+  const analysisManifest =
+    args.analysisManifest || createAnalysisManifest(args.sections);
   const resultBundle = args.resultBundle || createResultBundle();
   await writeJsonFile(runRoot, "result/result.json", resultBundle);
   await writeJsonFile(runRoot, "result/topic-analysis.json", analysisManifest);
-  await writeJsonFile(runRoot, "runtime/payloads/resolver.json", createResolverManifest());
+  await writeJsonFile(
+    runRoot,
+    "runtime/payloads/resolver.json",
+    createResolverManifest(),
+  );
+  await writeJsonFile(runRoot, "result/sidecars/concept-cards-proposal.json", {
+    schema_id: "synthesis.concept_cards_proposal",
+    schema_version: "1.0.0",
+    cards: [],
+    diagnostics: [],
+  });
+  await writeJsonFile(
+    runRoot,
+    "result/sidecars/topic-graph-relation-proposals.json",
+    {
+      schema_id: "synthesis.topic_graph_relation_proposals",
+      schema_version: "1.0.0",
+      source_topic_id: "object-detection",
+      proposals: [],
+      diagnostics: [],
+    },
+  );
   for (const [section, value] of Object.entries(args.sections)) {
-    await writeJsonFile(runRoot, `result/sections/${sectionFileName(section)}`, value);
+    await writeJsonFile(
+      runRoot,
+      `result/sections/${sectionFileName(section)}`,
+      value,
+    );
   }
   return { runRoot, resultBundle, analysisManifest };
 }
@@ -611,10 +672,14 @@ async function applyRunWorkspace(args: {
   });
 }
 
-function runCreateSkillFinalValidation(runRoot: string, sections: Record<string, unknown>) {
+function runCreateSkillFinalValidation(
+  runRoot: string,
+  sections: Record<string, unknown>,
+) {
   const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
   const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-  const candidateIds = (sections.evidence_map as JsonObject).candidate_ids || [];
+  const candidateIds =
+    (sections.evidence_map as JsonObject).candidate_ids || [];
   const python = process.env.PYTHON || "python";
   const setupScript = String.raw`
 import json
@@ -685,9 +750,20 @@ conn.commit()
 db.record_action_receipt(conn, action_name="persist_citation_graph_metrics", payload={}, result={"paper_refs": ["1:DETR"]})
 db.record_action_receipt(conn, action_name="persist_filtered_artifact_manifest", payload={}, result={"paper_refs": ["1:DETR"]})
 db.record_action_receipt(conn, action_name="persist_paper_units", payload={}, result={"paper_refs": ["1:DETR"]})
-for stage in db.STAGES[:10]:
+sidecars = [
+    ("result/sidecars/concept-cards-proposal.json", "synthesis.concept_cards_proposal", {"schema_id": "synthesis.concept_cards_proposal", "schema_version": "1.0.0", "cards": [], "diagnostics": []}),
+    ("result/sidecars/topic-graph-relation-proposals.json", "synthesis.topic_graph_relation_proposals", {"schema_id": "synthesis.topic_graph_relation_proposals", "schema_version": "1.0.0", "source_topic_id": "object-detection", "proposals": [], "diagnostics": []}),
+]
+for relative_path, schema_id, value in sidecars:
+    path = run_root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    db.register_artifact(conn, path=relative_path, hash_value=db.sha256_file(path), content_type="json", schema_id=schema_id, stage="stage_9_kg_proposals", validated=True)
+db.set_meta(conn, "concept_cards_proposal_path", "result/sidecars/concept-cards-proposal.json")
+db.set_meta(conn, "topic_graph_relation_proposals_path", "result/sidecars/topic-graph-relation-proposals.json")
+for stage in db.STAGES[:11]:
     db.set_stage_state(conn, stage, "completed")
-db.set_stage_state(conn, "stage_10_render_and_validate", "running")
+db.set_stage_state(conn, "stage_11_render_and_validate", "running")
 `;
   execFileSync(
     python,
@@ -738,10 +814,14 @@ function captureCreateSkillFinalValidationError(
   }
 }
 
-function initializeCreateStageValidationDb(runRoot: string, sections: Record<string, unknown>) {
+function initializeCreateStageValidationDb(
+  runRoot: string,
+  sections: Record<string, unknown>,
+) {
   const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
   const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-  const candidateIds = (sections.evidence_map as JsonObject).candidate_ids || [];
+  const candidateIds =
+    (sections.evidence_map as JsonObject).candidate_ids || [];
   const python = process.env.PYTHON || "python";
   const setupScript = String.raw`
 import json
@@ -760,6 +840,7 @@ db.set_meta(conn, "operation", "create")
 db.set_meta(conn, "language", "zh-CN")
 db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
 db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
+db.put_key_value(conn, "topic_intent", "topic_definition", {"id": "object-detection", "title": "Object Detection"})
 bundle = {
     "paper_ref": "1:DETR",
     "artifacts": [
@@ -814,7 +895,11 @@ function runCreateStageAction(args: {
   const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
   const fullPayloadPath = path.join(args.runRoot, args.payloadPath);
   fsSync.mkdirSync(path.dirname(fullPayloadPath), { recursive: true });
-  fsSync.writeFileSync(fullPayloadPath, `${JSON.stringify(args.payload, null, 2)}\n`, "utf8");
+  fsSync.writeFileSync(
+    fullPayloadPath,
+    `${JSON.stringify(args.payload, null, 2)}\n`,
+    "utf8",
+  );
   const python = process.env.PYTHON || "python";
   const output = execFileSync(
     python,
@@ -903,7 +988,9 @@ function assertValidArtifactSchema(value: unknown) {
     value,
   );
   assert.isTrue(result.ok, result.errors.join("; "));
-  const hostResult = validateTopicSynthesisArtifact(value, { expectedLanguage: "zh-CN" });
+  const hostResult = validateTopicSynthesisArtifact(value, {
+    expectedLanguage: "zh-CN",
+  });
   assert.isTrue(hostResult.ok, hostResult.errors.join("; "));
 }
 
@@ -915,8 +1002,10 @@ describe("Topic synthesis contract pipeline", function () {
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
     const invalid = routeTimelinePayload(sections);
-    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject).relation_to_other_routes;
-    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject).review_angle;
+    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
+      .relation_to_other_routes;
+    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
+      .review_angle;
 
     const message = captureCreateStageActionError({
       runRoot,
@@ -954,7 +1043,60 @@ describe("Topic synthesis contract pipeline", function () {
     assert.match(message, /claim.*analysis|analysis\/rationale/i);
   });
 
-  it("prevalidates Stage 9 payload and materializes sections only after it passes", async function () {
+  it("persists required-form KG proposal sidecars after core sections", async function () {
+    const runRoot = await makeRoot("zs-topic-kg-proposals-run-");
+    const sections = baseSections();
+    const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
+    runCreateStageAction({
+      runRoot,
+      dbPath,
+      action: "persist_route_timeline",
+      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
+      payload: routeTimelinePayload(sections),
+    });
+    runCreateStageAction({
+      runRoot,
+      dbPath,
+      action: "persist_core_sections",
+      payloadPath: "runtime/payloads/core-analytical-sections.json",
+      payload: coreSectionsPayload(sections),
+    });
+
+    const result = runCreateStageAction({
+      runRoot,
+      dbPath,
+      action: "persist_kg_proposals",
+      payloadPath: "runtime/payloads/kg-proposals.json",
+      payload: {
+        schema_id: "synthesis.topic_synthesis_kg_proposals",
+        schema_version: "1.0.0",
+        concept_cards_proposal: {
+          cards: [],
+          diagnostics: [{ code: "no_reliable_concepts" }],
+        },
+        topic_graph_relation_proposals: {
+          proposals: [],
+          diagnostics: [{ code: "no_reliable_relations" }],
+        },
+      },
+    });
+    const conceptSidecar = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result/sidecars/concept-cards-proposal.json"),
+    );
+    const relationSidecar = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result/sidecars/topic-graph-relation-proposals.json"),
+    );
+
+    assert.equal(
+      result.result.concept_cards_proposal_path,
+      "result/sidecars/concept-cards-proposal.json",
+    );
+    assert.deepEqual(conceptSidecar.cards, []);
+    assert.equal(relationSidecar.source_topic_id, "object-detection");
+    assert.deepEqual(relationSidecar.proposals, []);
+  });
+
+  it("prevalidates Stage 10 payload and materializes sections only after it passes", async function () {
     const runRoot = await makeRoot("zs-topic-stage9-run-");
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
@@ -985,8 +1127,12 @@ describe("Topic synthesis contract pipeline", function () {
 
     assert.match(message, /synthesis_report body/i);
     try {
-      await fs.access(path.join(runRoot, "result/sections/synthesis-report.json"));
-      assert.fail("Stage 9 should not materialize section files after failed prevalidation");
+      await fs.access(
+        path.join(runRoot, "result/sections/synthesis-report.json"),
+      );
+      assert.fail(
+        "Stage 10 should not materialize section files after failed prevalidation",
+      );
     } catch {
       // expected
     }
@@ -1003,7 +1149,10 @@ describe("Topic synthesis contract pipeline", function () {
     const materialized = await readJsonFile<JsonObject>(
       path.join(runRoot, "result/sections/taxonomy.json"),
     );
-    assert.equal(materialized.summary.text, (sections.taxonomy as JsonObject).summary.text);
+    assert.equal(
+      materialized.summary.text,
+      (sections.taxonomy as JsonObject).summary.text,
+    );
   });
 
   it("flows from skill output schema through apply hook, host persistence, and UI detail DTO", async function () {
@@ -1027,27 +1176,52 @@ describe("Topic synthesis contract pipeline", function () {
 
     const runtimeValidation = runCreateSkillFinalValidation(runRoot, sections);
     assert.equal(runtimeValidation.final_path, "result/result.json");
-    const resultBundle = await readJsonFile<JsonObject>(path.join(runRoot, "result", "result.json"));
+    const resultBundle = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result", "result.json"),
+    );
 
     assertValidOutputSchema(resultBundle);
     assertValidArtifactSchema(artifact);
 
-    const applyResult = await applyRunWorkspace({ service, runRoot, resultBundle });
+    const applyResult = await applyRunWorkspace({
+      service,
+      runRoot,
+      resultBundle,
+    });
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
-    const persistedManifest = await readJsonFile<JsonObject>(paths.currentManifest);
-    const persistedArtifact = await readJsonFile<JsonObject>(paths.currentArtifact);
-    const persistedMetadataEnvelope = await readJsonFile<JsonObject>(paths.currentMetadata);
-    const exportMarkdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
+    const persistedManifest = await readJsonFile<JsonObject>(
+      paths.currentManifest,
+    );
+    const persistedArtifact = await readJsonFile<JsonObject>(
+      paths.currentArtifact,
+    );
+    const persistedMetadataEnvelope = await readJsonFile<JsonObject>(
+      paths.currentMetadata,
+    );
+    const exportMarkdown = await fs.readFile(
+      paths.currentExportMarkdown,
+      "utf8",
+    );
     const persistedClaims = await readJsonFile<JsonObject>(
       path.join(paths.currentSectionsRoot, "claims.json"),
     );
-    const detail = await service.readTopicDetail({ topicId: "object-detection" });
+    const detail = await service.readTopicDetail({
+      topicId: "object-detection",
+    });
     const snapshot = await service.getSynthesisSnapshot();
-    const row = snapshot.artifacts.rows.find((entry: any) => entry.id === "object-detection");
+    const row = snapshot.artifacts.rows.find(
+      (entry: any) => entry.id === "object-detection",
+    );
 
     assert.equal((applyResult as any).status, "persisted");
-    assert.equal(persistedArtifact.schema_id, "synthesis.topic_synthesis_artifact");
-    assert.equal(persistedArtifact.taxonomy.summary.text, (sections.taxonomy as any).summary.text);
+    assert.equal(
+      persistedArtifact.schema_id,
+      "synthesis.topic_synthesis_artifact",
+    );
+    assert.equal(
+      persistedArtifact.taxonomy.summary.text,
+      (sections.taxonomy as any).summary.text,
+    );
     assert.equal(
       persistedArtifact.timeline_events.summary.text,
       (sections.timeline_events as any).summary.text,
@@ -1057,13 +1231,25 @@ describe("Topic synthesis contract pipeline", function () {
     assert.equal(persistedMetadataEnvelope.data.external_literature_count, 1);
     assert.deepEqual(persistedClaims, sections.claims);
     assert.equal(detail.title, "Object Detection");
-    assert.equal(detail.taxonomy.summary.text, (sections.taxonomy as any).summary.text);
+    assert.equal(
+      detail.taxonomy.summary.text,
+      (sections.taxonomy as any).summary.text,
+    );
     assert.lengthOf(detail.timeline_events.events, 1);
     assert.equal(detail.claims[0].evidence_refs[0], "pe:1_detr");
-    assert.equal(detail.paper_evidence[0].digest_ref.payload_hash, hashMarkdown(DIGEST_MARKDOWN));
-    assert.equal(detail.external_literature_analysis.coverage_verdict, "partial");
+    assert.equal(
+      detail.paper_evidence[0].digest_ref.payload_hash,
+      hashMarkdown(DIGEST_MARKDOWN),
+    );
+    assert.equal(
+      detail.external_literature_analysis.coverage_verdict,
+      "partial",
+    );
     assert.equal(detail.statistics.paper_count, 1);
-    assert.include(detail.synthesis_report.body, "skill, workflow, host, and Workbench contracts");
+    assert.include(
+      detail.synthesis_report.body,
+      "skill, workflow, host, and Workbench contracts",
+    );
     assert.isOk(row);
     assert.equal((row as any).paper_count, 1);
     assert.equal((row as any).external_literature_count, 1);
@@ -1085,7 +1271,10 @@ describe("Topic synthesis contract pipeline", function () {
     const manifest = await readJsonFile<JsonObject>(paths.currentManifest);
 
     for (const [section, entry] of Object.entries(manifest.sections)) {
-      const sectionPath = path.join(paths.currentSectionsRoot, sectionFileName(section));
+      const sectionPath = path.join(
+        paths.currentSectionsRoot,
+        sectionFileName(section),
+      );
       const sectionValue = await readJsonFile(sectionPath);
       assert.equal(
         (entry as any).hash,
@@ -1093,7 +1282,10 @@ describe("Topic synthesis contract pipeline", function () {
         `manifest hash should match ${section}`,
       );
     }
-    assert.equal(manifest.section_hashes.taxonomy, hashCanonicalJson(sections.taxonomy));
+    assert.equal(
+      manifest.section_hashes.taxonomy,
+      hashCanonicalJson(sections.taxonomy),
+    );
     assert.equal(
       manifest.section_hashes.timeline_events,
       hashCanonicalJson(sections.timeline_events),
@@ -1118,7 +1310,9 @@ describe("Topic synthesis contract pipeline", function () {
     assertValidOutputSchema(resultBundle);
     try {
       runCreateSkillFinalValidation(runRoot, sections);
-      assert.fail("expected package-local validate_final_artifacts to reject incomplete taxonomy");
+      assert.fail(
+        "expected package-local validate_final_artifacts to reject incomplete taxonomy",
+      );
     } catch (error) {
       const message =
         error instanceof Error
@@ -1158,12 +1352,21 @@ describe("Topic synthesis contract pipeline", function () {
     const sections = baseSections();
     delete (sections.synthesis_report as JsonObject).title;
     const { runRoot } = await createRunWorkspace({ sections });
-    const before = await fs.readFile(path.join(runRoot, "result", "result.json"), "utf8");
+    const before = await fs.readFile(
+      path.join(runRoot, "result", "result.json"),
+      "utf8",
+    );
 
-    const errorMessage = captureCreateSkillFinalValidationError(runRoot, sections);
+    const errorMessage = captureCreateSkillFinalValidationError(
+      runRoot,
+      sections,
+    );
 
     assert.match(errorMessage, /synthesis_report\.title/i);
-    const after = await fs.readFile(path.join(runRoot, "result", "result.json"), "utf8");
+    const after = await fs.readFile(
+      path.join(runRoot, "result", "result.json"),
+      "utf8",
+    );
     assert.equal(after, before);
   });
 
@@ -1173,7 +1376,10 @@ describe("Topic synthesis contract pipeline", function () {
       "This report mentions routes, history, findings, debates, gaps, coverage, and external literature, but remains too shallow.";
     const { runRoot } = await createRunWorkspace({ sections });
 
-    const errorMessage = captureCreateSkillFinalValidationError(runRoot, sections);
+    const errorMessage = captureCreateSkillFinalValidationError(
+      runRoot,
+      sections,
+    );
 
     assert.match(errorMessage, /synthesis_report body/i);
   });
@@ -1183,18 +1389,20 @@ describe("Topic synthesis contract pipeline", function () {
     const { runRoot } = await createRunWorkspace({ sections });
     const first = runCreateSkillFinalValidation(runRoot, sections);
     assert.equal(first.final_path, "result/result.json");
-    await fs.writeFile(path.join(runRoot, "result", "result.json"), "{\"polluted\":true}\n", "utf8");
-    await writeJsonFile(
-      runRoot,
-      "result/sections/synthesis-report.json",
-      {
-        ...(sections.synthesis_report as JsonObject),
-        body: `${(sections.synthesis_report as JsonObject).body}\n\nThis repaired section update remains schema-valid and verifies that validate_final_artifacts can rewrite final section hashes without being blocked by old section_outputs receipts.`,
-      },
+    await fs.writeFile(
+      path.join(runRoot, "result", "result.json"),
+      '{"polluted":true}\n',
+      "utf8",
     );
+    await writeJsonFile(runRoot, "result/sections/synthesis-report.json", {
+      ...(sections.synthesis_report as JsonObject),
+      body: `${(sections.synthesis_report as JsonObject).body}\n\nThis repaired section update remains schema-valid and verifies that validate_final_artifacts can rewrite final section hashes without being blocked by old section_outputs receipts.`,
+    });
 
     const repaired = runCreateSkillFinalValidation(runRoot, sections);
-    const finalBundle = await readJsonFile<JsonObject>(path.join(runRoot, "result", "result.json"));
+    const finalBundle = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result", "result.json"),
+    );
 
     assert.equal(repaired.final_path, "result/result.json");
     assert.equal(finalBundle.kind, "topic_synthesis");
@@ -1221,12 +1429,13 @@ describe("Topic synthesis contract pipeline", function () {
     assert.match(currentClaimHash, /^sha256:[a-f0-9]{64}$/);
 
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
-    const currentManifest = await readJsonFile<JsonObject>(paths.currentManifest);
+    const currentManifest = await readJsonFile<JsonObject>(
+      paths.currentManifest,
+    );
     const changedClaims = [
       {
         ...(sections.claims as any[])[0],
-        text:
-          "DETR-style detection shifts object detection toward query-based set prediction and makes matching a central design object.",
+        text: "DETR-style detection shifts object detection toward query-based set prediction and makes matching a central design object.",
         analysis:
           "The patch keeps the same evidence but updates the claim wording to verify section replacement without changing unrelated sections.",
       },
@@ -1238,7 +1447,8 @@ describe("Topic synthesis contract pipeline", function () {
       topic_id: "object-detection",
       language: "zh-CN",
       base: {
-        current_manifest_hash: currentManifest.manifest_hash || currentManifest.hash || "",
+        current_manifest_hash:
+          currentManifest.manifest_hash || currentManifest.hash || "",
         current_artifact_hash: currentManifest.artifact_hash,
         read_section_hashes: {
           claims: currentClaimHash,
@@ -1280,6 +1490,10 @@ describe("Topic synthesis contract pipeline", function () {
         claims: currentClaimHash,
       },
       analysis_manifest_path: "result/topic-analysis.patch.json",
+      concept_cards_proposal_path:
+        "result/sidecars/concept-cards-proposal.json",
+      topic_graph_relation_proposals_path:
+        "result/sidecars/topic-graph-relation-proposals.json",
       artifact_metadata: {
         topic_id: "object-detection",
         update_reason: "contract_pipeline_patch_test",
@@ -1287,8 +1501,33 @@ describe("Topic synthesis contract pipeline", function () {
     };
     const runRoot = await makeRoot("zs-topic-contract-patch-run-");
     await writeJsonFile(runRoot, "result/result.json", patchBundle);
-    await writeJsonFile(runRoot, "result/topic-analysis.patch.json", patchManifest);
+    await writeJsonFile(
+      runRoot,
+      "result/topic-analysis.patch.json",
+      patchManifest,
+    );
     await writeJsonFile(runRoot, "result/sections/claims.json", changedClaims);
+    await writeJsonFile(
+      runRoot,
+      "result/sidecars/concept-cards-proposal.json",
+      {
+        schema_id: "synthesis.concept_cards_proposal",
+        schema_version: "1.0.0",
+        cards: [],
+        diagnostics: [],
+      },
+    );
+    await writeJsonFile(
+      runRoot,
+      "result/sidecars/topic-graph-relation-proposals.json",
+      {
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        schema_version: "1.0.0",
+        source_topic_id: "object-detection",
+        proposals: [],
+        diagnostics: [],
+      },
+    );
 
     const patchResult = await applyRunWorkspace({
       service,
@@ -1300,8 +1539,17 @@ describe("Topic synthesis contract pipeline", function () {
 
     assert.equal((patchResult as any).status, "persisted");
     assert.equal(nextArtifact.claims[0].text, changedClaims[0].text);
-    assert.equal(nextArtifact.taxonomy.summary.text, (sections.taxonomy as any).summary.text);
-    assert.notEqual(nextManifest.section_hashes.claims, currentManifest.section_hashes.claims);
-    assert.equal(nextManifest.section_hashes.taxonomy, currentManifest.section_hashes.taxonomy);
+    assert.equal(
+      nextArtifact.taxonomy.summary.text,
+      (sections.taxonomy as any).summary.text,
+    );
+    assert.notEqual(
+      nextManifest.section_hashes.claims,
+      currentManifest.section_hashes.claims,
+    );
+    assert.equal(
+      nextManifest.section_hashes.taxonomy,
+      currentManifest.section_hashes.taxonomy,
+    );
   });
 });
