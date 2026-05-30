@@ -138,6 +138,121 @@ function findDigestNote(notes) {
   return findGeneratedNote(notes, "digest");
 }
 
+const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
+const LITERATURE_MATCHING_METADATA_ARRAY_LIMITS = {
+  key_terms: 12,
+  methods: 8,
+  problems: 8,
+  datasets: 8,
+  exclude_terms: 6,
+};
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeMetadataStringArray(value, fieldName, limit) {
+  if (!Array.isArray(value)) {
+    throw new Error(`literature_matching_metadata.${fieldName} must be array`);
+  }
+  if (value.length > limit) {
+    throw new Error(
+      `literature_matching_metadata.${fieldName} must contain at most ${limit} items`,
+    );
+  }
+  const seen = new Set();
+  const items = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (typeof item !== "string") {
+      throw new Error(
+        `literature_matching_metadata.${fieldName}[${index}] must be string`,
+      );
+    }
+    const normalized = item.trim().replace(/\s+/g, " ");
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    items.push(normalized);
+  }
+  return items;
+}
+
+function normalizeLiteratureMatchingMetadataPayload(value) {
+  if (!isPlainObject(value)) {
+    throw new Error("literature_matching_metadata must be object");
+  }
+  if (value.schema !== LITERATURE_MATCHING_METADATA_SCHEMA) {
+    throw new Error(
+      `literature_matching_metadata.schema must be ${LITERATURE_MATCHING_METADATA_SCHEMA}`,
+    );
+  }
+  const allowed = new Set([
+    "schema",
+    ...Object.keys(LITERATURE_MATCHING_METADATA_ARRAY_LIMITS),
+  ]);
+  const extraKeys = Object.keys(value).filter((key) => !allowed.has(key));
+  if (extraKeys.length > 0) {
+    throw new Error(
+      `literature_matching_metadata contains unsupported keys: ${extraKeys.join(", ")}`,
+    );
+  }
+  const payload = {
+    schema: LITERATURE_MATCHING_METADATA_SCHEMA,
+  };
+  for (const [fieldName, limit] of Object.entries(
+    LITERATURE_MATCHING_METADATA_ARRAY_LIMITS,
+  )) {
+    if (!(fieldName in value)) {
+      throw new Error(
+        `literature_matching_metadata missing required key: ${fieldName}`,
+      );
+    }
+    payload[fieldName] = normalizeMetadataStringArray(
+      value[fieldName],
+      fieldName,
+      limit,
+    );
+  }
+  return payload;
+}
+
+async function readLiteratureMatchingMetadataArtifact(args) {
+  try {
+    const resolved = await readArtifactText({
+      resultContext: args.resultContext,
+      bundleReader: args.bundleReader,
+      fieldName: "literature_matching_metadata_path",
+      rawPath: getResultArtifactPath(
+        args.result,
+        "literature_matching_metadata_path",
+      ),
+      fallbackPath: "artifacts/literature_matching_metadata.json",
+    });
+    const payload = normalizeLiteratureMatchingMetadataPayload(
+      JSON.parse(resolved.text),
+    );
+    return {
+      payload,
+      entryPath: resolved.entryPath,
+      warning: "",
+    };
+  } catch (error) {
+    return {
+      payload: null,
+      entryPath: "",
+      warning: String(
+        error?.message || error || "literature matching metadata unavailable",
+      ),
+    };
+  }
+}
+
 function appendRepresentativeImageApplyLog(args) {
   try {
     const hostApi = requireHostApi(args.runtime);
@@ -398,6 +513,16 @@ async function applyResultImpl({
         fallbackPath: "artifacts/citation_analysis.json",
       }),
   );
+  const literatureMatchingMetadataResolved = await measureWorkflowTestSpan(
+    "executeApplyResult:literatureDigest:readLiteratureMatchingMetadataArtifact",
+    {},
+    () =>
+      readLiteratureMatchingMetadataArtifact({
+        resultContext,
+        bundleReader,
+        result,
+      }),
+  );
 
   const referencesPayload = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:normalizeReferencesPayload",
@@ -446,6 +571,8 @@ async function applyResultImpl({
             format: "markdown",
             content: digestResolved.text,
           },
+          literatureMatchingMetadata:
+            literatureMatchingMetadataResolved.payload || undefined,
           sourceAttachmentItemKey,
           ...(representativeImageLocator
             ? {
@@ -486,6 +613,10 @@ async function applyResultImpl({
     referencesResolved.text.length,
     citationAnalysisResolved.entryPath,
     citationAnalysisResolved.text.length,
+    literatureMatchingMetadataResolved.entryPath,
+    literatureMatchingMetadataResolved.payload
+      ? JSON.stringify(literatureMatchingMetadataResolved.payload).length
+      : "",
   ]
     .filter(Boolean)
     .join(":");
@@ -503,6 +634,15 @@ async function applyResultImpl({
     source: "literature-digest.applyResult",
     sourceHash: artifactSourceHash,
   });
+  if (literatureMatchingMetadataResolved.payload) {
+    await recordSynthesisDirtyEvent({
+      runtime,
+      parentItem,
+      eventType: "literature_matching_metadata_changed",
+      source: "literature-digest.applyResult",
+      sourceHash: artifactSourceHash,
+    });
+  }
   const autoReferenceMatching = {
     enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
     attempted: false,
@@ -510,6 +650,15 @@ async function applyResultImpl({
   if (!autoReferenceMatching.enabled) {
     return {
       ...appliedWithRepresentativeImage,
+      literature_matching_metadata: literatureMatchingMetadataResolved.payload
+        ? {
+            status: "attached",
+            entry: literatureMatchingMetadataResolved.entryPath,
+          }
+        : {
+            status: "unavailable",
+            warning: literatureMatchingMetadataResolved.warning,
+          },
       auto_reference_matching: autoReferenceMatching,
     };
   }
@@ -520,6 +669,15 @@ async function applyResultImpl({
   if (!referencesNote) {
     return {
       ...appliedWithRepresentativeImage,
+      literature_matching_metadata: literatureMatchingMetadataResolved.payload
+        ? {
+            status: "attached",
+            entry: literatureMatchingMetadataResolved.entryPath,
+          }
+        : {
+            status: "unavailable",
+            warning: literatureMatchingMetadataResolved.warning,
+          },
       auto_reference_matching: {
         ...autoReferenceMatching,
         warning: "references note was not produced by literature-digest apply",
@@ -550,6 +708,15 @@ async function applyResultImpl({
     });
     return {
       ...appliedWithRepresentativeImage,
+      literature_matching_metadata: literatureMatchingMetadataResolved.payload
+        ? {
+            status: "attached",
+            entry: literatureMatchingMetadataResolved.entryPath,
+          }
+        : {
+            status: "unavailable",
+            warning: literatureMatchingMetadataResolved.warning,
+          },
       auto_reference_matching: {
         ...autoReferenceMatching,
         matched: matchingResult?.matched || 0,
@@ -562,6 +729,15 @@ async function applyResultImpl({
   } catch (error) {
     return {
       ...appliedWithRepresentativeImage,
+      literature_matching_metadata: literatureMatchingMetadataResolved.payload
+        ? {
+            status: "attached",
+            entry: literatureMatchingMetadataResolved.entryPath,
+          }
+        : {
+            status: "unavailable",
+            warning: literatureMatchingMetadataResolved.warning,
+          },
       auto_reference_matching: {
         ...autoReferenceMatching,
         warning: String(

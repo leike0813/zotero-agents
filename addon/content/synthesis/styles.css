@@ -462,7 +462,8 @@ button.is-busy {
   color: var(--zs-muted);
   font-size: 12px;
   line-height: 1.35;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   white-space: nowrap;
 }
 
@@ -510,6 +511,215 @@ button.is-busy {
   margin-left: auto;
   color: var(--zs-muted);
   font-size: 11px;
+}
+
+.action-statusbar-progress {
+  position: relative;
+  flex: 0 0 74px;
+  width: 74px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.action-statusbar-progress-fill {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--zs-accent);
+}
+
+.action-statusbar-progress.is-indeterminate .action-statusbar-progress-fill {
+  animation: synthesis-statusbar-progress 1.1s ease-in-out infinite;
+}
+
+.action-statusbar-job-anchor {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.action-statusbar-job-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-surface);
+  color: var(--zs-text);
+  cursor: pointer;
+}
+
+.action-statusbar-job-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.action-statusbar-job-button:hover,
+.action-statusbar-job-button:focus-visible {
+  border-color: var(--zs-accent);
+  outline: 2px solid rgba(37, 99, 235, 0.2);
+  outline-offset: 1px;
+}
+
+.action-statusbar-job-button-count {
+  min-width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--zs-accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.action-statusbar-job-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(380px, calc(100vh - 80px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+  color: var(--zs-text);
+}
+
+.action-statusbar-job-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px 7px;
+  border-bottom: 1px solid var(--zs-border);
+}
+
+.action-statusbar-job-popover-close {
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--zs-muted);
+  cursor: pointer;
+}
+
+.action-statusbar-job-popover-close:hover,
+.action-statusbar-job-popover-close:focus-visible {
+  border-color: var(--zs-border);
+  color: var(--zs-text);
+  outline: 2px solid rgba(37, 99, 235, 0.18);
+}
+
+.action-statusbar-job-empty {
+  padding: 12px 8px 6px;
+  color: var(--zs-muted);
+}
+
+.action-statusbar-job-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.action-statusbar-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--zs-surface);
+  color: var(--zs-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.action-statusbar-job-row:hover,
+.action-statusbar-job-row:focus-visible {
+  border-color: var(--zs-accent);
+  outline: 2px solid rgba(37, 99, 235, 0.16);
+}
+
+.action-statusbar-job-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.action-statusbar-job-state,
+.action-statusbar-job-source {
+  flex: 0 0 auto;
+  color: var(--zs-muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.action-statusbar-job-state.is-running {
+  color: var(--zs-accent);
+}
+
+.action-statusbar-job-state.is-waiting,
+.action-statusbar-job-state.is-queued,
+.action-statusbar-job-state.is-submitted {
+  color: var(--zs-warning);
+}
+
+.action-statusbar-job-state.is-failed {
+  color: var(--zs-danger);
+}
+
+.action-statusbar-job-title,
+.action-statusbar-job-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-statusbar-job-title {
+  font-weight: 650;
+}
+
+.action-statusbar-job-detail {
+  color: var(--zs-muted);
+  font-size: 11px;
+}
+
+@keyframes synthesis-statusbar-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-statusbar-progress.is-indeterminate .action-statusbar-progress-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
 }
 
 .home-shell {
@@ -1076,6 +1286,143 @@ th {
   font-weight: 650;
 }
 
+.registry-table {
+  table-layout: auto;
+}
+
+.registry-table th:last-child,
+.registry-table td:last-child {
+  width: 132px;
+  max-width: 132px;
+  color: var(--zs-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registry-table th.registry-artifacts-header,
+.registry-table th.registry-references-header,
+.registry-table td.registry-artifacts-cell,
+.registry-table td.registry-references-cell {
+  text-align: center;
+}
+
+.registry-column-header-label,
+.registry-column-header-subtitle {
+  display: block;
+}
+
+.registry-column-header-subtitle {
+  margin-top: 2px;
+  color: var(--zs-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.registry-parent-row td,
+.registry-reference-row td {
+  vertical-align: middle;
+}
+
+.registry-reference-row td {
+  padding-block: 4px;
+  background: var(--zs-surface);
+  color: var(--zs-muted);
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registry-reference-title-cell {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+  align-items: center;
+}
+
+.registry-reference-title-cell.is-child {
+  padding-left: 24px;
+}
+
+.registry-reference-title-cell.is-child .registry-reference-primary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registry-reference-disclosure {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-panel);
+  color: var(--zs-text);
+  cursor: pointer;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.registry-reference-disclosure:hover,
+.registry-reference-disclosure:focus-visible {
+  border-color: var(--zs-accent);
+  outline: 2px solid rgba(37, 99, 235, 0.18);
+  outline-offset: 1px;
+}
+
+.registry-reference-parent-title,
+.registry-reference-primary {
+  min-width: 0;
+  color: var(--zs-text);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.registry-reference-child-marker {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 18px;
+  border-bottom: 1px solid var(--zs-border-strong);
+  border-left: 1px solid var(--zs-border-strong);
+}
+
+.registry-reference-muted {
+  flex: 0 0 auto;
+  color: var(--zs-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.registry-artifact-badges {
+  display: inline-grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 3px;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.registry-artifact-badges .badge {
+  width: 18px;
+  min-width: 0;
+  padding-inline: 3px;
+  font-size: 10.5px;
+  line-height: 1.25;
+}
+
+.registry-reference-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .badge {
   display: inline-block;
   min-width: 54px;
@@ -1091,6 +1438,10 @@ th {
 
 .badge.warn {
   color: var(--zs-warn);
+}
+
+.badge.blue {
+  color: var(--zs-accent);
 }
 
 .badge.danger {
@@ -1185,6 +1536,23 @@ th {
   height: 100%;
 }
 
+.graph-layout-banner {
+  position: absolute;
+  inset-block-start: 64px;
+  inset-inline-start: 12px;
+  z-index: 2;
+  display: flex;
+  max-width: min(420px, calc(100% - 24px));
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow);
+}
+
 .graph-empty {
   position: absolute;
   inset: 0;
@@ -1204,19 +1572,21 @@ th {
 .graph-control-drawer {
   position: absolute;
   top: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 3;
+  left: 12px;
+  z-index: 4;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: 42px;
+  height: 42px;
   max-width: min(330px, calc(100% - 24px));
+  max-height: min(520px, calc(100% - 24px));
   overflow: hidden;
   border-color: var(--zs-border-strong);
   background: var(--zs-panel);
   box-shadow: var(--zs-shadow-subtle);
   transition:
     width 180ms ease,
+    height 180ms ease,
     box-shadow 180ms ease;
 }
 
@@ -1224,24 +1594,60 @@ th {
 .graph-control-drawer:focus,
 .graph-control-drawer:focus-within {
   width: min(330px, calc(100% - 24px));
+  height: min(520px, calc(100% - 24px));
   box-shadow: var(--zs-shadow-soft);
 }
 
 .graph-control-drawer .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 38px;
-  padding: 9px 12px;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
+  padding: 0;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .graph-control-drawer:hover .panel-header,
 .graph-control-drawer:focus .panel-header,
 .graph-control-drawer:focus-within .panel-header {
-  writing-mode: horizontal-tb;
+  justify-content: flex-start;
+  padding: 9px 12px;
+}
+
+.graph-control-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--zs-text);
+}
+
+.graph-control-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-control-title {
+  display: none;
+}
+
+.graph-control-drawer:hover .graph-control-title,
+.graph-control-drawer:focus .graph-control-title,
+.graph-control-drawer:focus-within .graph-control-title {
+  display: inline;
 }
 
 .graph-control-drawer .details {
+  min-height: 0;
+  overflow: auto;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -1254,6 +1660,28 @@ th {
   pointer-events: auto;
 }
 
+.graph-selection-drawer {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(360px, calc(100% - 24px));
+  overflow: hidden;
+  border-color: var(--zs-border-strong);
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-soft);
+}
+
+.graph-selection-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
 .checkbox-label {
   display: inline-flex;
   align-items: center;
@@ -1264,7 +1692,57 @@ th {
 
 .selected-detail {
   display: grid;
+  gap: 12px;
+}
+
+.graph-citation-section {
+  display: grid;
+  min-height: 0;
   gap: 8px;
+}
+
+.graph-citation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.graph-citation-header h3 {
+  margin: 0;
+}
+
+.graph-citation-list {
+  display: grid;
+  max-height: min(420px, 48vh);
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.graph-citation-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-subtle);
+}
+
+.graph-citation-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--zs-text);
+}
+
+.graph-citation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .graph-edge {
@@ -1311,9 +1789,104 @@ th {
   padding: 12px;
 }
 
+.detail-list {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.detail-row > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .empty {
   padding: 18px;
   color: var(--zs-muted);
+}
+
+.empty-state {
+  display: grid;
+  grid-column: 1 / -1;
+  box-sizing: border-box;
+  width: min(100%, 560px);
+  margin: 18px auto;
+  align-self: center;
+  justify-self: center;
+  place-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 132px;
+  padding: 20px;
+  border: 1px dashed var(--zs-border-strong);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent),
+    var(--topic-panel-subtle);
+  color: var(--zs-muted);
+  text-align: center;
+}
+
+.empty-state-info {
+  border-color: rgba(37, 99, 235, 0.25);
+  background: var(--topic-soft-blue);
+}
+
+.empty-state-warning {
+  border-color: rgba(180, 83, 9, 0.3);
+  background: var(--topic-soft-orange);
+}
+
+.empty-state-title {
+  color: var(--zs-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.empty-state-message {
+  max-width: 520px;
+  margin: 0;
+  color: var(--zs-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.details .empty-state,
+.selected-detail .empty-state {
+  width: 100%;
+  min-height: 112px;
+  margin: 8px 0;
+  padding: 16px;
+}
+
+.topic-grid .empty-state,
+.panel-grid .empty-state {
+  max-width: 560px;
+}
+
+.graph-empty .empty-state,
+.topic-graph-canvas .empty-state,
+.reader-panel > .empty-state,
+.topic-detail-shell > .empty-state {
+  margin: auto;
 }
 
 .reader-panel,
@@ -2377,9 +2950,18 @@ th {
     overflow-x: auto;
   }
 
-  .graph-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(360px, 1fr) auto;
+  .graph-selection-drawer {
+    top: auto;
+    left: 12px;
+    width: auto;
+    max-height: min(420px, 55vh);
+  }
+
+  .graph-control-drawer:hover,
+  .graph-control-drawer:focus,
+  .graph-control-drawer:focus-within {
+    width: min(330px, calc(100% - 24px));
+    height: min(460px, calc(100% - 24px));
   }
 
   .reader-header,

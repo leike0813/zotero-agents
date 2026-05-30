@@ -2,9 +2,15 @@ import { joinPath } from "../utils/path";
 import { getPref, setPref } from "../utils/prefs";
 import {
   getRuntimePersistencePaths,
+  registerPluginTaskDomainByteEstimator,
   registerPluginTaskDomainClearer,
   registerPluginTaskDomainExceptRowScopesClearer,
+  registerPluginTaskDomainExceptRowScopesByteEstimator,
+  registerPluginTaskDomainCounter,
+  registerPluginTaskDomainExceptRowScopesCounter,
+  registerPluginTaskScopeByteEstimator,
   registerPluginTaskScopeClearer,
+  registerPluginTaskScopeCounter,
 } from "./runtimePersistence";
 
 type SqlPrimitive = string | number | null;
@@ -1551,6 +1557,98 @@ export function clearPluginTaskDomain(domainRaw: string) {
   }, 0);
 }
 
+export function countPluginTaskDomain(domainRaw: string) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  const db = getAdapter();
+  const requestCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_requests WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  const contextCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_contexts WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  const rowCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_rows WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  return [requestCount, contextCount, rowCount].reduce((sum, value) => {
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+function estimateEntryBytes(entry: Record<string, unknown>) {
+  return Object.values(entry).reduce<number>(
+    (sum, value) => sum + normalizeString(value).length,
+    0,
+  );
+}
+
+function estimateEntriesBytes(entries: Array<Record<string, unknown>>) {
+  return entries.reduce<number>((sum, entry) => sum + estimateEntryBytes(entry), 0);
+}
+
+function sumPluginTaskRowBytesForScopes(
+  domain: string,
+  args: { scope?: string; excludedScopes?: Set<string> } = {},
+) {
+  const db = getAdapter();
+  const rows = db.all(
+    `
+      SELECT domain, scope, task_id, request_id, backend_id, state, updated_at, payload_json
+      FROM plugin_task_rows
+      WHERE domain=@domain
+    `,
+    { domain },
+  );
+  return rows.reduce<number>((sum, row) => {
+    const scope = normalizeString(row.scope);
+    if (args.scope && scope !== args.scope) {
+      return sum;
+    }
+    if (args.excludedScopes?.has(scope)) {
+      return sum;
+    }
+    return (
+      sum +
+      [
+        row.domain,
+        row.scope,
+        row.task_id,
+        row.request_id,
+        row.backend_id,
+        row.state,
+        row.updated_at,
+        row.payload_json,
+      ].reduce<number>(
+        (rowSum, value) => rowSum + normalizeString(value).length,
+        0,
+      )
+    );
+  }, 0);
+}
+
+export function estimatePluginTaskDomainBytes(domainRaw: string) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  return (
+    estimateEntriesBytes(listPluginTaskRequestEntries(domain)) +
+    estimateEntriesBytes(listPluginTaskContextEntries(domain)) +
+    sumPluginTaskRowBytesForScopes(domain)
+  );
+}
+
 export function clearPluginTaskDomainExceptRowScopes(
   domainRaw: string,
   preservedRowScopesRaw: string[],
@@ -1619,6 +1717,68 @@ export function clearPluginTaskDomainExceptRowScopes(
   }, 0);
 }
 
+export function countPluginTaskDomainExceptRowScopes(
+  domainRaw: string,
+  preservedRowScopesRaw: string[],
+) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  const preserved = new Set(
+    (preservedRowScopesRaw || [])
+      .map((scope) => normalizeString(scope))
+      .filter(Boolean),
+  );
+  const db = getAdapter();
+  const requestCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_requests WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  const contextCount = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_contexts WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  const rows = db.all(
+    `
+      SELECT scope
+      FROM plugin_task_rows
+      WHERE domain=@domain
+    `,
+    { domain },
+  );
+  const rowCount = rows.filter(
+    (row) => !preserved.has(normalizeString(row.scope)),
+  ).length;
+  return [requestCount, contextCount, rowCount].reduce((sum, value) => {
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+export function estimatePluginTaskDomainExceptRowScopesBytes(
+  domainRaw: string,
+  preservedRowScopesRaw: string[],
+) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return 0;
+  }
+  const preserved = new Set(
+    (preservedRowScopesRaw || [])
+      .map((scope) => normalizeString(scope))
+      .filter(Boolean),
+  );
+  return (
+    estimateEntriesBytes(listPluginTaskRequestEntries(domain)) +
+    estimateEntriesBytes(listPluginTaskContextEntries(domain)) +
+    sumPluginTaskRowBytesForScopes(domain, { excludedScopes: preserved })
+  );
+}
+
 export function clearPluginTaskScope(domainRaw: string, scopeRaw: string) {
   const domain = normalizeString(domainRaw);
   const scope = normalizeString(scopeRaw);
@@ -1641,6 +1801,38 @@ export function clearPluginTaskScope(domainRaw: string, scopeRaw: string) {
     scope,
   });
   return Number.isFinite(rowCount) ? rowCount : 0;
+}
+
+export function countPluginTaskScope(domainRaw: string, scopeRaw: string) {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  if (!domain || !scope) {
+    return 0;
+  }
+  const db = getAdapter();
+  const rowCount = Number(
+    db.get(
+      `
+        SELECT COUNT(*) AS value
+        FROM plugin_task_rows
+        WHERE domain=@domain AND scope=@scope
+      `,
+      { domain, scope },
+    )?.value || 0,
+  );
+  return Number.isFinite(rowCount) ? rowCount : 0;
+}
+
+export function estimatePluginTaskScopeBytes(
+  domainRaw: string,
+  scopeRaw: string,
+) {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  if (!domain || !scope) {
+    return 0;
+  }
+  return sumPluginTaskRowBytesForScopes(domain, { scope });
 }
 
 export function resetPluginStateStoreForTests() {
@@ -1686,6 +1878,16 @@ registerPluginTaskDomainExceptRowScopesClearer(
   clearPluginTaskDomainExceptRowScopes,
 );
 registerPluginTaskScopeClearer(clearPluginTaskScope);
+registerPluginTaskDomainCounter(countPluginTaskDomain);
+registerPluginTaskDomainExceptRowScopesCounter(
+  countPluginTaskDomainExceptRowScopes,
+);
+registerPluginTaskScopeCounter(countPluginTaskScope);
+registerPluginTaskDomainByteEstimator(estimatePluginTaskDomainBytes);
+registerPluginTaskDomainExceptRowScopesByteEstimator(
+  estimatePluginTaskDomainExceptRowScopesBytes,
+);
+registerPluginTaskScopeByteEstimator(estimatePluginTaskScopeBytes);
 
 export function exportPluginStateStoreRowsForTests() {
   const db = getAdapter();

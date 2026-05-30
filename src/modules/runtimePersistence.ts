@@ -14,8 +14,7 @@ export type RuntimePersistenceCategory =
   | "acp-conversations"
   | "acp-skill-runs"
   | "cache"
-  | "tmp"
-  | "legacy";
+  | "tmp";
 
 export type RuntimePersistencePaths = {
   root: string;
@@ -46,6 +45,14 @@ export type RuntimePersistenceCategoryUsage = {
   exists: boolean;
   cleanable: boolean;
   itemCount?: number;
+  recordCount?: number;
+};
+
+export type RuntimePersistenceStateDatabaseUsage = {
+  path: string;
+  bytes: number;
+  exists: boolean;
+  itemCount?: number;
 };
 
 export type RuntimePersistenceUsageSnapshot = {
@@ -53,6 +60,7 @@ export type RuntimePersistenceUsageSnapshot = {
   scannedAt: string;
   totalBytes: number;
   categories: RuntimePersistenceCategoryUsage[];
+  stateDatabase?: RuntimePersistenceStateDatabaseUsage;
 };
 
 export type ManagedPathDiagnosticCode =
@@ -145,6 +153,19 @@ let pluginTaskDomainExceptRowScopesClearer:
   | null = null;
 let pluginTaskScopeClearer: ((domain: string, scope: string) => number) | null =
   null;
+let pluginTaskDomainCounter: ((domain: string) => number) | null = null;
+let pluginTaskDomainExceptRowScopesCounter:
+  | ((domain: string, preservedRowScopes: string[]) => number)
+  | null = null;
+let pluginTaskScopeCounter: ((domain: string, scope: string) => number) | null =
+  null;
+let pluginTaskDomainByteEstimator: ((domain: string) => number) | null = null;
+let pluginTaskDomainExceptRowScopesByteEstimator:
+  | ((domain: string, preservedRowScopes: string[]) => number)
+  | null = null;
+let pluginTaskScopeByteEstimator:
+  | ((domain: string, scope: string) => number)
+  | null = null;
 let acpSkillRunsMemoryClearer: (() => void) | null = null;
 
 export function registerRuntimeLogClearer(clearer: (() => void) | null) {
@@ -167,6 +188,42 @@ export function registerPluginTaskScopeClearer(
   clearer: ((domain: string, scope: string) => number) | null,
 ) {
   pluginTaskScopeClearer = clearer;
+}
+
+export function registerPluginTaskDomainCounter(
+  counter: ((domain: string) => number) | null,
+) {
+  pluginTaskDomainCounter = counter;
+}
+
+export function registerPluginTaskDomainExceptRowScopesCounter(
+  counter: ((domain: string, preservedRowScopes: string[]) => number) | null,
+) {
+  pluginTaskDomainExceptRowScopesCounter = counter;
+}
+
+export function registerPluginTaskScopeCounter(
+  counter: ((domain: string, scope: string) => number) | null,
+) {
+  pluginTaskScopeCounter = counter;
+}
+
+export function registerPluginTaskDomainByteEstimator(
+  estimator: ((domain: string) => number) | null,
+) {
+  pluginTaskDomainByteEstimator = estimator;
+}
+
+export function registerPluginTaskDomainExceptRowScopesByteEstimator(
+  estimator: ((domain: string, preservedRowScopes: string[]) => number) | null,
+) {
+  pluginTaskDomainExceptRowScopesByteEstimator = estimator;
+}
+
+export function registerPluginTaskScopeByteEstimator(
+  estimator: ((domain: string, scope: string) => number) | null,
+) {
+  pluginTaskScopeByteEstimator = estimator;
 }
 
 export function registerAcpSkillRunsMemoryClearer(
@@ -1184,107 +1241,93 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
     label: string;
     path?: string;
     cleanable: boolean;
+    recordCount?: () => number;
+    recordBytes?: () => number;
+    fileBacked?: boolean;
   }> = [
-    {
-      category: "state",
-      label: "State database",
-      path: paths.stateDbPath,
-      cleanable: false,
-    },
     {
       category: "logs",
       label: "Runtime logs",
       path: paths.logsDir,
       cleanable: true,
+      fileBacked: true,
     },
     {
       category: "skillrunner-ledger",
       label: "SkillRunner local ledger",
       path: paths.stateDbPath,
       cleanable: true,
+      recordCount: () => pluginTaskDomainCounter?.("skillrunner") || 0,
+      recordBytes: () => pluginTaskDomainByteEstimator?.("skillrunner") || 0,
     },
     {
       category: "acp-conversations",
       label: "ACP conversations",
       path: paths.acpChatRoot,
       cleanable: true,
+      recordCount: () =>
+        pluginTaskDomainExceptRowScopesCounter?.("acp", ["skill-runs"]) || 0,
+      recordBytes: () =>
+        pluginTaskDomainExceptRowScopesByteEstimator?.("acp", ["skill-runs"]) ||
+        0,
+      fileBacked: true,
     },
     {
       category: "acp-skill-runs",
       label: "ACP skill runs",
       path: paths.acpSkillRunsDir,
       cleanable: true,
+      recordCount: () => pluginTaskScopeCounter?.("acp", "skill-runs") || 0,
+      recordBytes: () =>
+        pluginTaskScopeByteEstimator?.("acp", "skill-runs") || 0,
+      fileBacked: true,
     },
     {
       category: "cache",
       label: "Cache",
       path: paths.cacheDir,
       cleanable: true,
+      fileBacked: true,
     },
     {
       category: "tmp",
       label: "Temporary files",
       path: paths.tmpDir,
       cleanable: true,
+      fileBacked: true,
     },
-    { category: "legacy", label: "Legacy runtime data", cleanable: false },
   ];
-  const legacyPaths = [
-    getLegacyRuntimeRootPath(),
-    getLegacyAcpRootPath(),
-    getLegacyAcpSkillRunnerRootPath(),
-  ].filter((entry, index, array) => {
-    const normalized = normalizeSlashes(entry);
-    return (
-      normalized &&
-      !normalized.startsWith(normalizeSlashes(paths.root)) &&
-      array.findIndex(
-        (candidate) => normalizeSlashes(candidate) === normalized,
-      ) === index
-    );
-  });
-
   const categories: RuntimePersistenceCategoryUsage[] = [];
   for (const def of categoryDefs) {
-    if (def.category === "legacy") {
-      let bytes = 0;
-      let itemCount = 0;
-      let exists = false;
-      for (const legacyPath of legacyPaths) {
-        const size = await getRuntimePathSize(legacyPath);
-        bytes += size.bytes;
-        itemCount += size.itemCount;
-        exists = exists || size.exists;
-      }
-      categories.push({
-        category: def.category,
-        label: def.label,
-        path: legacyPaths.join("; "),
-        bytes,
-        exists,
-        cleanable: def.cleanable,
-        itemCount,
-      });
-      continue;
-    }
-    const size = def.path
-      ? await getRuntimePathSize(def.path)
-      : { bytes: 0, itemCount: 0, exists: false };
+    const size =
+      def.path && def.fileBacked
+        ? await getRuntimePathSize(def.path)
+        : { bytes: 0, itemCount: 0, exists: false };
+    const recordCount = def.recordCount?.() || 0;
+    const recordBytes = def.recordBytes?.() || 0;
     categories.push({
       category: def.category,
       label: def.label,
       path: def.path,
-      bytes: size.bytes,
-      exists: size.exists,
+      bytes: size.bytes + recordBytes,
+      exists: size.exists || recordCount > 0,
       cleanable: def.cleanable,
       itemCount: size.itemCount,
+      recordCount,
     });
   }
+  const stateDatabaseSize = await getRuntimePathSize(paths.stateDbPath);
   return {
     root: paths.root,
     scannedAt: new Date().toISOString(),
     totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
     categories,
+    stateDatabase: {
+      path: paths.stateDbPath,
+      bytes: stateDatabaseSize.bytes,
+      exists: stateDatabaseSize.exists,
+      itemCount: stateDatabaseSize.itemCount,
+    },
   };
 }
 
@@ -1317,9 +1360,6 @@ export async function cleanupRuntimePersistenceCategory(
     await removeAndTrack(paths.cacheDir);
   } else if (category === "tmp") {
     await removeAndTrack(paths.tmpDir);
-  } else if (category === "legacy") {
-    details.reason =
-      "legacy data requires the explicit one-shot migration script";
   }
 
   return {

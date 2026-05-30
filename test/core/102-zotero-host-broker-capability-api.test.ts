@@ -302,6 +302,92 @@ describe("zotero host broker capability api", function () {
     );
   });
 
+  it("upserts embedded workflow payloads on notes through mutation execute", async function () {
+    const hostApi = createWorkflowHostApi();
+    const item = await createParentItem("Broker Note Payload Parent");
+    const note = await handlers.parent.addNote(item, {
+      content: "<div><p>digest note</p></div>",
+    });
+
+    const preview = await hostApi.mutations.preview({
+      operation: "note.upsertPayload",
+      note: note.key,
+      payloadType: "literature-matching-metadata-json",
+      noteKind: "digest",
+      payload: {
+        schema: "literature_matching_metadata.v1",
+        key_terms: ["object detection"],
+        methods: ["transformer"],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      },
+    });
+    assert.isTrue(preview.ok);
+    assert.include(preview.summary, "literature-matching-metadata-json");
+
+    const first = await hostApi.mutations.execute({
+      operation: "note.upsertPayload",
+      note: note.key,
+      payloadType: "literature-matching-metadata-json",
+      noteKind: "digest",
+      payload: {
+        schema: "literature_matching_metadata.v1",
+        key_terms: ["object detection"],
+        methods: ["transformer"],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      },
+    });
+    assert.isTrue(first.ok);
+    assert.strictEqual(first.ok && first.result.payloads?.[0].replaced, 0);
+
+    const payloadsAfterFirst = await hostApi.library.listNotePayloads(note.id);
+    assert.lengthOf(
+      payloadsAfterFirst.filter(
+        (entry) =>
+          entry.payloadType === "literature-matching-metadata-json" &&
+          entry.source === "embedded-image-attachment",
+      ),
+      1,
+    );
+
+    const second = await hostApi.mutations.execute({
+      operation: "note.upsertPayload",
+      note: note.id,
+      payloadType: "literature-matching-metadata-json",
+      noteKind: "digest",
+      payload: {
+        schema: "literature_matching_metadata.v1",
+        key_terms: ["instance segmentation"],
+        methods: ["mask prediction"],
+        problems: [],
+        datasets: [],
+        exclude_terms: [],
+      },
+    });
+    assert.isTrue(second.ok);
+    assert.strictEqual(second.ok && second.result.payloads?.[0].replaced, 1);
+
+    const payloadsAfterSecond = await hostApi.library.listNotePayloads(note.id);
+    assert.lengthOf(
+      payloadsAfterSecond.filter(
+        (entry) =>
+          entry.payloadType === "literature-matching-metadata-json" &&
+          entry.source === "embedded-image-attachment",
+      ),
+      1,
+    );
+    const detail = await hostApi.library.getNotePayload(note.id, {
+      payloadType: "literature-matching-metadata-json",
+    });
+    assert.deepEqual((detail.payload as any).key_terms, [
+      "instance segmentation",
+    ]);
+    assert.strictEqual(detail.source, "embedded-image-attachment");
+  });
+
   it("returns structured errors for unsupported or invalid mutations", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Invalid Mutation");

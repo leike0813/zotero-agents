@@ -1,0 +1,1940 @@
+{
+  "papers": [
+    {
+      "author_tokens": ["kim", "roh", "shin"],
+      "authors": [
+        "Byungseok Roh",
+        "JaeWoong Shin",
+        "Saehoon Kim",
+        "Wuhyun Shin"
+      ],
+      "compact_title": "sparsedetrefficientendtoendobjectdetectionwithlearnablesparsity",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2111.14330"
+        },
+        {
+          "kind": "citekey",
+          "value": "roh_sparse-detr_2022"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2111.14330"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2111.14330"
+        }
+      ],
+      "item_key": "29IBKEUR",
+      "library_id": 1,
+      "literature_item_id": "lit:1e3f7730daf3b9e48c51b970",
+      "normalized_title": "sparse detr efficient end to end object detection with learnable sparsity",
+      "paper_ref": "1:29IBKEUR",
+      "title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["bolya", "lee", "xiao", "zhou"],
+      "authors": ["Chong Zhou", "Daniel Bolya", "Fanyi Xiao", "Yong Jae Lee"],
+      "compact_title": "yolactrealtimeinstancesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "1904.02689"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/1904.02689"
+        }
+      ],
+      "item_key": "2KUGMFL2",
+      "library_id": 1,
+      "literature_item_id": "lit:fc4c4f51bda546d322b91b4f",
+      "normalized_title": "yolact real time instance segmentation",
+      "paper_ref": "1:2KUGMFL2",
+      "title": "YOLACT: Real-time Instance Segmentation",
+      "year": "2019"
+    },
+    {
+      "author_tokens": ["guizilini", "solomon", "wang", "zhang", "zhao"],
+      "authors": [
+        "Hang Zhao",
+        "Justin Solomon",
+        "Tianyuan Zhang",
+        "Vitor Campagnolo Guizilini",
+        "Yilun Wang",
+        "Yue Wang"
+      ],
+      "compact_title": "detr3d3dobjectdetectionfrommultiviewimagesvia3dto2dqueries",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "wang_detr3d-3d_2022"
+        },
+        {
+          "kind": "url",
+          "value": "https://proceedings.mlr.press/v164/wang22b.html"
+        }
+      ],
+      "item_key": "3JUY9GBQ",
+      "library_id": 1,
+      "literature_item_id": "lit:585cff7241b0c6d2f464e5e4",
+      "normalized_title": "detr3d 3d object detection from multi view images via 3d to 2d queries",
+      "paper_ref": "1:3JUY9GBQ",
+      "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+      "year": "2022"
+    },
+    {
+      "author_tokens": [
+        "hao",
+        "hu",
+        "huang",
+        "liang",
+        "pu",
+        "yang",
+        "yuan",
+        "zhang"
+      ],
+      "authors": [
+        "Chao Zhang",
+        "Gao Huang",
+        "Han Hu",
+        "Weicong Liang",
+        "Yiduo Hao",
+        "Yifan Pu",
+        "Yuhui Yuan",
+        "Yukang Yang"
+      ],
+      "compact_title": "rankdetrforhighqualityobjectdetection",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://proceedings.neurips.cc/paper_files/paper/2023/hash/34074479ee2186a9f236b8fd03635372-abstract-conference.html"
+        }
+      ],
+      "item_key": "3YG8UNCI",
+      "library_id": 1,
+      "literature_item_id": "lit:cb1d0367e7ae98642ea1282f",
+      "normalized_title": "rank detr for high quality object detection",
+      "paper_ref": "1:3YG8UNCI",
+      "title": "Rank-DETR for high quality object detection",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["kong", "li", "shen", "wang", "zhang"],
+      "authors": [
+        "Chunhua Shen",
+        "Lei Li",
+        "Rufeng Zhang",
+        "Tao Kong",
+        "Xinlong Wang"
+      ],
+      "compact_title": "solov2dynamicandfastinstancesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2003.10152"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2003.10152"
+        }
+      ],
+      "item_key": "4DB3YS8Y",
+      "library_id": 1,
+      "literature_item_id": "lit:cfd00c2d5f91f5dab383f4ce",
+      "normalized_title": "solov2 dynamic and fast instance segmentation",
+      "paper_ref": "1:4DB3YS8Y",
+      "title": "SOLOv2: Dynamic and Fast Instance Segmentation",
+      "year": "2020"
+    },
+    {
+      "author_tokens": ["afzal", "hashmi", "liwicki", "shehzadi", "stricker"],
+      "authors": [
+        "Didier Stricker",
+        "Khurram Azeem Hashmi",
+        "Marcus Liwicki",
+        "Muhammad Zeshan Afzal",
+        "Tahira Shehzadi"
+      ],
+      "compact_title": "objectdetectionwithtransformersareview",
+      "identifiers": [
+        {
+          "kind": "doi",
+          "value": "10.3390/s25196025"
+        },
+        {
+          "kind": "url",
+          "value": "https://www.mdpi.com/1424-8220/25/19/6025"
+        }
+      ],
+      "item_key": "4FUJYLNY",
+      "library_id": 1,
+      "literature_item_id": "lit:3f98607dadf917f381782929",
+      "normalized_title": "object detection with transformers a review",
+      "paper_ref": "1:4FUJYLNY",
+      "title": "Object Detection with Transformers: A Review",
+      "year": "2025"
+    },
+    {
+      "author_tokens": ["fan", "fu", "liu", "xiao", "yuan"],
+      "authors": [
+        "Chenping Fu",
+        "Jiewen Xiao",
+        "Risheng Liu",
+        "Wanqi Yuan",
+        "Xin Fan"
+      ],
+      "compact_title": "jointperceptuallearningforenhancementandobjectdetectioninunderwaterscenarios",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2307.03536"
+        },
+        {
+          "kind": "citekey",
+          "value": "fu_joint-perceptual_2023"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2307.03536"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2307.03536"
+        }
+      ],
+      "item_key": "4IUAXCCZ",
+      "library_id": 1,
+      "literature_item_id": "lit:f82c21b4c3f3f275d0007c59",
+      "normalized_title": "joint perceptual learning for enhancement and object detection in underwater scenarios",
+      "paper_ref": "1:4IUAXCCZ",
+      "title": "Joint perceptual learning for enhancement and object detection in underwater scenarios",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["cheng", "girdhar", "kirillov", "misra", "schwing"],
+      "authors": [
+        "Alexander G. Schwing",
+        "Alexander Kirillov",
+        "Bowen Cheng",
+        "Ishan Misra",
+        "Rohit Girdhar"
+      ],
+      "compact_title": "maskedattentionmasktransformerforuniversalimagesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2112.01527"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2112.01527"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2112.01527"
+        }
+      ],
+      "item_key": "53A2WXX8",
+      "library_id": 1,
+      "literature_item_id": "lit:69ebef6c49869a872b598aed",
+      "normalized_title": "masked attention mask transformer for universal image segmentation",
+      "paper_ref": "1:53A2WXX8",
+      "title": "Masked-attention Mask Transformer for Universal Image Segmentation",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["dai", "li", "lu", "su", "wang", "zhu"],
+      "authors": [
+        "Bin Li",
+        "Jifeng Dai",
+        "Lewei Lu",
+        "Weijie Su",
+        "Xiaogang Wang",
+        "Xizhou Zhu"
+      ],
+      "compact_title": "deformabledetrdeformabletransformersforendtoendobjectdetection",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2010.04159"
+        },
+        {
+          "kind": "citekey",
+          "value": "zhu_deformable-detr_2021"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2010.04159"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2010.04159"
+        }
+      ],
+      "item_key": "5HBHAWIV",
+      "library_id": 1,
+      "literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+      "normalized_title": "deformable detr deformable transformers for end to end object detection",
+      "paper_ref": "1:5HBHAWIV",
+      "title": "Deformable DETR: deformable transformers for end-to-end object detection",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["kong", "li", "shen", "wang", "zhang"],
+      "authors": [
+        "Chunhua Shen",
+        "Lei Li",
+        "Rufeng Zhang",
+        "Tao Kong",
+        "Xinlong Wang"
+      ],
+      "compact_title": "solosegmentingobjectsbylocations",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2003.06638"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2003.06638"
+        }
+      ],
+      "item_key": "76BD6UYE",
+      "library_id": 1,
+      "literature_item_id": "lit:371ab48980385b83c76cf696",
+      "normalized_title": "solo segmenting objects by locations",
+      "paper_ref": "1:76BD6UYE",
+      "title": "SOLO: Segmenting Objects by Locations",
+      "year": "2020"
+    },
+    {
+      "author_tokens": ["liu", "song", "zong"],
+      "authors": ["Guanglu Song", "Yu Liu", "Zhuofan Zong"],
+      "compact_title": "detrswithcollaborativehybridassignmentstraining",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "zong_detrs-collaborative_2023"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/iccv2023/html/zong_detrs_with_collaborative_hybrid_assignments_training_iccv_2023_paper.html"
+        }
+      ],
+      "item_key": "7AERRYC7",
+      "library_id": 1,
+      "literature_item_id": "lit:81bdea993aae9990cdedb7a3",
+      "normalized_title": "detrs with collaborative hybrid assignments training",
+      "paper_ref": "1:7AERRYC7",
+      "title": "DETRs with collaborative hybrid assignments training",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["chen", "wang", "xing", "yang", "zhu"],
+      "authors": [
+        "Hongqiu Wang",
+        "Lei Zhu",
+        "Sicheng Yang",
+        "Sixiang Chen",
+        "Zhaohu Xing"
+      ],
+      "compact_title": "segdinoanefficientdesignformedicalandnaturalimagesegmentationwithdinov3",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2509.00833"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2509.00833"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2509.00833"
+        }
+      ],
+      "item_key": "7T29H6SR",
+      "library_id": 1,
+      "literature_item_id": "lit:cbbba7e5f70f21a28b89c58e",
+      "normalized_title": "segdino an efficient design for medical and natural image segmentation with dino v3",
+      "paper_ref": "1:7T29H6SR",
+      "title": "SegDINO: An Efficient Design for Medical and Natural Image Segmentation with DINO-V3",
+      "year": "2025"
+    },
+    {
+      "author_tokens": [
+        "chen",
+        "ding",
+        "han",
+        "li",
+        "shen",
+        "su",
+        "wang",
+        "xu",
+        "yao",
+        "zhang"
+      ],
+      "authors": [
+        "Chuchu Han",
+        "Errui Ding",
+        "Fanrong Li",
+        "Gang Zhang",
+        "Jiahui Chen",
+        "Jian Wang",
+        "Jingdong Wang",
+        "Kun Yao",
+        "Qiang Chen",
+        "Shan Zhang",
+        "Weixiang Xu",
+        "Xiangbo Su",
+        "Xinyu Zhang",
+        "Yunpeng Shen",
+        "Ziliang Chen"
+      ],
+      "compact_title": "lwdetratransformerreplacementtoyoloforrealtimedetection",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2406.03459"
+        },
+        {
+          "kind": "citekey",
+          "value": "chen_lwdetr-transformer_2024"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2406.03459"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2406.03459"
+        }
+      ],
+      "item_key": "8838AH6P",
+      "library_id": 1,
+      "literature_item_id": "lit:8d2a7ee381424c354f03e28f",
+      "normalized_title": "lw detr a transformer replacement to yolo for real time detection",
+      "paper_ref": "1:8838AH6P",
+      "title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+      "year": "2024"
+    },
+    {
+      "author_tokens": ["chen", "shen", "tian"],
+      "authors": ["Chunhua Shen", "Hao Chen", "Zhi Tian"],
+      "compact_title": "conditionalconvolutionsforinstancesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2003.05664"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2003.05664"
+        }
+      ],
+      "item_key": "8AXAW2GX",
+      "library_id": 1,
+      "literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "normalized_title": "conditional convolutions for instance segmentation",
+      "paper_ref": "1:8AXAW2GX",
+      "title": "Conditional Convolutions for Instance Segmentation",
+      "year": "2020"
+    },
+    {
+      "author_tokens": ["faulkenberry", "prasad"],
+      "authors": ["Ryan Faulkenberry", "Saurabh Prasad"],
+      "compact_title": "dinosoarsdinov3foropenvocabularysemanticsegmentationofremotesensingimagery",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2605.03175"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2605.03175"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2605.03175"
+        }
+      ],
+      "item_key": "8DP4884A",
+      "library_id": 1,
+      "literature_item_id": "lit:3426657624a2e2d3988d7349",
+      "normalized_title": "dino soars dinov3 for open vocabulary semantic segmentation of remote sensing imagery",
+      "paper_ref": "1:8DP4884A",
+      "title": "DINO Soars: DINOv3 for Open-Vocabulary Semantic Segmentation of Remote Sensing Imagery",
+      "year": "2026"
+    },
+    {
+      "author_tokens": ["chang", "huang", "liu", "lv", "wang", "zhao"],
+      "authors": [
+        "Guanzhong Wang",
+        "Kui Huang",
+        "Qinyao Chang",
+        "Wenyu Lv",
+        "Yi Liu",
+        "Yian Zhao"
+      ],
+      "compact_title": "rtdetrv2improvedbaselinewithbagoffreebiesforrealtimedetectiontransformer",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2407.17140"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2407.17140"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2407.17140"
+        }
+      ],
+      "item_key": "8PP8HQMY",
+      "library_id": 1,
+      "literature_item_id": "lit:a2ebf7eec48f0dea708f0cef",
+      "normalized_title": "rt detrv2 improved baseline with bag of freebies for real time detection transformer",
+      "paper_ref": "1:8PP8HQMY",
+      "title": "RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer",
+      "year": "2024"
+    },
+    {
+      "author_tokens": [
+        "berg",
+        "girshick",
+        "gustafson",
+        "kirillov",
+        "lo",
+        "mao",
+        "mintun",
+        "r",
+        "ravi",
+        "rolland",
+        "whitehead",
+        "xiao"
+      ],
+      "authors": [
+        "Alexander C. Berg",
+        "Alexander Kirillov",
+        "Chloe Rolland",
+        "Eric Mintun",
+        "Hanzi Mao",
+        "Laura Gustafson",
+        "Nikhila Ravi",
+        "Piotr DollÃ¡r",
+        "Ross Girshick",
+        "Spencer Whitehead",
+        "Tete Xiao",
+        "Wan-Yen Lo"
+      ],
+      "compact_title": "segmentanything",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2304.02643"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2304.02643"
+        }
+      ],
+      "item_key": "8WM66ZL3",
+      "library_id": 1,
+      "literature_item_id": "lit:4c586a9c3269b5d853b04ba8",
+      "normalized_title": "segment anything",
+      "paper_ref": "1:8WM66ZL3",
+      "title": "Segment Anything",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["hou", "huang", "liu", "shen", "yu"],
+      "authors": [
+        "Longfei Liu",
+        "Shihua Huang",
+        "Xi Shen",
+        "Xuanlong Yu",
+        "Yongjie Hou"
+      ],
+      "compact_title": "realtimeobjectdetectionmeetsdinov3",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2509.20787"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2509.20787"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2509.20787"
+        }
+      ],
+      "item_key": "8YS3DEMI",
+      "library_id": 1,
+      "literature_item_id": "lit:e9dc3196dfc1cc1d8fd9ecd9",
+      "normalized_title": "real time object detection meets dinov3",
+      "paper_ref": "1:8YS3DEMI",
+      "title": "Real-time object detection meets DINOv3",
+      "year": "2026"
+    },
+    {
+      "author_tokens": [
+        "chen",
+        "guo",
+        "li",
+        "liu",
+        "meng",
+        "shen",
+        "tang",
+        "yang",
+        "zheng"
+      ],
+      "authors": [
+        "He Meng",
+        "Kun Tang",
+        "Linlin Shen",
+        "Mianjie Zheng",
+        "Ruihan Chen",
+        "Xiaoqi Guo",
+        "Xinquan Yang",
+        "Xuefen Liu",
+        "Xuguang Li"
+      ],
+      "compact_title": "dinodentalbenchmarkingdinov3asaunifiedvisionencoderfordentalimageanalysis",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2603.28297"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2603.28297"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2603.28297"
+        }
+      ],
+      "item_key": "9CBBDH3Y",
+      "library_id": 1,
+      "literature_item_id": "lit:fe9edae736d9938c29d35a5f",
+      "normalized_title": "dinodental benchmarking dinov3 as a unified vision encoder for dental image analysis",
+      "paper_ref": "1:9CBBDH3Y",
+      "title": "DinoDental: Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Analysis",
+      "year": "2026"
+    },
+    {
+      "author_tokens": ["bochkovskiy", "liao", "wang"],
+      "authors": [
+        "Alexey Bochkovskiy",
+        "Chien-Yao Wang",
+        "Hong-Yuan Mark Liao"
+      ],
+      "compact_title": "yolov7trainablebagoffreebiessetsnewstateoftheartforrealtimeobjectdetectors",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2023/html/wang_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_cvpr_2023_paper.html"
+        }
+      ],
+      "item_key": "ABTG2CFC",
+      "library_id": 1,
+      "literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "normalized_title": "yolov7 trainable bag of freebies sets new state of the art for real time object detectors",
+      "paper_ref": "1:ABTG2CFC",
+      "title": "YOLOv7: Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object Detectors",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["beijbom", "chen", "vora"],
+      "authors": ["Oscar Beijbom", "Qi Chen", "Sourabh Vora"],
+      "compact_title": "polarstreamstreaminglidarobjectdetectionandsegmentationwithpolarpillars",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2106.07545"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2106.07545"
+        }
+      ],
+      "item_key": "AHF2RU48",
+      "library_id": 1,
+      "literature_item_id": "lit:f900a74354d954ef46169d26",
+      "normalized_title": "polarstream streaming lidar object detection and segmentation with polar pillars",
+      "paper_ref": "1:AHF2RU48",
+      "title": "PolarStream: Streaming Lidar Object Detection and Segmentation with Polar Pillars",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["hu", "lai", "li", "wu", "yang"],
+      "authors": [
+        "Mingzhe Hu",
+        "Xiaofeng Yang",
+        "Yizhou Wu",
+        "Yuheng Li",
+        "Yuxiang Lai"
+      ],
+      "compact_title": "meddinov3howtoadaptvisionfoundationmodelsformedicalimagesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2509.02379"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2509.02379"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2509.02379"
+        }
+      ],
+      "item_key": "BBIY57N3",
+      "library_id": 1,
+      "literature_item_id": "lit:e7cac117d8d8df91770f7bab",
+      "normalized_title": "meddinov3 how to adapt vision foundation models for medical image segmentation",
+      "paper_ref": "1:BBIY57N3",
+      "title": "MedDINOv3: How to adapt vision foundation models for medical image segmentation?",
+      "year": "2025"
+    },
+    {
+      "author_tokens": [
+        "chen",
+        "dang",
+        "liu",
+        "lv",
+        "wang",
+        "wei",
+        "xu",
+        "zhao"
+      ],
+      "authors": [
+        "Guanzhong Wang",
+        "Jie Chen",
+        "Jinman Wei",
+        "Qingqing Dang",
+        "Shangliang Xu",
+        "Wenyu Lv",
+        "Yi Liu",
+        "Yian Zhao"
+      ],
+      "compact_title": "detrsbeatyolosonrealtimeobjectdetection",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "zhao_detrs-beat_2024"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2024/html/zhao_detrs_beat_yolos_on_real-time_object_detection_cvpr_2024_paper.html"
+        }
+      ],
+      "item_key": "CBJWE4JX",
+      "library_id": 1,
+      "literature_item_id": "lit:f448c5dfe517ca921e457e27",
+      "normalized_title": "detrs beat yolos on real time object detection",
+      "paper_ref": "1:CBJWE4JX",
+      "title": "DETRs beat YOLOs on real-time object detection",
+      "year": "2024"
+    },
+    {
+      "author_tokens": ["chen", "guo", "lao", "shi", "wang", "zhang"],
+      "authors": [
+        "Chuangji Shi",
+        "Jian Wang",
+        "Jiangwei Lao",
+        "Jiaotuan Wang",
+        "Jingdong Chen",
+        "Xin Guo",
+        "Yingying Zhang"
+      ],
+      "compact_title": "enhancingdetrsvariantsthroughimprovedcontentqueryandsimilarqueryaggregation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2405.03318"
+        },
+        {
+          "kind": "citekey",
+          "value": "zhang_enhancing-detrs_2024"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2405.03318"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2405.03318"
+        }
+      ],
+      "item_key": "CGJBFE6C",
+      "library_id": 1,
+      "literature_item_id": "lit:f30956895404b417c634e0e3",
+      "normalized_title": "enhancing detrs variants through improved content query and similar query aggregation",
+      "paper_ref": "1:CGJBFE6C",
+      "title": "Enhancing DETRs variants through improved content query and similar query aggregation",
+      "year": "2024"
+    },
+    {
+      "author_tokens": [
+        "david",
+        "foroosh",
+        "gong",
+        "xi",
+        "yue",
+        "zhang",
+        "zhou"
+      ],
+      "authors": [
+        "Boqing Gong",
+        "Hassan Foroosh",
+        "Philip David",
+        "Xiangyu Yue",
+        "Yang Zhang",
+        "Zerong Xi",
+        "Zixiang Zhou"
+      ],
+      "compact_title": "polarnetanimprovedgridrepresentationforonlinelidarpointcloudssemanticsegmentation",
+      "identifiers": [
+        {
+          "kind": "doi",
+          "value": "10.1109/cvpr42600.2020.00962"
+        },
+        {
+          "kind": "url",
+          "value": "https://ieeexplore.ieee.org/document/9156460"
+        }
+      ],
+      "item_key": "CHPBJDLU",
+      "library_id": 1,
+      "literature_item_id": "lit:ef28eedaec749ae31a918dcb",
+      "normalized_title": "polarnet an improved grid representation for online lidar point clouds semantic segmentation",
+      "paper_ref": "1:CHPBJDLU",
+      "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
+      "year": "2020"
+    },
+    {
+      "author_tokens": [
+        "he",
+        "hu",
+        "jia",
+        "lin",
+        "sun",
+        "wu",
+        "yu",
+        "yuan",
+        "zhang"
+      ],
+      "authors": [
+        "Chao Zhang",
+        "Ding Jia",
+        "Han Hu",
+        "Haodi He",
+        "Haojun Yu",
+        "Lei Sun",
+        "Weihong Lin",
+        "Xiaopei Wu",
+        "Yuhui Yuan"
+      ],
+      "compact_title": "detrswithhybridmatching",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2207.13080"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2207.13080"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2207.13080"
+        }
+      ],
+      "item_key": "D6BUKS9Q",
+      "library_id": 1,
+      "literature_item_id": "lit:3c317bf3b8554c9f39da0973",
+      "normalized_title": "detrs with hybrid matching",
+      "paper_ref": "1:D6BUKS9Q",
+      "title": "DETRs with Hybrid Matching",
+      "year": "2023"
+    },
+    {
+      "author_tokens": [
+        "chen",
+        "ding",
+        "feng",
+        "han",
+        "wang",
+        "yao",
+        "zeng",
+        "zhang"
+      ],
+      "authors": [
+        "Errui Ding",
+        "Gang Zeng",
+        "Haocheng Feng",
+        "Jian Wang",
+        "Jingdong Wang",
+        "Junyu Han",
+        "Kun Yao",
+        "Qiang Chen",
+        "Shan Zhang",
+        "Xiaokang Chen"
+      ],
+      "compact_title": "groupdetrfastdetrtrainingwithgroupwiseonetomanyassignment",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/iccv2023/html/chen_group_detr_fast_detr_training_with_group-wise_one-to-many_assignment_iccv_2023_paper.html"
+        }
+      ],
+      "item_key": "DBYQ4LWE",
+      "library_id": 1,
+      "literature_item_id": "lit:ef998677de4ee03e785a948f",
+      "normalized_title": "group detr fast detr training with group wise one to many assignment",
+      "paper_ref": "1:DBYQ4LWE",
+      "title": "Group DETR: Fast DETR Training with Group-Wise One-to-Many Assignment",
+      "year": "2023"
+    },
+    {
+      "author_tokens": ["foroosh", "zhang", "zhou"],
+      "authors": ["Hassan Foroosh", "Yang Zhang", "Zixiang Zhou"],
+      "compact_title": "panopticpolarnetproposalfreelidarpointcloudpanopticsegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2103.14962"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2103.14962"
+        }
+      ],
+      "item_key": "DDT5Q9QF",
+      "library_id": 1,
+      "literature_item_id": "lit:f3d53dcd3741a4ddf80e2402",
+      "normalized_title": "panoptic polarnet proposal free lidar point cloud panoptic segmentation",
+      "paper_ref": "1:DDT5Q9QF",
+      "title": "Panoptic-PolarNet: Proposal-free LiDAR Point Cloud Panoptic Segmentation",
+      "year": "2021"
+    },
+    {
+      "author_tokens": [
+        "bischof",
+        "brox",
+        "carion",
+        "frahm",
+        "kirillov",
+        "massa",
+        "synnaeve",
+        "usunier",
+        "vedaldi",
+        "zagoruyko"
+      ],
+      "authors": [
+        "Alexander Kirillov",
+        "Andrea Vedaldi",
+        "Francisco Massa",
+        "Gabriel Synnaeve",
+        "Horst Bischof",
+        "Jan-Michael Frahm",
+        "Nicolas Carion",
+        "Nicolas Usunier",
+        "Sergey Zagoruyko",
+        "Thomas Brox"
+      ],
+      "compact_title": "endtoendobjectdetectionwithtransformers",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "carion_endtoend-object_2020"
+        },
+        {
+          "kind": "doi",
+          "value": "10.1007/978-3-030-58452-8_13"
+        }
+      ],
+      "item_key": "EIMSDEU3",
+      "library_id": 1,
+      "literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "normalized_title": "end to end object detection with transformers",
+      "paper_ref": "1:EIMSDEU3",
+      "title": "End-to-end object detection with transformers",
+      "year": "2020"
+    },
+    {
+      "author_tokens": ["lv", "shi", "wang", "xia"],
+      "authors": ["Chunlong Xia", "Feng Lv", "Shuo Wang", "Yifeng Shi"],
+      "compact_title": "rtdetrv3realtimeendtoendobjectdetectionwithhierarchicaldensepositivesupervision",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2409.08475"
+        },
+        {
+          "kind": "citekey",
+          "value": "wang_rtdetrv3-realtime_2024"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2409.08475"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2409.08475"
+        }
+      ],
+      "item_key": "GHWYS7AF",
+      "library_id": 1,
+      "literature_item_id": "lit:6b1d647ae1685c3779fe2d09",
+      "normalized_title": "rt detrv3 real time end to end object detection with hierarchical dense positive supervision",
+      "paper_ref": "1:GHWYS7AF",
+      "title": "RT-DETRv3: real-time end-to-end object detection with hierarchical dense positive supervision",
+      "year": "2024"
+    },
+    {
+      "author_tokens": [
+        "afouras",
+        "alwala",
+        "carion",
+        "cheng",
+        "debnath",
+        "ding",
+        "dollár",
+        "feichtenhofer",
+        "greer",
+        "guo",
+        "gustafson",
+        "hazra",
+        "hu",
+        "huang",
+        "kalla",
+        "kamath",
+        "khedr",
+        "lei",
+        "li",
+        "ma",
+        "marks",
+        "mavroudi",
+        "momeni",
+        "porcher",
+        "ravi",
+        "ryali",
+        "rädle",
+        "saenko",
+        "sun",
+        "suris",
+        "vaze",
+        "wang",
+        "wu",
+        "xu",
+        "zhang",
+        "zhou"
+      ],
+      "authors": [
+        "Aishwarya Kamath",
+        "Andrew Huang",
+        "Arpit Kalla",
+        "Baishan Guo",
+        "Chaitanya Ryali",
+        "Christoph Feichtenhofer",
+        "Didac Suris",
+        "Effrosyni Mavroudi",
+        "Feng Li",
+        "Francois Porcher",
+        "Haitham Khedr",
+        "Ho Kei Cheng",
+        "Jie Lei",
+        "Joseph Greer",
+        "Kalyan Vasudev Alwala",
+        "Kate Saenko",
+        "Katherine Xu",
+        "Laura Gustafson",
+        "Liliane Momeni",
+        "Markus Marks",
+        "Meng Wang",
+        "Nicolas Carion",
+        "Nikhila Ravi",
+        "Peize Sun",
+        "Pengchuan Zhang",
+        "Piotr Dollár",
+        "Rishi Hazra",
+        "Roman Rädle",
+        "Ronghang Hu",
+        "Sagar Vaze",
+        "Shoubhik Debnath",
+        "Shuangrui Ding",
+        "Siyuan Li",
+        "Tengyu Ma",
+        "Triantafyllos Afouras",
+        "Tsung-Han Wu",
+        "Yu Zhou",
+        "Yuan-Ting Hu"
+      ],
+      "compact_title": "sam3segmentanythingwithconcepts",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2511.16719"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2511.16719"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2511.16719"
+        }
+      ],
+      "item_key": "HDDAIKQQ",
+      "library_id": 1,
+      "literature_item_id": "lit:216c88bfd98b7894f6f25aa3",
+      "normalized_title": "sam 3 segment anything with concepts",
+      "paper_ref": "1:HDDAIKQQ",
+      "title": "SAM 3: segment anything with concepts",
+      "year": "2026"
+    },
+    {
+      "author_tokens": ["li", "liu", "ni", "shum", "su", "zhang", "zhu"],
+      "authors": [
+        "Feng Li",
+        "Hang Su",
+        "Hao Zhang",
+        "Heung-Yeung Shum",
+        "Jun Zhu",
+        "Lei Zhang",
+        "Lionel M. Ni",
+        "Shilong Liu"
+      ],
+      "compact_title": "dinodetrwithimproveddenoisinganchorboxesforendtoendobjectdetection",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2203.03605"
+        },
+        {
+          "kind": "citekey",
+          "value": "zhang_dino-detr_2022"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2203.03605"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2203.03605"
+        }
+      ],
+      "item_key": "HPLZ65Z2",
+      "library_id": 1,
+      "literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+      "normalized_title": "dino detr with improved denoising anchor boxes for end to end object detection",
+      "paper_ref": "1:HPLZ65Z2",
+      "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["bu", "deng", "li", "lin", "ouyang", "sun", "yan"],
+      "authors": [
+        "Chen Lin",
+        "Chuming Li",
+        "Junjie Yan",
+        "Matthieu Lin",
+        "Ming Sun",
+        "Wanli Ouyang",
+        "Xingyuan Bu",
+        "Zhidong Deng"
+      ],
+      "compact_title": "detrforcrowdpedestriandetection",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2012.06785"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2012.06785"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2012.06785"
+        }
+      ],
+      "item_key": "I4ZU2PCY",
+      "library_id": 1,
+      "literature_item_id": "lit:a6e303d242e973587a76833e",
+      "normalized_title": "detr for crowd pedestrian detection",
+      "paper_ref": "1:I4ZU2PCY",
+      "title": "DETR for crowd pedestrian detection",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["li", "liu", "qi", "su", "yang", "zhang", "zhu"],
+      "authors": [
+        "Feng Li",
+        "Hang Su",
+        "Hao Zhang",
+        "Jun Zhu",
+        "Lei Zhang",
+        "Shilong Liu",
+        "Xianbiao Qi",
+        "Xiao Yang"
+      ],
+      "compact_title": "dabdetrdynamicanchorboxesarebetterqueriesfordetr",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2201.12329"
+        },
+        {
+          "kind": "citekey",
+          "value": "liu_dabdetr-dynamic_2022"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2201.12329"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2201.12329"
+        }
+      ],
+      "item_key": "IY3FMWQM",
+      "library_id": 1,
+      "literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+      "normalized_title": "dab detr dynamic anchor boxes are better queries for detr",
+      "paper_ref": "1:IY3FMWQM",
+      "title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["krähenbühl", "yin", "zhou"],
+      "authors": ["Philipp Krähenbühl", "Tianwei Yin", "Xingyi Zhou"],
+      "compact_title": "centerbased3dobjectdetectionandtracking",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2006.11275"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2006.11275"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2006.11275"
+        }
+      ],
+      "item_key": "J6DSFFBH",
+      "library_id": 1,
+      "literature_item_id": "lit:cd3a9aa0add87b7170856e3a",
+      "normalized_title": "center based 3d object detection and tracking",
+      "paper_ref": "1:J6DSFFBH",
+      "title": "Center-based 3D Object Detection and Tracking",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["girdhar", "joulin", "misra"],
+      "authors": ["Armand Joulin", "Ishan Misra", "Rohit Girdhar"],
+      "compact_title": "anendtoendtransformermodelfor3dobjectdetection",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "misra_endtoend-transformer_2021"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/iccv2021/html/misra_an_end-to-end_transformer_model_for_3d_object_detection_iccv_2021_paper.html?ref=https://githubhelp.com"
+        }
+      ],
+      "item_key": "JMWG9XVD",
+      "library_id": 1,
+      "literature_item_id": "lit:58e3374b602d9c7177c68840",
+      "normalized_title": "an end to end transformer model for 3d object detection",
+      "paper_ref": "1:JMWG9XVD",
+      "title": "An end-to-end transformer model for 3D object detection",
+      "year": "2021"
+    },
+    {
+      "author_tokens": [
+        "avidan",
+        "brostow",
+        "cissé",
+        "dong",
+        "farinella",
+        "hassner",
+        "wang",
+        "wei",
+        "zeng",
+        "zhang"
+      ],
+      "authors": [
+        "Bin Dong",
+        "Fangao Zeng",
+        "Gabriel Brostow",
+        "Giovanni Maria Farinella",
+        "Moustapha Cissé",
+        "Shai Avidan",
+        "Tal Hassner",
+        "Tiancai Wang",
+        "Xiangyu Zhang",
+        "Yichen Wei",
+        "Yuang Zhang"
+      ],
+      "compact_title": "motrendtoendmultipleobjecttrackingwithtransformer",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "zeng_motr-endtoend_2022"
+        },
+        {
+          "kind": "doi",
+          "value": "10.1007/978-3-031-19812-0_38"
+        }
+      ],
+      "item_key": "KSM65VAD",
+      "library_id": 1,
+      "literature_item_id": "lit:1e682dbe44501efffb96cc9d",
+      "normalized_title": "motr end to end multiple object tracking with transformer",
+      "paper_ref": "1:KSM65VAD",
+      "title": "MOTR: end-to-end multiple-object tracking with transformer",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["girshick", "he", "ren", "sun"],
+      "authors": ["Jian Sun", "Kaiming He", "Ross Girshick", "Shaoqing Ren"],
+      "compact_title": "fasterrcnntowardsrealtimeobjectdetectionwithregionproposalnetworks",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "ren_faster-rcnn_2017"
+        },
+        {
+          "kind": "doi",
+          "value": "10.1109/tpami.2016.2577031"
+        },
+        {
+          "kind": "url",
+          "value": "https://ieeexplore.ieee.org/abstract/document/7485869"
+        }
+      ],
+      "item_key": "M3AU5AC9",
+      "library_id": 1,
+      "literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "normalized_title": "faster r cnn towards real time object detection with region proposal networks",
+      "paper_ref": "1:M3AU5AC9",
+      "title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+      "year": "2017"
+    },
+    {
+      "author_tokens": [
+        "deserno",
+        "dohle",
+        "handels",
+        "meinzer",
+        "morariu",
+        "pauli",
+        "terheiden",
+        "tolxdorff",
+        "tsagakis"
+      ],
+      "authors": [
+        "Cosmin Adrian Morariu",
+        "Daniel Sebastian Dohle",
+        "Hans-Peter Meinzer",
+        "Heinz Handels",
+        "Josef Pauli",
+        "Konstantinos Tsagakis",
+        "Thomas Martin Deserno",
+        "Thomas Tolxdorff",
+        "Tobias Terheiden"
+      ],
+      "compact_title": "polarbasedaorticsegmentationin3dctadissectiondatausingapiecewiseconstantcurvaturemodel",
+      "identifiers": [
+        {
+          "kind": "doi",
+          "value": "10.1007/978-3-642-54111-7_71"
+        },
+        {
+          "kind": "url",
+          "value": "https://link.springer.com/10.1007/978-3-642-54111-7_71"
+        }
+      ],
+      "item_key": "M5KCQ9G3",
+      "library_id": 1,
+      "literature_item_id": "lit:ad1202bf095123f6b8fae61f",
+      "normalized_title": "polar based aortic segmentation in 3d cta dissection data using a piecewise constant curvature model",
+      "paper_ref": "1:M5KCQ9G3",
+      "title": "Polar-Based Aortic Segmentation in 3D CTA Dissection Data Using a Piecewise Constant Curvature Model",
+      "year": "2014"
+    },
+    {
+      "author_tokens": ["lu", "udupa", "xu", "zhang"],
+      "authors": ["Guoping Xu", "Jayaram K. Udupa", "Weiguo Lu", "You Zhang"],
+      "compact_title": "exploitingdinov3basedselfsupervisedfeaturesforrobustfewshotmedicalimagesegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2601.08078"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2601.08078"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2601.08078"
+        }
+      ],
+      "item_key": "M68XPFA9",
+      "library_id": 1,
+      "literature_item_id": "lit:f2a35dcf4f6056bcafd5d244",
+      "normalized_title": "exploiting dinov3 based self supervised features for robust few shot medical image segmentation",
+      "paper_ref": "1:M68XPFA9",
+      "title": "Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation",
+      "year": "2026"
+    },
+    {
+      "author_tokens": ["li", "peng", "sun", "wu", "zhang"],
+      "authors": [
+        "Feng Wu",
+        "Hebei Li",
+        "Peixi Wu",
+        "Xiaoyan Sun",
+        "Yansong Peng",
+        "Yueyi Zhang"
+      ],
+      "compact_title": "dfineredefineregressiontaskindetrsasfinegraineddistributionrefinement",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2410.13842"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2410.13842"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2410.13842"
+        }
+      ],
+      "item_key": "MERSIDHN",
+      "library_id": 1,
+      "literature_item_id": "lit:fcdd3c234f1a428e42f32e49",
+      "normalized_title": "d fine redefine regression task in detrs as fine grained distribution refinement",
+      "paper_ref": "1:MERSIDHN",
+      "title": "D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement",
+      "year": "2024"
+    },
+    {
+      "author_tokens": ["guo", "li", "liu", "ni", "zhang"],
+      "authors": [
+        "Feng Li",
+        "Hao Zhang",
+        "Jian Guo",
+        "Lei Zhang",
+        "Lionel M. Ni",
+        "Shilong Liu"
+      ],
+      "compact_title": "dndetracceleratedetrtrainingbyintroducingquerydenoising",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "li_dndetr-accelerate_2022"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2022/html/li_dn-detr_accelerate_detr_training_by_introducing_query_denoising_cvpr_2022_paper.html"
+        }
+      ],
+      "item_key": "NXLIGKF5",
+      "library_id": 1,
+      "literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "normalized_title": "dn detr accelerate detr training by introducing query denoising",
+      "paper_ref": "1:NXLIGKF5",
+      "title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["cai", "chen", "dai", "lin"],
+      "authors": ["Bolun Cai", "Junying Chen", "Yugeng Lin", "Zhigang Dai"],
+      "compact_title": "updetrunsupervisedpretrainingforobjectdetectionwithtransformers",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2021/html/dai_up-detr_unsupervised_pre-training_for_object_detection_with_transformers_cvpr_2021_paper.html"
+        }
+      ],
+      "item_key": "P5NLH47E",
+      "library_id": 1,
+      "literature_item_id": "lit:bbf53d909106257cda1d4c74",
+      "normalized_title": "up detr unsupervised pre training for object detection with transformers",
+      "paper_ref": "1:P5NLH47E",
+      "title": "UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers",
+      "year": "2021"
+    },
+    {
+      "author_tokens": [
+        "alvarez",
+        "anandkumar",
+        "li",
+        "lu",
+        "luo",
+        "wang",
+        "xie",
+        "yu"
+      ],
+      "authors": [
+        "Anima Anandkumar",
+        "Enze Xie",
+        "Jose M. Alvarez",
+        "Ping Luo",
+        "Tong Lu",
+        "Wenhai Wang",
+        "Zhiding Yu",
+        "Zhiqi Li"
+      ],
+      "compact_title": "panopticsegformerdelvingdeeperintopanopticsegmentationwithtransformers",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "li_panoptic-segformer_2022"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2022/html/li_panoptic_segformer_delving_deeper_into_panoptic_segmentation_with_transformers_cvpr_2022_paper.html"
+        }
+      ],
+      "item_key": "RPRBE2QN",
+      "library_id": 1,
+      "literature_item_id": "lit:57db4ff606517a743a7039cb",
+      "normalized_title": "panoptic segformer delving deeper into panoptic segmentation with transformers",
+      "paper_ref": "1:RPRBE2QN",
+      "title": "Panoptic SegFormer: delving deeper into panoptic segmentation with transformers",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["cui", "lu", "luo", "yu", "zhang"],
+      "authors": [
+        "Gongjie Zhang",
+        "Kaiwen Cui",
+        "Shijian Lu",
+        "Yingchen Yu",
+        "Zhipeng Luo"
+      ],
+      "compact_title": "acceleratingdetrconvergenceviasemanticalignedmatching",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2022/html/zhang_accelerating_detr_convergence_via_semantic-aligned_matching_cvpr_2022_paper.html"
+        }
+      ],
+      "item_key": "S86GB385",
+      "library_id": 1,
+      "literature_item_id": "lit:8b8cb2af9945288bcf52448e",
+      "normalized_title": "accelerating detr convergence via semantic aligned matching",
+      "paper_ref": "1:S86GB385",
+      "title": "Accelerating DETR convergence via semantic-aligned matching",
+      "year": "2022"
+    },
+    {
+      "author_tokens": ["peri", "popov", "ramanan", "robicheaux", "robinson"],
+      "authors": [
+        "Deva Ramanan",
+        "Isaac Robinson",
+        "Matvei Popov",
+        "Neehar Peri",
+        "Peter Robicheaux"
+      ],
+      "compact_title": "rfdetrneuralarchitecturesearchforrealtimedetectiontransformers",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2511.09554"
+        },
+        {
+          "kind": "citekey",
+          "value": "robinson_rfdetr-neural_2025"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2511.09554"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2511.09554"
+        }
+      ],
+      "item_key": "SZ3GNWT9",
+      "library_id": 1,
+      "literature_item_id": "lit:9433c65e49feb53baa0b2162",
+      "normalized_title": "rf detr neural architecture search for real time detection transformers",
+      "paper_ref": "1:SZ3GNWT9",
+      "title": "RF-DETR: neural architecture search for real-time detection transformers",
+      "year": "2025"
+    },
+    {
+      "author_tokens": [
+        "baldassarre",
+        "bojanowski",
+        "brandt",
+        "couprie",
+        "darcet",
+        "haziza",
+        "jose",
+        "jégou",
+        "khalidov",
+        "labatut",
+        "mairal",
+        "massa",
+        "moutakanni",
+        "oquab",
+        "ramamonjisoa",
+        "roberts",
+        "seitzer",
+        "sentana",
+        "siméoni",
+        "szafraniec",
+        "tolan",
+        "vedaldi",
+        "vo",
+        "wang",
+        "wehrstedt",
+        "yi"
+      ],
+      "authors": [
+        "Andrea Vedaldi",
+        "Camille Couprie",
+        "Cijo Jose",
+        "Claire Roberts",
+        "Daniel Haziza",
+        "Federico Baldassarre",
+        "Francisco Massa",
+        "Hervé Jégou",
+        "Huy V. Vo",
+        "Jamie Tolan",
+        "Jianyuan Wang",
+        "John Brandt",
+        "Julien Mairal",
+        "Leonel Sentana",
+        "Luca Wehrstedt",
+        "Marc Szafraniec",
+        "Maxime Oquab",
+        "Maximilian Seitzer",
+        "Michaël Ramamonjisoa",
+        "Oriane Siméoni",
+        "Patrick Labatut",
+        "Piotr Bojanowski",
+        "Seungeun Yi",
+        "Théo Moutakanni",
+        "Timothée Darcet",
+        "Vasil Khalidov"
+      ],
+      "compact_title": "dinov3",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2508.10104"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2508.10104"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2508.10104"
+        }
+      ],
+      "item_key": "TWR6CC4I",
+      "library_id": 1,
+      "literature_item_id": "lit:9b25755c6568ff06b8ac1efa",
+      "normalized_title": "dinov3",
+      "paper_ref": "1:TWR6CC4I",
+      "title": "DINOv3",
+      "year": "2025"
+    },
+    {
+      "author_tokens": ["cheng", "kirillov", "schwing"],
+      "authors": ["Alexander G. Schwing", "Alexander Kirillov", "Bowen Cheng"],
+      "compact_title": "perpixelclassificationisnotallyouneedforsemanticsegmentation",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2107.06278"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2107.06278"
+        }
+      ],
+      "item_key": "USRNFHXP",
+      "library_id": 1,
+      "literature_item_id": "lit:845b5409ef6e3da9bae75ffc",
+      "normalized_title": "per pixel classification is not all you need for semantic segmentation",
+      "paper_ref": "1:USRNFHXP",
+      "title": "Per-Pixel Classification is Not All You Need for Semantic Segmentation",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["girshick", "gkioxari", "he", "r"],
+      "authors": [
+        "Georgia Gkioxari",
+        "Kaiming He",
+        "Piotr DollÃ¡r",
+        "Ross Girshick"
+      ],
+      "compact_title": "maskrcnn",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "1703.06870"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/1703.06870"
+        }
+      ],
+      "item_key": "UVI9ULI2",
+      "library_id": 1,
+      "literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "normalized_title": "mask r cnn",
+      "paper_ref": "1:UVI9ULI2",
+      "title": "Mask R-CNN",
+      "year": "2017"
+    },
+    {
+      "author_tokens": [
+        "arcucci",
+        "bai",
+        "bercea",
+        "cai",
+        "chen",
+        "duncan",
+        "gao",
+        "jian",
+        "li",
+        "liu",
+        "lu",
+        "ouyang",
+        "pan",
+        "rueckert",
+        "shi",
+        "wachinger",
+        "wang",
+        "wiestler",
+        "xiong",
+        "yu",
+        "zhang"
+      ],
+      "authors": [
+        "Bailiang Jian",
+        "Benedikt Wiestler",
+        "Che Liu",
+        "Chen Chen",
+        "Cheng Ouyang",
+        "Christian Wachinger",
+        "Cosmin I. Bercea",
+        "Daniel Rueckert",
+        "Haoyuan Shi",
+        "James S. Duncan",
+        "Jiayi Wang",
+        "Jiazhen Pan",
+        "Jieming Yu",
+        "Jinpeng Lu",
+        "Jun Li",
+        "Linghan Cai",
+        "Long Bai",
+        "Rossella Arcucci",
+        "Wenjia Bai",
+        "Xiaoran Zhang",
+        "Yinda Chen",
+        "Yundi Zhang",
+        "Zhiwei Xiong",
+        "Ziqi Gao"
+      ],
+      "compact_title": "doesdinov3setanewmedicalvisionstandardbenchmarking2dand3dclassificationsegmentationandregistration",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2509.06467"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2509.06467"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2509.06467"
+        }
+      ],
+      "item_key": "UW8ZLVA6",
+      "library_id": 1,
+      "literature_item_id": "lit:e0c8871b0542a2427c53fda1",
+      "normalized_title": "does dinov3 set a new medical vision standard benchmarking 2d and 3d classification segmentation and registration",
+      "paper_ref": "1:UW8ZLVA6",
+      "title": "Does DINOv3 Set a New Medical Vision Standard? Benchmarking 2D and 3D Classification, Segmentation, and Registration",
+      "year": "2026"
+    },
+    {
+      "author_tokens": ["ai", "li", "yao", "zhang"],
+      "authors": ["Boxun Li", "Chi Zhang", "Jiangbo Ai", "Zhuyu Yao"],
+      "compact_title": "efficientdetrimprovingendtoendobjectdetectorwithdenseprior",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2104.01318"
+        },
+        {
+          "kind": "doi",
+          "value": "10.48550/arxiv.2104.01318"
+        },
+        {
+          "kind": "url",
+          "value": "http://arxiv.org/abs/2104.01318"
+        }
+      ],
+      "item_key": "VHBU3NI6",
+      "library_id": 1,
+      "literature_item_id": "lit:4008e35b167d2cd6d90a36d4",
+      "normalized_title": "efficient detr improving end to end object detector with dense prior",
+      "paper_ref": "1:VHBU3NI6",
+      "title": "Efficient DETR: improving end-to-end object detector with dense prior",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["alkheir", "kantarci", "simsek", "xiao"],
+      "authors": [
+        "Ala Abu Alkheir",
+        "Bin Xiao",
+        "Burak Kantarci",
+        "Murat Simsek"
+      ],
+      "compact_title": "rethinkingdetectionbasedtablestructurerecognitionforvisuallyrichdocumentimages",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "xiao_rethinking-detection_2025"
+        },
+        {
+          "kind": "doi",
+          "value": "10.1016/j.eswa.2025.126461"
+        },
+        {
+          "kind": "url",
+          "value": "https://www.sciencedirect.com/science/article/pii/s0957417425000831"
+        }
+      ],
+      "item_key": "VI9JURUB",
+      "library_id": 1,
+      "literature_item_id": "lit:b2c40c1be8b0c01fdc6ea91a",
+      "normalized_title": "rethinking detection based table structure recognition for visually rich document images",
+      "paper_ref": "1:VI9JURUB",
+      "title": "Rethinking detection based table structure recognition for visually rich document images",
+      "year": "2025"
+    },
+    {
+      "author_tokens": ["li", "liu", "ni", "shum", "xu", "zhang"],
+      "authors": [
+        "Feng Li",
+        "Hao Zhang",
+        "Heung-Yeung Shum",
+        "Huaizhe Xu",
+        "Lei Zhang",
+        "Lionel M. Ni",
+        "Shilong Liu"
+      ],
+      "compact_title": "maskdinotowardsaunifiedtransformerbasedframeworkforobjectdetectionandsegmentation",
+      "identifiers": [
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/cvpr2023/html/li_mask_dino_towards_a_unified_transformer-based_framework_for_object_detection_cvpr_2023_paper.html"
+        }
+      ],
+      "item_key": "VQ2WLIDR",
+      "library_id": 1,
+      "literature_item_id": "lit:06cc5255657cfa2d29760c1c",
+      "normalized_title": "mask dino towards a unified transformer based framework for object detection and segmentation",
+      "paper_ref": "1:VQ2WLIDR",
+      "title": "Mask DINO: towards a unified transformer-based framework for object detection and segmentation",
+      "year": "2023"
+    },
+    {
+      "author_tokens": [
+        "chen",
+        "fan",
+        "li",
+        "meng",
+        "sun",
+        "wang",
+        "yuan",
+        "zeng"
+      ],
+      "authors": [
+        "Depu Meng",
+        "Gang Zeng",
+        "Houqiang Li",
+        "Jingdong Wang",
+        "Lei Sun",
+        "Xiaokang Chen",
+        "Yuhui Yuan",
+        "Zejia Fan"
+      ],
+      "compact_title": "conditionaldetrforfasttrainingconvergence",
+      "identifiers": [
+        {
+          "kind": "citekey",
+          "value": "meng_conditional-detr_2021"
+        },
+        {
+          "kind": "url",
+          "value": "https://openaccess.thecvf.com/content/iccv2021/html/meng_conditional_detr_for_fast_training_convergence_iccv_2021_paper.html"
+        }
+      ],
+      "item_key": "W4CDLU28",
+      "library_id": 1,
+      "literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+      "normalized_title": "conditional detr for fast training convergence",
+      "paper_ref": "1:W4CDLU28",
+      "title": "Conditional DETR for fast training convergence",
+      "year": "2021"
+    },
+    {
+      "author_tokens": ["babin", "bencevic", "galic", "habijan"],
+      "authors": [
+        "Danilo Babin",
+        "Irena Galic",
+        "Marija Habijan",
+        "Marin Bencevic"
+      ],
+      "compact_title": "usingthepolartransformforefficientdeeplearningbasedaortasegmentationinctaimages",
+      "identifiers": [
+        {
+          "kind": "arxiv",
+          "value": "2206.10294"
+        },
+        {
+          "kind": "url",
+          "value": "https://arxiv.org/abs/2206.10294"
+        }
+      ],
+      "item_key": "XKJFVI8H",
+      "library_id": 1,
+      "literature_item_id": "lit:fa5d2b476aa9303e5042f08f",
+      "normalized_title": "using the polar transform for efficient deep learning based aorta segmentation in cta images",
+      "paper_ref": "1:XKJFVI8H",
+      "title": "Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation in CTA Images",
+      "year": "2022"
+    }
+  ],
+  "schema": "synthesis.reference_resolution_library_fixture.v1"
+}

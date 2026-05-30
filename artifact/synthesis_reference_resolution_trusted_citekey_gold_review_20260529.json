@@ -1,0 +1,1840 @@
+{
+  "active_citekey_count": 20,
+  "ambiguous_trusted_citekey_count": 0,
+  "db_reference_note_count": 46,
+  "details": {
+    "ambiguous_trusted_citekeys": [],
+    "matched_trusted_citekeys": [
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 38,
+        "reference_instance_id": "refinst:1_2KUGMFL2_38_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_kaiming_he",
+        "source_item_key": "2KUGMFL2",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_3JUY9GBQ_12_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_s._ren",
+        "source_item_key": "3JUY9GBQ",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "html_table",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 16,
+        "reference_instance_id": "refinst:1_3JUY9GBQ_16_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_x._zhu",
+        "source_item_key": "3JUY9GBQ",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 9,
+        "reference_instance_id": "refinst:1_3JUY9GBQ_9_ref_end-to-end_object_detection_with_transformers_2020_n._carion",
+        "source_item_key": "3JUY9GBQ",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "html_table",
+        "year": "2020"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 39,
+        "reference_instance_id": "refinst:1_53A2WXX8_39_ref_conditional_detr_for_fast_training_convergence_2021_depu_meng",
+        "source_item_key": "53A2WXX8",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 42,
+        "reference_instance_id": "refinst:1_53A2WXX8_42_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "53A2WXX8",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 4,
+        "reference_instance_id": "refinst:1_53A2WXX8_4_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "53A2WXX8",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 65,
+        "reference_instance_id": "refinst:1_53A2WXX8_65_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_xizhou_zhu",
+        "source_item_key": "53A2WXX8",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 25,
+        "reference_instance_id": "refinst:1_5HBHAWIV_25_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "5HBHAWIV",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 2,
+        "reference_instance_id": "refinst:1_5HBHAWIV_2_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "5HBHAWIV",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "li_dndetr-accelerate_2022",
+        "parsed_title": "Dn-detr: Accelerate detr training by introducing query denoising",
+        "reference_index": 31,
+        "reference_instance_id": "refinst:1_8838AH6P_31_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_li_f.",
+        "source_item_key": "8838AH6P",
+        "target_item_key": "NXLIGKF5",
+        "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+        "target_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 43,
+        "reference_instance_id": "refinst:1_8838AH6P_43_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.",
+        "source_item_key": "8838AH6P",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "zhao_detrs-beat_2024",
+        "parsed_title": "Detrs beat yolos on real-time object detection",
+        "reference_index": 11,
+        "reference_instance_id": "refinst:1_8PP8HQMY_11_ref_detrs_beat_yolos_on_real-time_object_detection_2024_zhao_y.",
+        "source_item_key": "8PP8HQMY",
+        "target_item_key": "CBJWE4JX",
+        "target_literature_item_id": "lit:f448c5dfe517ca921e457e27",
+        "target_title": "DETRs beat YOLOs on real-time object detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_8PP8HQMY_12_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "8PP8HQMY",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 13,
+        "reference_instance_id": "refinst:1_8PP8HQMY_13_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_zhu_x.",
+        "source_item_key": "8PP8HQMY",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with Transformers",
+        "reference_index": 13,
+        "reference_instance_id": "refinst:1_8WM66ZL3_13_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "8WM66ZL3",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 83,
+        "reference_instance_id": "refinst:1_8WM66ZL3_83_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "8WM66ZL3",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhao_detrs-beat_2024",
+        "parsed_title": "Detrs beat yolos on real-time object detection",
+        "reference_index": 28,
+        "reference_instance_id": "refinst:1_8YS3DEMI_28_ref_detrs_beat_yolos_on_real-time_object_detection_2024_yian_zhao",
+        "source_item_key": "8YS3DEMI",
+        "target_item_key": "CBJWE4JX",
+        "target_literature_item_id": "lit:f448c5dfe517ca921e457e27",
+        "target_title": "DETRs beat YOLOs on real-time object detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 30,
+        "reference_instance_id": "refinst:1_8YS3DEMI_30_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_xizhou_zhu",
+        "source_item_key": "8YS3DEMI",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "li_dndetr-accelerate_2022",
+        "parsed_title": "Dn-detr: Accelerate detr training by introducing query denoising",
+        "reference_index": 15,
+        "reference_instance_id": "refinst:1_CBJWE4JX_15_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_li_f.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "NXLIGKF5",
+        "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+        "target_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+        "trusted_source": "html_table",
+        "year": "2022"
+      },
+      {
+        "citekey": "liu_dabdetr-dynamic_2022",
+        "parsed_title": "Dab-detr: Dynamic anchor boxes are better queries for detr",
+        "reference_index": 21,
+        "reference_instance_id": "refinst:1_CBJWE4JX_21_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2021_liu_s.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "IY3FMWQM",
+        "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+        "target_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 24,
+        "reference_instance_id": "refinst:1_CBJWE4JX_24_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "roh_sparse-detr_2022",
+        "parsed_title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity",
+        "reference_index": 30,
+        "reference_instance_id": "refinst:1_CBJWE4JX_30_ref_sparse_detr_efficient_end-to-end_object_detection_with_learnable_sparsity_2021_roh_b.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "29IBKEUR",
+        "target_literature_item_id": "lit:1e3f7730daf3b9e48c51b970",
+        "target_title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "zeng_motr-endtoend_2022",
+        "parsed_title": "Motr: End-to-end multiple-object tracking with transformer",
+        "reference_index": 39,
+        "reference_instance_id": "refinst:1_CBJWE4JX_39_ref_motr_end-to-end_multiple-object_tracking_with_transformer_2022_zeng_f.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "KSM65VAD",
+        "target_literature_item_id": "lit:1e682dbe44501efffb96cc9d",
+        "target_title": "MOTR: end-to-end multiple-object tracking with transformer",
+        "trusted_source": "html_table",
+        "year": "2022"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 3,
+        "reference_instance_id": "refinst:1_CBJWE4JX_3_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "html_table",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection",
+        "reference_index": 40,
+        "reference_instance_id": "refinst:1_CBJWE4JX_40_ref_dino_detr_with_improved_denoising_anchor_boxes_for_end-to-end_object_detection_2022_zhang_h.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "html_table",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 41,
+        "reference_instance_id": "refinst:1_CBJWE4JX_41_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_zhu_x.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "html_table",
+        "year": "2020"
+      },
+      {
+        "citekey": "zong_detrs-collaborative_2023",
+        "parsed_title": "Detrs with collaborative hybrid assignments training",
+        "reference_index": 42,
+        "reference_instance_id": "refinst:1_CBJWE4JX_42_ref_detrs_with_collaborative_hybrid_assignments_training_2023_zong_z.",
+        "source_item_key": "CBJWE4JX",
+        "target_item_key": "7AERRYC7",
+        "target_literature_item_id": "lit:81bdea993aae9990cdedb7a3",
+        "target_title": "DETRs with collaborative hybrid assignments training",
+        "trusted_source": "html_table",
+        "year": "2023"
+      },
+      {
+        "citekey": "li_dndetr-accelerate_2022",
+        "parsed_title": "Dn-detr: Accelerate detr training by introducing query denoising",
+        "reference_index": 23,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_23_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_feng_li",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "NXLIGKF5",
+        "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+        "target_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "li_panoptic-segformer_2022",
+        "parsed_title": "Panoptic segformer: Delving deeper into panoptic segmentation with transformers",
+        "reference_index": 30,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_30_ref_panoptic_segformer_delving_deeper_into_panoptic_segmentation_with_transformers_2022_zhiqi_li",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "RPRBE2QN",
+        "target_literature_item_id": "lit:57db4ff606517a743a7039cb",
+        "target_title": "Panoptic SegFormer: delving deeper into panoptic segmentation with transformers",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "liu_dabdetr-dynamic_2022",
+        "parsed_title": "Dab-detr: Dynamic anchor boxes are better queries for detr",
+        "reference_index": 36,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_36_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2022_shilong_liu",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "IY3FMWQM",
+        "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+        "target_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 49,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_49_ref_conditional_detr_for_fast_training_convergence_2021_depu_meng",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "roh_sparse-detr_2022",
+        "parsed_title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity",
+        "reference_index": 57,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_57_ref_sparse_detr_efficient_end-to-end_object_detection_with_learnable_sparsity_2021_byungseok_roh",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "29IBKEUR",
+        "target_literature_item_id": "lit:1e3f7730daf3b9e48c51b970",
+        "target_title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "wang_detr3d-3d_2022",
+        "parsed_title": "Detr3d: 3d object detection from multi-view images via 3d-to-2d queries",
+        "reference_index": 66,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_66_ref_detr3d_3d_object_detection_from_multi-view_images_via_3d-to-2d_queries_2022_yue_wang",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "3JUY9GBQ",
+        "target_literature_item_id": "lit:585cff7241b0c6d2f464e5e4",
+        "target_title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zeng_motr-endtoend_2022",
+        "parsed_title": "Motr: End-to-end multiple-object tracking with transformer",
+        "reference_index": 79,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_79_ref_motr_end-to-end_multiple-object_tracking_with_transformer_2021_fangao_zeng",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "KSM65VAD",
+        "target_literature_item_id": "lit:1e682dbe44501efffb96cc9d",
+        "target_title": "MOTR: end-to-end multiple-object tracking with transformer",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection",
+        "reference_index": 81,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_81_ref_dino_detr_with_improved_denoising_anchor_boxes_for_end-to-end_object_detection_2022_hao_zhang",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 88,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_88_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_xizhou_zhu",
+        "source_item_key": "D6BUKS9Q",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 13,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_13_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "HDDAIKQQ",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "chen_lwdetr-transformer_2024",
+        "parsed_title": "Lw-detr: A transformer replacement to yolo for real-time detection",
+        "reference_index": 14,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_14_ref_lw-detr_a_transformer_replacement_to_yolo_for_real-time_detection_2024_qiang_chen",
+        "source_item_key": "HDDAIKQQ",
+        "target_item_key": "8838AH6P",
+        "target_literature_item_id": "lit:8d2a7ee381424c354f03e28f",
+        "target_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection",
+        "reference_index": 159,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_159_ref_dino_detr_with_improved_denoising_anchor_boxes_for_end-to-end_object_detection_2022_hao_zhang",
+        "source_item_key": "HDDAIKQQ",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 170,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_170_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_xizhou_zhu",
+        "source_item_key": "HDDAIKQQ",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 29,
+        "reference_instance_id": "refinst:1_I4ZU2PCY_29_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.",
+        "source_item_key": "I4ZU2PCY",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 3,
+        "reference_instance_id": "refinst:1_I4ZU2PCY_3_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "I4ZU2PCY",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 42,
+        "reference_instance_id": "refinst:1_I4ZU2PCY_42_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_zhu_x.",
+        "source_item_key": "I4ZU2PCY",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional DETR for fast training convergence",
+        "reference_index": 11,
+        "reference_instance_id": "refinst:1_IY3FMWQM_11_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.",
+        "source_item_key": "IY3FMWQM",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 13,
+        "reference_instance_id": "refinst:1_IY3FMWQM_13_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2017_ren_s.",
+        "source_item_key": "IY3FMWQM",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2017"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 1,
+        "reference_instance_id": "refinst:1_IY3FMWQM_1_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "IY3FMWQM",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable DETR: Deformable transformers for end-to-end object detection",
+        "reference_index": 22,
+        "reference_instance_id": "refinst:1_IY3FMWQM_22_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.",
+        "source_item_key": "IY3FMWQM",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 42,
+        "reference_instance_id": "refinst:1_J6DSFFBH_42_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "J6DSFFBH",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "li_dndetr-accelerate_2022",
+        "parsed_title": "Dn-detr: Accelerate detr training by introducing query denoising",
+        "reference_index": 17,
+        "reference_instance_id": "refinst:1_MERSIDHN_17_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_feng_li",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "NXLIGKF5",
+        "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+        "target_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 1,
+        "reference_instance_id": "refinst:1_MERSIDHN_1_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 27,
+        "reference_instance_id": "refinst:1_MERSIDHN_27_ref_conditional_detr_for_fast_training_convergence_2021_depu_meng",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 32,
+        "reference_instance_id": "refinst:1_MERSIDHN_32_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection",
+        "reference_index": 46,
+        "reference_instance_id": "refinst:1_MERSIDHN_46_ref_dino_detr_with_improved_denoising_anchor_boxes_for_end-to-end_object_detection_2022_hao_zhang",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhao_detrs-beat_2024",
+        "parsed_title": "Detrs beat yolos on real-time object detection",
+        "reference_index": 49,
+        "reference_instance_id": "refinst:1_MERSIDHN_49_ref_detrs_beat_yolos_on_real-time_object_detection_2024_yian_zhao",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "CBJWE4JX",
+        "target_literature_item_id": "lit:f448c5dfe517ca921e457e27",
+        "target_title": "DETRs beat YOLOs on real-time object detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 51,
+        "reference_instance_id": "refinst:1_MERSIDHN_51_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_xizhou_zhu",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "chen_lwdetr-transformer_2024",
+        "parsed_title": "Lw-detr: A transformer replacement to yolo for real-time detection",
+        "reference_index": 7,
+        "reference_instance_id": "refinst:1_MERSIDHN_7_ref_lw-detr_a_transformer_replacement_to_yolo_for_real-time_detection_2024_qiang_chen",
+        "source_item_key": "MERSIDHN",
+        "target_item_key": "8838AH6P",
+        "target_literature_item_id": "lit:8d2a7ee381424c354f03e28f",
+        "target_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 0,
+        "reference_instance_id": "refinst:1_NXLIGKF5_0_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "NXLIGKF5",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "liu_dabdetr-dynamic_2022",
+        "parsed_title": "DAB-DETR: Dynamic anchor boxes are better queries for DETR",
+        "reference_index": 10,
+        "reference_instance_id": "refinst:1_NXLIGKF5_10_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2022_liu_s.",
+        "source_item_key": "NXLIGKF5",
+        "target_item_key": "IY3FMWQM",
+        "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+        "target_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence",
+        "reference_index": 11,
+        "reference_instance_id": "refinst:1_NXLIGKF5_11_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.",
+        "source_item_key": "NXLIGKF5",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 14,
+        "reference_instance_id": "refinst:1_NXLIGKF5_14_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2017_ren_s.",
+        "source_item_key": "NXLIGKF5",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2017"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 19,
+        "reference_instance_id": "refinst:1_NXLIGKF5_19_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.",
+        "source_item_key": "NXLIGKF5",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_RPRBE2QN_12_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_xizhou_zhu_weijie_su_lewei_lu_bin_li_xiaogang_wang_and_jifeng_dai",
+        "source_item_key": "RPRBE2QN",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 26,
+        "reference_instance_id": "refinst:1_RPRBE2QN_26_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren_kaiming_he_ross_girshick_and_jian_sun",
+        "source_item_key": "RPRBE2QN",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 2,
+        "reference_instance_id": "refinst:1_S86GB385_2_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "S86GB385",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "html_table",
+        "year": "2020"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional DETR for fast training convergence",
+        "reference_index": 30,
+        "reference_instance_id": "refinst:1_S86GB385_30_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.",
+        "source_item_key": "S86GB385",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 34,
+        "reference_instance_id": "refinst:1_S86GB385_34_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.",
+        "source_item_key": "S86GB385",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "html_table",
+        "year": "2015"
+      },
+      {
+        "citekey": "zeng_motr-endtoend_2022",
+        "parsed_title": "MOTR: End-to-end Multiple-Object tracking with TRansformer",
+        "reference_index": 50,
+        "reference_instance_id": "refinst:1_S86GB385_50_ref_motr_end-to-end_multiple-object_tracking_with_transformer_2021_zeng_f.",
+        "source_item_key": "S86GB385",
+        "target_item_key": "KSM65VAD",
+        "target_literature_item_id": "lit:1e682dbe44501efffb96cc9d",
+        "target_title": "MOTR: end-to-end multiple-object tracking with transformer",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable DETR: Deformable transformers for end-to-end object detection",
+        "reference_index": 61,
+        "reference_instance_id": "refinst:1_S86GB385_61_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.",
+        "source_item_key": "S86GB385",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "html_table",
+        "year": "2021"
+      },
+      {
+        "citekey": "liu_dabdetr-dynamic_2022",
+        "parsed_title": "Dab-detr: Dynamic anchor boxes are better queries for detr",
+        "reference_index": 24,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_24_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2022_shilong_liu",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "IY3FMWQM",
+        "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+        "target_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional detr for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+        "reference_index": 28,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_28_ref_conditional_detr_for_fast_training_convergence._in_proceedings_of_the_ieee_cvf_international_conference_on_computer_vision_pp_2021_depu_meng",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 36,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_36_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection",
+        "reference_index": 52,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_52_ref_dino_detr_with_improved_denoising_anchor_boxes_for_end-to-end_object_detection_2022_hao_zhang",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhao_detrs-beat_2024",
+        "parsed_title": "Detrs beat yolos on real-time object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp",
+        "reference_index": 54,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_54_ref_detrs_beat_yolos_on_real-time_object_detection._in_proceedings_of_the_ieee_cvf_conference_on_computer_vision_and_pattern_recognition_pp_2024_yian_zhao",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "CBJWE4JX",
+        "target_literature_item_id": "lit:f448c5dfe517ca921e457e27",
+        "target_title": "DETRs beat YOLOs on real-time object detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 56,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_56_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2020_xizhou_zhu",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "chen_lwdetr-transformer_2024",
+        "parsed_title": "Lw-detr: A transformer replacement to yolo for real-time detection",
+        "reference_index": 7,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_7_ref_lw-detr_a_transformer_replacement_to_yolo_for_real-time_detection_2024_qiang_chen",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "8838AH6P",
+        "target_literature_item_id": "lit:8d2a7ee381424c354f03e28f",
+        "target_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "chen_lwdetr-transformer_2024",
+        "parsed_title": "Lw-detr: a transformer replacement to yolo for real-time detection",
+        "reference_index": 8,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_8_ref_lw-detr_a_transformer_replacement_to_yolo_for_real-time_detection_2024_qiang_chen",
+        "source_item_key": "SZ3GNWT9",
+        "target_item_key": "8838AH6P",
+        "target_literature_item_id": "lit:8d2a7ee381424c354f03e28f",
+        "target_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+        "trusted_source": "payload",
+        "year": "2024"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 3,
+        "reference_instance_id": "refinst:1_USRNFHXP_3_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion",
+        "source_item_key": "USRNFHXP",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "carion_endtoend-object_2020",
+        "parsed_title": "End-to-end object detection with transformers",
+        "reference_index": 3,
+        "reference_instance_id": "refinst:1_VI9JURUB_3_ref_end-to-end_object_detection_with_transformers_2020_carion_n.",
+        "source_item_key": "VI9JURUB",
+        "target_item_key": "EIMSDEU3",
+        "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+        "target_title": "End-to-end object detection with transformers",
+        "trusted_source": "payload",
+        "year": "2020"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 41,
+        "reference_instance_id": "refinst:1_VI9JURUB_41_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.",
+        "source_item_key": "VI9JURUB",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr: Deformable transformers for end-to-end object detection",
+        "reference_index": 73,
+        "reference_instance_id": "refinst:1_VI9JURUB_73_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.",
+        "source_item_key": "VI9JURUB",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "meng_conditional-detr_2021",
+        "parsed_title": "Conditional DETR for Fast Training Convergence. arXiv preprint arXiv:2108",
+        "reference_index": 21,
+        "reference_instance_id": "refinst:1_VQ2WLIDR_21_ref_conditional_detr_for_fast_training_convergence._arxiv_preprint_arxiv_2108_2021_depu_meng_xiaokang_chen_zejia_fan",
+        "source_item_key": "VQ2WLIDR",
+        "target_item_key": "W4CDLU28",
+        "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+        "target_title": "Conditional DETR for fast training convergence",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        "reference_index": 23,
+        "reference_instance_id": "refinst:1_VQ2WLIDR_23_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren",
+        "source_item_key": "VQ2WLIDR",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2015"
+      },
+      {
+        "citekey": "zhang_dino-detr_2022",
+        "parsed_title": "DINO: DETR withImproved DeNoising Anchor Boxes for End-to-End Ob-ject Detection. arXiv preprint arXiv:2203",
+        "reference_index": 31,
+        "reference_instance_id": "refinst:1_VQ2WLIDR_31_ref_dino_detr_withimproved_denoising_anchor_boxes_for_end-to-end_ob-ject_detection._arxiv_preprint_arxiv_2203_2022_hao_zhang",
+        "source_item_key": "VQ2WLIDR",
+        "target_item_key": "HPLZ65Z2",
+        "target_literature_item_id": "lit:5ef6ba2a7d3ae896f0a2b638",
+        "target_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhu_deformable-detr_2021",
+        "parsed_title": "Deformable detr:Deformable transformers for end-to-end object detection",
+        "reference_index": 34,
+        "reference_instance_id": "refinst:1_VQ2WLIDR_34_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_xizhou_zhu",
+        "source_item_key": "VQ2WLIDR",
+        "target_item_key": "5HBHAWIV",
+        "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+        "target_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "trusted_source": "payload",
+        "year": "2021"
+      },
+      {
+        "citekey": "ren_faster-rcnn_2017",
+        "parsed_title": "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        "reference_index": 32,
+        "reference_instance_id": "refinst:1_W4CDLU28_32_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2019_ren_s.",
+        "source_item_key": "W4CDLU28",
+        "target_item_key": "M3AU5AC9",
+        "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+        "target_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+        "trusted_source": "payload",
+        "year": "2019"
+      }
+    ],
+    "unmapped_trusted_citekeys": [
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask r-cnn",
+        "reference_index": 17,
+        "reference_instance_id": "refinst:1_2KUGMFL2_17_ref_mask_r-cnn_2017_he_georgia_gkioxari",
+        "source_item_key": "2KUGMFL2",
+        "year": "2017"
+      },
+      {
+        "citekey": "wang_solo-segmenting_2020",
+        "parsed_title": "SOLO: Segmenting objects by locations",
+        "reference_index": 0,
+        "reference_instance_id": "refinst:1_4DB3YS8Y_0_ref_solo_segmenting_objects_by_locations_2020_xinlong_wang",
+        "source_item_key": "4DB3YS8Y",
+        "year": "2020"
+      },
+      {
+        "citekey": "bolya_yolact-realtime_2019",
+        "parsed_title": "YOLACT: Real-time instance segmentation",
+        "reference_index": 1,
+        "reference_instance_id": "refinst:1_4DB3YS8Y_1_ref_yolact_real-time_instance_segmentation_2019_daniel_bolya",
+        "source_item_key": "4DB3YS8Y",
+        "year": "2019"
+      },
+      {
+        "citekey": "tian_conditional-convolutions_2020",
+        "parsed_title": "Conditional convolutions for instance segmentation",
+        "reference_index": 20,
+        "reference_instance_id": "refinst:1_4DB3YS8Y_20_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian",
+        "source_item_key": "4DB3YS8Y",
+        "year": "2020"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask R-CNN",
+        "reference_index": 23,
+        "reference_instance_id": "refinst:1_53A2WXX8_23_ref_mask_r-cnn_2017_kaiming_he",
+        "source_item_key": "53A2WXX8",
+        "year": "2017"
+      },
+      {
+        "citekey": "tian_conditional-convolutions_2020",
+        "parsed_title": "Conditional convolutions for instance segmentation",
+        "reference_index": 48,
+        "reference_instance_id": "refinst:1_53A2WXX8_48_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian",
+        "source_item_key": "53A2WXX8",
+        "year": "2020"
+      },
+      {
+        "citekey": "wang_solov2-dynamic_2020",
+        "parsed_title": "SOLOv2: Dynamic and fast instance segmentation",
+        "reference_index": 55,
+        "reference_instance_id": "refinst:1_53A2WXX8_55_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang",
+        "source_item_key": "53A2WXX8",
+        "year": "2020"
+      },
+      {
+        "citekey": "kirillov_segment-anything_2023",
+        "parsed_title": "Segment anything",
+        "reference_index": 23,
+        "reference_instance_id": "refinst:1_7T29H6SR_23_ref_segment_anything_2023_alexander_kirillov",
+        "source_item_key": "7T29H6SR",
+        "year": "2023"
+      },
+      {
+        "citekey": "simeoni_dinov3-_2025",
+        "parsed_title": "Dinov3",
+        "reference_index": 45,
+        "reference_instance_id": "refinst:1_7T29H6SR_45_ref_dinov3_2025_oriane_simeoni",
+        "source_item_key": "7T29H6SR",
+        "year": "2025"
+      },
+      {
+        "citekey": "jia_detrs-hybrid_2023",
+        "parsed_title": "Detrs with hybrid matching",
+        "reference_index": 23,
+        "reference_instance_id": "refinst:1_8838AH6P_23_ref_detrs_with_hybrid_matching_2023_jia_d.",
+        "source_item_key": "8838AH6P",
+        "year": "2023"
+      },
+      {
+        "citekey": "chen_group-detr_2023",
+        "parsed_title": "Group detr: Fast detr training with group-wise one-to-many assignment",
+        "reference_index": 2,
+        "reference_instance_id": "refinst:1_8838AH6P_2_ref_group_detr_fast_detr_training_with_group-wise_one-to-many_assignment_2023_chen_q.",
+        "source_item_key": "8838AH6P",
+        "year": "2023"
+      },
+      {
+        "citekey": "wang_yolov7-trainable_2023",
+        "parsed_title": "Yolov7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
+        "reference_index": 7,
+        "reference_instance_id": "refinst:1_8PP8HQMY_7_ref_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.",
+        "source_item_key": "8PP8HQMY",
+        "year": "2023"
+      },
+      {
+        "citekey": "cheng_maskedattention-mask_2022",
+        "parsed_title": "Masked-attention mask transformer for universal image segmentation",
+        "reference_index": 18,
+        "reference_instance_id": "refinst:1_8WM66ZL3_18_ref_masked-attention_mask_transformer_for_universal_image_segmentation_2022_bowen_cheng",
+        "source_item_key": "8WM66ZL3",
+        "year": "2022"
+      },
+      {
+        "citekey": "lv_rtdetrv2-improved_2024",
+        "parsed_title": "Rt-detrv2: Improved baseline with bag-of-freebies for real-time detection transformer",
+        "reference_index": 13,
+        "reference_instance_id": "refinst:1_8YS3DEMI_13_ref_rt-detrv2_improved_baseline_with_bag-of-freebies_for_real-time_detection_transformer_2024_wenyu_lv",
+        "source_item_key": "8YS3DEMI",
+        "year": "2024"
+      },
+      {
+        "citekey": "peng_dfine-redefine_2024",
+        "parsed_title": "D-fine: Redefine regression task in detrs as fine-grained distribution refinement",
+        "reference_index": 16,
+        "reference_instance_id": "refinst:1_8YS3DEMI_16_ref_d-fine_redefine_regression_task_in_detrs_as_fine-grained_distribution_refinement_2024_yansong_peng",
+        "source_item_key": "8YS3DEMI",
+        "year": "2024"
+      },
+      {
+        "citekey": "simeoni_dinov3-_2025",
+        "parsed_title": "Dinov3",
+        "reference_index": 20,
+        "reference_instance_id": "refinst:1_8YS3DEMI_20_ref_dinov3_2025_oriane_simeoni",
+        "source_item_key": "8YS3DEMI",
+        "year": "2025"
+      },
+      {
+        "citekey": "zhang_polarnet-improved_2020",
+        "parsed_title": "Polarnet: An improved grid representation for online lidar point clouds semantic segmentation. arXiv preprint arXiv:2003.14032",
+        "reference_index": 35,
+        "reference_instance_id": "refinst:1_AHF2RU48_35_ref_polarnet_an_improved_grid_representation_for_online_lidar_point_clouds_semantic_segmentation._arxiv_preprint_arxiv_2003.14032_2020_zhang_y.",
+        "source_item_key": "AHF2RU48",
+        "year": "2020"
+      },
+      {
+        "citekey": "cheng_maskedattention-mask_2022",
+        "parsed_title": "Masked-attention mask transformer for universal image segmentation",
+        "reference_index": 19,
+        "reference_instance_id": "refinst:1_BBIY57N3_19_ref_masked-attention_mask_transformer_for_universal_image_segmentation_2022_bowen_cheng",
+        "source_item_key": "BBIY57N3",
+        "year": "2022"
+      },
+      {
+        "citekey": "wang_yolov7-trainable_2023",
+        "parsed_title": "Yolov7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
+        "reference_index": 34,
+        "reference_instance_id": "refinst:1_CBJWE4JX_34_ref_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.",
+        "source_item_key": "CBJWE4JX",
+        "year": "2023"
+      },
+      {
+        "citekey": "yao_efficient-detr_2021",
+        "parsed_title": "Efficient detr: Improving end-to-end object detector with dense prior",
+        "reference_index": 38,
+        "reference_instance_id": "refinst:1_CBJWE4JX_38_ref_efficient_detr_improving_end-to-end_object_detector_with_dense_prior_2021_yao_z.",
+        "source_item_key": "CBJWE4JX",
+        "year": "2021"
+      },
+      {
+        "citekey": "li_mask-dino_2023",
+        "parsed_title": "Mask dino: Towards a unified transformer-based framework for object detection and segmentation",
+        "reference_index": 24,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_24_ref_mask_dino_towards_a_unified_transformer-based_framework_for_object_detection_and_segmentation_2022_feng_li",
+        "source_item_key": "D6BUKS9Q",
+        "year": "2022"
+      },
+      {
+        "citekey": "zhang_accelerating-detr_2022",
+        "parsed_title": "Accelerating DETR convergence via semantic-aligned matching",
+        "reference_index": 80,
+        "reference_instance_id": "refinst:1_D6BUKS9Q_80_ref_accelerating_detr_convergence_via_semantic-aligned_matching_2022_gongjie_zhang",
+        "source_item_key": "D6BUKS9Q",
+        "year": "2022"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask r-cnn",
+        "reference_index": 15,
+        "reference_instance_id": "refinst:1_DDT5Q9QF_15_ref_mask_r-cnn_2017_kaiming_he",
+        "source_item_key": "DDT5Q9QF",
+        "year": "2017"
+      },
+      {
+        "citekey": "yin_centerbased-3d_2021",
+        "parsed_title": "Center- ¨ based 3d object detection and tracking",
+        "reference_index": 55,
+        "reference_instance_id": "refinst:1_DDT5Q9QF_55_ref_center-_based_3d_object_detection_and_tracking_2020_tianwei_yin",
+        "source_item_key": "DDT5Q9QF",
+        "year": "2020"
+      },
+      {
+        "citekey": "zhang_polarnet-improved_2020",
+        "parsed_title": "Polarnet: An improved grid representation for online lidar point clouds semantic segmentation",
+        "reference_index": 56,
+        "reference_instance_id": "refinst:1_DDT5Q9QF_56_ref_polarnet_an_improved_grid_representation_for_online_lidar_point_clouds_semantic_segmentation_2020_yang_zhang",
+        "source_item_key": "DDT5Q9QF",
+        "year": "2020"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask R-CNN",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_EIMSDEU3_12_ref_mask_r-cnn_2017_he_k.",
+        "source_item_key": "EIMSDEU3",
+        "year": "2017"
+      },
+      {
+        "citekey": "jia_detrs-hybrid_2023",
+        "parsed_title": "Detrs with hybrid matching",
+        "reference_index": 47,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_47_ref_detrs_with_hybrid_matching_2022_ding_jia",
+        "source_item_key": "HDDAIKQQ",
+        "year": "2022"
+      },
+      {
+        "citekey": "kirillov_segment-anything_2023",
+        "parsed_title": "Segment anything",
+        "reference_index": 59,
+        "reference_instance_id": "refinst:1_HDDAIKQQ_59_ref_segment_anything_2023_alexander_kirillov",
+        "source_item_key": "HDDAIKQQ",
+        "year": "2023"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask r-cnn",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_I4ZU2PCY_12_ref_mask_r-cnn_2017_he_k.",
+        "source_item_key": "I4ZU2PCY",
+        "year": "2017"
+      },
+      {
+        "citekey": "yao_efficient-detr_2021",
+        "parsed_title": "Efficient DETR: Improving end-to-end object detector with dense prior",
+        "reference_index": 20,
+        "reference_instance_id": "refinst:1_IY3FMWQM_20_ref_efficient_detr_improving_end-to-end_object_detector_with_dense_prior_2021_yao_z.",
+        "source_item_key": "IY3FMWQM",
+        "year": "2021"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask r-cnn",
+        "reference_index": 20,
+        "reference_instance_id": "refinst:1_J6DSFFBH_20_ref_mask_r-cnn_2017_kaiming_he",
+        "source_item_key": "J6DSFFBH",
+        "year": "2017"
+      },
+      {
+        "citekey": "wang_yolov7-trainable_2023",
+        "parsed_title": "Yolov7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors",
+        "reference_index": 41,
+        "reference_instance_id": "refinst:1_MERSIDHN_41_ref_yolov7_trainable_bag-offreebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_chien-yao_wang",
+        "source_item_key": "MERSIDHN",
+        "year": "2023"
+      },
+      {
+        "citekey": "yao_efficient-detr_2021",
+        "parsed_title": "Efficient detr: Improving end-to-end object detector with dense prior",
+        "reference_index": 18,
+        "reference_instance_id": "refinst:1_NXLIGKF5_18_ref_efficient_detr_improving_end-to-end_object_detector_with_dense_prior_2021_yao_z.",
+        "source_item_key": "NXLIGKF5",
+        "year": "2021"
+      },
+      {
+        "citekey": "tian_conditional-convolutions_2020",
+        "parsed_title": "Conditional convolutions for instance segmentation",
+        "reference_index": 22,
+        "reference_instance_id": "refinst:1_RPRBE2QN_22_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian_chunhua_shen_and_hao_chen",
+        "source_item_key": "RPRBE2QN",
+        "year": "2020"
+      },
+      {
+        "citekey": "wang_solov2-dynamic_2020",
+        "parsed_title": "SOLOv2: Dynamic and fast instance segmentation",
+        "reference_index": 28,
+        "reference_instance_id": "refinst:1_RPRBE2QN_28_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang_rufeng_zhang_tao_kong_lei_li_and_chunhua_shen",
+        "source_item_key": "RPRBE2QN",
+        "year": "2020"
+      },
+      {
+        "citekey": "wang_solo-segmenting_2020",
+        "parsed_title": "Solo: Segmenting objects by locations",
+        "reference_index": 29,
+        "reference_instance_id": "refinst:1_RPRBE2QN_29_ref_solo_segmenting_objects_by_locations_2020_xinlong_wang_tao_kong_chunhua_shen_yuning_jiang_and_lei_li",
+        "source_item_key": "RPRBE2QN",
+        "year": "2020"
+      },
+      {
+        "citekey": "cheng_perpixel-classification_2021",
+        "parsed_title": "Per-pixel classification is not all you need for semantic segmentation",
+        "reference_index": 2,
+        "reference_instance_id": "refinst:1_RPRBE2QN_2_ref_per-pixel_classification_is_not_all_you_need_for_semantic_segmentation_2021_bowen_cheng_alexander_g_schwing_and_alexander_kirillov",
+        "source_item_key": "RPRBE2QN",
+        "year": "2021"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask R-CNN",
+        "reference_index": 11,
+        "reference_instance_id": "refinst:1_S86GB385_11_ref_mask_r-cnn_2017_he_k.",
+        "source_item_key": "S86GB385",
+        "year": "2017"
+      },
+      {
+        "citekey": "dai_updetr-unsupervised_2021",
+        "parsed_title": "UP-DETR: Unsupervised pre-training for object detection with transformers",
+        "reference_index": 5,
+        "reference_instance_id": "refinst:1_S86GB385_5_ref_up-detr_unsupervised_pre-training_for_object_detection_with_transformers_2021_dai_z.",
+        "source_item_key": "S86GB385",
+        "year": "2021"
+      },
+      {
+        "citekey": "li_mask-dino_2023",
+        "parsed_title": "Mask dino: Towards a unified transformer-based framework for object detection and segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp",
+        "reference_index": 21,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_21_ref_mask_dino_towards_a_unified_transformer-based_framework_for_object_detection_and_segmentation._in_proceedings_of_the_ieee_cvf_conference_on_computer_vision_and_pattern_recognition_pp_2023_feng_li",
+        "source_item_key": "SZ3GNWT9",
+        "year": "2023"
+      },
+      {
+        "citekey": "peng_dfine-redefine_2024",
+        "parsed_title": "D-fine: Redefine regression task in detrs as fine-grained distribution refinement",
+        "reference_index": 31,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_31_ref_d-fine_redefine_regression_task_in_detrs_as_fine-grained_distribution_refinement_2024_yansong_peng",
+        "source_item_key": "SZ3GNWT9",
+        "year": "2024"
+      },
+      {
+        "citekey": "simeoni_dinov3-_2025",
+        "parsed_title": "Dinov3",
+        "reference_index": 41,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_41_ref_dinov3_2025_oriane_simeoni",
+        "source_item_key": "SZ3GNWT9",
+        "year": "2025"
+      },
+      {
+        "citekey": "wang_yolov7-trainable_2023",
+        "parsed_title": "Yolov7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp",
+        "reference_index": 47,
+        "reference_instance_id": "refinst:1_SZ3GNWT9_47_ref_yolov7_trainable_bag-offreebies_sets_new_state-of-the-art_for_real-time_object_detectors._in_proceedings_of_the_ieee_cvf_conference_on_computer_vision_and_pattern_recognition_pp_2023_chien-yao_wang",
+        "source_item_key": "SZ3GNWT9",
+        "year": "2023"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask R-CNN",
+        "reference_index": 20,
+        "reference_instance_id": "refinst:1_USRNFHXP_20_ref_mask_r-cnn_2017_kaiming_he",
+        "source_item_key": "USRNFHXP",
+        "year": "2017"
+      },
+      {
+        "citekey": "tian_conditional-convolutions_2020",
+        "parsed_title": "Conditional convolutions for instance segmentation",
+        "reference_index": 38,
+        "reference_instance_id": "refinst:1_USRNFHXP_38_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian",
+        "source_item_key": "USRNFHXP",
+        "year": "2020"
+      },
+      {
+        "citekey": "wang_solov2-dynamic_2020",
+        "parsed_title": "SOLOv2: Dynamic and fast instance segmentation",
+        "reference_index": 43,
+        "reference_instance_id": "refinst:1_USRNFHXP_43_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang",
+        "source_item_key": "USRNFHXP",
+        "year": "2020"
+      },
+      {
+        "citekey": "simeoni_dinov3-_2025",
+        "parsed_title": "Dinov3",
+        "reference_index": 10,
+        "reference_instance_id": "refinst:1_UW8ZLVA6_10_ref_dinov3_2025_o._sim_oni",
+        "source_item_key": "UW8ZLVA6",
+        "year": "2025"
+      },
+      {
+        "citekey": "yang_segdino-efficient_2025",
+        "parsed_title": "Segdino: An efficient design for medical and natural image segmentation with dino-v3",
+        "reference_index": 11,
+        "reference_instance_id": "refinst:1_UW8ZLVA6_11_ref_segdino_an_efficient_design_for_medical_and_natural_image_segmentation_with_dino-v3_2025_s._yang",
+        "source_item_key": "UW8ZLVA6",
+        "year": "2025"
+      },
+      {
+        "citekey": "li_meddinov3-how_2025",
+        "parsed_title": "Meddinov3: How to adapt vision foundation models for medical image segmentation?",
+        "reference_index": 12,
+        "reference_instance_id": "refinst:1_UW8ZLVA6_12_ref_meddinov3_how_to_adapt_vision_foundation_models_for_medical_image_segmentation_2025_y._li",
+        "source_item_key": "UW8ZLVA6",
+        "year": "2025"
+      },
+      {
+        "citekey": "kirillov_segment-anything_2023",
+        "parsed_title": "Segment anything",
+        "reference_index": 68,
+        "reference_instance_id": "refinst:1_UW8ZLVA6_68_ref_segment_anything_2023_a._kirillov",
+        "source_item_key": "UW8ZLVA6",
+        "year": "2023"
+      },
+      {
+        "citekey": "he_mask-rcnn_2017",
+        "parsed_title": "Mask r-cnn",
+        "reference_index": 14,
+        "reference_instance_id": "refinst:1_VI9JURUB_14_ref_mask_r-cnn_2017_he_k.",
+        "source_item_key": "VI9JURUB",
+        "year": "2017"
+      },
+      {
+        "citekey": "wang_yolov7-trainable_2023",
+        "parsed_title": "YOLOv7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors",
+        "reference_index": 56,
+        "reference_instance_id": "refinst:1_VI9JURUB_56_ref_yolov7_trainable_bag-offreebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.",
+        "source_item_key": "VI9JURUB",
+        "year": "2023"
+      },
+      {
+        "citekey": "tian_conditional-convolutions_2020",
+        "parsed_title": "Conditional convolutions for instance segmentation",
+        "reference_index": 36,
+        "reference_instance_id": "refinst:1_W4CDLU28_36_ref_conditional_convolutions_for_instance_segmentation_2020_tian_z.",
+        "source_item_key": "W4CDLU28",
+        "year": "2020"
+      },
+      {
+        "citekey": "dai_updetr-unsupervised_2021",
+        "parsed_title": "UP-DETR:unsupervised pre-training for object detection with transformers",
+        "reference_index": 4,
+        "reference_instance_id": "refinst:1_W4CDLU28_4_ref_up-detr_unsupervised_pre-training_for_object_detection_with_transformers_2020_zhigang_dai",
+        "source_item_key": "W4CDLU28",
+        "year": "2020"
+      }
+    ]
+  },
+  "discovery_diagnostics": [],
+  "fixture": "test/fixtures/synthesis-reference-resolution/current-library-v1",
+  "generated_at": "2026-05-29T07:23:42+00:00",
+  "label_counts": {
+    "external_or_missing": 2139,
+    "match": 86,
+    "suggested_match": 54
+  },
+  "labels_file": "gold-labels.trusted-citekey.review.json",
+  "note_source_counts": {
+    "html_table": 5,
+    "payload": 43
+  },
+  "note_summaries": [
+    {
+      "item_key": "29IBKEUR",
+      "note_key": "JE8E3LJK",
+      "reference_count": 32,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "2KUGMFL2",
+      "note_key": "UPV5FSDV",
+      "reference_count": 47,
+      "source": "payload",
+      "trusted_citekey_count": 2
+    },
+    {
+      "item_key": "3JUY9GBQ",
+      "note_key": "XPMJPEJ9",
+      "payload_error": "{\"ok\":false,\"error\":{\"code\":\"capability_failed\",\"category\":\"capability\",\"message\":\"Host Bridge returned an error\",\"details\":{\"bridge\":{\"error\":{\"category\":\"capability\",\"code\":\"capability_failed\",\"details\":{\"capability\":\"library.get_note_payload\",\"message\":\"payload not found: references-json\"},\"messa",
+      "reference_count": 42,
+      "source": "html_table",
+      "trusted_citekey_count": 3
+    },
+    {
+      "item_key": "3YG8UNCI",
+      "note_key": "X5FUZIRZ",
+      "reference_count": 78,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "4DB3YS8Y",
+      "note_key": "FMVAGFEI",
+      "reference_count": 45,
+      "source": "payload",
+      "trusted_citekey_count": 3
+    },
+    {
+      "item_key": "4IUAXCCZ",
+      "note_key": "RCW36MYJ",
+      "reference_count": 52,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "53A2WXX8",
+      "note_key": "7LDF9Z5R",
+      "reference_count": 66,
+      "source": "payload",
+      "trusted_citekey_count": 7
+    },
+    {
+      "item_key": "5HBHAWIV",
+      "note_key": "UAYG7ZQH",
+      "reference_count": 44,
+      "source": "payload",
+      "trusted_citekey_count": 2
+    },
+    {
+      "item_key": "76BD6UYE",
+      "note_key": "MBHBQKCG",
+      "reference_count": 34,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "7AERRYC7",
+      "note_key": "Y7LZMTND",
+      "reference_count": 43,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "7T29H6SR",
+      "note_key": "UMXGV9ZX",
+      "reference_count": 67,
+      "source": "payload",
+      "trusted_citekey_count": 2
+    },
+    {
+      "item_key": "8838AH6P",
+      "note_key": "66YKEN2T",
+      "reference_count": 55,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "8DP4884A",
+      "note_key": "Y8BDRZFR",
+      "reference_count": 48,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "8PP8HQMY",
+      "note_key": "X7VBCQ9S",
+      "reference_count": 17,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "8WM66ZL3",
+      "note_key": "XW5NIDYU",
+      "reference_count": 117,
+      "source": "payload",
+      "trusted_citekey_count": 3
+    },
+    {
+      "item_key": "8YS3DEMI",
+      "note_key": "JKYF9DX7",
+      "reference_count": 31,
+      "source": "payload",
+      "trusted_citekey_count": 5
+    },
+    {
+      "item_key": "ABTG2CFC",
+      "note_key": "JYK7SWH2",
+      "reference_count": 0,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "AHF2RU48",
+      "note_key": "FD7CGBWF",
+      "reference_count": 41,
+      "source": "payload",
+      "trusted_citekey_count": 1
+    },
+    {
+      "item_key": "BBIY57N3",
+      "note_key": "7X9IRK5R",
+      "reference_count": 45,
+      "source": "payload",
+      "trusted_citekey_count": 1
+    },
+    {
+      "item_key": "CBJWE4JX",
+      "note_key": "LKJIFW59",
+      "payload_error": "{\"ok\":false,\"error\":{\"code\":\"capability_failed\",\"category\":\"capability\",\"message\":\"Host Bridge returned an error\",\"details\":{\"bridge\":{\"error\":{\"category\":\"capability\",\"code\":\"capability_failed\",\"details\":{\"capability\":\"library.get_note_payload\",\"message\":\"payload not found: references-json\"},\"messa",
+      "reference_count": 43,
+      "source": "html_table",
+      "trusted_citekey_count": 11
+    },
+    {
+      "item_key": "CGJBFE6C",
+      "note_key": "LIE3QJ7Y",
+      "reference_count": 41,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "D6BUKS9Q",
+      "note_key": "EV4TFTTB",
+      "reference_count": 89,
+      "source": "payload",
+      "trusted_citekey_count": 11
+    },
+    {
+      "item_key": "DBYQ4LWE",
+      "note_key": "99YXK3RE",
+      "reference_count": 47,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "DDT5Q9QF",
+      "note_key": "EEWVA3GF",
+      "reference_count": 61,
+      "source": "payload",
+      "trusted_citekey_count": 3
+    },
+    {
+      "item_key": "EIMSDEU3",
+      "note_key": "RD94LKR2",
+      "reference_count": 55,
+      "source": "payload",
+      "trusted_citekey_count": 1
+    },
+    {
+      "item_key": "GHWYS7AF",
+      "note_key": "ANJP7JMA",
+      "reference_count": 33,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "HDDAIKQQ",
+      "note_key": "VHUUID9U",
+      "reference_count": 172,
+      "source": "payload",
+      "trusted_citekey_count": 6
+    },
+    {
+      "item_key": "HPLZ65Z2",
+      "note_key": "8BRF5U7N",
+      "reference_count": 39,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "I4ZU2PCY",
+      "note_key": "3HH77C2P",
+      "reference_count": 43,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "IY3FMWQM",
+      "note_key": "4MF4NDXN",
+      "reference_count": 23,
+      "source": "payload",
+      "trusted_citekey_count": 5
+    },
+    {
+      "item_key": "J6DSFFBH",
+      "note_key": "A474ADQW",
+      "reference_count": 68,
+      "source": "payload",
+      "trusted_citekey_count": 2
+    },
+    {
+      "item_key": "JMWG9XVD",
+      "note_key": "FCFUG7F5",
+      "reference_count": 0,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "KSM65VAD",
+      "note_key": "JDP6RZLW",
+      "reference_count": 45,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "M3AU5AC9",
+      "note_key": "7CWLNRCF",
+      "reference_count": 40,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "M68XPFA9",
+      "note_key": "GQK959ID",
+      "payload_error": "{\"ok\":false,\"error\":{\"code\":\"capability_failed\",\"category\":\"capability\",\"message\":\"Host Bridge returned an error\",\"details\":{\"bridge\":{\"error\":{\"category\":\"capability\",\"code\":\"capability_failed\",\"details\":{\"capability\":\"library.get_note_payload\",\"message\":\"payload not found: references-json\"},\"messa",
+      "reference_count": 1,
+      "source": "html_table",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "MERSIDHN",
+      "note_key": "59SMUZK6",
+      "reference_count": 52,
+      "source": "payload",
+      "trusted_citekey_count": 9
+    },
+    {
+      "item_key": "NXLIGKF5",
+      "note_key": "79VJVTHJ",
+      "reference_count": 20,
+      "source": "payload",
+      "trusted_citekey_count": 6
+    },
+    {
+      "item_key": "P5NLH47E",
+      "note_key": "CHMCW3UM",
+      "reference_count": 0,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "RPRBE2QN",
+      "note_key": "4Z5K2RND",
+      "reference_count": 50,
+      "source": "payload",
+      "trusted_citekey_count": 6
+    },
+    {
+      "item_key": "S86GB385",
+      "note_key": "XZM4ZXQU",
+      "payload_error": "{\"ok\":false,\"error\":{\"code\":\"capability_failed\",\"category\":\"capability\",\"message\":\"Host Bridge returned an error\",\"details\":{\"bridge\":{\"error\":{\"category\":\"capability\",\"code\":\"capability_failed\",\"details\":{\"capability\":\"library.get_note_payload\",\"message\":\"payload not found: references-json\"},\"messa",
+      "reference_count": 63,
+      "source": "html_table",
+      "trusted_citekey_count": 7
+    },
+    {
+      "item_key": "SZ3GNWT9",
+      "note_key": "YBMIMXMZ",
+      "reference_count": 59,
+      "source": "payload",
+      "trusted_citekey_count": 12
+    },
+    {
+      "item_key": "USRNFHXP",
+      "note_key": "A2XJ2CN8",
+      "reference_count": 55,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "UW8ZLVA6",
+      "note_key": "TRKN5CAA",
+      "reference_count": 116,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "VHBU3NI6",
+      "note_key": "Y5L3PWDA",
+      "reference_count": 0,
+      "source": "payload",
+      "trusted_citekey_count": 0
+    },
+    {
+      "item_key": "VI9JURUB",
+      "note_key": "STSVQPQH",
+      "reference_count": 74,
+      "source": "payload",
+      "trusted_citekey_count": 5
+    },
+    {
+      "item_key": "VQ2WLIDR",
+      "note_key": "TF4MY35G",
+      "reference_count": 35,
+      "source": "payload",
+      "trusted_citekey_count": 4
+    },
+    {
+      "item_key": "W4CDLU28",
+      "note_key": "ZTYBBSGX",
+      "reference_count": 52,
+      "source": "payload",
+      "trusted_citekey_count": 3
+    },
+    {
+      "item_key": "XKJFVI8H",
+      "note_key": "98WL3FUU",
+      "payload_error": "{\"ok\":false,\"error\":{\"code\":\"capability_failed\",\"category\":\"capability\",\"message\":\"Host Bridge returned an error\",\"details\":{\"bridge\":{\"error\":{\"category\":\"capability\",\"code\":\"capability_failed\",\"details\":{\"capability\":\"library.get_note_payload\",\"message\":\"payload not found: references-json\"},\"messa",
+      "reference_count": 0,
+      "source": "html_table",
+      "trusted_citekey_count": 0
+    }
+  ],
+  "ok": true,
+  "reference_count": 2279,
+  "reference_note_count": 48,
+  "schema": "synthesis.reference_resolution_gold_labels.trusted_citekey_review.v1",
+  "trusted_citekey_count": 140,
+  "unmapped_trusted_citekey_count": 54,
+  "unreadable_note_count": 0,
+  "zotero_reference_note_count": 48
+}

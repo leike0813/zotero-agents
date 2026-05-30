@@ -8,6 +8,7 @@ import {
   getLatestBuiltinWorkflowSyncResult,
   type BuiltinWorkflowSyncResult,
 } from "./builtinWorkflowSync";
+import { getRuntimePersistencePaths } from "./runtimePersistence";
 
 type WorkflowSourceKind = "builtin" | "user";
 
@@ -29,19 +30,7 @@ type WorkflowRuntimeState = {
 };
 
 export function getDefaultWorkflowDir() {
-  const runtime = globalThis as {
-    Zotero?: { DataDirectory?: { dir?: string } };
-    process?: { cwd?: () => string };
-  };
-  const dataDir = runtime.Zotero?.DataDirectory?.dir;
-  if (typeof dataDir === "string" && dataDir.length > 0) {
-    return joinPath(dataDir, "zotero-skills", "workflows");
-  }
-  const cwd = runtime.process?.cwd?.();
-  if (cwd) {
-    return joinPath(cwd, "workflows");
-  }
-  return "workflows";
+  return joinPath(getRuntimePersistencePaths().dataDir, "workflows");
 }
 
 function readTestWorkflowDirOverride() {
@@ -96,9 +85,7 @@ function emptyWorkflowRuntimeState(): WorkflowRuntimeState {
   };
 }
 
-let fallbackWorkflowState:
-  | WorkflowRuntimeState
-  | undefined;
+let fallbackWorkflowState: WorkflowRuntimeState | undefined;
 
 function ensureRuntimeStateShape(value: unknown): WorkflowRuntimeState {
   const state = (value || {}) as Partial<WorkflowRuntimeState>;
@@ -106,14 +93,19 @@ function ensureRuntimeStateShape(value: unknown): WorkflowRuntimeState {
     workflowsDir: String(state.workflowsDir || ""),
     builtinWorkflowsDir: String(state.builtinWorkflowsDir || ""),
     workflowSourceById: {
-      ...((state.workflowSourceById || {}) as Record<string, WorkflowSourceKind>),
+      ...((state.workflowSourceById || {}) as Record<
+        string,
+        WorkflowSourceKind
+      >),
     },
     loaded: state.loaded || emptyLoadedWorkflows(),
     loadedFromBuiltin: state.loadedFromBuiltin || emptyLoadedWorkflows(),
     loadedFromUser: state.loadedFromUser || emptyLoadedWorkflows(),
     latestBuiltinSync:
-      (state.latestBuiltinSync as BuiltinWorkflowSyncResult | null | undefined) ||
-      null,
+      (state.latestBuiltinSync as
+        | BuiltinWorkflowSyncResult
+        | null
+        | undefined) || null,
   };
 }
 
@@ -150,14 +142,10 @@ function getZoteroVersion() {
 }
 
 function getWorkflowRegistryStatusFilePath() {
-  const runtime = globalThis as {
-    Zotero?: { DataDirectory?: { dir?: string } };
-  };
-  const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "").trim();
-  if (!dataDir) {
-    return "";
-  }
-  return joinPath(dataDir, "zotero-skills", "workflow-registry-status.json");
+  return joinPath(
+    getRuntimePersistencePaths().stateDir,
+    "workflow-registry-status.json",
+  );
 }
 
 function getDirectoryName(targetPath: string) {
@@ -379,17 +367,15 @@ export async function ensureDefaultWorkflowDirExistsOnStartup() {
 }
 
 export async function rescanWorkflowRegistry(args?: { workflowsDir?: string }) {
-  const workflowsDir = String(args?.workflowsDir || getEffectiveWorkflowDir()).trim();
+  const workflowsDir = String(
+    args?.workflowsDir || getEffectiveWorkflowDir(),
+  ).trim();
   const builtinWorkflowsDir = getBuiltinWorkflowDir();
-  const {
-    merged,
-    loadedFromBuiltin,
-    loadedFromUser,
-    workflowSourceById,
-  } = await loadMergedWorkflowManifests({
-    workflowsDir,
-    builtinWorkflowsDir,
-  });
+  const { merged, loadedFromBuiltin, loadedFromUser, workflowSourceById } =
+    await loadMergedWorkflowManifests({
+      workflowsDir,
+      builtinWorkflowsDir,
+    });
 
   const state = getState();
   state.workflowsDir = workflowsDir;

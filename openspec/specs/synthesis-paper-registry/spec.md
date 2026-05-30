@@ -1,123 +1,46 @@
-# synthesis-paper-registry Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-synthesis-paper-registry. Update Purpose after archive.
-## Requirements
-### Requirement: Paper Registry is a rebuildable projection
+### Requirement: Paper Registry is SQLite-backed local working state
 
-Paper Registry SHALL be rebuildable from Synthesis KG canonical literature records, which themselves are refreshed from Zotero metadata and existing derived artifact payloads.
+Paper Registry SHALL use SQLite as its runtime source of truth for registry
+rows, facets, works, references, resolutions, cleanup items, and view summaries.
 
-#### Scenario: Registry row is built
+#### Scenario: Registry row is read
 
-- **WHEN** a paper DTO is provided with Zotero metadata, tags, collections, and child notes
-- **THEN** the registry builder SHALL return a row keyed by `libraryId:itemKey`
-- **AND** it SHALL preserve title, year, item type, tags, and collections
-- **AND** the Synthesis service SHALL be able to persist the row into canonical paper records and rebuild the registry index projection from those records.
+- **WHEN** the Workbench, MCP, or Host Bridge reads Paper Registry rows
+- **THEN** the rows SHALL be returned from indexed SQLite state
+- **AND** the read SHALL NOT scan Zotero library items, child note payloads, or
+  JSON canonical files.
 
-### Requirement: Derived artifact discovery reuses workflow payload markers
+#### Scenario: Paper facet changes
 
-Paper Registry SHALL discover paper-level artifacts through existing
-`data-zs-payload` note markers.
+- **WHEN** a paper metadata, artifact, reference, readiness, or topic-usage facet
+  changes
+- **THEN** only the affected SQLite rows and facet hashes SHALL update
+- **AND** unrelated paper rows SHALL remain untouched.
 
-#### Scenario: Known payloads exist
+### Requirement: Cleanup decisions update reference resolution state
 
-- **WHEN** child notes contain `digest-markdown`, `references-json`, or
-  `citation-analysis-json`
-- **THEN** the registry row SHALL mark those artifacts as available
-- **AND** it SHALL record payload hash and note key.
+Literature cleanup SHALL represent a concrete reference resolution decision,
+not a status-only marker.
 
-#### Scenario: Visible note HTML changes
+#### Scenario: Reference work is confirmed
 
-- **WHEN** a note's visible HTML changes but the hidden decoded payload is
-  unchanged
-- **THEN** the artifact hash SHALL remain unchanged.
+- **WHEN** the user confirms an unresolved reference as a reference-only work
+- **THEN** the cleanup item SHALL close
+- **AND** the reference resolution/work rows SHALL update in the same SQLite
+  transaction
+- **AND** the Index SHALL be able to display the reference-only work without a
+  projection rebuild.
 
-### Requirement: Registry records readiness and diagnostics
+#### Scenario: Existing paper is matched
 
-Paper Registry SHALL expose coverage/readiness information without blocking full
-rebuilds on individual bad artifacts.
+- **WHEN** the user matches a cleanup item to an existing paper
+- **THEN** the reference resolution SHALL point to that paper
+- **AND** affected citation graph dirty events SHALL be recorded.
 
-#### Scenario: Artifact is missing
+#### Scenario: Reference is ignored
 
-- **WHEN** a paper lacks digest, references, or citation analysis payloads
-- **THEN** the row SHALL include missing-artifact diagnostics
-- **AND** readiness SHALL not be `ready`.
-
-#### Scenario: Duplicate payload candidates exist
-
-- **WHEN** more than one valid candidate exists for the same artifact type
-- **THEN** the row SHALL select one deterministic candidate
-- **AND** it SHALL record duplicate payload diagnostics.
-
-### Requirement: Registry cache is local-only
-
-Paper Registry query acceleration SHALL be local-only and rebuildable, while paper registry facts SHALL be represented as Synthesis KG canonical assets.
-
-#### Scenario: Cache location is planned
-
-- **WHEN** registry projection paths are requested
-- **THEN** projection files SHALL resolve under `synthesis/state/`
-- **AND** canonical paper records SHALL resolve under `synthesis/citation-graph/papers/`
-- **AND** neither projection files nor cache files SHALL be treated as Git-synced source of truth.
-
-### Requirement: Paper registry SHALL discover generated paper artifacts
-
-The paper registry and artifact readers MUST discover generated workbench artifacts from both legacy HTML payload blocks and embedded payload attachments.
-
-#### Scenario: Registry scans normalized notes
-- **WHEN** a paper has digest, references, or citation-analysis notes whose payloads are stored as embedded payload attachments
-- **THEN** the registry SHALL mark the corresponding artifacts as available
-- **AND** artifact hashes SHALL be computed from the decoded payload content.
-
-#### Scenario: Artifact export reads normalized notes
-- **WHEN** `synthesis.read_paper_artifacts` or filtered artifact export reads a paper with normalized generated notes
-- **THEN** it SHALL return the decoded payloads and markdown text as available artifacts.
-
-### Requirement: Paper Registry rows are facet based
-
-Paper Registry SHALL maintain separately hashed identity, metadata, artifact,
-reference, readiness, and topic usage facets for each paper.
-
-#### Scenario: Digest artifact changes
-
-- **WHEN** a paper digest artifact hash changes
-- **THEN** the artifact facet SHALL be marked dirty
-- **AND** metadata-only consumers SHALL NOT be invalidated.
-
-#### Scenario: Reference resolution changes
-
-- **WHEN** a paper reference resolution summary changes
-- **THEN** the reference facet SHALL be marked dirty
-- **AND** citation structure work SHALL be scoped to affected references or
-  source papers.
-
-### Requirement: Paper Registry updates from dirty events
-
-Paper Registry SHALL update from scoped dirty events generated by Zotero item
-changes, workflow apply hooks, reference matching apply, startup reconcile, or
-manual commands.
-
-#### Scenario: Zotero item changes
-
-- **WHEN** a Zotero item add, update, delete, or restore event is observed
-- **THEN** Paper Registry SHALL record a scoped dirty event
-- **AND** registry workers SHALL process it under budget.
-
-#### Scenario: Literature digest apply succeeds
-
-- **WHEN** literature digest apply writes or updates paper-level artifacts
-- **THEN** Paper Registry SHALL record a dirty event for that paper
-- **AND** it SHALL NOT run a full registry rebuild inline.
-
-### Requirement: Startup reconcile backfills missed item changes
-
-Paper Registry SHALL support a lightweight startup reconcile scan to detect
-missed Zotero item changes.
-
-#### Scenario: Startup reconcile detects changed metadata
-
-- **WHEN** startup reconcile finds an item metadata fingerprint that differs
-  from the registry metadata facet
-- **THEN** it SHALL record a dirty event for that item
-- **AND** it SHALL NOT parse digest or reference artifacts during the scan.
-
+- **WHEN** the user ignores a cleanup item
+- **THEN** the item SHALL close without promoting a work or matching a paper
+- **AND** future Index reads SHALL not show it as open cleanup.

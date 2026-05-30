@@ -171,13 +171,13 @@ zotero-bridge call <capability> [--input <JSON_OR_FILE>]
 `synthesis <subcommand> --input`, `literature ingest --input`, `call --input`, and
 `workflow submit --input` accept `JSON_OR_FILE`.
 
-| Value         | Meaning                              |
-| ------------- | ------------------------------------ |
+| Value         | Meaning                                         |
+| ------------- | ----------------------------------------------- |
 | omitted       | valid for `synthesis` and `call`; input is `{}` |
-| `-`           | read JSON from stdin                 |
-| `@file`       | read JSON from `file`                |
-| existing path | read JSON from that file             |
-| anything else | parse as inline JSON                 |
+| `-`           | read JSON from stdin                            |
+| `@file`       | read JSON from `file`                           |
+| existing path | read JSON from that file                        |
+| anything else | parse as inline JSON                            |
 
 Common input errors:
 
@@ -203,22 +203,22 @@ zotero-bridge synthesis export-filtered-paper-artifacts --input @runtime/payload
 
 Capability mapping:
 
-| Command | Host capability |
-| ------- | --------------- |
-| `synthesis list-topics` | `synthesis.list_topics` |
-| `synthesis get-topic-context` | `synthesis.get_topic_context` |
-| `synthesis get-schemas` | `synthesis.get_schemas` |
-| `synthesis get-library-index` | `synthesis.get_library_index` |
-| `synthesis resolve-resolver` | `synthesis.resolve_resolver` |
-| `synthesis get-paper-registry` | `synthesis.get_paper_registry` |
-| `synthesis query-citation-graph` | `synthesis.query_citation_graph` |
-| `synthesis get-citation-graph-slice` | `synthesis.get_citation_graph_slice` |
-| `synthesis get-citation-graph-metrics` | `synthesis.get_citation_graph_metrics` |
-| `synthesis get-paper-artifact-manifest` | `synthesis.get_paper_artifact_manifest` |
-| `synthesis read-paper-artifacts` | `synthesis.read_paper_artifacts` |
+| Command                                     | Host capability                             |
+| ------------------------------------------- | ------------------------------------------- |
+| `synthesis list-topics`                     | `synthesis.list_topics`                     |
+| `synthesis get-topic-context`               | `synthesis.get_topic_context`               |
+| `synthesis get-schemas`                     | `synthesis.get_schemas`                     |
+| `synthesis get-library-index`               | `synthesis.get_library_index`               |
+| `synthesis resolve-resolver`                | `synthesis.resolve_resolver`                |
+| `synthesis get-paper-registry`              | `synthesis.get_paper_registry`              |
+| `synthesis query-citation-graph`            | `synthesis.query_citation_graph`            |
+| `synthesis get-citation-graph-slice`        | `synthesis.get_citation_graph_slice`        |
+| `synthesis get-citation-graph-metrics`      | `synthesis.get_citation_graph_metrics`      |
+| `synthesis get-paper-artifact-manifest`     | `synthesis.get_paper_artifact_manifest`     |
+| `synthesis read-paper-artifacts`            | `synthesis.read_paper_artifacts`            |
 | `synthesis export-filtered-paper-artifacts` | `synthesis.export_filtered_paper_artifacts` |
-| `synthesis resolve-topic-paper-digest` | `synthesis.resolve_topic_paper_digest` |
-| `synthesis get-review-input` | `synthesis.get_review_input` |
+| `synthesis resolve-topic-paper-digest`      | `synthesis.resolve_topic_paper_digest`      |
+| `synthesis get-review-input`                | `synthesis.get_review_input`                |
 
 ### 7.1 Ingest Searched Literature
 
@@ -675,6 +675,11 @@ Zotero-side approval required:
 - `workflow submit`
 - `mutation.execute`
 - `literature ingest`
+
+Use raw `call mutation.execute` with operation `note.upsertPayload` when a
+workflow must write or replace a hidden workflow payload on an existing Zotero
+note. This writes the current embedded payload attachment format and must not be
+used to add legacy `data-zs-payload` HTML blocks.
 
 When approval is required, wait for the user to approve or deny in Zotero UI.
 Do not simulate approval, do not retry in a loop without new information, and do

@@ -1,0 +1,1321 @@
+{
+  "schema": "synthesis.reference_resolution_review_state.v1",
+  "updated_at": "2026-05-29T07:53:25.467Z",
+  "decisions": {
+    "refinst:1_S86GB385_11_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:39:42.441Z",
+      "reviewer": "human"
+    },
+    "refinst:1_S86GB385_0_ref_fully-convolutional_siamese_networks_for_object_tracking_2016_bertineto_l.": {
+      "label": "external_or_missing",
+      "target_item_key": "",
+      "target_literature_item_id": "",
+      "rejected_target_item_keys": [
+        "UVI9ULI2"
+      ],
+      "evidence": [
+        "human_review",
+        "rejected_candidate"
+      ],
+      "rationale": "candidate rejected during manual review",
+      "reviewed_at": "2026-05-29T07:45:42.685Z",
+      "reviewer": "human"
+    },
+    "refinst:1_S86GB385_5_ref_up-detr_unsupervised_pre-training_for_object_detection_with_transformers_2021_dai_z.": {
+      "label": "match",
+      "target_item_key": "P5NLH47E",
+      "target_literature_item_id": "lit:bbf53d909106257cda1d4c74",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:46:14.115Z",
+      "reviewer": "human"
+    },
+    "refinst:1_J6DSFFBH_20_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:47:54.738Z",
+      "reviewer": "human"
+    },
+    "refinst:1_W4CDLU28_36_ref_conditional_convolutions_for_instance_segmentation_2020_tian_z.": {
+      "label": "match",
+      "target_item_key": "8AXAW2GX",
+      "target_literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:48:51.596Z",
+      "reviewer": "human"
+    },
+    "refinst:1_W4CDLU28_2_ref_end-toend_object_detection_with_transformers_2020_nicolas_carion": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:01.227Z",
+      "reviewer": "human"
+    },
+    "refinst:1_MERSIDHN_23_ref_dabdetr_dynamic_anchor_boxes_are_better_queries_for_detr_2021_shilong_liu": {
+      "label": "match",
+      "target_item_key": "IY3FMWQM",
+      "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:34.597Z",
+      "reviewer": "human"
+    },
+    "refinst:1_MERSIDHN_25_ref_rt-detrv2_improved_baseline_with_bag-of-freebies_for_real-time_detection_transformer_2024_2024_wenyu_lv": {
+      "label": "match",
+      "target_item_key": "8PP8HQMY",
+      "target_literature_item_id": "lit:a2ebf7eec48f0dea708f0cef",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:37.469Z",
+      "reviewer": "human"
+    },
+    "refinst:1_MERSIDHN_41_ref_yolov7_trainable_bag-offreebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_chien-yao_wang": {
+      "label": "match",
+      "target_item_key": "ABTG2CFC",
+      "target_literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:38.114Z",
+      "reviewer": "human"
+    },
+    "refinst:1_I4ZU2PCY_12_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:45.060Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3JUY9GBQ_13_ref_mask_r-cnn_2017_k._he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:46.999Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CBJWE4JX_34_ref_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.": {
+      "label": "match",
+      "target_item_key": "ABTG2CFC",
+      "target_literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:51.254Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7AERRYC7_0_ref_end-to-end_object_detection_with_transformers_2020_carion_nicolas": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:56.251Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7AERRYC7_13_ref_mask_r-cnn_2017_he_kaiming": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:57.743Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7AERRYC7_17_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_li_feng": {
+      "label": "match",
+      "target_item_key": "NXLIGKF5",
+      "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:49:58.981Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7AERRYC7_25_ref_conditional_detr_for_fast_training_convergence_2021_meng_depu": {
+      "label": "match",
+      "target_item_key": "W4CDLU28",
+      "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:00.878Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7AERRYC7_26_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_shaoqing": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:01.528Z",
+      "reviewer": "human"
+    },
+    "refinst:1_D6BUKS9Q_4_ref_end-toend_object_detection_with_transformers_2020_nicolas_carion": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:08.996Z",
+      "reviewer": "human"
+    },
+    "refinst:1_D6BUKS9Q_51_ref_an_endto-end_transformer_model_for_3d_object_detection_2021_ishan_misra": {
+      "label": "match",
+      "target_item_key": "JMWG9XVD",
+      "target_literature_item_id": "lit:58e3374b602d9c7177c68840",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:14.583Z",
+      "reviewer": "human"
+    },
+    "refinst:1_D6BUKS9Q_56_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks._neurips_2015_shaoqing_ren": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:17.239Z",
+      "reviewer": "human"
+    },
+    "refinst:1_D6BUKS9Q_80_ref_accelerating_detr_convergence_via_semantic-aligned_matching_2022_gongjie_zhang": {
+      "label": "match",
+      "target_item_key": "S86GB385",
+      "target_literature_item_id": "lit:8b8cb2af9945288bcf52448e",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:18.921Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_11_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:28.942Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_15_ref_dndetr_accelerate_detr_training_by_introducing_query_denoising_2022_li_f.": {
+      "label": "match",
+      "target_item_key": "NXLIGKF5",
+      "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:29.810Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_1_ref_end-to-end_object_detection_with_transformers_2020_carion_n.": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:30.661Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_22_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.": {
+      "label": "match",
+      "target_item_key": "W4CDLU28",
+      "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:33.133Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_27_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:34.411Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_28_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2017_ren_s.": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:37.579Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HPLZ65Z2_38_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.": {
+      "label": "match",
+      "target_item_key": "5HBHAWIV",
+      "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:39.275Z",
+      "reviewer": "human"
+    },
+    "refinst:1_EIMSDEU3_12_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:45.947Z",
+      "reviewer": "human"
+    },
+    "refinst:1_EIMSDEU3_37_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks._pami_2015_ren_s.": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:46.675Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_0_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:49.264Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_20_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2022_shilong_liu": {
+      "label": "match",
+      "target_item_key": "IY3FMWQM",
+      "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:50.262Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_27_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:51.078Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_29_ref_sparse_detr_efficient_end-to-end_object_detection_with_learnable_sparsity_2022_byungseok_roh": {
+      "label": "match",
+      "target_item_key": "29IBKEUR",
+      "target_literature_item_id": "lit:1e3f7730daf3b9e48c51b970",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:53.604Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_35_ref_accelerating_detr_convergence_via_semantic-aligned_matching_2022_gongjie_zhang": {
+      "label": "match",
+      "target_item_key": "S86GB385",
+      "target_literature_item_id": "lit:8b8cb2af9945288bcf52448e",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:56.000Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_38_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_xizhou_zhu": {
+      "label": "match",
+      "target_item_key": "5HBHAWIV",
+      "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:57.667Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_40_ref_detrs_with_collaborative_hybrid_assignments_training_2023_zhuofan_zong": {
+      "label": "match",
+      "target_item_key": "7AERRYC7",
+      "target_literature_item_id": "lit:81bdea993aae9990cdedb7a3",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:58.955Z",
+      "reviewer": "human"
+    },
+    "refinst:1_CGJBFE6C_8_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:50:59.699Z",
+      "reviewer": "human"
+    },
+    "refinst:1_M3AU5AC9_9_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:01.967Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DBYQ4LWE_11_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:04.185Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DBYQ4LWE_19_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_feng_li": {
+      "label": "match",
+      "target_item_key": "NXLIGKF5",
+      "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:05.166Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DBYQ4LWE_1_ref_end-to-end_object_detection_with_transformers_2020_nicolas_carion": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:05.841Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DBYQ4LWE_29_ref_conditional_detr_for_fast_training_convergence_2021_depu_meng": {
+      "label": "match",
+      "target_item_key": "W4CDLU28",
+      "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:08.112Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DBYQ4LWE_32_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_shaoqing_ren": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:09.815Z",
+      "reviewer": "human"
+    },
+    "refinst:1_4IUAXCCZ_12_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:12.083Z",
+      "reviewer": "human"
+    },
+    "refinst:1_4IUAXCCZ_35_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_s.": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:13.037Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8838AH6P_0_ref_endto-end_object_detection_with_transformers_2020_carion_n.": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:15.336Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8838AH6P_23_ref_detrs_with_hybrid_matching_2023_jia_d.": {
+      "label": "match",
+      "target_item_key": "D6BUKS9Q",
+      "target_literature_item_id": "lit:3c317bf3b8554c9f39da0973",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:17.305Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8838AH6P_2_ref_group_detr_fast_detr_training_with_group-wise_one-to-many_assignment_2023_chen_q.": {
+      "label": "match",
+      "target_item_key": "DBYQ4LWE",
+      "target_literature_item_id": "lit:ef998677de4ee03e785a948f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:18.789Z",
+      "reviewer": "human"
+    },
+    "refinst:1_53A2WXX8_23_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:25.334Z",
+      "reviewer": "human"
+    },
+    "refinst:1_53A2WXX8_48_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian": {
+      "label": "match",
+      "target_item_key": "8AXAW2GX",
+      "target_literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:26.544Z",
+      "reviewer": "human"
+    },
+    "refinst:1_53A2WXX8_55_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang": {
+      "label": "match",
+      "target_item_key": "4DB3YS8Y",
+      "target_literature_item_id": "lit:cfd00c2d5f91f5dab383f4ce",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:27.830Z",
+      "reviewer": "human"
+    },
+    "refinst:1_BBIY57N3_19_ref_masked-attention_mask_transformer_for_universal_image_segmentation_2022_bowen_cheng": {
+      "label": "match",
+      "target_item_key": "53A2WXX8",
+      "target_literature_item_id": "lit:69ebef6c49869a872b598aed",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:30.523Z",
+      "reviewer": "human"
+    },
+    "refinst:1_RPRBE2QN_0_ref_end-toend_object_detection_with_transformers_2020_nicolas_carion_francisco_massa_gabriel_synnaeve_nicolas_usunier_alexander_kirillov_and_sergey_zagoruyko": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:36.886Z",
+      "reviewer": "human"
+    },
+    "refinst:1_RPRBE2QN_22_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian_chunhua_shen_and_hao_chen": {
+      "label": "match",
+      "target_item_key": "8AXAW2GX",
+      "target_literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:38.872Z",
+      "reviewer": "human"
+    },
+    "refinst:1_RPRBE2QN_28_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang_rufeng_zhang_tao_kong_lei_li_and_chunhua_shen": {
+      "label": "match",
+      "target_item_key": "4DB3YS8Y",
+      "target_literature_item_id": "lit:cfd00c2d5f91f5dab383f4ce",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:40.527Z",
+      "reviewer": "human"
+    },
+    "refinst:1_RPRBE2QN_29_ref_solo_segmenting_objects_by_locations_2020_xinlong_wang_tao_kong_chunhua_shen_yuning_jiang_and_lei_li": {
+      "label": "match",
+      "target_item_key": "76BD6UYE",
+      "target_literature_item_id": "lit:371ab48980385b83c76cf696",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:42.150Z",
+      "reviewer": "human"
+    },
+    "refinst:1_RPRBE2QN_2_ref_per-pixel_classification_is_not_all_you_need_for_semantic_segmentation_2021_bowen_cheng_alexander_g_schwing_and_alexander_kirillov": {
+      "label": "match",
+      "target_item_key": "USRNFHXP",
+      "target_literature_item_id": "lit:845b5409ef6e3da9bae75ffc",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:43.394Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DDT5Q9QF_15_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:47.615Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DDT5Q9QF_55_ref_center-_based_3d_object_detection_and_tracking_2020_tianwei_yin": {
+      "label": "match",
+      "target_item_key": "J6DSFFBH",
+      "target_literature_item_id": "lit:cd3a9aa0add87b7170856e3a",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:50.967Z",
+      "reviewer": "human"
+    },
+    "refinst:1_DDT5Q9QF_56_ref_polarnet_an_improved_grid_representation_for_online_lidar_point_clouds_semantic_segmentation_2020_yang_zhang": {
+      "label": "match",
+      "target_item_key": "CHPBJDLU",
+      "target_literature_item_id": "lit:ef28eedaec749ae31a918dcb",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:52.393Z",
+      "reviewer": "human"
+    },
+    "refinst:1_USRNFHXP_20_ref_mask_r-cnn_2017_kaiming_he": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:54.784Z",
+      "reviewer": "human"
+    },
+    "refinst:1_USRNFHXP_38_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian": {
+      "label": "match",
+      "target_item_key": "8AXAW2GX",
+      "target_literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:55.997Z",
+      "reviewer": "human"
+    },
+    "refinst:1_USRNFHXP_43_ref_solov2_dynamic_and_fast_instance_segmentation_2020_xinlong_wang": {
+      "label": "match",
+      "target_item_key": "4DB3YS8Y",
+      "target_literature_item_id": "lit:cfd00c2d5f91f5dab383f4ce",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:51:56.643Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_29_ref_detrs_with_hybrid_matching_2023_jia_d.": {
+      "label": "match",
+      "target_item_key": "D6BUKS9Q",
+      "target_literature_item_id": "lit:3c317bf3b8554c9f39da0973",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:04.661Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_2_ref_end-to-end_object_detection_with_transformers_2020_carion_n.": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:05.585Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_33_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_li_f.": {
+      "label": "match",
+      "target_item_key": "NXLIGKF5",
+      "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:06.876Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_34_ref_mask_dino_towards_a_unified_transformer-based_framework_for_object_detection_and_segmentation_2023_li_f.": {
+      "label": "match",
+      "target_item_key": "VQ2WLIDR",
+      "target_literature_item_id": "lit:06cc5255657cfa2d29760c1c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:13.584Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_37_ref_panoptic_segformer_delving_deeper_into_panoptic_segmentation_with_transformers_2022_li_z.": {
+      "label": "match",
+      "target_item_key": "RPRBE2QN",
+      "target_literature_item_id": "lit:57db4ff606517a743a7039cb",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:16.522Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_43_ref_dab-detr_dynamic_anchor_boxes_are_better_queries_for_detr_2022_liu_s.": {
+      "label": "match",
+      "target_item_key": "IY3FMWQM",
+      "target_literature_item_id": "lit:23ca34baf0d7c13c599912d7",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:18.066Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_47_ref_conditional_detr_for_fast_training_convergence_2021_meng_d.": {
+      "label": "match",
+      "target_item_key": "W4CDLU28",
+      "target_literature_item_id": "lit:f41bd33f32e7c9c620b09e19",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:19.558Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_5_ref_masked-attention_mask_transformer_for_universal_image_segmentation_2022_cheng_b.": {
+      "label": "match",
+      "target_item_key": "53A2WXX8",
+      "target_literature_item_id": "lit:69ebef6c49869a872b598aed",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:21.703Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_73_ref_accelerating_detr_convergence_via_semantic-aligned_matching_2022_zhang_g.": {
+      "label": "match",
+      "target_item_key": "S86GB385",
+      "target_literature_item_id": "lit:8b8cb2af9945288bcf52448e",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:23.464Z",
+      "reviewer": "human"
+    },
+    "refinst:1_3YG8UNCI_77_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_x.": {
+      "label": "match",
+      "target_item_key": "5HBHAWIV",
+      "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:24.543Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8YS3DEMI_13_ref_rt-detrv2_improved_baseline_with_bag-of-freebies_for_real-time_detection_transformer_2024_wenyu_lv": {
+      "label": "match",
+      "target_item_key": "8PP8HQMY",
+      "target_literature_item_id": "lit:a2ebf7eec48f0dea708f0cef",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:29.466Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8YS3DEMI_16_ref_d-fine_redefine_regression_task_in_detrs_as_fine-grained_distribution_refinement_2024_yansong_peng": {
+      "label": "match",
+      "target_item_key": "MERSIDHN",
+      "target_literature_item_id": "lit:fcdd3c234f1a428e42f32e49",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:30.543Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8YS3DEMI_20_ref_dinov3_2025_oriane_simeoni": {
+      "label": "match",
+      "target_item_key": "TWR6CC4I",
+      "target_literature_item_id": "lit:9b25755c6568ff06b8ac1efa",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:31.633Z",
+      "reviewer": "human"
+    },
+    "refinst:1_VI9JURUB_14_ref_mask_r-cnn_2017_he_k.": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:34.022Z",
+      "reviewer": "human"
+    },
+    "refinst:1_VI9JURUB_56_ref_yolov7_trainable_bag-offreebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.": {
+      "label": "match",
+      "target_item_key": "ABTG2CFC",
+      "target_literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:35.669Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8PP8HQMY_7_ref_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_c.-y.": {
+      "label": "match",
+      "target_item_key": "ABTG2CFC",
+      "target_literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:47.087Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_13_ref_dn-detr_accelerate_detr_training_by_introducing_query_denoising_2022_li_feng": {
+      "label": "match",
+      "target_item_key": "NXLIGKF5",
+      "target_literature_item_id": "lit:ae73cad67786d9e019be2235",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:50.608Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_19_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_shaoqing": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:51.290Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_1_ref_end-to-end_object_detection_with_transformers_2020_carion_nicolas": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:51.946Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_23_ref_yolov7_trainable_bag-of-freebies_sets_new_state-of-the-art_for_real-time_object_detectors_2023_wang_chien-yao": {
+      "label": "match",
+      "target_item_key": "ABTG2CFC",
+      "target_literature_item_id": "lit:952d9ab1753df676b8a18143",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:52.520Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_2_ref_end-to-end_object_detection_with_transformers_2020_carion_nicolas": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:53.428Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_31_ref_detrs_beat_yolos_on_real-time_object_detection_2024_zhao_yian": {
+      "label": "match",
+      "target_item_key": "CBJWE4JX",
+      "target_literature_item_id": "lit:f448c5dfe517ca921e457e27",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:54.199Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_32_ref_detrs_with_collaborative_hybrid_assignments_training_2023_zong_zhuofan": {
+      "label": "match",
+      "target_item_key": "7AERRYC7",
+      "target_literature_item_id": "lit:81bdea993aae9990cdedb7a3",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:55.434Z",
+      "reviewer": "human"
+    },
+    "refinst:1_GHWYS7AF_3_ref_group_detr_fast_detr_training_with_group-wise_one-to-many_assignment_2023_chen_qiang": {
+      "label": "match",
+      "target_item_key": "DBYQ4LWE",
+      "target_literature_item_id": "lit:ef998677de4ee03e785a948f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:56.347Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HDDAIKQQ_157_ref_motr_end-to-end_multipleobject_tracking_with_transformer_2022_fangao_zeng": {
+      "label": "match",
+      "target_item_key": "KSM65VAD",
+      "target_literature_item_id": "lit:1e682dbe44501efffb96cc9d",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:52:59.536Z",
+      "reviewer": "human"
+    },
+    "refinst:1_HDDAIKQQ_59_ref_segment_anything_2023_alexander_kirillov": {
+      "label": "match",
+      "target_item_key": "8WM66ZL3",
+      "target_literature_item_id": "lit:4c586a9c3269b5d853b04ba8",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:00.514Z",
+      "reviewer": "human"
+    },
+    "refinst:1_7T29H6SR_23_ref_segment_anything_2023_alexander_kirillov": {
+      "label": "match",
+      "target_item_key": "8WM66ZL3",
+      "target_literature_item_id": "lit:4c586a9c3269b5d853b04ba8",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:03.342Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8WM66ZL3_18_ref_masked-attention_mask_transformer_for_universal_image_segmentation_2022_bowen_cheng": {
+      "label": "match",
+      "target_item_key": "53A2WXX8",
+      "target_literature_item_id": "lit:69ebef6c49869a872b598aed",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:06.709Z",
+      "reviewer": "human"
+    },
+    "refinst:1_8WM66ZL3_19_ref_perpixel_classification_is_not_all_you_need_for_semantic_segmentation_2021_alex_schwing_bowen_cheng": {
+      "label": "match",
+      "target_item_key": "USRNFHXP",
+      "target_literature_item_id": "lit:845b5409ef6e3da9bae75ffc",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:07.564Z",
+      "reviewer": "human"
+    },
+    "refinst:1_4DB3YS8Y_0_ref_solo_segmenting_objects_by_locations_2020_xinlong_wang": {
+      "label": "match",
+      "target_item_key": "76BD6UYE",
+      "target_literature_item_id": "lit:371ab48980385b83c76cf696",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:14.803Z",
+      "reviewer": "human"
+    },
+    "refinst:1_4DB3YS8Y_1_ref_yolact_real-time_instance_segmentation_2019_daniel_bolya": {
+      "label": "match",
+      "target_item_key": "2KUGMFL2",
+      "target_literature_item_id": "lit:fc4c4f51bda546d322b91b4f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:16.318Z",
+      "reviewer": "human"
+    },
+    "refinst:1_4DB3YS8Y_20_ref_conditional_convolutions_for_instance_segmentation_2020_zhi_tian": {
+      "label": "match",
+      "target_item_key": "8AXAW2GX",
+      "target_literature_item_id": "lit:c9665b055a245f51e95c449c",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:18.100Z",
+      "reviewer": "human"
+    },
+    "refinst:1_29IBKEUR_10_ref_mask_r-cnn_2017_he_kaiming": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:20.435Z",
+      "reviewer": "human"
+    },
+    "refinst:1_29IBKEUR_22_ref_faster_r-cnn_towards_real-time_object_detection_with_region_proposal_networks_2015_ren_shaoqing": {
+      "label": "match",
+      "target_item_key": "M3AU5AC9",
+      "target_literature_item_id": "lit:a2db8d45e12d46a4168936db",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:21.225Z",
+      "reviewer": "human"
+    },
+    "refinst:1_29IBKEUR_2_ref_end-to-end_object_detection_with_transformers_2020_carion_nicolas": {
+      "label": "match",
+      "target_item_key": "EIMSDEU3",
+      "target_literature_item_id": "lit:9c60308189427ba8dcd0ac02",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:21.746Z",
+      "reviewer": "human"
+    },
+    "refinst:1_29IBKEUR_31_ref_deformable_detr_deformable_transformers_for_end-to-end_object_detection_2021_zhu_xizhou": {
+      "label": "match",
+      "target_item_key": "5HBHAWIV",
+      "target_literature_item_id": "lit:5ecf3315e65a0e90b5ad3d54",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:22.436Z",
+      "reviewer": "human"
+    },
+    "refinst:1_2KUGMFL2_17_ref_mask_r-cnn_2017_he_georgia_gkioxari": {
+      "label": "match",
+      "target_item_key": "UVI9ULI2",
+      "target_literature_item_id": "lit:9dd55a54b33b845105285c8f",
+      "rejected_target_item_keys": [],
+      "evidence": [
+        "confirmed_edge",
+        "human_review"
+      ],
+      "rationale": "manually confirmed in reference resolution review UI",
+      "reviewed_at": "2026-05-29T07:53:25.467Z",
+      "reviewer": "human"
+    }
+  }
+}

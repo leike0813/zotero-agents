@@ -1,0 +1,102 @@
+digraph SynthesisDomainContextMap {
+  graph [
+    rankdir=LR,
+    bgcolor="transparent",
+    pad="0.35",
+    nodesep="0.55",
+    ranksep="0.75",
+    fontname="Microsoft YaHei"
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    fontname="Microsoft YaHei",
+    fontsize=12,
+    margin="0.12,0.08",
+    color="#6b7280",
+    fillcolor="#f8fafc",
+    fontcolor="#111827"
+  ];
+
+  edge [
+    color="#64748b",
+    fontname="Microsoft YaHei",
+    fontsize=10,
+    arrowsize=0.8,
+    fontcolor="#334155"
+  ];
+
+  subgraph cluster_platform {
+    label="平台执行域";
+    color="#93c5fd";
+    fillcolor="#eff6ff";
+    style="rounded,filled";
+
+    workflow [label="Workflow 骨架\nSkill Provider\nACP Runtime"];
+    host_bridge [label="Host Bridge / CLI\nCapability Boundary\nLibrary / Artifact Facade"];
+  }
+
+  subgraph cluster_source {
+    label="源事实与 Artifact 域";
+    color="#bbf7d0";
+    fillcolor="#f0fdf4";
+    style="rounded,filled";
+
+    zotero [label="Zotero Library\nItems / Notes / Attachments"];
+    derived_notes [label="派生 Artifact Notes\nDigest / References\nCitation Analysis\nMatching Metadata"];
+  }
+
+  subgraph cluster_synthesis {
+    label="Synthesis Layer";
+    color="#fde68a";
+    fillcolor="#fffbeb";
+    style="rounded,filled";
+
+    foundation [label="Synthesis Foundation\nSQLite Repository\nPersistence / Review State"];
+    source_facade [label="Host Library / Artifact Facade\nLibrary Index\nResolver Execution\nFiltered Artifacts"];
+    registry [label="Paper Registry Cache\nLiterature Items\nBindings / Readiness\nReference Facts"];
+    citation [label="Reference Resolution\nCitation Graph\nMetrics / Layout"];
+    tags [label="Tag Vocabulary\nControlled Tags\nValidation"];
+    topics [label="Topics / Topic Graph\nTopic Artifacts\nSource Check\nDiscovery Hints"];
+    concepts [label="Concept KB\nConcepts / Senses\nAliases / Links\nOverlay Facade"];
+    maintenance [label="Maintenance / Jobs / Debug\nDirty Events\nProgress / Reconcile"];
+    sync [label="Sync / Import / Export\nCheckpoint / Git Sync"];
+  }
+
+  workflow -> derived_notes [label="生成/更新"];
+  workflow -> topics [label="运行 topic skills"];
+  host_bridge -> workflow [label="提交/观测"];
+  host_bridge -> source_facade [label="topic workflow reads"];
+  host_bridge -> maintenance [label="debug-only"];
+
+  zotero -> derived_notes [label="承载"];
+  zotero -> registry [label="item facts"];
+  zotero -> source_facade [label="item facts"];
+  derived_notes -> registry [label="artifact facts"];
+  derived_notes -> source_facade [label="artifact facts"];
+
+  registry -> citation [label="references / identities"];
+  registry -> maintenance [label="known DB papers"];
+  source_facade -> topics [label="primary topic inputs"];
+
+  tags -> topics [label="topic discovery / filtering"];
+  topics -> concepts [label="ACL: concept proposal DTO"];
+  concepts -> topics [label="ACL: optional overlay DTO", style=dashed];
+  citation -> topics [label="optional graph metrics", style=dashed];
+
+  maintenance -> registry [label="workers"];
+  maintenance -> citation [label="workers"];
+  maintenance -> topics [label="explicit source check", style=dashed];
+
+  foundation -> registry [style=dotted, label="owns storage"];
+  foundation -> source_facade [style=dotted, label="service facade"];
+  foundation -> citation [style=dotted, label="owns storage"];
+  foundation -> tags [style=dotted, label="owns storage"];
+  foundation -> topics [style=dotted, label="owns storage"];
+  foundation -> concepts [style=dotted, label="owns storage"];
+
+  sync -> tags [label="canonical assets", style=dashed];
+  sync -> topics [label="canonical assets", style=dashed];
+  sync -> concepts [label="canonical assets", style=dashed];
+}

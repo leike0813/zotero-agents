@@ -1,20 +1,17 @@
-import {
-  listPluginTaskRowEntries,
-  upsertPluginTaskRowEntry,
-  type PluginTaskRowEntry,
-} from "../pluginStateStore";
 import { hashCanonicalJson } from "./foundation";
+import {
+  type SynthesisDirtyEventRecord,
+  type SynthesisRepository,
+} from "./repository";
 
-const DOMAIN = "synthesis-updates";
-const EVENT_SCOPE = "synthesis-update-events";
-const STATE_SCOPE = "synthesis-update-state";
-const STATE_TASK_ID = "queue";
 const SCHEMA_VERSION = "1.0.0";
+const QUEUE_STATE_JOB_NAME = "synthesis:update-queue-state";
 const DEFAULT_RETRY_DELAYS_MS = [60_000, 300_000, 900_000, 1_800_000];
 
 export type SynthesisUpdateEventType =
   | "paper_artifact_changed"
   | "digest_applied"
+  | "literature_matching_metadata_changed"
   | "reference_matching_applied"
   | "topic_synthesis_applied"
   | "zotero_item_added"
@@ -128,9 +125,22 @@ export type RecordSynthesisUpdateEventInput = {
 
 export type SynthesisUpdateEventStoreOptions = {
   libraryId: number;
+  repository: SynthesisRepository;
   now?: () => string;
   retryDelaysMs?: number[];
 };
+
+type QueueMeta = Pick<
+  SynthesisUpdateQueueStatus,
+  | "paused"
+  | "queue_state"
+  | "retry_attempt"
+  | "next_retry_at"
+  | "last_retry_at"
+  | "last_failure"
+  | "startup_reconcile"
+  | "updated_at"
+>;
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -149,6 +159,15 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "{}");
+    return isObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function normalizeDiagnostic(value: unknown): SynthesisUpdateDiagnostic | null {
   if (!isObject(value)) {
     return null;
@@ -163,13 +182,14 @@ function normalizeDiagnostic(value: unknown): SynthesisUpdateDiagnostic | null {
 }
 
 function normalizeDiagnostics(value: unknown) {
-  return Array.isArray(value)
-    ? value
-        .map(normalizeDiagnostic)
-        .filter((diagnostic): diagnostic is SynthesisUpdateDiagnostic =>
-          Boolean(diagnostic),
-        )
-    : [];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(normalizeDiagnostic)
+    .filter((diagnostic): diagnostic is SynthesisUpdateDiagnostic =>
+      Boolean(diagnostic),
+    );
 }
 
 function normalizeEventType(value: unknown): SynthesisUpdateEventType {
@@ -177,6 +197,7 @@ function normalizeEventType(value: unknown): SynthesisUpdateEventType {
   if (
     normalized === "paper_artifact_changed" ||
     normalized === "digest_applied" ||
+    normalized === "literature_matching_metadata_changed" ||
     normalized === "reference_matching_applied" ||
     normalized === "topic_synthesis_applied" ||
     normalized === "zotero_item_added" ||
@@ -228,6 +249,20 @@ function normalizeEventStatus(value: unknown): SynthesisUpdateEventStatus {
   return "queued";
 }
 
+function normalizeQueueState(value: unknown): SynthesisUpdateQueueState {
+  const normalized = cleanString(value);
+  if (
+    normalized === "queued" ||
+    normalized === "running" ||
+    normalized === "paused" ||
+    normalized === "failed_retryable" ||
+    normalized === "failed_permanent"
+  ) {
+    return normalized;
+  }
+  return "idle";
+}
+
 function normalizeStartupState(value: unknown): SynthesisStartupReconcileState {
   const normalized = cleanString(value);
   if (
@@ -242,66 +277,14 @@ function normalizeStartupState(value: unknown): SynthesisStartupReconcileState {
   return "unknown";
 }
 
-function coerceAttempt(value: unknown) {
+function coerceNonNegativeInt(value: unknown) {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function parsePayload(row: PluginTaskRowEntry) {
-  try {
-    return JSON.parse(row.payload) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeEvent(raw: unknown, fallback: Partial<SynthesisUpdateEvent>) {
-  const source = isObject(raw) ? raw : {};
-  const scope = isObject(source.scope) ? source.scope : {};
-  const eventType = normalizeEventType(
-    source.event_type || fallback.event_type,
-  );
-  const scopeKind = normalizeScopeKind(scope.kind || fallback.scope?.kind);
-  const scopeRef = cleanString(scope.ref || fallback.scope?.ref) || "library";
-  const libraryId = normalizeLibraryId(
-    source.library_id || fallback.library_id,
-  );
-  const createdAt =
-    cleanString(source.created_at || fallback.created_at) || nowIso();
-  const updatedAt =
-    cleanString(source.updated_at || fallback.updated_at) || createdAt;
-  const eventId =
-    cleanString(source.event_id || fallback.event_id) ||
-    buildEventId(libraryId, eventType, scopeKind, scopeRef);
-  return {
-    schema_id: "synthesis.update_event" as const,
-    schema_version: SCHEMA_VERSION,
-    library_id: libraryId,
-    event_id: eventId,
-    event_type: eventType,
-    source: cleanString(source.source || fallback.source) || "unknown",
-    scope: {
-      kind: scopeKind,
-      ref: scopeRef,
-    },
-    source_hash:
-      cleanString(source.source_hash || fallback.source_hash) || undefined,
-    status: normalizeEventStatus(source.status || fallback.status),
-    attempt: coerceAttempt(source.attempt || fallback.attempt),
-    next_retry_at:
-      cleanString(source.next_retry_at || fallback.next_retry_at) || undefined,
-    last_retry_at:
-      cleanString(source.last_retry_at || fallback.last_retry_at) || undefined,
-    diagnostics: normalizeDiagnostics(
-      source.diagnostics || fallback.diagnostics,
-    ),
-    coalesced_count: Math.max(
-      1,
-      coerceAttempt(source.coalesced_count || fallback.coalesced_count || 1),
-    ),
-    created_at: createdAt,
-    updated_at: updatedAt,
-  } satisfies SynthesisUpdateEvent;
+function retryDelayMs(delays: number[], attempt: number) {
+  const index = Math.max(0, Math.min(attempt - 1, delays.length - 1));
+  return Math.max(0, Math.floor(Number(delays[index]) || 0));
 }
 
 function buildEventId(
@@ -318,75 +301,162 @@ function buildEventId(
   }).slice("sha256:".length, "sha256:".length + 24)}`;
 }
 
-function taskIdForEvent(event: SynthesisUpdateEvent) {
-  return event.event_id;
-}
-
-function eventToRow(event: SynthesisUpdateEvent): PluginTaskRowEntry {
+function dirtyRecordToEvent(
+  record: SynthesisDirtyEventRecord,
+  fallbackLibraryId: number,
+): SynthesisUpdateEvent {
+  const createdAt = cleanString(record.createdAt) || nowIso();
+  const updatedAt = cleanString(record.updatedAt) || createdAt;
   return {
-    taskId: taskIdForEvent(event),
-    requestId: event.event_id,
-    backendId: `${event.scope.kind}:${event.scope.ref}`,
-    state: event.status,
-    updatedAt: event.updated_at,
-    payload: JSON.stringify(event),
+    schema_id: "synthesis.update_event",
+    schema_version: SCHEMA_VERSION,
+    library_id: normalizeLibraryId(record.libraryId) || fallbackLibraryId,
+    event_id:
+      cleanString(record.eventId) ||
+      buildEventId(
+        fallbackLibraryId,
+        normalizeEventType(record.eventType),
+        normalizeScopeKind(record.scopeKind),
+        cleanString(record.scopeRef) || "library",
+      ),
+    event_type: normalizeEventType(record.eventType),
+    source: cleanString(record.source) || "unknown",
+    scope: {
+      kind: normalizeScopeKind(record.scopeKind),
+      ref: cleanString(record.scopeRef) || "library",
+    },
+    source_hash: cleanString(record.sourceHash) || undefined,
+    status: normalizeEventStatus(record.status),
+    attempt: coerceNonNegativeInt(record.attemptCount),
+    next_retry_at: cleanString(record.nextRetryAt) || undefined,
+    diagnostics: normalizeDiagnostics(
+      parseJsonObjectArray(record.diagnosticsJson),
+    ),
+    coalesced_count: Math.max(
+      1,
+      Math.floor(Number(record.coalescedCount) || 1),
+    ),
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
 }
 
-function stateRowToStatus(
-  row: PluginTaskRowEntry | undefined,
+function parseJsonObjectArray(value: unknown): unknown[] {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function eventToDirtyRecord(event: SynthesisUpdateEvent) {
+  return {
+    eventId: event.event_id,
+    libraryId: event.library_id,
+    eventType: event.event_type,
+    source: event.source,
+    scopeKind: event.scope.kind,
+    scopeRef: event.scope.ref,
+    sourceHash: event.source_hash,
+    status: event.status,
+    attemptCount: event.attempt,
+    coalescedCount: event.coalesced_count,
+    nextRetryAt: event.next_retry_at,
+    diagnosticsJson: JSON.stringify(event.diagnostics),
+    createdAt: event.created_at,
+    updatedAt: event.updated_at,
+  } satisfies SynthesisDirtyEventRecord;
+}
+
+function defaultQueueMeta(libraryId: number, timestamp: string): QueueMeta {
+  return {
+    queue_state: "idle",
+    paused: false,
+    retry_attempt: 0,
+    updated_at: timestamp,
+    startup_reconcile: {
+      state: "unknown",
+      dirty_count: 0,
+      diagnostics: [],
+    },
+  };
+}
+
+function readQueueMeta(
+  repository: SynthesisRepository,
   libraryId: number,
   timestamp: string,
-) {
-  const payload = row ? parsePayload(row) : null;
-  const source = isObject(payload) ? payload : {};
+): QueueMeta {
+  const row = repository.getJobProgress(QUEUE_STATE_JOB_NAME);
+  const source = parseJsonObject(row?.progressJson);
   const startup = isObject(source.startup_reconcile)
     ? source.startup_reconcile
     : {};
-  const paused = Boolean(source.paused);
   return {
-    schema_id: "synthesis.update_queue_state" as const,
-    schema_version: SCHEMA_VERSION,
-    library_id: libraryId,
-    queue_state: normalizeQueueState(source.queue_state),
-    paused,
-    pending_count: Math.max(0, Math.floor(Number(source.pending_count) || 0)),
-    running_count: Math.max(0, Math.floor(Number(source.running_count) || 0)),
-    failed_count: Math.max(0, Math.floor(Number(source.failed_count) || 0)),
-    retry_attempt: Math.max(0, Math.floor(Number(source.retry_attempt) || 0)),
+    queue_state: normalizeQueueState(source.queue_state || row?.message),
+    paused: Boolean(source.paused),
+    retry_attempt: coerceNonNegativeInt(source.retry_attempt),
     next_retry_at: cleanString(source.next_retry_at) || undefined,
     last_retry_at: cleanString(source.last_retry_at) || undefined,
     last_failure:
       normalizeDiagnostic(source.last_failure) ||
-      normalizeDiagnostics(source.diagnostics)[0] ||
+      normalizeDiagnostics(parseJsonObjectArray(row?.diagnosticsJson))[0] ||
       undefined,
     startup_reconcile: {
       state: normalizeStartupState(startup.state),
-      dirty_count: Math.max(0, Math.floor(Number(startup.dirty_count) || 0)),
+      dirty_count: coerceNonNegativeInt(startup.dirty_count),
       last_checked_at: cleanString(startup.last_checked_at) || undefined,
       diagnostics: normalizeDiagnostics(startup.diagnostics),
     },
-    updated_at: cleanString(source.updated_at) || timestamp,
-    allowed_actions: [] as string[],
-  } satisfies SynthesisUpdateQueueStatus;
+    updated_at: cleanString(source.updated_at || row?.updatedAt) || timestamp,
+  };
 }
 
-function normalizeQueueState(value: unknown): SynthesisUpdateQueueState {
-  const normalized = cleanString(value);
-  if (
-    normalized === "queued" ||
-    normalized === "running" ||
-    normalized === "paused" ||
-    normalized === "failed_retryable" ||
-    normalized === "failed_permanent"
-  ) {
-    return normalized;
+function persistQueueMeta(
+  repository: SynthesisRepository,
+  meta: QueueMeta,
+  timestamp: string,
+) {
+  repository.upsertJobProgress({
+    jobName: QUEUE_STATE_JOB_NAME,
+    source: "update_queue_state",
+    label: "Synthesis update queue state",
+    status: "idle",
+    message: meta.queue_state,
+    progressMode: "indeterminate",
+    progressJson: JSON.stringify(meta),
+    diagnosticsJson: meta.last_failure
+      ? JSON.stringify([meta.last_failure])
+      : "[]",
+    updatedAt: timestamp,
+    heartbeatAt: timestamp,
+  });
+}
+
+function allowedActionsForQueue(status: SynthesisUpdateQueueStatus) {
+  const actions = new Set<string>();
+  if (status.paused) {
+    actions.add("resumeSynthesisUpdates");
+  } else {
+    actions.add("pauseSynthesisUpdates");
   }
-  return "idle";
+  if (
+    status.queue_state === "failed_retryable" ||
+    status.next_retry_at ||
+    status.failed_count > 0
+  ) {
+    actions.add("retrySynthesisUpdateQueue");
+  }
+  if (status.pending_count > 0) {
+    actions.add("runSynthesisMaintenance");
+  }
+  return Array.from(actions);
 }
 
 function deriveQueueState(args: {
-  stored: SynthesisUpdateQueueStatus;
+  libraryId: number;
+  stored: QueueMeta;
   events: SynthesisUpdateEvent[];
   timestamp: string;
 }) {
@@ -413,60 +483,37 @@ function deriveQueueState(args: {
     args.stored.next_retry_at
   ) {
     queueState = "failed_retryable";
-  } else if (pendingCount > 0) {
+  } else if (
+    pendingCount > 0 ||
+    args.stored.startup_reconcile.state === "queued"
+  ) {
     queueState = "queued";
   }
   const status: SynthesisUpdateQueueStatus = {
-    ...args.stored,
+    schema_id: "synthesis.update_queue_state",
+    schema_version: SCHEMA_VERSION,
+    library_id: args.libraryId,
     queue_state: queueState,
+    paused: args.stored.paused,
     pending_count: pendingCount,
     running_count: runningCount,
     failed_count: failedCount,
+    retry_attempt: args.stored.retry_attempt,
+    next_retry_at: args.stored.next_retry_at,
+    last_retry_at: args.stored.last_retry_at,
+    last_failure: args.stored.last_failure,
+    startup_reconcile: args.stored.startup_reconcile,
     updated_at: args.stored.updated_at || args.timestamp,
+    allowed_actions: [],
   };
   return { ...status, allowed_actions: allowedActionsForQueue(status) };
-}
-
-function allowedActionsForQueue(status: SynthesisUpdateQueueStatus) {
-  const actions = new Set<string>();
-  if (status.paused) {
-    actions.add("resumeSynthesisUpdates");
-  } else {
-    actions.add("pauseSynthesisUpdates");
-  }
-  if (
-    status.queue_state === "failed_retryable" ||
-    status.next_retry_at ||
-    status.failed_count > 0
-  ) {
-    actions.add("retrySynthesisUpdateQueue");
-  }
-  if (status.pending_count > 0) {
-    actions.add("runSynthesisMaintenance");
-  }
-  return Array.from(actions);
-}
-
-function persistQueueState(status: SynthesisUpdateQueueStatus) {
-  upsertPluginTaskRowEntry(DOMAIN, STATE_SCOPE, {
-    taskId: `${STATE_TASK_ID}:${status.library_id}`,
-    requestId: `${STATE_TASK_ID}:${status.library_id}`,
-    backendId: "synthesis",
-    state: status.queue_state,
-    updatedAt: status.updated_at,
-    payload: JSON.stringify(status),
-  });
-}
-
-function retryDelayMs(delays: number[], attempt: number) {
-  const index = Math.max(0, Math.min(attempt - 1, delays.length - 1));
-  return Math.max(0, Math.floor(Number(delays[index]) || 0));
 }
 
 export function createSynthesisUpdateEventStore(
   options: SynthesisUpdateEventStoreOptions,
 ) {
   const libraryId = Math.max(0, Math.floor(Number(options.libraryId) || 0));
+  const repository = options.repository;
   const now = options.now || nowIso;
   const retryDelaysMs =
     options.retryDelaysMs && options.retryDelaysMs.length
@@ -474,32 +521,37 @@ export function createSynthesisUpdateEventStore(
       : DEFAULT_RETRY_DELAYS_MS;
 
   function listEvents(): SynthesisUpdateEvent[] {
-    return listPluginTaskRowEntries(DOMAIN, EVENT_SCOPE)
-      .map((row) =>
-        normalizeEvent(parsePayload(row), {
-          event_id: row.taskId,
-          status: row.state as SynthesisUpdateEventStatus,
-          updated_at: row.updatedAt,
-          library_id: libraryId,
-        }),
-      )
-      .filter((event) => event.library_id === libraryId);
+    return repository
+      .listDirtyEvents()
+      .map((row) => dirtyRecordToEvent(row, libraryId))
+      .filter(
+        (event) => event.library_id === libraryId || event.library_id === 0,
+      );
   }
 
-  function loadStoredQueueState(timestamp = now()) {
-    const row = listPluginTaskRowEntries(DOMAIN, STATE_SCOPE).find(
-      (entry) => entry.taskId === `${STATE_TASK_ID}:${libraryId}`,
-    );
-    return stateRowToStatus(row, libraryId, timestamp);
+  function loadStoredQueueMeta(timestamp = now()) {
+    return readQueueMeta(repository, libraryId, timestamp);
   }
 
   function loadQueueState() {
     const timestamp = now();
     return deriveQueueState({
-      stored: loadStoredQueueState(timestamp),
+      libraryId,
+      stored: loadStoredQueueMeta(timestamp),
       events: listEvents(),
       timestamp,
     });
+  }
+
+  function persistAndDeriveQueue(meta: QueueMeta, timestamp: string) {
+    const queue = deriveQueueState({
+      libraryId,
+      stored: meta,
+      events: listEvents(),
+      timestamp,
+    });
+    persistQueueMeta(repository, queue, timestamp);
+    return queue;
   }
 
   function recordEvent(input: RecordSynthesisUpdateEventInput) {
@@ -509,113 +561,87 @@ export function createSynthesisUpdateEventStore(
     const scopeRef = cleanString(input.scope?.ref) || "library";
     const eventId = buildEventId(libraryId, eventType, scopeKind, scopeRef);
     const existing = listEvents().find((event) => event.event_id === eventId);
-    const event = normalizeEvent(
-      {
-        ...(existing || {}),
-        schema_id: "synthesis.update_event",
-        schema_version: SCHEMA_VERSION,
-        library_id: libraryId,
-        event_id: eventId,
-        event_type: eventType,
-        source: input.source,
-        scope: { kind: scopeKind, ref: scopeRef },
-        source_hash: cleanString(input.sourceHash) || existing?.source_hash,
-        status: "queued",
-        next_retry_at: undefined,
-        diagnostics: normalizeDiagnostics(input.diagnostics),
-        coalesced_count: (existing?.coalesced_count || 0) + 1,
-        created_at: existing?.created_at || timestamp,
-        updated_at: timestamp,
-      },
-      {
-        library_id: libraryId,
-        event_id: eventId,
-        event_type: eventType,
-        source: input.source,
-        scope: { kind: scopeKind, ref: scopeRef },
-        status: "queued",
-        created_at: timestamp,
-        updated_at: timestamp,
-      },
-    );
-    upsertPluginTaskRowEntry(DOMAIN, EVENT_SCOPE, eventToRow(event));
+    const event: SynthesisUpdateEvent = {
+      schema_id: "synthesis.update_event",
+      schema_version: SCHEMA_VERSION,
+      library_id: libraryId,
+      event_id: eventId,
+      event_type: eventType,
+      source: cleanString(input.source) || existing?.source || "unknown",
+      scope: { kind: scopeKind, ref: scopeRef },
+      source_hash: cleanString(input.sourceHash) || existing?.source_hash,
+      status: "queued",
+      attempt: existing?.attempt || 0,
+      diagnostics: normalizeDiagnostics(input.diagnostics),
+      coalesced_count: (existing?.coalesced_count || 0) + 1,
+      created_at: existing?.created_at || timestamp,
+      updated_at: timestamp,
+    };
+    repository.upsertDirtyEvent(eventToDirtyRecord(event));
     const queue = deriveQueueState({
-      stored: {
-        ...loadStoredQueueState(timestamp),
-        updated_at: timestamp,
-      },
-      events: listEvents()
-        .filter((entry) => entry.event_id !== eventId)
-        .concat(event),
+      libraryId,
+      stored: { ...loadStoredQueueMeta(timestamp), updated_at: timestamp },
+      events: listEvents(),
       timestamp,
     });
-    persistQueueState(queue);
+    persistQueueMeta(repository, queue, timestamp);
     return { event, queue };
   }
 
   function pause() {
     const timestamp = now();
-    const queue = deriveQueueState({
-      stored: {
-        ...loadStoredQueueState(timestamp),
+    return persistAndDeriveQueue(
+      {
+        ...loadStoredQueueMeta(timestamp),
         paused: true,
         queue_state: "paused",
         updated_at: timestamp,
       },
-      events: listEvents(),
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   function resume() {
     const timestamp = now();
-    const queue = deriveQueueState({
-      stored: {
-        ...loadStoredQueueState(timestamp),
+    return persistAndDeriveQueue(
+      {
+        ...loadStoredQueueMeta(timestamp),
         paused: false,
         queue_state: "queued",
         next_retry_at: undefined,
         updated_at: timestamp,
       },
-      events: listEvents(),
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   function retryNow() {
     const timestamp = now();
-    const events = listEvents().map((event) => {
+    for (const event of listEvents()) {
       if (event.status !== "failed_retryable") {
-        return event;
+        continue;
       }
-      const next = {
-        ...event,
-        status: "queued" as const,
-        next_retry_at: undefined,
-        last_retry_at: timestamp,
-        updated_at: timestamp,
-      };
-      upsertPluginTaskRowEntry(DOMAIN, EVENT_SCOPE, eventToRow(next));
-      return next;
-    });
-    const queue = deriveQueueState({
-      stored: {
-        ...loadStoredQueueState(timestamp),
+      repository.upsertDirtyEvent(
+        eventToDirtyRecord({
+          ...event,
+          status: "queued",
+          next_retry_at: undefined,
+          last_retry_at: timestamp,
+          updated_at: timestamp,
+        }),
+      );
+    }
+    return persistAndDeriveQueue(
+      {
+        ...loadStoredQueueMeta(timestamp),
         queue_state: "queued",
         retry_attempt: 0,
         next_retry_at: undefined,
         last_retry_at: timestamp,
         updated_at: timestamp,
       },
-      events,
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   function markFailure(args: {
@@ -623,15 +649,15 @@ export function createSynthesisUpdateEventStore(
     diagnostic: SynthesisUpdateDiagnostic;
   }) {
     const timestamp = now();
-    const stored = loadStoredQueueState(timestamp);
+    const stored = loadStoredQueueMeta(timestamp);
     const retryAttempt = args.retryable ? stored.retry_attempt + 1 : 0;
     const nextRetryAt = args.retryable
       ? new Date(
           Date.parse(timestamp) + retryDelayMs(retryDelaysMs, retryAttempt),
         ).toISOString()
       : undefined;
-    const queue = deriveQueueState({
-      stored: {
+    return persistAndDeriveQueue(
+      {
         ...stored,
         queue_state: args.retryable ? "failed_retryable" : "failed_permanent",
         retry_attempt: retryAttempt,
@@ -639,11 +665,8 @@ export function createSynthesisUpdateEventStore(
         last_failure: normalizeDiagnostic(args.diagnostic) || args.diagnostic,
         updated_at: timestamp,
       },
-      events: listEvents(),
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   function updateEventStatus(args: {
@@ -652,8 +675,7 @@ export function createSynthesisUpdateEventStore(
     diagnostics?: SynthesisUpdateDiagnostic[];
   }) {
     const timestamp = now();
-    const events = listEvents();
-    const event = events.find((entry) => entry.event_id === args.eventId);
+    const event = listEvents().find((entry) => entry.event_id === args.eventId);
     if (!event) {
       return loadQueueState();
     }
@@ -667,31 +689,24 @@ export function createSynthesisUpdateEventStore(
             Date.parse(timestamp) + retryDelayMs(retryDelaysMs, attempt),
           ).toISOString()
         : undefined;
-    const nextEvent: SynthesisUpdateEvent = {
-      ...event,
-      status: args.status,
-      attempt,
-      next_retry_at: nextRetryAt,
-      last_retry_at:
-        args.status === "queued" || args.status === "failed_retryable"
-          ? timestamp
-          : event.last_retry_at,
-      diagnostics: normalizeDiagnostics(args.diagnostics),
-      updated_at: timestamp,
-    };
-    upsertPluginTaskRowEntry(DOMAIN, EVENT_SCOPE, eventToRow(nextEvent));
-    const queue = deriveQueueState({
-      stored: {
-        ...loadStoredQueueState(timestamp),
+    repository.upsertDirtyEvent(
+      eventToDirtyRecord({
+        ...event,
+        status: args.status,
+        attempt,
+        next_retry_at: nextRetryAt,
+        last_retry_at:
+          args.status === "queued" || args.status === "failed_retryable"
+            ? timestamp
+            : event.last_retry_at,
+        diagnostics: normalizeDiagnostics(args.diagnostics),
         updated_at: timestamp,
-      },
-      events: events
-        .filter((entry) => entry.event_id !== args.eventId)
-        .concat(nextEvent),
+      }),
+    );
+    return persistAndDeriveQueue(
+      { ...loadStoredQueueMeta(timestamp), updated_at: timestamp },
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   function completeEvent(args: {
@@ -723,23 +738,20 @@ export function createSynthesisUpdateEventStore(
     diagnostics?: SynthesisUpdateDiagnostic[];
   }) {
     const timestamp = now();
-    const stored = loadStoredQueueState(timestamp);
-    const queue = deriveQueueState({
-      stored: {
+    const stored = loadStoredQueueMeta(timestamp);
+    return persistAndDeriveQueue(
+      {
         ...stored,
         startup_reconcile: {
           state: normalizeStartupState(args.state),
-          dirty_count: Math.max(0, Math.floor(Number(args.dirtyCount) || 0)),
+          dirty_count: coerceNonNegativeInt(args.dirtyCount),
           last_checked_at: timestamp,
           diagnostics: normalizeDiagnostics(args.diagnostics),
         },
         updated_at: timestamp,
       },
-      events: listEvents(),
       timestamp,
-    });
-    persistQueueState(queue);
-    return queue;
+    );
   }
 
   return {

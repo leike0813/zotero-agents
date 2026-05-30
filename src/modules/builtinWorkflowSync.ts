@@ -1,5 +1,6 @@
 import { joinPath } from "../utils/path";
 import { resolveAddonRef } from "../utils/runtimeBridge";
+import { getRuntimePersistencePaths } from "./runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -10,7 +11,6 @@ const dynamicImport: DynamicImport = new Function(
 
 const BUILTIN_WORKFLOW_ROOT = "workflows_builtin";
 const BUILTIN_MANIFEST_FILE = "manifest.json";
-const BUILTIN_RUNTIME_FALLBACK_ROOT = ".zotero-skills-runtime";
 
 type BuiltinWorkflowManifest = {
   version: number;
@@ -101,14 +101,6 @@ function getRuntimeCwd() {
   return "";
 }
 
-function getDataDirectory() {
-  const runtime = globalThis as {
-    Zotero?: { DataDirectory?: { dir?: string } };
-  };
-  const dataDir = normalizeString(runtime.Zotero?.DataDirectory?.dir);
-  return dataDir;
-}
-
 function normalizeFsPathForCompare(value: string) {
   return String(value || "")
     .trim()
@@ -174,15 +166,7 @@ export function clearLatestBuiltinWorkflowSyncResultForTests() {
 }
 
 export function getBuiltinWorkflowTargetDir() {
-  const dataDir = getDataDirectory();
-  if (dataDir) {
-    return joinPath(dataDir, "zotero-skills", BUILTIN_WORKFLOW_ROOT);
-  }
-  const cwd = getRuntimeCwd();
-  if (cwd) {
-    return joinPath(cwd, BUILTIN_RUNTIME_FALLBACK_ROOT, BUILTIN_WORKFLOW_ROOT);
-  }
-  return joinPath(BUILTIN_RUNTIME_FALLBACK_ROOT, BUILTIN_WORKFLOW_ROOT);
+  return joinPath(getRuntimePersistencePaths().dataDir, BUILTIN_WORKFLOW_ROOT);
 }
 
 async function readTextFileNode(filePath: string) {
@@ -332,7 +316,9 @@ function buildPackagedResourceUri(baseURI: string, relativePath: string) {
 
 async function readPackagedTextFromFetch(uri: string) {
   const runtime = globalThis as {
-    fetch?: (input: string) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
+    fetch?: (
+      input: string,
+    ) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
   };
   if (typeof runtime.fetch !== "function") {
     throw new Error("fetch is unavailable in current runtime");
@@ -366,7 +352,10 @@ async function readPackagedTextFromPrivilegedRequest(uri: string) {
     request.open("GET", uri, true);
     request.overrideMimeType?.("text/plain; charset=utf-8");
     request.onload = () => {
-      if (request.status === 0 || (request.status >= 200 && request.status < 300)) {
+      if (
+        request.status === 0 ||
+        (request.status >= 200 && request.status < 300)
+      ) {
         resolve(request.responseText);
         return;
       }
@@ -464,10 +453,8 @@ async function readPackagedTextWithDiagnostics(args: {
   if (shouldTryRuntimeUris) {
     const rootURI = resolveDefaultRootURI(args.rootURI);
     const rootFetchUri = buildPackagedResourceUri(rootURI, relativePath);
-    const rootFetch = await tryCandidate(
-      "rootURI-fetch",
-      rootFetchUri,
-      () => readPackagedTextFromFetch(rootFetchUri),
+    const rootFetch = await tryCandidate("rootURI-fetch", rootFetchUri, () =>
+      readPackagedTextFromFetch(rootFetchUri),
     );
     if (rootFetch) {
       return rootFetch;
@@ -475,7 +462,10 @@ async function readPackagedTextWithDiagnostics(args: {
 
     const resourceURI = normalizeString(args.resourceURI);
     if (resourceURI && resourceURI !== rootURI) {
-      const resourceFetchUri = buildPackagedResourceUri(resourceURI, relativePath);
+      const resourceFetchUri = buildPackagedResourceUri(
+        resourceURI,
+        relativePath,
+      );
       const resourceFetch = await tryCandidate(
         "resourceURI-fetch",
         resourceFetchUri,

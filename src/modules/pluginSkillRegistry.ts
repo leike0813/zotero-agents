@@ -14,6 +14,7 @@ import {
   runtimePathExists,
   runtimeRelativePath,
   statRuntimePath,
+  getRuntimePersistencePaths,
 } from "./runtimePersistence";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
@@ -118,15 +119,11 @@ function fileUriToPath(fileUri: string) {
 }
 
 function getPackagedAddonRoot() {
-  return fileUriToPath(pluginRuntimeRootURI).replace(/[\\\/]+$/, "");
+  return fileUriToPath(pluginRuntimeRootURI).replace(/[\\/]+$/, "");
 }
 
 function getDefaultUserSkillRoot() {
-  const dataDir = getZoteroDataDirectory();
-  if (dataDir) {
-    return joinPath(dataDir, "zotero-skills", PLUGIN_SKILL_USER_ROOT);
-  }
-  return joinPath(getRuntimeCwd(), PLUGIN_SKILL_USER_ROOT);
+  return joinPath(getRuntimePersistencePaths().dataDir, PLUGIN_SKILL_USER_ROOT);
 }
 
 function getDefaultBuiltinSkillRoot() {
@@ -136,7 +133,10 @@ function getDefaultBuiltinSkillRoot() {
   }
   const dataDir = getZoteroDataDirectory();
   if (dataDir) {
-    return joinPath(dataDir, "zotero-skills", PLUGIN_SKILL_BUILTIN_ROOT);
+    return joinPath(
+      getRuntimePersistencePaths().dataDir,
+      PLUGIN_SKILL_BUILTIN_ROOT,
+    );
   }
   return joinPath(getRuntimeCwd(), PLUGIN_SKILL_BUILTIN_ROOT);
 }
@@ -269,7 +269,9 @@ async function validateSchemaAssetForRegistry(args: {
 
 async function collectFiles(root: string) {
   return (await collectRuntimeFiles(root)).sort((left, right) =>
-    runtimeRelativePath(root, left).localeCompare(runtimeRelativePath(root, right)),
+    runtimeRelativePath(root, left).localeCompare(
+      runtimeRelativePath(root, right),
+    ),
   );
 }
 
@@ -278,7 +280,12 @@ async function computeDirectoryChecksum(root: string) {
   const payloadParts: string[] = [];
   for (const filePath of files) {
     const relativePath = runtimeRelativePath(root, filePath);
-    payloadParts.push(relativePath, "\0", await readRuntimeTextFile(filePath), "\0");
+    payloadParts.push(
+      relativePath,
+      "\0",
+      await readRuntimeTextFile(filePath),
+      "\0",
+    );
   }
   const payload = payloadParts.join("");
   const runtime = globalThis as {
@@ -383,10 +390,14 @@ async function inspectCandidate(
       candidate,
       path: runnerJsonPath,
       reason: runnerErrors.join("; "),
-      category: runnerErrors.some((entry) => entry.startsWith("identity_mismatch"))
+      category: runnerErrors.some((entry) =>
+        entry.startsWith("identity_mismatch"),
+      )
         ? "skill_identity_mismatch"
         : "skill_runner_json_invalid",
-      message: runnerErrors.some((entry) => entry.startsWith("identity_mismatch"))
+      message: runnerErrors.some((entry) =>
+        entry.startsWith("identity_mismatch"),
+      )
         ? "skill identity mismatch"
         : "skill runner.json is invalid",
       skillId,

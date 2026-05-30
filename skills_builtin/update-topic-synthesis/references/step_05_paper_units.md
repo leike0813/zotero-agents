@@ -2,6 +2,48 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Payload schema
+
+写入 `runtime/payloads/paper-units-batch.json`。完整约束以
+`assets/schemas/paper_analysis_batch.schema.json` 和
+`assets/schemas/paper_analysis_row.schema.json` 为准；语义解释见下文。
+
+```json
+{
+  "analyses": [
+    {
+      "paper_ref": "1:ABC12345",
+      "evidence_available": true,
+      "bibliographic": { "title": "", "year": 2026, "authors": [] },
+      "topic_relevance": { "level": "core", "reason": "" },
+      "research_problem": { "text": "", "scope": "" },
+      "method_contribution": {
+        "route": "",
+        "mechanism": "",
+        "claimed_advantage": "",
+        "target_bottleneck": ""
+      },
+      "evaluation_context": {
+        "datasets": [],
+        "metrics": [],
+        "baselines": [],
+        "setting": ""
+      },
+      "graph_metrics_interpretation": "",
+      "findings": [],
+      "limitations": [],
+      "taxonomy_hints": [],
+      "timeline_candidates": [],
+      "claim_support_candidates": [],
+      "comparison_facts": [],
+      "external_references": [],
+      "citation_contexts": [],
+      "missing_payloads": []
+    }
+  ]
+}
+```
+
 ## 分析目标
 
 Paper unit 是单篇论文的结构化事实摘取，不做跨论文比较。每篇应回答：

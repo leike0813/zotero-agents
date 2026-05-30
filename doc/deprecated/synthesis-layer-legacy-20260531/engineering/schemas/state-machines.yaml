@@ -1,0 +1,628 @@
+schema: synthesis.engineering.state_machines.v1
+machines:
+  - id: sm.identity.literature_item
+    owner: registry_cache_identity_service
+    object: literature_item_identity
+    states:
+      - active
+      - pending_delete_review
+      - merged
+      - tombstoned
+      - needs_attention
+    transitions:
+      - from: active
+        to: pending_delete_review
+        trigger: source_missing
+      - from: pending_delete_review
+        to: active
+        trigger: source_reappeared_or_reject_delete
+      - from: pending_delete_review
+        to: tombstoned
+        trigger: confirm_delete
+      - from: active
+        to: merged
+        trigger: confirm_duplicate_merge
+      - from: merged
+        to: tombstoned
+        trigger: hidden_by_survivor_redirect
+      - from: active
+        to: needs_attention
+        trigger: hard_identity_conflict
+      - from: merged
+        to: needs_attention
+        trigger: survivor_missing
+      - from: needs_attention
+        to: active
+        trigger: keep_or_retarget
+      - from: needs_attention
+        to: tombstoned
+        trigger: drop
+    forbidden:
+      - from: tombstoned
+        to: active
+        trigger: startup_reconcile
+        reason: tombstone_restore_requires_explicit_policy_or_needs_attention
+      - from: tombstoned
+        to: reference_resolution_target
+        reason: tombstoned_literature_cannot_be_new_resolution_target
+  - id: sm.identity.zotero_binding
+    owner: registry_cache_identity_service
+    object: zotero_binding
+    states:
+      - active
+      - pending_delete_review
+      - deleted_confirmed
+      - merged
+      - ignored
+      - tombstoned
+    transitions:
+      - from: active
+        to: pending_delete_review
+        trigger: missing_during_reconcile
+      - from: pending_delete_review
+        to: active
+        trigger: item_reappeared_or_reject_delete
+      - from: pending_delete_review
+        to: deleted_confirmed
+        trigger: confirm_delete
+      - from: active
+        to: merged
+        trigger: confirm_merge_to_survivor
+      - from: merged
+        to: tombstoned
+        trigger: survivor_redirect_committed
+      - from: active
+        to: ignored
+        trigger: user_excludes_binding
+      - from: ignored
+        to: active
+        trigger: user_restores_binding
+      - from: deleted_confirmed
+        to: active
+        trigger: explicit_restore_or_import_policy
+    forbidden:
+      - from: merged
+        to: active
+        trigger: startup_reconcile
+        reason: merged_binding_restore_requires_explicit_restore_or_needs_attention
+      - from: deleted_confirmed
+        to: active
+        trigger: startup_reconcile
+        reason: confirmed_deletion_restore_requires_explicit_policy
+  - id: sm.reference.resolution
+    owner: reference_resolution_service
+    object: reference_resolution
+    states:
+      - unresolved
+      - suggested
+      - ambiguous
+      - matched_auto
+      - matched_confirmed
+      - ignored
+      - needs_attention
+      - superseded
+    transitions:
+      - from: unresolved
+        to: suggested
+        trigger: candidate_found
+      - from: unresolved
+        to: ambiguous
+        trigger: multiple_strong_candidates
+      - from: unresolved
+        to: matched_auto
+        trigger: deterministic_matcher
+      - from: suggested
+        to: matched_confirmed
+        trigger: user_confirms
+      - from: suggested
+        to: ignored
+        trigger: user_ignores_reference
+      - from: suggested
+        to: unresolved
+        trigger: candidates_stale
+      - from: ambiguous
+        to: matched_confirmed
+        trigger: user_selects_target
+      - from: ambiguous
+        to: ignored
+        trigger: user_ignores_reference
+      - from: matched_auto
+        to: matched_confirmed
+        trigger: optional_user_confirm
+      - from: matched_auto
+        to: needs_attention
+        trigger: target_conflict
+      - from: matched_confirmed
+        to: needs_attention
+        trigger: target_deleted_or_merged_conflict
+      - from: matched_confirmed
+        to: superseded
+        trigger: source_reference_changed
+      - from: ignored
+        to: unresolved
+        trigger: user_reopens
+      - from: needs_attention
+        to: matched_confirmed
+        trigger: retarget
+      - from: needs_attention
+        to: ignored
+        trigger: drop_or_ignore
+    forbidden:
+      - from: suggested
+        to: citation_graph_edge_ready
+        reason: suggestions_do_not_materialize_matched_edges
+      - from: matched_confirmed
+        to: citation_graph_edge_ready
+        trigger: target_tombstoned
+        reason: target_must_be_active_canonical_literature
+  - id: sm.topic.discovery_hint
+    owner: topic_discovery_service
+    object: topic_discovery_hint
+    states:
+      - open
+      - accepted
+      - filtered
+      - rejected
+      - superseded
+    transitions:
+      - from: open
+        to: accepted
+        trigger: user_accepts_for_topic_update
+      - from: open
+        to: filtered
+        trigger: user_filters_pair
+      - from: open
+        to: rejected
+        trigger: user_rejects_current_hint
+      - from: rejected
+        to: open
+        trigger: explicit_repair_or_clear_rejection_history
+      - from: filtered
+        to: open
+        trigger: explicit_unfilter_or_reset_filtered_hints
+      - from: accepted
+        to: superseded
+        trigger: topic_update_consumes_or_pair_identity_changes
+      - from: open
+        to: superseded
+        trigger: literature_or_topic_deleted_or_identity_changed
+      - from: rejected
+        to: superseded
+        trigger: pair_identity_changed
+      - from: filtered
+        to: superseded
+        trigger: topic_or_literature_identity_removed
+    forbidden:
+      - from: filtered
+        to: open
+        trigger: digest_rerun_or_metadata_hash_drift
+        reason: filtered_pair_is_durable_suppression_override
+      - from: accepted
+        to: topic_artifact_dependency
+        reason: accepted_hint_requires_explicit_topic_update_flow
+  - id: sm.review.item
+    owner: repository_review_service
+    object: review_item
+    states:
+      - open
+      - deferred
+      - resolved
+      - rejected
+      - blocked_by_upstream_review
+      - superseded
+    transitions:
+      - from: open
+        to: deferred
+        trigger: defer
+      - from: open
+        to: resolved
+        trigger: apply_action
+      - from: open
+        to: rejected
+        trigger: reject
+      - from: open
+        to: blocked_by_upstream_review
+        trigger: upstream_blocker
+      - from: deferred
+        to: open
+        trigger: reopen
+      - from: blocked_by_upstream_review
+        to: open
+        trigger: blocker_resolved
+      - from: open
+        to: superseded
+        trigger: source_state_changed
+      - from: deferred
+        to: superseded
+        trigger: source_state_changed
+      - from: resolved
+        to: superseded
+        trigger: superseded_by_newer_effect
+      - from: rejected
+        to: superseded
+        trigger: superseded_by_newer_evidence
+    forbidden:
+      - from: resolved
+        to: open
+        reason: create_new_review_or_needs_attention_item
+      - from: superseded
+        to: resolved
+        reason: superseded_problem_instance_is_no_longer_current
+  - id: sm.override.durable_effect
+    owner: domain_service
+    object: durable_effect_user_override
+    states:
+      - active
+      - preserved
+      - needs_attention
+      - revoked
+      - orphaned
+    transitions:
+      - from: active
+        to: preserved
+        trigger: rebuild_preserves_effect
+      - from: preserved
+        to: active
+        trigger: visible_in_read_model
+      - from: active
+        to: needs_attention
+        trigger: orphan_or_hard_conflict
+      - from: needs_attention
+        to: active
+        trigger: keep_or_retarget
+      - from: needs_attention
+        to: revoked
+        trigger: drop
+      - from: active
+        to: revoked
+        trigger: user_revoke
+      - from: active
+        to: orphaned
+        trigger: scope_disappeared
+    forbidden:
+      - from: active
+        to: deleted
+        reason: reset_scope_must_explicitly_clear_override
+      - from: active
+        to: needs_attention
+        trigger: evidence_hash_changed_only
+        reason: digest_or_metadata_changes_do_not_invalidate_durable_effects
+  - id: sm.queue.dirty_event
+    owner: update_event_queue
+    object: dirty_event
+    states:
+      - queued
+      - running
+      - paused
+      - completed
+      - failed_retryable
+      - failed_terminal
+      - superseded
+    transitions:
+      - from: queued
+        to: running
+        trigger: worker_start
+      - from: queued
+        to: paused
+        trigger: pause
+      - from: paused
+        to: queued
+        trigger: resume
+      - from: running
+        to: completed
+        trigger: success
+      - from: running
+        to: failed_retryable
+        trigger: transient_failure
+      - from: running
+        to: failed_terminal
+        trigger: invalid_input
+      - from: running
+        to: failed_retryable
+        trigger: startup_interrupted_run_recovery
+      - from: queued
+        to: superseded
+        trigger: newer_epoch_or_basis
+      - from: running
+        to: superseded
+        trigger: basis_invalidated
+      - from: failed_retryable
+        to: queued
+        trigger: retry
+    forbidden:
+      - from: completed
+        to: queued
+        reason: create_new_event_for_new_work
+    run_marker_required_for_running: true
+    previous_session_running_recovered_on_startup: true
+  - id: sm.job.progress
+    owner: synthesis_service_workers
+    object: job_progress
+    states:
+      - submitted
+      - queued
+      - running
+      - waiting
+      - completed
+      - failed_retryable
+      - failed_terminal
+      - superseded
+      - archived
+    progress_modes:
+      - determinate
+      - phase
+      - indeterminate
+    transitions:
+      - from: submitted
+        to: queued
+        trigger: accepted_for_execution
+      - from: queued
+        to: running
+        trigger: worker_start
+      - from: running
+        to: waiting
+        trigger: blocked_on_external_io_or_user_visible_wait
+      - from: waiting
+        to: running
+        trigger: wait_resolved
+      - from: running
+        to: completed
+        trigger: success
+      - from: running
+        to: failed_retryable
+        trigger: transient_failure
+      - from: running
+        to: failed_terminal
+        trigger: terminal_failure
+      - from: running
+        to: failed_retryable
+        trigger: startup_interrupted_run_recovery
+      - from: queued
+        to: superseded
+        trigger: newer_epoch_basis_or_scope_superseded
+      - from: running
+        to: superseded
+        trigger: basis_invalidated
+      - from: failed_retryable
+        to: queued
+        trigger: retry
+      - from: completed
+        to: archived
+        trigger: retention_window_elapsed
+      - from: failed_terminal
+        to: archived
+        trigger: retention_window_elapsed
+      - from: superseded
+        to: archived
+        trigger: retention_window_elapsed
+    run_marker_required_for_running: true
+    previous_session_running_recovered_on_startup: true
+  - id: sm.rebuild.run
+    owner: rebuild_service
+    object: rebuild_run
+    states:
+      - running
+      - validating
+      - final_commit
+      - committed
+      - failed_retryable
+      - failed_terminal
+      - abandoned
+    transitions:
+      - from: running
+        to: validating
+        trigger: build_complete
+      - from: validating
+        to: final_commit
+        trigger: validation_complete
+      - from: final_commit
+        to: committed
+        trigger: final_commit
+      - from: running
+        to: failed_retryable
+        trigger: build_failure
+      - from: validating
+        to: failed_retryable
+        trigger: validation_failure
+      - from: final_commit
+        to: failed_terminal
+        trigger: final_commit_failure
+      - from: failed_retryable
+        to: running
+        trigger: retry
+      - from: failed_retryable
+        to: abandoned
+        trigger: superseded_by_newer_rebuild
+    forbidden:
+      - from: running
+        to: committed
+        reason: validation_and_final_commit_required
+      - from: failed_retryable
+        to: committed
+        reason: retry_must_rerun_rebuild
+      - from: failed_terminal
+        to: committed
+        reason: manual_repair_or_new_rebuild_required
+  - id: sm.topic.source_check
+    owner: topic_source_check_worker
+    object: topic_source_check_diagnostic
+    states:
+      - not_checked
+      - checked
+      - queued
+      - running
+      - changed
+      - failed
+    transitions:
+      - from: not_checked
+        to: checked
+        trigger: topic_generated_or_explicit_check
+      - from: checked
+        to: queued
+        trigger: user_requests_source_check
+      - from: queued
+        to: running
+        trigger: worker_start
+      - from: running
+        to: checked
+        trigger: no_source_difference
+      - from: running
+        to: changed
+        trigger: source_difference_found
+      - from: running
+        to: failed
+        trigger: worker_failed
+      - from: failed
+        to: queued
+        trigger: retry
+      - from: changed
+        to: checked
+        trigger: topic_updated_or_user_ignores
+    forbidden:
+      - from: checked
+        to: changed
+        trigger: registry_cache_dirty_event
+        reason: topic_source_check_requires_explicit_request
+      - from: checked
+        to: changed
+        trigger: discovery_candidate_only
+        reason: discovery_candidates_are_not_source_manifest_changes
+  - id: sm.graph.layout
+    owner: citation_graph_layout_worker
+    object: citation_graph_layout
+    states:
+      - missing
+      - queued
+      - running
+      - ready
+      - dirty
+      - failed
+    transitions:
+      - from: missing
+        to: queued
+        trigger: graph_structure_exists
+      - from: queued
+        to: running
+        trigger: layout_worker_start
+      - from: running
+        to: ready
+        trigger: layout_written
+      - from: ready
+        to: dirty
+        trigger: graph_hash_changed
+      - from: dirty
+        to: queued
+        trigger: refresh_requested
+      - from: running
+        to: failed
+        trigger: layout_failed
+      - from: failed
+        to: queued
+        trigger: retry
+    ui_rule: graph_structure_exists_means_draw_or_refresh_not_rebuild_gate
+  - id: sm.import.lifecycle
+    owner: import_export_service
+    object: import_run
+    states:
+      - preview_requested
+      - previewing
+      - preview_ready
+      - apply_confirmed
+      - applying
+      - applied
+      - failed
+      - cancelled
+    transitions:
+      - from: preview_requested
+        to: previewing
+        trigger: start_preview
+      - from: previewing
+        to: preview_ready
+        trigger: preview_complete
+      - from: previewing
+        to: failed
+        trigger: preview_failed
+      - from: preview_ready
+        to: apply_confirmed
+        trigger: user_confirms_apply
+      - from: preview_ready
+        to: cancelled
+        trigger: user_cancels
+      - from: apply_confirmed
+        to: applying
+        trigger: start_apply
+      - from: applying
+        to: applied
+        trigger: apply_success
+      - from: applying
+        to: failed
+        trigger: apply_failed
+      - from: failed
+        to: preview_requested
+        trigger: retry
+    forbidden:
+      - from: preview_requested
+        to: applying
+        reason: import_must_be_preview_first
+      - from: preview_ready
+        to: applying
+        trigger: stale_preview
+        reason: stale_preview_requires_new_preview
+  - id: sm.external_source.drift_incident
+    owner: startup_reconcile_or_debug_scan
+    object: external_source_drift_incident
+    states:
+      - detected
+      - classified_small
+      - classified_bulk
+      - classified_structural
+      - queued_incremental
+      - rebuild_recommended
+      - rebuild_running
+      - repair_required
+      - resolved
+      - dismissed
+    transitions:
+      - from: detected
+        to: classified_small
+        trigger: classify_small_safe_drift
+      - from: detected
+        to: classified_bulk
+        trigger: classify_bulk_drift
+      - from: detected
+        to: classified_structural
+        trigger: classify_structural_drift
+      - from: classified_small
+        to: queued_incremental
+        trigger: enqueue_bounded_work
+      - from: queued_incremental
+        to: resolved
+        trigger: bounded_work_completes
+      - from: classified_bulk
+        to: rebuild_recommended
+        trigger: recommend_rebuild
+      - from: rebuild_recommended
+        to: rebuild_running
+        trigger: user_confirms_rebuild
+      - from: rebuild_running
+        to: resolved
+        trigger: rebuild_success
+      - from: classified_structural
+        to: repair_required
+        trigger: require_inspect_or_repair
+      - from: repair_required
+        to: resolved
+        trigger: inspect_repair_or_import_succeeds
+      - from: detected
+        to: dismissed
+        trigger: false_positive_or_user_dismisses
+      - from: rebuild_recommended
+        to: dismissed
+        trigger: user_dismisses
+    forbidden:
+      - from: classified_bulk
+        to: queued_incremental
+        reason: bulk_drift_must_not_expand_to_unbounded_per_item_work
+      - from: classified_structural
+        to: queued_incremental
+        reason: structural_drift_must_fail_closed

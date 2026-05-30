@@ -8,11 +8,13 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     args::{
-        CallArgs, FileArgs, FileCommand, FileDownloadArgs, ItemArgs, ItemCommand, ItemNotesArgs,
-        ItemRefArgs, ItemSearchArgs, LiteratureArgs, LiteratureCommand, LiteratureIngestArgs,
-        NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs, SynthesisArgs, SynthesisCommand,
-        TaskArgs, TaskCommand, TaskListArgs, WorkflowArgs, WorkflowCommand, WorkflowRunArgs,
-        WorkflowSubmitArgs,
+        CallArgs, DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisCommand,
+        DebugSynthesisJobsCommand, DebugSynthesisMaintenanceCommand, DebugSynthesisQueueCommand,
+        DebugSynthesisWorkerCommand, FileArgs, FileCommand, FileDownloadArgs, ItemArgs,
+        ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs, LiteratureArgs, LiteratureCommand,
+        LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        SynthesisArgs, SynthesisCommand, TaskArgs, TaskCommand, TaskListArgs, WorkflowArgs,
+        WorkflowCommand, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -105,12 +107,124 @@ pub fn file(config: &BridgeConfig, args: FileArgs) -> Result<Value, CliError> {
     }
 }
 
+pub fn debug(config: &BridgeConfig, args: DebugArgs) -> Result<Value, CliError> {
+    let (capability, input) = debug_capability_and_input(args)?;
+    ensure_debug_capability(config, capability)?;
+    call_capability(config, capability, input)
+}
+
 fn call_capability(
     config: &BridgeConfig,
     capability: &str,
     input: Value,
 ) -> Result<Value, CliError> {
     client::call(config, capability, input)
+}
+
+fn ensure_debug_capability(config: &BridgeConfig, capability: &str) -> Result<(), CliError> {
+    let manifest = client::manifest(config)?;
+    let found = manifest
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .map(|capabilities| {
+            capabilities
+                .iter()
+                .any(|entry| entry.get("name").and_then(Value::as_str) == Some(capability))
+        })
+        .unwrap_or(false);
+    if found {
+        return Ok(());
+    }
+    Err(CliError::new(
+        "debug_mode_disabled",
+        crate::error::ErrorCategory::Capability,
+        "Host Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
+    )
+    .with_details(json!({ "capability": capability })))
+}
+
+fn debug_capability_and_input(args: DebugArgs) -> Result<(&'static str, Value), CliError> {
+    match args.command {
+        DebugCommand::Status => Ok(("debug.status", json!({}))),
+        DebugCommand::Persistence(input) => Ok(("debug.persistence.snapshot", debug_input(input)?)),
+        DebugCommand::Tasks(input) => Ok(("debug.tasks.snapshot", debug_input(input)?)),
+        DebugCommand::Synthesis(args) => debug_synthesis_capability_and_input(args.command),
+    }
+}
+
+fn debug_synthesis_capability_and_input(
+    command: DebugSynthesisCommand,
+) -> Result<(&'static str, Value), CliError> {
+    match command {
+        DebugSynthesisCommand::Snapshot(input) => {
+            Ok(("debug.synthesis.snapshot", debug_input(input)?))
+        }
+        DebugSynthesisCommand::Diff(input) => Ok(("debug.synthesis.diff", debug_input(input)?)),
+        DebugSynthesisCommand::InspectPaper(input) => {
+            Ok(("debug.synthesis.paper.inspect", debug_input(input)?))
+        }
+        DebugSynthesisCommand::InspectTopic(input) => {
+            Ok(("debug.synthesis.topic.inspect", debug_input(input)?))
+        }
+        DebugSynthesisCommand::Queue(args) => {
+            debug_synthesis_queue_capability_and_input(args.command)
+        }
+        DebugSynthesisCommand::Jobs(args) => {
+            debug_synthesis_jobs_capability_and_input(args.command)
+        }
+        DebugSynthesisCommand::Worker(args) => match args.command {
+            DebugSynthesisWorkerCommand::Run(input) => {
+                Ok(("debug.synthesis.worker.run", debug_input(input)?))
+            }
+        },
+        DebugSynthesisCommand::Maintenance(args) => match args.command {
+            DebugSynthesisMaintenanceCommand::Run(input) => {
+                Ok(("debug.synthesis.maintenance.run", debug_input(input)?))
+            }
+        },
+    }
+}
+
+fn debug_synthesis_queue_capability_and_input(
+    command: DebugSynthesisQueueCommand,
+) -> Result<(&'static str, Value), CliError> {
+    match command {
+        DebugSynthesisQueueCommand::List(input) => {
+            Ok(("debug.synthesis.queue.list", debug_input(input)?))
+        }
+        DebugSynthesisQueueCommand::Enqueue(input) => {
+            Ok(("debug.synthesis.queue.enqueue", debug_input(input)?))
+        }
+        DebugSynthesisQueueCommand::Retry(input) => {
+            Ok(("debug.synthesis.queue.retry", debug_input(input)?))
+        }
+        DebugSynthesisQueueCommand::Pause(input) => {
+            Ok(("debug.synthesis.queue.pause", debug_input(input)?))
+        }
+        DebugSynthesisQueueCommand::Resume(input) => {
+            Ok(("debug.synthesis.queue.resume", debug_input(input)?))
+        }
+        DebugSynthesisQueueCommand::Clear(input) => {
+            Ok(("debug.synthesis.queue.clear", debug_input(input)?))
+        }
+    }
+}
+
+fn debug_synthesis_jobs_capability_and_input(
+    command: DebugSynthesisJobsCommand,
+) -> Result<(&'static str, Value), CliError> {
+    match command {
+        DebugSynthesisJobsCommand::List(input) => {
+            Ok(("debug.synthesis.jobs.list", debug_input(input)?))
+        }
+        DebugSynthesisJobsCommand::ClearStale(input) => {
+            Ok(("debug.synthesis.jobs.clearStale", debug_input(input)?))
+        }
+    }
+}
+
+fn debug_input(args: DebugInputArgs) -> Result<Value, CliError> {
+    read_json_arg(args.input.as_deref())
 }
 
 fn synthesis_capability(command: &SynthesisCommand) -> &'static str {
@@ -631,6 +745,81 @@ mod tests {
         for (command, capability) in commands {
             assert_eq!(synthesis_capability(&command), capability);
             assert_eq!(synthesis_input(command).unwrap(), json!({}));
+        }
+    }
+
+    #[test]
+    fn maps_debug_subcommands_to_capabilities() {
+        use crate::args::{
+            DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisArgs, DebugSynthesisCommand,
+            DebugSynthesisJobsArgs, DebugSynthesisJobsCommand, DebugSynthesisQueueArgs,
+            DebugSynthesisQueueCommand, DebugSynthesisWorkerArgs, DebugSynthesisWorkerCommand,
+        };
+
+        let cases = vec![
+            (
+                DebugArgs {
+                    command: DebugCommand::Status,
+                },
+                "debug.status",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Persistence(DebugInputArgs { input: None }),
+                },
+                "debug.persistence.snapshot",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
+                        command: DebugSynthesisCommand::Snapshot(DebugInputArgs { input: None }),
+                    }),
+                },
+                "debug.synthesis.snapshot",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
+                        command: DebugSynthesisCommand::Queue(DebugSynthesisQueueArgs {
+                            command: DebugSynthesisQueueCommand::Clear(DebugInputArgs {
+                                input: None,
+                            }),
+                        }),
+                    }),
+                },
+                "debug.synthesis.queue.clear",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
+                        command: DebugSynthesisCommand::Jobs(DebugSynthesisJobsArgs {
+                            command: DebugSynthesisJobsCommand::ClearStale(DebugInputArgs {
+                                input: None,
+                            }),
+                        }),
+                    }),
+                },
+                "debug.synthesis.jobs.clearStale",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
+                        command: DebugSynthesisCommand::Worker(DebugSynthesisWorkerArgs {
+                            command: DebugSynthesisWorkerCommand::Run(DebugInputArgs {
+                                input: Some(
+                                    "{\"worker\":\"paperRegistryIncremental\"}".to_string(),
+                                ),
+                            }),
+                        }),
+                    }),
+                },
+                "debug.synthesis.worker.run",
+            ),
+        ];
+
+        for (args, capability) in cases {
+            let (actual, _input) = debug_capability_and_input(args).unwrap();
+            assert_eq!(actual, capability);
         }
     }
 

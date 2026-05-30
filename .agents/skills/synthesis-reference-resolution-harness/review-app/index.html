@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reference Resolution Review</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="review-shell">
+      <header class="toolbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Reference Resolution Review</h1>
+            <p id="fixtureLabel">Loading fixture</p>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button id="exportButton" type="button">Export Reviewed Gold</button>
+          <span id="saveStatus" role="status">Ready</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Review workspace">
+        <aside class="source-panel" aria-label="Source papers">
+          <div class="panel-heading">
+            <h2>Source Papers</h2>
+            <input
+              id="sourceSearch"
+              type="search"
+              placeholder="Filter sources"
+              aria-label="Filter source papers"
+            />
+          </div>
+          <div id="sourceList" class="source-list"></div>
+        </aside>
+
+        <section class="reference-panel" aria-label="References">
+          <div class="panel-heading split">
+            <div>
+              <h2 id="currentSourceTitle">References</h2>
+              <p id="sourceStats"></p>
+            </div>
+            <div class="segmented" aria-label="Reference status filter">
+              <button class="active" type="button" data-ref-filter="all">
+                All
+              </button>
+              <button type="button" data-ref-filter="unresolved">Open</button>
+              <button type="button" data-ref-filter="candidate">
+                Candidate
+              </button>
+              <button type="button" data-ref-filter="confirmed">Linked</button>
+            </div>
+          </div>
+          <div id="referenceList" class="reference-list"></div>
+        </section>
+
+        <section class="edge-stage" aria-label="Match edges">
+          <svg id="edgeLayer" aria-hidden="true"></svg>
+          <div id="edgeEmpty" class="edge-empty">
+            Select a reference to inspect edges
+          </div>
+        </section>
+
+        <aside class="paper-panel" aria-label="Library papers">
+          <div class="panel-heading">
+            <h2>Library Papers</h2>
+            <input
+              id="paperSearch"
+              type="search"
+              placeholder="Search title, author, year, citeKey"
+              aria-label="Search library papers"
+            />
+          </div>
+          <div id="paperList" class="paper-list"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

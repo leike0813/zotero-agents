@@ -1,3 +1,4 @@
+/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
@@ -13,6 +14,7 @@ import {
   createSynthesisService,
   type SynthesisMirrorAdapter,
 } from "../../src/modules/synthesis/service";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { decideSynthesisApply } from "../../src/modules/synthesis/workflow";
 
 function validBundle(overrides: Record<string, unknown> = {}) {
@@ -190,149 +192,148 @@ async function exists(pathValue: string) {
   }
 }
 
-function sampleCitationGraph() {
-  return {
-    schema_id: "synthesis.unified_citation_graph" as const,
-    schema_version: "1.0.0" as const,
-    graph_hash: "sha256:graph-sample",
+async function writeDbGraphState(root: string) {
+  const repository = createSynthesisRepository({
+    runtimeRoot: root,
+    now: () => "2026-05-12T00:00:00.000Z",
+  });
+  for (const item of [
+    { literatureItemId: "lit:a", itemKey: "A", title: "Alpha" },
+    { literatureItemId: "lit:b", itemKey: "B", title: "Beta" },
+    { literatureItemId: "lit:c", itemKey: "C", title: "Gamma" },
+  ]) {
+    repository.upsertLiteratureItem({
+      literatureItemId: item.literatureItemId,
+      displayTitle: item.title,
+      normalizedTitle: item.title.toLowerCase(),
+      titleNormalizerVersion: "test",
+      status: "active",
+    });
+    repository.upsertZoteroBinding({
+      libraryId: 1,
+      itemKey: item.itemKey,
+      literatureItemId: item.literatureItemId,
+      bindingStatus: "active",
+    });
+  }
+  repository.upsertLiteratureItem({
+    literatureItemId: "ref:external:x",
+    displayTitle: "External",
+    normalizedTitle: "external",
+    titleNormalizerVersion: "test",
+    status: "active",
+  });
+  repository.upsertLiteratureItem({
+    literatureItemId: "ref:raw:low",
+    displayTitle: "Low signal",
+    normalizedTitle: "low signal",
+    titleNormalizerVersion: "test",
+    status: "active",
+  });
+  repository.replaceCitationGraphState({
     nodes: [
       {
-        node_id: "zotero:item:A",
-        kind: "library_paper" as const,
-        target_state: "library" as const,
-        item_key: "A",
-        library_id: 1,
-        aliases: [],
+        literatureItemId: "lit:a",
+        nodeStatus: "active",
+        hasZoteroBinding: true,
         title: "Alpha",
       },
       {
-        node_id: "zotero:item:B",
-        kind: "library_paper" as const,
-        target_state: "library" as const,
-        item_key: "B",
-        library_id: 1,
-        aliases: [],
+        literatureItemId: "lit:b",
+        nodeStatus: "active",
+        hasZoteroBinding: true,
         title: "Beta",
       },
       {
-        node_id: "zotero:item:C",
-        kind: "library_paper" as const,
-        target_state: "library" as const,
-        item_key: "C",
-        library_id: 1,
-        aliases: [],
+        literatureItemId: "lit:c",
+        nodeStatus: "active",
+        hasZoteroBinding: true,
         title: "Gamma",
       },
       {
-        node_id: "ref:external:x",
-        kind: "external_reference" as const,
-        target_state: "external" as const,
-        aliases: [],
+        literatureItemId: "ref:external:x",
+        nodeStatus: "active",
+        hasZoteroBinding: false,
         title: "External",
       },
       {
-        node_id: "ref:raw:low",
-        kind: "unresolved_reference" as const,
-        target_state: "unresolved" as const,
-        aliases: [],
+        literatureItemId: "ref:raw:low",
+        nodeStatus: "active",
+        hasZoteroBinding: false,
         title: "Low signal",
-        low_signal: true,
       },
     ],
     edges: [
       {
-        edge_id: "edge-a-b",
-        source: "zotero:item:A",
-        target: "zotero:item:B",
-        kind: "citation" as const,
-        mention_count: 1,
-        primary_role: "background",
-        aux_roles: [],
-        role_evidence: [{ role: "background", count: 1 }],
-        source_refs: ["r1"],
+        edgeId: "edge-a-b",
+        sourceLiteratureItemId: "lit:a",
+        targetLiteratureItemId: "lit:b",
+        edgeStatus: "matched",
+        rolesJson: JSON.stringify(["background"]),
       },
       {
-        edge_id: "edge-b-c",
-        source: "zotero:item:B",
-        target: "zotero:item:C",
-        kind: "citation" as const,
-        mention_count: 1,
-        primary_role: "method",
-        aux_roles: [],
-        role_evidence: [{ role: "method", count: 1 }],
-        source_refs: ["r2"],
+        edgeId: "edge-b-c",
+        sourceLiteratureItemId: "lit:b",
+        targetLiteratureItemId: "lit:c",
+        edgeStatus: "matched",
+        rolesJson: JSON.stringify(["method"]),
       },
       {
-        edge_id: "edge-c-a",
-        source: "zotero:item:C",
-        target: "zotero:item:A",
-        kind: "citation" as const,
-        mention_count: 1,
-        primary_role: "contrast",
-        aux_roles: [],
-        role_evidence: [{ role: "contrast", count: 1 }],
-        source_refs: ["r3"],
+        edgeId: "edge-c-a",
+        sourceLiteratureItemId: "lit:c",
+        targetLiteratureItemId: "lit:a",
+        edgeStatus: "matched",
+        rolesJson: JSON.stringify(["contrast"]),
       },
       {
-        edge_id: "edge-a-external",
-        source: "zotero:item:A",
-        target: "ref:external:x",
-        kind: "citation" as const,
-        mention_count: 1,
-        primary_role: "background",
-        aux_roles: [],
-        role_evidence: [{ role: "background", count: 1 }],
-        source_refs: ["r4"],
+        edgeId: "edge-a-external",
+        sourceLiteratureItemId: "lit:a",
+        targetLiteratureItemId: "ref:external:x",
+        edgeStatus: "matched",
+        rolesJson: JSON.stringify(["background"]),
       },
       {
-        edge_id: "edge-a-low",
-        source: "zotero:item:A",
-        target: "ref:raw:low",
-        kind: "citation" as const,
-        mention_count: 1,
-        primary_role: "background",
-        aux_roles: [],
-        role_evidence: [{ role: "background", count: 1 }],
-        source_refs: ["r5"],
+        edgeId: "edge-a-low",
+        sourceLiteratureItemId: "lit:a",
+        targetLiteratureItemId: "ref:raw:low",
+        edgeStatus: "matched",
+        rolesJson: JSON.stringify(["background"]),
       },
     ],
-    diagnostics: {
-      promotions: [],
-      duplicates: [],
-      node_counts: {
-        library_paper: 3,
-        external_reference: 1,
-        unresolved_reference: 1,
+    lightweightMetrics: [
+      {
+        literatureItemId: "lit:a",
+        outgoingCount: 3,
+        incomingCount: 1,
+        matchedOutgoingCount: 3,
+        unresolvedOutgoingCount: 0,
+        ambiguousOutgoingCount: 0,
+        localDegree: 4,
+        sourceStructureVersion: 1,
       },
-      reference_stats: {
-        total: 2,
-        promoted: 0,
-        external: 1,
-        unresolved: 1,
-        dropped_empty: 0,
-        merged_external_nodes: 0,
-        merged_unresolved_nodes: 0,
+      {
+        literatureItemId: "lit:b",
+        outgoingCount: 1,
+        incomingCount: 1,
+        matchedOutgoingCount: 1,
+        unresolvedOutgoingCount: 0,
+        ambiguousOutgoingCount: 0,
+        localDegree: 2,
+        sourceStructureVersion: 1,
       },
-    },
-  };
-}
-
-async function writeGraphSnapshot(root: string) {
-  const paths = buildSynthesisStoragePaths(root);
-  await fs.mkdir(paths.stateRoot, { recursive: true });
-  await fs.writeFile(
-    paths.unifiedCitationGraph,
-    `${JSON.stringify(
-      createCanonicalEnvelope({
-        schemaId: "synthesis.unified_citation_graph_projection",
-        data: sampleCitationGraph(),
-        now: "2026-05-12T00:00:00.000Z",
-      }),
-      null,
-      2,
-    )}\n`,
-  );
-  return paths;
+      {
+        literatureItemId: "lit:c",
+        outgoingCount: 1,
+        incomingCount: 1,
+        matchedOutgoingCount: 1,
+        unresolvedOutgoingCount: 0,
+        ambiguousOutgoingCount: 0,
+        localDegree: 2,
+        sourceStructureVersion: 1,
+      },
+    ],
+  });
+  return buildSynthesisStoragePaths(root);
 }
 
 async function readArtifactState(root: string) {
@@ -344,6 +345,9 @@ async function topicFreshnessState(root: string, topicId = "topic-alpha") {
   const state = await readArtifactState(root);
   return state.data.topics[topicId] as {
     freshness: string;
+    known_dependency_status?: string;
+    discovery_status?: string;
+    candidate_count?: number;
     coverage: string;
     baseline_input_hash?: string;
     current_input_hash?: string;
@@ -405,8 +409,8 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(state.coverage, "complete");
     assert.match(state.baseline_input_hash || "", /^sha256:/);
     assert.equal(state.baseline_input_hash, state.current_input_hash);
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "fresh");
-    assert.equal(snapshot.artifacts.rows[0]?.coverage, "complete");
+    assert.equal(snapshot.artifacts.rows[0]?.freshness, "unknown");
+    assert.equal(snapshot.artifacts.rows[0]?.coverage, "missing");
     assert.lengthOf(mirror.upserts, 0);
   });
 
@@ -466,7 +470,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(result.completed, 1);
     assert.equal(refreshed.freshness, "stale");
     assert.include(await topicReasonCodes(root), "artifact_changed");
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "stale");
+    assert.equal(snapshot.artifacts.rows[0]?.freshness, "unknown");
     assert.equal(
       await fs.readFile(paths.currentExportMarkdown, "utf8"),
       beforeMarkdown,
@@ -499,6 +503,150 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.equal(snapshot.artifacts.rows[0]?.id, "topic-alpha");
     assert.isFalse(await exists(paths.artifactState));
+  });
+
+  it("does not surface legacy JSON-only synthesis state in Workbench UI reads", async function () {
+    const root = await makeRoot();
+    const paths = buildSynthesisStoragePaths(root);
+    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
+    await fs.mkdir(paths.stateRoot, { recursive: true });
+    await fs.mkdir(kgPaths.stateRoot, { recursive: true });
+    await fs.writeFile(
+      paths.index,
+      JSON.stringify(
+        createCanonicalEnvelope({
+          schemaId: "synthesis.index",
+          data: {
+            topics: [
+              {
+                topic_id: "legacy-topic",
+                path_id: "legacy-topic",
+                title: "Legacy Topic",
+                updated_at: "2026-05-10T00:00:00.000Z",
+                markdown_hash: "sha256:legacy-md",
+                metadata_hash: "sha256:legacy-meta",
+                bundle_hash: "sha256:legacy-bundle",
+                paper_count: 3,
+              },
+            ],
+          },
+          now: "2026-05-10T00:00:00.000Z",
+        }),
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await fs.writeFile(
+      paths.deletedArtifacts,
+      JSON.stringify(
+        createCanonicalEnvelope({
+          schemaId: "synthesis.deleted_topic_artifacts",
+          data: {
+            deleted: [
+              {
+                topic_id: "legacy-deleted",
+                path_id: "legacy-deleted",
+                deleted_path_id: "legacy-deleted-20260510",
+                title: "Legacy Deleted",
+                deleted_at: "2026-05-10T00:00:00.000Z",
+                updated_at: "2026-05-10T00:00:00.000Z",
+                markdown_hash: "sha256:deleted-md",
+                metadata_hash: "sha256:deleted-meta",
+                bundle_hash: "sha256:deleted-bundle",
+              },
+            ],
+          },
+          now: "2026-05-10T00:00:00.000Z",
+        }),
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(kgPaths.stateRoot, "literature-registry-index.json"),
+      JSON.stringify(
+        {
+          rows: [],
+          cleanup_proposals: [
+            {
+              proposal_id: "legacy-cleanup",
+              status: "open",
+              source_paper_ref: "1:A",
+              reason: "legacy projection residue",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    const snapshot = await service.getSynthesisSnapshot();
+    const inventory = await service.listTopics();
+    const options = await service.listWorkflowTopicOptions({
+      filter: "updatable",
+    });
+
+    assert.deepEqual(snapshot.artifacts.rows, []);
+    assert.deepEqual(snapshot.registry.cleanupProposals, []);
+    assert.equal(snapshot.deletedArtifacts.count, 0);
+    assert.deepEqual(inventory.topics, []);
+    assert.deepEqual(options.options, []);
+  });
+
+  it("surfaces cleanup proposals from DB review rows only", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-16T00:00:00.000Z",
+    });
+    repository.upsertReviewItem({
+      reviewItemId: "review:delete-stale-binding",
+      reviewKind: "zotero_item_delete",
+      priority: 0,
+      status: "open",
+      scopeKind: "zotero_binding",
+      scopeRef: "1:STALE",
+      payloadJson: JSON.stringify({
+        literature_item_id: "lit:stale",
+        paper_ref: "1:STALE",
+        title: "Stale Zotero Binding",
+      }),
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      now: () => "2026-05-16T00:00:00.000Z",
+    });
+
+    const snapshot = await service.getSynthesisSnapshot();
+
+    assert.deepEqual(
+      snapshot.registry.cleanupProposals.map((proposal) => ({
+        proposal_id: proposal.proposal_id,
+        status: proposal.status,
+        kind: proposal.kind,
+        source_paper_ref: proposal.source_paper_ref,
+      })),
+      [
+        {
+          proposal_id: "review:delete-stale-binding",
+          status: "open",
+          kind: "zotero_item_delete",
+          source_paper_ref: "1:STALE",
+        },
+      ],
+    );
   });
 
   it("keeps canonical apply independent of mirror adapter failures", async function () {
@@ -561,10 +709,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.match(conflict.conflictCandidate?.bundle_hash || "", /^sha256:/);
     assert.equal(markdown, "# Alpha Topic\n");
     assert.equal(mirror.upserts.length, beforeUpserts);
-    assert.deepEqual(
-      snapshot.conflicts.candidates.map((candidate) => candidate.topic_id),
-      ["topic-alpha"],
-    );
+    assert.deepEqual(snapshot.conflicts.candidates, []);
   });
 
   it("serves UI snapshots and review input from the persisted state", async function () {
@@ -656,6 +801,73 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
+  it("keeps topic context reads from scanning or refreshing freshness state", async function () {
+    const root = await makeRoot();
+    const first = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-12T00:00:00.000Z",
+      registryInputs: [
+        registryInput({ itemKey: "A" }),
+        registryInput({ itemKey: "B" }),
+      ],
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    await first.applyTopicSynthesisResult(validBundle());
+    const artifactStatePath = buildSynthesisStoragePaths(root).artifactState;
+    const before = await fs.readFile(artifactStatePath, "utf8");
+    let registryInputCalls = 0;
+    let citationInputCalls = 0;
+    const readOnly = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-13T00:00:00.000Z",
+      libraryAdapter: {
+        async getRegistryInputs() {
+          registryInputCalls += 1;
+          throw new Error("topic context read must not scan registry inputs");
+        },
+        async getCitationGraphInputs() {
+          citationInputCalls += 1;
+          throw new Error(
+            "topic context read must not scan citation graph inputs",
+          );
+        },
+        async getLibraryIndex() {
+          return {
+            libraryId: 1,
+            papers: [],
+            tags: [],
+            collections: [],
+            has_more: false,
+            returned: 0,
+            total_papers: 0,
+            index_hash: "",
+            page_hash: "",
+            diagnostics: [],
+          };
+        },
+        async readPaperArtifacts() {
+          return { artifacts: [], diagnostics: [] };
+        },
+      },
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    const topicContext = (await readOnly.getTopicContext({
+      topicId: "topic-alpha",
+    })) as {
+      freshness?: { freshness?: string };
+    };
+    const after = await fs.readFile(artifactStatePath, "utf8");
+
+    assert.equal(registryInputCalls, 0);
+    assert.equal(citationInputCalls, 0);
+    assert.equal(topicContext.freshness?.freshness, "fresh");
+    assert.equal(after, before);
+  });
+
   it("lists topics as a small semantic inventory for create-mode de-duplication", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -688,13 +900,13 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.deepEqual(inventory.diagnostics, {
       count: 1,
-      source: "canonical-topic-definitions",
+      source: "sqlite-topic-graph",
     });
     assert.deepEqual(topic, {
       topic_id: "topic-alpha",
       title: "Alpha Topic",
-      description: "Semantic scope for Alpha.",
-      aliases: ["Alpha", "A topic"],
+      description: "",
+      aliases: [],
       updated_at: "2026-05-12T00:00:00.000Z",
     });
     for (const forbidden of [
@@ -740,7 +952,7 @@ describe("Synthesis Layer v1 integration service", function () {
       deleted.deleted.map((entry) => entry.topic_id),
       ["topic-alpha"],
     );
-    assert.equal(snapshot.deletedArtifacts.count, 1);
+    assert.equal(snapshot.deletedArtifacts.count, 0);
     assert.equal(mirror.upserts.length, beforeDeleteUpserts);
   });
 
@@ -813,8 +1025,8 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.deepInclude(inventory.topics, {
       topic_id: "topic-beta",
       title: "topic-beta",
-      description: "Beta semantic scope.",
-      aliases: ["Beta"],
+      description: "",
+      aliases: [],
       updated_at: "2026-05-12T01:00:00.000Z",
     });
   });
@@ -841,7 +1053,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(slice.diagnostics.snapshot_found, false);
     assert.include(
       slice.diagnostics.warnings.join("\n"),
-      "snapshot is missing",
+      "start node not found",
     );
     assert.equal(await exists(paths.unifiedCitationGraph), false);
     assert.equal(await exists(paths.unifiedCitationLayouts), false);
@@ -849,7 +1061,7 @@ describe("Synthesis Layer v1 integration service", function () {
 
   it("reads bounded citation graph slices from persisted snapshots by paperRef and node id", async function () {
     const root = await makeRoot();
-    await writeGraphSnapshot(root);
+    await writeDbGraphState(root);
     const service = createSynthesisService({ root, libraryId: 1 });
 
     const byPaperRef = await service.getCitationGraphSlice({ paperRef: "1:A" });
@@ -862,21 +1074,27 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(byPaperRef.start_node_id, "zotero:item:A");
     assert.deepEqual(
       byPaperRef.nodes.map((node) => node.node_id),
-      ["ref:external:x", "zotero:item:A", "zotero:item:B", "zotero:item:C"],
+      [
+        "zotero:item:A",
+        "zotero:item:B",
+        "zotero:item:C",
+        "ref:external:x",
+        "ref:raw:low",
+      ],
     );
     assert.deepEqual(
       byPaperRef.edges.map((edge) => edge.edge_id),
-      ["edge-a-b", "edge-a-external", "edge-c-a"],
+      ["edge-a-b", "edge-a-external", "edge-a-low", "edge-c-a"],
     );
     assert.deepEqual(
       byNodeId.edges.map((edge) => edge.edge_id),
-      ["edge-a-b", "edge-a-external"],
+      ["edge-a-b", "edge-a-external", "edge-a-low"],
     );
   });
 
   it("applies citation graph slice depth, direction, role, low-signal, and cap controls", async function () {
     const root = await makeRoot();
-    await writeGraphSnapshot(root);
+    await writeDbGraphState(root);
     const service = createSynthesisService({ root, libraryId: 1 });
 
     const incoming = await service.getCitationGraphSlice({
@@ -890,6 +1108,8 @@ describe("Synthesis Layer v1 integration service", function () {
     });
     const withoutLowSignal = await service.getCitationGraphSlice({
       startNodeId: "zotero:item:A",
+      depth: 1,
+      direction: "outgoing",
     });
     const capped = await service.getCitationGraphSlice({
       startNodeId: "zotero:item:A",
@@ -908,17 +1128,17 @@ describe("Synthesis Layer v1 integration service", function () {
     );
     assert.notInclude(
       withoutLowSignal.nodes.map((node) => node.node_id),
-      "ref:raw:low",
+      "zotero:item:C",
     );
     assert.include(
       (
         await service.getCitationGraphSlice({
           startNodeId: "zotero:item:A",
           direction: "outgoing",
-          includeLowSignal: true,
+          depth: 2,
         })
       ).nodes.map((node) => node.node_id),
-      "ref:raw:low",
+      "zotero:item:C",
     );
     assert.equal(capped.diagnostics.truncated, true);
     assert.equal(capped.diagnostics.depth, 2);
@@ -927,20 +1147,9 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.isAtMost(capped.edges.length, 1);
   });
 
-  it("does not rewrite citation graph or layout assets when reading graph slices", async function () {
+  it("does not write citation graph or layout assets when reading DB graph slices", async function () {
     const root = await makeRoot();
-    const paths = await writeGraphSnapshot(root);
-    await fs.writeFile(paths.unifiedCitationLayouts, "layout sentinel\n");
-    await fs.writeFile(paths.unifiedCitationGraphMetrics, "metrics sentinel\n");
-    const beforeGraph = await fs.readFile(paths.unifiedCitationGraph, "utf8");
-    const beforeLayout = await fs.readFile(
-      paths.unifiedCitationLayouts,
-      "utf8",
-    );
-    const beforeMetrics = await fs.readFile(
-      paths.unifiedCitationGraphMetrics,
-      "utf8",
-    );
+    const paths = await writeDbGraphState(root);
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -957,21 +1166,12 @@ describe("Synthesis Layer v1 integration service", function () {
     const slice = await service.getCitationGraphSlice({ paperRef: "1:A" });
 
     assert.equal(slice.ok, true);
-    assert.equal(
-      await fs.readFile(paths.unifiedCitationGraph, "utf8"),
-      beforeGraph,
-    );
-    assert.equal(
-      await fs.readFile(paths.unifiedCitationLayouts, "utf8"),
-      beforeLayout,
-    );
-    assert.equal(
-      await fs.readFile(paths.unifiedCitationGraphMetrics, "utf8"),
-      beforeMetrics,
-    );
+    assert.equal(await exists(paths.unifiedCitationGraph), false);
+    assert.equal(await exists(paths.unifiedCitationLayouts), false);
+    assert.equal(await exists(paths.unifiedCitationGraphMetrics), false);
   });
 
-  it("serves Workbench graph snapshots from persisted graph and layout assets", async function () {
+  it("serves Workbench graph snapshots from DB graph and layout state", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
@@ -987,6 +1187,10 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.runLiteratureRegistryJobNow();
+    await service.runCitationGraphLayoutWorker({
+      force: true,
+      timeBudgetMs: 1000,
+    });
     const reloaded = createSynthesisService({
       root,
       libraryId: 1,
@@ -998,14 +1202,95 @@ describe("Synthesis Layer v1 integration service", function () {
       snapshot.graph.nodes.some((node) => node.id === "zotero:item:A"),
       true,
     );
-    assert.equal(
-      snapshot.graph.nodes.some((node) => node.id.startsWith("ref:raw:")),
-      true,
-    );
+    assert.equal(snapshot.graph.diagnostics.storage, "sqlite");
     assert.isNumber(
       snapshot.graph.nodes.find((node) => node.id === "zotero:item:A")?.x,
     );
     assert.equal(snapshot.graph.layoutStatus, "ready");
+  });
+
+  it("builds graph overview as all library papers plus shared external references", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          references: [
+            { title: "Beta Paper", year: "2024", authors: ["Beta"] },
+            { title: "Shared External Reference", year: "2020" },
+            { title: "Unique Alpha Reference", year: "2021" },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+          year: "2024",
+          authors: ["Beta"],
+        },
+        {
+          libraryId: 1,
+          itemKey: "C",
+          title: "Gamma Paper",
+          references: [
+            { title: "Shared External Reference", year: "2020" },
+            { title: "Unique Gamma Reference", year: "2022" },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "D",
+          title: "Disconnected Library Paper",
+        },
+      ],
+    });
+
+    await service.runLiteratureRegistryJobNow();
+    const graph = (await service.queryCitationGraph()) as any;
+    const snapshot = await service.getSynthesisSnapshot();
+
+    assert.includeMembers(
+      graph.nodes.map((node: { node_id: string }) => node.node_id),
+      ["zotero:item:A", "zotero:item:B", "zotero:item:C", "zotero:item:D"],
+    );
+    assert.isTrue(
+      graph.nodes.some(
+        (node: { title?: string; display_tier?: string }) =>
+          node.title === "Shared External Reference" &&
+          node.display_tier === "shared_external",
+      ),
+    );
+    assert.isFalse(
+      graph.nodes.some(
+        (node: { title?: string }) => node.title === "Unique Alpha Reference",
+      ),
+    );
+    assert.sameMembers(
+      (graph.hover_only_nodes || []).map(
+        (node: { title?: string }) => node.title,
+      ),
+      ["Unique Alpha Reference", "Unique Gamma Reference"],
+    );
+    assert.equal(graph.diagnostics.library_node_count, 4);
+    assert.equal(graph.diagnostics.shared_external_count, 1);
+    assert.equal(graph.diagnostics.hover_only_external_count, 2);
+    assert.includeMembers(
+      snapshot.graph.visibleNodes.map((node) => node.id),
+      ["zotero:item:A", "zotero:item:B", "zotero:item:C", "zotero:item:D"],
+    );
+    assert.isFalse(
+      snapshot.graph.visibleNodes.some(
+        (node) => node.label === "Unique Alpha Reference",
+      ),
+    );
+    assert.sameMembers(
+      snapshot.graph.hoverOnlyNodes.map((node) => node.label),
+      ["Unique Alpha Reference", "Unique Gamma Reference"],
+    );
   });
 
   it("persists and reads citation graph metrics with graph rebuilds", async function () {
@@ -1034,13 +1319,6 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.runLiteratureRegistryJobNow();
-    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    const citationIndex = JSON.parse(
-      await fs.readFile(
-        path.join(kgPaths.stateRoot, "citation-graph-index.json"),
-        "utf8",
-      ),
-    );
     const metrics = await service.getCitationGraphMetrics({ limit: 2 });
     const byPaper = await service.getCitationGraphMetrics({
       paperRefs: ["1:B"],
@@ -1050,10 +1328,6 @@ describe("Synthesis Layer v1 integration service", function () {
       direction: "incoming",
     });
 
-    assert.equal(
-      citationIndex.metrics.schema_id,
-      "synthesis.unified_citation_graph_metrics",
-    );
     assert.equal(metrics.ok, true);
     assert.equal(metrics.items[0].node_id, "zotero:item:B");
     assert.equal(byPaper.items[0].paper_ref, "1:B");
@@ -1067,32 +1341,84 @@ describe("Synthesis Layer v1 integration service", function () {
 
   it("marks citation graph metrics stale when graph hash changes", async function () {
     const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-12T00:00:00.000Z",
+    });
+    repository.upsertLiteratureItem({
+      literatureItemId: "lit:a",
+      displayTitle: "Alpha",
+      normalizedTitle: "alpha",
+      titleNormalizerVersion: "test",
+      status: "active",
+    });
+    repository.upsertZoteroBinding({
+      libraryId: 1,
+      itemKey: "A",
+      literatureItemId: "lit:a",
+      bindingStatus: "active",
+    });
+    repository.replaceCitationGraphState({
+      nodes: [
+        {
+          literatureItemId: "lit:a",
+          nodeStatus: "active",
+          hasZoteroBinding: true,
+          title: "Alpha",
+          year: "2020",
+        },
+      ],
+      lightweightMetrics: [
+        {
+          literatureItemId: "lit:a",
+          outgoingCount: 1,
+          incomingCount: 0,
+          matchedOutgoingCount: 1,
+          unresolvedOutgoingCount: 0,
+          ambiguousOutgoingCount: 0,
+          localDegree: 1,
+          sourceStructureVersion: 2,
+        },
+      ],
+      complexMetrics: [
+        {
+          literatureItemId: "lit:a",
+          nodeId: "zotero:item:A",
+          paperRef: "1:A",
+          itemKey: "A",
+          title: "Alpha",
+          year: "2020",
+          internalInDegree: 0,
+          internalOutDegree: 1,
+          externalReferenceCount: 0,
+          unresolvedReferenceCount: 0,
+          sourceGraphHash: "sha256:old",
+          metricsHash: "sha256:metrics",
+          foundationScore: 0,
+          frontierScore: 1,
+          internalPagerank: 0,
+          componentId: "c1",
+          componentSize: 1,
+          isIsolated: false,
+          ageNorm: 0,
+          recencyNorm: 0,
+          inDegreeNorm: 0,
+          outDegreeNorm: 1,
+          pagerankNorm: 0,
+          sourceStructureVersion: 1,
+          status: "ready",
+        },
+      ],
+    });
     const service = createSynthesisService({
       root,
       libraryId: 1,
-      citationGraphPapers: [
-        { libraryId: 1, itemKey: "A", title: "Alpha", year: "2020" },
-      ],
+      synthesisRepository: repository,
     });
-
-    await service.runLiteratureRegistryJobNow();
-    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    const citationIndexPath = path.join(
-      kgPaths.stateRoot,
-      "citation-graph-index.json",
-    );
-    const citationIndex = JSON.parse(
-      await fs.readFile(citationIndexPath, "utf8"),
-    );
-    citationIndex.graph.graph_hash = "sha256:changed";
-    await fs.writeFile(
-      citationIndexPath,
-      `${JSON.stringify(citationIndex, null, 2)}\n`,
-    );
 
     const metrics = await service.getCitationGraphMetrics();
 
-    assert.equal(metrics.ok, false);
+    assert.equal(metrics.ok, true);
     assert.equal(metrics.status, "stale");
     assert.equal(metrics.diagnostics.stale, true);
   });
@@ -1306,9 +1632,6 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
-    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
-    topic_graph_relation_proposals_path:
-      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
@@ -1332,10 +1655,43 @@ function v2SectionContext(
     schema_version: "2.0.0",
     operation: "create",
     language: "zh-CN",
+    sidecars: {
+      topic_interest_metadata: {
+        path: "result/sidecars/topic-interest-metadata.json",
+        hash: "sha256:topic-interest-metadata",
+        content_type: "json",
+        schema_id: "topic_interest_metadata.v1",
+      },
+      concept_cards_proposal: {
+        path: "result/sidecars/concept-cards-proposal.json",
+        hash: "sha256:concept-cards-proposal",
+        content_type: "json",
+        schema_id: "synthesis.concept_cards_proposal",
+      },
+      topic_graph_relation_proposals: {
+        path: "result/sidecars/topic-graph-relation-proposals.json",
+        hash: "sha256:topic-graph-relation-proposals",
+        content_type: "json",
+        schema_id: "synthesis.topic_graph_relation_proposals",
+      },
+    },
     sections: sectionEntries,
   };
   const files = new Map<string, string>([
     ["result/topic-analysis.json", JSON.stringify(manifest)],
+    [
+      "result/sidecars/topic-interest-metadata.json",
+      JSON.stringify({
+        schema: "topic_interest_metadata.v1",
+        topic_id: "object-detection",
+        include_terms: ["object detection", "DETR"],
+        must_have_terms: ["object detection"],
+        methods: ["DETR"],
+        exclude_terms: ["semantic segmentation"],
+        seed_literature_item_ids: ["lit:detr"],
+        diagnostics: [],
+      }),
+    ],
     [
       "result/sidecars/concept-cards-proposal.json",
       JSON.stringify({
@@ -1684,12 +2040,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     });
 
     const result = await service.applyTopicSynthesisResult(
-      v2TopicBundle({
-        concept_cards_proposal_path:
-          "result/sidecars/concept-cards-proposal.json",
-        topic_graph_relation_proposals_path:
-          "result/sidecars/topic-graph-relation-proposals.json",
-      }),
+      v2TopicBundle(),
       v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR")), {
         "result/sidecars/concept-cards-proposal.json": {
           schema_id: "synthesis.concept_cards_proposal",
@@ -1744,6 +2095,111 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     );
     assert.equal(materialized?.node_type, "materialized");
     assert.equal(materialized?.paper_count, 1);
+  });
+
+  it("persists topic interest metadata sidecar after structured apply", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-16T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      synthesisRepository: repository,
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
+    });
+    repository.upsertLiteratureMatchingMetadata({
+      literatureItemId: "lit:candidate",
+      keyTermsJson: JSON.stringify(["object detection", "DETR"]),
+      methodsJson: JSON.stringify(["DETR"]),
+      problemsJson: JSON.stringify(["detection"]),
+    });
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle(),
+      v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
+    );
+    const metadata = repository.getTopicInterestMetadata("object-detection");
+    const hints = repository.listTopicDiscoveryHints({
+      topicIds: ["object-detection"],
+      statuses: ["open"],
+    });
+    const state = await topicFreshnessState(root, "object-detection");
+    const topicContext = (await service.getTopicContext({
+      topicId: "object-detection",
+    })) as {
+      freshness?: {
+        freshness?: string;
+        known_dependency_status?: string;
+        discovery_status?: string;
+        candidate_count?: number;
+      };
+      discovery_hints?: Array<{ literatureItemId: string }>;
+    };
+
+    assert.equal(result.status, "persisted");
+    assert.isOk(metadata);
+    assert.deepEqual(JSON.parse(metadata?.includeTermsJson || "[]"), [
+      "object detection",
+      "DETR",
+    ]);
+    assert.deepEqual(JSON.parse(metadata?.seedLiteratureItemIdsJson || "[]"), [
+      "lit:detr",
+    ]);
+    assert.deepEqual(
+      hints.map((hint) => hint.literatureItemId),
+      ["lit:candidate"],
+    );
+    assert.equal(state.freshness, "fresh");
+    assert.equal(state.known_dependency_status, "fresh");
+    assert.equal(state.discovery_status, "candidates");
+    assert.equal(state.candidate_count, 1);
+    assert.equal(topicContext.freshness?.freshness, "fresh");
+    assert.equal(topicContext.freshness?.discovery_status, "candidates");
+    assert.deepEqual(
+      (topicContext.discovery_hints || []).map((hint) => hint.literatureItemId),
+      ["lit:candidate"],
+    );
+
+    const dirtyEventsBefore = (
+      await service.listSynthesisUpdateEvents()
+    ).filter((event) => event.event_type === "topic_freshness_dirty").length;
+    repository.upsertLiteratureItem({
+      literatureItemId: "lit:new-candidate",
+      displayTitle: "New DETR Candidate",
+      normalizedTitle: "new detr candidate",
+      titleNormalizerVersion: "test",
+      status: "active",
+    });
+    repository.upsertLiteratureMatchingMetadata({
+      literatureItemId: "lit:new-candidate",
+      keyTermsJson: JSON.stringify(["object detection"]),
+      methodsJson: JSON.stringify(["DETR"]),
+      problemsJson: JSON.stringify(["detection"]),
+    });
+    const discovery = await service.runTopicDiscoveryWorker({
+      literatureItemIds: ["lit:new-candidate"],
+    });
+    const refreshedState = await topicFreshnessState(root, "object-detection");
+    const dirtyEventsAfter = (await service.listSynthesisUpdateEvents()).filter(
+      (event) => event.event_type === "topic_freshness_dirty",
+    ).length;
+
+    assert.equal(discovery.failed, 0);
+    assert.equal(refreshedState.freshness, "fresh");
+    assert.equal(refreshedState.known_dependency_status, "fresh");
+    assert.equal(refreshedState.discovery_status, "candidates");
+    assert.equal(refreshedState.candidate_count, 2);
+    assert.equal(dirtyEventsAfter, dirtyEventsBefore);
   });
 
   it("accepts structured paper evidence when digest_ref hash matches current Zotero artifact", async function () {
@@ -1830,7 +2286,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     }
   });
 
-  it("marks legacy current.md/current.json topic directories as needs_recreate without fallback reading", async function () {
+  it("keeps legacy current.md/current.json topic directories out of Workbench UI reads", async function () {
     const root = await makeRoot();
     const paths = buildSynthesisStoragePaths(root, "legacy-topic");
     await fs.mkdir(path.dirname((paths as any).legacyCurrentMarkdown), {
@@ -1858,9 +2314,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       (entry: any) => entry.id === "legacy-topic",
     );
 
-    assert.isOk(row);
-    assert.include(["legacy_invalid", "needs_recreate"], (row as any).status);
-    assert.notEqual((row as any).readerMode, "markdown");
+    assert.isUndefined(row);
   });
 
   it("uses bundle base hashes for create/full update and read section hashes for update patch", function () {

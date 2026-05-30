@@ -9,6 +9,7 @@ import {
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
 import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
@@ -82,6 +83,7 @@ describe("host bridge capability calls", function () {
     resetZoteroMcpServerForTests();
     resetHostBridgeWriteAutoApprovalScopesForTests();
     resetAcpSkillRunsForTests();
+    setDebugModeOverrideForTests();
   });
 
   it("requires bearer auth for capability calls", async function () {
@@ -172,6 +174,98 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
     assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
+  });
+
+  it("hides debug capabilities when debug mode is disabled", async function () {
+    setDebugModeOverrideForTests(false);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-off-token",
+    });
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    );
+    const names = manifest.json.result.capabilities.map(
+      (capability: { name: string }) => capability.name,
+    );
+    assert.notInclude(names, "debug.status");
+
+    const call = await callBridgeCapability({
+      token,
+      capability: "debug.status",
+      input: {},
+    });
+    assert.strictEqual(call.status, 404);
+    assert.strictEqual(call.json.error.code, "capability_not_found");
+  });
+
+  it("exposes debug capabilities and Synthesis diagnostics when debug mode is enabled", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-on-token",
+    });
+
+    const status = await callBridgeCapability({
+      token,
+      capability: "debug.status",
+      input: { limit: 5 },
+    });
+    assert.strictEqual(status.status, 200);
+    assert.strictEqual(status.json.result.approval, "none");
+    assert.strictEqual(
+      status.json.result.data.schema,
+      "host_bridge.debug.status.v1",
+    );
+    assert.isTrue(status.json.result.data.debugMode);
+
+    const snapshot = await callBridgeCapability({
+      token,
+      capability: "debug.synthesis.snapshot",
+      input: { limit: 5, includeUiSnapshot: false },
+    });
+    assert.strictEqual(snapshot.status, 200);
+    assert.strictEqual(
+      snapshot.json.result.data.schema,
+      "host_bridge.debug.synthesis.snapshot.v1",
+    );
+    assert.isObject(snapshot.json.result.data.queue);
+    assert.isObject(snapshot.json.result.data.tableCounts);
+  });
+
+  it("keeps dangerous debug operations behind Host Bridge approval", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-danger-token",
+    });
+    let approvalCount = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests(async () => {
+      approvalCount += 1;
+      return {
+        outcome: "approved",
+        requestId: "debug-approval",
+        channel: "global",
+      };
+    });
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "debug.synthesis.queue.clear",
+      input: { dryRun: true },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
+    assert.strictEqual(
+      parsed.json.result.data.schema,
+      "host_bridge.debug.synthesis.queue.clear.v1",
+    );
+    assert.strictEqual(approvalCount, 1);
   });
 
   it("allows mutation preview without executing a write", async function () {

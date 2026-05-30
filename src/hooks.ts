@@ -590,6 +590,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       ]);
       return { cleanup, usage, integrity };
     }
+    case "resetSynthesisDatabase":
+      return getDefaultSynthesisService().resetSynthesisDatabase({
+        confirmationText: data.confirmationText,
+      });
     case "openRuntimePersistenceRoot":
       try {
         openFolderInSystemFileManager(getRuntimePersistencePaths().root, {

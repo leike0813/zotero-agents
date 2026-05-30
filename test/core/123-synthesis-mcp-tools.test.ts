@@ -681,6 +681,7 @@ describe("Synthesis MCP tools", function () {
         { libraryId: 1, itemKey: "CCCC3333", title: "Gamma", tags: ["c"] },
       ],
     });
+    await service.runLiteratureRegistryJobNow();
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(20, "synthesis.get_paper_registry", {
@@ -699,10 +700,7 @@ describe("Synthesis MCP tools", function () {
     assert.isFalse(result.has_more);
     assert.equal(result.returned, 1);
     assert.equal(result.total, 2);
-    assert.include(
-      result.diagnostics.recommended_commands,
-      "runLiteratureRegistryJobNow",
-    );
+    assert.deepEqual(result.diagnostics.recommended_commands, []);
     assert.equal(result.diagnostics.maintenance.pending_dirty_count, 0);
   });
 
@@ -722,7 +720,7 @@ describe("Synthesis MCP tools", function () {
     assert.isFalse(result.ok);
     assert.include(
       result.diagnostics.recommended_commands,
-      "runCitationGraphComplexMetricsWorker",
+      "runLiteratureRegistryJobNow",
     );
     assert.equal(result.diagnostics.maintenance.queue_state, "idle");
   });

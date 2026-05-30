@@ -88,7 +88,10 @@ SCHEMA_REFS_BY_ACTION = {
     "persist_core_sections": ["assets/schemas/core_analytical_sections.schema.json"],
     "persist_kg_proposals": ["assets/schemas/kg_proposals.schema.json"],
     "persist_external_statistics_report": ["assets/schemas/topic_synthesis_artifact.schema.json"],
-    "validate_final_artifacts": ["assets/schemas/topic_synthesis_artifact.schema.json"],
+    "validate_final_artifacts": [
+        "assets/schemas/topic_synthesis_artifact.schema.json",
+        "assets/schemas/topic_interest_metadata.schema.json",
+    ],
 }
 
 SEMANTIC_HINTS_BY_STAGE = {
@@ -852,7 +855,12 @@ def next_action(conn) -> dict:
                 f'--operation "{operation}" --language "{language}" --action validate_final_artifacts'
             ),
             required_reads=["result/sections/*.json", "paper_analysis rows", "artifact metadata"],
-            required_writes=["result/sections/*.json", "result/topic-analysis.json", "result/result.json"],
+            required_writes=[
+                "result/sections/*.json",
+                "result/topic-analysis.json",
+                "result/sidecars/topic-interest-metadata.json",
+                "result/result.json",
+            ],
             progress={"completed_stages": sorted(completed)},
         )
 

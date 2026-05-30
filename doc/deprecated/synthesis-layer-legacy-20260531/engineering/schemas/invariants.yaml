@@ -1,0 +1,369 @@
+schema: synthesis.engineering.invariants.v1
+severity_levels:
+  - fatal
+  - error
+  - warning
+  - info
+invariants:
+  - id: inv.ui.db_first_hot_path
+    severity: fatal
+    statement: Workbench UI hot paths must read DB-backed runtime state only.
+    applies_to:
+      - workbench_snapshot
+      - topic_options
+      - graph_read_model
+      - background_jobs
+    evidence:
+      - source_inspection
+      - ui_snapshot_regression
+    future_verification_hint: assert_no_legacy_json_rows_in_ui_snapshot
+  - id: inv.files.no_data_synthesis_hot_write
+    severity: fatal
+    statement: Normal runtime workers and Workbench snapshots must not write data/synthesis/**.
+    applies_to:
+      - startup
+      - rebuild_registry_cache
+      - graph_workers
+      - topic_source_check
+      - workbench_snapshot
+    evidence:
+      - filesystem_mtime_guard
+      - source_inspection
+    future_verification_hint: run_normal_operations_and_assert_no_data_synthesis_mutation
+  - id: inv.override.rebuild_preserves_effects
+    severity: fatal
+    statement: Full rebuild must not silently drop active durable effects or user overrides.
+    applies_to:
+      - registry_graph_cache_rebuild
+      - import_apply
+      - review_actions
+    evidence:
+      - repository_snapshot
+      - rebuild_summary
+    future_verification_hint: active_overrides_are_preserved_or_marked_needs_attention_only_for_orphans
+  - id: inv.queue.old_epoch_not_active
+    severity: fatal
+    statement: Old epoch/basis dirty events and jobs must not appear as active UI work.
+    applies_to:
+      - dirty_event_queue
+      - job_progress
+      - statusbar_popover
+    evidence:
+      - repository_snapshot
+      - ui_snapshot
+    future_verification_hint: old_epoch_jobs_are_superseded_or_hidden
+  - id: inv.graph.library_nodes_not_truncated
+    severity: fatal
+    statement: Citation Graph UI snapshot must include all active Zotero-bound library nodes.
+    applies_to:
+      - citation_graph_snapshot
+      - graph_ui
+    evidence:
+      - graph_snapshot_counts
+      - integration_test
+    future_verification_hint: visible_library_nodes_equal_active_library_nodes
+  - id: inv.graph.layout_not_structure_gate
+    severity: error
+    statement: Missing or running layout must not hide existing graph structure.
+    applies_to:
+      - graph_snapshot
+      - graph_ui
+      - layout_worker
+    evidence:
+      - ui_snapshot
+      - graph_worker_result
+    future_verification_hint: graph_structure_nonempty_draws_even_when_layout_missing
+  - id: inv.graph.related_items_sync_one_way
+    severity: fatal
+    statement: Zotero native related items sync must be one-way add-only from matched library citation edges to Zotero, never an input to reference resolution or graph facts.
+    applies_to:
+      - zotero_related_items_sync_worker
+      - reference_resolution
+      - citation_graph_structure
+      - zotero_library_adapter
+    evidence:
+      - event_contract
+      - source_inspection
+      - zotero_related_items_sync_summary
+    future_verification_hint: related_items_sync_reads_db_edges_and_only_adds_missing_zotero_links
+  - id: inv.identity.external_dedupe_benchmark_required
+    severity: fatal
+    statement: External literature auto-merge policy must be selected from fixture-based golden labels and experiments, not from unvalidated hand-written rules.
+    applies_to:
+      - external_literature_dedupe
+      - reference_identity_matcher
+      - review_harness
+    evidence:
+      - current_library_fixture
+      - reviewed_external_dedupe_gold_labels
+      - experiment_report
+    future_verification_hint: external_dedupe_policy_has_reviewed_fixture_metrics_before_auto_merge_enabled
+  - id: inv.identity.redirect_before_graph
+    severity: fatal
+    statement: Citation graph edges must target canonical literature items after applying active literature redirects.
+    applies_to:
+      - reference_resolution_materialization
+      - external_literature_dedupe
+      - citation_graph_structure
+    evidence:
+      - repository_snapshot
+      - graph_snapshot_counts
+    future_verification_hint: graph_edges_do_not_target_redirected_literature_items
+  - id: inv.topic.discovery_not_freshness
+    severity: fatal
+    statement: Discovery candidates must not mark a complete and fresh topic stale by themselves.
+    applies_to:
+      - topic_source_check
+      - topic_discovery
+      - topic_ui
+    evidence:
+      - topic_snapshot
+      - worker_result
+    future_verification_hint: candidate_only_change_preserves_freshness
+  - id: inv.registry_cache.not_global_ssot
+    severity: fatal
+    statement: Paper Registry Cache must not be treated as the global Synthesis SSOT for Topics, Tags, Concepts, or workflow artifacts.
+    applies_to:
+      - registry_cache
+      - topic_workflows
+      - tag_vocabulary
+      - concept_kb
+      - workbench_snapshot
+    evidence:
+      - domain_map
+      - event_contract
+      - source_inspection
+    future_verification_hint: topic_tag_concept_reads_do_not_require_registry_cache_rebuild_completion
+  - id: inv.topics.index_not_driver
+    severity: fatal
+    statement: Registry cache dirty events, startup reconcile, and registry/graph cache rebuild must not enqueue normal topic source-check or freshness work.
+    applies_to:
+      - paper_registry_incremental_worker
+      - startup_reconcile
+      - registry_graph_cache_rebuild
+      - topic_source_check
+    evidence:
+      - event_contract
+      - rebuild_runbook
+      - repository_snapshot
+    future_verification_hint: registry_cache_rebuild_does_not_create_topic_dirty_events
+  - id: inv.topics.workflow_uses_source_facade
+    severity: fatal
+    statement: Topic create/update primary inputs must come from the Host Library / Artifact Facade, while Citation Graph metrics remain optional enrichment.
+    applies_to:
+      - topic_create_workflow
+      - topic_update_workflow
+      - host_bridge_synthesis_facade
+    evidence:
+      - skill_contract
+      - host_bridge_capability_contract
+      - workflow_run_receipts
+    future_verification_hint: topic_workflow_can_run_without_committed_registry_cache_rebuild_when_facade_reads_zotero_artifacts
+  - id: inv.external_source.ingress_validation
+    severity: fatal
+    statement: Zotero item, note, attachment, and artifact payload inputs must be defensively validated at adapter/materializer ingress.
+    applies_to:
+      - zotero_library_adapter
+      - artifact_note_decoder
+      - paper_registry_materializer
+      - startup_reconcile
+    evidence:
+      - adapter_contract
+      - source_inspection
+      - integration_test
+    future_verification_hint: malformed_zotero_or_note_input_yields_bounded_diagnostic_not_partial_fact
+  - id: inv.external_source.bulk_drift_no_fanout
+    severity: fatal
+    statement: Startup reconcile must not expand bulk or structural Zotero drift into unbounded dirty events, graph jobs, review items, or topic work.
+    applies_to:
+      - startup_reconcile
+      - dirty_event_queue
+      - citation_graph_jobs
+      - topic_source_check
+      - workbench_jobs_ui
+    evidence:
+      - reconcile_summary
+      - repository_snapshot
+      - ui_snapshot
+    future_verification_hint: bulk_deleted_items_create_one_drift_incident_not_per_item_jobs
+  - id: inv.external_source.structural_drift_fail_closed
+    severity: fatal
+    statement: Structural Zotero drift must pause incremental processing and require explicit inspect or repair.
+    applies_to:
+      - startup_reconcile
+      - registry_cache_incremental_worker
+      - debug_diagnostics
+    evidence:
+      - drift_incident
+      - recommended_commands
+    future_verification_hint: identity_collision_or_decode_failure_ratio_blocks_incremental_reconcile
+  - id: inv.discovery.apply_time_only
+    severity: fatal
+    statement: Normal discovery hints are generated only by literature-digest apply-time matching or explicit repair, not by Workbench snapshots or registry cache rebuild.
+    applies_to:
+      - literature_digest_apply
+      - registry_graph_cache_rebuild
+      - workbench_snapshot
+      - topic_apply
+    evidence:
+      - event_contract
+      - source_inspection
+      - repository_snapshot
+    future_verification_hint: registry_cache_rebuild_and_topic_apply_do_not_enqueue_discovery_backscan
+  - id: inv.discovery.filtered_suppression
+    severity: error
+    statement: Filtered topic-literature pairs must not reopen because of digest rerun, metadata hash drift, or registry cache rebuild.
+    applies_to:
+      - topic_discovery
+      - literature_digest_apply
+      - registry_graph_cache_rebuild
+    evidence:
+      - repository_snapshot
+      - ui_snapshot
+    future_verification_hint: filtered_hint_remains_filtered_after_digest_rerun
+  - id: inv.discovery.best_effort_cap
+    severity: warning
+    statement: Apply-time discovery must be bounded and must not scan all topic-literature pairs except through explicit repair.
+    applies_to:
+      - literature_digest_apply
+      - discovery_repair
+    evidence:
+      - runbook
+      - job_progress
+    future_verification_hint: digest_apply_discovery_progress_total_equals_active_topic_count
+  - id: inv.progress.no_fake_percent
+    severity: error
+    statement: Determinate progress requires real current/total; otherwise use phase or indeterminate.
+    applies_to:
+      - synt_job_state
+      - statusbar
+      - job_popover
+    evidence:
+      - job_rows
+      - ui_snapshot
+    future_verification_hint: progress_percent_requires_total_count
+  - id: inv.review.item_not_override
+    severity: fatal
+    statement: A resolved review item alone is not a durable override unless a domain-local durable effect is recorded.
+    applies_to:
+      - review_actions
+      - saved_overrides
+      - rebuild_preservation
+    evidence:
+      - repository_transaction
+      - override_snapshot
+    future_verification_hint: durable_actions_create_domain_fact_or_saved_override
+  - id: inv.import.preview_first
+    severity: fatal
+    statement: File import must run preview before apply.
+    applies_to:
+      - import_export
+      - host_bridge
+      - workbench_import_ui
+    evidence:
+      - import_runbook
+      - ui_flow
+    future_verification_hint: apply_requires_preview_token_or_approval
+  - id: inv.tx.no_partial_domain_commit
+    severity: fatal
+    statement: A domain write transaction must not expose partially materialized facts.
+    applies_to:
+      - repository_transactions
+      - review_actions
+      - topic_apply
+    evidence:
+      - transaction_boundary_review
+      - integration_test
+    future_verification_hint: domain_fact_and_dirty_effects_commit_atomically
+  - id: inv.snapshot.consistent_read_epoch
+    severity: error
+    statement: A Workbench snapshot must represent one committed read epoch or explicitly retry.
+    applies_to:
+      - workbench_snapshot
+      - ui_model
+      - repository_read_model
+    evidence:
+      - snapshot_epoch_fields
+      - read_retry_policy
+    future_verification_hint: multi_table_snapshot_retries_when_epoch_changes
+  - id: inv.performance.bounded_hot_reads
+    severity: error
+    statement: Workbench, MCP, and Host Bridge hot reads must obey bounded query, pagination, and truncation contracts.
+    applies_to:
+      - workbench_snapshot
+      - mcp_read_api
+      - host_bridge_read_api
+      - debug_lists
+    evidence:
+      - performance_contract
+      - query_plan
+      - snapshot_limits
+    future_verification_hint: hot_read_returns_limit_metadata_and_does_not_materialize_unbounded_rows
+  - id: inv.persistence.corruption_no_silent_reset
+    severity: fatal
+    statement: SQLite runtime corruption must enter explicit recovery and must not silently reset, overwrite, or import legacy JSON.
+    applies_to:
+      - repository_initialization
+      - persistence_monitor
+      - prefs_reset
+      - debug_recovery
+    evidence:
+      - integrity_summary
+      - recovery_receipt
+      - user_confirmation
+    future_verification_hint: corrupted_db_initialization_yields_recovery_required_without_deleting_db
+  - id: inv.worker.stale_guard_required
+    severity: fatal
+    statement: Worker final commits must validate in-progress marker ownership and source/basis version.
+    applies_to:
+      - dirty_event_workers
+      - rebuild_workers
+      - graph_workers
+      - topic_workers
+    evidence:
+      - worker_commit_contract
+      - repository_transaction
+    future_verification_hint: stale_basis_or_stale_run_marker_commit_is_noop_or_rejected
+  - id: inv.review.stale_guard_required
+    severity: fatal
+    statement: Review actions must compare evidence/version before materializing effects; evidence hashes do not invalidate saved overrides during rebuild.
+    applies_to:
+      - review_actions
+      - saved_overrides
+    evidence:
+      - review_action_input
+      - repository_transaction
+    future_verification_hint: stale_review_action_returns_conflict_requires_attention
+  - id: inv.rebuild.no_partial_rebuild_visibility
+    severity: fatal
+    statement: Failed or incomplete rebuild runs must not become UI committed state.
+    applies_to:
+      - registry_graph_cache_rebuild
+      - citation_graph_rebuild
+      - workbench_snapshot
+    evidence:
+      - rebuild_status
+      - ui_snapshot
+    future_verification_hint: failed_rebuild_preserves_previous_committed_state
+  - id: inv.worker.running_recovered_on_startup
+    severity: error
+    statement: Dirty events/jobs left running by a previous Zotero/plugin session must be recovered on startup.
+    applies_to:
+      - dirty_event_queue
+      - job_progress
+      - statusbar_popover
+    evidence:
+      - startup_maintenance_result
+      - job_rows
+    future_verification_hint: previous_session_running_job_becomes_retryable_queued_or_superseded
+  - id: inv.apply.after_commit_failure_boundary
+    severity: error
+    statement: After-commit side-effect failure must not roll back already committed core facts.
+    applies_to:
+      - topic_apply
+      - proposal_ingestion
+      - freshness_baseline_update
+    evidence:
+      - apply_summary
+      - retryable_ingestion_job
+    future_verification_hint: core_topic_artifact_survives_concept_ingestion_failure

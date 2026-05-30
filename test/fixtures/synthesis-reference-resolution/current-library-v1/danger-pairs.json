@@ -1,0 +1,29 @@
+{
+  "pairs": [
+    {
+      "candidate_item_key": "KSM65VAD",
+      "candidate_title": "MOTR: end-to-end multiple-object tracking with transformer",
+      "expected": "not_auto_match",
+      "reference_title": "Transtrack: Multiple object tracking with transformer"
+    },
+    {
+      "candidate_item_key": "8WM66ZL3",
+      "candidate_title": "Segment Anything",
+      "expected": "not_auto_match",
+      "reference_title": "Fast Segment Anything"
+    },
+    {
+      "candidate_item_key": "29IBKEUR",
+      "candidate_title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+      "expected": "not_auto_match",
+      "reference_title": "Sparse R-CNN: End-to-end object detection with learnable proposals"
+    },
+    {
+      "candidate_item_key": "2KUGMFL2",
+      "candidate_title": "YOLACT: Real-time Instance Segmentation",
+      "expected": "not_auto_match",
+      "reference_title": "YOLACT++: Better real-time instance segmentation"
+    }
+  ],
+  "schema": "synthesis.reference_resolution_danger_pairs.v1"
+}

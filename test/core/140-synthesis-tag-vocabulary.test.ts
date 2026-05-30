@@ -2,13 +2,12 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  buildSynthesisKnowledgeGraphPaths,
-  readProjectionRegistryState,
-} from "../../src/modules/synthesis/foundation";
+import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
 import {
+  getRuntimePersistencePaths,
   readRuntimeTextFile,
   removeRuntimePath,
   runtimePathExists,
@@ -30,14 +29,17 @@ async function waitFor(predicate: () => Promise<boolean> | boolean) {
 }
 
 describe("Synthesis tag vocabulary", function () {
-  it("initializes canonical tag assets in an empty KG store", async function () {
+  it("initializes Tag Vocabulary runtime state in SQLite without canonical assets", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTagVocabularyService({ root });
 
     const snapshot = await service.loadTagVocabulary();
     const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
 
     assert.deepEqual(snapshot.entries, []);
+    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 0);
+    assert.equal(repository.countRows("synt_tag_protocol"), 1);
     for (const fileName of [
       "vocabulary.json",
       "aliases.json",
@@ -45,13 +47,13 @@ describe("Synthesis tag vocabulary", function () {
       "protocol.json",
       "manifest.json",
     ]) {
-      assert.isTrue(
+      assert.isFalse(
         await runtimePathExists(path.join(paths.tagsRoot, fileName)),
       );
     }
   });
 
-  it("writes, reads, validates, and exports canonical vocabulary", async function () {
+  it("writes, reads, validates, and exports active vocabulary from SQLite", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTagVocabularyService({
       root,
@@ -90,47 +92,84 @@ describe("Synthesis tag vocabulary", function () {
     ]);
     assert.deepEqual(snapshot.abbrev, { od: "OD" });
 
-    const canonical = JSON.parse(
-      await readRuntimeTextFile(
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 2);
+    assert.equal(repository.countRows("synt_tag_alias"), 1);
+    assert.equal(repository.countRows("synt_tag_abbrev"), 1);
+    assert.deepEqual(
+      repository.listTagVocabularyEntries().map((entry) => entry.tag),
+      ["field:object_detection", "status:deprecated_sample"],
+    );
+    assert.isFalse(
+      await runtimePathExists(
         path.join(
           buildSynthesisKnowledgeGraphPaths(root).tagsRoot,
           "vocabulary.json",
         ),
       ),
     );
-    assert.isArray(canonical.data.tags);
-    assert.isUndefined(canonical.data.entries);
-    assert.equal(canonical.data.version, "1.0.0");
-    assert.equal(canonical.data.tag_count, 2);
-    assert.deepEqual(canonical.data.abbrevs, { od: "OD" });
   });
 
-  it("emits one store event and marks tag-index stale for a vocabulary transaction", async function () {
+  it("exports TagVocab JSON only through an explicit checkpoint", async function () {
     const root = await makeRuntimeRoot();
-    const service = createSynthesisTagVocabularyService({ root });
-    await service.loadTagVocabulary();
+    const service = createSynthesisTagVocabularyService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const vocabularyPath = path.join(paths.tagsRoot, "vocabulary.json");
 
     await service.saveTagVocabulary({
-      transactionId: "tag-vocab-transaction",
-      entries: [{ tag: "method:transformer", facet: "method" }],
+      entries: [{ tag: "ai_task:NER", facet: "ai_task" }],
+      abbrev: { ner: "NER" },
     });
 
-    const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const events = (await readRuntimeTextFile(paths.eventsLog))
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-    assert.lengthOf(
-      events.filter(
-        (event) => event.transaction_id === "tag-vocab-transaction",
+    assert.isFalse(await runtimePathExists(vocabularyPath));
+
+    const checkpoint = await service.exportTagVocabularyCheckpoint({
+      transactionId: "tag-vocab-checkpoint",
+    });
+    const envelope = JSON.parse(await readRuntimeTextFile(vocabularyPath));
+
+    assert.equal(checkpoint.transactionId, "tag-vocab-checkpoint");
+    assert.equal(envelope.schema_id, "synthesis.tag_vocabulary");
+    assert.deepEqual(
+      envelope.data.tags.map(
+        (entry: { tag: string; facet: string }) => entry.tag,
       ),
-      1,
+      ["ai_task:NER"],
     );
-    const projection = await readProjectionRegistryState(root);
-    assert.isTrue(projection.projections["tag-index"].stale);
-    assert.equal(
-      projection.projections["tag-index"].last_transaction_id,
-      "tag-vocab-transaction",
+    assert.deepEqual(envelope.data.abbrevs, { ner: "NER" });
+    assert.isTrue(
+      await runtimePathExists(path.join(paths.tagsRoot, "manifest.json")),
+    );
+  });
+
+  it("stores validation warning state in SQLite for valid warning-only vocabulary", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTagVocabularyService({ root });
+
+    await service.saveTagVocabulary({
+      entries: [
+        {
+          tag: "topic:old",
+          facet: "topic",
+          deprecated: true,
+          replacement: "topic:new",
+        },
+      ],
+    });
+
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    assert.deepEqual(
+      repository.listTagValidationWarnings().map((entry) => entry.code),
+      ["missing_replacement"],
+    );
+    assert.deepEqual(
+      (await service.loadTagVocabulary()).validation_warnings.map(
+        (entry) => entry.code,
+      ),
+      ["missing_replacement"],
     );
   });
 
@@ -281,8 +320,9 @@ describe("Synthesis tag vocabulary", function () {
     }
   });
 
-  it("exposes import preview through service snapshots and applies explicit imports", async function () {
+  it("exposes import preview through service snapshots and applies explicit DB imports", async function () {
     const root = await makeRuntimeRoot();
+    const runtimePaths = getRuntimePersistencePaths(root);
     let syncRuns = 0;
     const service = createSynthesisService({
       root,
@@ -334,10 +374,11 @@ describe("Synthesis tag vocabulary", function () {
       tags.entries.map((entry) => entry.tag),
       "data:coco",
     );
-    await waitFor(() => syncRuns >= 1);
+    assert.equal(syncRuns, 0);
+    assert.isFalse(await runtimePathExists(runtimePaths.synthesisDataRoot));
   });
 
-  it("rebuilds tag-index projection from canonical state", async function () {
+  it("rebuilds tag-index projection from SQLite state", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTagVocabularyService({ root });
     await service.saveTagVocabulary({
@@ -354,7 +395,8 @@ describe("Synthesis tag vocabulary", function () {
     await removeRuntimePath(indexPath);
     assert.isFalse(await runtimePathExists(indexPath));
 
-    await service.rebuildTagIndexProjection();
-    assert.isTrue(await runtimePathExists(indexPath));
+    const computed = await service.readTagIndexProjection();
+    assert.include(computed.tags, "ai_task:tag_normalization");
+    assert.isFalse(await runtimePathExists(indexPath));
   });
 });

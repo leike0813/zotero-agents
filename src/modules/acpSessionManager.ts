@@ -1,9 +1,6 @@
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import {
-  ACP_BACKEND_TYPE,
-  ACP_OPENCODE_BACKEND_ID,
-} from "../config/defaults";
+import { ACP_BACKEND_TYPE, ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -123,9 +120,7 @@ function normalizeString(value: unknown) {
 }
 
 function compactError(error: unknown) {
-  return describeAcpError(error, "unknown error")
-    .replace(/\s+/g, " ")
-    .trim();
+  return describeAcpError(error, "unknown error").replace(/\s+/g, " ").trim();
 }
 
 function serializeRuntimeHost() {
@@ -165,7 +160,9 @@ function cloneSnapshotValue(value: AcpConversationSnapshot) {
     currentMode: cloneAcpSelectableOption(value.currentMode),
     modelOptions: value.modelOptions.map((entry) => ({ ...entry })),
     currentModel: cloneAcpSelectableOption(value.currentModel),
-    displayModelOptions: value.displayModelOptions.map((entry) => ({ ...entry })),
+    displayModelOptions: value.displayModelOptions.map((entry) => ({
+      ...entry,
+    })),
     currentDisplayModel: cloneAcpSelectableOption(value.currentDisplayModel),
     reasoningEffortOptions: value.reasoningEffortOptions.map((entry) => ({
       ...entry,
@@ -213,13 +210,13 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
     items: restored.items,
     updatedAt: restored.snapshot.updatedAt || nowIso(),
   };
-  if (!snapshot.conversationId) {
-    snapshot.conversationId = nextOpaqueId("acp-conversation");
-  }
-  if (!snapshot.conversationCreatedAt) {
+  if (snapshot.conversationId && !snapshot.conversationCreatedAt) {
     snapshot.conversationCreatedAt = nowIso();
   }
-  const paths = resolveAcpChatRuntimePaths(backendId, snapshot.conversationId);
+  const paths = resolveAcpChatRuntimePaths(
+    backendId,
+    snapshot.conversationId || undefined,
+  );
   snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
   snapshot.conversationStorageDir = paths.conversationStorageDir;
   snapshot.sessionCwd = paths.agentWorkspaceDir;
@@ -295,16 +292,20 @@ function getActiveSlot() {
 }
 
 function isActiveSlot(slot: AcpSessionSlot) {
-  return normalizeBackendId(slot.backendId) === normalizeBackendId(activeBackendId);
+  return (
+    normalizeBackendId(slot.backendId) === normalizeBackendId(activeBackendId)
+  );
 }
 
 function updateSnapshotTimestamp(slot: AcpSessionSlot) {
-  slot.snapshot.authMethodIds = slot.snapshot.authMethods.map((entry) => entry.id);
+  slot.snapshot.authMethodIds = slot.snapshot.authMethods.map(
+    (entry) => entry.id,
+  );
   slot.snapshot.updatedAt = nowIso();
 }
 
 function persistSlotSnapshotNow(slot: AcpSessionSlot) {
-  if (slot.snapshot.backendId) {
+  if (slot.snapshot.backendId && slot.snapshot.conversationId) {
     saveAcpConversationState(slot.snapshot);
   }
 }
@@ -408,7 +409,10 @@ async function resolveBackendForSlot(slot: AcpSessionSlot) {
   if (!backend) {
     throw new Error(`ACP backend "${slot.backendId}" is not available`);
   }
-  const paths = resolveAcpChatRuntimePaths(backend.id, slot.snapshot.conversationId);
+  const paths = resolveAcpChatRuntimePaths(
+    backend.id,
+    slot.snapshot.conversationId,
+  );
   slot.snapshot.backend = backend;
   slot.snapshot.backendId = backend.id;
   slot.snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
@@ -461,11 +465,14 @@ function appendErrorDiagnostic(args: {
   });
 }
 
-function upsertStatusItem(slot: AcpSessionSlot, args: {
-  level: "info" | "warn" | "error";
-  label: string;
-  text: string;
-}) {
+function upsertStatusItem(
+  slot: AcpSessionSlot,
+  args: {
+    level: "info" | "warn" | "error";
+    label: string;
+    text: string;
+  },
+) {
   const item: AcpConversationStatusItem = {
     id: nextOpaqueId("acp-status"),
     kind: "status",
@@ -504,7 +511,9 @@ function getLatestActiveThoughtItem(slot: AcpSessionSlot) {
 function normalizeToolCallState(
   status: unknown,
 ): AcpConversationToolCallItem["state"] {
-  const value = String(status || "").trim().toLowerCase();
+  const value = String(status || "")
+    .trim()
+    .toLowerCase();
   if (value === "pending" || value === "queued") {
     return "pending";
   }
@@ -633,8 +642,12 @@ function stringifyToolCallDetail(value: unknown): string {
 }
 
 function shortenToolCallSummary(value: string) {
-  const normalized = String(value || "").replace(/\s+/g, " ").trim();
-  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > 180
+    ? `${normalized.slice(0, 177)}...`
+    : normalized;
 }
 
 function firstNonGenericToolText(values: unknown[]) {
@@ -732,13 +745,19 @@ function upsertToolCallItem(
     });
     return;
   }
-  if (!isGenericToolDisplayText(title) || isGenericToolDisplayText(target.title)) {
+  if (
+    !isGenericToolDisplayText(title) ||
+    isGenericToolDisplayText(target.title)
+  ) {
     target.title = title || target.title;
   }
   if (toolKind) {
     target.toolKind = toolKind;
   }
-  if (!isGenericToolDisplayText(toolName) || isGenericToolDisplayText(target.toolName)) {
+  if (
+    !isGenericToolDisplayText(toolName) ||
+    isGenericToolDisplayText(target.toolName)
+  ) {
     target.toolName = toolName || target.toolName;
   }
   if (inputSummary && !target.inputSummary) {
@@ -824,11 +843,14 @@ function normalizeCachedSelectableOptions(
   }
   return value
     .map((entry) => {
-      const source = entry && typeof entry === "object"
-        ? entry as Record<string, unknown>
-        : {};
+      const source =
+        entry && typeof entry === "object"
+          ? (entry as Record<string, unknown>)
+          : {};
       const id = String(source.id || source.value || "").trim();
-      const label = String(source.label || source.name || source.title || id).trim();
+      const label = String(
+        source.label || source.name || source.title || id,
+      ).trim();
       const description = String(source.description || "").trim();
       return id && label
         ? {
@@ -855,7 +877,10 @@ function applyRuntimeOptionsCache(
     if (modeOptions.length > 0) {
       slot.snapshot.modeOptions = modeOptions;
       const currentModeId = String(
-        slot.snapshot.currentMode?.id || cache.currentModeId || modeOptions[0]?.id || "",
+        slot.snapshot.currentMode?.id ||
+          cache.currentModeId ||
+          modeOptions[0]?.id ||
+          "",
       ).trim();
       slot.snapshot.currentMode =
         modeOptions.find((entry) => entry.id === currentModeId) ||
@@ -885,23 +910,26 @@ function applyModeState(
   slot: AcpSessionSlot,
   value: {
     currentModeId?: string | null;
-    availableModes?: Array<{ id: string; name: string; description?: string | null }> | null;
+    availableModes?: Array<{
+      id: string;
+      name: string;
+      description?: string | null;
+    }> | null;
   },
 ) {
   const incomingModes = Array.isArray(value.availableModes)
     ? value.availableModes
-      .map((entry) =>
-        normalizeModeOption({
-          id: entry.id,
-          name: entry.name,
-          description: entry.description,
-        }),
-      )
-      .filter((entry) => entry.id && entry.label)
+        .map((entry) =>
+          normalizeModeOption({
+            id: entry.id,
+            name: entry.name,
+            description: entry.description,
+          }),
+        )
+        .filter((entry) => entry.id && entry.label)
     : [];
-  const availableModes = incomingModes.length > 0
-    ? incomingModes
-    : slot.snapshot.modeOptions;
+  const availableModes =
+    incomingModes.length > 0 ? incomingModes : slot.snapshot.modeOptions;
   slot.snapshot.modeOptions = availableModes;
   const currentModeId = String(
     value.currentModeId || slot.snapshot.currentMode?.id || "",
@@ -913,7 +941,7 @@ function applyModeState(
           id: currentModeId,
           label: currentModeId,
         }
-    : undefined);
+      : undefined);
 }
 
 const KNOWN_REASONING_EFFORT_ORDER = [
@@ -974,7 +1002,9 @@ function parseEffortFromModelText(value: string) {
   }
 
   const known = KNOWN_REASONING_EFFORT_ORDER.join("|");
-  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(text);
+  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(
+    text,
+  );
   if (bracketMatch && bracketMatch[1].trim()) {
     return {
       baseId: bracketMatch[1].trim(),
@@ -982,7 +1012,9 @@ function parseEffortFromModelText(value: string) {
     };
   }
 
-  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(text);
+  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(
+    text,
+  );
   if (dashMatch && dashMatch[1].trim()) {
     return {
       baseId: dashMatch[1].trim(),
@@ -993,8 +1025,11 @@ function parseEffortFromModelText(value: string) {
   return null;
 }
 
-function parseModelEffortVariant(option: AcpSelectableOption): ParsedModelEffort | null {
-  const parsed = parseEffortFromModelText(option.id) ||
+function parseModelEffortVariant(
+  option: AcpSelectableOption,
+): ParsedModelEffort | null {
+  const parsed =
+    parseEffortFromModelText(option.id) ||
     parseEffortFromModelText(option.label);
   if (!parsed) {
     return null;
@@ -1014,7 +1049,9 @@ function compareEffortIds(left: string, right: string) {
   const leftIndex = KNOWN_REASONING_EFFORT_ORDER.indexOf(left);
   const rightIndex = KNOWN_REASONING_EFFORT_ORDER.indexOf(right);
   if (leftIndex >= 0 || rightIndex >= 0) {
-    return (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999);
+    return (
+      (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999)
+    );
   }
   return left.localeCompare(right);
 }
@@ -1039,7 +1076,9 @@ function buildFoldedModelGroups(modelOptions: AcpSelectableOption[]) {
   }
 
   for (const [baseId, group] of Array.from(grouped.entries())) {
-    const uniqueEfforts = new Set(group.variants.map((entry) => entry.effortId));
+    const uniqueEfforts = new Set(
+      group.variants.map((entry) => entry.effortId),
+    );
     if (uniqueEfforts.size <= 1) {
       grouped.delete(baseId);
       continue;
@@ -1089,11 +1128,12 @@ function deriveModelEffortState(snapshot: AcpConversationSnapshot) {
       : null;
 
   if (activeGroup) {
-    snapshot.currentDisplayModel =
-      displayOptions.find((entry) => entry.id === activeGroup.baseId) || {
-        id: activeGroup.baseId,
-        label: activeGroup.baseLabel,
-      };
+    snapshot.currentDisplayModel = displayOptions.find(
+      (entry) => entry.id === activeGroup.baseId,
+    ) || {
+      id: activeGroup.baseId,
+      label: activeGroup.baseLabel,
+    };
     snapshot.reasoningEffortOptions = activeGroup.variants.map((entry) => ({
       id: entry.effortId,
       label: toTitleCase(entry.effortId),
@@ -1138,7 +1178,10 @@ function resolveRawModelIdForSelection(
       group.variants[0];
     return selected?.raw.id || displayId;
   }
-  return snapshot.modelOptions.find((entry) => entry.id === displayId)?.id || displayId;
+  return (
+    snapshot.modelOptions.find((entry) => entry.id === displayId)?.id ||
+    displayId
+  );
 }
 
 function applyModelState(
@@ -1154,16 +1197,15 @@ function applyModelState(
 ) {
   const incomingModels = Array.isArray(value.availableModels)
     ? value.availableModels
-      .map((entry) => ({
-        id: String(entry.modelId || "").trim(),
-        label: String(entry.name || entry.modelId || "").trim(),
-        description: String(entry.description || "").trim() || undefined,
-      }))
-      .filter((entry) => entry.id && entry.label)
+        .map((entry) => ({
+          id: String(entry.modelId || "").trim(),
+          label: String(entry.name || entry.modelId || "").trim(),
+          description: String(entry.description || "").trim() || undefined,
+        }))
+        .filter((entry) => entry.id && entry.label)
     : [];
-  const availableModels = incomingModels.length > 0
-    ? incomingModels
-    : slot.snapshot.modelOptions;
+  const availableModels =
+    incomingModels.length > 0 ? incomingModels : slot.snapshot.modelOptions;
   slot.snapshot.modelOptions = availableModels;
   const currentModelId = String(
     value.currentModelId || slot.snapshot.currentModel?.id || "",
@@ -1213,7 +1255,9 @@ function handleSessionUpdate(
   switch (String(update.sessionUpdate || "").trim()) {
     case "agent_message_chunk": {
       slot.snapshot.lastLifecycleEvent = "agent_message_chunk";
-      const content = update.content as { type?: string; text?: string } | undefined;
+      const content = update.content as
+        | { type?: string; text?: string }
+        | undefined;
       if (String(content?.type || "").trim() !== "text") {
         return;
       }
@@ -1242,7 +1286,9 @@ function handleSessionUpdate(
     }
     case "agent_thought_chunk": {
       slot.snapshot.lastLifecycleEvent = "agent_thought_chunk";
-      const content = update.content as { type?: string; text?: string } | undefined;
+      const content = update.content as
+        | { type?: string; text?: string }
+        | undefined;
       if (String(content?.type || "").trim() !== "text") {
         return;
       }
@@ -1463,7 +1509,17 @@ async function ensureAdapter(backendId?: string) {
   slot.snapshot.status = "checking-command";
   emitSlotSnapshot(slot);
   try {
-    await ensureRuntimeDirectory(slot.snapshot.agentWorkspaceDir || slot.snapshot.sessionCwd);
+    if (!slot.snapshot.conversationId) {
+      slot.snapshot = createNewLocalConversationSnapshot({
+        slot,
+        backend,
+        backendId: slot.backendId,
+      });
+      resetSlotTransientState(slot);
+    }
+    await ensureRuntimeDirectory(
+      slot.snapshot.agentWorkspaceDir || slot.snapshot.sessionCwd,
+    );
     await ensureRuntimeDirectory(slot.snapshot.conversationStorageDir);
     await ensureRuntimeDirectory(slot.snapshot.runtimeDir);
     const hostBridgeCliInjection = await materializeHostBridgeCliRunInjection({
@@ -1564,12 +1620,14 @@ function applyAttachedSessionResult(
 ) {
   slot.snapshot.sessionId = String(result.sessionId || "").trim();
   slot.snapshot.remoteSessionId =
-    slot.snapshot.sessionId || String(slot.snapshot.remoteSessionId || "").trim();
+    slot.snapshot.sessionId ||
+    String(slot.snapshot.remoteSessionId || "").trim();
   slot.snapshot.sessionTitle = String(result.sessionTitle || "").trim();
   slot.snapshot.sessionUpdatedAt = String(result.sessionUpdatedAt || "").trim();
   applyModeState(slot, result.modes || {});
   applyModelState(slot, result.models || {});
-  const backend = slot.snapshot.backend ||
+  const backend =
+    slot.snapshot.backend ||
     cachedAcpBackends.find((entry) => entry.id === slot.backendId);
   if (backend) {
     applyRuntimeOptionsCache(slot, backend);
@@ -1591,10 +1649,13 @@ async function ensureSession(backendId?: string) {
       slot.snapshot.remoteSessionRestoreMessage = `Resuming remote ACP session ${remoteSessionId}`;
       emitSlotSnapshot(slot);
       try {
-        const resumed = await adapter.resumeSession({ sessionId: remoteSessionId });
+        const resumed = await adapter.resumeSession({
+          sessionId: remoteSessionId,
+        });
         applyAttachedSessionResult(slot, resumed);
         slot.snapshot.remoteSessionRestoreStatus = "resumed";
-        slot.snapshot.remoteSessionRestoreMessage = "Remote ACP session resumed.";
+        slot.snapshot.remoteSessionRestoreMessage =
+          "Remote ACP session resumed.";
         emitSlotSnapshot(slot);
         return { slot, adapter };
       } catch (error) {
@@ -1616,11 +1677,14 @@ async function ensureSession(backendId?: string) {
       emitSlotSnapshot(slot);
       try {
         slot.suppressSessionLoadReplay = true;
-        const loaded = await adapter.loadSession({ sessionId: remoteSessionId });
+        const loaded = await adapter.loadSession({
+          sessionId: remoteSessionId,
+        });
         slot.suppressSessionLoadReplay = false;
         applyAttachedSessionResult(slot, loaded);
         slot.snapshot.remoteSessionRestoreStatus = "loaded";
-        slot.snapshot.remoteSessionRestoreMessage = "Remote ACP session loaded.";
+        slot.snapshot.remoteSessionRestoreMessage =
+          "Remote ACP session loaded.";
         emitSlotSnapshot(slot);
         return { slot, adapter };
       } catch (error) {
@@ -1652,9 +1716,14 @@ async function ensureSession(backendId?: string) {
   }
   try {
     const created = await adapter.newSession();
-    const previousRemoteSessionId = String(slot.snapshot.remoteSessionId || "").trim();
+    const previousRemoteSessionId = String(
+      slot.snapshot.remoteSessionId || "",
+    ).trim();
     applyAttachedSessionResult(slot, created);
-    if (previousRemoteSessionId && previousRemoteSessionId !== slot.snapshot.sessionId) {
+    if (
+      previousRemoteSessionId &&
+      previousRemoteSessionId !== slot.snapshot.sessionId
+    ) {
       slot.snapshot.remoteSessionRestoreStatus =
         slot.snapshot.remoteSessionRestoreStatus === "unsupported"
           ? "unsupported"
@@ -1668,7 +1737,8 @@ async function ensureSession(backendId?: string) {
         ts: nowIso(),
         kind: "session_new_fallback",
         level: "warn",
-        message: "Remote session could not be restored; continued with a new agent session.",
+        message:
+          "Remote session could not be restored; continued with a new agent session.",
         detail: `previous=${previousRemoteSessionId} new=${slot.snapshot.sessionId}`,
       });
       upsertStatusItem(slot, {
@@ -1686,7 +1756,9 @@ async function ensureSession(backendId?: string) {
     if (error instanceof AcpAuthRequiredError) {
       slot.snapshot.busy = false;
       slot.snapshot.status = "auth-required";
-      slot.snapshot.authMethods = error.authMethods.map((entry) => ({ ...entry }));
+      slot.snapshot.authMethods = error.authMethods.map((entry) => ({
+        ...entry,
+      }));
       slot.snapshot.lastError = error.message;
       emitSlotSnapshot(slot);
     } else {
@@ -1784,7 +1856,10 @@ function buildFrontendSnapshot(): AcpFrontendSnapshot {
     activeSnapshot,
     connectedCount: summaries.filter((entry) => entry.connected).length,
     errorCount: summaries.filter((entry) => entry.status === "error").length,
-    totalMessageCount: summaries.reduce((sum, entry) => sum + entry.messageCount, 0),
+    totalMessageCount: summaries.reduce(
+      (sum, entry) => sum + entry.messageCount,
+      0,
+    ),
     updatedAt: nowIso(),
   };
 }
@@ -1793,7 +1868,9 @@ export function getAcpFrontendSnapshot() {
   return buildFrontendSnapshot();
 }
 
-export function subscribeAcpFrontendSnapshots(listener: AcpFrontendSnapshotListener) {
+export function subscribeAcpFrontendSnapshots(
+  listener: AcpFrontendSnapshotListener,
+) {
   frontendListeners.add(listener);
   listener(getAcpFrontendSnapshot());
   return () => {
@@ -1803,10 +1880,14 @@ export function subscribeAcpFrontendSnapshots(listener: AcpFrontendSnapshotListe
 
 export function getAcpConversationSnapshot(backendId?: string) {
   ensureInitialized();
-  return cloneSnapshotValue(getOrCreateSlot(backendId || activeBackendId).snapshot);
+  return cloneSnapshotValue(
+    getOrCreateSlot(backendId || activeBackendId).snapshot,
+  );
 }
 
-export function subscribeAcpConversationSnapshots(listener: AcpSnapshotListener) {
+export function subscribeAcpConversationSnapshots(
+  listener: AcpSnapshotListener,
+) {
   listeners.add(listener);
   listener(getAcpConversationSnapshot());
   return () => {
@@ -1944,7 +2025,9 @@ export async function sendAcpConversationPrompt(args: {
   if (!message) {
     throw new Error("ACP message is required");
   }
-  const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  const { slot, adapter } = await ensureSession(
+    args.backendId || activeBackendId,
+  );
   if (!slot.snapshot.conversationId) {
     slot.snapshot.conversationId = nextOpaqueId("acp-conversation");
   }
@@ -1997,7 +2080,9 @@ export async function sendAcpConversationPrompt(args: {
     finalizeStreamingItems(slot, "error", "cancelled");
     if (error instanceof AcpAuthRequiredError) {
       slot.snapshot.status = "auth-required";
-      slot.snapshot.authMethods = error.authMethods.map((entry) => ({ ...entry }));
+      slot.snapshot.authMethods = error.authMethods.map((entry) => ({
+        ...entry,
+      }));
       slot.snapshot.lastError = error.message;
     } else {
       slot.snapshot.status = "error";
@@ -2010,7 +2095,9 @@ export async function sendAcpConversationPrompt(args: {
   }
 }
 
-export async function cancelAcpConversationPrompt(args?: { backendId?: string }) {
+export async function cancelAcpConversationPrompt(args?: {
+  backendId?: string;
+}) {
   ensureInitialized();
   const slot = getOrCreateSlot(args?.backendId || activeBackendId);
   if (!slot.adapter || !slot.snapshot.sessionId) {
@@ -2137,7 +2224,10 @@ export async function archiveAcpConversation(args: {
   await disconnectSlotAdapter(slot);
   resetSlotTransientState(slot);
   if (visibleSessions.length > 0) {
-    slot.snapshot = hydrateSnapshot(backendId, visibleSessions[0].conversationId);
+    slot.snapshot = hydrateSnapshot(
+      backendId,
+      visibleSessions[0].conversationId,
+    );
     saveAcpChatSessionIndex({
       backendId,
       activeConversationId: slot.snapshot.conversationId,
@@ -2154,16 +2244,28 @@ export async function archiveAcpConversation(args: {
     activeConversationId: "",
     sessions: updatedSessions,
   });
-  slot.snapshot = createNewLocalConversationSnapshot({
-    slot,
+  const paths = resolveAcpChatRuntimePaths(preservedBackendId);
+  slot.snapshot = {
+    ...createEmptyAcpConversationSnapshot(),
     backend: preservedBackend,
     backendId: preservedBackendId,
-  });
+    showDiagnostics: slot.snapshot.showDiagnostics,
+    statusExpanded: slot.snapshot.statusExpanded,
+    chatDisplayMode: slot.snapshot.chatDisplayMode,
+    agentWorkspaceDir: paths.agentWorkspaceDir,
+    conversationStorageDir: paths.conversationStorageDir,
+    sessionCwd: paths.agentWorkspaceDir,
+    workspaceDir: paths.agentWorkspaceDir,
+    runtimeDir: paths.runtimeDir,
+    updatedAt: nowIso(),
+  };
   resetSlotTransientState(slot);
   emitSlotSnapshot(slot);
 }
 
-export async function deleteActiveAcpConversation(args?: { backendId?: string }) {
+export async function deleteActiveAcpConversation(args?: {
+  backendId?: string;
+}) {
   ensureInitialized();
   const backendId = normalizeBackendId(args?.backendId || activeBackendId);
   const slot = getOrCreateSlot(backendId);
@@ -2188,15 +2290,11 @@ export async function deleteActiveAcpConversation(args?: { backendId?: string })
   }
   const preservedBackend = slot.snapshot.backend;
   const preservedBackendId = slot.snapshot.backendId || slot.backendId;
-  const conversationId = nextOpaqueId("acp-conversation");
-  const paths = resolveAcpChatRuntimePaths(preservedBackendId, conversationId);
+  const paths = resolveAcpChatRuntimePaths(preservedBackendId);
   slot.snapshot = {
     ...createEmptyAcpConversationSnapshot(),
     backend: preservedBackend,
     backendId: preservedBackendId,
-    conversationId,
-    conversationTitle: "New Conversation",
-    conversationCreatedAt: nowIso(),
     agentWorkspaceDir: paths.agentWorkspaceDir,
     conversationStorageDir: paths.conversationStorageDir,
     sessionCwd: paths.agentWorkspaceDir,
@@ -2230,7 +2328,9 @@ export async function authenticateAcpConversation(args: {
   ensureInitialized();
   const slot = getOrCreateSlot(args.backendId || activeBackendId);
   const methodId =
-    String(args.methodId || "").trim() || slot.snapshot.authMethods[0]?.id || "";
+    String(args.methodId || "").trim() ||
+    slot.snapshot.authMethods[0]?.id ||
+    "";
   if (!methodId) {
     throw new Error("ACP authentication method is required");
   }
@@ -2280,7 +2380,9 @@ export async function setAcpConversationMode(args: {
   if (!modeId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  const { slot, adapter } = await ensureSession(
+    args.backendId || activeBackendId,
+  );
   await adapter.setMode({ sessionId: slot.snapshot.sessionId, modeId });
   applyModeState(slot, { currentModeId: modeId });
   emitSlotSnapshot(slot);
@@ -2295,7 +2397,9 @@ export async function setAcpConversationModel(args: {
   if (!modelId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  const { slot, adapter } = await ensureSession(
+    args.backendId || activeBackendId,
+  );
   if (slot.snapshot.busy === true) {
     throw new Error("Cannot change ACP model while a prompt is running.");
   }
@@ -2304,7 +2408,10 @@ export async function setAcpConversationModel(args: {
     modelId,
     slot.snapshot.currentReasoningEffort?.id,
   );
-  await adapter.setModel({ sessionId: slot.snapshot.sessionId, modelId: rawModelId });
+  await adapter.setModel({
+    sessionId: slot.snapshot.sessionId,
+    modelId: rawModelId,
+  });
   applyModelState(slot, { currentModelId: rawModelId });
   emitSlotSnapshot(slot);
 }
@@ -2318,9 +2425,13 @@ export async function setAcpConversationReasoningEffort(args: {
   if (!effortId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(args.backendId || activeBackendId);
+  const { slot, adapter } = await ensureSession(
+    args.backendId || activeBackendId,
+  );
   if (slot.snapshot.busy === true) {
-    throw new Error("Cannot change ACP reasoning effort while a prompt is running.");
+    throw new Error(
+      "Cannot change ACP reasoning effort while a prompt is running.",
+    );
   }
   const displayModelId =
     String(slot.snapshot.currentDisplayModel?.id || "").trim() ||
@@ -2333,7 +2444,10 @@ export async function setAcpConversationReasoningEffort(args: {
     displayModelId,
     effortId,
   );
-  await adapter.setModel({ sessionId: slot.snapshot.sessionId, modelId: rawModelId });
+  await adapter.setModel({
+    sessionId: slot.snapshot.sessionId,
+    modelId: rawModelId,
+  });
   applyModelState(slot, { currentModelId: rawModelId });
   emitSlotSnapshot(slot);
 }
@@ -2345,7 +2459,9 @@ export function toggleAcpConversationDiagnostics(args?: {
   ensureInitialized();
   const slot = getOrCreateSlot(args?.backendId || activeBackendId);
   slot.snapshot.showDiagnostics =
-    typeof args?.visible === "boolean" ? args.visible : !slot.snapshot.showDiagnostics;
+    typeof args?.visible === "boolean"
+      ? args.visible
+      : !slot.snapshot.showDiagnostics;
   emitSlotSnapshot(slot);
 }
 
@@ -2372,7 +2488,9 @@ export function toggleAcpConversationStatusDetails(args?: {
   emitSlotSnapshot(slot);
 }
 
-export function buildAcpDiagnosticsBundle(backendId?: string): AcpDiagnosticsBundle {
+export function buildAcpDiagnosticsBundle(
+  backendId?: string,
+): AcpDiagnosticsBundle {
   ensureInitialized();
   const slot = getOrCreateSlot(backendId || activeBackendId);
   const snapshot = slot.snapshot;
@@ -2416,7 +2534,9 @@ export function buildAcpDiagnosticsBundle(backendId?: string): AcpDiagnosticsBun
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),
     diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })),
-    recentItems: snapshot.items.slice(-12).map((entry) => cloneAcpConversationItem(entry)),
+    recentItems: snapshot.items
+      .slice(-12)
+      .map((entry) => cloneAcpConversationItem(entry)),
     lastHostContext: snapshot.lastHostContext
       ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
       : null,

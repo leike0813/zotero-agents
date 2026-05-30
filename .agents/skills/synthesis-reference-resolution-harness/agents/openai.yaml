@@ -1,0 +1,4 @@
+interface:
+  display_name: "Synthesis Reference Resolution Harness"
+  short_description: "Benchmark and tune synthesis reference matching"
+  default_prompt: "Use $synthesis-reference-resolution-harness to rebuild a reference-resolution fixture, gold labels, and experiment report."

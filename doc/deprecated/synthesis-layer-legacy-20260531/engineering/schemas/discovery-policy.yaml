@@ -1,0 +1,112 @@
+schema: synthesis.engineering.discovery_policy.v1
+policy_id: discovery.apply_time_token_overlap.v1
+description: >
+  Default apply-time Topic Discovery scoring policy. This policy is not part of
+  the persisted metadata contract; it can be versioned and tuned independently
+  with fixture-based evaluation.
+
+scope:
+  trigger: literature_digest_apply
+  normal_path_complexity: "O(T) per applied literature item"
+  repair_path_complexity: "O(T * N) only for explicit debug/maintenance repair"
+  forbidden_triggers:
+    - workbench_read
+    - registry_cache_rebuild
+    - citation_graph_rebuild
+    - metadata_hash_drift
+    - filtered_hint_rerun
+
+normalization:
+  unicode: NFKC
+  lowercase: true
+  punctuation: strip
+  hyphen_policy: strip_and_preserve_phrase_boundary
+  min_token_length: 3
+  stopwords:
+    global:
+      - model
+      - method
+      - methods
+      - learning
+      - analysis
+      - approach
+      - system
+      - framework
+      - study
+    domain_extensions_allowed: true
+    user_extensions_allowed: true
+
+fields:
+  topic:
+    required: must_have_terms
+    include: include_terms
+    methods: methods
+    exclude: exclude_terms
+    seed: seed_literature_item_ids
+  literature:
+    terms: key_terms
+    methods: methods
+    problems: problems
+    datasets: datasets
+    weak_text: title_tags
+    exclude: exclude_terms
+
+hard_rejects:
+  - id: topic_exclude_hits_literature
+    rule: "T_exclude hits L_terms/L_methods/L_problems/L_datasets/L_title_tags"
+  - id: literature_exclude_hits_topic
+    rule: "L_exclude hits T_required/T_include/T_methods"
+  - id: required_terms_absent
+    rule: >
+      T_required is non-empty and no required term hits and no method hits and
+      the literature item is not a seed.
+
+weights:
+  must: 2.0
+  include: 1.5
+  method: 1.2
+  weak: 0.8
+
+caps:
+  required_terms: 3
+  include_terms: 8
+  method_terms: 4
+  weak_terms: 8
+
+active_weight_sum:
+  formula: >
+    (T_required non-empty ? must : 0) +
+    (T_include non-empty ? include : 0) +
+    (T_methods non-empty ? method : 0) +
+    (weak_component_active ? weak : 0)
+  weak_component_active: >
+    (T_include or T_methods non-empty) and weak component enabled and the
+    literature item has comparable dataset/title/tag fields.
+  examples:
+    only_include_no_weak_fields: 1.5
+    only_include_with_weak_fields: 2.3
+    must_include_method_with_weak_fields: 5.5
+
+thresholds:
+  min_open_score: 0.25
+  seed_min_score: 0.8
+
+limits:
+  top_per_literature: 5
+  top_per_topic_ui: 20
+  explanation_reasons: 3
+
+user_override_policy:
+  filtered_suppression_default: true
+  filtered_reopen_conditions:
+    - explicit_unfilter
+    - reset_filtered_hints
+    - topic_update_explicit_clear_history
+    - debug_repair_force
+
+evaluation:
+  required_before_policy_change:
+    - fixture_or_review_sample
+    - noise_rate_summary
+    - top_k_candidate_quality
+    - filtered_reopen_regression

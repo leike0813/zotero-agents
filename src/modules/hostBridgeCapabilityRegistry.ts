@@ -1,5 +1,13 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
 import { registerHostBridgeFileHandle } from "./hostBridgeFileRegistry";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  getRuntimePersistencePaths,
+  scanRuntimePersistenceUsage,
+} from "./runtimePersistence";
+import { scanPersistenceIntegrity } from "./persistenceIntegrity";
+import { listActiveWorkflowTasks, listWorkflowTasks } from "./taskRuntime";
+import { listAcpSkillRuns } from "./acpSkillRunStore";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
@@ -125,6 +133,167 @@ function capability(
   };
 }
 
+function assertDebugModeEnabled() {
+  if (!isDebugModeEnabled()) {
+    throw new Error("Host Bridge debug capabilities are disabled");
+  }
+}
+
+function debugCapability(
+  name: string,
+  summary: string,
+  handler: HostBridgeCapabilityHandler,
+): HostBridgeCapabilityDefinition {
+  return capability(
+    name,
+    "debug",
+    summary,
+    { type: "object", required: false },
+    async (input, context) => {
+      assertDebugModeEnabled();
+      return handler(input, context);
+    },
+  );
+}
+
+function debugLimit(input: Record<string, unknown>, fallback = 100) {
+  return Math.max(
+    1,
+    Math.min(
+      1000,
+      Math.floor(Number(input.limit ?? input.maxRows ?? fallback) || fallback),
+    ),
+  );
+}
+
+function debugEnvelope(
+  schema: string,
+  input: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  return {
+    schema,
+    debugMode: true,
+    generatedAt: new Date().toISOString(),
+    truncated: Boolean(payload.truncated),
+    limits: {
+      limit: debugLimit(input),
+      includeLocalPaths: input.includeLocalPaths === true,
+      includeRawRows: input.includeRawRows === true,
+    },
+    diagnostics: Array.isArray(payload.diagnostics) ? payload.diagnostics : [],
+    ...payload,
+  };
+}
+
+function redactLocalPaths(value: unknown, includeLocalPaths: boolean): unknown {
+  if (includeLocalPaths) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactLocalPaths(entry, includeLocalPaths));
+  }
+  if (!isPlainObject(value)) {
+    return value;
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key.toLowerCase().includes("path") || key === "root") {
+      output[key] = entry ? "[redacted-path]" : entry;
+      continue;
+    }
+    output[key] = redactLocalPaths(entry, includeLocalPaths);
+  }
+  return output;
+}
+
+function summarizeRun(run: Record<string, unknown>) {
+  return {
+    requestId: run.requestId,
+    runId: run.runId,
+    workflowId: run.workflowId,
+    backendId: run.backendId,
+    status: run.status,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    error: run.error,
+  };
+}
+
+async function debugStatus(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const object = asObject(input);
+  const tasks = listWorkflowTasks();
+  const activeTasks = listActiveWorkflowTasks();
+  const runs = listAcpSkillRuns();
+  return debugEnvelope("host_bridge.debug.status.v1", object, {
+    hostBridge: context.getStatus(),
+    capabilityCounts: {
+      total: listHostBridgeCapabilities().length,
+      debug: listHostBridgeCapabilities().filter((entry) =>
+        entry.name.startsWith("debug."),
+      ).length,
+    },
+    runtimePersistence: redactLocalPaths(
+      getRuntimePersistencePaths(),
+      object.includeLocalPaths === true,
+    ),
+    tasks: {
+      total: tasks.length,
+      active: activeTasks.length,
+      recent: tasks.slice(0, debugLimit(object, 20)),
+    },
+    acpSkillRuns: {
+      total: runs.length,
+      active: runs.filter(
+        (run) =>
+          run.status !== "succeeded" &&
+          run.status !== "failed" &&
+          run.status !== "canceled",
+      ).length,
+      recent: runs.slice(0, debugLimit(object, 20)).map(summarizeRun),
+    },
+    truncated:
+      tasks.length > debugLimit(object, 20) ||
+      runs.length > debugLimit(object, 20),
+  });
+}
+
+async function debugPersistenceSnapshot(input: unknown) {
+  const object = asObject(input);
+  const [usage, integrity] = await Promise.all([
+    scanRuntimePersistenceUsage(),
+    scanPersistenceIntegrity(),
+  ]);
+  return debugEnvelope("host_bridge.debug.persistence.snapshot.v1", object, {
+    usage: redactLocalPaths(usage, object.includeLocalPaths === true),
+    integrity: redactLocalPaths(integrity, object.includeLocalPaths === true),
+    truncated: false,
+  });
+}
+
+async function debugTasksSnapshot(input: unknown) {
+  const object = asObject(input);
+  const limit = debugLimit(object);
+  const tasks = listWorkflowTasks();
+  const activeTasks = listActiveWorkflowTasks();
+  const runs = listAcpSkillRuns();
+  return debugEnvelope("host_bridge.debug.tasks.snapshot.v1", object, {
+    tasks: tasks.slice(0, limit),
+    activeTasks: activeTasks.slice(0, limit),
+    acpSkillRuns: runs.slice(0, limit).map(summarizeRun),
+    totals: {
+      tasks: tasks.length,
+      activeTasks: activeTasks.length,
+      acpSkillRuns: runs.length,
+    },
+    truncated:
+      tasks.length > limit || activeTasks.length > limit || runs.length > limit,
+  });
+}
+
 function synthesisCapability(
   name: string,
   summary: string,
@@ -147,6 +316,18 @@ function synthesisCapability(
       return method(asObject(input));
     },
   );
+}
+
+async function callSynthesisDebugService(methodName: string, input: unknown) {
+  const service = getDefaultSynthesisService() as unknown as Record<
+    string,
+    unknown
+  >;
+  const method = service[methodName];
+  if (typeof method !== "function") {
+    throw new Error(`Synthesis debug method is unavailable: ${methodName}`);
+  }
+  return method(asObject(input));
 }
 
 const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
@@ -275,6 +456,113 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     { type: "none", required: false },
     (_input, context) => context.getStatus(),
   ),
+  debugCapability(
+    "debug.status",
+    "Return a debug-only Host Bridge and runtime status snapshot.",
+    debugStatus,
+  ),
+  debugCapability(
+    "debug.persistence.snapshot",
+    "Return a debug-only runtime persistence usage and integrity snapshot.",
+    debugPersistenceSnapshot,
+  ),
+  debugCapability(
+    "debug.tasks.snapshot",
+    "Return debug-only workflow task and ACP run diagnostics.",
+    debugTasksSnapshot,
+  ),
+  debugCapability(
+    "debug.synthesis.snapshot",
+    "Return a debug-only Synthesis queue, job, table-count, and UI snapshot.",
+    (input) => callSynthesisDebugService("debugSynthesisSnapshot", input),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.list",
+    "List debug-only Synthesis dirty queue events.",
+    (input) => callSynthesisDebugService("debugSynthesisQueueList", input),
+  ),
+  debugCapability(
+    "debug.synthesis.jobs.list",
+    "List debug-only Synthesis job progress rows.",
+    (input) => callSynthesisDebugService("debugSynthesisJobsList", input),
+  ),
+  debugCapability(
+    "debug.synthesis.paper.inspect",
+    "Inspect one paper across Zotero payloads and Synthesis repository caches.",
+    (input) => callSynthesisDebugService("debugSynthesisPaperInspect", input),
+  ),
+  debugCapability(
+    "debug.synthesis.topic.inspect",
+    "Inspect one topic across artifacts, graph, freshness, and discovery state.",
+    (input) => callSynthesisDebugService("debugSynthesisTopicInspect", input),
+  ),
+  debugCapability(
+    "debug.synthesis.diff",
+    "Compare Zotero payload availability against Synthesis repository caches.",
+    (input) => callSynthesisDebugService("debugSynthesisDiff", input),
+  ),
+  debugCapability(
+    "debug.synthesis.worker.run",
+    "Run one debug Synthesis worker and return before/after diagnostics.",
+    (input) => callSynthesisDebugService("debugSynthesisWorkerRun", input),
+  ),
+  debugCapability(
+    "debug.synthesis.maintenance.run",
+    "Run one debug Synthesis maintenance pass and return before/after diagnostics.",
+    (input) => callSynthesisDebugService("debugSynthesisMaintenanceRun", input),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.enqueue",
+    "Enqueue one debug Synthesis dirty event.",
+    (input) =>
+      callSynthesisDebugService("debugSynthesisQueueControl", {
+        ...asObject(input),
+        action: "enqueue",
+      }),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.retry",
+    "Retry retryable Synthesis debug queue failures now.",
+    (input) =>
+      callSynthesisDebugService("debugSynthesisQueueControl", {
+        ...asObject(input),
+        action: "retry",
+      }),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.pause",
+    "Pause the Synthesis debug update queue.",
+    (input) =>
+      callSynthesisDebugService("debugSynthesisQueueControl", {
+        ...asObject(input),
+        action: "pause",
+      }),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.resume",
+    "Resume the Synthesis debug update queue.",
+    (input) =>
+      callSynthesisDebugService("debugSynthesisQueueControl", {
+        ...asObject(input),
+        action: "resume",
+      }),
+  ),
+  debugCapability(
+    "debug.synthesis.jobs.clearStale",
+    "Mark stale running Synthesis job progress rows as retryable failures.",
+    (input) => callSynthesisDebugService("debugSynthesisJobsClearStale", input),
+  ),
+  debugCapability(
+    "debug.synthesis.queue.clear",
+    "Dangerous debug operation: clear Synthesis dirty queue state.",
+    (input) => callSynthesisDebugService("debugSynthesisQueueClear", input),
+  ),
+  debugCapability(
+    "debug.synthesis.cleanInstallReset",
+    "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
+    (input) =>
+      callSynthesisDebugService("debugSynthesisCleanInstallReset", input),
+  ),
   synthesisCapability(
     "synthesis.list_topics",
     "List Zotero Synthesis Layer topics for duplicate checks and topic selection.",
@@ -352,7 +640,9 @@ const CAPABILITY_BY_NAME = new Map(
 );
 
 export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[] {
-  return CAPABILITIES.map(({ handler: _handler, ...entry }) => ({
+  return CAPABILITIES.filter(
+    (entry) => entry.category !== "debug" || isDebugModeEnabled(),
+  ).map(({ handler: _handler, ...entry }) => ({
     ...entry,
   }));
 }
@@ -360,7 +650,11 @@ export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[
 export function getHostBridgeCapability(
   name: string,
 ): HostBridgeCapabilityDefinition | null {
-  return CAPABILITY_BY_NAME.get(name) || null;
+  const capability = CAPABILITY_BY_NAME.get(name) || null;
+  if (capability?.category === "debug" && !isDebugModeEnabled()) {
+    return null;
+  }
+  return capability;
 }
 
 export function getHostBridgeCapabilityApproval(

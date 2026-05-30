@@ -152,7 +152,7 @@ describe("Synthesis Paper Registry", function () {
   it("plans a dedicated local SQLite database path", function () {
     assert.match(
       buildSynthesisLayerDbPath("C:/runtime").replace(/\\/g, "/"),
-      /C:\/runtime\/state\/synthesis-layer\.db$/,
+      /C:\/runtime\/state\/zotero-agents\.db$/,
     );
   });
 });

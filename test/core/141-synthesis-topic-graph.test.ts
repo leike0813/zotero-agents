@@ -2,15 +2,13 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  buildSynthesisKnowledgeGraphPaths,
-  readProjectionRegistryState,
-} from "../../src/modules/synthesis/foundation";
+import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
 import {
   createSynthesisTopicGraphService,
   deterministicTopicGraphEdgeId,
 } from "../../src/modules/synthesis/topicGraph";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   readRuntimeTextFile,
   removeRuntimePath,
@@ -22,32 +20,30 @@ async function makeRuntimeRoot() {
 }
 
 describe("Synthesis topic graph", function () {
-  it("initializes canonical topic graph assets in an empty KG store", async function () {
+  it("initializes topic graph runtime state in SQLite without canonical graph assets", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTopicGraphService({ root });
 
     const snapshot = await service.loadTopicGraph();
     const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
 
     assert.deepEqual(snapshot.nodes, []);
     assert.deepEqual(snapshot.edges, []);
-    assert.isTrue(
-      await runtimePathExists(path.join(paths.topicGraphRoot, "topics")),
-    );
-    assert.isTrue(
-      await runtimePathExists(path.join(paths.topicGraphRoot, "edges")),
-    );
-    assert.isTrue(
+    assert.equal(repository.countRows("synt_topic_graph_node"), 0);
+    assert.equal(repository.countRows("synt_topic_graph_edge"), 0);
+    assert.isFalse(
       await runtimePathExists(path.join(paths.topicGraphRoot, "manifest.json")),
     );
   });
 
-  it("writes nodes and edges with deterministic ids and marks projection stale", async function () {
+  it("writes nodes and edges with deterministic ids into SQLite", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTopicGraphService({
       root,
       now: () => "2026-05-24T00:00:00.000Z",
     });
+    const repository = createSynthesisRepository({ runtimeRoot: root });
     const edgeId = deterministicTopicGraphEdgeId({
       relation: "related_to",
       sourceTopicId: "topic-z",
@@ -77,12 +73,43 @@ describe("Synthesis topic graph", function () {
     );
     assert.equal(snapshot.edges[0]?.edge_id, edgeId);
     assert.equal(edgeId, "edge:related_to:topic-a:topic-z");
+    assert.equal(repository.countRows("synt_topic_graph_node"), 2);
+    assert.equal(repository.countRows("synt_topic_graph_edge"), 1);
+  });
 
-    const registry = await readProjectionRegistryState(root);
-    assert.isTrue(registry.projections["topic-graph-index"].stale);
-    assert.equal(
-      registry.projections["topic-graph-index"].last_transaction_id,
-      "topic-graph-write",
+  it("exports topic graph JSON only through an explicit checkpoint", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const manifestPath = path.join(paths.topicGraphRoot, "manifest.json");
+
+    await service.saveTopicGraph({
+      nodes: [
+        { topic_id: "topic-a", title: "Alpha", node_type: "materialized" },
+      ],
+      edges: [],
+    });
+
+    assert.isFalse(await runtimePathExists(manifestPath));
+
+    const checkpoint = await service.exportTopicGraphCheckpoint({
+      transactionId: "topic-graph-checkpoint",
+    });
+    const manifest = JSON.parse(await readRuntimeTextFile(manifestPath));
+
+    assert.equal(checkpoint.transactionId, "topic-graph-checkpoint");
+    assert.equal(manifest.schema_id, "synthesis.topic_graph_manifest");
+    assert.equal(manifest.data.node_count, 1);
+    assert.includeMembers(checkpoint.receipt.changed_assets, [
+      "topic-graph/manifest.json",
+    ]);
+    assert.isTrue(
+      checkpoint.receipt.changed_assets.some((asset) =>
+        asset.startsWith("topic-graph/nodes/topic_"),
+      ),
     );
   });
 
@@ -262,9 +289,6 @@ describe("Synthesis topic graph", function () {
     assert.deepEqual(acceptedEdge?.provenance, [{ source: "agent" }]);
     assert.deepEqual(acceptedEdge?.evidence_refs, [{ section: "taxonomy" }]);
     assert.equal(rejectedEdge?.status, "rejected");
-
-    const registry = await readProjectionRegistryState(root);
-    assert.isTrue(registry.projections["topic-graph-index"].stale);
 
     const preserved = await graph.ingestRelationProposals({
       sourceTopicId: "topic-a",

@@ -27,9 +27,7 @@ import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCode
 
 function parseNoteKind(noteContent: string) {
   const text = String(noteContent || "");
-  const match = text.match(
-    /data-zs-note-kind=(["'])([^"']+)\1/i,
-  );
+  const match = text.match(/data-zs-note-kind=(["'])([^"']+)\1/i);
   if (match) {
     return match[2];
   }
@@ -114,7 +112,10 @@ async function parseStoredPayloadEntryPath(
   return String(payload.entry || payload.path || "").trim();
 }
 
-async function assertStoredPayloadExists(note: Zotero.Item, payloadType: string) {
+async function assertStoredPayloadExists(
+  note: Zotero.Item,
+  payloadType: string,
+) {
   assert.isOk(await parseStoredPayload(note, payloadType));
 }
 
@@ -492,6 +493,94 @@ describe("workflow: literature-digest", function () {
     assert.include(parentNotes, firstNote.id);
     assert.include(parentNotes, secondNote.id);
     assert.include(parentNotes, thirdNote.id);
+  });
+
+  it("stores literature matching metadata as a hidden digest note payload", async function () {
+    this.timeout(5000);
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Matching Metadata Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+    const baseHostApi = createWorkflowHostApi();
+    const recordedEvents: Array<{ eventType?: string }> = [];
+    const matchingMetadata = {
+      schema: "literature_matching_metadata.v1",
+      key_terms: ["set prediction", "object query"],
+      methods: ["Hungarian matching"],
+      problems: ["object detection"],
+      datasets: ["COCO"],
+      exclude_terms: ["speech recognition"],
+    };
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+                literature_matching_metadata_path:
+                  "artifacts/literature_matching_metadata.json",
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nBody";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return "[]";
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          if (entryPath === "artifacts/literature_matching_metadata.json") {
+            return JSON.stringify(matchingMetadata);
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+      request: {
+        parameter: {
+          auto_reference_matching: false,
+        },
+      },
+      runtime: {
+        hostApi: {
+          ...baseHostApi,
+          synthesis: {
+            async recordSynthesisUpdateEvent(event: { eventType?: string }) {
+              recordedEvents.push(event);
+            },
+          },
+        } as any,
+      },
+    })) as {
+      notes: Zotero.Item[];
+      literature_matching_metadata?: { status?: string };
+    };
+
+    assert.lengthOf(applied.notes, 3);
+    assert.equal(applied.literature_matching_metadata?.status, "attached");
+    const digestNote = Zotero.Items.get(applied.notes[0].id)!;
+    assert.deepEqual(
+      await parseStoredPayload(digestNote, "literature-matching-metadata-json"),
+      matchingMetadata,
+    );
+    assert.equal(String(parent.getField("extra") || ""), "");
+    assert.includeMembers(
+      recordedEvents.map((entry) => entry.eventType),
+      [
+        "digest_applied",
+        "paper_artifact_changed",
+        "literature_matching_metadata_changed",
+      ],
+    );
   });
 
   itNodeOnly(
@@ -970,7 +1059,10 @@ describe("workflow: literature-digest", function () {
       );
       await assertStoredPayloadExists(digestNote, "digest-markdown");
       await assertStoredPayloadExists(referencesNote, "references-json");
-      await assertStoredPayloadExists(citationAnalysisNote, "citation-analysis-json");
+      await assertStoredPayloadExists(
+        citationAnalysisNote,
+        "citation-analysis-json",
+      );
     },
   );
 
@@ -1018,7 +1110,10 @@ describe("workflow: literature-digest", function () {
       );
       await assertStoredPayloadExists(digestNote, "digest-markdown");
       await assertStoredPayloadExists(referencesNote, "references-json");
-      await assertStoredPayloadExists(citationAnalysisNote, "citation-analysis-json");
+      await assertStoredPayloadExists(
+        citationAnalysisNote,
+        "citation-analysis-json",
+      );
     },
   );
 
@@ -1138,8 +1233,14 @@ describe("workflow: literature-digest", function () {
         assert.equal(applied.representative_image?.status, "embedded");
         assert.equal(applied.representative_image?.attachmentKey, "IMGREP1");
         assert.equal(applied.representative_image?.compressedBytes, 120 * 1024);
-        assert.notInclude(digestNote.getNote(), 'data-zs-block="representative-image"');
-        assert.notInclude(digestNote.getNote(), 'data-zs-payload="digest-markdown"');
+        assert.notInclude(
+          digestNote.getNote(),
+          'data-zs-block="representative-image"',
+        );
+        assert.notInclude(
+          digestNote.getNote(),
+          'data-zs-payload="digest-markdown"',
+        );
         assert.include(digestNote.getNote(), 'data-attachment-key="IMGREP1"');
         await assertStoredPayloadExists(digestNote, "digest-markdown");
         const logEntry = representativeLogs.find(
@@ -1244,9 +1345,18 @@ describe("workflow: literature-digest", function () {
                 ...baseHostApi.notes,
                 async update(note: Zotero.Item, patch: { content: string }) {
                   if (realDigestNote && note.id === realDigestNote.id) {
-                    assert.notInclude(patch.content, 'data-zs-payload="digest-markdown"');
-                    assert.notInclude(patch.content, 'data-zs-block="representative-image"');
-                    assert.include(patch.content, 'data-attachment-key="IMGSTALE1"');
+                    assert.notInclude(
+                      patch.content,
+                      'data-zs-payload="digest-markdown"',
+                    );
+                    assert.notInclude(
+                      patch.content,
+                      'data-zs-block="representative-image"',
+                    );
+                    assert.include(
+                      patch.content,
+                      'data-attachment-key="IMGSTALE1"',
+                    );
                     return baseHostApi.notes.update(realDigestNote, patch);
                   }
                   return baseHostApi.notes.update(note, patch);
@@ -1277,7 +1387,10 @@ describe("workflow: literature-digest", function () {
         assert.isOk(realDigestNote);
         const digestNote = Zotero.Items.get(realDigestNote!.id)!;
         await assertStoredPayloadExists(digestNote, "digest-markdown");
-        assert.notInclude(digestNote.getNote(), 'data-zs-block="representative-image"');
+        assert.notInclude(
+          digestNote.getNote(),
+          'data-zs-block="representative-image"',
+        );
         assert.include(digestNote.getNote(), 'data-attachment-key="IMGSTALE1"');
         assert.equal(applied.notes[0].id, digestNote.id);
       } finally {
@@ -1339,7 +1452,9 @@ describe("workflow: literature-digest", function () {
                   if (image?.mimeType === "image/png") {
                     return baseHostApi.notes.importEmbeddedImage(note, image);
                   }
-                  throw new Error("unsafe path should not import visible image");
+                  throw new Error(
+                    "unsafe path should not import visible image",
+                  );
                 },
               },
               logging: {
@@ -1449,7 +1564,9 @@ describe("workflow: literature-digest", function () {
                   if (image?.mimeType === "image/png") {
                     return baseHostApi.notes.importEmbeddedImage(note, image);
                   }
-                  throw new Error("missing hint should not import visible image");
+                  throw new Error(
+                    "missing hint should not import visible image",
+                  );
                 },
               },
             } as any,
@@ -1466,7 +1583,10 @@ describe("workflow: literature-digest", function () {
           "markdown_src_hint_not_resolved",
         );
         const digestNote = Zotero.Items.get(applied.notes[0].id)!;
-        assert.notInclude(digestNote.getNote(), "markdown_src_hint_not_resolved");
+        assert.notInclude(
+          digestNote.getNote(),
+          "markdown_src_hint_not_resolved",
+        );
         await assertStoredPayloadExists(digestNote, "digest-markdown");
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -1639,7 +1759,9 @@ describe("workflow: literature-digest", function () {
                   if (image?.mimeType === "image/png") {
                     return baseHostApi.notes.importEmbeddedImage(note, image);
                   }
-                  throw new Error("ambiguous label should not import visible image");
+                  throw new Error(
+                    "ambiguous label should not import visible image",
+                  );
                 },
               },
             } as any,
@@ -1866,7 +1988,9 @@ describe("workflow: literature-digest", function () {
       const noteItems = (parent.getNotes() || [])
         .map((id) => Zotero.Items.get(id))
         .filter(Boolean) as Zotero.Item[];
-      const generated = noteItems.filter((note) => parseNoteKind(note.getNote()));
+      const generated = noteItems.filter((note) =>
+        parseNoteKind(note.getNote()),
+      );
       const digestNotes = generated.filter(
         (note) => parseNoteKind(note.getNote()) === "digest",
       );

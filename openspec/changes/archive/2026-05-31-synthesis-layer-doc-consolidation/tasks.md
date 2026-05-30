@@ -1,0 +1,22 @@
+## Tasks
+
+- [x] Create the `synthesis-layer-doc-consolidation` OpenSpec change.
+- [x] Move the existing `doc/synthesis-layer` tree to `doc/deprecated/synthesis-layer-legacy-20260531`.
+- [x] Add an archive README for the deprecated tree.
+- [x] Recreate `doc/synthesis-layer` with the compact canonical Markdown set.
+- [x] Add reduced YAML contracts for state/event IDs and invariants.
+- [x] Add compact state machine and sequence diagram docs.
+- [x] Upgrade the state/event YAML into state-machine and sequence ID contracts.
+- [x] Update `doc/dev_guide.md` to point to the consolidated Synthesis docs.
+- [x] Mark the previous Synthesis governance and engineering document changes as superseded.
+- [x] Verify removed active paths no longer appear in active doc references.
+- [x] Run formatting and OpenSpec validation.
+- [x] Restore deterministic `paper_ref` / `literature_item_id` identity contracts after regression review.
+- [x] Restore executable Discovery and Reference Resolution policy details without reviving the old engineering tree.
+- [x] Restore performance, routing, rebuild, drift, review, persistence, and ACL contract details needed for implementation.
+- [x] Rename topic change diagnostics to `changed` and separately document graph/basis guard terminology.
+- [x] Add dedicated Concept KB design document and README entry.
+- [x] Define Registry rebuild candidate validation gate, suspicious candidate behavior, and rollback guard.
+- [x] Define Discovery metadata snapshot timing and fallback metadata noise boundary.
+- [x] Define provisional external identity lifecycle and related-items sync echo suppression.
+- [x] Add source-check diagnostic terminal cleanup transitions.

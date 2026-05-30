@@ -14,9 +14,10 @@ not need another rename during the next product naming pass.
 
 - `state/zotero-agents.db` stores indexed operational state: task requests,
   task rows, ACP conversation indexes, workflow product metadata, queue state,
-  and job state.
-- `data/synthesis/` stores durable Synthesis canonical assets and rebuildable
-  Synthesis projection state. It is user data, not runtime cache.
+  job state, and SQLite-first Synthesis runtime state.
+- `data/synthesis/` stores durable Synthesis canonical/checkpoint assets for
+  explicit import, export, audit, and future sync. It is user data, not runtime
+  cache, and it is not the normal Synthesis UI hot-path source.
 - `runtime/` stores cleanable execution data: logs, cache, temporary files, ACP
   skill-run workspaces, and cached workflow product assets.
 - Prefs store configuration, feature flags, small switches, encrypted token

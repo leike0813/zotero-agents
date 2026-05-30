@@ -9,6 +9,7 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
+import { clearPluginTaskRowEntries } from "../pluginStateStore";
 import {
   buildMirrorManifest,
   buildSynthesisKnowledgeGraphPaths,
@@ -19,6 +20,7 @@ import {
   hashCanonicalJson,
   hashMarkdown,
   LibraryWriteLock,
+  resolveSynthesisRuntimeFileRoot,
   SYNTHESIS_ANCHOR_TITLE,
   type CanonicalEnvelope,
   type MirrorAssetContentType,
@@ -31,8 +33,10 @@ import {
   computeCitationGraphMetrics,
   computeCitationGraphLayout,
   type CitationGraph,
+  type CitationGraphEdge,
   type CitationGraphLibraryNodeMetrics,
   type CitationGraphMetrics,
+  type CitationGraphNode,
   type CitationGraphLayout,
   type CitationGraphPaperInput,
   type CitationLayoutPreset,
@@ -46,6 +50,7 @@ import {
 } from "./libraryAdapter";
 import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
 import {
+  buildPaperRegistryMetadataFingerprintPayload,
   buildPaperRegistryRows,
   type PaperRegistryFacets,
   type PaperRegistryInput,
@@ -65,22 +70,50 @@ import {
 import {
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
+  type SynthesisUiCleanupProposalRow,
   type SynthesisUiSnapshot,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
+  type SynthesisUiArtifactRow,
+  type SynthesisUiBackgroundJobRow,
   type SynthesisUiTopicUpdateIntent,
 } from "./uiModel";
 import { createSynthesisTagVocabularyService } from "./tagVocabulary";
 import { createSynthesisConceptKbService } from "./conceptKb";
-import { createSynthesisTopicGraphService } from "./topicGraph";
+import {
+  createSynthesisTopicGraphService,
+  type SynthesisTopicGraphNode,
+} from "./topicGraph";
 import {
   createSynthesisLiteratureRegistryService,
+  type LiteratureRegistryCleanupAction,
   type LiteratureRegistryCleanupProposalRecord,
   type LiteratureRegistryPaperRecord,
   type LiteratureRegistryReferenceInstanceRecord,
   type LiteratureRegistryReferenceResolutionRecord,
   type LiteratureRegistryWorkRecord,
 } from "./literatureRegistry";
+import { createSynthesisJsonImportService } from "./jsonImport";
+import { createSynthesisCheckpointExportService } from "./checkpointExport";
+import { maybeStartSynthesisJobProfileRun } from "./jobProfiler";
+import {
+  createSynthesisRepository,
+  SYNTHESIS_REPOSITORY_TABLES,
+  type SynthesisCitationComplexMetricsRecord,
+  type SynthesisCitationEdgeRecord,
+  type SynthesisCitationLayoutRecord,
+  type SynthesisCitationLightMetricsRecord,
+  type SynthesisCitationNodeRecord,
+  type SynthesisIndexReferenceFact,
+  type SynthesisJobProgressRecord,
+  type SynthesisPaperRegistryFact,
+  type SynthesisRepository,
+  type SynthesisTopicDiscoveryHintRecord,
+  type SynthesisTopicInterestMetadataRecord,
+  type SynthesisZoteroBindingRecord,
+  type SynthesisReviewItemRecord,
+  type SynthesisRepositoryTableName,
+} from "./repository";
 import {
   createSynthesisGitSyncService,
   type SynthesisGitSyncAdapter,
@@ -94,6 +127,8 @@ import {
   createSynthesisUpdateEventStore,
   type SynthesisUpdateDiagnostic,
   type SynthesisUpdateEvent,
+  type SynthesisUpdateEventType,
+  type SynthesisUpdateScopeKind,
 } from "./updateEvents";
 import {
   decideSynthesisApply,
@@ -313,6 +348,7 @@ export type SynthesisLiteratureJobState = {
 
 export type SynthesisServiceOptions = {
   root: string;
+  runtimeRoot?: string;
   libraryId: number;
   now?: () => string;
   mirrorAdapter?: SynthesisMirrorAdapter;
@@ -327,6 +363,7 @@ export type SynthesisServiceOptions = {
   literatureJobDebounceMs?: number;
   literatureJobRetryDelaysMs?: number[];
   synthesisUpdateRetryDelaysMs?: number[];
+  synthesisRepository?: SynthesisRepository;
   shardSize?: number;
   writeLock?: LibraryWriteLock;
 };
@@ -400,6 +437,8 @@ type TopicFreshness =
   | "failed"
   | "unknown";
 
+type TopicDiscoveryStatus = "none" | "candidates" | "filtered" | "unknown";
+
 type TopicCoverage = "complete" | "partial" | "missing";
 
 type TopicFreshnessReason = {
@@ -451,6 +490,9 @@ type TopicDependencySnapshot = {
 type TopicArtifactStateRow = {
   topic_id: string;
   freshness: TopicFreshness;
+  known_dependency_status?: TopicFreshness;
+  discovery_status?: TopicDiscoveryStatus;
+  candidate_count?: number;
   coverage: TopicCoverage;
   baseline_input_hash: string;
   current_input_hash: string;
@@ -462,16 +504,65 @@ type TopicArtifactStateRow = {
   updated_at?: string;
 };
 
+type RegistryReferenceUiRow = {
+  reference_instance_id: string;
+  reference_index: number;
+  title: string;
+  year?: string;
+  raw_reference?: string;
+  resolution_status: string;
+  confidence?: string;
+  target_literature_item_id?: string;
+  target_title?: string;
+  target_paper_ref?: string;
+  target_binding: "library" | "external" | "none";
+};
+
+type RegistryUiRow = {
+  paper_ref: string;
+  title: string;
+  year?: string;
+  readiness: "ready" | "partial";
+  coverage: "complete" | "partial" | "missing";
+  missing_artifacts: string[];
+  literature_status?:
+    | "all"
+    | "library"
+    | "reference-only"
+    | "matched"
+    | "ambiguous"
+    | "unresolved"
+    | "needs-cleanup"
+    | "stale";
+  stale?: boolean;
+  cleanup_count?: number;
+  index_scope?: "library" | "referenced";
+  literature_item_id?: string;
+  reference_count?: number;
+  unresolved_reference_count?: number;
+  referenced_by_count?: number;
+  references?: RegistryReferenceUiRow[];
+};
+
 const REGISTRY_ARTIFACT_TYPES: RegistryArtifactType[] = [
   "digest",
   "references",
   "citation_analysis",
 ];
+const REGISTRY_ARTIFACT_PAYLOAD_TYPES: Record<RegistryArtifactType, string> = {
+  digest: "digest-markdown",
+  references: "references-json",
+  citation_analysis: "citation-analysis-json",
+};
 const LIBRARY_INDEX_PAGE_LIMIT_DEFAULT = 100;
 const LIBRARY_INDEX_PAGE_LIMIT_MAX = 250;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT = 100;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX = 250;
 const ACP_SKILL_RUN_ID_RE = /^acp-skill-[A-Za-z0-9._-]+$/;
+export const SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT =
+  "RESET SYNTHESIS DATABASE";
+export const SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT =
+  "RESET SYNTHESIS CLEAN INSTALL";
 
 const defaultLock = new LibraryWriteLock();
 let defaultService: SynthesisService | null = null;
@@ -581,6 +672,276 @@ function pageRows<T>(
     returned: page.length,
     total: rows.length,
     limit,
+  };
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  const text = cleanString(value);
+  if (!text) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseStringArray(value: unknown): string[] {
+  return parseJsonArray(value).map(cleanString).filter(Boolean);
+}
+
+const LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE =
+  "literature-matching-metadata-json";
+const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
+
+function zoteroPaperLiteratureItemId(paperRef: string) {
+  return `lit:${hashCanonicalJson({
+    kind: "zotero-paper",
+    ref: paperRef,
+  }).slice("sha256:".length, "sha256:".length + 24)}`;
+}
+
+function normalizeLiteratureMetadataTerms(value: unknown, limit: number) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const entry of value) {
+    const text = cleanString(entry).replace(/\s+/g, " ");
+    const key = text.toLocaleLowerCase("en-US");
+    if (!text || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    terms.push(text);
+    if (terms.length >= limit) {
+      break;
+    }
+  }
+  return terms;
+}
+
+function literatureMatchingMetadataPayloadFromInput(input: PaperRegistryInput) {
+  for (const note of input.notes || []) {
+    for (const block of note.payloadBlocks || []) {
+      if (block?.payloadType !== LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE) {
+        continue;
+      }
+      const payload = block.payload;
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        Array.isArray(payload) ||
+        (payload as { schema?: unknown }).schema !==
+          LITERATURE_MATCHING_METADATA_SCHEMA
+      ) {
+        return null;
+      }
+      return {
+        schema: LITERATURE_MATCHING_METADATA_SCHEMA,
+        key_terms: normalizeLiteratureMetadataTerms(
+          (payload as { key_terms?: unknown }).key_terms,
+          12,
+        ),
+        methods: normalizeLiteratureMetadataTerms(
+          (payload as { methods?: unknown }).methods,
+          8,
+        ),
+        problems: normalizeLiteratureMetadataTerms(
+          (payload as { problems?: unknown }).problems,
+          8,
+        ),
+        datasets: normalizeLiteratureMetadataTerms(
+          (payload as { datasets?: unknown }).datasets,
+          8,
+        ),
+        exclude_terms: normalizeLiteratureMetadataTerms(
+          (payload as { exclude_terms?: unknown }).exclude_terms,
+          6,
+        ),
+      };
+    }
+  }
+  return null;
+}
+
+function paperRegistryMissingDiagnostic(type: RegistryArtifactType) {
+  return {
+    code: "payload_missing" as const,
+    artifact_type: type,
+    message:
+      type === "citation_analysis"
+        ? "citation analysis payload is missing"
+        : `${type} payload is missing`,
+  };
+}
+
+function paperRegistryFacet(
+  value: unknown,
+  status: PaperRegistryFacets[keyof PaperRegistryFacets]["status"],
+  updatedAt?: string,
+) {
+  return {
+    hash: hashCanonicalJson(value),
+    status,
+    updated_at: cleanString(updatedAt) || undefined,
+  };
+}
+
+function paperRegistryArtifactFromFact(
+  type: RegistryArtifactType,
+  fact: SynthesisPaperRegistryFact,
+): PaperRegistryRow["artifacts"][RegistryArtifactType] {
+  const state = fact.artifacts.find((entry) => entry.artifactType === type);
+  const diagnostics = parseJsonArray(state?.diagnosticsJson);
+  const status =
+    state?.status === "available" || state?.status === "invalid"
+      ? state.status
+      : "missing";
+  return {
+    type,
+    payload_type: REGISTRY_ARTIFACT_PAYLOAD_TYPES[type],
+    status,
+    note_key: cleanString(state?.noteKey) || undefined,
+    hash: cleanString(state?.payloadHash) || undefined,
+    updated_at: cleanString(state?.updatedAt) || undefined,
+    diagnostics:
+      diagnostics.length || status !== "missing"
+        ? (diagnostics as PaperRegistryRow["diagnostics"])
+        : [paperRegistryMissingDiagnostic(type)],
+  };
+}
+
+function identifierValue(
+  fact: SynthesisPaperRegistryFact,
+  kind: string,
+): string {
+  const row = fact.identifiers.find((entry) => entry.kind === kind);
+  return cleanString(row?.displayValue) || cleanString(row?.normalizedValue);
+}
+
+function paperRegistryRowFromFact(
+  fact: SynthesisPaperRegistryFact,
+): PaperRegistryRow {
+  const artifacts = {
+    digest: paperRegistryArtifactFromFact("digest", fact),
+    references: paperRegistryArtifactFromFact("references", fact),
+    citation_analysis: paperRegistryArtifactFromFact("citation_analysis", fact),
+  };
+  const statuses = Object.values(artifacts).map((entry) => entry.status);
+  const available = statuses.filter((entry) => entry === "available").length;
+  const readiness =
+    available === statuses.length ? ("ready" as const) : ("partial" as const);
+  const coverage =
+    available === statuses.length
+      ? ("complete" as const)
+      : available === 0
+        ? ("missing" as const)
+        : ("partial" as const);
+  const tags = parseJsonArray(fact.tagsJson).map(cleanString).filter(Boolean);
+  const collections = parseJsonArray(fact.collectionsJson)
+    .map(cleanString)
+    .filter(Boolean);
+  const creators = parseJsonArray(fact.authorsJson)
+    .map(cleanString)
+    .filter(Boolean);
+  const paperRef = `${fact.libraryId}:${fact.itemKey}`;
+  const artifactUpdatedAt = Object.values(artifacts)
+    .map((entry) => cleanString(entry.updated_at))
+    .filter(Boolean)
+    .sort((left, right) => right.localeCompare(left))[0];
+  const rowWithoutHash = {
+    paper_ref: paperRef,
+    library_id: fact.libraryId,
+    item_key: fact.itemKey,
+    title: cleanString(fact.displayTitle),
+    year: cleanString(fact.year),
+    item_type: cleanString(fact.itemType),
+    tags,
+    collections,
+    artifacts,
+    readiness,
+    coverage,
+    diagnostics: Object.values(artifacts).flatMap(
+      (entry) => entry.diagnostics || [],
+    ),
+    facets: {
+      identity: paperRegistryFacet(
+        {
+          library_id: fact.libraryId,
+          item_key: fact.itemKey,
+          paper_ref: paperRef,
+          citekey: identifierValue(fact, "citekey"),
+          date_added: cleanString(fact.dateAdded),
+        },
+        "ready",
+        fact.dateAdded,
+      ),
+      metadata: paperRegistryFacet(
+        {
+          title: cleanString(fact.displayTitle),
+          year: cleanString(fact.year),
+          item_type: cleanString(fact.itemType),
+          creators,
+          tags,
+          collections,
+          doi: identifierValue(fact, "doi"),
+          arxiv: identifierValue(fact, "arxiv"),
+          url: identifierValue(fact, "url"),
+        },
+        "ready",
+      ),
+      artifact: paperRegistryFacet(
+        Object.fromEntries(
+          Object.entries(artifacts).map(([type, artifact]) => [
+            type,
+            {
+              status: artifact.status,
+              hash: cleanString(artifact.hash),
+              payload_type: artifact.payload_type,
+              note_key: cleanString(artifact.note_key),
+            },
+          ]),
+        ),
+        coverage === "complete" ? "ready" : coverage,
+        artifactUpdatedAt,
+      ),
+      reference: paperRegistryFacet(
+        {
+          references_status: artifacts.references.status,
+          references_hash: cleanString(artifacts.references.hash),
+          citation_analysis_status: artifacts.citation_analysis.status,
+          citation_analysis_hash: cleanString(artifacts.citation_analysis.hash),
+        },
+        artifacts.references.status === "available" ? "ready" : "missing",
+        [
+          artifacts.references.updated_at,
+          artifacts.citation_analysis.updated_at,
+        ]
+          .map(cleanString)
+          .filter(Boolean)
+          .sort((left, right) => right.localeCompare(left))[0],
+      ),
+      readiness: paperRegistryFacet(
+        {
+          readiness,
+          coverage,
+          missing_artifacts: Object.entries(artifacts)
+            .filter(([, artifact]) => artifact.status !== "available")
+            .map(([type]) => type)
+            .sort(),
+        },
+        readiness,
+      ),
+      topic_usage: paperRegistryFacet({ topic_ids: [] }, "unknown"),
+    },
+  };
+  return {
+    ...rowWithoutHash,
+    row_hash: hashCanonicalJson(rowWithoutHash),
   };
 }
 
@@ -810,6 +1171,158 @@ function statusFromDefinition(
 ): TopicInventoryRow["status"] {
   const status = cleanString(definition.status).toLowerCase();
   return status === "archived" || status === "deleted" ? status : undefined;
+}
+
+function statusFromTopicGraphNode(
+  node: SynthesisTopicGraphNode,
+): TopicInventoryRow["status"] {
+  const status = cleanString(node.definition_status).toLowerCase();
+  return status === "deleted" ? "deleted" : undefined;
+}
+
+function aliasesFromTopicGraphNode(node: SynthesisTopicGraphNode) {
+  const seen = new Set<string>();
+  const aliases: string[] = [];
+  for (const alias of node.aliases || []) {
+    const text = cleanString(alias);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    aliases.push(text);
+  }
+  return aliases;
+}
+
+function topicIndexRowFromGraphNode(
+  node: SynthesisTopicGraphNode,
+): TopicIndexRow {
+  const topicId = cleanString(node.topic_id);
+  return {
+    topic_id: topicId,
+    path_id: topicPathId(topicId),
+    title: cleanString(node.title) || topicId,
+    updated_at:
+      cleanString(node.last_synthesis_at) ||
+      cleanString(node.updated_at) ||
+      cleanString(node.created_at),
+    markdown_hash: "",
+    metadata_hash: "",
+    bundle_hash: "",
+    paper_count: Math.max(0, Math.floor(Number(node.paper_count) || 0)),
+  };
+}
+
+function topicArtifactRowsFromGraphNodes(args: {
+  nodes: SynthesisTopicGraphNode[];
+  artifactState: Record<string, TopicArtifactStateRow>;
+  definitions: Record<string, Record<string, unknown>>;
+}): SynthesisUiArtifactRow[] {
+  return args.nodes
+    .filter(
+      (node) =>
+        cleanString(node.topic_id) &&
+        node.node_type === "materialized" &&
+        node.definition_status !== "deleted",
+    )
+    .map((node): SynthesisUiArtifactRow => {
+      const row = topicIndexRowFromGraphNode(node);
+      const stateRow = args.artifactState[row.topic_id];
+      const freshness = stateRow?.freshness || "unknown";
+      const coverage = stateRow?.coverage || "missing";
+      const intent = deriveTopicUpdateIntent({
+        topicId: row.topic_id,
+        state: stateRow,
+        row,
+      });
+      return {
+        id: row.topic_id,
+        title: row.title,
+        kind: "topic_synthesis" as const,
+        coverage,
+        freshness,
+        updated_at: row.updated_at,
+        markdown_preview: (stateRow?.reasons || [])
+          .map((entry) => entry.code)
+          .join(", "),
+        paper_count: row.paper_count ?? paperCountFromTopicState(stateRow),
+        summary: summaryFromTopicDefinition(
+          args.definitions[row.topic_id],
+          (stateRow?.reasons || [])
+            .map((entry) => entry.message || entry.code)
+            .filter(Boolean)
+            .slice(0, 2)
+            .join("; "),
+        ),
+        completion: completionFromTopicState(stateRow),
+        status: node.definition_status,
+        readerMode: "structured",
+        language: row.language,
+        external_literature_count: row.external_literature_count,
+        stale_reasons:
+          stateRow?.freshness === "stale"
+            ? (stateRow?.reasons || []).map((entry) => entry.code)
+            : [],
+        dirty_reasons:
+          stateRow?.freshness === "dirty"
+            ? (stateRow?.reasons || []).map((entry) => entry.code)
+            : [],
+        updateIntent: topicUpdateIntentForUi({
+          topicId: row.topic_id,
+          intent,
+        }),
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function topicInventoryRowsFromGraphNodes(args: {
+  nodes: SynthesisTopicGraphNode[];
+  definitions: Record<string, Record<string, unknown>>;
+}): TopicInventoryRow[] {
+  return args.nodes
+    .map((node) => {
+      const topicId = cleanString(node.topic_id);
+      if (!topicId) {
+        return null;
+      }
+      const definition = args.definitions[topicId] || {};
+      const status =
+        statusFromDefinition(definition) || statusFromTopicGraphNode(node);
+      const definitionAliases = aliasesFromDefinition(definition);
+      return {
+        topic_id: topicId,
+        title: titleFromDefinition(
+          definition,
+          cleanString(node.title) || topicId,
+        ),
+        description: descriptionFromDefinition(definition),
+        aliases: definitionAliases.length
+          ? definitionAliases
+          : aliasesFromTopicGraphNode(node),
+        updated_at:
+          cleanString(definition.updated_at) ||
+          cleanString(node.last_synthesis_at) ||
+          cleanString(node.updated_at) ||
+          "",
+        ...(status ? { status } : {}),
+      };
+    })
+    .filter((topic): topic is TopicInventoryRow =>
+      Boolean(topic && topic.status !== "deleted"),
+    )
+    .sort((left, right) => left.topic_id.localeCompare(right.topic_id));
+}
+
+function filterTopicScopedConflicts(
+  conflicts: SynthesisConflictCandidate[],
+  topicIds: Set<string>,
+) {
+  return conflicts.filter((conflict) => {
+    const topicId = cleanString(conflict.topic_id);
+    return !topicId || topicIds.has(topicId);
+  });
 }
 
 function topicIdFromBundle(bundle: SynthesisResultBundle) {
@@ -1115,26 +1628,10 @@ function registryRowFromCanonicalPaper(
   };
 }
 
-function sortedCleanStrings(values: unknown[] | undefined) {
-  return Array.from(
-    new Set((values || []).map(cleanString).filter(Boolean)),
-  ).sort((left, right) => left.localeCompare(right));
-}
-
 function registryMetadataFingerprintFromInput(input: PaperRegistryInput) {
   const library = normalizeLibraryId(input.libraryId);
   const itemKey = cleanString(input.itemKey);
-  const metadata = {
-    title: cleanString(input.title),
-    year: cleanString(input.year),
-    item_type: cleanString(input.itemType),
-    creators: sortedCleanStrings(input.creators),
-    tags: sortedCleanStrings(input.tags),
-    collections: sortedCleanStrings(input.collections),
-    doi: cleanString(input.doi),
-    arxiv: cleanString(input.arxiv),
-    url: cleanString(input.url),
-  };
+  const metadata = buildPaperRegistryMetadataFingerprintPayload(input);
   return {
     library_id: library,
     item_key: itemKey,
@@ -1179,29 +1676,118 @@ function mapGraphToUi(
   } = {},
 ) {
   const coordinates = args.layout?.nodes || {};
+  const graphWithHover = graph as CitationGraph & {
+    hover_only_nodes?: CitationGraphNode[];
+    hover_only_edges?: CitationGraphEdge[];
+  };
+  const mapNode = (node: CitationGraphNode) => ({
+    id: node.node_id,
+    label: cleanString(node.title) || node.node_id,
+    kind: node.kind,
+    year: cleanString(node.year) || undefined,
+    tags: [],
+    collections: [],
+    x: coordinates[node.node_id]?.x,
+    y: coordinates[node.node_id]?.y,
+    low_signal: Boolean(node.low_signal),
+    external_degree:
+      typeof node.external_degree === "number"
+        ? Math.max(0, Math.floor(node.external_degree))
+        : undefined,
+    visibility:
+      node.visibility === "hover_only"
+        ? ("hover_only" as const)
+        : ("default" as const),
+    display_tier:
+      node.display_tier === "shared_external" ||
+      node.display_tier === "single_external"
+        ? node.display_tier
+        : node.kind === "library_paper"
+          ? ("library" as const)
+          : ("shared_external" as const),
+  });
+  const mapEdge = (edge: CitationGraphEdge) => ({
+    id: edge.edge_id,
+    source: edge.source,
+    target: edge.target,
+    primary_role: edge.primary_role,
+    mention_count: edge.mention_count,
+    visibility:
+      edge.visibility === "hover_only"
+        ? ("hover_only" as const)
+        : ("default" as const),
+  });
+  const nodes = graph.nodes.map(mapNode);
+  const hoverOnlyNodes = (graphWithHover.hover_only_nodes || []).map(mapNode);
+  const edges = graph.edges.map(mapEdge);
+  const hoverOnlyEdges = (graphWithHover.hover_only_edges || []).map(mapEdge);
   return {
     graph_hash: graph.graph_hash,
     layoutStatus: args.layoutStatus || (args.layout ? "ready" : "missing"),
     diagnostics: graph.diagnostics,
-    nodes: graph.nodes.map((node) => ({
-      id: node.node_id,
-      label: cleanString(node.title) || node.node_id,
-      kind: node.kind,
-      year: cleanString(node.year) || undefined,
-      tags: [],
-      collections: [],
-      x: coordinates[node.node_id]?.x,
-      y: coordinates[node.node_id]?.y,
-      low_signal: Boolean(node.low_signal),
-    })),
-    edges: graph.edges.map((edge) => ({
-      id: edge.edge_id,
-      source: edge.source,
-      target: edge.target,
-      primary_role: edge.primary_role,
-      mention_count: edge.mention_count,
-    })),
+    nodes: [...nodes, ...hoverOnlyNodes],
+    edges: [...edges, ...hoverOnlyEdges],
+    hoverOnlyNodes,
+    hoverOnlyEdges,
   };
+}
+
+function parseCitationGraphLayout(
+  record: SynthesisCitationLayoutRecord | null | undefined,
+): CitationGraphLayout | null {
+  const text = cleanString(record?.layoutJson);
+  if (!text || text === "{}") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text) as Partial<CitationGraphLayout>;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.nodes &&
+      typeof parsed.nodes === "object"
+    ) {
+      return parsed as CitationGraphLayout;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizeCitationLayoutPreset(value: unknown): CitationLayoutPreset {
+  const preset = cleanString(value);
+  return preset === "compact" || preset === "expanded" ? preset : "balanced";
+}
+
+function citationGraphLayoutStatus(args: {
+  graph: CitationGraph;
+  record: SynthesisCitationLayoutRecord | null | undefined;
+  layout: CitationGraphLayout | null;
+}): "missing" | "ready" | "dirty" | "running" | "failed" {
+  if (!args.graph.nodes.length) {
+    return "missing";
+  }
+  if (!args.record) {
+    return "missing";
+  }
+  if (args.record.status === "running") {
+    return "running";
+  }
+  if (args.record.status === "failed") {
+    return "failed";
+  }
+  if (!args.layout) {
+    return "missing";
+  }
+  if (
+    args.record.status === "ready" &&
+    args.record.graphHash === args.graph.graph_hash &&
+    args.layout.graph_hash === args.graph.graph_hash
+  ) {
+    return "ready";
+  }
+  return "dirty";
 }
 
 async function readPersistedGraphProjection(
@@ -1315,6 +1901,289 @@ function shouldPreferLegacyCitationGraph(args: {
     citationGraphHasContent(args.legacyGraph) &&
     !citationGraphHasContent(args.projectionGraph)
   );
+}
+
+function parseCitationRoles(value: unknown) {
+  const parsed = (() => {
+    try {
+      return JSON.parse(cleanString(value) || "[]");
+    } catch {
+      return [];
+    }
+  })();
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function roleEntriesFromDb(
+  value: unknown,
+): Array<{ role: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const entry of parseCitationRoles(value)) {
+    const role =
+      typeof entry === "string"
+        ? cleanString(entry)
+        : cleanString((entry as Record<string, unknown>)?.role);
+    if (!role) {
+      continue;
+    }
+    counts.set(role, (counts.get(role) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([role, count]) => ({ role, count }))
+    .sort((left, right) => left.role.localeCompare(right.role));
+}
+
+function citationGraphNodeIdFromDb(
+  node: Pick<SynthesisCitationNodeRecord, "literatureItemId">,
+  binding?: SynthesisZoteroBindingRecord,
+) {
+  return binding?.itemKey
+    ? `zotero:item:${binding.itemKey}`
+    : node.literatureItemId;
+}
+
+function dbCitationNodeKind(
+  node: SynthesisCitationNodeRecord,
+): CitationGraphNode["kind"] {
+  return node.hasZoteroBinding ? "library_paper" : "external_reference";
+}
+
+function dbCitationNodeToGraphNode(args: {
+  node: SynthesisCitationNodeRecord;
+  binding?: SynthesisZoteroBindingRecord;
+  metrics?: SynthesisCitationLightMetricsRecord;
+  display?: {
+    externalDegree?: number;
+    visibility?: "default" | "hover_only";
+    displayTier?: "library" | "shared_external" | "single_external";
+  };
+}): CitationGraphNode & {
+  metrics?: Pick<
+    CitationGraphLibraryNodeMetrics,
+    | "internal_in_degree"
+    | "internal_out_degree"
+    | "internal_pagerank"
+    | "foundation_score"
+    | "frontier_score"
+    | "synthesis_role_hints"
+  >;
+} {
+  const nodeId = citationGraphNodeIdFromDb(args.node, args.binding);
+  return {
+    node_id: nodeId,
+    kind: dbCitationNodeKind(args.node),
+    target_state: args.node.hasZoteroBinding ? "library" : "external",
+    item_key: args.binding?.itemKey,
+    library_id: args.binding?.libraryId,
+    provisional_key: args.node.hasZoteroBinding
+      ? undefined
+      : args.node.literatureItemId,
+    aliases: [args.node.literatureItemId],
+    title: args.node.title,
+    year: args.node.year,
+    authors: [],
+    low_signal: false,
+    external_degree: args.display?.externalDegree,
+    visibility: args.display?.visibility || "default",
+    display_tier:
+      args.display?.displayTier ||
+      (args.node.hasZoteroBinding ? "library" : "shared_external"),
+    ...(args.metrics
+      ? {
+          metrics: {
+            internal_in_degree: args.metrics.incomingCount,
+            internal_out_degree: args.metrics.outgoingCount,
+            internal_pagerank: 0,
+            foundation_score: args.metrics.incomingCount,
+            frontier_score: args.metrics.outgoingCount,
+            synthesis_role_hints: [],
+          },
+        }
+      : {}),
+  };
+}
+
+function dbCitationEdgeToGraphEdge(args: {
+  edge: SynthesisCitationEdgeRecord;
+  sourceNodeId: string;
+  targetNodeId: string;
+  visibility?: "default" | "hover_only";
+}): CitationGraphEdge {
+  const roles = roleEntriesFromDb(args.edge.rolesJson);
+  const [primary, ...aux] = roles;
+  return {
+    edge_id: args.edge.edgeId,
+    source: args.sourceNodeId,
+    target: args.targetNodeId,
+    kind: "citation",
+    mention_count: Math.max(1, Math.floor(Number(args.edge.weight) || 1)),
+    primary_role: primary?.role || "citation",
+    aux_roles: aux,
+    role_evidence: roles,
+    source_refs: [args.edge.referenceInstanceId || args.edge.edgeId].filter(
+      Boolean,
+    ),
+    visibility: args.visibility || "default",
+  };
+}
+
+function dbCitationEdgeMatchesRole(
+  edge: SynthesisCitationEdgeRecord,
+  roleFilter: Set<string>,
+) {
+  if (!roleFilter.size) {
+    return true;
+  }
+  return roleEntriesFromDb(edge.rolesJson).some((entry) =>
+    roleFilter.has(entry.role),
+  );
+}
+
+function emptyCitationGraph(
+  args: {
+    graphHash?: string;
+    diagnostics?: Partial<CitationGraph["diagnostics"]> &
+      Record<string, unknown>;
+  } = {},
+): CitationGraph {
+  return {
+    schema_id: "synthesis.unified_citation_graph",
+    schema_version: "1.0.0",
+    nodes: [],
+    edges: [],
+    diagnostics: {
+      promotions: [],
+      duplicates: [],
+      node_counts: {
+        library_paper: 0,
+        external_reference: 0,
+        unresolved_reference: 0,
+      },
+      reference_stats: {
+        total: 0,
+        promoted: 0,
+        external: 0,
+        unresolved: 0,
+        dropped_empty: 0,
+        merged_external_nodes: 0,
+        merged_unresolved_nodes: 0,
+      },
+      ...(args.diagnostics || {}),
+    },
+    graph_hash: args.graphHash || "sha256:empty-citation-db-graph",
+  };
+}
+
+function dbCitationGraphHash(args: {
+  nodes: SynthesisCitationNodeRecord[];
+  edges: SynthesisCitationEdgeRecord[];
+  metrics?: SynthesisCitationLightMetricsRecord[];
+}) {
+  return hashCanonicalJson({
+    storage: "sqlite",
+    nodes: args.nodes.map((node) => [
+      node.literatureItemId,
+      node.nodeStatus,
+      node.updatedAt || "",
+    ]),
+    edges: args.edges.map((edge) => [
+      edge.edgeId,
+      edge.sourceLiteratureItemId,
+      edge.targetLiteratureItemId || "",
+      edge.edgeStatus,
+      edge.updatedAt || "",
+    ]),
+    metrics: (args.metrics || []).map((metric) => [
+      metric.literatureItemId,
+      metric.localDegree,
+      metric.sourceStructureVersion,
+      metric.updatedAt || "",
+    ]),
+  });
+}
+
+function dbCitationMetricsHash(metrics: SynthesisCitationLightMetricsRecord[]) {
+  return hashCanonicalJson({
+    storage: "sqlite",
+    metrics: metrics.map((metric) => [
+      metric.literatureItemId,
+      metric.incomingCount,
+      metric.outgoingCount,
+      metric.matchedOutgoingCount,
+      metric.unresolvedOutgoingCount,
+      metric.ambiguousOutgoingCount,
+      metric.localDegree,
+      metric.sourceStructureVersion,
+      metric.updatedAt || "",
+    ]),
+  });
+}
+
+function dbComplexMetricToLibraryMetric(
+  metric: SynthesisCitationComplexMetricsRecord,
+): CitationGraphLibraryNodeMetrics {
+  return {
+    node_id: metric.nodeId,
+    paper_ref: metric.paperRef,
+    item_key: metric.itemKey,
+    title: metric.title,
+    year: metric.year,
+    internal_in_degree: metric.internalInDegree,
+    internal_out_degree: metric.internalOutDegree,
+    external_reference_count: metric.externalReferenceCount,
+    unresolved_reference_count: metric.unresolvedReferenceCount,
+    internal_pagerank: metric.internalPagerank,
+    component_id: metric.componentId,
+    component_size: metric.componentSize,
+    is_isolated: metric.isIsolated,
+    age_norm: metric.ageNorm,
+    recency_norm: metric.recencyNorm,
+    in_degree_norm: metric.inDegreeNorm,
+    out_degree_norm: metric.outDegreeNorm,
+    pagerank_norm: metric.pagerankNorm,
+    foundation_score: metric.foundationScore,
+    frontier_score: metric.frontierScore,
+    synthesis_role_hints: parseStringArray(metric.synthesisRoleHintsJson),
+  };
+}
+
+function complexMetricRecordFromLibraryMetric(args: {
+  metric: CitationGraphLibraryNodeMetrics;
+  literatureItemId: string;
+  sourceStructureVersion: number;
+  sourceGraphHash: string;
+  metricsHash: string;
+  timestamp: string;
+}): SynthesisCitationComplexMetricsRecord {
+  return {
+    literatureItemId: args.literatureItemId,
+    nodeId: args.metric.node_id,
+    paperRef: args.metric.paper_ref,
+    itemKey: args.metric.item_key,
+    title: args.metric.title,
+    year: args.metric.year,
+    internalInDegree: args.metric.internal_in_degree,
+    internalOutDegree: args.metric.internal_out_degree,
+    externalReferenceCount: args.metric.external_reference_count,
+    unresolvedReferenceCount: args.metric.unresolved_reference_count,
+    internalPagerank: args.metric.internal_pagerank,
+    componentId: args.metric.component_id,
+    componentSize: args.metric.component_size,
+    isIsolated: args.metric.is_isolated,
+    ageNorm: args.metric.age_norm,
+    recencyNorm: args.metric.recency_norm,
+    inDegreeNorm: args.metric.in_degree_norm,
+    outDegreeNorm: args.metric.out_degree_norm,
+    pagerankNorm: args.metric.pagerank_norm,
+    foundationScore: args.metric.foundation_score,
+    frontierScore: args.metric.frontier_score,
+    synthesisRoleHintsJson: JSON.stringify(args.metric.synthesis_role_hints),
+    sourceStructureVersion: args.sourceStructureVersion,
+    sourceGraphHash: args.sourceGraphHash,
+    metricsHash: args.metricsHash,
+    status: "ready",
+    updatedAt: args.timestamp,
+  };
 }
 
 function citationMetricsSummary(
@@ -1661,7 +2530,147 @@ function registryRowsToUi(
       : ("library" as const),
     stale: projectionStale,
     cleanup_count: cleanupByPaper.get(row.paper_ref) || 0,
+    index_scope: "library" as const,
   }));
+}
+
+function referenceFactToUiRow(
+  reference: SynthesisIndexReferenceFact,
+): RegistryReferenceUiRow {
+  return {
+    reference_instance_id: reference.referenceInstanceId,
+    reference_index: reference.referenceIndex,
+    title:
+      cleanString(reference.title) ||
+      cleanString(reference.rawReference) ||
+      reference.referenceInstanceId,
+    year: cleanString(reference.year) || undefined,
+    raw_reference: cleanString(reference.rawReference) || undefined,
+    resolution_status: cleanString(reference.resolutionStatus) || "unresolved",
+    confidence: cleanString(reference.confidence) || undefined,
+    target_literature_item_id:
+      cleanString(reference.targetLiteratureItemId) || undefined,
+    target_title: cleanString(reference.targetTitle) || undefined,
+    target_paper_ref: cleanString(reference.targetPaperRef) || undefined,
+    target_binding: reference.targetLiteratureItemId
+      ? reference.targetHasZoteroBinding
+        ? "library"
+        : "external"
+      : "none",
+  };
+}
+
+function registryFactsToUiRows(args: {
+  facts: SynthesisPaperRegistryFact[];
+  references: SynthesisIndexReferenceFact[];
+  cleanupProposals?: Array<{ source_paper_ref?: string; status?: string }>;
+  projectionStale?: boolean;
+}): RegistryUiRow[] {
+  const cleanupByPaper = new Map<string, number>();
+  for (const proposal of args.cleanupProposals || []) {
+    if (proposal.status && proposal.status !== "open") {
+      continue;
+    }
+    const paperRef = cleanString(proposal.source_paper_ref);
+    if (paperRef) {
+      cleanupByPaper.set(paperRef, (cleanupByPaper.get(paperRef) || 0) + 1);
+    }
+  }
+  const referencesBySource = new Map<string, SynthesisIndexReferenceFact[]>();
+  for (const reference of args.references) {
+    const bucket =
+      referencesBySource.get(reference.sourceLiteratureItemId) || [];
+    bucket.push(reference);
+    referencesBySource.set(reference.sourceLiteratureItemId, bucket);
+  }
+  const libraryRows = args.facts.map((fact): RegistryUiRow => {
+    const row = paperRegistryRowFromFact(fact);
+    const references = referencesBySource.get(fact.literatureItemId) || [];
+    const unresolved = references.filter(
+      (reference) =>
+        !reference.targetLiteratureItemId ||
+        reference.resolutionStatus === "unresolved",
+    ).length;
+    return {
+      ...registryRowsToUi(
+        [row],
+        args.cleanupProposals,
+        args.projectionStale,
+      )[0],
+      literature_item_id: fact.literatureItemId,
+      reference_count: references.length,
+      unresolved_reference_count: unresolved,
+      references: references.map(referenceFactToUiRow),
+      cleanup_count: cleanupByPaper.get(row.paper_ref) || 0,
+      index_scope: "library",
+    };
+  });
+
+  const factByLiteratureItem = new Map(
+    args.facts.map((fact) => [fact.literatureItemId, fact]),
+  );
+  const referencedByTarget = new Map<string, SynthesisIndexReferenceFact[]>();
+  const unresolvedRows: RegistryUiRow[] = [];
+  for (const reference of args.references) {
+    const targetId = cleanString(reference.targetLiteratureItemId);
+    if (!targetId) {
+      unresolvedRows.push({
+        paper_ref: reference.referenceInstanceId,
+        title:
+          cleanString(reference.title) ||
+          cleanString(reference.rawReference) ||
+          reference.referenceInstanceId,
+        year: cleanString(reference.year) || undefined,
+        readiness: "partial",
+        coverage: "missing",
+        missing_artifacts: [],
+        literature_status: "unresolved",
+        index_scope: "referenced",
+        referenced_by_count: 1,
+        references: [referenceFactToUiRow(reference)],
+      });
+      continue;
+    }
+    const bucket = referencedByTarget.get(targetId) || [];
+    bucket.push(reference);
+    referencedByTarget.set(targetId, bucket);
+  }
+
+  const referencedRows = Array.from(referencedByTarget.entries())
+    .map(([literatureItemId, references]): RegistryUiRow => {
+      const fact = factByLiteratureItem.get(literatureItemId);
+      const first = references[0];
+      const paperRef =
+        cleanString(first.targetPaperRef) || cleanString(literatureItemId);
+      return {
+        paper_ref: paperRef,
+        title:
+          cleanString(first.targetTitle) ||
+          cleanString(first.title) ||
+          cleanString(first.rawReference) ||
+          paperRef,
+        year:
+          cleanString(first.targetYear) ||
+          cleanString(first.year) ||
+          cleanString(fact?.year) ||
+          undefined,
+        readiness: "partial",
+        coverage: fact ? "partial" : "missing",
+        missing_artifacts: [],
+        literature_status: first.targetHasZoteroBinding
+          ? "matched"
+          : "reference-only",
+        index_scope: "referenced",
+        literature_item_id: literatureItemId,
+        referenced_by_count: references.length,
+        references: references.map(referenceFactToUiRow),
+      };
+    })
+    .filter(
+      (row) => !factByLiteratureItem.has(cleanString(row.literature_item_id)),
+    );
+
+  return [...libraryRows, ...referencedRows, ...unresolvedRows];
 }
 
 type EnrichedCleanupProposal = LiteratureRegistryCleanupProposalRecord & {
@@ -1674,6 +2683,98 @@ type EnrichedCleanupProposal = LiteratureRegistryCleanupProposalRecord & {
   target_work_title?: string;
   decision_summary?: string;
 };
+
+type EnrichedIndexReviewProposal = Omit<
+  EnrichedCleanupProposal,
+  "kind" | "status"
+> & {
+  kind: string;
+  status:
+    | EnrichedCleanupProposal["status"]
+    | "blocked_by_upstream_review"
+    | "superseded"
+    | "retargeted";
+  review_kind: string;
+  priority: number;
+  blocked_by_review_item_id?: string;
+  target_literature_item_id?: string;
+};
+
+function parseReviewPayload(value: unknown): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function indexReviewProposalsFromDb(
+  reviewItems: SynthesisReviewItemRecord[],
+): EnrichedIndexReviewProposal[] {
+  return reviewItems
+    .filter(
+      (review) =>
+        review.reviewKind === "zotero_item_delete" ||
+        review.reviewKind === "zotero_dedupe_candidate",
+    )
+    .map((review) => {
+      const payload = parseReviewPayload(review.payloadJson);
+      const candidates = Array.isArray(payload.candidates)
+        ? (payload.candidates.filter(
+            (entry) => entry && typeof entry === "object",
+          ) as Array<Record<string, unknown>>)
+        : [];
+      const duplicate = candidates.find(
+        (candidate) =>
+          cleanString(candidate.literature_item_id) ===
+          cleanString(payload.literature_item_id),
+      );
+      const survivor = candidates.find(
+        (candidate) =>
+          cleanString(candidate.literature_item_id) ===
+          cleanString(payload.surviving_literature_item_id),
+      );
+      const title =
+        cleanString(payload.title) ||
+        cleanString(duplicate?.title) ||
+        cleanString(payload.paper_ref) ||
+        review.reviewItemId;
+      const targetTitle =
+        cleanString(survivor?.title) ||
+        cleanString(payload.surviving_literature_item_id);
+      const isDeletion = review.reviewKind === "zotero_item_delete";
+      return {
+        proposal_id: review.reviewItemId,
+        kind: review.reviewKind,
+        review_kind: review.reviewKind,
+        priority: review.priority,
+        status: review.status as EnrichedIndexReviewProposal["status"],
+        source_paper_ref: cleanString(payload.paper_ref || review.scopeRef),
+        source_paper_title: title,
+        reference_instance_id: undefined,
+        provisional_key: cleanString(payload.identifier_key) || undefined,
+        reference_title: title,
+        reference_raw: undefined,
+        target_paper_ref: cleanString(survivor?.paper_ref) || undefined,
+        target_paper_title: targetTitle || undefined,
+        target_literature_item_id:
+          cleanString(payload.surviving_literature_item_id) || undefined,
+        reason: isDeletion
+          ? "Zotero item is missing and needs deletion review."
+          : "Multiple Zotero items share a strong identifier and need dedupe review.",
+        diagnostics: [],
+        created_at: review.createdAt || "",
+        updated_at: review.updatedAt || "",
+        blocked_by_review_item_id: review.blockedByReviewItemId,
+        decision_summary: isDeletion
+          ? `Decide whether "${title}" was removed from the Zotero library or should be kept for now.`
+          : `Decide whether "${title}" should merge into "${targetTitle || "the suggested survivor"}".`,
+      };
+    });
+}
 
 function enrichCleanupProposals(args: {
   proposals: LiteratureRegistryCleanupProposalRecord[];
@@ -2504,6 +3605,54 @@ async function writeArtifactStateRows(
   });
 }
 
+function topicDiscoveryStatusFromCounts(args: {
+  open: number;
+  filtered: number;
+}): TopicDiscoveryStatus {
+  if (args.open > 0) {
+    return "candidates";
+  }
+  if (args.filtered > 0) {
+    return "filtered";
+  }
+  return "none";
+}
+
+function topicDiscoverySummaryFromHints(
+  hints: SynthesisTopicDiscoveryHintRecord[],
+) {
+  const open = hints.filter((hint) => hint.status === "open").length;
+  const filtered = hints.filter((hint) => hint.status === "filtered").length;
+  return {
+    discovery_status: topicDiscoveryStatusFromCounts({ open, filtered }),
+    candidate_count: open,
+  };
+}
+
+function preserveTopicDiscoveryState(state: TopicArtifactStateRow | undefined) {
+  return {
+    discovery_status: state?.discovery_status || "none",
+    candidate_count: Math.max(
+      0,
+      Math.floor(Number(state?.candidate_count) || 0),
+    ),
+  };
+}
+
+function topicArtifactStateWithKnownDependency(args: {
+  state: Omit<
+    TopicArtifactStateRow,
+    "known_dependency_status" | "discovery_status" | "candidate_count"
+  >;
+  existing?: TopicArtifactStateRow;
+}) {
+  return {
+    ...args.state,
+    known_dependency_status: args.state.freshness,
+    ...preserveTopicDiscoveryState(args.existing),
+  } satisfies TopicArtifactStateRow;
+}
+
 async function readPersistedGraphHash(root: string) {
   const graph = await readPersistedCitationGraph(root);
   return cleanString(graph?.graph_hash);
@@ -2673,19 +3822,22 @@ async function scanTopicFreshness(args: {
     const existing = previous[row.topic_id];
     const shouldReset = args.resetBaselineTopicIds?.has(row.topic_id);
     if (!computed.snapshot) {
-      next[row.topic_id] = {
-        topic_id: row.topic_id,
-        freshness: "dirty",
-        coverage: computed.coverage,
-        baseline_input_hash: existing?.baseline_input_hash || "",
-        current_input_hash: "",
-        baseline_dependencies: existing?.baseline_dependencies || null,
-        current_dependencies: null,
-        reasons: computed.dirtyReasons,
-        last_scanned_at: args.timestamp,
-        baseline_initialized_at: existing?.baseline_initialized_at,
-        updated_at: row.updated_at,
-      };
+      next[row.topic_id] = topicArtifactStateWithKnownDependency({
+        existing,
+        state: {
+          topic_id: row.topic_id,
+          freshness: "dirty",
+          coverage: computed.coverage,
+          baseline_input_hash: existing?.baseline_input_hash || "",
+          current_input_hash: "",
+          baseline_dependencies: existing?.baseline_dependencies || null,
+          current_dependencies: null,
+          reasons: computed.dirtyReasons,
+          last_scanned_at: args.timestamp,
+          baseline_initialized_at: existing?.baseline_initialized_at,
+          updated_at: row.updated_at,
+        },
+      });
       continue;
     }
     const currentHash = dependencyHash(computed.snapshot);
@@ -2695,21 +3847,24 @@ async function scanTopicFreshness(args: {
       !existing.baseline_dependencies ||
       !existing.baseline_input_hash;
     if (baselineMissing) {
-      next[row.topic_id] = {
-        topic_id: row.topic_id,
-        freshness: computed.dirtyReasons.length ? "dirty" : "fresh",
-        coverage: computed.coverage,
-        baseline_input_hash: computed.dirtyReasons.length ? "" : currentHash,
-        current_input_hash: currentHash,
-        baseline_dependencies: computed.dirtyReasons.length
-          ? null
-          : computed.snapshot,
-        current_dependencies: computed.snapshot,
-        reasons: computed.dirtyReasons,
-        last_scanned_at: args.timestamp,
-        baseline_initialized_at: args.timestamp,
-        updated_at: row.updated_at,
-      };
+      next[row.topic_id] = topicArtifactStateWithKnownDependency({
+        existing,
+        state: {
+          topic_id: row.topic_id,
+          freshness: computed.dirtyReasons.length ? "dirty" : "fresh",
+          coverage: computed.coverage,
+          baseline_input_hash: computed.dirtyReasons.length ? "" : currentHash,
+          current_input_hash: currentHash,
+          baseline_dependencies: computed.dirtyReasons.length
+            ? null
+            : computed.snapshot,
+          current_dependencies: computed.snapshot,
+          reasons: computed.dirtyReasons,
+          last_scanned_at: args.timestamp,
+          baseline_initialized_at: args.timestamp,
+          updated_at: row.updated_at,
+        },
+      });
       if (!computed.dirtyReasons.length) {
         await appendJsonLine(buildSynthesisStoragePaths(args.root).log, {
           event: shouldReset ? "baseline_reset" : "baseline_initialized",
@@ -2733,19 +3888,22 @@ async function scanTopicFreshness(args: {
       : staleReasons.length
         ? "stale"
         : "fresh";
-    next[row.topic_id] = {
-      topic_id: row.topic_id,
-      freshness,
-      coverage: computed.coverage,
-      baseline_input_hash: existing.baseline_input_hash,
-      current_input_hash: currentHash,
-      baseline_dependencies: baselineDependencies,
-      current_dependencies: computed.snapshot,
-      reasons: staleReasons,
-      last_scanned_at: args.timestamp,
-      baseline_initialized_at: existing.baseline_initialized_at,
-      updated_at: row.updated_at,
-    };
+    next[row.topic_id] = topicArtifactStateWithKnownDependency({
+      existing,
+      state: {
+        topic_id: row.topic_id,
+        freshness,
+        coverage: computed.coverage,
+        baseline_input_hash: existing.baseline_input_hash,
+        current_input_hash: currentHash,
+        baseline_dependencies: baselineDependencies,
+        current_dependencies: computed.snapshot,
+        reasons: staleReasons,
+        last_scanned_at: args.timestamp,
+        baseline_initialized_at: existing.baseline_initialized_at,
+        updated_at: row.updated_at,
+      },
+    });
   }
   await writeArtifactStateRows(args.root, next, args.timestamp);
   return next;
@@ -2794,19 +3952,22 @@ async function markTopicFreshnessStatus(args: {
   const previous = await readArtifactStateRows(args.root);
   for (const topicId of args.topicIds) {
     const existing = previous[topicId];
-    previous[topicId] = {
-      topic_id: topicId,
-      freshness: args.freshness,
-      coverage: existing?.coverage || "missing",
-      baseline_input_hash: existing?.baseline_input_hash || "",
-      current_input_hash: existing?.current_input_hash || "",
-      baseline_dependencies: existing?.baseline_dependencies || null,
-      current_dependencies: existing?.current_dependencies || null,
-      reasons: [args.reason],
-      last_scanned_at: args.timestamp,
-      baseline_initialized_at: existing?.baseline_initialized_at,
-      updated_at: existing?.updated_at,
-    };
+    previous[topicId] = topicArtifactStateWithKnownDependency({
+      existing,
+      state: {
+        topic_id: topicId,
+        freshness: args.freshness,
+        coverage: existing?.coverage || "missing",
+        baseline_input_hash: existing?.baseline_input_hash || "",
+        current_input_hash: existing?.current_input_hash || "",
+        baseline_dependencies: existing?.baseline_dependencies || null,
+        current_dependencies: existing?.current_dependencies || null,
+        reasons: [args.reason],
+        last_scanned_at: args.timestamp,
+        baseline_initialized_at: existing?.baseline_initialized_at,
+        updated_at: existing?.updated_at,
+      },
+    });
   }
   await writeArtifactStateRows(args.root, previous, args.timestamp);
 }
@@ -2960,39 +4121,6 @@ async function buildMirrorPayloadSources(
   );
 }
 
-async function readLegacyTopicRows(
-  root: string,
-): Promise<Array<TopicIndexRow & { status: string }>> {
-  const paths = buildSynthesisStoragePaths(root);
-  const children = await listRuntimeChildren(paths.topicsRoot).catch(() => []);
-  const rows: Array<TopicIndexRow & { status: string }> = [];
-  for (const child of children) {
-    const topicPathIdValue = cleanString(child).split(/[\\/]/).pop() || "";
-    if (!topicPathIdValue) {
-      continue;
-    }
-    const topicPaths = buildSynthesisStoragePaths(root, topicPathIdValue);
-    const hasV2 = await runtimePathExists(topicPaths.currentManifest);
-    const hasLegacy =
-      (await runtimePathExists(topicPaths.legacyCurrentMarkdown)) ||
-      (await runtimePathExists(topicPaths.legacyCurrentMetadata));
-    if (hasV2 || !hasLegacy) {
-      continue;
-    }
-    rows.push({
-      topic_id: topicPathIdValue,
-      path_id: topicPathIdValue,
-      title: topicPathIdValue,
-      updated_at: "",
-      markdown_hash: "",
-      metadata_hash: "",
-      bundle_hash: "",
-      status: "legacy_invalid",
-    });
-  }
-  return rows;
-}
-
 type ApplyContext = {
   resultContext?: {
     resolveArtifact?: (args: {
@@ -3058,6 +4186,50 @@ async function readRunWorkspaceJsonWithFallbacks(
   throw lastError instanceof Error
     ? lastError
     : new Error(`cannot read run workspace artifact: ${rawPath}`);
+}
+
+const MANIFEST_SIDECAR_KEYS = {
+  topic_interest_metadata: "result/sidecars/topic-interest-metadata.json",
+  concept_cards_proposal: "result/sidecars/concept-cards-proposal.json",
+  topic_graph_relation_proposals:
+    "result/sidecars/topic-graph-relation-proposals.json",
+} as const;
+
+function manifestSidecarPath(
+  manifest: Record<string, unknown>,
+  key: keyof typeof MANIFEST_SIDECAR_KEYS,
+) {
+  const sidecars = isObject(manifest.sidecars)
+    ? (manifest.sidecars as Record<string, unknown>)
+    : {};
+  const entry = isObject(sidecars[key]) ? sidecars[key] : undefined;
+  return cleanString(entry?.path);
+}
+
+function legacyBundleSidecarPath(
+  bundle: SynthesisResultBundle,
+  key: keyof typeof MANIFEST_SIDECAR_KEYS,
+) {
+  switch (key) {
+    case "topic_interest_metadata":
+      return cleanString(bundle.topic_interest_metadata_path);
+    case "concept_cards_proposal":
+      return cleanString(bundle.concept_cards_proposal_path);
+    case "topic_graph_relation_proposals":
+      return cleanString(bundle.topic_graph_relation_proposals_path);
+  }
+}
+
+function sidecarPathForApply(args: {
+  manifest: Record<string, unknown>;
+  bundle: SynthesisResultBundle;
+  key: keyof typeof MANIFEST_SIDECAR_KEYS;
+}) {
+  return (
+    manifestSidecarPath(args.manifest, args.key) ||
+    legacyBundleSidecarPath(args.bundle, args.key) ||
+    MANIFEST_SIDECAR_KEYS[args.key]
+  );
 }
 
 function sectionNameFromPath(pathValue: string) {
@@ -3414,6 +4586,74 @@ function externalLiteratureCountFromArtifact(
     : 0;
 }
 
+function normalizeShortStringArray(value: unknown, limit: number) {
+  const source =
+    typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of source) {
+    const text = cleanString(entry);
+    const key = text.toLowerCase();
+    if (text && !seen.has(key)) {
+      seen.add(key);
+      result.push(text);
+    }
+    if (result.length >= limit) {
+      break;
+    }
+  }
+  return result;
+}
+
+function normalizeTopicInterestMetadataRecord(args: {
+  payload: unknown;
+  topicId: string;
+  sourceArtifactHash: string;
+  updatedAt: string;
+}): SynthesisTopicInterestMetadataRecord {
+  if (!isObject(args.payload)) {
+    throw new Error(
+      "topic_interest_metadata_path must reference a JSON object",
+    );
+  }
+  const topicId = cleanString(args.payload.topic_id) || args.topicId;
+  if (!topicId) {
+    throw new Error("topic interest metadata requires topic_id");
+  }
+  const schemaId =
+    cleanString(args.payload.schema) ||
+    cleanString(args.payload.schema_id) ||
+    "topic_interest_metadata.v1";
+  const normalized = {
+    schema: schemaId,
+    topic_id: topicId,
+    include_terms: normalizeShortStringArray(args.payload.include_terms, 16),
+    must_have_terms: normalizeShortStringArray(args.payload.must_have_terms, 6),
+    methods: normalizeShortStringArray(args.payload.methods, 8),
+    exclude_terms: normalizeShortStringArray(args.payload.exclude_terms, 8),
+    seed_literature_item_ids: normalizeShortStringArray(
+      args.payload.seed_literature_item_ids,
+      50,
+    ),
+  };
+  const diagnostics = normalizeShortStringArray(args.payload.diagnostics, 20);
+  return {
+    topicId,
+    schemaId,
+    includeTermsJson: JSON.stringify(normalized.include_terms),
+    mustHaveTermsJson: JSON.stringify(normalized.must_have_terms),
+    methodsJson: JSON.stringify(normalized.methods),
+    excludeTermsJson: JSON.stringify(normalized.exclude_terms),
+    seedLiteratureItemIdsJson: JSON.stringify(
+      normalized.seed_literature_item_ids,
+    ),
+    sourceArtifactHash: args.sourceArtifactHash,
+    metadataHash: hashCanonicalJson(normalized),
+    diagnosticsJson: JSON.stringify(diagnostics),
+    updatedAt: args.updatedAt,
+  };
+}
+
 export function createSynthesisService(options: SynthesisServiceOptions) {
   const libraryId = normalizeLibraryId(options.libraryId);
   if (!libraryId) {
@@ -3425,12 +4665,42 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
   const lock = options.writeLock || defaultLock;
   const now = options.now || nowIso;
-  const tagVocabulary = createSynthesisTagVocabularyService({ root, now });
-  const conceptKb = createSynthesisConceptKbService({ root, now });
-  const topicGraph = createSynthesisTopicGraphService({ root, now });
+  const runtimeRoot = cleanString(options.runtimeRoot) || root;
+  const synthesisRepository =
+    options.synthesisRepository ||
+    createSynthesisRepository({
+      runtimeRoot,
+      now,
+    });
+  const tagVocabulary = createSynthesisTagVocabularyService({
+    root,
+    now,
+    repository: synthesisRepository,
+  });
+  const conceptKb = createSynthesisConceptKbService({
+    root,
+    now,
+    repository: synthesisRepository,
+  });
+  const topicGraph = createSynthesisTopicGraphService({
+    root,
+    now,
+    repository: synthesisRepository,
+  });
   const literatureRegistry = createSynthesisLiteratureRegistryService({
     root,
     now,
+    repository: synthesisRepository,
+  });
+  const jsonImport = createSynthesisJsonImportService({
+    root,
+    now,
+    repository: synthesisRepository,
+  });
+  const checkpointExport = createSynthesisCheckpointExportService({
+    root,
+    now,
+    repository: synthesisRepository,
   });
   let tagImportPreviewState:
     | {
@@ -3451,6 +4721,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     retryDelaysMs: options.gitSyncRetryDelaysMs,
     autoRetryEnabled:
       options.gitSyncAutoRetryEnabled ?? prefsGitSyncConfig.autoRetryEnabled,
+    progressReporter: (report) => {
+      reportSynthesisJobProgress(report);
+    },
   });
   const canonicalMaintenanceGitSyncDebounceMs = Math.max(
     0,
@@ -3463,6 +4736,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   let canonicalMaintenanceSyncTimer: ReturnType<typeof setTimeout> | undefined;
   const updateEvents = createSynthesisUpdateEventStore({
     libraryId,
+    repository: synthesisRepository,
     now,
     retryDelaysMs: options.synthesisUpdateRetryDelaysMs,
   });
@@ -3478,7 +4752,55 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   let literatureJobRunning = false;
   let literatureJobDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   let literatureJobRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let literatureJobStateTouched = false;
   const readHints: SynthesisReadHint[] = [];
+
+  async function refreshTopicDiscoveryState(args: {
+    topicIds: string[];
+    timestamp: string;
+  }) {
+    const topicIds = sortedUniqueStrings(args.topicIds);
+    if (!topicIds.length) {
+      return;
+    }
+    const previous = await readArtifactStateRows(root);
+    let changed = false;
+    for (const topicId of topicIds) {
+      const summary = topicDiscoverySummaryFromHints(
+        synthesisRepository.listTopicDiscoveryHints({
+          topicIds: [topicId],
+        }),
+      );
+      const existing = previous[topicId];
+      if (
+        existing?.discovery_status === summary.discovery_status &&
+        existing?.candidate_count === summary.candidate_count
+      ) {
+        continue;
+      }
+      previous[topicId] = {
+        topic_id: topicId,
+        freshness: existing?.freshness || "unknown",
+        known_dependency_status:
+          existing?.known_dependency_status || existing?.freshness || "unknown",
+        discovery_status: summary.discovery_status,
+        candidate_count: summary.candidate_count,
+        coverage: existing?.coverage || "missing",
+        baseline_input_hash: existing?.baseline_input_hash || "",
+        current_input_hash: existing?.current_input_hash || "",
+        baseline_dependencies: existing?.baseline_dependencies || null,
+        current_dependencies: existing?.current_dependencies || null,
+        reasons: existing?.reasons || [],
+        last_scanned_at: existing?.last_scanned_at || args.timestamp,
+        baseline_initialized_at: existing?.baseline_initialized_at,
+        updated_at: existing?.updated_at,
+      };
+      changed = true;
+    }
+    if (changed) {
+      await writeArtifactStateRows(root, previous, args.timestamp);
+    }
+  }
 
   function recordReadHint(args: {
     code: SynthesisReadHint["code"];
@@ -3571,6 +4893,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function writeLiteratureJobState(
     state: SynthesisLiteratureJobState,
   ): Promise<SynthesisLiteratureJobState> {
+    literatureJobStateTouched = true;
     await ensureRuntimeDirectory(
       buildSynthesisKnowledgeGraphPaths(root).stateRoot,
     );
@@ -3734,6 +5057,321 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       commands.add("retryLiteratureRegistryJob");
     }
     return [...commands].sort((left, right) => left.localeCompare(right));
+  }
+
+  function backgroundJobStatusFromQueueState(
+    state: unknown,
+  ): SynthesisUiBackgroundJobRow["status"] | undefined {
+    const queueState = cleanString(state);
+    if (queueState === "running" || queueState === "syncing") {
+      return "running";
+    }
+    if (queueState === "queued") {
+      return "queued";
+    }
+    if (queueState === "paused" || queueState === "blocked_conflict") {
+      return "waiting";
+    }
+    if (
+      queueState === "failed_retryable" ||
+      queueState === "failed_permanent"
+    ) {
+      return "failed";
+    }
+    return undefined;
+  }
+
+  function dirtyEventLabel(event: SynthesisUpdateEvent) {
+    return event.event_type
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  function jobProgressStatusToBackgroundStatus(
+    status: unknown,
+  ): SynthesisUiBackgroundJobRow["status"] {
+    const normalized = cleanString(status);
+    if (normalized === "running") {
+      return "running";
+    }
+    if (normalized === "queued") {
+      return "queued";
+    }
+    if (normalized === "waiting") {
+      return "waiting";
+    }
+    if (normalized === "failed_retryable" || normalized === "failed_terminal") {
+      return "failed";
+    }
+    return "queued";
+  }
+
+  function jobProgressSource(
+    source: unknown,
+  ): SynthesisUiBackgroundJobRow["source"] {
+    const normalized = cleanString(source);
+    if (
+      normalized === "update_queue" ||
+      normalized === "startup_reconcile" ||
+      normalized === "literature_registry" ||
+      normalized === "citation_graph_layout" ||
+      normalized === "git_sync" ||
+      normalized === "canonical_maintenance"
+    ) {
+      return normalized;
+    }
+    return "update_queue";
+  }
+
+  function backgroundJobFromProgress(
+    row: SynthesisJobProgressRecord,
+  ): SynthesisUiBackgroundJobRow | null {
+    const jobName = cleanString(row.jobName);
+    if (!jobName) {
+      return null;
+    }
+    const total = Math.max(0, Math.floor(Number(row.totalCount) || 0));
+    const current = Math.min(
+      total,
+      Math.max(0, Math.floor(Number(row.processedCount) || 0)),
+    );
+    const progress =
+      row.progressMode === "determinate" && total > 0
+        ? {
+            mode: "determinate" as const,
+            current,
+            total,
+            percent: Math.max(
+              0,
+              Math.min(100, Math.round((current / total) * 100)),
+            ),
+            label: cleanString(row.phaseLabel || row.message) || undefined,
+          }
+        : {
+            mode: "indeterminate" as const,
+            label: cleanString(row.phaseLabel || row.message) || undefined,
+          };
+    return {
+      job_id: jobName,
+      source: jobProgressSource(row.source),
+      status: jobProgressStatusToBackgroundStatus(row.status),
+      label: cleanString(row.label) || jobName,
+      detail:
+        cleanString(row.message) ||
+        cleanString(row.phaseLabel) ||
+        cleanString(row.phase) ||
+        undefined,
+      updated_at:
+        cleanString(row.heartbeatAt) ||
+        cleanString(row.updatedAt) ||
+        cleanString(row.startedAt),
+      progress,
+    };
+  }
+
+  function activeJobProgressRows() {
+    try {
+      return synthesisRepository
+        .listActiveJobProgress()
+        .map(backgroundJobFromProgress)
+        .filter((row): row is SynthesisUiBackgroundJobRow => Boolean(row));
+    } catch {
+      return [];
+    }
+  }
+
+  function reportSynthesisJobProgress(
+    record: SynthesisJobProgressRecord & { jobName: string },
+  ) {
+    try {
+      synthesisRepository.upsertJobProgress(record);
+    } catch {
+      // Progress reporting must not fail the worker it observes.
+    }
+  }
+
+  function completeSynthesisJobProgress(
+    record: SynthesisJobProgressRecord & { jobName: string },
+  ) {
+    try {
+      synthesisRepository.completeJobProgress(record);
+    } catch {
+      // Progress reporting must not fail the worker it observes.
+    }
+  }
+
+  function failSynthesisJobProgress(
+    record: SynthesisJobProgressRecord & { jobName: string },
+  ) {
+    try {
+      synthesisRepository.failJobProgress({
+        ...record,
+        status:
+          record.status === "failed_terminal"
+            ? "failed_terminal"
+            : "failed_retryable",
+      });
+    } catch {
+      // Progress reporting must not fail the worker it observes.
+    }
+  }
+
+  function buildMaintenanceBackgroundJobs(args: {
+    updateQueue: ReturnType<typeof updateEvents.loadQueueState>;
+    dirtyEvents: SynthesisUpdateEvent[];
+    jobProgressRows?: SynthesisUiBackgroundJobRow[];
+    literatureJob?: Partial<SynthesisLiteratureJobState>;
+    gitSyncState?: unknown;
+  }): SynthesisUiBackgroundJobRow[] {
+    const rows: SynthesisUiBackgroundJobRow[] = [];
+    rows.push(...(args.jobProgressRows || []));
+    const hasProgressSource = new Set(
+      rows.map((row) => row.source).filter(Boolean),
+    );
+    const queueStatus = backgroundJobStatusFromQueueState(
+      args.updateQueue.queue_state,
+    );
+    if (queueStatus && !hasProgressSource.has("update_queue")) {
+      rows.push({
+        job_id: "synthesis:update-queue",
+        source: "update_queue",
+        status: queueStatus,
+        label: "Synthesis update queue",
+        detail: [
+          `${args.updateQueue.pending_count} queued`,
+          `${args.updateQueue.running_count} running`,
+          `${args.updateQueue.failed_count} failed`,
+        ].join(" - "),
+        updated_at: args.updateQueue.updated_at,
+        targetTab: "overview",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    const startup = args.updateQueue.startup_reconcile;
+    const startupStatus =
+      startup.state === "checking"
+        ? "running"
+        : startup.state === "queued"
+          ? "queued"
+          : startup.state === "failed_retryable" ||
+              startup.state === "failed_permanent"
+            ? "failed"
+            : undefined;
+    if (startupStatus && !hasProgressSource.has("startup_reconcile")) {
+      rows.push({
+        job_id: "synthesis:startup-reconcile",
+        source: "startup_reconcile",
+        status: startupStatus,
+        label: "Startup reconcile",
+        detail:
+          startup.dirty_count > 0
+            ? `${startup.dirty_count} dirty item(s) detected`
+            : undefined,
+        updated_at: startup.last_checked_at || args.updateQueue.updated_at,
+        targetTab: "overview",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    const visibleDirtyEvents = args.dirtyEvents
+      .filter((event) =>
+        ["queued", "running", "failed_retryable", "failed_permanent"].includes(
+          event.status,
+        ),
+      )
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+      .slice(0, 8);
+    for (const event of visibleDirtyEvents) {
+      const eventStatus = backgroundJobStatusFromQueueState(event.status);
+      if (!eventStatus) {
+        continue;
+      }
+      rows.push({
+        job_id: `synthesis:update-event:${event.event_id}`,
+        source: "dirty_event",
+        status: eventStatus,
+        label: dirtyEventLabel(event),
+        detail: `${event.scope.kind}:${event.scope.ref}`,
+        updated_at: event.updated_at,
+        targetTab:
+          event.scope.kind === "topic"
+            ? "artifacts"
+            : event.scope.kind === "citation_graph_layout" ||
+                event.scope.kind === "citation_graph_structure"
+              ? "graph"
+              : "registry",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    const literatureStatus = backgroundJobStatusFromQueueState(
+      args.literatureJob?.queue_state,
+    );
+    if (literatureStatus && !hasProgressSource.has("literature_registry")) {
+      rows.push({
+        job_id: "synthesis:literature-registry",
+        source: "literature_registry",
+        status: literatureStatus,
+        label: "Literature registry rebuild",
+        detail: cleanString(args.literatureJob?.last_run_status) || undefined,
+        updated_at:
+          cleanString(args.literatureJob?.updated_at) ||
+          cleanString(args.literatureJob?.last_run_at) ||
+          args.updateQueue.updated_at,
+        command:
+          literatureStatus === "failed"
+            ? "retryLiteratureRegistryJob"
+            : "runLiteratureRegistryJobNow",
+        targetTab: "registry",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    const gitSync =
+      args.gitSyncState && typeof args.gitSyncState === "object"
+        ? (args.gitSyncState as Record<string, unknown>)
+        : {};
+    const gitSyncStatus = backgroundJobStatusFromQueueState(
+      gitSync.queue_state,
+    );
+    if (gitSyncStatus && !hasProgressSource.has("git_sync")) {
+      rows.push({
+        job_id: "synthesis:git-sync",
+        source: "git_sync",
+        status: gitSyncStatus,
+        label: "Git Sync",
+        detail: cleanString(gitSync.queue_state),
+        updated_at:
+          cleanString(
+            (gitSync.last_run as { completed_at?: unknown } | undefined)
+              ?.completed_at,
+          ) || args.updateQueue.updated_at,
+        command: gitSyncStatus === "failed" ? "retryGitSync" : "syncNow",
+        targetTab: "overview",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    const maintenance = canonicalMaintenanceStatus();
+    if (
+      (maintenance.active_worker_count > 0 || maintenance.pending_sync) &&
+      !hasProgressSource.has("canonical_maintenance")
+    ) {
+      rows.push({
+        job_id: "synthesis:canonical-maintenance",
+        source: "canonical_maintenance",
+        status: maintenance.active_worker_count > 0 ? "running" : "queued",
+        label: "Canonical maintenance",
+        detail: cleanString(maintenance.active_worker_kind) || undefined,
+        updated_at: args.updateQueue.updated_at,
+        targetTab: "overview",
+        progress: { mode: "indeterminate" },
+      });
+    }
+
+    return rows;
   }
 
   function buildMaintenanceSummary(args: {
@@ -3999,19 +5637,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function peekLiteratureJobState() {
-    let sourceHash = "";
-    const diagnostics: SynthesisLiteratureJobDiagnostic[] = [];
-    try {
-      sourceHash = (await literatureSource()).sourceHash;
-    } catch (error) {
-      diagnostics.push(
-        literatureDiagnostic({
-          code: "literature_source_read_failed",
-          severity: "error",
-          message: errorMessage(error),
-        }),
-      );
-    }
     const paths = buildSynthesisKnowledgeGraphPaths(root);
     const [persisted, manifestEnvelope, citationProjection] = await Promise.all(
       [
@@ -4024,6 +5649,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         ).catch(() => null),
       ],
     );
+    const sourceHash = cleanString(persisted?.source_hash);
     const canonicalManifest = envelopeData<Record<string, unknown>>(
       manifestEnvelope,
       {},
@@ -4044,14 +5670,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         projectionManifestHash !== canonicalManifestHash)
     ) {
       queueState = "stale";
-    } else if (
-      persisted?.source_hash &&
-      sourceHash &&
-      persisted.source_hash !== sourceHash
-    ) {
-      queueState = "stale";
     }
     const canPreserve =
+      literatureJobStateTouched &&
       persisted?.source_hash === sourceHash &&
       (persisted.queue_state === "queued" ||
         persisted.queue_state === "running" ||
@@ -4066,11 +5687,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         canonicalManifestHash: canonicalManifestHash || undefined,
         projectionManifestHash: projectionManifestHash || undefined,
         projectionHash,
-        diagnostics: diagnostics.length
-          ? diagnostics
-          : Array.isArray(persisted?.diagnostics)
-            ? persisted?.diagnostics || []
-            : [],
+        diagnostics: Array.isArray(persisted?.diagnostics)
+          ? persisted?.diagnostics || []
+          : [],
       }),
       retry_attempt: canPreserve ? persisted?.retry_attempt : undefined,
       next_retry_at: canPreserve ? persisted?.next_retry_at : undefined,
@@ -4087,6 +5706,661 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function loadLiteratureJobState() {
     return deriveLiteratureJobState();
+  }
+
+  function activeCitationBindings(
+    literatureItemIds: string[],
+  ): Map<string, SynthesisZoteroBindingRecord> {
+    return new Map(
+      synthesisRepository
+        .listZoteroBindings({
+          statuses: ["active"],
+          literatureItemIds,
+        })
+        .map((binding) => [binding.literatureItemId, binding] as const),
+    );
+  }
+
+  function citationGraphNodeIdMap(nodes: SynthesisCitationNodeRecord[]) {
+    const bindings = activeCitationBindings(
+      nodes.map((node) => node.literatureItemId),
+    );
+    return new Map(
+      nodes.map(
+        (node) =>
+          [
+            node.literatureItemId,
+            citationGraphNodeIdFromDb(
+              node,
+              bindings.get(node.literatureItemId),
+            ),
+          ] as const,
+      ),
+    );
+  }
+
+  function citationGraphLiteratureItemIdFromNodeId(nodeId: string) {
+    const normalized = cleanString(nodeId);
+    if (!normalized) {
+      return "";
+    }
+    if (normalized.startsWith("lit:")) {
+      return normalized;
+    }
+    const zoteroPrefix = "zotero:item:";
+    if (normalized.startsWith(zoteroPrefix)) {
+      const itemKey = normalized.slice(zoteroPrefix.length);
+      return (
+        synthesisRepository
+          .listZoteroBindings({ statuses: ["active"] })
+          .find((binding) => binding.itemKey === itemKey)?.literatureItemId ||
+        ""
+      );
+    }
+    return normalized;
+  }
+
+  function dbRowsToCitationGraph(args: {
+    nodes: SynthesisCitationNodeRecord[];
+    edges: SynthesisCitationEdgeRecord[];
+    metrics?: SynthesisCitationLightMetricsRecord[];
+    graphHash?: string;
+    diagnostics?: Record<string, unknown>;
+    nodeDisplay?: Map<
+      string,
+      {
+        externalDegree?: number;
+        visibility?: "default" | "hover_only";
+        displayTier?: "library" | "shared_external" | "single_external";
+      }
+    >;
+    edgeVisibility?: Map<string, "default" | "hover_only">;
+  }): CitationGraph {
+    const bindings = activeCitationBindings(
+      args.nodes.map((node) => node.literatureItemId),
+    );
+    const metricsByItem = new Map(
+      (args.metrics || []).map((metric) => [metric.literatureItemId, metric]),
+    );
+    const nodeIdByLiteratureItem = new Map<string, string>();
+    const nodes = args.nodes.map((node) => {
+      const binding = bindings.get(node.literatureItemId);
+      const graphNode = dbCitationNodeToGraphNode({
+        node,
+        binding,
+        metrics: metricsByItem.get(node.literatureItemId),
+        display: args.nodeDisplay?.get(node.literatureItemId),
+      });
+      nodeIdByLiteratureItem.set(node.literatureItemId, graphNode.node_id);
+      return graphNode;
+    });
+    const edges = args.edges
+      .filter((edge) => edge.edgeStatus !== "ignored")
+      .map((edge) => {
+        const sourceNodeId = nodeIdByLiteratureItem.get(
+          edge.sourceLiteratureItemId,
+        );
+        const targetNodeId = edge.targetLiteratureItemId
+          ? nodeIdByLiteratureItem.get(edge.targetLiteratureItemId)
+          : undefined;
+        return sourceNodeId && targetNodeId
+          ? dbCitationEdgeToGraphEdge({
+              edge,
+              sourceNodeId,
+              targetNodeId,
+              visibility: args.edgeVisibility?.get(edge.edgeId),
+            })
+          : null;
+      })
+      .filter((edge): edge is CitationGraphEdge => Boolean(edge));
+    const nodeCounts = {
+      library_paper: nodes.filter((node) => node.kind === "library_paper")
+        .length,
+      external_reference: nodes.filter(
+        (node) => node.kind === "external_reference",
+      ).length,
+      unresolved_reference: nodes.filter(
+        (node) => node.kind === "unresolved_reference",
+      ).length,
+    };
+    const graphHash =
+      args.graphHash ||
+      dbCitationGraphHash({
+        nodes: args.nodes,
+        edges: args.edges,
+        metrics: args.metrics,
+      });
+    return {
+      ...emptyCitationGraph({
+        graphHash,
+        diagnostics: {
+          storage: "sqlite",
+          bounded: true,
+          node_counts: nodeCounts,
+          reference_stats: {
+            total: args.edges.length,
+            promoted: edges.length,
+            external: nodeCounts.external_reference,
+            unresolved: args.edges.filter(
+              (edge) => !edge.targetLiteratureItemId,
+            ).length,
+            dropped_empty: 0,
+            merged_external_nodes: 0,
+            merged_unresolved_nodes: 0,
+          },
+          ...(args.diagnostics || {}),
+        },
+      }),
+      nodes,
+      edges,
+    };
+  }
+
+  function readDbCitationGraphOverview() {
+    const activeNodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+    });
+    const nodeById = new Map(
+      activeNodes.map((node) => [node.literatureItemId, node]),
+    );
+    const libraryNodes = activeNodes
+      .filter((node) => node.hasZoteroBinding)
+      .sort((left, right) =>
+        left.literatureItemId.localeCompare(right.literatureItemId),
+      );
+    const libraryIds = new Set(
+      libraryNodes.map((node) => node.literatureItemId),
+    );
+    if (!libraryIds.size) {
+      return emptyCitationGraph({
+        diagnostics: {
+          storage: "sqlite",
+          bounded: false,
+          semantic_slice: "library_and_shared_external",
+          library_node_count: 0,
+          shared_external_count: 0,
+          hover_only_external_count: 0,
+          displayed_edge_count: 0,
+          hover_only_edge_count: 0,
+        },
+      });
+    }
+
+    const candidateEdges = synthesisRepository
+      .listCitationEdges({
+        sourceLiteratureItemIds: Array.from(libraryIds),
+        statuses: ["matched", "ambiguous", "unresolved"],
+      })
+      .filter(
+        (edge) =>
+          edge.edgeStatus !== "ignored" &&
+          Boolean(edge.targetLiteratureItemId) &&
+          Boolean(nodeById.get(edge.targetLiteratureItemId || "")),
+      );
+    const externalIncomingDegree = new Map<string, number>();
+    for (const edge of candidateEdges) {
+      const target = nodeById.get(edge.targetLiteratureItemId || "");
+      if (target && !target.hasZoteroBinding) {
+        externalIncomingDegree.set(
+          target.literatureItemId,
+          (externalIncomingDegree.get(target.literatureItemId) || 0) + 1,
+        );
+      }
+    }
+
+    const mainNodeIds = new Set(libraryIds);
+    const hoverOnlyNodeIds = new Set<string>();
+    const mainEdges: SynthesisCitationEdgeRecord[] = [];
+    const hoverOnlyEdges: SynthesisCitationEdgeRecord[] = [];
+    for (const edge of candidateEdges) {
+      const target = nodeById.get(edge.targetLiteratureItemId || "");
+      if (!target) {
+        continue;
+      }
+      if (target.hasZoteroBinding) {
+        if (edge.edgeStatus === "matched" || edge.edgeStatus === "ambiguous") {
+          mainNodeIds.add(target.literatureItemId);
+          mainEdges.push(edge);
+        }
+        continue;
+      }
+      const externalDegree =
+        externalIncomingDegree.get(target.literatureItemId) || 0;
+      if (externalDegree > 1) {
+        mainNodeIds.add(target.literatureItemId);
+        mainEdges.push(edge);
+      } else if (externalDegree === 1) {
+        hoverOnlyNodeIds.add(target.literatureItemId);
+        hoverOnlyEdges.push(edge);
+      }
+    }
+
+    const mainNodes = activeNodes
+      .filter((node) => mainNodeIds.has(node.literatureItemId))
+      .sort((left, right) =>
+        left.literatureItemId.localeCompare(right.literatureItemId),
+      );
+    const hoverOnlyNodes = activeNodes
+      .filter((node) => hoverOnlyNodeIds.has(node.literatureItemId))
+      .sort((left, right) =>
+        left.literatureItemId.localeCompare(right.literatureItemId),
+      );
+    const metrics = synthesisRepository.listCitationLightMetrics({
+      literatureItemIds: mainNodes.map((node) => node.literatureItemId),
+    });
+    const nodeDisplay = new Map<
+      string,
+      {
+        externalDegree?: number;
+        visibility?: "default" | "hover_only";
+        displayTier?: "library" | "shared_external" | "single_external";
+      }
+    >();
+    for (const node of mainNodes) {
+      nodeDisplay.set(node.literatureItemId, {
+        externalDegree: node.hasZoteroBinding
+          ? undefined
+          : externalIncomingDegree.get(node.literatureItemId) || 0,
+        visibility: "default",
+        displayTier: node.hasZoteroBinding ? "library" : "shared_external",
+      });
+    }
+    for (const node of hoverOnlyNodes) {
+      nodeDisplay.set(node.literatureItemId, {
+        externalDegree: externalIncomingDegree.get(node.literatureItemId) || 1,
+        visibility: "hover_only",
+        displayTier: "single_external",
+      });
+    }
+    const hoverEdgeVisibility = new Map(
+      hoverOnlyEdges.map((edge) => [edge.edgeId, "hover_only" as const]),
+    );
+    const graph = dbRowsToCitationGraph({
+      nodes: mainNodes,
+      edges: mainEdges,
+      metrics,
+      nodeDisplay,
+      diagnostics: {
+        storage: "sqlite",
+        bounded: false,
+        semantic_slice: "library_and_shared_external",
+        library_node_count: libraryNodes.length,
+        shared_external_count: mainNodes.filter(
+          (node) => !node.hasZoteroBinding,
+        ).length,
+        hover_only_external_count: hoverOnlyNodes.length,
+        displayed_edge_count: mainEdges.length,
+        hover_only_edge_count: hoverOnlyEdges.length,
+        node_count: mainNodes.length,
+        edge_count: mainEdges.length,
+        truncated: false,
+        limits: {
+          libraryNodes: "unbounded",
+          sharedExternalMinIncomingDegree: 2,
+        },
+      },
+    }) as CitationGraph & {
+      hover_only_nodes?: CitationGraphNode[];
+      hover_only_edges?: CitationGraphEdge[];
+    };
+    const hoverGraph = dbRowsToCitationGraph({
+      nodes: [...libraryNodes, ...hoverOnlyNodes],
+      edges: hoverOnlyEdges,
+      nodeDisplay,
+      edgeVisibility: hoverEdgeVisibility,
+      diagnostics: {},
+    });
+    const hoverNodeIds = new Set(
+      hoverOnlyNodes.map((node) => node.literatureItemId),
+    );
+    graph.hover_only_nodes = hoverGraph.nodes.filter((node) =>
+      node.aliases.some((alias) => hoverNodeIds.has(alias)),
+    );
+    graph.hover_only_edges = hoverGraph.edges;
+    return graph;
+  }
+
+  function readFullDbCitationGraphForMetrics() {
+    const nodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+    });
+    const edges = synthesisRepository.listCitationEdges({
+      statuses: ["matched", "ambiguous", "unresolved"],
+    });
+    const metrics = synthesisRepository.listCitationLightMetrics({
+      literatureItemIds: nodes.map((node) => node.literatureItemId),
+    });
+    return {
+      graph: dbRowsToCitationGraph({ nodes, edges, metrics }),
+      nodes,
+      edges,
+      metrics,
+    };
+  }
+
+  function readDbCitationGraphSlice(
+    normalized: ReturnType<typeof normalizeGraphSliceArgs>,
+  ): SynthesisCitationGraphSliceResult {
+    const startLiteratureItemId = citationGraphLiteratureItemIdFromNodeId(
+      normalized.startNodeId,
+    );
+    const emptyDiagnostics = {
+      snapshot_found: false,
+      depth: normalized.depth,
+      node_count: 0,
+      edge_count: 0,
+      truncated: false,
+      limits: {
+        maxNodes: normalized.maxNodes,
+        maxEdges: normalized.maxEdges,
+        maxDepth: 2,
+      },
+      warnings: normalized.warnings,
+      recommended_commands: [],
+      maintenance: readMaintenanceForDto(),
+    };
+    if (!startLiteratureItemId) {
+      return {
+        ok: false,
+        graph_hash: "",
+        start_node_id: normalized.startNodeId,
+        nodes: [],
+        edges: [],
+        diagnostics: {
+          ...emptyDiagnostics,
+          warnings: [
+            ...normalized.warnings,
+            `start node not found: ${normalized.startNodeId}`,
+          ],
+        },
+      };
+    }
+    const startNodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+      literatureItemIds: [startLiteratureItemId],
+      limit: 1,
+    });
+    if (!startNodes.length) {
+      return {
+        ok: false,
+        graph_hash: "",
+        start_node_id: normalized.startNodeId,
+        nodes: [],
+        edges: [],
+        diagnostics: {
+          ...emptyDiagnostics,
+          warnings: [
+            ...normalized.warnings,
+            `start node not found: ${normalized.startNodeId}`,
+          ],
+        },
+      };
+    }
+    const selectedNodeIds = new Set<string>([startLiteratureItemId]);
+    const selectedEdges = new Map<string, SynthesisCitationEdgeRecord>();
+    const queue: Array<{ literatureItemId: string; depth: number }> = [
+      { literatureItemId: startLiteratureItemId, depth: 0 },
+    ];
+    let truncated = false;
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (current.depth >= normalized.depth) {
+        continue;
+      }
+      const outgoing =
+        normalized.direction === "incoming"
+          ? []
+          : synthesisRepository.listCitationEdges({
+              sourceLiteratureItemIds: [current.literatureItemId],
+              statuses: ["matched", "ambiguous", "unresolved"],
+              limit: normalized.maxEdges,
+            });
+      const incoming =
+        normalized.direction === "outgoing"
+          ? []
+          : synthesisRepository.listCitationEdges({
+              targetLiteratureItemIds: [current.literatureItemId],
+              statuses: ["matched", "ambiguous", "unresolved"],
+              limit: normalized.maxEdges,
+            });
+      const nextEdges = [...outgoing, ...incoming]
+        .filter((edge) =>
+          dbCitationEdgeMatchesRole(edge, normalized.roleFilter),
+        )
+        .sort((left, right) => left.edgeId.localeCompare(right.edgeId));
+      for (const edge of nextEdges) {
+        const nextLiteratureItemId =
+          edge.sourceLiteratureItemId === current.literatureItemId
+            ? edge.targetLiteratureItemId
+            : edge.sourceLiteratureItemId;
+        if (!nextLiteratureItemId) {
+          if (normalized.includeLowSignal) {
+            truncated = true;
+          }
+          continue;
+        }
+        if (selectedEdges.size >= normalized.maxEdges) {
+          truncated = true;
+          continue;
+        }
+        if (
+          !selectedNodeIds.has(nextLiteratureItemId) &&
+          selectedNodeIds.size >= normalized.maxNodes
+        ) {
+          truncated = true;
+          continue;
+        }
+        selectedEdges.set(edge.edgeId, edge);
+        if (!selectedNodeIds.has(nextLiteratureItemId)) {
+          selectedNodeIds.add(nextLiteratureItemId);
+          queue.push({
+            literatureItemId: nextLiteratureItemId,
+            depth: current.depth + 1,
+          });
+        }
+      }
+    }
+    const nodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+      literatureItemIds: Array.from(selectedNodeIds),
+      limit: normalized.maxNodes,
+    });
+    const metrics = synthesisRepository.listCitationLightMetrics({
+      literatureItemIds: Array.from(selectedNodeIds),
+      limit: normalized.maxNodes,
+    });
+    const graph = dbRowsToCitationGraph({
+      nodes,
+      edges: Array.from(selectedEdges.values()),
+      metrics,
+    });
+    return {
+      ok: true,
+      graph_hash: graph.graph_hash,
+      start_node_id: normalized.startNodeId,
+      nodes: graph.nodes,
+      edges: graph.edges,
+      diagnostics: {
+        snapshot_found: true,
+        depth: normalized.depth,
+        node_count: graph.nodes.length,
+        edge_count: graph.edges.length,
+        truncated,
+        limits: {
+          maxNodes: normalized.maxNodes,
+          maxEdges: normalized.maxEdges,
+          maxDepth: 2,
+        },
+        warnings: normalized.warnings,
+        recommended_commands: [],
+        maintenance: readMaintenanceForDto(),
+      },
+    };
+  }
+
+  function readDbCitationMetrics(
+    normalized: ReturnType<typeof normalizeGraphMetricsArgs>,
+  ): SynthesisCitationGraphMetricsResult {
+    const requestedIds = normalized.paperRefs
+      .map(paperRefToCitationGraphNodeId)
+      .map(citationGraphLiteratureItemIdFromNodeId)
+      .filter(Boolean);
+    const complexMetrics = synthesisRepository.listCitationComplexMetrics({
+      literatureItemIds: requestedIds,
+      limit: normalized.limit,
+      sortBy: normalized.sortBy,
+    });
+    const latestLightMetrics = synthesisRepository.listCitationLightMetrics({
+      literatureItemIds: complexMetrics.length
+        ? complexMetrics.map((metric) => metric.literatureItemId)
+        : requestedIds,
+      limit: normalized.limit,
+    });
+    const lightByItem = new Map(
+      latestLightMetrics.map((metric) => [metric.literatureItemId, metric]),
+    );
+    const stale = complexMetrics.some((metric) => {
+      const light = lightByItem.get(metric.literatureItemId);
+      return (
+        metric.status !== "ready" ||
+        (light
+          ? metric.sourceStructureVersion < light.sourceStructureVersion
+          : false)
+      );
+    });
+    if (complexMetrics.length) {
+      const items = complexMetrics.map(dbComplexMetricToLibraryMetric);
+      const metricsHash =
+        complexMetrics[0]?.metricsHash ||
+        hashCanonicalJson({
+          storage: "sqlite",
+          complex_metrics: complexMetrics.map((metric) => [
+            metric.literatureItemId,
+            metric.foundationScore,
+            metric.frontierScore,
+            metric.internalPagerank,
+            metric.sourceStructureVersion,
+          ]),
+        });
+      return {
+        ok: true,
+        graph_hash: complexMetrics[0]?.sourceGraphHash || "",
+        metrics_hash: metricsHash,
+        status: stale ? "stale" : "ready",
+        items,
+        diagnostics: {
+          snapshot_found: true,
+          metrics_found: true,
+          stale,
+          total_library_nodes: complexMetrics.length,
+          returned_count: items.length,
+          limits: {
+            limit: normalized.limit,
+            maxLimit: 100,
+          },
+          warnings: [
+            ...normalized.warnings,
+            ...(stale ? ["citation graph complex metrics are stale"] : []),
+          ],
+          recommended_commands: stale
+            ? ["runCitationGraphComplexMetricsWorker"]
+            : [],
+          maintenance: readMaintenanceForDto(
+            stale ? ["runCitationGraphComplexMetricsWorker"] : [],
+          ),
+        },
+      };
+    }
+    const sortBy =
+      normalized.sortBy === "in_degree"
+        ? "incoming_count"
+        : normalized.sortBy === "frontier"
+          ? "outgoing_count"
+          : "local_degree";
+    const metrics = synthesisRepository.listCitationLightMetrics({
+      literatureItemIds: requestedIds,
+      limit: normalized.limit,
+      sortBy,
+    });
+    const nodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+      literatureItemIds: metrics.map((metric) => metric.literatureItemId),
+      limit: normalized.limit,
+    });
+    const bindings = activeCitationBindings(
+      nodes.map((node) => node.literatureItemId),
+    );
+    const nodesById = new Map(
+      nodes.map((node) => [node.literatureItemId, node] as const),
+    );
+    const items = metrics.map((metric): CitationGraphLibraryNodeMetrics => {
+      const node = nodesById.get(metric.literatureItemId);
+      const binding = node ? bindings.get(node.literatureItemId) : undefined;
+      return {
+        node_id: node
+          ? citationGraphNodeIdFromDb(node, binding)
+          : metric.literatureItemId,
+        paper_ref: binding ? `${binding.libraryId}:${binding.itemKey}` : "",
+        item_key: binding?.itemKey,
+        title: node?.title,
+        year: node?.year,
+        internal_in_degree: metric.incomingCount,
+        internal_out_degree: metric.outgoingCount,
+        external_reference_count: metric.unresolvedOutgoingCount,
+        unresolved_reference_count: metric.unresolvedOutgoingCount,
+        internal_pagerank: 0,
+        component_id: "",
+        component_size: 0,
+        is_isolated: metric.localDegree === 0,
+        age_norm: 0,
+        recency_norm: 0,
+        in_degree_norm: metric.incomingCount,
+        out_degree_norm: metric.outgoingCount,
+        pagerank_norm: 0,
+        foundation_score: metric.incomingCount,
+        frontier_score: metric.outgoingCount,
+        synthesis_role_hints: [],
+      };
+    });
+    const graphHash = dbCitationGraphHash({
+      nodes,
+      edges: [],
+      metrics,
+    });
+    return {
+      ok: metrics.length > 0,
+      graph_hash: graphHash,
+      metrics_hash: dbCitationMetricsHash(metrics),
+      status: metrics.length ? "stale" : "missing",
+      items,
+      diagnostics: {
+        snapshot_found: nodes.length > 0,
+        metrics_found: false,
+        stale: metrics.length > 0,
+        total_library_nodes: metrics.length,
+        returned_count: items.length,
+        limits: {
+          limit: normalized.limit,
+          maxLimit: 100,
+        },
+        warnings: [
+          ...normalized.warnings,
+          ...(metrics.length
+            ? [
+                "citation graph complex metrics are missing; using lightweight metrics",
+              ]
+            : []),
+        ],
+        recommended_commands: metrics.length
+          ? ["runCitationGraphComplexMetricsWorker"]
+          : ["runLiteratureRegistryJobNow"],
+        maintenance: readMaintenanceForDto(
+          metrics.length
+            ? ["runCitationGraphComplexMetricsWorker"]
+            : ["runLiteratureRegistryJobNow"],
+        ),
+      },
+    };
   }
 
   async function queueLiteratureRegistryRebuild() {
@@ -4112,6 +6386,33 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function runLiteratureRegistryJobNow() {
+    const jobName = "synthesis:literature-registry";
+    const runId = `${jobName}:${now()}`;
+    const literaturePhases = [
+      "source_loading",
+      "rebuild",
+      "projection",
+      "commit",
+    ];
+    let literaturePhaseIndex = 0;
+    const reportLiteraturePhase = (phase: string, index: number) => {
+      literaturePhaseIndex = index;
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "literature_registry",
+        label: "Literature registry rebuild",
+        status: "running",
+        phase,
+        phaseLabel: phase
+          .split("_")
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" "),
+        processedCount: index,
+        totalCount: literaturePhases.length,
+        progressMode: "determinate",
+      });
+    };
     if (literatureJobDebounceTimer) {
       clearTimeout(literatureJobDebounceTimer);
       literatureJobDebounceTimer = undefined;
@@ -4133,7 +6434,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       "literature-registry-job",
     );
     try {
+      reportLiteraturePhase("source_loading", 1);
       const source = await literatureSource();
+      reportLiteraturePhase("rebuild", 2);
       const rebuilt = await lock.runExclusive(libraryId, () =>
         literatureRegistry.rebuildLiteratureRegistry({
           registryInputs: source.registryInputs,
@@ -4142,8 +6445,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }),
       );
       maintenance.markCanonicalMutation();
+      reportLiteraturePhase("projection", 3);
       const projectionHash = hashCanonicalJson(rebuilt.citationProjection);
       literatureJobRunning = false;
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "literature_registry",
+        label: "Literature registry rebuild",
+        phase: "commit",
+        phaseLabel: "Commit",
+        processedCount: literaturePhases.length,
+        totalCount: literaturePhases.length,
+        progressMode: "determinate",
+        message: "Literature registry rebuild completed.",
+      });
       return writeLiteratureJobState({
         ...defaultLiteratureJobState({
           queueState: "ready",
@@ -4178,6 +6494,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         diagnostics: [diagnostic],
       });
       literatureJobRunning = false;
+      failSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "literature_registry",
+        label: "Literature registry rebuild",
+        processedCount: literaturePhaseIndex,
+        totalCount: literaturePhases.length,
+        progressMode: "determinate",
+        diagnosticsJson: JSON.stringify([diagnostic]),
+        message: "Literature registry rebuild failed.",
+      });
       scheduleLiteratureRetry(failed);
       return failed;
     } finally {
@@ -4510,6 +6837,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             ...currentManifest,
             operation: "update_patch",
             language: bundle.language || currentManifest.language || "auto",
+            sidecars: isObject(patch.patchManifest.sidecars)
+              ? patch.patchManifest.sidecars
+              : currentManifest.sidecars,
             sections: Object.fromEntries(
               Object.entries(sections).map(([section, value]) => [
                 section,
@@ -4674,29 +7004,31 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         });
         await writeIndexRows(root, rows, timestamp);
         const warnings: string[] = [];
-        if (bundle.concept_cards_proposal_path) {
-          try {
-            const conceptPayload = await readRunWorkspaceJsonWithFallbacks(
-              context,
-              "concept_cards_proposal_path",
-              bundle.concept_cards_proposal_path,
-              ["runtime/payloads/concept-cards-proposal.json"],
-            );
-            await conceptKb.ingestConceptCardProposals({
-              topicId,
-              topicPathId: pathId,
-              payload: conceptPayload,
-              transactionId: `concept-cards-${pathId}`,
-            });
-          } catch (error) {
-            warnings.push("concept_cards_proposal_failed");
-            await appendJsonLine(paths.log, {
-              event: "concept_cards_proposal_failed",
-              topic_id: topicId,
-              at: timestamp,
-              error: errorMessage(error),
-            });
-          }
+        try {
+          const conceptPayload = await readRunWorkspaceJsonWithFallbacks(
+            context,
+            "sidecars.concept_cards_proposal.path",
+            sidecarPathForApply({
+              manifest,
+              bundle,
+              key: "concept_cards_proposal",
+            }),
+            ["runtime/payloads/concept-cards-proposal.json"],
+          );
+          await conceptKb.ingestConceptCardProposals({
+            topicId,
+            topicPathId: pathId,
+            payload: conceptPayload,
+            transactionId: `concept-cards-${pathId}`,
+          });
+        } catch (error) {
+          warnings.push("concept_cards_proposal_failed");
+          await appendJsonLine(paths.log, {
+            event: "concept_cards_proposal_failed",
+            topic_id: topicId,
+            at: timestamp,
+            error: errorMessage(error),
+          });
         }
         try {
           await topicGraph.upsertMaterializedTopic({
@@ -4707,33 +7039,81 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             lastSynthesisAt: timestamp,
             transactionId: `topic-graph-node-${pathId}`,
           });
-          if (bundle.topic_graph_relation_proposals_path) {
-            try {
-              const proposalPayload = await readRunWorkspaceJsonWithFallbacks(
-                context,
-                "topic_graph_relation_proposals_path",
-                bundle.topic_graph_relation_proposals_path,
-                ["result/topic-graph-relation-proposals.json"],
-              );
-              await topicGraph.ingestRelationProposals({
-                sourceTopicId: topicId,
-                payload: proposalPayload,
-                transactionId: `topic-graph-proposals-${pathId}`,
-              });
-            } catch (error) {
-              warnings.push("topic_graph_relation_proposals_failed");
-              await appendJsonLine(paths.log, {
-                event: "topic_graph_relation_proposals_failed",
-                topic_id: topicId,
-                at: timestamp,
-                error: errorMessage(error),
-              });
-            }
+          try {
+            const proposalPayload = await readRunWorkspaceJsonWithFallbacks(
+              context,
+              "sidecars.topic_graph_relation_proposals.path",
+              sidecarPathForApply({
+                manifest,
+                bundle,
+                key: "topic_graph_relation_proposals",
+              }),
+              ["result/topic-graph-relation-proposals.json"],
+            );
+            await topicGraph.ingestRelationProposals({
+              sourceTopicId: topicId,
+              payload: proposalPayload,
+              transactionId: `topic-graph-proposals-${pathId}`,
+            });
+          } catch (error) {
+            warnings.push("topic_graph_relation_proposals_failed");
+            await appendJsonLine(paths.log, {
+              event: "topic_graph_relation_proposals_failed",
+              topic_id: topicId,
+              at: timestamp,
+              error: errorMessage(error),
+            });
           }
         } catch (error) {
           warnings.push("topic_graph_update_failed");
           await appendJsonLine(paths.log, {
             event: "topic_graph_update_failed",
+            topic_id: topicId,
+            at: timestamp,
+            error: errorMessage(error),
+          });
+        }
+        try {
+          const topicInterestPayload = await readRunWorkspaceJsonWithFallbacks(
+            context,
+            "sidecars.topic_interest_metadata.path",
+            sidecarPathForApply({
+              manifest,
+              bundle,
+              key: "topic_interest_metadata",
+            }),
+            ["result/sidecars/topic-interest-metadata.json"],
+          );
+          await synthesisRepository.upsertTopicInterestMetadata(
+            normalizeTopicInterestMetadataRecord({
+              payload: topicInterestPayload,
+              topicId,
+              sourceArtifactHash: finalHashes.artifact_hash,
+              updatedAt: timestamp,
+            }),
+          );
+          const discoveryResult =
+            synthesisRepository.rebuildTopicDiscoveryHints({
+              topicIds: [topicId],
+              timestamp,
+            });
+          if (discoveryResult.upserted > 0) {
+            await appendJsonLine(paths.log, {
+              event: "topic_discovery_hints_refreshed",
+              topic_id: topicId,
+              at: timestamp,
+              open_count: discoveryResult.open,
+              filtered_count: discoveryResult.filtered,
+            });
+          }
+          await refreshTopicDiscoveryState({
+            topicIds: [topicId],
+            timestamp,
+          });
+        } catch (error) {
+          warnings.push("topic_interest_metadata_failed");
+          await appendJsonLine(paths.log, {
+            event: "topic_interest_metadata_failed",
             topic_id: topicId,
             at: timestamp,
             error: errorMessage(error),
@@ -5049,66 +7429,53 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     state: SynthesisUiState = createDefaultSynthesisUiState(),
   ): Promise<SynthesisUiSnapshotInput> {
     const paths = buildSynthesisStoragePaths(root);
-    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    const rows = await readIndexRows(root);
-    const conflicts = await listConflictCandidates(root);
     const rootReady = await runtimePathExists(paths.synthesisRoot);
-    const registryInputs = await registryInputsForService(options);
-    const registryRows = registryRowsForInputs(registryInputs);
-    const legacyRows = await readLegacyTopicRows(root);
-    const artifactState = await readArtifactStateRows(root);
-    const definitions = await readStateMap<Record<string, unknown>>(
-      paths.topicDefinitions,
-      "topics",
-    ).catch(() => ({}) as Record<string, Record<string, unknown>>);
-    const projectionRegistry = await readJson<{
-      projections?: Record<
-        string,
-        { stale?: boolean; diagnostics?: unknown[] }
-      >;
-    }>(joinPath(kgPaths.stateRoot, "projection-registry.json")).catch(
-      () => null,
-    );
-    const literatureProjection = await readJson<{
-      rows?: PaperRegistryRow[];
-      cleanup_proposals?: Array<{
-        proposal_id: string;
-        status: "open" | "approved" | "rejected" | "skipped";
-        source_paper_ref: string;
-        reason: string;
-        updated_at?: string;
-      }>;
-    }>(joinPath(kgPaths.stateRoot, "literature-registry-index.json")).catch(
-      () => null,
-    );
-    const projectionGraph = await readProjectionCitationGraph(
-      root,
-      state.graph.layoutPreset,
-    );
-    const persistedGraph = await readPersistedGraphProjection(
-      root,
-      state.graph.layoutPreset,
-    );
-    const usePersistedGraph = shouldPreferLegacyCitationGraph({
-      projectionGraph: projectionGraph.graph,
-      legacyGraph: persistedGraph.graph,
+    const registryFacts = synthesisRepository.listPaperRegistryFacts({
+      limit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
+    }).entries;
+    const registryReferenceFacts = synthesisRepository.listReferenceFacts({
+      sourceLiteratureItemIds: registryFacts.map(
+        (fact) => fact.literatureItemId,
+      ),
     });
-    const selectedGraph = usePersistedGraph ? persistedGraph : projectionGraph;
+    const registryReviewItems = synthesisRepository.listReviewItems();
+    const artifactState = {} as Record<string, TopicArtifactStateRow>;
+    const definitions = {} as Record<string, Record<string, unknown>>;
+    const dbGraph = readDbCitationGraphOverview();
+    const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
+      viewKey: "workbench_overview",
+      preset: state.graph.layoutPreset,
+    });
+    const graphLayout = parseCitationGraphLayout(graphLayoutRecord);
+    const graphLayoutStatus = citationGraphLayoutStatus({
+      graph: dbGraph,
+      record: graphLayoutRecord,
+      layout: graphLayout,
+    });
     const tags = await tagVocabulary.loadTagVocabulary().catch(() => undefined);
     const concepts = await conceptKb.loadConceptKb().catch(() => undefined);
     const literatureJob = await peekLiteratureJobState().catch(() => undefined);
     const updateQueue = updateEvents.loadQueueState();
+    const dirtyEvents = updateEvents.listEvents();
     const topicGraphSnapshot = await topicGraph
       .loadTopicGraph()
       .catch(() => undefined);
+    const conflicts: SynthesisConflictCandidate[] = [];
+    const artifactRows = topicGraphSnapshot
+      ? topicArtifactRowsFromGraphNodes({
+          nodes: topicGraphSnapshot.nodes,
+          artifactState,
+          definitions,
+        })
+      : [];
     const gitSyncState = await gitSync
       .loadGitSyncState()
       .catch(() => undefined);
-    const graph =
-      selectedGraph.graph ||
-      projectionGraph.graph ||
-      persistedGraph.graph ||
-      graphForPapers([]);
+    const graph = dbGraph.nodes.length
+      ? dbGraph
+      : emptyCitationGraph({
+          diagnostics: { status: "graph_sqlite_rows_missing" },
+        });
     const sync = assessSynthesisSyncRecovery({
       root: {
         state: rootReady ? "ready" : "missing",
@@ -5118,46 +7485,25 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         shards: [],
       },
       localIndexes: {
-        state: rows.length ? "healthy" : "missing",
+        state: artifactRows.length ? "healthy" : "missing",
       },
       conflicts,
     });
-    const canonicalLiterature = await literatureRegistry
-      .loadLiteratureRegistry()
-      .catch(() => undefined);
-    const projectedCleanupProposals: LiteratureRegistryCleanupProposalRecord[] =
-      (literatureProjection?.cleanup_proposals || []).map((proposal) => ({
-        proposal_id: proposal.proposal_id,
-        kind: "reference_resolution",
-        status: proposal.status,
-        source_paper_ref: proposal.source_paper_ref,
-        reason: proposal.reason,
-        diagnostics: [],
-        created_at: proposal.updated_at || now(),
-        updated_at: proposal.updated_at || now(),
-      }));
-    const cleanupProposals = enrichCleanupProposals({
-      proposals:
-        canonicalLiterature?.cleanup_proposals || projectedCleanupProposals,
-      papers: canonicalLiterature?.papers,
-      references: canonicalLiterature?.reference_instances,
-      resolutions: canonicalLiterature?.reference_resolutions,
-      works: canonicalLiterature?.works,
-    });
-    const literatureProjectionState =
-      projectionRegistry?.projections?.["literature-registry-index"];
-    const citationProjectionState =
-      projectionRegistry?.projections?.["citation-graph-index"];
+    const indexReviewProposals =
+      indexReviewProposalsFromDb(registryReviewItems);
     const maintenanceSummary = buildMaintenanceSummary({
       updateQueue,
       literatureJob,
-      literatureProjection,
-      literatureProjectionState,
-      citationProjectionState,
+      literatureProjection: registryFacts.length ? registryFacts : undefined,
       citationGraphHash: graph.graph_hash,
-      citationGraphFound: Boolean(
-        projectionGraph.graph || persistedGraph.graph,
-      ),
+      citationGraphFound: dbGraph.nodes.length > 0,
+    });
+    const backgroundJobs = buildMaintenanceBackgroundJobs({
+      updateQueue,
+      dirtyEvents,
+      jobProgressRows: activeJobProgressRows(),
+      literatureJob,
+      gitSyncState,
     });
     return {
       libraryId,
@@ -5176,134 +7522,35 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       },
       conflicts,
       deletedArtifacts: {
-        rows: (await readDeletedRows(root)).map((row) => ({
-          topic_id: row.topic_id,
-          title: row.title,
-          deleted_at: row.deleted_at,
-        })),
+        rows: [],
       },
-      artifacts: [...rows, ...legacyRows].map((row) => {
-        const stateRow = artifactState[row.topic_id];
-        const freshness =
-          (row as any).status === "legacy_invalid"
-            ? "dirty"
-            : stateRow?.freshness || "unknown";
-        const coverage = stateRow?.coverage || "missing";
-        const intent = deriveTopicUpdateIntent({
-          topicId: row.topic_id,
-          language: row.language,
-          state: stateRow,
-          row,
-        });
-        return {
-          id: row.topic_id,
-          title: row.title,
-          kind: "topic_synthesis",
-          coverage,
-          freshness,
-          updated_at: row.updated_at,
-          markdown_preview: (stateRow?.reasons || [])
-            .map((entry) => entry.code)
-            .join(", "),
-          paper_count: row.paper_count ?? paperCountFromTopicState(stateRow),
-          summary: summaryFromTopicDefinition(
-            definitions[row.topic_id],
-            (stateRow?.reasons || [])
-              .map((entry) => entry.message || entry.code)
-              .filter(Boolean)
-              .slice(0, 2)
-              .join("; "),
-          ),
-          completion: completionFromTopicState(stateRow),
-          status: (row as any).status,
-          readerMode:
-            (row as any).status === "legacy_invalid"
-              ? "needs_recreate"
-              : "structured",
-          language: row.language,
-          external_literature_count: row.external_literature_count,
-          stale_reasons:
-            stateRow?.freshness === "stale"
-              ? (stateRow?.reasons || []).map((entry) => entry.code)
-              : [],
-          dirty_reasons:
-            stateRow?.freshness === "dirty"
-              ? (stateRow?.reasons || []).map((entry) => entry.code)
-              : (row as any).status === "legacy_invalid"
-                ? ["legacy_invalid"]
-                : [],
-          updateIntent: topicUpdateIntentForUi({
-            topicId: row.topic_id,
-            intent,
-          }),
-        };
-      }),
+      artifacts: artifactRows,
       registry: {
-        rows: registryRowsToUi(
-          literatureProjection?.rows || registryRows,
-          cleanupProposals,
-          literatureProjectionState?.stale,
-        ),
-        cleanupProposals: cleanupProposals.map((proposal) => ({
-          proposal_id: proposal.proposal_id,
-          status: proposal.status,
-          kind: proposal.kind,
-          source_paper_ref: proposal.source_paper_ref,
-          source_paper_title: proposal.source_paper_title,
-          reference_instance_id: proposal.reference_instance_id,
-          provisional_key: proposal.provisional_key,
-          reference_title: proposal.reference_title,
-          reference_raw: proposal.reference_raw,
-          target_paper_ref: proposal.target_paper_ref,
-          target_paper_title: proposal.target_paper_title,
-          target_work_id: proposal.target_work_id,
-          target_work_title: proposal.target_work_title,
-          reason: proposal.reason,
-          diagnostics: proposal.diagnostics,
-          decision_summary: proposal.decision_summary,
-          updated_at: proposal.updated_at,
-        })),
-        projection: literatureProjectionState,
+        rows: registryFactsToUiRows({
+          facts: registryFacts,
+          references: registryReferenceFacts,
+          cleanupProposals: indexReviewProposals,
+        }),
+        cleanupProposals: indexReviewProposals,
+        projection: undefined,
         literatureJob,
       },
-      graph: selectedGraph.graph
-        ? {
-            ...mapGraphToUi(selectedGraph.graph, {
-              layout: selectedGraph.layout,
-              layoutStatus: selectedGraph.layoutStatus,
-            }),
-            diagnostics: {
-              ...selectedGraph.graph.diagnostics,
-              ...(usePersistedGraph
-                ? {
-                    status: "legacy_projection_used",
-                    warnings: [
-                      "canonical citation graph projection is empty; using latest legacy unified graph snapshot",
-                    ],
-                  }
-                : {}),
-            },
-          }
-        : projectionGraph.graph
-          ? mapGraphToUi(projectionGraph.graph, {
-              layout: projectionGraph.layout,
-              layoutStatus: projectionGraph.layoutStatus,
-            })
-          : persistedGraph.graph
-            ? mapGraphToUi(graph, {
-                layout: persistedGraph.layout,
-                layoutStatus: persistedGraph.layoutStatus,
-              })
-            : {
-                ...mapGraphToUi(graph),
-                diagnostics: {
-                  ...graph.diagnostics,
-                  status: "graph_snapshot_missing",
-                },
-              },
+      graph: {
+        ...mapGraphToUi(graph, {
+          layout: graphLayout,
+          layoutStatus: graphLayoutStatus,
+        }),
+        diagnostics: {
+          ...graph.diagnostics,
+          storage: "sqlite",
+          layout_status: graphLayoutStatus,
+          layout_source: "sqlite",
+        },
+      },
       maintenance: {
         updateQueue,
         summary: maintenanceSummary,
+        backgroundJobs,
       },
       tags: tags
         ? {
@@ -5435,11 +7682,40 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return null;
   }
 
+  function upsertLiteratureMatchingMetadataCacheFromRegistryInput(
+    input: PaperRegistryInput,
+  ) {
+    const payload = literatureMatchingMetadataPayloadFromInput(input);
+    if (!payload) {
+      return null;
+    }
+    const paperRef = `${normalizeLibraryId(input.libraryId)}:${cleanString(
+      input.itemKey,
+    )}`;
+    const literatureItemId = zoteroPaperLiteratureItemId(paperRef);
+    const metadataHash = hashCanonicalJson(payload);
+    synthesisRepository.upsertLiteratureMatchingMetadata({
+      literatureItemId,
+      schemaId: LITERATURE_MATCHING_METADATA_SCHEMA,
+      keyTermsJson: JSON.stringify(payload.key_terms),
+      methodsJson: JSON.stringify(payload.methods),
+      problemsJson: JSON.stringify(payload.problems),
+      datasetsJson: JSON.stringify(payload.datasets),
+      excludeTermsJson: JSON.stringify(payload.exclude_terms),
+      sourceArtifactHash: metadataHash,
+      metadataHash,
+      diagnosticsJson: "[]",
+      updatedAt: now(),
+    });
+    return { literatureItemId, metadataHash };
+  }
+
   function isPaperRegistryDirtyEvent(event: SynthesisUpdateEvent) {
     return (
       event.status === "queued" &&
       (event.event_type === "paper_artifact_changed" ||
         event.event_type === "digest_applied" ||
+        event.event_type === "literature_matching_metadata_changed" ||
         event.event_type === "reference_matching_applied" ||
         event.event_type === "zotero_item_added" ||
         event.event_type === "zotero_item_updated" ||
@@ -5456,6 +7732,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     } = {},
   ) {
     const startedAt = Date.now();
+    const jobName = "synthesis:paper-registry-incremental-worker";
+    const runId = `${jobName}:${now()}`;
     const batchLimit = Math.max(1, Math.floor(Number(args.batchLimit) || 10));
     const timeBudgetMs = Math.max(
       1,
@@ -5471,6 +7749,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         skipped: "paused",
         diagnostics,
         queue,
+        elapsed_ms: Date.now() - startedAt,
+        time_budget_ms: timeBudgetMs,
+        budget_exhausted: false,
       };
     }
     const maintenance = beginCanonicalMaintenanceWorker(
@@ -5484,6 +7765,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         .listEvents()
         .filter(isPaperRegistryDirtyEvent)
         .sort((left, right) => left.created_at.localeCompare(right.created_at));
+      const totalCount = Math.min(pending.length, batchLimit);
+      if (totalCount > 0) {
+        reportSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "update_queue",
+          label: "Paper registry incremental worker",
+          status: "running",
+          timeBudgetMs,
+          batchLimit,
+          processedCount: 0,
+          failedCount: 0,
+          totalCount,
+          progressMode: "determinate",
+          message: `${totalCount} dirty paper event(s) selected`,
+        });
+      }
       for (const event of pending) {
         if (processed >= batchLimit || Date.now() - startedAt >= timeBudgetMs) {
           break;
@@ -5525,6 +7823,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           continue;
         }
         try {
+          const matchingMetadataCache =
+            upsertLiteratureMatchingMetadataCacheFromRegistryInput(input);
           const updateResult = await lock.runExclusive(libraryId, () =>
             literatureRegistry.upsertPaperFromRegistryInput({
               registryInput: input,
@@ -5539,6 +7839,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             scope: { kind: "paper", ref: updateResult.paper_ref },
             sourceHash: updateResult.manifest.manifest_hash,
           });
+          if (matchingMetadataCache) {
+            await runTopicDiscoveryWorker({
+              literatureItemIds: [matchingMetadataCache.literatureItemId],
+            });
+          }
           const affectedTopicIds = topicIdsForPaperRefs(
             await readArtifactStateRows(root),
             [updateResult.paper_ref],
@@ -5581,6 +7886,52 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           });
           failed += 1;
         }
+        if (totalCount > 0) {
+          reportSynthesisJobProgress({
+            jobName,
+            runId,
+            source: "update_queue",
+            label: "Paper registry incremental worker",
+            status: "running",
+            timeBudgetMs,
+            batchLimit,
+            processedCount: processed,
+            failedCount: failed,
+            totalCount,
+            progressMode: "determinate",
+            message: `${processed}/${totalCount} dirty paper event(s) processed`,
+          });
+        }
+      }
+      const elapsedMs = Date.now() - startedAt;
+      const budgetExhausted =
+        pending.length > processed &&
+        processed < batchLimit &&
+        elapsedMs >= timeBudgetMs;
+      if (budgetExhausted) {
+        diagnostics.push({
+          code: "paper_registry_incremental_worker_budget_exhausted",
+          severity: "warning",
+          message: `Paper registry incremental worker exhausted its ${timeBudgetMs}ms budget after ${elapsedMs}ms.`,
+        });
+      }
+      if (totalCount > 0) {
+        completeSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "update_queue",
+          label: "Paper registry incremental worker",
+          timeBudgetMs,
+          batchLimit,
+          processedCount: processed,
+          failedCount: failed,
+          totalCount,
+          progressMode: "determinate",
+          diagnosticsJson: JSON.stringify(diagnostics),
+          message: budgetExhausted
+            ? "Worker stopped after reaching its time budget."
+            : "Worker completed selected dirty paper events.",
+        });
       }
       return {
         processed,
@@ -5588,6 +7939,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         failed,
         diagnostics,
         queue: updateEvents.loadQueueState(),
+        elapsed_ms: elapsedMs,
+        time_budget_ms: timeBudgetMs,
+        budget_exhausted: budgetExhausted,
       };
     } finally {
       maintenance.finish();
@@ -5636,6 +7990,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     } = {},
   ) {
     const startedAt = Date.now();
+    const jobName = "synthesis:citation-graph-structure-worker";
+    const runId = `${jobName}:${now()}`;
     const batchLimit = Math.max(1, Math.floor(Number(args.batchLimit) || 10));
     const timeBudgetMs = Math.max(
       1,
@@ -5660,6 +8016,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       .listEvents()
       .filter(isCitationGraphStructureDirtyEvent)
       .sort((left, right) => left.created_at.localeCompare(right.created_at));
+    const totalCount = Math.min(pending.length, batchLimit);
+    if (totalCount > 0) {
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Citation graph structure worker",
+        status: "running",
+        timeBudgetMs,
+        batchLimit,
+        processedCount: 0,
+        failedCount: 0,
+        totalCount,
+        progressMode: "determinate",
+      });
+    }
     for (const event of pending) {
       if (processed >= batchLimit || Date.now() - startedAt >= timeBudgetMs) {
         break;
@@ -5728,6 +8100,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         });
         failed += 1;
       }
+      if (totalCount > 0) {
+        reportSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "update_queue",
+          label: "Citation graph structure worker",
+          status: "running",
+          timeBudgetMs,
+          batchLimit,
+          processedCount: processed,
+          failedCount: failed,
+          totalCount,
+          progressMode: "determinate",
+          message: `${processed}/${totalCount} graph event(s) processed`,
+        });
+      }
+    }
+    if (totalCount > 0) {
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Citation graph structure worker",
+        timeBudgetMs,
+        batchLimit,
+        processedCount: processed,
+        failedCount: failed,
+        totalCount,
+        progressMode: "determinate",
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
     }
     return {
       processed,
@@ -5744,6 +8147,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     } = {},
   ) {
     const startedAt = Date.now();
+    const jobName = "synthesis:citation-graph-complex-metrics-worker";
+    const runId = `${jobName}:${now()}`;
     const timeBudgetMs = Math.max(
       1,
       Math.floor(Number(args.timeBudgetMs) || 2000),
@@ -5767,24 +8172,87 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       .listEvents()
       .filter(isCitationGraphComplexMetricsDirtyEvent)
       .sort((left, right) => left.created_at.localeCompare(right.created_at));
+    const totalCount = pending.length;
+    if (totalCount > 0) {
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Citation graph complex metrics worker",
+        status: "running",
+        timeBudgetMs,
+        processedCount: 0,
+        failedCount: 0,
+        totalCount,
+        progressMode: "determinate",
+      });
+    }
     for (const event of pending) {
       if (Date.now() - startedAt >= timeBudgetMs) {
         break;
       }
       processed += 1;
       try {
-        const result = await lock.runExclusive(libraryId, () =>
-          literatureRegistry.rebuildCitationGraphComplexMetrics(),
-        );
+        const result = await lock.runExclusive(libraryId, () => {
+          const {
+            graph,
+            nodes,
+            metrics: lightMetrics,
+          } = readFullDbCitationGraphForMetrics();
+          if (!nodes.length) {
+            return {
+              ok: false as const,
+              diagnostics: [
+                {
+                  code: "citation_graph_complex_metrics_missing_structure",
+                  severity: "warning" as const,
+                  message:
+                    "Citation graph complex metrics cannot run without SQLite graph structure rows.",
+                },
+              ],
+            };
+          }
+          const nodeIdByLiteratureItem = citationGraphNodeIdMap(nodes);
+          const literatureItemIdByNodeId = new Map(
+            Array.from(nodeIdByLiteratureItem.entries()).map(
+              ([literatureItemId, nodeId]) => [nodeId, literatureItemId],
+            ),
+          );
+          const sourceStructureVersion = Math.max(
+            0,
+            ...lightMetrics.map((metric) => metric.sourceStructureVersion),
+          );
+          const metrics = computeCitationGraphMetrics(graph);
+          const timestamp = now();
+          const records = metrics.library_node_metrics
+            .map((metric) => {
+              const literatureItemId = literatureItemIdByNodeId.get(
+                metric.node_id,
+              );
+              return literatureItemId
+                ? complexMetricRecordFromLibraryMetric({
+                    metric,
+                    literatureItemId,
+                    sourceStructureVersion,
+                    sourceGraphHash: graph.graph_hash,
+                    metricsHash: metrics.metrics_hash,
+                    timestamp,
+                  })
+                : null;
+            })
+            .filter((record): record is SynthesisCitationComplexMetricsRecord =>
+              Boolean(record),
+            );
+          synthesisRepository.replaceCitationComplexMetrics(records);
+          return {
+            ok: true as const,
+            graphHash: graph.graph_hash,
+            metricsHash: metrics.metrics_hash,
+            count: records.length,
+          };
+        });
         if (!result.ok) {
-          const diagnostic =
-            result.diagnostics[0] ||
-            ({
-              code: "citation_graph_complex_metrics_missing_projection",
-              severity: "warning" as const,
-              message:
-                "Citation graph complex metrics cannot run without a graph projection.",
-            } satisfies SynthesisUpdateDiagnostic);
+          const diagnostic = result.diagnostics[0];
           diagnostics.push(diagnostic);
           updateEvents.failEvent({
             eventId: event.event_id,
@@ -5810,6 +8278,35 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         });
         failed += 1;
       }
+      if (totalCount > 0) {
+        reportSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "update_queue",
+          label: "Citation graph complex metrics worker",
+          status: "running",
+          timeBudgetMs,
+          processedCount: processed,
+          failedCount: failed,
+          totalCount,
+          progressMode: "determinate",
+          message: `${processed}/${totalCount} metrics event(s) processed`,
+        });
+      }
+    }
+    if (totalCount > 0) {
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Citation graph complex metrics worker",
+        timeBudgetMs,
+        processedCount: processed,
+        failedCount: failed,
+        totalCount,
+        progressMode: "determinate",
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
     }
     return {
       processed,
@@ -5828,6 +8325,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     } = {},
   ) {
     const startedAt = Date.now();
+    const jobName = "synthesis:citation-graph-layout-worker";
+    const runId = `${jobName}:${now()}`;
+    const preset = normalizeCitationLayoutPreset(args.preset);
+    const viewKey = "workbench_overview";
     const timeBudgetMs = Math.max(
       1,
       Math.floor(Number(args.timeBudgetMs) || 2000),
@@ -5844,46 +8345,109 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         queue,
       };
     }
-    if (Date.now() - startedAt >= timeBudgetMs) {
+    const graph = readDbCitationGraphOverview();
+    if (!graph.nodes.length) {
+      const diagnostic = {
+        code: "citation_graph_layout_missing_structure",
+        severity: "warning" as const,
+        message: "Citation graph layout cannot run without DB graph structure.",
+      };
+      diagnostics.push(diagnostic);
+      synthesisRepository.markCitationGraphLayoutFailed({
+        viewKey,
+        preset,
+        graphHash: graph.graph_hash,
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
+      return {
+        processed: 1,
+        completed: 0,
+        failed: 1,
+        diagnostics,
+        queue,
+      };
+    }
+    const existing = synthesisRepository.getCitationGraphLayoutState({
+      viewKey,
+      preset,
+    });
+    const existingLayout = parseCitationGraphLayout(existing);
+    if (
+      !args.force &&
+      existing?.status === "ready" &&
+      existing.graphHash === graph.graph_hash &&
+      existingLayout?.graph_hash === graph.graph_hash
+    ) {
       return {
         processed: 0,
         completed: 0,
         failed: 0,
-        diagnostics: [
-          {
-            code: "citation_graph_layout_worker_budget_exhausted",
-            severity: "warning" as const,
-            message: "Citation graph layout worker time budget was exhausted.",
-          },
-        ],
+        skipped: "ready",
+        diagnostics,
+        queue,
+      };
+    }
+    if (Date.now() - startedAt >= timeBudgetMs) {
+      const diagnostic = {
+        code: "citation_graph_layout_worker_budget_exhausted",
+        severity: "warning" as const,
+        message: "Citation graph layout worker time budget was exhausted.",
+      };
+      diagnostics.push(diagnostic);
+      return {
+        processed: 0,
+        completed: 0,
+        failed: 0,
+        diagnostics,
         queue,
       };
     }
     try {
-      const result = await lock.runExclusive(libraryId, () =>
-        literatureRegistry.rebuildCitationGraphLayout({
-          preset: args.preset,
-          force: args.force,
-        }),
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "citation_graph_layout",
+        label: "Citation graph layout",
+        status: "running",
+        phase: "layout",
+        phaseLabel: "Computing layout",
+        timeBudgetMs,
+        processedCount: 0,
+        totalCount: graph.nodes.length,
+        progressMode: "indeterminate",
+      });
+      synthesisRepository.markCitationGraphLayoutRunning({
+        viewKey,
+        preset,
+        graphHash: graph.graph_hash,
+      });
+      const layout = await lock.runExclusive(libraryId, () =>
+        computeCitationGraphLayout(graph, preset),
       );
-      if (!result.ok) {
-        const diagnostic =
-          result.diagnostics[0] ||
-          ({
-            code: "citation_graph_layout_missing_projection",
-            severity: "warning" as const,
-            message:
-              "Citation graph layout cannot run without a graph projection.",
-          } satisfies SynthesisUpdateDiagnostic);
-        diagnostics.push(diagnostic);
-        return {
-          processed: 1,
-          completed: 0,
-          failed: 1,
-          diagnostics,
-          queue: updateEvents.loadQueueState(),
-        };
-      }
+      synthesisRepository.upsertCitationGraphLayoutState({
+        layoutKey: synthesisRepository.citationLayoutKey({ viewKey, preset }),
+        viewKey,
+        preset,
+        graphHash: graph.graph_hash,
+        status: "ready",
+        layoutJson: JSON.stringify(layout),
+        diagnosticsJson: JSON.stringify(diagnostics),
+        updatedAt: now(),
+      });
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "citation_graph_layout",
+        label: "Citation graph layout",
+        phase: "layout",
+        phaseLabel: "Layout ready",
+        timeBudgetMs,
+        processedCount: graph.nodes.length,
+        totalCount: graph.nodes.length,
+        progressMode: "determinate",
+        message: "Citation graph layout completed.",
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
       return {
         processed: 1,
         completed: 1,
@@ -5898,6 +8462,24 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         message: errorMessage(error),
       };
       diagnostics.push(diagnostic);
+      synthesisRepository.markCitationGraphLayoutFailed({
+        viewKey,
+        preset,
+        graphHash: graph.graph_hash,
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
+      failSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "citation_graph_layout",
+        label: "Citation graph layout",
+        timeBudgetMs,
+        processedCount: 0,
+        failedCount: 1,
+        totalCount: graph.nodes.length,
+        progressMode: "indeterminate",
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
       return {
         processed: 1,
         completed: 0,
@@ -5909,24 +8491,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function registryRowsForTopicFreshnessWorker() {
-    const snapshot = await literatureRegistry
-      .loadLiteratureRegistry()
-      .catch(() => undefined);
-    if (snapshot?.papers?.length) {
-      return snapshot.papers.map(registryRowFromCanonicalPaper);
-    }
-    const projection = await literatureRegistry
-      .readLiteratureRegistryProjection()
-      .catch(() => null);
-    if (projection?.rows?.length) {
-      return projection.rows;
-    }
-    if (snapshot?.registry_projection?.rows?.length) {
-      return snapshot.registry_projection.rows;
-    }
-    return options.registryInputs
-      ? registryRowsForInputs(options.registryInputs)
-      : [];
+    return synthesisRepository
+      .listPaperRegistryFacts({ limit: 1000 })
+      .entries.map(paperRegistryRowFromFact);
   }
 
   async function runTopicFreshnessWorker(
@@ -5936,6 +8503,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     } = {},
   ) {
     const startedAt = Date.now();
+    const jobName = "synthesis:topic-freshness-worker";
+    const runId = `${jobName}:${now()}`;
     const batchLimit = Math.max(1, Math.floor(Number(args.batchLimit) || 10));
     const timeBudgetMs = Math.max(
       1,
@@ -5960,6 +8529,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       .listEvents()
       .filter(isTopicFreshnessDirtyEvent)
       .sort((left, right) => left.created_at.localeCompare(right.created_at));
+    const totalCount = Math.min(pending.length, batchLimit);
+    if (totalCount > 0) {
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Topic freshness worker",
+        status: "running",
+        timeBudgetMs,
+        batchLimit,
+        processedCount: 0,
+        failedCount: 0,
+        totalCount,
+        progressMode: "determinate",
+      });
+    }
     for (const event of pending) {
       if (processed >= batchLimit || Date.now() - startedAt >= timeBudgetMs) {
         break;
@@ -6055,6 +8640,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         });
         failed += 1;
       }
+      if (totalCount > 0) {
+        reportSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "update_queue",
+          label: "Topic freshness worker",
+          status: "running",
+          timeBudgetMs,
+          batchLimit,
+          processedCount: processed,
+          failedCount: failed,
+          totalCount,
+          progressMode: "determinate",
+          message: `${processed}/${totalCount} topic event(s) processed`,
+        });
+      }
+    }
+    if (totalCount > 0) {
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "update_queue",
+        label: "Topic freshness worker",
+        timeBudgetMs,
+        batchLimit,
+        processedCount: processed,
+        failedCount: failed,
+        totalCount,
+        progressMode: "determinate",
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
     }
     return {
       processed,
@@ -6065,18 +8681,94 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  async function runTopicDiscoveryWorker(
+    args: {
+      topicIds?: string[];
+      literatureItemIds?: string[];
+      minScore?: number;
+    } = {},
+  ) {
+    const queue = updateEvents.loadQueueState();
+    if (queue.paused) {
+      return {
+        processed: 0,
+        completed: 0,
+        failed: 0,
+        skipped: "paused",
+        diagnostics: [],
+        queue,
+      };
+    }
+    try {
+      const timestamp = now();
+      const result = synthesisRepository.rebuildTopicDiscoveryHints({
+        topicIds: args.topicIds,
+        literatureItemIds: args.literatureItemIds,
+        minScore: args.minScore,
+        timestamp,
+      });
+      await refreshTopicDiscoveryState({
+        topicIds: synthesisRepository
+          .listTopicInterestMetadata({ topicIds: args.topicIds })
+          .map((topic) => topic.topicId),
+        timestamp,
+      });
+      return {
+        processed: result.scannedTopics * result.scannedLiterature,
+        completed: result.upserted,
+        failed: 0,
+        result,
+        diagnostics: result.diagnostics,
+        queue: updateEvents.loadQueueState(),
+      };
+    } catch (error) {
+      const diagnostic = {
+        code: "topic_discovery_worker_failed",
+        severity: "error" as const,
+        message: errorMessage(error),
+      };
+      return {
+        processed: 0,
+        completed: 0,
+        failed: 1,
+        diagnostics: [diagnostic],
+        queue: updateEvents.loadQueueState(),
+      };
+    }
+  }
+
   async function runSynthesisStartupReconcile(
     args: {
       batchLimit?: number;
     } = {},
   ) {
     const batchLimit = Math.max(1, Math.floor(Number(args.batchLimit) || 500));
+    const jobName = "synthesis:startup-reconcile";
+    const runId = `${jobName}:${now()}`;
+    reportSynthesisJobProgress({
+      jobName,
+      runId,
+      source: "startup_reconcile",
+      label: "Startup reconcile",
+      status: "running",
+      batchLimit,
+      progressMode: "indeterminate",
+      message: "Loading Zotero metadata fingerprints",
+    });
+    const profile = maybeStartSynthesisJobProfileRun({
+      root,
+      now,
+      jobName: "synthesis.startup_reconcile",
+      trigger: "startup_reconcile",
+      batchLimit,
+    });
     updateEvents.recordStartupReconcileState({
       state: "checking",
       dirtyCount: 0,
       diagnostics: [],
     });
     try {
+      const loadInputRowsPhase = profile.phase("load_input_rows");
       const fingerprints =
         typeof options.libraryAdapter?.getRegistryMetadataFingerprints ===
         "function"
@@ -6087,23 +8779,62 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           : (options.registryInputs || [])
               .slice(0, batchLimit)
               .map(registryMetadataFingerprintFromInput);
-      const snapshot = await literatureRegistry
-        .loadLiteratureRegistry()
-        .catch(() => undefined);
+      loadInputRowsPhase.end({
+        counters: { fingerprint_count: fingerprints.length },
+      });
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "startup_reconcile",
+        label: "Startup reconcile",
+        status: "running",
+        batchLimit,
+        processedCount: 0,
+        totalCount: fingerprints.length,
+        progressMode: fingerprints.length > 0 ? "determinate" : "indeterminate",
+        phase: "scan_fingerprints",
+        phaseLabel: "Scanning fingerprints",
+      });
+      const loadExistingRowsPhase = profile.phase("load_existing_rows");
+      const currentFacts = synthesisRepository.listPaperRegistryFacts({
+        paperRefs: fingerprints.map((fingerprint) => fingerprint.paper_ref),
+        limit: Math.max(1, fingerprints.length),
+      });
       const currentByRef = new Map(
-        (snapshot?.papers || []).map(
-          (paper) => [paper.paper_ref, paper] as const,
-        ),
+        currentFacts.entries.map((fact) => {
+          const row = paperRegistryRowFromFact(fact);
+          return [row.paper_ref, row] as const;
+        }),
       );
+      loadExistingRowsPhase.end({
+        counters: { current_paper_count: currentByRef.size },
+      });
+      const computeDeltaPhase = profile.phase("compute_delta");
       let dirtyCount = 0;
+      let scannedCount = 0;
       for (const fingerprint of fingerprints) {
+        scannedCount += 1;
         const current = currentByRef.get(fingerprint.paper_ref);
+        if (!current) {
+          reportSynthesisJobProgress({
+            jobName,
+            runId,
+            source: "startup_reconcile",
+            label: "Startup reconcile",
+            status: "running",
+            batchLimit,
+            processedCount: scannedCount,
+            totalCount: fingerprints.length,
+            progressMode:
+              fingerprints.length > 0 ? "determinate" : "indeterminate",
+            phase: "scan_fingerprints",
+            phaseLabel: "Scanning fingerprints",
+            message: `${dirtyCount} dirty known item(s) detected`,
+          });
+          continue;
+        }
         const currentHash = current?.facets?.metadata?.hash || "";
-        if (
-          !current ||
-          currentHash !== fingerprint.hash ||
-          Boolean(fingerprint.deleted)
-        ) {
+        if (currentHash !== fingerprint.hash || Boolean(fingerprint.deleted)) {
           dirtyCount += 1;
           updateEvents.recordEvent({
             eventType: "startup_reconcile_detected_dirty_items",
@@ -6121,14 +8852,63 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               : undefined,
           });
         }
+        reportSynthesisJobProgress({
+          jobName,
+          runId,
+          source: "startup_reconcile",
+          label: "Startup reconcile",
+          status: "running",
+          batchLimit,
+          processedCount: scannedCount,
+          totalCount: fingerprints.length,
+          progressMode:
+            fingerprints.length > 0 ? "determinate" : "indeterminate",
+          phase: "scan_fingerprints",
+          phaseLabel: "Scanning fingerprints",
+          message: `${dirtyCount} dirty known item(s) detected`,
+        });
       }
-      return updateEvents.recordStartupReconcileState({
+      computeDeltaPhase.end({
+        counters: { dirty_count: dirtyCount },
+      });
+      const state = updateEvents.recordStartupReconcileState({
         state: dirtyCount > 0 ? "queued" : "ready",
         dirtyCount,
         diagnostics: [],
       });
+      if (profile.enabled) {
+        await profile.finish({
+          status:
+            state.startup_reconcile.state === "queued" ? "queued" : "ready",
+          processedCount: fingerprints.length,
+          skippedCount: 0,
+          failedCount: 0,
+          counters: {
+            fingerprint_count: fingerprints.length,
+            dirty_count: dirtyCount,
+          },
+          diagnostics: [],
+        });
+      }
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "startup_reconcile",
+        label: "Startup reconcile",
+        batchLimit,
+        processedCount: fingerprints.length,
+        totalCount: fingerprints.length,
+        progressMode: fingerprints.length > 0 ? "determinate" : "indeterminate",
+        phase: "scan_fingerprints",
+        phaseLabel: "Scanning fingerprints",
+        message:
+          dirtyCount > 0
+            ? `${dirtyCount} dirty known item(s) detected`
+            : "No dirty items detected",
+      });
+      return state;
     } catch (error) {
-      return updateEvents.recordStartupReconcileState({
+      const state = updateEvents.recordStartupReconcileState({
         state: "failed_retryable",
         dirtyCount: 0,
         diagnostics: [
@@ -6139,7 +8919,712 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           },
         ],
       });
+      if (profile.enabled) {
+        await profile.finish({
+          status: "failed_retryable",
+          processedCount: 0,
+          skippedCount: 0,
+          failedCount: 1,
+          diagnostics: state.startup_reconcile.diagnostics,
+        });
+      }
+      failSynthesisJobProgress({
+        jobName,
+        runId,
+        source: "startup_reconcile",
+        label: "Startup reconcile",
+        batchLimit,
+        progressMode: "indeterminate",
+        diagnosticsJson: JSON.stringify(state.startup_reconcile.diagnostics),
+        message: "Startup reconcile failed.",
+      });
+      return state;
     }
+  }
+
+  function debugLimit(input: Record<string, unknown> = {}, fallback = 100) {
+    return Math.max(
+      1,
+      Math.min(
+        1000,
+        Math.floor(
+          Number(input.limit ?? input.maxRows ?? fallback) || fallback,
+        ),
+      ),
+    );
+  }
+
+  function debugBool(input: Record<string, unknown>, key: string) {
+    return input[key] === true;
+  }
+
+  function debugEnvelope<T extends Record<string, unknown>>(
+    schema: string,
+    input: Record<string, unknown>,
+    payload: T,
+  ) {
+    const limit = debugLimit(input);
+    return {
+      schema,
+      debugMode: true,
+      generatedAt: now(),
+      truncated: Boolean(payload.truncated),
+      limits: {
+        limit,
+        includeLocalPaths: debugBool(input, "includeLocalPaths"),
+        includeRawRows: debugBool(input, "includeRawRows"),
+      },
+      diagnostics: Array.isArray(payload.diagnostics)
+        ? payload.diagnostics
+        : [],
+      ...payload,
+    } as T & {
+      schema: string;
+      debugMode: true;
+      generatedAt: string;
+      truncated: boolean;
+      limits: Record<string, unknown>;
+      diagnostics: unknown[];
+    };
+  }
+
+  function synthesisDebugTableCounts() {
+    return Object.fromEntries(
+      SYNTHESIS_REPOSITORY_TABLES.map((tableName) => [
+        tableName,
+        synthesisRepository.countRows(
+          tableName as SynthesisRepositoryTableName,
+        ),
+      ]),
+    );
+  }
+
+  function synthesisDebugJobs(input: Record<string, unknown> = {}) {
+    const limit = debugLimit(input);
+    const includeCompleted =
+      input.includeCompleted === true || input.include_completed === true;
+    const statuses = new Set(
+      (Array.isArray(input.statuses)
+        ? input.statuses
+        : cleanString(input.status)
+          ? [input.status]
+          : []
+      )
+        .map(cleanString)
+        .filter(Boolean),
+    );
+    const sources = new Set(
+      (Array.isArray(input.sources)
+        ? input.sources
+        : cleanString(input.source)
+          ? [input.source]
+          : []
+      )
+        .map(cleanString)
+        .filter(Boolean),
+    );
+    const rows = synthesisRepository
+      .listActiveJobProgress({ includeCompleted })
+      .filter((row) => !statuses.size || statuses.has(cleanString(row.status)))
+      .filter((row) => !sources.size || sources.has(cleanString(row.source)))
+      .slice(0, limit);
+    return {
+      rows,
+      truncated:
+        synthesisRepository.listActiveJobProgress({ includeCompleted }).length >
+        rows.length,
+    };
+  }
+
+  function synthesisDebugQueueEvents(input: Record<string, unknown> = {}) {
+    const limit = debugLimit(input);
+    const statuses = new Set(
+      (Array.isArray(input.statuses)
+        ? input.statuses
+        : cleanString(input.status)
+          ? [input.status]
+          : []
+      )
+        .map(cleanString)
+        .filter(Boolean),
+    );
+    const eventTypes = new Set(
+      (Array.isArray(input.eventTypes)
+        ? input.eventTypes
+        : cleanString(input.eventType || input.event_type)
+          ? [input.eventType || input.event_type]
+          : []
+      )
+        .map(cleanString)
+        .filter(Boolean),
+    );
+    const scopeKind = cleanString(input.scopeKind || input.scope_kind);
+    const scopeRef = cleanString(input.scopeRef || input.scope_ref);
+    const rows = updateEvents
+      .listEvents()
+      .filter((event) => !statuses.size || statuses.has(event.status))
+      .filter((event) => !eventTypes.size || eventTypes.has(event.event_type))
+      .filter((event) => !scopeKind || event.scope.kind === scopeKind)
+      .filter((event) => !scopeRef || event.scope.ref === scopeRef)
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    return {
+      rows: rows.slice(0, limit),
+      total: rows.length,
+      truncated: rows.length > limit,
+    };
+  }
+
+  function resolveDebugPaperRef(input: Record<string, unknown>) {
+    const explicit = cleanString(input.paperRef || input.paper_ref);
+    if (explicit) {
+      return explicit;
+    }
+    const itemKey = cleanString(input.itemKey || input.item_key || input.key);
+    if (!itemKey) {
+      return "";
+    }
+    const inputLibraryId =
+      normalizeLibraryId(input.libraryId || input.library_id) || libraryId;
+    return `${inputLibraryId}:${itemKey}`;
+  }
+
+  function literatureItemIdForDebugPaperRef(paperRef: string) {
+    const parsed = parsePaperRef(paperRef);
+    if (!parsed?.itemKey) {
+      return "";
+    }
+    const binding = synthesisRepository
+      .listZoteroBindings({ statuses: ["active"] })
+      .find(
+        (entry) =>
+          entry.libraryId === parsed.libraryId &&
+          entry.itemKey === parsed.itemKey,
+      );
+    return binding?.literatureItemId || "";
+  }
+
+  function matchingMetadataAvailability(input: PaperRegistryInput | null) {
+    const payload = input
+      ? literatureMatchingMetadataPayloadFromInput(input)
+      : null;
+    return {
+      available: Boolean(payload),
+      payload,
+    };
+  }
+
+  async function debugSynthesisSnapshot(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const queue = updateEvents.loadQueueState();
+    const events = synthesisDebugQueueEvents(rawInput);
+    const jobs = synthesisDebugJobs(rawInput);
+    const includeUiSnapshot = rawInput.includeUiSnapshot !== false;
+    return debugEnvelope("host_bridge.debug.synthesis.snapshot.v1", rawInput, {
+      queue,
+      dirtyEvents: events.rows,
+      jobs: jobs.rows,
+      citationLayouts: synthesisRepository.listCitationGraphLayoutStates({
+        viewKey: "workbench_overview",
+      }),
+      tableCounts: synthesisDebugTableCounts(),
+      maintenance: {
+        updateQueue: queue,
+        canonical: canonicalMaintenanceStatus(),
+      },
+      uiSnapshot: includeUiSnapshot
+        ? await getSynthesisSnapshot(createDefaultSynthesisUiState())
+        : undefined,
+      truncated: events.truncated || jobs.truncated,
+    });
+  }
+
+  async function debugSynthesisQueueList(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const events = synthesisDebugQueueEvents(rawInput);
+    return debugEnvelope("host_bridge.debug.synthesis.queue.v1", rawInput, {
+      queue: updateEvents.loadQueueState(),
+      rows: events.rows,
+      total: events.total,
+      truncated: events.truncated,
+    });
+  }
+
+  async function debugSynthesisJobsList(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const jobs = synthesisDebugJobs(rawInput);
+    return debugEnvelope("host_bridge.debug.synthesis.jobs.v1", rawInput, {
+      rows: jobs.rows,
+      truncated: jobs.truncated,
+    });
+  }
+
+  async function debugSynthesisPaperInspect(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const paperRef = resolveDebugPaperRef(rawInput);
+    if (!paperRef) {
+      throw new Error(
+        "debug.synthesis.paper.inspect requires paperRef or itemKey",
+      );
+    }
+    const facts = synthesisRepository.listPaperRegistryFacts({
+      paperRefs: [paperRef],
+      limit: 1,
+    });
+    const fact = facts.entries[0] || null;
+    const literatureItemId =
+      fact?.literatureItemId || literatureItemIdForDebugPaperRef(paperRef);
+    const registryInput = await resolveRegistryInputForPaperRef(paperRef);
+    const currentMatching = matchingMetadataAvailability(registryInput);
+    const cachedMatching = literatureItemId
+      ? synthesisRepository.getLiteratureMatchingMetadata(literatureItemId)
+      : null;
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.paper.inspect.v1",
+      rawInput,
+      {
+        paperRef,
+        literatureItemId,
+        zotero: {
+          registryInputAvailable: Boolean(registryInput),
+          literatureMatchingMetadataAvailable: currentMatching.available,
+          payloadTypes: registryInput
+            ? (registryInput.notes || [])
+                .flatMap((note) => note.payloadBlocks || [])
+                .map((block) => cleanString(block.payloadType))
+                .filter(Boolean)
+            : [],
+        },
+        repository: {
+          paperRegistryFact: fact,
+          artifacts: literatureItemId
+            ? synthesisRepository.listArtifactStates({
+                literatureItemIds: [literatureItemId],
+              })
+            : [],
+          literatureMatchingMetadata: cachedMatching,
+          citationNode: literatureItemId
+            ? synthesisRepository.listCitationNodes({
+                literatureItemIds: [literatureItemId],
+                limit: 1,
+              })[0] || null
+            : null,
+        },
+        diff: {
+          matchingMetadataPayloadMissingInZotero: !currentMatching.available,
+          matchingMetadataCacheMissingInRepository:
+            currentMatching.available && !cachedMatching,
+        },
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisTopicInspect(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const topicId = cleanString(rawInput.topicId || rawInput.topic_id);
+    if (!topicId) {
+      throw new Error("debug.synthesis.topic.inspect requires topicId");
+    }
+    const context = await getTopicContext({
+      topicId,
+      includeFull: rawInput.includeFull === true,
+    });
+    const detail = await readTopicDetail({ topicId }).catch((error) => ({
+      ok: false,
+      status: "unavailable",
+      error: errorMessage(error),
+    }));
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.topic.inspect.v1",
+      rawInput,
+      {
+        topicId,
+        context,
+        detail,
+        topicInterestMetadata:
+          synthesisRepository.getTopicInterestMetadata(topicId) || null,
+        discoveryHints: synthesisRepository.listTopicDiscoveryHints({
+          topicIds: [topicId],
+          limit: debugLimit(rawInput, 50),
+        }),
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisDiff(rawInput: Record<string, unknown> = {}) {
+    const limit = debugLimit(rawInput, 50);
+    const facts = synthesisRepository.listPaperRegistryFacts({ limit });
+    const issues: Array<Record<string, unknown>> = [];
+    for (const fact of facts.entries) {
+      const paperRef = `${fact.libraryId}:${fact.itemKey}`;
+      const registryInput = await resolveRegistryInputForPaperRef(paperRef);
+      const currentMatching = matchingMetadataAvailability(registryInput);
+      const cachedMatching = synthesisRepository.getLiteratureMatchingMetadata(
+        fact.literatureItemId,
+      );
+      if (currentMatching.available && !cachedMatching) {
+        issues.push({
+          code: "matching_metadata_cache_missing",
+          paperRef,
+          literatureItemId: fact.literatureItemId,
+          severity: "warning",
+        });
+      }
+      if (!registryInput) {
+        issues.push({
+          code: "zotero_registry_input_unavailable",
+          paperRef,
+          literatureItemId: fact.literatureItemId,
+          severity: "warning",
+        });
+      }
+    }
+    const activeLiteratureIds = new Set(
+      synthesisRepository
+        .listZoteroBindings({ statuses: ["active"] })
+        .map((binding) => binding.literatureItemId),
+    );
+    for (const metadata of synthesisRepository.listLiteratureMatchingMetadata()) {
+      if (!activeLiteratureIds.has(metadata.literatureItemId)) {
+        issues.push({
+          code: "orphan_matching_metadata_cache",
+          literatureItemId: metadata.literatureItemId,
+          severity: "info",
+        });
+      }
+    }
+    return debugEnvelope("host_bridge.debug.synthesis.diff.v1", rawInput, {
+      scanned: facts.returned,
+      issues: issues.slice(0, limit),
+      queuedEvents: updateEvents
+        .listEvents()
+        .filter((event) => event.status === "queued")
+        .slice(0, limit),
+      truncated: facts.hasMore || issues.length > limit,
+    });
+  }
+
+  async function debugSynthesisWorkerRun(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const worker = cleanString(rawInput.worker);
+    const before = {
+      queue: updateEvents.loadQueueState(),
+      jobs: synthesisDebugJobs({ limit: 25 }).rows,
+      tableCounts: synthesisDebugTableCounts(),
+    };
+    const batchLimit = Math.max(
+      1,
+      Math.floor(Number(rawInput.batchLimit) || 10),
+    );
+    const timeBudgetMs = Math.max(
+      1,
+      Math.floor(Number(rawInput.timeBudgetMs) || 2000),
+    );
+    let result: unknown;
+    if (worker === "startupReconcile") {
+      result = await runSynthesisStartupReconcile({ batchLimit });
+    } else if (worker === "paperRegistryIncremental") {
+      result = await runPaperRegistryIncrementalWorker({
+        batchLimit,
+        timeBudgetMs,
+      });
+    } else if (worker === "citationGraphStructure") {
+      result = await runCitationGraphStructureWorker({
+        batchLimit,
+        timeBudgetMs,
+      });
+    } else if (worker === "citationGraphComplexMetrics") {
+      result = await runCitationGraphComplexMetricsWorker({
+        timeBudgetMs,
+      });
+    } else if (worker === "citationGraphLayout") {
+      result = await runCitationGraphLayoutWorker({
+        preset: normalizeCitationLayoutPreset(rawInput.preset),
+        force: Boolean(rawInput.force),
+        timeBudgetMs,
+      });
+    } else if (worker === "topicFreshness") {
+      result = await runTopicFreshnessWorker({
+        batchLimit,
+        timeBudgetMs,
+      });
+    } else if (worker === "topicDiscovery") {
+      result = await runTopicDiscoveryWorker({
+        topicIds: Array.isArray(rawInput.topicIds)
+          ? rawInput.topicIds.map(cleanString).filter(Boolean)
+          : undefined,
+        literatureItemIds: Array.isArray(rawInput.literatureItemIds)
+          ? rawInput.literatureItemIds.map(cleanString).filter(Boolean)
+          : undefined,
+      });
+    } else {
+      throw new Error(`unsupported debug synthesis worker: ${worker}`);
+    }
+    const after = {
+      queue: updateEvents.loadQueueState(),
+      jobs: synthesisDebugJobs({ limit: 25, includeCompleted: true }).rows,
+      tableCounts: synthesisDebugTableCounts(),
+    };
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.worker_run.v1",
+      rawInput,
+      {
+        worker,
+        before,
+        result,
+        after,
+        jobProgress: after.jobs,
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisMaintenanceRun(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const batchLimit = Math.max(
+      1,
+      Math.floor(Number(rawInput.batchLimit) || 10),
+    );
+    const timeBudgetMs = Math.max(
+      1,
+      Math.floor(Number(rawInput.timeBudgetMs) || 2000),
+    );
+    const before = {
+      queue: updateEvents.loadQueueState(),
+      tableCounts: synthesisDebugTableCounts(),
+    };
+    const steps = [
+      {
+        worker: "paperRegistryIncremental",
+        result: await runPaperRegistryIncrementalWorker({
+          batchLimit,
+          timeBudgetMs,
+        }),
+      },
+      {
+        worker: "citationGraphStructure",
+        result: await runCitationGraphStructureWorker({
+          batchLimit,
+          timeBudgetMs,
+        }),
+      },
+      {
+        worker: "citationGraphComplexMetrics",
+        result: await runCitationGraphComplexMetricsWorker({
+          timeBudgetMs,
+        }),
+      },
+      {
+        worker: "topicFreshness",
+        result: await runTopicFreshnessWorker({
+          batchLimit,
+          timeBudgetMs,
+        }),
+      },
+    ];
+    const after = {
+      queue: updateEvents.loadQueueState(),
+      tableCounts: synthesisDebugTableCounts(),
+      jobs: synthesisDebugJobs({ limit: 25, includeCompleted: true }).rows,
+    };
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.maintenance_run.v1",
+      rawInput,
+      {
+        before,
+        steps,
+        after,
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisQueueControl(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const action = cleanString(rawInput.action) as
+      | "enqueue"
+      | "retry"
+      | "pause"
+      | "resume";
+    let result: unknown;
+    if (action === "enqueue") {
+      result = await recordSynthesisUpdateEvent({
+        eventType: cleanString(
+          rawInput.eventType || rawInput.event_type,
+        ) as SynthesisUpdateEventType,
+        source: cleanString(rawInput.source) || "host_bridge.debug",
+        scope: {
+          kind: cleanString(
+            rawInput.scopeKind || rawInput.scope_kind,
+          ) as SynthesisUpdateScopeKind,
+          ref: cleanString(rawInput.scopeRef || rawInput.scope_ref),
+        },
+        sourceHash: cleanString(rawInput.sourceHash || rawInput.source_hash),
+      });
+    } else if (action === "retry") {
+      result = await retrySynthesisUpdateQueue();
+    } else if (action === "pause") {
+      result = await pauseSynthesisUpdates();
+    } else {
+      result = await resumeSynthesisUpdates();
+    }
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.queue_control.v1",
+      rawInput,
+      {
+        action,
+        result,
+        queue: updateEvents.loadQueueState(),
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisJobsClearStale(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const staleBefore =
+      cleanString(rawInput.staleBefore || rawInput.stale_before) ||
+      new Date(
+        Date.now() - Math.max(1, Math.floor(Number(rawInput.olderThanMs) || 0)),
+      ).toISOString();
+    const staleRows = synthesisRepository.clearStaleJobProgress({
+      staleBefore,
+    });
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.jobs.clear_stale.v1",
+      rawInput,
+      {
+        staleBefore,
+        staleRows,
+        jobs: synthesisDebugJobs({ includeCompleted: true }).rows,
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisQueueClear(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const confirmationText = cleanString(rawInput.confirmationText);
+    const dryRun = rawInput.dryRun !== false;
+    if (!dryRun && confirmationText !== "CLEAR SYNTHESIS DEBUG QUEUE") {
+      return debugEnvelope(
+        "host_bridge.debug.synthesis.queue.clear.v1",
+        rawInput,
+        {
+          ok: false,
+          status: "confirmation_mismatch",
+          requiredConfirmationText: "CLEAR SYNTHESIS DEBUG QUEUE",
+          queue: updateEvents.loadQueueState(),
+          truncated: false,
+        },
+      );
+    }
+    const before = synthesisDebugQueueEvents({ limit: 1000 });
+    if (dryRun) {
+      return debugEnvelope(
+        "host_bridge.debug.synthesis.queue.clear.v1",
+        rawInput,
+        {
+          ok: true,
+          dryRun: true,
+          wouldDelete: before.total,
+          rows: before.rows,
+          truncated: before.truncated,
+        },
+      );
+    }
+    const result = synthesisRepository.clearDirtyEvents();
+    synthesisRepository.deleteJobProgress("synthesis:update-queue-state");
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.queue.clear.v1",
+      rawInput,
+      {
+        ok: true,
+        dryRun: false,
+        result,
+        queue: updateEvents.loadQueueState(),
+        truncated: false,
+      },
+    );
+  }
+
+  async function debugSynthesisCleanInstallReset(
+    rawInput: Record<string, unknown> = {},
+  ) {
+    const confirmationText = cleanString(rawInput.confirmationText);
+    const dryRun = rawInput.dryRun !== false;
+    const runtimePaths = getRuntimePersistencePaths(runtimeRoot);
+    const synthesisDataRoot = runtimePaths.synthesisDataRoot;
+    const synthesisRuntimeRoot = resolveSynthesisRuntimeFileRoot(runtimeRoot);
+    const dataExists = await runtimePathExists(synthesisDataRoot);
+    const runtimeExists = await runtimePathExists(synthesisRuntimeRoot);
+    const tableCounts = synthesisDebugTableCounts();
+    if (
+      !dryRun &&
+      confirmationText !== SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT
+    ) {
+      return debugEnvelope(
+        "host_bridge.debug.synthesis.clean_install_reset.v1",
+        rawInput,
+        {
+          ok: false,
+          status: "confirmation_mismatch",
+          requiredConfirmationText:
+            SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT,
+          synthesisDataRootExists: dataExists,
+          synthesisRuntimeRootExists: runtimeExists,
+          tableCounts,
+          truncated: false,
+        },
+      );
+    }
+    if (dryRun) {
+      return debugEnvelope(
+        "host_bridge.debug.synthesis.clean_install_reset.v1",
+        rawInput,
+        {
+          ok: true,
+          dryRun: true,
+          wouldDeleteSynthesisDataRoot: dataExists,
+          wouldDeleteSynthesisRuntimeRoot: runtimeExists,
+          tableCounts,
+          truncated: false,
+        },
+      );
+    }
+    const result = synthesisRepository.resetSynthesisState();
+    clearPluginTaskRowEntries("synthesis-updates", "synthesis-update-events");
+    clearPluginTaskRowEntries("synthesis-updates", "synthesis-update-state");
+    const removedSynthesisDataRoot = await removeRuntimePath(synthesisDataRoot);
+    const removedSynthesisRuntimeRoot =
+      await removeRuntimePath(synthesisRuntimeRoot);
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.clean_install_reset.v1",
+      rawInput,
+      {
+        ok: true,
+        dryRun: false,
+        status: "reset",
+        deletedRowsByTable: result.deletedRowsByTable,
+        resetAt: result.resetAt,
+        removedSynthesisDataRoot,
+        removedSynthesisRuntimeRoot,
+        tableCounts: synthesisDebugTableCounts(),
+        queue: updateEvents.loadQueueState(),
+        truncated: false,
+      },
+    );
   }
 
   async function loadTagVocabulary() {
@@ -6151,6 +9636,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ) {
     return runCanonicalWriteWithAutosync(() =>
       tagVocabulary.saveTagVocabulary(args),
+    );
+  }
+
+  async function exportTagVocabularyCheckpoint(
+    args?: Parameters<typeof tagVocabulary.exportTagVocabularyCheckpoint>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(() =>
+      tagVocabulary.exportTagVocabularyCheckpoint(args),
     );
   }
 
@@ -6209,12 +9702,28 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
+  async function exportConceptKbCheckpoint(
+    args?: Parameters<typeof conceptKb.exportConceptKbCheckpoint>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(() =>
+      conceptKb.exportConceptKbCheckpoint(args),
+    );
+  }
+
   async function rebuildConceptKbIndex() {
     return conceptKb.rebuildConceptKbIndexProjection();
   }
 
   async function loadTopicGraph() {
     return topicGraph.loadTopicGraph();
+  }
+
+  async function exportTopicGraphCheckpoint(
+    args?: Parameters<typeof topicGraph.exportTopicGraphCheckpoint>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(() =>
+      topicGraph.exportTopicGraphCheckpoint(args),
+    );
   }
 
   async function rebuildTopicGraphIndex() {
@@ -6262,6 +9771,30 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return literatureRegistry.loadLiteratureRegistry();
   }
 
+  async function previewSynthesisJsonImport() {
+    return jsonImport.previewSynthesisJsonImport();
+  }
+
+  async function applySynthesisJsonImport(
+    args?: Parameters<typeof jsonImport.applySynthesisJsonImport>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(() =>
+      jsonImport.applySynthesisJsonImport(args),
+    );
+  }
+
+  async function exportSynthesisCheckpoint(
+    args?: Parameters<typeof checkpointExport.exportSynthesisCheckpoint>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(() =>
+      checkpointExport.exportSynthesisCheckpoint(args),
+    );
+  }
+
+  async function verifySynthesisCheckpoint() {
+    return checkpointExport.verifySynthesisCheckpoint();
+  }
+
   async function rebuildLiteratureRegistry() {
     return runCanonicalWriteWithAutosync(async () =>
       literatureRegistry.rebuildLiteratureRegistry({
@@ -6288,8 +9821,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function applyCleanupProposalAction(args: {
     proposalId: string;
-    action: "approve" | "reject" | "skip";
+    action: LiteratureRegistryCleanupAction;
+    targetPaperRef?: string;
+    targetLiteratureItemId?: string;
   }) {
+    if (
+      args.action === "confirm_delete_item" ||
+      args.action === "mark_as_dedupe_merge" ||
+      args.action === "keep_for_now"
+    ) {
+      return synthesisRepository.applyIndexReviewAction({
+        reviewItemId: args.proposalId,
+        action: args.action,
+        targetPaperRef: args.targetPaperRef,
+        targetLiteratureItemId: args.targetLiteratureItemId,
+      });
+    }
     return runCanonicalWriteWithAutosync(() =>
       literatureRegistry.applyCleanupProposalAction(args),
     );
@@ -6422,20 +9969,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function getPaperRegistry(args: Record<string, unknown> = {}) {
-    const snapshot = await literatureRegistry
-      .loadLiteratureRegistry()
-      .catch(() => undefined);
-    const projection =
-      snapshot?.registry_projection ||
-      (await literatureRegistry
-        .readLiteratureRegistryProjection()
-        .catch(() => null));
-    const projectionStale = Boolean(
-      snapshot?.literature_projection_state?.stale,
-    );
-    const projectionMissing = !projection;
+    const projectionStale = false;
+    const refs = normalizeArray(
+      args.paperRefs || args.paper_refs || args.paperRef || args.paper_ref,
+    )
+      .map(cleanString)
+      .filter(Boolean);
+    const page = synthesisRepository.listPaperRegistryFacts({
+      paperRefs: refs,
+      cursor: args.cursor,
+      limit: args.limit,
+    });
+    const rows = page.entries.map(paperRegistryRowFromFact);
+    const sqliteMissing = page.total === 0;
     const readHintsForCall: SynthesisReadHint[] = [];
-    if (projectionMissing) {
+    if (sqliteMissing) {
       readHintsForCall.push(
         recordReadHint({
           code: "paper_registry_projection_missing",
@@ -6451,50 +9999,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }),
       );
     }
-    const rows =
-      projection?.rows ||
-      (options.registryInputs
-        ? registryRowsForInputs(options.registryInputs)
-        : []);
-    const refs = new Set(
-      normalizeArray(
-        args.paperRefs || args.paper_refs || args.paperRef || args.paper_ref,
-      )
-        .map(cleanString)
-        .filter(Boolean),
-    );
-    const filtered = refs.size
-      ? rows.filter((row) => refs.has(row.paper_ref))
-      : rows;
-    const page = pageRows(filtered, args, {
-      defaultLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT,
-      maxLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
-    });
     return {
-      rows: page.page,
-      cursor: page.cursor,
-      next_cursor: page.next_cursor,
-      has_more: page.has_more,
-      returned: page.returned,
+      rows,
+      cursor: String(page.cursor),
+      next_cursor: page.nextCursor === null ? "" : String(page.nextCursor),
+      has_more: page.hasMore,
+      returned: rows.length,
       total: page.total,
       limit: page.limit,
       diagnostics: {
-        projection_found: !projectionMissing,
+        projection_found: !sqliteMissing,
+        storage: "sqlite",
         stale: projectionStale,
         warnings: [
-          ...(projectionMissing
-            ? ["literature registry projection is missing"]
+          ...(sqliteMissing
+            ? ["literature registry SQLite rows are missing"]
             : []),
           ...(projectionStale
             ? ["literature registry projection is stale"]
             : []),
         ],
         recommended_commands:
-          projectionMissing || projectionStale
+          sqliteMissing || projectionStale
             ? ["runLiteratureRegistryJobNow"]
             : [],
         maintenance: readMaintenanceForDto(
-          projectionMissing || projectionStale
+          sqliteMissing || projectionStale
             ? ["runLiteratureRegistryJobNow"]
             : [],
         ),
@@ -6507,21 +10037,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     args: Record<string, unknown> = {},
   ): Promise<SynthesisCitationGraphSliceResult> {
     const normalized = normalizeGraphSliceArgs(args);
-    const emptyDiagnostics = {
-      snapshot_found: false,
-      depth: normalized.depth,
-      node_count: 0,
-      edge_count: 0,
-      truncated: false,
-      limits: {
-        maxNodes: normalized.maxNodes,
-        maxEdges: normalized.maxEdges,
-        maxDepth: 2,
-      },
-      warnings: normalized.warnings,
-      recommended_commands: [],
-      maintenance: readMaintenanceForDto(),
-    };
     if (!normalized.startNodeId) {
       return {
         ok: false,
@@ -6529,275 +10044,54 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         start_node_id: "",
         nodes: [],
         edges: [],
-        diagnostics: emptyDiagnostics,
-      };
-    }
-    const projection = await literatureRegistry
-      .readCitationGraphProjection()
-      .catch(() => null);
-    const legacyGraph = await readPersistedCitationGraph(root);
-    const graph = shouldPreferLegacyCitationGraph({
-      projectionGraph: projection?.graph,
-      legacyGraph,
-    })
-      ? legacyGraph
-      : projection?.graph || legacyGraph;
-    if (!graph) {
-      const hint = recordReadHint({
-        code: "citation_graph_projection_missing",
-        scope: "citation-graph",
-      });
-      return {
-        ok: false,
-        graph_hash: "",
-        start_node_id: normalized.startNodeId,
-        nodes: [],
-        edges: [],
         diagnostics: {
-          ...emptyDiagnostics,
-          warnings: [
-            ...normalized.warnings,
-            "citation graph snapshot is missing",
-          ],
-          recommended_commands: ["runLiteratureRegistryJobNow"],
-          maintenance: readMaintenanceForDto(["runLiteratureRegistryJobNow"]),
-          read_hints: [hint],
+          snapshot_found: false,
+          depth: normalized.depth,
+          node_count: 0,
+          edge_count: 0,
+          truncated: false,
+          limits: {
+            maxNodes: normalized.maxNodes,
+            maxEdges: normalized.maxEdges,
+            maxDepth: 2,
+          },
+          warnings: normalized.warnings,
+          recommended_commands: [],
+          maintenance: readMaintenanceForDto(),
         },
       };
     }
-    const legacyMetrics = await readPersistedCitationGraphMetrics(root);
-    const metrics =
-      graph === legacyGraph && legacyMetrics
-        ? legacyMetrics
-        : projection?.metrics || legacyMetrics;
-    const slice = buildCitationGraphSlice({
-      graph,
-      metrics,
-      startNodeId: normalized.startNodeId,
-      depth: normalized.depth,
-      maxNodes: normalized.maxNodes,
-      maxEdges: normalized.maxEdges,
-      direction: normalized.direction,
-      includeLowSignal: normalized.includeLowSignal,
-      roleFilter: normalized.roleFilter,
-      warnings: normalized.warnings,
-    });
-    return {
-      ...slice,
-      diagnostics: {
-        ...slice.diagnostics,
-        recommended_commands: [],
-        maintenance: readMaintenanceForDto(),
-      },
-    };
+    return readDbCitationGraphSlice(normalized);
   }
 
   async function getCitationGraphMetrics(
     args: Record<string, unknown> = {},
   ): Promise<SynthesisCitationGraphMetricsResult> {
     const normalized = normalizeGraphMetricsArgs(args);
-    const projection = await literatureRegistry
-      .readCitationGraphProjection()
-      .catch(() => null);
-    const legacyGraph = await readPersistedCitationGraph(root);
-    const legacyMetrics = await readPersistedCitationGraphMetrics(root);
-    const legacyOverride =
-      projection &&
-      legacyGraph &&
-      (legacyGraph.graph_hash !== projection.graph.graph_hash ||
-        shouldPreferLegacyCitationGraph({
-          projectionGraph: projection.graph,
-          legacyGraph,
-        }));
-    const graph = legacyOverride
-      ? legacyGraph
-      : projection?.graph || legacyGraph;
-    const metrics = legacyOverride
-      ? legacyMetrics
-      : projection?.metrics || legacyMetrics;
-    const metricsFound = !!metrics;
-    const snapshotFound = !!graph;
-    const stale = !!(
-      graph &&
-      metrics &&
-      metrics.graph_hash !== graph.graph_hash
-    );
-    const warnings = [...normalized.warnings];
-    if (!graph) {
-      warnings.push("citation graph snapshot is missing");
-    }
-    if (!metrics) {
-      warnings.push("citation graph metrics snapshot is missing");
-    }
-    if (stale) {
-      warnings.push("citation graph metrics snapshot is stale");
-    }
-    if (!graph || !metrics || stale) {
-      const readHintsForCall: SynthesisReadHint[] = [];
-      if (!graph) {
-        readHintsForCall.push(
-          recordReadHint({
-            code: "citation_graph_projection_missing",
-            scope: "citation-graph",
-          }),
-        );
-      }
-      if (!metrics) {
-        readHintsForCall.push(
-          recordReadHint({
-            code: "citation_graph_metrics_missing",
-            scope: "citation-graph-metrics",
-          }),
-        );
-      }
-      if (stale) {
-        readHintsForCall.push(
-          recordReadHint({
-            code: "citation_graph_metrics_stale",
-            scope: "citation-graph-metrics",
-          }),
-        );
-      }
-      return {
-        ok: false,
-        graph_hash: cleanString(graph?.graph_hash || metrics?.graph_hash),
-        metrics_hash: cleanString(metrics?.metrics_hash),
-        status: !metrics ? "missing" : "stale",
-        items: [],
-        diagnostics: {
-          snapshot_found: snapshotFound,
-          metrics_found: metricsFound,
-          stale,
-          total_library_nodes: metrics?.library_node_metrics.length || 0,
-          returned_count: 0,
-          limits: {
-            limit: normalized.limit,
-            maxLimit: 100,
-          },
-          warnings,
-          recommended_commands: ["runCitationGraphComplexMetricsWorker"],
-          maintenance: readMaintenanceForDto([
-            "runCitationGraphComplexMetricsWorker",
-          ]),
-          read_hints: readHintsForCall,
-        },
-      };
-    }
-    const requested = new Set(
-      normalized.paperRefs.map(paperRefToCitationGraphNodeId).filter(Boolean),
-    );
-    const rows = metrics.library_node_metrics
-      .filter((entry) => !requested.size || requested.has(entry.node_id))
-      .sort((left, right) => {
-        const value =
-          metricSortValue(right, normalized.sortBy) -
-          metricSortValue(left, normalized.sortBy);
-        if (value !== 0) {
-          return value;
-        }
-        return left.node_id.localeCompare(right.node_id);
-      })
-      .slice(0, normalized.limit);
-    return {
-      ok: true,
-      graph_hash: graph.graph_hash,
-      metrics_hash: metrics.metrics_hash,
-      status: "ready",
-      items: rows,
-      diagnostics: {
-        snapshot_found: true,
-        metrics_found: true,
-        stale: false,
-        total_library_nodes: metrics.library_node_metrics.length,
-        returned_count: rows.length,
-        limits: {
-          limit: normalized.limit,
-          maxLimit: 100,
-        },
-        warnings,
-        recommended_commands: [],
-        maintenance: readMaintenanceForDto(),
-      },
-    };
+    return readDbCitationMetrics(normalized);
   }
 
   async function queryCitationGraph() {
-    const projection = await literatureRegistry
-      .readCitationGraphProjection()
-      .catch(() => null);
-    const legacyGraph = await readPersistedCitationGraph(root);
-    const useLegacy = shouldPreferLegacyCitationGraph({
-      projectionGraph: projection?.graph,
-      legacyGraph,
-    });
-    const graph = useLegacy ? legacyGraph : projection?.graph || legacyGraph;
-    if (graph) {
-      return {
-        ...graph,
-        diagnostics: {
-          ...graph.diagnostics,
-          ...(useLegacy
-            ? {
-                status: "legacy_projection_used",
-                warnings: [
-                  "canonical citation graph projection is empty; using latest legacy unified graph snapshot",
-                ],
-              }
-            : {}),
-        },
-        maintenance: readMaintenanceForDto(),
-      };
-    }
-    recordReadHint({
-      code: "citation_graph_projection_missing",
-      scope: "citation-graph",
-    });
     return {
-      ...graphForPapers([]),
-      maintenance: readMaintenanceForDto(["runLiteratureRegistryJobNow"]),
+      ...readDbCitationGraphOverview(),
+      maintenance: readMaintenanceForDto(),
     };
   }
 
   async function listTopics() {
-    const paths = buildSynthesisStoragePaths(root);
-    const indexRows = await readIndexRows(root);
-    const indexByTopic = new Map(indexRows.map((row) => [row.topic_id, row]));
-    const definitions: Record<
-      string,
-      Record<string, unknown>
-    > = await readStateMap<Record<string, unknown>>(
-      paths.topicDefinitions,
-      "topics",
-    ).catch(() => ({}) as Record<string, Record<string, unknown>>);
-    const ids = new Set<string>([
-      ...Object.keys(definitions),
-      ...indexRows.map((row) => row.topic_id),
-    ]);
-    const topics: TopicInventoryRow[] = [...ids]
-      .map((topicId) => {
-        const definition = definitions[topicId] || {};
-        const indexRow = indexByTopic.get(topicId);
-        const status = statusFromDefinition(definition);
-        return {
-          topic_id: topicId,
-          title: titleFromDefinition(definition, indexRow?.title || topicId),
-          description: descriptionFromDefinition(definition),
-          aliases: aliasesFromDefinition(definition),
-          updated_at:
-            cleanString(definition.updated_at) || indexRow?.updated_at || "",
-          ...(status ? { status } : {}),
-        };
-      })
-      .filter((topic) => topic.status !== "deleted")
-      .sort((left, right) => left.topic_id.localeCompare(right.topic_id));
+    const definitions: Record<string, Record<string, unknown>> = {};
+    const topicGraphSnapshot = await topicGraph
+      .loadTopicGraph()
+      .catch(() => undefined);
+    const topics = topicInventoryRowsFromGraphNodes({
+      nodes: topicGraphSnapshot?.nodes || [],
+      definitions,
+    });
     return {
       topics,
       diagnostics: {
         count: topics.length,
-        source:
-          Object.keys(definitions).length > 0
-            ? "canonical-topic-definitions"
-            : "artifact-index",
+        source: "sqlite-topic-graph",
       },
     };
   }
@@ -6807,7 +10101,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }): Promise<SynthesisWorkflowTopicOptionsResult> {
     const filter = cleanString(args?.filter) || "all";
     if (filter === "updatable") {
-      const rows = await readIndexRows(root);
+      const topicGraphSnapshot = await topicGraph
+        .loadTopicGraph()
+        .catch(() => undefined);
+      const rows = (topicGraphSnapshot?.nodes || [])
+        .filter(
+          (node) =>
+            cleanString(node.topic_id) &&
+            node.node_type === "materialized" &&
+            node.definition_status !== "deleted",
+        )
+        .map(topicIndexRowFromGraphNode);
       const artifactState = await readArtifactStateRows(root);
       const options: SynthesisWorkflowTopicOption[] = [];
       for (const row of rows) {
@@ -6893,9 +10197,28 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function getTopicContext(args: Record<string, unknown> = {}) {
     const topicId = cleanString(args.topicId || args.topic_id);
     if (!topicId) {
-      return { topics: await readIndexRows(root) };
+      return { topics: (await listTopics()).topics };
     }
-    if ((await readDeletedRows(root)).some((row) => row.topic_id === topicId)) {
+    const topicGraphSnapshot = await topicGraph
+      .loadTopicGraph()
+      .catch(() => undefined);
+    const topicNode = (topicGraphSnapshot?.nodes || []).find(
+      (node) => cleanString(node.topic_id) === topicId,
+    );
+    if (!topicNode) {
+      return {
+        ok: false,
+        status: "not_found",
+        topic_id: topicId,
+        diagnostics: {
+          message: `topic artifact is not available in the synthesis database: ${topicId}`,
+        },
+      };
+    }
+    if (
+      topicNode.definition_status === "deleted" ||
+      (await readDeletedRows(root)).some((row) => row.topic_id === topicId)
+    ) {
       return {
         ok: false,
         status: "deleted",
@@ -6905,16 +10228,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         },
       };
     }
-    const rows = await readIndexRows(root);
-    const registryRows = registryRowsForInputs(
-      await registryInputsForService(options),
-    );
-    const artifactState = await scanTopicFreshness({
-      root,
-      rows,
-      registryRows,
-      timestamp: now(),
-    });
+    const artifactState = await readArtifactStateRows(root);
     const artifact = await readTopicArtifact({ topicId });
     const paths = buildSynthesisStoragePaths(root);
     const definitions = await readStateMap<Record<string, unknown>>(
@@ -6929,7 +10243,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       paths.resolvedPaperSets,
       "paper_sets",
     ).catch(() => ({}) as Record<string, Record<string, unknown>>);
-    const topicRow = rows.find((row) => row.topic_id === topicId);
+    const topicRow = topicIndexRowFromGraphNode(topicNode);
     const currentManifest = (artifact.manifest || {}) as Record<
       string,
       unknown
@@ -6939,6 +10253,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       : {};
     const hashes = await currentHashes(root, topicId);
     const freshness = artifactState[topicId] || null;
+    const discoveryHints = synthesisRepository.listTopicDiscoveryHints({
+      topicIds: [topicId],
+      statuses: ["open"],
+      limit: 25,
+    });
     const metadata = artifact.metadata as TopicArtifactMetadata;
     const includeFull = args.includeFull === true || args.include_full === true;
     const includeMarkdown =
@@ -6970,6 +10289,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       topic_resolver: resolvers[topicId] || {},
       resolved_paper_set: paperSets[topicId] || {},
       freshness,
+      discovery_hints: discoveryHints,
       recommended_update: deriveTopicUpdateIntent({
         topicId,
         language: metadata.language || topicRow?.language,
@@ -7192,7 +10512,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const base = options.libraryAdapter
       ? await options.libraryAdapter.getLibraryIndex()
       : buildLibraryIndexFromRegistryInputs(libraryId, inputs);
-    const topics = await readIndexRows(root);
+    const topics = (await listTopics()).topics;
     const registry = registryRowsForInputs(inputs);
     const cursor = parseNonNegativeInteger(args.cursor, 0);
     const limit = parsePositiveInteger(
@@ -7463,7 +10783,47 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return response;
   }
 
+  async function resetSynthesisDatabase(
+    args: Record<string, unknown> = {},
+  ): Promise<{
+    ok: boolean;
+    status: "confirmation_mismatch" | "reset";
+    deletedRowsByTable?: Record<string, number>;
+    resetAt?: string;
+  }> {
+    const confirmationText =
+      typeof args.confirmationText === "string" ? args.confirmationText : "";
+    if (confirmationText !== SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT) {
+      return {
+        ok: false,
+        status: "confirmation_mismatch",
+      };
+    }
+    const result = synthesisRepository.resetSynthesisState();
+    clearPluginTaskRowEntries("synthesis-updates", "synthesis-update-events");
+    clearPluginTaskRowEntries("synthesis-updates", "synthesis-update-state");
+    return {
+      ok: true,
+      status: "reset",
+      deletedRowsByTable: result.deletedRowsByTable,
+      resetAt: result.resetAt,
+    };
+  }
+
   return {
+    resetSynthesisDatabase,
+    debugSynthesisSnapshot,
+    debugSynthesisQueueList,
+    debugSynthesisJobsList,
+    debugSynthesisPaperInspect,
+    debugSynthesisTopicInspect,
+    debugSynthesisDiff,
+    debugSynthesisWorkerRun,
+    debugSynthesisMaintenanceRun,
+    debugSynthesisQueueControl,
+    debugSynthesisJobsClearStale,
+    debugSynthesisQueueClear,
+    debugSynthesisCleanInstallReset,
     applyTopicSynthesisResult,
     deleteTopicArtifact,
     listDeletedTopicArtifacts,
@@ -7483,6 +10843,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     runCitationGraphComplexMetricsWorker,
     runCitationGraphLayoutWorker,
     runTopicFreshnessWorker,
+    runTopicDiscoveryWorker,
     runSynthesisStartupReconcile,
     refreshMirror,
     rebuildMirrorFromCanonical,
@@ -7506,6 +10867,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     exportFilteredPaperArtifacts,
     loadTagVocabulary,
     saveTagVocabulary,
+    exportTagVocabularyCheckpoint,
     validateTagVocabulary,
     previewTagVocabularyImport,
     applyTagVocabularyImport,
@@ -7514,12 +10876,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     loadConceptKb,
     updateConceptDisplayText,
     applyConceptReviewAction,
+    exportConceptKbCheckpoint,
     rebuildConceptKbIndex,
     loadTopicGraph,
+    exportTopicGraphCheckpoint,
     rebuildTopicGraphIndex,
     acceptTopicGraphRelation,
     rejectTopicGraphRelation,
     applyTopicGraphReviewAction,
+    previewSynthesisJsonImport,
+    applySynthesisJsonImport,
+    exportSynthesisCheckpoint,
+    verifySynthesisCheckpoint,
     loadLiteratureRegistry,
     loadLiteratureJobState,
     queueLiteratureRegistryRebuild,
@@ -7700,8 +11068,10 @@ export function getDefaultSynthesisService() {
   }
   const zotero = (globalThis as { Zotero?: any }).Zotero;
   const libraryId = normalizeLibraryId(zotero?.Libraries?.userLibraryID) || 1;
+  const paths = getRuntimePersistencePaths();
   defaultService = createSynthesisService({
-    root: getRuntimePersistencePaths().dataDir,
+    root: paths.dataDir,
+    runtimeRoot: paths.root,
     libraryId,
     libraryAdapter: createZoteroSynthesisLibraryAdapter({ libraryId }),
   });

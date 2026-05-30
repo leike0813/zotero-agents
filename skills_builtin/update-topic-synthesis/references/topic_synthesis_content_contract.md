@@ -101,17 +101,26 @@ diagnostics
 
 ### KG proposal sidecars
 
-Completed final bundle 还必须包含两个 KG proposal sidecar path：
+Completed final manifest 必须包含 KG proposal 与 topic interest sidecar entries：
 
 ```json
 {
-  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
-  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+  "sidecars": {
+    "topic_interest_metadata": {
+      "path": "result/sidecars/topic-interest-metadata.json"
+    },
+    "concept_cards_proposal": {
+      "path": "result/sidecars/concept-cards-proposal.json"
+    },
+    "topic_graph_relation_proposals": {
+      "path": "result/sidecars/topic-graph-relation-proposals.json"
+    }
+  }
 }
 ```
 
-这两个文件必须存在，但它们不是 structured topic artifact 的正文 section。没有实质 proposal
-时也必须写空数组和 diagnostics；不能因为 proposal “可空”就省略 sidecar 或 final bundle path。
+这些文件必须存在，但它们不是 structured topic artifact 的正文 section。没有实质 proposal
+时也必须写空数组和 diagnostics；不能因为 proposal “可空”就省略 sidecar 或 final manifest entry。
 
 - `concept_cards_proposal.json` 是 agent-authored concept card proposal，用于插件 apply
   阶段摄取为 Concept KB 候选。
@@ -975,9 +984,8 @@ Framing、Related Work 和 survey writing。
   sections，也不写 canonical KG assets。
 - Stage 10 `persist_external_statistics_report` 必须先满足本文档的内容合同，再通过
   schema/runtime 校验，并由 runtime 合并前序已验证 sections。
-- Stage 11 `validate_final_artifacts` 必须检查 final bundle 中的
-  `concept_cards_proposal_path` 与 `topic_graph_relation_proposals_path`，并要求对应
-  `result/sidecars/` 文件已注册。
+- Stage 11 `validate_final_artifacts` 必须检查 final manifest 中的 `sidecars` entries，
+  并要求对应 `result/sidecars/` 文件已注册。
 - section patch 或局部刷新若触及 `taxonomy`、`timeline_events`、`claims`、
   `external_literature_analysis`、`statistics` 或 `synthesis_report`，必须保持同等内容深度。
 

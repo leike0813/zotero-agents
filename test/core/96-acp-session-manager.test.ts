@@ -1,3 +1,4 @@
+/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import { config } from "../../package.json";
 import {
@@ -1663,12 +1664,8 @@ describe("acp session manager", function () {
       conversationId: secondConversationId,
     });
     const snapshot = getAcpConversationSnapshot();
-    assert.notEqual(snapshot.conversationId, secondConversationId);
-    assert.lengthOf(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID), 1);
-    assert.equal(
-      listAcpChatSessions(ACP_OPENCODE_BACKEND_ID)[0].messageCount,
-      0,
-    );
+    assert.equal(snapshot.conversationId, "");
+    assert.lengthOf(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID), 0);
   });
 
   it("throttles streaming snapshot notifications while preserving the final transcript", async function () {
@@ -1719,7 +1716,8 @@ describe("acp session manager", function () {
     assert.isBelow(snapshotCount, 20);
   });
 
-  it("persists ACP chat display mode and compact status expansion state", function () {
+  it("persists ACP chat display mode and compact status expansion state", async function () {
+    await startNewAcpConversation();
     setAcpConversationChatDisplayMode({
       mode: "bubble",
     });

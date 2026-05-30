@@ -2,7 +2,9 @@ import { handlers } from "../handlers";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { buildCurrentAcpHostContext } from "./acpContextBuilder";
 import {
+  encodeBase64Utf8,
   getNotePayloadDetail,
+  WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
   type ZoteroNotePayloadBlock,
   type ZoteroNotePayloadDetail,
 } from "./notePayloadCodec";
@@ -106,7 +108,8 @@ export type ZoteroHostCollectionDto = {
 };
 
 export type ZoteroHostCurrentViewDto = AcpHostContext & {
-  currentItem?: AcpHostContext["currentItem"] & Partial<ZoteroHostItemSummaryDto>;
+  currentItem?: AcpHostContext["currentItem"] &
+    Partial<ZoteroHostItemSummaryDto>;
   selectedItems: ZoteroHostItemSummaryDto[];
 };
 
@@ -197,6 +200,7 @@ export type ZoteroHostMutationOperation =
   | "item.removeTags"
   | "note.createChild"
   | "note.update"
+  | "note.upsertPayload"
   | "literature.ingest"
   | "collection.addItems"
   | "collection.removeItems";
@@ -244,6 +248,10 @@ export type ZoteroHostMutationRequest = {
   fields?: Record<string, string | number | boolean | null>;
   tags?: string[];
   content?: string;
+  noteKind?: string;
+  payloadType?: string;
+  payload?: unknown;
+  payloadFormat?: "json" | "markdown" | "text" | string;
   paper?: ZoteroHostIngestPaperInput;
   papers?: unknown;
 };
@@ -299,6 +307,14 @@ export type ZoteroHostMutationExecuteResponse =
       result: {
         items?: ZoteroHostItemSummaryDto[];
         notes?: ZoteroHostNoteDto[];
+        payloads?: Array<{
+          noteKey: string;
+          payloadType: string;
+          noteKind: string;
+          attachmentKey: string;
+          bytes: number;
+          replaced: number;
+        }>;
         collections?: ZoteroHostCollectionDto[];
         ingest?: ZoteroHostIngestPaperResult;
       };
@@ -312,6 +328,10 @@ const SUMMARY_TEXT_LIMIT = 300;
 const FIELD_TEXT_LIMIT = 4000;
 const NOTE_TEXT_LIMIT = 4000;
 const NOTE_HTML_INPUT_LIMIT = 50000;
+const NOTE_PAYLOAD_TYPE_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const NOTE_PAYLOAD_MAX_BYTES = 1024 * 1024;
+const PAYLOAD_IMAGE_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
 const LIBRARY_LIST_LIMIT_DEFAULT = 100;
@@ -390,7 +410,11 @@ function isRawZoteroItem(value: unknown): value is Zotero.Item {
   );
 }
 
-function readField(item: Zotero.Item, field: string, limit = SUMMARY_TEXT_LIMIT) {
+function readField(
+  item: Zotero.Item,
+  field: string,
+  limit = SUMMARY_TEXT_LIMIT,
+) {
   try {
     return trimText(item.getField?.(field), limit);
   } catch {
@@ -401,7 +425,11 @@ function readField(item: Zotero.Item, field: string, limit = SUMMARY_TEXT_LIMIT)
 function getItemTitle(item: Zotero.Item) {
   return (
     readField(item, "title") ||
-    trimText((item as unknown as { getDisplayTitle?: () => unknown }).getDisplayTitle?.())
+    trimText(
+      (
+        item as unknown as { getDisplayTitle?: () => unknown }
+      ).getDisplayTitle?.(),
+    )
   );
 }
 
@@ -463,8 +491,8 @@ function getCollections(item: Zotero.Item) {
 
 function getParentSummary(item: Zotero.Item) {
   const parentId = parsePositiveInteger(
-    (item as unknown as { parentItemID?: unknown; parentID?: unknown }).parentItemID ||
-      (item as unknown as { parentID?: unknown }).parentID,
+    (item as unknown as { parentItemID?: unknown; parentID?: unknown })
+      .parentItemID || (item as unknown as { parentID?: unknown }).parentID,
   );
   if (!parentId) {
     return undefined;
@@ -493,7 +521,9 @@ export function serializeZoteroItemSummary(
   return {
     id: parsePositiveInteger(item.id),
     key: trimText(item.key),
-    libraryId: normalizeLibraryId((item as unknown as { libraryID?: unknown }).libraryID),
+    libraryId: normalizeLibraryId(
+      (item as unknown as { libraryID?: unknown }).libraryID,
+    ),
     itemType: trimText(item.itemType),
     title: getItemTitle(item),
     creators: getCreators(item),
@@ -536,7 +566,9 @@ function serializeItemDetail(item: Zotero.Item): ZoteroHostItemDetailDto {
     fields,
     noteCount,
     attachmentCount,
-    relatedItemKeys: Array.isArray((item as unknown as { relatedItems?: unknown }).relatedItems)
+    relatedItemKeys: Array.isArray(
+      (item as unknown as { relatedItems?: unknown }).relatedItems,
+    )
       ? ((item as unknown as { relatedItems: string[] }).relatedItems || [])
           .map((entry) => trimText(entry))
           .filter(Boolean)
@@ -616,7 +648,9 @@ function serializeNoteSummary(
   return {
     id: parsePositiveInteger(item.id),
     key: trimText(item.key),
-    libraryId: normalizeLibraryId((item as unknown as { libraryID?: unknown }).libraryID),
+    libraryId: normalizeLibraryId(
+      (item as unknown as { libraryID?: unknown }).libraryID,
+    ),
     title: getItemTitle(item) || text.slice(0, 80),
     textExcerpt: trimText(text, excerptLimit),
     textLength: text.length,
@@ -634,7 +668,9 @@ function serializeNote(item: Zotero.Item): ZoteroHostNoteDto {
   return {
     id: parsePositiveInteger(item.id),
     key: trimText(item.key),
-    libraryId: normalizeLibraryId((item as unknown as { libraryID?: unknown }).libraryID),
+    libraryId: normalizeLibraryId(
+      (item as unknown as { libraryID?: unknown }).libraryID,
+    ),
     title: getItemTitle(item) || text.slice(0, 80),
     html,
     text,
@@ -671,7 +707,9 @@ function serializeNoteDetailChunk(
   return {
     id: parsePositiveInteger(item.id),
     key: trimText(item.key),
-    libraryId: normalizeLibraryId((item as unknown as { libraryID?: unknown }).libraryID),
+    libraryId: normalizeLibraryId(
+      (item as unknown as { libraryID?: unknown }).libraryID,
+    ),
     title: getItemTitle(item) || htmlToText(html).slice(0, 80),
     format,
     content,
@@ -775,13 +813,16 @@ async function serializeNotePayloadDetail(
   };
 }
 
-async function serializeAttachment(item: Zotero.Item): Promise<ZoteroHostAttachmentDto> {
+async function serializeAttachment(
+  item: Zotero.Item,
+): Promise<ZoteroHostAttachmentDto> {
   const warnings: string[] = [];
   let path = "";
   try {
     path = trimText(
-      await (item as unknown as { getFilePathAsync?: () => Promise<unknown> })
-        .getFilePathAsync?.(),
+      await (
+        item as unknown as { getFilePathAsync?: () => Promise<unknown> }
+      ).getFilePathAsync?.(),
       FIELD_TEXT_LIMIT,
     );
   } catch (error) {
@@ -801,7 +842,9 @@ async function serializeAttachment(item: Zotero.Item): Promise<ZoteroHostAttachm
   return {
     id: parsePositiveInteger(item.id),
     key: trimText(item.key),
-    libraryId: normalizeLibraryId((item as unknown as { libraryID?: unknown }).libraryID),
+    libraryId: normalizeLibraryId(
+      (item as unknown as { libraryID?: unknown }).libraryID,
+    ),
     title: getItemTitle(item),
     contentType: readField(item, "contentType"),
     path,
@@ -830,7 +873,10 @@ function failedNoteDto(id: unknown, error: unknown): ZoteroHostNoteDto {
   };
 }
 
-function failedAttachmentDto(id: unknown, error: unknown): ZoteroHostAttachmentDto {
+function failedAttachmentDto(
+  id: unknown,
+  error: unknown,
+): ZoteroHostAttachmentDto {
   return {
     id: parsePositiveInteger(id),
     key: "",
@@ -843,11 +889,18 @@ function failedAttachmentDto(id: unknown, error: unknown): ZoteroHostAttachmentD
   };
 }
 
-function serializeCollection(collection: Zotero.Collection): ZoteroHostCollectionDto {
+function serializeCollection(
+  collection: Zotero.Collection,
+): ZoteroHostCollectionDto {
   const parentId = parsePositiveInteger(
-    (collection as unknown as { parentID?: unknown; parentCollectionID?: unknown })
-      .parentID ||
-      (collection as unknown as { parentCollectionID?: unknown }).parentCollectionID,
+    (
+      collection as unknown as {
+        parentID?: unknown;
+        parentCollectionID?: unknown;
+      }
+    ).parentID ||
+      (collection as unknown as { parentCollectionID?: unknown })
+        .parentCollectionID,
   );
   const parent = parentId ? resolveZotero().Collections?.get?.(parentId) : null;
   return {
@@ -858,7 +911,9 @@ function serializeCollection(collection: Zotero.Collection): ZoteroHostCollectio
       (collection as unknown as { libraryID?: unknown }).libraryID,
     ),
     parentId: parentId || undefined,
-    parentKey: parent ? trimText((parent as unknown as { key?: unknown }).key) : undefined,
+    parentKey: parent
+      ? trimText((parent as unknown as { key?: unknown }).key)
+      : undefined,
   };
 }
 
@@ -882,9 +937,14 @@ function collectionPath(
       names.unshift(name);
     }
     const parentId = parsePositiveInteger(
-      (current as unknown as { parentID?: unknown; parentCollectionID?: unknown })
-        .parentID ||
-        (current as unknown as { parentCollectionID?: unknown }).parentCollectionID,
+      (
+        current as unknown as {
+          parentID?: unknown;
+          parentCollectionID?: unknown;
+        }
+      ).parentID ||
+        (current as unknown as { parentCollectionID?: unknown })
+          .parentCollectionID,
     );
     current = parentId ? byId.get(String(parentId)) : undefined;
   }
@@ -898,8 +958,12 @@ export async function listZoteroCollections(args: { libraryId?: number } = {}) {
     normalizeLibraryId(zotero.Libraries?.userLibraryID);
   const collectionsApi = (zotero.Collections || {}) as unknown as {
     get?: (id: number) => Zotero.Collection | undefined;
-    getByLibrary?: (libraryId: number) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
-    getByLibraryID?: (libraryId: number) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
+    getByLibrary?: (
+      libraryId: number,
+    ) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
+    getByLibraryID?: (
+      libraryId: number,
+    ) => Zotero.Collection[] | Promise<Zotero.Collection[]>;
     getAll?: () => Zotero.Collection[] | Promise<Zotero.Collection[]>;
   };
   let collections: Zotero.Collection[] = [];
@@ -909,7 +973,10 @@ export async function listZoteroCollections(args: { libraryId?: number } = {}) {
       collections = loaded;
     }
   }
-  if (collections.length === 0 && typeof collectionsApi.getByLibraryID === "function") {
+  if (
+    collections.length === 0 &&
+    typeof collectionsApi.getByLibraryID === "function"
+  ) {
     const loaded = await collectionsApi.getByLibraryID(libraryId);
     if (Array.isArray(loaded)) {
       collections = loaded;
@@ -963,7 +1030,11 @@ export async function listZoteroCollections(args: { libraryId?: number } = {}) {
         path: collectionPath(collection, byId),
       };
     })
-    .sort((a, b) => (a.path || [a.name]).join("\u0000").localeCompare((b.path || [b.name]).join("\u0000")));
+    .sort((a, b) =>
+      (a.path || [a.name])
+        .join("\u0000")
+        .localeCompare((b.path || [b.name]).join("\u0000")),
+    );
 }
 
 export async function getAllRegularZoteroItems() {
@@ -1014,7 +1085,8 @@ function isTopLevelRegularVisibleItem(item: Zotero.Item) {
     typeof (item as any).isTopLevelItem === "function"
       ? (item as any).isTopLevelItem()
       : !parsePositiveInteger(
-          (item as unknown as { parentItemID?: unknown; parentID?: unknown }).parentItemID ||
+          (item as unknown as { parentItemID?: unknown; parentID?: unknown })
+            .parentItemID ||
             (item as unknown as { parentID?: unknown }).parentID,
         );
   return isRegularVisibleItem(item) && topLevel;
@@ -1040,7 +1112,10 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
     if (numericId) {
       return zotero.Items.get(numericId) || null;
     }
-    return zotero.Items.getByLibraryAndKey(zotero.Libraries.userLibraryID, key) || null;
+    return (
+      zotero.Items.getByLibraryAndKey(zotero.Libraries.userLibraryID, key) ||
+      null
+    );
   }
   const id = parsePositiveInteger(ref.id);
   if (id) {
@@ -1058,7 +1133,10 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
   );
 }
 
-function requireItem(ref: ZoteroHostItemRefInput | undefined | null, label = "item") {
+function requireItem(
+  ref: ZoteroHostItemRefInput | undefined | null,
+  label = "item",
+) {
   const item = resolveItem(ref);
   if (!item) {
     throw new ZoteroItemNotFoundError(ref || label);
@@ -1074,7 +1152,9 @@ function requireNote(ref: ZoteroHostItemRefInput | undefined | null) {
   return item;
 }
 
-function resolveCollection(ref: ZoteroHostCollectionRefInput | undefined | null) {
+function resolveCollection(
+  ref: ZoteroHostCollectionRefInput | undefined | null,
+) {
   const zotero = resolveZotero();
   if (!ref) {
     return null;
@@ -1101,8 +1181,10 @@ function resolveCollection(ref: ZoteroHostCollectionRefInput | undefined | null)
       return zotero.Collections?.get?.(numericId) || null;
     }
     return (
-      zotero.Collections?.getByLibraryAndKey?.(zotero.Libraries.userLibraryID, value) ||
-      null
+      zotero.Collections?.getByLibraryAndKey?.(
+        zotero.Libraries.userLibraryID,
+        value,
+      ) || null
     );
   }
   const id = parsePositiveInteger(ref.id);
@@ -1170,7 +1252,9 @@ function resolveCollectionHandlerRef(ref: ZoteroHostCollectionRefInput) {
   if (typeof ref === "string" && /^\d+:[A-Za-z0-9]+$/.test(ref.trim())) {
     const collection = resolveCollection(ref);
     return (
-      parsePositiveInteger((collection as unknown as { id?: unknown } | null)?.id) ||
+      parsePositiveInteger(
+        (collection as unknown as { id?: unknown } | null)?.id,
+      ) ||
       trimText((collection as unknown as { key?: unknown } | null)?.key) ||
       ref
     );
@@ -1251,7 +1335,9 @@ function normalizeTags(value: unknown) {
   if (value.length > TAG_LIMIT_MAX) {
     throw new Error(`tags cannot exceed ${TAG_LIMIT_MAX} entries`);
   }
-  const tags = value.map((entry) => trimText(entry, TAG_TEXT_LIMIT)).filter(Boolean);
+  const tags = value
+    .map((entry) => trimText(entry, TAG_TEXT_LIMIT))
+    .filter(Boolean);
   if (tags.length !== value.length || tags.length === 0) {
     throw new Error("tags must contain only non-empty strings");
   }
@@ -1264,9 +1350,96 @@ function normalizeContent(value: unknown) {
     throw new Error("content must be non-empty");
   }
   if (content.length > NOTE_HTML_INPUT_LIMIT) {
-    throw new Error(`content cannot exceed ${NOTE_HTML_INPUT_LIMIT} characters`);
+    throw new Error(
+      `content cannot exceed ${NOTE_HTML_INPUT_LIMIT} characters`,
+    );
   }
   return content;
+}
+
+function normalizePayloadType(value: unknown) {
+  const payloadType = trimText(value, 120);
+  if (!payloadType || !NOTE_PAYLOAD_TYPE_RE.test(payloadType)) {
+    throw new Error(
+      "payloadType must match [a-z0-9][a-z0-9._-]* and be non-empty",
+    );
+  }
+  return payloadType;
+}
+
+function normalizePayloadFormat(value: unknown, payloadType: string) {
+  const explicit = trimText(value, 40).toLowerCase();
+  if (explicit === "json" || explicit === "markdown" || explicit === "text") {
+    return explicit;
+  }
+  if (payloadType.endsWith("-markdown")) {
+    return "markdown";
+  }
+  if (payloadType.endsWith("-json")) {
+    return "json";
+  }
+  return "json";
+}
+
+function normalizeJsonSafePayload(value: unknown) {
+  if (value === undefined) {
+    throw new Error("payload is required");
+  }
+  const text = JSON.stringify(value);
+  if (text === undefined) {
+    throw new Error("payload must be JSON-safe");
+  }
+  if (text.length > NOTE_PAYLOAD_MAX_BYTES) {
+    throw new Error(`payload cannot exceed ${NOTE_PAYLOAD_MAX_BYTES} bytes`);
+  }
+  return { payload: JSON.parse(text), text };
+}
+
+function base64ToBytes(value: string) {
+  const buffer = (globalThis as { Buffer?: any }).Buffer;
+  if (buffer) {
+    return new Uint8Array(buffer.from(value, "base64"));
+  }
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function encodeUtf8Bytes(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array) {
+  const bytes = new Uint8Array(left.length + right.length);
+  bytes.set(left, 0);
+  bytes.set(right, left.length);
+  return bytes;
+}
+
+function blobFromBytes(bytes: Uint8Array, mimeType: string) {
+  const BlobCtor = (globalThis as { Blob?: typeof Blob }).Blob;
+  if (!BlobCtor) {
+    throw new Error("Blob constructor is unavailable");
+  }
+  return new BlobCtor([bytes], { type: mimeType });
+}
+
+function buildWorkbenchPayloadImageBytes(envelope: Record<string, unknown>) {
+  const imageBytes = base64ToBytes(PAYLOAD_IMAGE_BASE64);
+  const encodedPayload = encodeBase64Utf8(JSON.stringify(envelope));
+  const suffix = encodeUtf8Bytes(
+    `\n${WORKBENCH_EMBEDDED_PAYLOAD_MARKER}${encodedPayload}\n`,
+  );
+  const bytes = concatBytes(imageBytes, suffix);
+  if (bytes.length > NOTE_PAYLOAD_MAX_BYTES) {
+    throw new Error(
+      `embedded payload cannot exceed ${NOTE_PAYLOAD_MAX_BYTES} bytes`,
+    );
+  }
+  return bytes;
 }
 
 function normalizePaperText(value: unknown, limit = INGEST_FIELD_LIMIT) {
@@ -1363,10 +1536,16 @@ function itemMatchesIngestPaper(
   if (paper.pmid && extra.includes(normalizedComparable(paper.pmid))) {
     return true;
   }
-  if (paper.landingUrl && url && url === normalizedComparable(paper.landingUrl)) {
+  if (
+    paper.landingUrl &&
+    url &&
+    url === normalizedComparable(paper.landingUrl)
+  ) {
     return true;
   }
-  return !!paper.title && !!title && title === normalizedComparable(paper.title);
+  return (
+    !!paper.title && !!title && title === normalizedComparable(paper.title)
+  );
 }
 
 async function findExistingPaper(
@@ -1381,7 +1560,8 @@ function setItemFieldIfPresent(
   field: string,
   value: string | number | boolean | null | undefined,
 ) {
-  const normalized = typeof value === "string" ? normalizePaperText(value, 4000) : value;
+  const normalized =
+    typeof value === "string" ? normalizePaperText(value, 4000) : value;
   if (normalized === undefined || normalized === null || normalized === "") {
     return;
   }
@@ -1466,7 +1646,11 @@ async function createMetadataPaperItem(
 ) {
   const item = new Zotero.Item("journalArticle" as any);
   (item as any).libraryID = libraryID;
-  setItemFieldIfPresent(item, "title", paper.title || paper.doi || paper.arxiv || paper.pmid || paper.isbn);
+  setItemFieldIfPresent(
+    item,
+    "title",
+    paper.title || paper.doi || paper.arxiv || paper.pmid || paper.isbn,
+  );
   setItemFieldIfPresent(item, "date", paper.year);
   setItemFieldIfPresent(item, "DOI", paper.doi);
   setItemFieldIfPresent(item, "ISBN", paper.isbn);
@@ -1544,12 +1728,15 @@ async function ingestOnePaper(
   try {
     const existing = await findExistingPaper(paper);
     let item = existing;
-    let status: ZoteroHostIngestPaperResult["status"] = existing ? "existing" : "created";
+    const status: ZoteroHostIngestPaperResult["status"] = existing
+      ? "existing"
+      : "created";
     if (!item) {
-      const libraryID =
-        collection
-          ? normalizeLibraryId((collection as unknown as { libraryID?: unknown }).libraryID)
-          : normalizeLibraryId(undefined);
+      const libraryID = collection
+        ? normalizeLibraryId(
+            (collection as unknown as { libraryID?: unknown }).libraryID,
+          )
+        : normalizeLibraryId(undefined);
       item =
         (await tryTranslateIdentifier(paper, libraryID)) ||
         (await createMetadataPaperItem(paper, libraryID));
@@ -1597,7 +1784,8 @@ async function ingestPaper(request: ZoteroHostMutationRequest) {
 }
 
 function normalizeTargetItems(request: ZoteroHostMutationRequest) {
-  const raw = request.targets || request.items || request.target || request.item;
+  const raw =
+    request.targets || request.items || request.target || request.item;
   const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
   if (list.length === 0) {
     throw new Error("target item is required");
@@ -1612,7 +1800,8 @@ function errorResponse(
   operation: string,
   error: unknown,
 ): ZoteroHostMutationPreviewResponse | ZoteroHostMutationExecuteResponse {
-  const message = error instanceof Error ? error.message : String(error || "Unknown error");
+  const message =
+    error instanceof Error ? error.message : String(error || "Unknown error");
   return {
     ok: false,
     operation,
@@ -1621,8 +1810,11 @@ function errorResponse(
     warnings: [],
     requiresConfirmation: true,
     error: {
-      code: message.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
-        "mutation_error",
+      code:
+        message
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, "") || "mutation_error",
       message,
     },
   };
@@ -1643,6 +1835,100 @@ function okPreview(args: {
     warnings: args.warnings || [],
     requiresConfirmation: true,
     collection: args.collection,
+  };
+}
+
+async function upsertNotePayloadAttachment(request: ZoteroHostMutationRequest) {
+  const note = requireNote(request.note || request.target);
+  const payloadType = normalizePayloadType(request.payloadType);
+  const noteKind = trimText(request.noteKind, 80);
+  const payloadFormat = normalizePayloadFormat(
+    request.payloadFormat,
+    payloadType,
+  );
+  const payloadInput =
+    payloadFormat === "json"
+      ? request.payload
+      : {
+          format: payloadFormat,
+          content:
+            request.payload === undefined
+              ? request.content
+              : typeof request.payload === "object" && request.payload !== null
+                ? (request.payload as Record<string, unknown>).content
+                : request.payload,
+        };
+  const normalized = normalizeJsonSafePayload(payloadInput);
+  const previous = (await listNotePayloadBlocksForItem(note)).filter(
+    (entry) =>
+      entry.source === "embedded-image-attachment" &&
+      entry.payloadType === payloadType &&
+      entry.attachmentKey,
+  );
+  const envelope = {
+    schemaVersion: 1,
+    kind: "zotero-skills-workbench-note-payload",
+    createdAt: new Date().toISOString(),
+    noteId: note.id || null,
+    noteKey: trimText(note.key),
+    parentId:
+      (note as unknown as { parentID?: unknown; parentItemID?: unknown })
+        .parentID ||
+      (note as unknown as { parentItemID?: unknown }).parentItemID ||
+      null,
+    noteKind,
+    payloadType,
+    payload: normalized.payload,
+  };
+  const bytes = buildWorkbenchPayloadImageBytes(envelope);
+  const zotero = resolveZotero();
+  if (typeof zotero.Attachments?.importEmbeddedImage !== "function") {
+    throw new Error("Zotero embedded image import is unavailable");
+  }
+  const attachment = await zotero.Attachments.importEmbeddedImage({
+    blob: blobFromBytes(bytes, "image/png"),
+    parentItemID: note.id,
+  });
+  const attachmentKey = trimText(attachment?.key);
+  let replaced = 0;
+  for (const old of previous) {
+    if (!old.attachmentKey || old.attachmentKey === attachmentKey) {
+      continue;
+    }
+    const oldAttachment =
+      zotero.Items.getByLibraryAndKey?.(
+        normalizeLibraryId(
+          (note as unknown as { libraryID?: unknown }).libraryID,
+        ),
+        old.attachmentKey,
+      ) || null;
+    if (!oldAttachment) {
+      continue;
+    }
+    const parentId =
+      (
+        oldAttachment as unknown as {
+          parentID?: unknown;
+          parentItemID?: unknown;
+        }
+      ).parentID ||
+      (oldAttachment as unknown as { parentItemID?: unknown }).parentItemID;
+    if (Number(parentId) !== Number(note.id)) {
+      continue;
+    }
+    await handlers.attachment.remove(oldAttachment);
+    replaced += 1;
+  }
+  return {
+    note,
+    payload: {
+      noteKey: trimText(note.key),
+      payloadType,
+      noteKind,
+      attachmentKey,
+      bytes: bytes.length,
+      replaced,
+    },
   };
 }
 
@@ -1671,7 +1957,10 @@ function previewMutationOrThrow(
       });
     }
     case "note.createChild": {
-      const parent = requireItem(request.parent || request.target, "parent item");
+      const parent = requireItem(
+        request.parent || request.target,
+        "parent item",
+      );
       const content = normalizeContent(request.content);
       return okPreview({
         operation,
@@ -1689,6 +1978,30 @@ function previewMutationOrThrow(
         operation,
         targetRefs: [serializeZoteroItemSummary(note)],
         summary: `Update note "${serializeNote(note).title}" (${content.length} chars).`,
+      });
+    }
+    case "note.upsertPayload": {
+      const note = requireNote(request.note || request.target);
+      const payloadType = normalizePayloadType(request.payloadType);
+      const payloadFormat = normalizePayloadFormat(
+        request.payloadFormat,
+        payloadType,
+      );
+      normalizeJsonSafePayload(
+        payloadFormat === "json"
+          ? request.payload
+          : {
+              format: payloadFormat,
+              content:
+                request.payload === undefined
+                  ? request.content
+                  : request.payload,
+            },
+      );
+      return okPreview({
+        operation,
+        targetRefs: [serializeZoteroItemSummary(note)],
+        summary: `Upsert embedded note payload "${payloadType}" on "${serializeNote(note).title}".`,
       });
     }
     case LITERATURE_INGEST_OPERATION: {
@@ -1723,7 +2036,9 @@ function previewMutationOrThrow(
       });
     }
     default:
-      throw new Error(`Unsupported mutation operation: ${operation || "(empty)"}`);
+      throw new Error(
+        `Unsupported mutation operation: ${operation || "(empty)"}`,
+      );
   }
 }
 
@@ -1763,7 +2078,10 @@ async function executeMutationOrThrow(
       };
     }
     case "note.createChild": {
-      const parent = requireItem(request.parent || request.target, "parent item");
+      const parent = requireItem(
+        request.parent || request.target,
+        "parent item",
+      );
       const note = await handlers.parent.addNote(parent, {
         content: normalizeContent(request.content),
       });
@@ -1786,6 +2104,16 @@ async function executeMutationOrThrow(
         },
       };
     }
+    case "note.upsertPayload": {
+      const result = await upsertNotePayloadAttachment(request);
+      return {
+        ...preview,
+        result: {
+          notes: [serializeNote(result.note)],
+          payloads: [result.payload],
+        },
+      };
+    }
     case LITERATURE_INGEST_OPERATION: {
       const ingest = await ingestPaper(request);
       return {
@@ -1805,9 +2133,15 @@ async function executeMutationOrThrow(
         throw new Error("collection not found");
       }
       if (preview.operation === "collection.addItems") {
-        await handlers.collection.add(items, resolveCollectionHandlerRef(collectionRef));
+        await handlers.collection.add(
+          items,
+          resolveCollectionHandlerRef(collectionRef),
+        );
       } else {
-        await handlers.collection.remove(items, resolveCollectionHandlerRef(collectionRef));
+        await handlers.collection.remove(
+          items,
+          resolveCollectionHandlerRef(collectionRef),
+        );
       }
       return {
         ...preview,
@@ -1842,10 +2176,7 @@ async function listLibraryItems(
 ): Promise<ZoteroHostLibraryListResponse> {
   const limit = Math.min(
     LIBRARY_LIST_LIMIT_MAX,
-    Math.max(
-      1,
-      parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT,
-    ),
+    Math.max(1, parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT),
   );
   const cursor = parseNonNegativeInteger(args.cursor);
   const libraryId = parsePositiveInteger(args.libraryId);
@@ -1862,7 +2193,10 @@ async function listLibraryItems(
   const allItems = await getAllRegularZoteroItems();
   const filtered = allItems
     .filter(isTopLevelRegularVisibleItem)
-    .filter((item) => !libraryId || normalizeLibraryId((item as any).libraryID) === libraryId)
+    .filter(
+      (item) =>
+        !libraryId || normalizeLibraryId((item as any).libraryID) === libraryId,
+    )
     .filter((item) => !itemType || trimText(item.itemType) === itemType)
     .filter((item) => {
       if (!tag) {
@@ -1944,12 +2278,19 @@ export function createZoteroHostCapabilityBrokerApis() {
         }
         const limit = Math.min(
           SEARCH_LIMIT_MAX,
-          Math.max(1, parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT),
+          Math.max(
+            1,
+            parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT,
+          ),
         );
         const libraryId = parsePositiveInteger(args?.libraryId);
         const items = await getAllRegularZoteroItems();
         return items
-          .filter((item) => !libraryId || normalizeLibraryId((item as any).libraryID) === libraryId)
+          .filter(
+            (item) =>
+              !libraryId ||
+              normalizeLibraryId((item as any).libraryID) === libraryId,
+          )
           .filter((item) => searchMatch(item, query))
           .slice(0, limit)
           .map(serializeZoteroItemSummary);
@@ -1960,7 +2301,11 @@ export function createZoteroHostCapabilityBrokerApis() {
       },
       async getItemNotes(
         ref: ZoteroHostItemRefInput,
-        args: { limit?: number | string; cursor?: number | string; maxExcerptChars?: number | string } = {},
+        args: {
+          limit?: number | string;
+          cursor?: number | string;
+          maxExcerptChars?: number | string;
+        } = {},
       ) {
         const item = requireItem(ref, "item");
         let noteIds: unknown[] = [];
@@ -2027,7 +2372,10 @@ export function createZoteroHostCapabilityBrokerApis() {
               attachments.push(await serializeAttachment(attachment));
             } else {
               attachments.push(
-                failedAttachmentDto(id, new Error("child attachment not found")),
+                failedAttachmentDto(
+                  id,
+                  new Error("child attachment not found"),
+                ),
               );
             }
           } catch (error) {
@@ -2045,7 +2393,10 @@ export function createZoteroHostCapabilityBrokerApis() {
         try {
           return previewMutationOrThrow(request);
         } catch (error) {
-          return errorResponse(operation, error) as ZoteroHostMutationPreviewResponse;
+          return errorResponse(
+            operation,
+            error,
+          ) as ZoteroHostMutationPreviewResponse;
         }
       },
       async execute(
@@ -2055,7 +2406,10 @@ export function createZoteroHostCapabilityBrokerApis() {
         try {
           return await executeMutationOrThrow(request);
         } catch (error) {
-          return errorResponse(operation, error) as ZoteroHostMutationExecuteResponse;
+          return errorResponse(
+            operation,
+            error,
+          ) as ZoteroHostMutationExecuteResponse;
         }
       },
     },

@@ -8,6 +8,7 @@ import {
 import {
   assertManagedRelativePath,
   ensureRuntimeDirectory,
+  getRuntimePersistencePaths,
   MANAGED_TRANSACTION_ID_MAX_LENGTH,
   readRuntimeTextFile,
   removeRuntimePath,
@@ -1038,7 +1039,7 @@ function validateCanonicalAssetData(args: {
 export function buildSynthesisKnowledgeGraphPaths(
   root: string,
 ): SynthesisKnowledgeGraphPaths {
-  const synthesisRoot = joinPath(root, "synthesis");
+  const synthesisRoot = resolveSynthesisRuntimeFileRoot(root);
   const stateRoot = joinPath(synthesisRoot, "state");
   return {
     synthesisRoot,
@@ -1567,7 +1568,7 @@ export async function writeCanonicalEnvelopeTextTransaction(args: {
 }
 
 export function buildSynthesisStoragePaths(root: string, topicId?: string) {
-  const synthesisRoot = joinPath(root, "synthesis");
+  const synthesisRoot = resolveSynthesisRuntimeFileRoot(root);
   const stateRoot = joinPath(synthesisRoot, "state");
   const topicRoot = topicId
     ? joinPath(synthesisRoot, "topics", topicId)
@@ -1622,4 +1623,53 @@ export function isValidHash(value: unknown) {
 export function normalizeShardSize(value: unknown, fallback: number) {
   const parsed = normalizeNonNegativeInteger(value);
   return parsed || fallback;
+}
+
+function normalizePathForBoundary(value: string) {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "");
+}
+
+function pathSegmentsForBoundary(value: string) {
+  return normalizePathForBoundary(value)
+    .split("/")
+    .filter((segment) => segment.length > 0);
+}
+
+function parentPathForBoundary(value: string, levels = 1) {
+  const normalized = normalizePathForBoundary(value);
+  let current = normalized;
+  for (let index = 0; index < levels; index += 1) {
+    const slash = current.lastIndexOf("/");
+    if (slash <= 0) {
+      return current;
+    }
+    current = current.slice(0, slash);
+  }
+  return current;
+}
+
+function resolveSynthesisPersistenceRoot(root: string) {
+  const normalized = normalizePathForBoundary(root);
+  const segments = pathSegmentsForBoundary(normalized);
+  const leaf = (segments[segments.length - 1] || "").toLocaleLowerCase("en-US");
+  const parent = (segments[segments.length - 2] || "").toLocaleLowerCase(
+    "en-US",
+  );
+  if (leaf === "synthesis" && (parent === "data" || parent === "runtime")) {
+    return parentPathForBoundary(normalized, 2);
+  }
+  if (leaf === "data" || leaf === "runtime" || leaf === "state") {
+    return parentPathForBoundary(normalized, 1);
+  }
+  return normalized;
+}
+
+export function resolveSynthesisRuntimeFileRoot(root: string) {
+  const persistenceRoot = resolveSynthesisPersistenceRoot(root);
+  return joinPath(
+    getRuntimePersistencePaths(persistenceRoot).runtimeRoot,
+    "synthesis",
+  );
 }

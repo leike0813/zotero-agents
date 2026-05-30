@@ -1,0 +1,124 @@
+schema: synthesis.invariants.v1
+description: Stable invariant IDs for Synthesis docs, tests, and debug diagnostics.
+
+invariants:
+  - id: inv.ui.db_first
+    severity: fatal
+    statement: Workbench UI hot paths read repository-backed state and do not use legacy JSON fallback.
+    evidence: Snapshot tests and debug.synthesis.snapshot.
+  - id: inv.files.no_hot_data_synthesis_writes
+    severity: fatal
+    statement: Normal startup, snapshot, registry rebuild, graph workers, source check, and discovery do not write data/synthesis.
+    evidence: File boundary regression test.
+  - id: inv.topic.registry_rebuild_not_changed
+    severity: fatal
+    statement: Registry rebuild alone does not mark complete fresh topics source-check changed when library and source artifacts are unchanged.
+    evidence: Topic source-check regression test.
+  - id: inv.topics.workflow_uses_source_facade
+    severity: fatal
+    statement: Topic create/update primary inputs come from the Host Library / Artifact Facade; Citation Graph metrics are optional enrichment only.
+    evidence: Topic workflow input tests.
+  - id: inv.topics.manifest_sidecars
+    severity: high
+    statement: Topic synthesis apply uses analysis_manifest_path and manifest.sidecars as the canonical sidecar discovery entrypoint for topic interest metadata, concept proposals, and topic graph proposals.
+    evidence: Topic synthesis runtime contract tests.
+  - id: inv.graph.basis_epoch_checked
+    severity: high
+    statement: Graph derived rows record the registry epoch they were built from, remain staged or inactive until a final transaction-local basis check promotes them, and stale worker output cannot become visible.
+    evidence: Graph worker promotion tests.
+  - id: inv.reference.no_matching_metadata_for_citations
+    severity: fatal
+    statement: literature_matching_metadata is not used for literature-to-literature reference resolution.
+    evidence: Reference matcher unit tests.
+  - id: inv.reference.precision_first
+    severity: high
+    statement: Automatic matched citation edges require high-confidence evidence; suggestions do not create graph edges.
+    evidence: Reference-resolution benchmark.
+  - id: inv.discovery.no_global_llm_nxm
+    severity: fatal
+    statement: Topic discovery does not run global topic x literature LLM judging.
+    evidence: Discovery worker/design review.
+  - id: inv.discovery.apply_time_token_overlap
+    severity: high
+    statement: Topic discovery uses lightweight apply-time token/phrase overlap by default and does not require BM25, embeddings, semantic search, or LLM pairwise judging.
+    evidence: Discovery policy tests and digest apply integration tests.
+  - id: inv.discovery.apply_time_only
+    severity: high
+    statement: Normal discovery hints are generated only by literature-digest apply-time matching or explicit repair, not by Workbench snapshots or Registry rebuild.
+    evidence: Digest apply and Registry rebuild regression tests.
+  - id: inv.discovery.rejected_suppression
+    severity: high
+    statement: Rejected topic-literature discovery hints do not reopen because of digest rerun, metadata hash drift, or Registry rebuild.
+    evidence: Discovery override regression tests.
+  - id: inv.runtime.local_async_only
+    severity: high
+    statement: Runtime coordination uses local async markers, short transactions, and startup cleanup, not distributed queue protocols.
+    evidence: Runtime docs and queue implementation review.
+  - id: inv.review.user_manageable
+    severity: high
+    statement: Durable user decisions are visible and removable through Workbench management UI.
+    evidence: Workbench UI tests or manual checklist.
+  - id: inv.ids.paper_ref_format
+    severity: high
+    statement: Public paper references use canonical paper_ref v1 format `<libraryId>:<itemKey>` or an explicitly documented DTO equivalent.
+    evidence: Host Bridge/API validation tests.
+  - id: inv.ids.deterministic_literature_item_id
+    severity: fatal
+    statement: literature_item_id values are deterministic from the selected identity anchor; accepted redirects and unique strong work identifiers take precedence over Zotero binding fallback derived from paper_ref.
+    evidence: Registry rebuild identity anchor tests.
+  - id: inv.ids.resolve_before_allocate
+    severity: fatal
+    statement: Registry rebuild resolves accepted redirects, strong identifiers, current Zotero bindings, and compatible fallback/provisional identities before allocating a new literature_item_id.
+    evidence: Registry rebuild identity tests.
+  - id: inv.graph.external_identity_stable
+    severity: high
+    statement: External work nodes with strong identifiers reuse stable identity across rebuilds.
+    evidence: Citation graph rebuild tests.
+  - id: inv.graph.provisional_identity_not_raw_scoped
+    severity: high
+    statement: Raw reference fingerprints identify reference instances and diagnostics; they are not part of the default provisional external work key. Weak references without enough normalized work evidence remain unresolved or reference-scoped placeholders.
+    evidence: External provisional identity tests.
+  - id: inv.review.queue_bounded
+    severity: high
+    statement: Duplicate, dedupe, and reference-resolution review candidates are generated through indexed blocking and bounded per-source limits, not all-pairs expansion.
+    evidence: Review candidate generation tests and debug queue counts.
+  - id: inv.review.action_short_core_transaction
+    severity: high
+    statement: Review actions commit core durable facts in a short transaction and enqueue expensive cascades as bounded follow-up work.
+    evidence: Review action integration tests.
+  - id: inv.registry.staged_promote
+    severity: fatal
+    statement: Registry rebuild writes candidate state, validates it, and promotes a new registry_epoch only after validation succeeds.
+    evidence: Registry rebuild failure tests.
+  - id: inv.registry.validation_gate_defined
+    severity: fatal
+    statement: Registry rebuild candidate validation checks deterministic IDs, binding uniqueness, redirect/tombstone integrity, observed-source accounting, suspicious count deltas, reference integrity, durable effects, and bounded diagnostics before promotion.
+    evidence: Registry candidate validation tests.
+  - id: inv.registry.last_known_good
+    severity: high
+    statement: Registry retains a last-known-good basis so failed rebuilds do not replace active state and bad promoted epochs can be explicitly rolled back.
+    evidence: Registry rollback tests.
+  - id: inv.external_source.bulk_drift_no_fanout
+    severity: fatal
+    statement: Bulk or structural Zotero/source-artifact drift records a bounded incident and does not expand into unbounded dirty events, review items, graph jobs, or topic work.
+    evidence: Startup reconcile drift tests.
+  - id: inv.external_source.structural_drift_fail_closed
+    severity: fatal
+    statement: Structural external source drift pauses incremental processing until explicit inspect or repair.
+    evidence: Startup reconcile structural drift tests.
+  - id: inv.graph.related_items_sync_no_echo_loop
+    severity: fatal
+    statement: Zotero change events caused by Synthesis related-items sync are classified as sync echoes through durable sync attempt/effect rows and do not re-enter Registry reindex or enqueue another related-items sync loop.
+    evidence: Related-items sync integration test.
+  - id: inv.graph.related_items_sync_provenance_required
+    severity: fatal
+    statement: Related-items sync may revoke only Zotero related links that have recorded Synthesis-created provenance and still match current Zotero state; user-created or pre-existing links are never deleted automatically.
+    evidence: Related-items sync provenance tests.
+  - id: inv.graph.related_items_sync_outbox_durable
+    severity: fatal
+    statement: Related-items sync writes a durable pending external-write attempt before calling Zotero APIs, and startup recovery reconciles pending attempts against observed Zotero related-item state.
+    evidence: Related-items sync crash-recovery tests.
+  - id: inv.concepts.overlay_optional
+    severity: high
+    statement: Concept overlay context is optional and bounded; Concept KB read or ingestion failure does not silently rewrite or invalidate topic artifacts.
+    evidence: Concept overlay and topic apply tests.

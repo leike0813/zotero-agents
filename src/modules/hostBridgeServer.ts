@@ -110,10 +110,8 @@ let supervisorEnabled = false;
 let controlledShutdown = false;
 let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let supervisorTimer: ReturnType<typeof setInterval> | null = null;
-let serverSocketFactory: (
-  port: number,
-  bindMode: HostBridgeBindMode,
-) => any = createServerSocket;
+let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
+  createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
 
@@ -516,9 +514,7 @@ function previewStringList(values: unknown, label: string) {
   if (!Array.isArray(values)) {
     return "";
   }
-  const entries = values
-    .map((entry) => cleanPromptText(entry))
-    .filter(Boolean);
+  const entries = values.map((entry) => cleanPromptText(entry)).filter(Boolean);
   if (!entries.length) {
     return "";
   }
@@ -612,7 +608,24 @@ function buildMutationApprovalPrompt(input: unknown) {
     };
   }
 
-  if (operation === "collection.addItems" || operation === "collection.removeItems") {
+  if (operation === "note.upsertPayload") {
+    const payloadType = cleanPromptText(request.payloadType) || "note payload";
+    return {
+      title: "Approve Zotero note payload update?",
+      summary: `Upsert embedded payload "${payloadType}" on ${targetsText}.`,
+      detail: [
+        "Action: upsert Zotero note embedded workflow payload.",
+        `Payload: ${payloadType}.`,
+        `Targets: ${targetsText}.`,
+        sourceLine,
+      ].join("\n"),
+    };
+  }
+
+  if (
+    operation === "collection.addItems" ||
+    operation === "collection.removeItems"
+  ) {
     const verb = operation === "collection.addItems" ? "Add" : "Remove";
     const direction = operation === "collection.addItems" ? "to" : "from";
     return {

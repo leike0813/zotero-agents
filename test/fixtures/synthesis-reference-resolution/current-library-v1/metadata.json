@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-05-29T00:00:00.000Z",
+  "gold_label_count": 2279,
+  "label_counts": {
+    "external_or_missing": 2046,
+    "match": 228,
+    "suggested_match": 5
+  },
+  "library_count": 55,
+  "name": "current-library-v1",
+  "notes": "Generated from structured Synthesis DB rows only; no local paths, tokens, profile paths, or note HTML are included.",
+  "reference_count": 2279,
+  "schema": "synthesis.reference_resolution_fixture.v1",
+  "source": "sanitized current Zotero test library DB snapshot"
+}

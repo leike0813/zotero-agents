@@ -19,9 +19,9 @@ import {
   writeUtf8,
 } from "./workflow-test-utils";
 
-describe("workflow scan + registry integration", function () {
-  const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
+const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
 
+describe("workflow scan + registry integration", function () {
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
   let prevDataDirectory: unknown;
@@ -37,10 +37,11 @@ describe("workflow scan + registry integration", function () {
       },
     };
 
-    prevDataDirectory = (Zotero as unknown as { DataDirectory?: unknown }).DataDirectory;
-    prevTestWorkflowDirEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env?.ZOTERO_TEST_WORKFLOW_DIR;
+    prevDataDirectory = (Zotero as unknown as { DataDirectory?: unknown })
+      .DataDirectory;
+    prevTestWorkflowDirEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env?.ZOTERO_TEST_WORKFLOW_DIR;
     prevDisableWorkflowDirOverride = (
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
@@ -65,9 +66,9 @@ describe("workflow scan + registry integration", function () {
       | { dir?: string }
       | undefined;
 
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       if (typeof prevTestWorkflowDirEnv === "undefined") {
         delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
@@ -80,14 +81,13 @@ describe("workflow scan + registry integration", function () {
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
       }
-    ).__zoteroSkillsDisableWorkflowDirOverride =
-      prevDisableWorkflowDirOverride;
+    ).__zoteroSkillsDisableWorkflowDirOverride = prevDisableWorkflowDirOverride;
   });
 
   it("keeps user workflow dir default separate from built-in dir and registers literature-digest", async function () {
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
     }
@@ -99,6 +99,10 @@ describe("workflow scan + registry integration", function () {
 
     await syncBuiltinWorkflowsOnStartup();
     const configuredDir = getDefaultWorkflowDir();
+    assert.match(
+      configuredDir.replace(/\\/g, "/"),
+      /zotero-agents\/data\/workflows$/,
+    );
     assert.equal(getEffectiveWorkflowDir(), configuredDir);
     assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), configuredDir);
 
@@ -107,6 +111,10 @@ describe("workflow scan + registry integration", function () {
       (entry) => entry.manifest.id === "literature-digest",
     );
     const builtinDir = getBuiltinWorkflowDir();
+    assert.match(
+      builtinDir.replace(/\\/g, "/"),
+      /zotero-agents\/data\/workflows_builtin$/,
+    );
 
     assert.equal(state.workflowsDir, configuredDir);
     assert.equal(state.builtinWorkflowsDir, builtinDir);
@@ -123,21 +131,24 @@ describe("workflow scan + registry integration", function () {
 
     const entries = getLoadedWorkflowEntries();
     assert.isAtLeast(entries.length, 1);
-    assert.isOk(entries.find((entry) => entry.manifest.id === "literature-digest"));
+    assert.isOk(
+      entries.find((entry) => entry.manifest.id === "literature-digest"),
+    );
     assert.equal(getWorkflowRegistryState().workflowsDir, configuredDir);
   });
 
   it("creates default user workflow directory on startup path and does not fallback to built-in source directory", async function () {
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
     }
 
-    (Zotero as unknown as { DataDirectory?: { dir?: string } }).DataDirectory = {
-      dir: joinPath(workflowsPath(), "..", "non-existing-zotero-data"),
-    };
+    (Zotero as unknown as { DataDirectory?: { dir?: string } }).DataDirectory =
+      {
+        dir: joinPath(workflowsPath(), "..", "non-existing-zotero-data"),
+      };
 
     (
       globalThis as {
@@ -147,15 +158,14 @@ describe("workflow scan + registry integration", function () {
 
     Zotero.Prefs.clear(workflowDirPrefKey, true);
 
-    const expectedDefault = joinPath(
-      (Zotero as unknown as { DataDirectory: { dir: string } }).DataDirectory.dir,
-      "zotero-skills",
-      "workflows",
-    );
+    const expectedDefault = getDefaultWorkflowDir();
     const created = await ensureDefaultWorkflowDirExistsOnStartup();
     assert.isTrue(created || (await existsPath(expectedDefault)));
     const existedAfter = await existsPath(expectedDefault);
-    assert.isTrue(existedAfter, `expected directory created: ${expectedDefault}`);
+    assert.isTrue(
+      existedAfter,
+      `expected directory created: ${expectedDefault}`,
+    );
 
     const state = await rescanWorkflowRegistry();
 
@@ -194,7 +204,9 @@ describe("workflow scan + registry integration", function () {
     assert.isAtLeast(Number(loadedMatch![1]), 1);
 
     const entries = getLoadedWorkflowEntries();
-    assert.isOk(entries.find((entry) => entry.manifest.id === "literature-digest"));
+    assert.isOk(
+      entries.find((entry) => entry.manifest.id === "literature-digest"),
+    );
   });
 
   it("keeps workflowId-scoped user override when builtin workflow comes from a package", async function () {
@@ -234,7 +246,9 @@ describe("workflow scan + registry integration", function () {
     assert.equal(state.workflowSourceById["tag-manager"], "user");
     assert.isOk(
       state.loaded.warnings.find((entry) =>
-        entry.includes('Workflow "tag-manager" exists in builtin and user directories; using user workflow'),
+        entry.includes(
+          'Workflow "tag-manager" exists in builtin and user directories; using user workflow',
+        ),
       ),
     );
     assert.isOk(tagRegulator);

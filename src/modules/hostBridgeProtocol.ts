@@ -104,6 +104,7 @@ export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
 
 export type HostBridgeCapabilityCategory =
   | "context"
+  | "debug"
   | "diagnostic"
   | "library"
   | "mutation"

@@ -1,9 +1,6 @@
-import { getBaseName, joinPath } from "../../utils/path";
+import { joinPath } from "../../utils/path";
 import {
-  ensureRuntimeDirectory,
-  listRuntimeChildren,
   readRuntimeTextFile,
-  runtimePathExists,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
 import {
@@ -11,15 +8,21 @@ import {
   canonicalAssetFileName,
   hashCanonicalJson,
   initializeSynthesisKnowledgeGraphStore,
-  readCanonicalJsonAsset,
   readProjectionRegistryState,
   recordProjectionRebuild,
   SynthesisSchemaRegistry,
-  writeCanonicalDiagnostic,
   writeCanonicalTransaction,
+  writeCanonicalDiagnostic,
   type CanonicalTransactionReceipt,
   type ProjectionState,
 } from "./foundation";
+import {
+  createSynthesisRepository,
+  type SynthesisRepository,
+  type SynthesisTopicGraphEdgeRecord,
+  type SynthesisTopicGraphNodeRecord,
+  type SynthesisTopicGraphReviewItemRecord,
+} from "./repository";
 
 export const SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET = "topic-graph-index";
 export const SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID =
@@ -172,6 +175,7 @@ export type SynthesisTopicGraphReviewDecisionResult = {
 type ServiceOptions = {
   root: string;
   now?: () => string;
+  repository?: SynthesisRepository;
 };
 
 const DIRECTIONAL_RELATIONS = new Set<SynthesisTopicGraphRelation>([
@@ -209,30 +213,6 @@ export function safeTopicGraphId(value: unknown) {
       .replace(/[^A-Za-z0-9_.-]+/g, "_")
       .replace(/^_+|_+$/g, "") || "topic"
   );
-}
-
-function topicFileName(topicId: string) {
-  return canonicalAssetFileName("topic", topicId);
-}
-
-function edgeFileName(edgeId: string) {
-  return canonicalAssetFileName("edge", edgeId);
-}
-
-function reviewFileName(reviewId: string) {
-  return canonicalAssetFileName("review", reviewId);
-}
-
-function relativeTopicPath(topicId: string) {
-  return `topic-graph/topics/${topicFileName(topicId)}`;
-}
-
-function relativeEdgePath(edgeId: string) {
-  return `topic-graph/edges/${edgeFileName(edgeId)}`;
-}
-
-function relativeReviewPath(reviewId: string) {
-  return `topic-graph/review/${reviewFileName(reviewId)}`;
 }
 
 function clampConfidence(value: unknown) {
@@ -611,6 +591,144 @@ function mergeUnknownLists(left: unknown[], right: unknown[]) {
   return [...byHash.values()];
 }
 
+function jsonArrayText(values: unknown[]) {
+  return JSON.stringify(Array.isArray(values) ? values : []);
+}
+
+function parseJsonArrayText(value: unknown) {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function topicGraphNodeToRecord(
+  node: SynthesisTopicGraphNode,
+): SynthesisTopicGraphNodeRecord {
+  return {
+    topicId: node.topic_id,
+    title: node.title,
+    aliasesJson: jsonArrayText(node.aliases),
+    nodeType: node.node_type,
+    definitionStatus: node.definition_status,
+    currentArtifactPath: node.current_artifact_path,
+    isRoot: node.is_root,
+    level: node.level,
+    paperCount: node.paper_count,
+    lastSynthesisAt: node.last_synthesis_at,
+    createdAt: node.created_at,
+    updatedAt: node.updated_at,
+  };
+}
+
+function topicGraphNodeFromRecord(
+  record: SynthesisTopicGraphNodeRecord,
+): SynthesisTopicGraphNode {
+  return {
+    topic_id: record.topicId,
+    title: record.title,
+    aliases: normalizeStringList(parseJsonArrayText(record.aliasesJson)),
+    node_type:
+      record.nodeType === "materialized" ? "materialized" : "placeholder",
+    definition_status:
+      record.definitionStatus === "has_synthesis" ||
+      record.definitionStatus === "placeholder" ||
+      record.definitionStatus === "deleted" ||
+      record.definitionStatus === "stale"
+        ? record.definitionStatus
+        : undefined,
+    current_artifact_path: record.currentArtifactPath,
+    is_root: record.isRoot,
+    level:
+      record.level === "top"
+        ? "top"
+        : record.level === "normal"
+          ? "normal"
+          : undefined,
+    paper_count: record.paperCount,
+    last_synthesis_at: record.lastSynthesisAt,
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function topicGraphEdgeToRecord(
+  edge: SynthesisTopicGraphEdge,
+): SynthesisTopicGraphEdgeRecord {
+  return {
+    edgeId: edge.edge_id,
+    sourceTopicId: edge.source_topic_id,
+    targetTopicId: edge.target_topic_id,
+    relation: edge.relation,
+    status: edge.status,
+    confidence: edge.confidence,
+    provenanceJson: jsonArrayText(edge.provenance),
+    evidenceRefsJson: jsonArrayText(edge.evidence_refs),
+    createdAt: edge.created_at,
+    updatedAt: edge.updated_at,
+  };
+}
+
+function topicGraphEdgeFromRecord(
+  record: SynthesisTopicGraphEdgeRecord,
+): SynthesisTopicGraphEdge {
+  return {
+    edge_id: record.edgeId,
+    source_topic_id: record.sourceTopicId,
+    target_topic_id: record.targetTopicId,
+    relation: normalizeRelation(record.relation) || "related_to",
+    status: normalizeEdgeStatus(record.status),
+    confidence: clampConfidence(record.confidence),
+    provenance: parseJsonArrayText(record.provenanceJson),
+    evidence_refs: parseJsonArrayText(record.evidenceRefsJson),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function topicGraphReviewToRecord(
+  reviewItem: SynthesisTopicGraphReviewItem,
+): SynthesisTopicGraphReviewItemRecord {
+  return {
+    reviewId: reviewItem.review_id,
+    status: reviewItem.status,
+    sourceTopicId: reviewItem.source_topic_id,
+    targetTopicId: reviewItem.target_topic_id,
+    targetTitle: reviewItem.target_title,
+    relation: reviewItem.relation,
+    confidence: reviewItem.confidence,
+    provenanceJson: jsonArrayText(reviewItem.provenance),
+    evidenceRefsJson: jsonArrayText(reviewItem.evidence_refs),
+    createdAt: reviewItem.created_at,
+    updatedAt: reviewItem.updated_at,
+    resolvedAt: reviewItem.resolved_at,
+  };
+}
+
+function topicGraphReviewFromRecord(
+  record: SynthesisTopicGraphReviewItemRecord,
+): SynthesisTopicGraphReviewItem {
+  return {
+    review_id: record.reviewId,
+    status:
+      record.status === "approved" || record.status === "rejected"
+        ? record.status
+        : "open",
+    source_topic_id: record.sourceTopicId,
+    target_topic_id: record.targetTopicId,
+    target_title: record.targetTitle,
+    relation: normalizeRelation(record.relation) || "related_to",
+    confidence: clampConfidence(record.confidence),
+    provenance: parseJsonArrayText(record.provenanceJson),
+    evidence_refs: parseJsonArrayText(record.evidenceRefsJson),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+    resolved_at: record.resolvedAt,
+  };
+}
+
 function hasBroaderPath(
   edges: SynthesisTopicGraphEdge[],
   start: string,
@@ -648,100 +766,18 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     throw new Error("Synthesis topic graph service requires a storage root");
   }
   const now = options.now || nowIso;
+  const repository =
+    options.repository ||
+    createSynthesisRepository({
+      runtimeRoot: root,
+      now,
+    });
   const registry = createRegistry();
 
   async function ensureTopicGraphStore() {
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "topics"));
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "edges"));
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "review"));
-    if (
-      !(await runtimePathExists(
-        joinPath(paths.topicGraphRoot, "manifest.json"),
-      ))
-    ) {
-      await commitGraph({
-        nodes: [],
-        edges: [],
-        transactionId: "topic-graph-init",
-      });
-    }
+    repository.initialize();
     return paths;
-  }
-
-  async function readAsset<T>(relativePath: string, schemaId: string) {
-    return readCanonicalJsonAsset<T>({
-      root,
-      registry,
-      relativePath,
-      schemaId,
-    });
-  }
-
-  async function readNodeAssets() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "topics"));
-    const nodes: SynthesisTopicGraphNode[] = [];
-    for (const child of await listRuntimeChildren(
-      joinPath(paths.topicGraphRoot, "topics"),
-    )) {
-      if (!getBaseName(child).endsWith(".json")) {
-        continue;
-      }
-      const relative = `topic-graph/topics/${getBaseName(child)}`;
-      const parsed = await readAsset<SynthesisTopicGraphNode>(
-        relative,
-        SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID,
-      ).catch(() => null);
-      if (parsed?.data) {
-        nodes.push(parsed.data);
-      }
-    }
-    return sortNodes(nodes);
-  }
-
-  async function readEdgeAssets() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "edges"));
-    const edges: SynthesisTopicGraphEdge[] = [];
-    for (const child of await listRuntimeChildren(
-      joinPath(paths.topicGraphRoot, "edges"),
-    )) {
-      if (!getBaseName(child).endsWith(".json")) {
-        continue;
-      }
-      const relative = `topic-graph/edges/${getBaseName(child)}`;
-      const parsed = await readAsset<SynthesisTopicGraphEdge>(
-        relative,
-        SYNTHESIS_TOPIC_GRAPH_EDGE_SCHEMA_ID,
-      ).catch(() => null);
-      if (parsed?.data) {
-        edges.push(parsed.data);
-      }
-    }
-    return sortEdges(edges);
-  }
-
-  async function readReviewAssets() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await ensureRuntimeDirectory(joinPath(paths.topicGraphRoot, "review"));
-    const reviewItems: SynthesisTopicGraphReviewItem[] = [];
-    for (const child of await listRuntimeChildren(
-      joinPath(paths.topicGraphRoot, "review"),
-    )) {
-      if (!getBaseName(child).endsWith(".json")) {
-        continue;
-      }
-      const relative = `topic-graph/review/${getBaseName(child)}`;
-      const parsed = await readAsset<SynthesisTopicGraphReviewItem>(
-        relative,
-        SYNTHESIS_TOPIC_GRAPH_REVIEW_ITEM_SCHEMA_ID,
-      ).catch(() => null);
-      if (parsed?.data) {
-        reviewItems.push(parsed.data);
-      }
-    }
-    return sortReviewItems(reviewItems);
   }
 
   async function readManifest(
@@ -749,14 +785,7 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     edges: SynthesisTopicGraphEdge[],
     reviewItems: SynthesisTopicGraphReviewItem[],
   ) {
-    return (
-      (
-        await readAsset<SynthesisTopicGraphManifest>(
-          "topic-graph/manifest.json",
-          SYNTHESIS_TOPIC_GRAPH_MANIFEST_SCHEMA_ID,
-        )
-      )?.data || buildManifest({ nodes, edges, reviewItems, updatedAt: now() })
-    );
+    return buildManifest({ nodes, edges, reviewItems, updatedAt: now() });
   }
 
   async function commitGraph(args: {
@@ -775,26 +804,86 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       reviewItems,
       updatedAt: timestamp,
     });
-    return writeCanonicalTransaction({
-      root,
-      registry,
+    repository.replaceTopicGraphState({
+      nodes: nodes.map(topicGraphNodeToRecord),
+      edges: edges.map(topicGraphEdgeToRecord),
+      reviewItems: reviewItems.map(topicGraphReviewToRecord),
+    });
+    const receipt: CanonicalTransactionReceipt = {
+      schema_id: "synthesis.canonical_store_transaction_receipt",
+      schema_version: "1.0.0",
+      transaction_id:
+        cleanString(args.transactionId) || `topic-graph-${timestamp}`,
       scope: "topic-graph",
-      transactionId: args.transactionId,
+      status: "committed",
+      changed_assets: [],
+      created_at: timestamp,
+    };
+    return { transactionId: receipt.transaction_id, receipt, manifest };
+  }
+
+  async function loadTopicGraph(): Promise<SynthesisTopicGraphSnapshot> {
+    await ensureTopicGraphStore();
+    const nodes = sortNodes(
+      repository.listTopicGraphNodes().map(topicGraphNodeFromRecord),
+    );
+    const edges = sortEdges(
+      repository.listTopicGraphEdges().map(topicGraphEdgeFromRecord),
+    );
+    const reviewItems = sortReviewItems(
+      repository.listTopicGraphReviewItems().map(topicGraphReviewFromRecord),
+    );
+    const manifest = await readManifest(nodes, edges, reviewItems);
+    const registryState = await readProjectionRegistryState(root);
+    return {
+      nodes,
+      edges,
+      review_items: reviewItems,
+      manifest,
+      projection: registryState.projections[SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET],
+      diagnostics: [],
+    };
+  }
+
+  async function exportTopicGraphCheckpoint(args?: { transactionId?: string }) {
+    const snapshot = await loadTopicGraph();
+    const timestamp = now();
+    const manifest = buildManifest({
+      nodes: snapshot.nodes,
+      edges: snapshot.edges,
+      reviewItems: snapshot.review_items,
+      updatedAt: timestamp,
+    });
+    const result = await writeCanonicalTransaction({
+      root,
+      scope: "topic-graph",
+      registry,
+      transactionId: args?.transactionId,
       projectionTargets: [SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET],
       sourceManifestHash: manifest.manifest_hash,
+      now: timestamp,
       assets: [
-        ...nodes.map((node) => ({
-          relativePath: relativeTopicPath(node.topic_id),
+        ...snapshot.nodes.map((node) => ({
+          relativePath: `topic-graph/nodes/${canonicalAssetFileName(
+            "topic",
+            node.topic_id,
+          )}`,
           schemaId: SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID,
           data: node,
         })),
-        ...edges.map((edge) => ({
-          relativePath: relativeEdgePath(edge.edge_id),
+        ...snapshot.edges.map((edge) => ({
+          relativePath: `topic-graph/edges/${canonicalAssetFileName(
+            "edge",
+            edge.edge_id,
+          )}`,
           schemaId: SYNTHESIS_TOPIC_GRAPH_EDGE_SCHEMA_ID,
           data: edge,
         })),
-        ...reviewItems.map((reviewItem) => ({
-          relativePath: relativeReviewPath(reviewItem.review_id),
+        ...snapshot.review_items.map((reviewItem) => ({
+          relativePath: `topic-graph/review/${canonicalAssetFileName(
+            "review",
+            reviewItem.review_id,
+          )}`,
           schemaId: SYNTHESIS_TOPIC_GRAPH_REVIEW_ITEM_SCHEMA_ID,
           data: reviewItem,
         })),
@@ -805,22 +894,10 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
         },
       ],
     });
-  }
-
-  async function loadTopicGraph(): Promise<SynthesisTopicGraphSnapshot> {
-    await ensureTopicGraphStore();
-    const nodes = await readNodeAssets();
-    const edges = await readEdgeAssets();
-    const reviewItems = await readReviewAssets();
-    const manifest = await readManifest(nodes, edges, reviewItems);
-    const registryState = await readProjectionRegistryState(root);
     return {
-      nodes,
-      edges,
-      review_items: reviewItems,
+      transactionId: result.transactionId,
+      receipt: result.receipt,
       manifest,
-      projection: registryState.projections[SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET],
-      diagnostics: [],
     };
   }
 
@@ -861,6 +938,21 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       nodes: [...nodesById.values()],
       edges: [...edgesById.values()],
       reviewItems: current.review_items,
+      transactionId: args.transactionId,
+    });
+    return { transactionId: result.transactionId, receipt: result.receipt };
+  }
+
+  async function importTopicGraphCheckpoint(args: {
+    nodes?: SynthesisTopicGraphNode[];
+    edges?: SynthesisTopicGraphEdge[];
+    reviewItems?: SynthesisTopicGraphReviewItem[];
+    transactionId?: string;
+  }) {
+    const result = await commitGraph({
+      nodes: args.nodes || [],
+      edges: args.edges || [],
+      reviewItems: args.reviewItems || [],
       transactionId: args.transactionId,
     });
     return { transactionId: result.transactionId, receipt: result.receipt };
@@ -1388,21 +1480,53 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       const raw = await readRuntimeTextFile(projectionPath);
       return JSON.parse(raw) as SynthesisTopicGraphIndexProjection;
     } catch {
-      await rebuildTopicGraphIndexProjection();
-      const raw = await readRuntimeTextFile(projectionPath);
-      return JSON.parse(raw) as SynthesisTopicGraphIndexProjection;
+      const snapshot = await loadTopicGraph();
+      const parented = new Set(
+        snapshot.edges
+          .filter(
+            (edge) =>
+              edge.relation === "broader_than" && edge.status !== "rejected",
+          )
+          .map((edge) => edge.target_topic_id),
+      );
+      return {
+        schema_id: "synthesis.topic_graph_index_projection",
+        schema_version: SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
+        source_manifest_hash: snapshot.manifest.manifest_hash,
+        rebuilt_at: now(),
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+        review_items: snapshot.review_items,
+        roots: snapshot.nodes
+          .filter((node) => node.is_root || node.level === "top")
+          .map((node) => node.topic_id)
+          .sort((left, right) => left.localeCompare(right)),
+        unplaced: snapshot.nodes
+          .filter(
+            (node) =>
+              !node.is_root &&
+              node.level !== "top" &&
+              node.definition_status !== "deleted" &&
+              !parented.has(node.topic_id),
+          )
+          .map((node) => node.topic_id)
+          .sort((left, right) => left.localeCompare(right)),
+        diagnostics: snapshot.diagnostics,
+      };
     }
   }
 
   return {
     loadTopicGraph,
     saveTopicGraph,
+    importTopicGraphCheckpoint,
     upsertTopicNode,
     upsertTopicEdge,
     upsertMaterializedTopic,
     decideTopicGraphRelation,
     applyTopicGraphReviewAction,
     ingestRelationProposals,
+    exportTopicGraphCheckpoint,
     rebuildTopicGraphIndexProjection,
     readTopicGraphIndexProjection,
   };

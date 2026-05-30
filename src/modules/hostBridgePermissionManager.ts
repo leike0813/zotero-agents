@@ -261,6 +261,15 @@ async function requestAcpRunScopedPermission(
 export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
+  if (
+    capability === "debug.synthesis.queue.clear" ||
+    capability === "debug.synthesis.cleanInstallReset"
+  ) {
+    return "zotero-ui-required";
+  }
+  if (capability.startsWith("debug.")) {
+    return "none";
+  }
   if (capability.startsWith("synthesis.")) {
     return "none";
   }

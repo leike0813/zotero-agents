@@ -1,0 +1,176 @@
+schema: synthesis.engineering.performance.v1
+scale_tiers:
+  normal:
+    zotero_bound_literature_max: 2000
+    reference_instances_max: 100000
+    external_literature_max: 60000
+    topics_max: 40
+  target:
+    zotero_bound_literature_max: 10000
+    reference_instances_max: 500000
+    external_literature_max: 300000
+    topics_max: 100
+  stress:
+    zotero_bound_literature_max: 25000
+    reference_instances_max: 1250000
+    external_literature_max: 750000
+    topics_max: 250
+  out_of_policy:
+    behavior: degraded_mode_with_diagnostics
+ui_read_budgets:
+  workbench_snapshot:
+    p95_ms: 500
+    strategy:
+      - delayed_heavy_diagnostics
+      - paginated_lists
+  registry_table_page:
+    p95_ms: 250
+    page_size_max: 100
+  cleanup_review_rows:
+    p95_ms: 250
+    limit_default: 100
+  topic_list_options:
+    p95_ms: 250
+  graph_default_read_model:
+    p95_ms: 750
+    strategy:
+      - semantic_slice
+      - all_library_nodes
+      - shared_external_nodes
+      - hover_only_external_leaf
+  job_popover:
+    p95_ms: 150
+    active_jobs_max: 50
+  debug_list:
+    p95_ms: 1000
+    limit_default: 100
+    limit_max: 1000
+sqlite_policy:
+  write_transaction_target_ms: 100
+  write_transaction_diagnostic_ms: 250
+  forbidden_inside_write_transaction:
+    - zotero_io
+    - file_io
+    - network_io
+    - llm_or_skill_call
+    - layout_long_compute
+    - metrics_long_compute
+  required_index_groups:
+    zotero_binding:
+      - library_id_item_key_unique
+      - literature_item_id
+    literature_identifier:
+      - kind_normalized_value
+      - literature_item_id
+    artifact_state:
+      - literature_item_id_artifact_type
+    reference_instance:
+      - source_literature_item_id
+      - raw_reference_hash
+      - parsed_title_key
+    reference_resolution:
+      - reference_instance_id
+      - target_literature_item_id
+      - status
+    citation_edge:
+      - source_literature_item_id
+      - target_literature_item_id
+      - status
+      - graph_epoch_or_input_hash
+    citation_layout:
+      - preset_graph_hash
+    topic_discovery_hint:
+      - topic_id_literature_item_id
+      - status
+    review_item:
+      - domain_status_severity
+      - scope_kind_scope_ref
+    dirty_event:
+      - status_event_type_scope
+      - optional_basis_epoch_or_source_hash
+      - next_retry_at
+    job_state:
+      - status_source_updated_at
+      - run_id
+worker_budgets:
+  default_tick_time_budget_ms: 2000
+  registry_graph_cache_rebuild:
+    batch_limit: 1000
+    time_budget_ms: 3000
+    progress_total: zotero_items_artifact_notes_references_or_fixed_phases
+  paper_registry_incremental:
+    batch_limit: 25
+    time_budget_ms: 2000
+    progress_total: started_paper_events
+  startup_reconcile_fingerprint_scan:
+    batch_limit: 500
+    time_budget_ms: 2000
+    progress_total: scanned_zotero_items
+  citation_graph_structure:
+    batch_limit: 1000
+    time_budget_ms: 2000
+    progress_total: started_reference_instances_or_sources
+  citation_graph_complex_metrics:
+    batch_limit: phase_bounded
+    time_budget_ms: 3000
+    progress_total: fixed_phases_or_metric_rows
+  citation_graph_layout:
+    node_limit: 2000
+    time_budget_ms: 3000
+    progress_total: layout_nodes_or_fixed_phases
+  zotero_related_items_sync:
+    batch_limit: 100
+    time_budget_ms: 2000
+    progress_total: matched_library_edges
+  topic_discovery_apply_time_match:
+    scope: active_topics_for_one_literature
+    time_budget_ms: 2000
+    progress_total: active_topic_count
+  topic_discovery_repair:
+    batch_limit: 500
+    time_budget_ms: 2000
+    progress_total: topic_literature_pairs
+  topic_source_check:
+    batch_limit: 1
+    time_budget_ms: 2000
+    progress_total: saved_source_count
+  import_preview_apply:
+    batch_limit: 1000
+    time_budget_ms: 3000
+    progress_total: input_rows_or_files
+external_source_drift_thresholds:
+  small:
+    changed_items_max: 50
+    changed_ratio_max: 0.05
+    decode_failure_ratio_lt: 0.02
+    action: bounded_dirty_events
+  bulk:
+    changed_items_gt: 50
+    changed_ratio_gt: 0.05
+    action: record_incident_recommend_registry_graph_cache_rebuild
+    fanout: forbidden
+  structural:
+    triggers:
+      - binding_collision
+      - impossible_parent_note_structure
+      - decode_failure_ratio_gte_0_02
+      - fingerprint_scan_hard_timeout
+      - inconsistent_zotero_api_or_db_result
+    action: fail_closed_require_inspect_or_repair
+    fanout: forbidden
+pagination:
+  list_page_size_default: 50
+  list_page_size_max: 100
+  debug_limit_default: 100
+  debug_limit_max: 1000
+  truncated_flag_required: true
+diagnostics:
+  include_contract_id: true
+  include_dataset_scale_summary: true
+  include_slow_phase_or_query_label: true
+  include_limit_metadata: true
+  local_paths_default: false
+  forbidden_payloads:
+    - tokens
+    - full_note_html
+    - unbounded_raw_rows

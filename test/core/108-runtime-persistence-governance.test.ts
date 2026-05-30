@@ -12,6 +12,7 @@ import {
   validateManagedRelativePath,
   validateManagedRelativePathSet,
 } from "../../src/modules/runtimePersistence";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   cleanupPersistenceIssues,
   scanPersistenceIntegrity,
@@ -46,6 +47,7 @@ describe("runtime persistence governance", function () {
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
     resetPluginStateStoreForTests();
     clearRuntimeLogs();
+    setDebugModeOverrideForTests(true);
   });
 
   afterEach(async function () {
@@ -54,6 +56,7 @@ describe("runtime persistence governance", function () {
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_ACP);
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS);
     resetPluginStateStoreForTests();
+    setDebugModeOverrideForTests();
     if (typeof previousRoot === "undefined") {
       delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     } else {
@@ -143,10 +146,33 @@ describe("runtime persistence governance", function () {
       "no",
       "utf8",
     );
+    upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, {
+      requestId: "skill-req",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: "{}",
+    });
+    upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      requestId: "acp-chat-req",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: "{}",
+    });
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, "skill-runs", {
+      taskId: "skill-run-row",
+      requestId: "acp-skill-run",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: "{}",
+    });
 
     const snapshot = await scanRuntimePersistenceUsage();
     const categories = snapshot.categories.map((entry) => entry.category);
     assert.include(categories, "acp-conversations");
+    assert.notInclude(categories, "state");
     assert.notInclude(categories, "skills" as any);
     assert.isAbove(
       snapshot.categories.find(
@@ -154,6 +180,78 @@ describe("runtime persistence governance", function () {
       )?.bytes || 0,
       0,
     );
+    assert.equal(
+      snapshot.categories.find(
+        (entry) => entry.category === "skillrunner-ledger",
+      )?.recordCount,
+      1,
+    );
+    assert.isAbove(
+      snapshot.categories.find(
+        (entry) => entry.category === "skillrunner-ledger",
+      )?.bytes || 0,
+      0,
+    );
+    assert.equal(
+      snapshot.categories.find(
+        (entry) => entry.category === "acp-conversations",
+      )?.recordCount,
+      1,
+    );
+    assert.isAbove(
+      snapshot.categories.find(
+        (entry) => entry.category === "acp-conversations",
+      )?.bytes || 0,
+      0,
+    );
+    assert.equal(
+      snapshot.categories.find((entry) => entry.category === "acp-skill-runs")
+        ?.recordCount,
+      1,
+    );
+    assert.isAbove(
+      snapshot.categories.find((entry) => entry.category === "acp-skill-runs")
+        ?.bytes || 0,
+      0,
+    );
+    assert.equal(snapshot.stateDatabase?.path, paths.stateDbPath);
+  });
+
+  it("does not report legacy runtime data as a persistence category", async function () {
+    const previousDataDirectory = (globalThis as any).Zotero?.DataDirectory;
+    const dataDirectory = path.join(tempRoot, "zotero-data");
+    const currentRoot = path.join(dataDirectory, "zotero-agents");
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = currentRoot;
+    const zotero = ((globalThis as any).Zotero =
+      (globalThis as any).Zotero || {});
+    zotero.DataDirectory = { dir: dataDirectory };
+    try {
+      const legacyRoot = path.join(dataDirectory, "zotero-skills");
+      await fs.mkdir(legacyRoot, { recursive: true });
+      await fs.writeFile(path.join(legacyRoot, "old.txt"), "legacy", "utf8");
+
+      setDebugModeOverrideForTests(false);
+      const hiddenSnapshot = await scanRuntimePersistenceUsage();
+      assert.notInclude(
+        hiddenSnapshot.categories.map((entry) => entry.category),
+        "legacy",
+      );
+
+      setDebugModeOverrideForTests(true);
+      const visibleSnapshot = await scanRuntimePersistenceUsage();
+      assert.notInclude(
+        visibleSnapshot.categories.map((entry) => entry.category),
+        "legacy" as any,
+      );
+      assert.equal(
+        await fs.readFile(path.join(legacyRoot, "old.txt"), "utf8"),
+        "legacy",
+      );
+    } finally {
+      (globalThis as any).Zotero.DataDirectory = previousDataDirectory;
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+      setDebugModeOverrideForTests(true);
+    }
   });
 
   it("validates managed relative paths without rejecting long managed roots", function () {

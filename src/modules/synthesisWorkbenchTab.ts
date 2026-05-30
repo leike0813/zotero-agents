@@ -17,6 +17,7 @@ import {
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
 } from "./synthesis/uiModel";
+import type { LiteratureRegistryCleanupAction } from "./synthesis/literatureRegistry";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -114,6 +115,20 @@ function resolveSynthesisPageUrl() {
     return "about:blank";
   }
   return `chrome://${addonRef}/content/synthesis/index.html?ui=20260520-controls-v5`;
+}
+
+function isLiteratureCleanupAction(
+  action: string,
+): action is LiteratureRegistryCleanupAction {
+  return (
+    action === "confirm_literature_item" ||
+    action === "match_existing_literature_item" ||
+    action === "ignore_reference_instance" ||
+    action === "defer_reference_resolution" ||
+    action === "confirm_delete_item" ||
+    action === "mark_as_dedupe_merge" ||
+    action === "keep_for_now"
+  );
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -834,18 +849,21 @@ function handleAction(
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const proposalId = String(commandArgs.proposalId || "").trim();
     const action = String(commandArgs.action || "").trim();
-    if (
-      proposalId &&
-      (action === "approve" || action === "reject" || action === "skip")
-    ) {
+    const targetPaperRef = String(commandArgs.targetPaperRef || "").trim();
+    const targetLiteratureItemId = String(
+      commandArgs.targetLiteratureItemId || "",
+    ).trim();
+    if (proposalId && isLiteratureCleanupAction(action)) {
       runWorkbenchCommandOnce(
         runtime,
         "applyLiteratureCleanupAction",
-        { proposalId, action },
+        { proposalId, action, targetPaperRef, targetLiteratureItemId },
         () =>
           getDefaultSynthesisService().applyCleanupProposalAction({
             proposalId,
             action,
+            targetPaperRef: targetPaperRef || undefined,
+            targetLiteratureItemId: targetLiteratureItemId || undefined,
           }),
       );
       return;

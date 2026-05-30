@@ -1,0 +1,245 @@
+schema: synthesis.engineering.events.v1
+event_families:
+  source_event:
+    description: external_or_user_action_that_changes_possible_truth
+  invalidation_event:
+    description: dirty_work_started_by_cooperative_workers
+  progress_event:
+    description: job_progress_reported_to_ui
+event_routing_policy:
+  role: thin_invalidation_rules
+  owns_domain_facts: false
+  allowed_outputs:
+    - dirty_events
+    - review_items
+    - job_recommendations
+    - diagnostics
+    - supersede_or_clear_commands
+  forbidden_outputs:
+    - semantic_matching_result
+    - graph_nodes_edges_metrics_or_layout
+    - topic_freshness_from_registry_cache_changes
+    - file_scan_result
+    - cross_domain_direct_writes
+    - unbounded_fanout
+event_log_policy:
+  event_sourcing: forbidden
+  global_event_replay: forbidden
+  dirty_events_are: transient_work_queue_state
+  recovery_basis:
+    - zotero_library
+    - artifact_notes
+    - committed_db_facts
+    - durable_overrides
+    - explicit_import_or_checkpoint
+epoch_tracks:
+  registry_epoch:
+    role: registry_cache_committed_basis
+    aliases:
+      - index_generation
+    dependents:
+      - graph_epoch
+    does_not_advance:
+      - topic_artifact_version
+  graph_epoch:
+    role: citation_graph_committed_basis
+    basis_required: basis_registry_epoch_or_graph_input_hash
+    may_advance_independently: true
+    commit_requires_current_basis: true
+  topic_artifact_version:
+    role: topic_domain_artifact_basis
+    advanced_only_by:
+      - topic_apply
+      - topic_update
+      - topic_delete
+    independent_from:
+      - registry_epoch
+      - graph_epoch
+events:
+  - id: evt.index.paper_dirty
+    kind: invalidation_event
+    owner: registry_cache
+    semantic_name: paper_registry_cache_dirty
+    naming_note: index_id_is_historical
+    scope: literature_item_or_zotero_item
+    epoch_scoped: true
+    consumer: paper_registry_incremental_worker
+    progress: determinate
+    downstream:
+      - evt.graph.structure_dirty
+  - id: evt.index.digest_applied
+    kind: source_event
+    owner: registry_cache
+    semantic_name: digest_applied_to_registry_cache
+    naming_note: index_id_is_historical
+    scope: literature_item_id
+    epoch_scoped: true
+    consumer: event_routing_policy
+    progress: indeterminate
+    downstream:
+      - evt.index.paper_dirty
+      - evt.topic.discovery_apply_match
+  - id: evt.index.full_rebuild_requested
+    kind: source_event
+    owner: synthesis_service
+    semantic_name: registry_graph_cache_rebuild_requested
+    naming_note: index_id_is_historical
+    scope: registry_graph_cache
+    epoch_scoped: true
+    consumer: run.index.full_rebuild
+    confirmation: required
+    progress: determinate_plus_phase
+  - id: evt.external_source.drift_detected
+    kind: source_event
+    owner: startup_reconcile
+    scope: library_or_global
+    epoch_scoped: false
+    consumer: external_source_drift_classifier
+    progress: bounded_scan
+    outputs:
+      - small_drift_dirty_events
+      - bulk_drift_incident
+      - structural_drift_incident
+  - id: evt.external_source.rebuild_required
+    kind: invalidation_event
+    owner: registry_cache_maintenance
+    scope: library_or_global
+    epoch_scoped: true
+    consumer: run.index.full_rebuild
+    semantic_name: registry_graph_cache_rebuild_required
+    confirmation: required
+    progress: determinate_plus_phase
+  - id: evt.graph.structure_dirty
+    kind: invalidation_event
+    owner: citation_graph
+    scope: graph_epoch
+    epoch_scoped: true
+    basis_epoch: registry_epoch
+    consumer: citation_graph_structure_worker
+    progress: determinate
+    downstream:
+      - evt.graph.layout_dirty
+  - id: evt.graph.layout_dirty
+    kind: invalidation_event
+    owner: citation_graph_ui
+    scope: graph_hash_and_preset
+    epoch_scoped: true
+    consumer: citation_graph_layout_worker
+    progress: determinate_or_phase
+  - id: evt.graph.related_items_sync_dirty
+    kind: invalidation_event
+    owner: citation_graph_zotero_library_bridge
+    scope: source_literature_item_or_graph_epoch
+    epoch_scoped: true
+    consumer: zotero_related_items_sync_worker
+    progress: determinate
+    input_source: matched_library_citation_edges
+    output_target: zotero_native_related_items
+    policy:
+      direction: graph_to_zotero_only
+      mutation: add_missing_links_only
+      forbidden_inputs:
+        - legacy_reference_matching_citekey_baseline
+        - zotero_related_items_as_graph_truth
+  - id: evt.identity.external_dedupe_review
+    kind: invalidation_event
+    owner: registry_cache_identity
+    scope: external_literature_pair_or_cluster
+    epoch_scoped: true
+    consumer: external_literature_dedupe_review_worker
+    progress: determinate
+    policy:
+      benchmark_required: true
+      auto_merge_allowed_for:
+        - doi_exact
+        - arxiv_exact
+        - unique_strong_compact_title_without_danger_signal
+      review_required_for:
+        - fuzzy_title_candidate
+        - multiple_strong_candidates
+        - danger_near_neighbor
+  - id: evt.identity.literature_redirect_materialized
+    kind: source_event
+    owner: registry_cache_identity
+    scope: from_literature_item_to_survivor
+    epoch_scoped: true
+    consumer: event_routing_policy
+    progress: indeterminate
+    downstream:
+      - evt.graph.structure_dirty
+      - evt.graph.related_items_sync_dirty
+  - id: evt.topic.source_check_requested
+    kind: invalidation_event
+    owner: topics
+    scope: topic_id
+    epoch_scoped: false
+    consumer: topic_source_check_worker
+    progress: determinate
+  - id: evt.topic.discovery_apply_match
+    kind: invalidation_event
+    owner: topics
+    scope: literature_item_id
+    epoch_scoped: false
+    consumer: digest_apply_topic_discovery_matcher
+    progress: determinate
+  - id: evt.topic.discovery_repair_requested
+    kind: invalidation_event
+    owner: topics
+    scope: topic_id_or_literature_item_or_global
+    epoch_scoped: false
+    consumer: topic_discovery_repair_worker
+    progress: determinate
+  - id: evt.review.override_materialized
+    kind: source_event
+    owner: review_override
+    scope: override_or_effect_id
+    epoch_scoped: false
+    consumer: event_routing_policy
+    progress: indeterminate
+  - id: evt.import.applied
+    kind: source_event
+    owner: import_export
+    scope: import_run_id
+    epoch_scoped: true
+    consumer: event_routing_policy
+    progress: phase
+  - id: evt.reset.clean_install_completed
+    kind: source_event
+    owner: reset
+    scope: synthesis_runtime
+    epoch_scoped: false
+    consumer: workbench_refresh
+    progress: table_and_file_counts
+  - id: evt.queue.interrupted_run_detected
+    kind: invalidation_event
+    owner: startup_maintenance
+    scope: run_id_or_event_id
+    epoch_scoped: true
+    consumer: recovery_policy
+    progress: indeterminate
+  - id: evt.review.conflict_requires_attention
+    kind: source_event
+    owner: review_override
+    scope: review_item_or_override_id
+    epoch_scoped: false
+    consumer: review_overrides_center
+    progress: indeterminate
+forbidden_sources:
+  - id: legacy.reference_matching_workflow
+    reason: deprecated_workflow_not_canonical_source_event
+  - id: legacy.plugin_task_rows
+    reason: old_task_rows_must_not_feed_workbench_active_jobs
+event_requirements:
+  dirty_event_start:
+    atomic: true
+    fields:
+      - run_id
+      - started_at
+      - updated_at
+      - optional_basis_epoch
+      - attempt_count
+  worker_final_commit:
+    checks:
+      - run_marker_still_current
+      - source_or_basis_still_current
+      - graph_basis_registry_epoch_matches_when_applicable

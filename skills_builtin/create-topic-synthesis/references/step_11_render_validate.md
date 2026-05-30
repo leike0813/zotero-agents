@@ -2,6 +2,43 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Manifest / stdout schema
+
+`validate_final_artifacts` 渲染 final manifest，并在 `sidecars` 中列出固定路径 sidecars；
+agent 不直接写 manifest。
+
+```json
+{
+  "schema_id": "synthesis.topic_analysis_manifest",
+  "schema_version": "2.0.0",
+  "operation": "create",
+  "language": "zh-CN",
+  "sidecars": {
+    "topic_interest_metadata": {
+      "path": "result/sidecars/topic-interest-metadata.json",
+      "hash": "",
+      "content_type": "json",
+      "schema_id": "topic_interest_metadata.v1"
+    },
+    "concept_cards_proposal": {
+      "path": "result/sidecars/concept-cards-proposal.json",
+      "hash": "",
+      "content_type": "json",
+      "schema_id": "synthesis.concept_cards_proposal"
+    },
+    "topic_graph_relation_proposals": {
+      "path": "result/sidecars/topic-graph-relation-proposals.json",
+      "hash": "",
+      "content_type": "json",
+      "schema_id": "synthesis.topic_graph_relation_proposals"
+    }
+  },
+  "sections": {}
+}
+```
+
+Final stdout 只需要 `analysis_manifest_path` 指向上述 manifest；不要逐一列出 sidecar path。
+
 ## 最终动作
 
 最终只运行 `validate_final_artifacts`。`result/sections/*.json` 应由 Stage 10 runtime
@@ -11,6 +48,9 @@
 ```text
 result/topic-analysis.json
 result/topic-analysis.patch.json
+result/sidecars/topic-interest-metadata.json
+result/sidecars/concept-cards-proposal.json
+result/sidecars/topic-graph-relation-proposals.json
 result/result.json
 ```
 

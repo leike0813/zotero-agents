@@ -95,7 +95,9 @@ FINAL_REWRITE_PATHS = {
     "result/result.json",
     "result/topic-analysis.json",
     "result/topic-analysis.patch.json",
+    "result/sidecars/topic-interest-metadata.json",
 }
+TOPIC_INTEREST_METADATA_PATH = "result/sidecars/topic-interest-metadata.json"
 CONCEPT_CARDS_PROPOSAL_PATH = "result/sidecars/concept-cards-proposal.json"
 TOPIC_GRAPH_RELATION_PROPOSALS_PATH = "result/sidecars/topic-graph-relation-proposals.json"
 
@@ -147,6 +149,85 @@ def verify_registered_file_hash(conn, run_root: Path, relative_path: str) -> Non
         raise RuntimeError(
             f"hash registry mismatch for {relative_path}: registry={registered}, actual={actual}"
         )
+
+
+def _limited_unique_strings(values: object, limit: int) -> list[str]:
+    if isinstance(values, str):
+        source = [values]
+    elif isinstance(values, list):
+        source = values
+    else:
+        source = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in source:
+        text = _clean_text(value)
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _topic_scope_terms(topic_definition: dict, key: str) -> list[str]:
+    scope = topic_definition.get("scope_boundary")
+    if not isinstance(scope, dict):
+        return []
+    values = scope.get(key)
+    if isinstance(values, list):
+        return _limited_unique_strings(values, 16)
+    if isinstance(values, str):
+        return _limited_unique_strings([values], 16)
+    return []
+
+
+def build_topic_interest_metadata(topic_definition: dict, artifact_metadata: object) -> dict:
+    explicit = {}
+    if isinstance(artifact_metadata, dict) and isinstance(
+        artifact_metadata.get("topic_interest_metadata"), dict
+    ):
+        explicit = artifact_metadata["topic_interest_metadata"]
+
+    title = _clean_text(topic_definition.get("title"))
+    aliases = _limited_unique_strings(topic_definition.get("aliases"), 8)
+    include_terms = _limited_unique_strings(
+        [
+            *_limited_unique_strings(explicit.get("include_terms", []), 16),
+            title,
+            *aliases,
+            *_topic_scope_terms(topic_definition, "include"),
+        ],
+        16,
+    )
+    must_have_terms = _limited_unique_strings(
+        explicit.get("must_have_terms", []) or [title],
+        6,
+    )
+    exclude_terms = _limited_unique_strings(
+        [
+            *_limited_unique_strings(explicit.get("exclude_terms", []), 8),
+            *_topic_scope_terms(topic_definition, "exclude"),
+        ],
+        8,
+    )
+    diagnostics = _limited_unique_strings(explicit.get("diagnostics", []), 16)
+    if not explicit:
+        diagnostics.append("topic_interest_metadata_derived_from_topic_definition")
+    return {
+        "schema": "topic_interest_metadata.v1",
+        "topic_id": _clean_text(topic_definition.get("id")),
+        "include_terms": include_terms,
+        "must_have_terms": must_have_terms,
+        "methods": _limited_unique_strings(explicit.get("methods", []), 8),
+        "exclude_terms": exclude_terms,
+        "seed_literature_item_ids": _limited_unique_strings(
+            explicit.get("seed_literature_item_ids", []),
+            50,
+        ),
+        "diagnostics": diagnostics,
+    }
 
 
 def require_payload(args: argparse.Namespace) -> dict:
@@ -730,14 +811,30 @@ def _normalize_topic_graph_sidecar(value: object, *, topic_id: str) -> dict:
     return result
 
 
+def _normalize_topic_interest_metadata(value: object, *, topic_definition: dict) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("kg_proposals.topic_interest_metadata must be an object")
+    return build_topic_interest_metadata(
+        topic_definition,
+        {"topic_interest_metadata": value},
+    )
+
+
 def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
     if payload.get("schema_id") not in (None, "synthesis.topic_synthesis_kg_proposals"):
         raise ValueError("kg proposal payload schema_id must be synthesis.topic_synthesis_kg_proposals")
-    if "concept_cards_proposal" not in payload or "topic_graph_relation_proposals" not in payload:
+    if (
+        "concept_cards_proposal" not in payload
+        or "topic_graph_relation_proposals" not in payload
+        or "topic_interest_metadata" not in payload
+    ):
         raise ValueError(
-            "kg proposal payload requires concept_cards_proposal and topic_graph_relation_proposals"
+            "kg proposal payload requires concept_cards_proposal, topic_graph_relation_proposals, and topic_interest_metadata"
         )
     topic_id = _topic_id(conn)
+    topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
+    if not isinstance(topic_definition, dict):
+        topic_definition = {"id": topic_id}
     concept_sidecar = _normalize_concept_cards_sidecar(
         payload.get("concept_cards_proposal", {}),
         topic_id=topic_id,
@@ -746,10 +843,18 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         payload.get("topic_graph_relation_proposals", {}),
         topic_id=topic_id,
     )
+    topic_interest_metadata = _normalize_topic_interest_metadata(
+        payload.get("topic_interest_metadata", {}),
+        topic_definition=topic_definition,
+    )
     concept_hash = write_json(run_root / CONCEPT_CARDS_PROPOSAL_PATH, concept_sidecar)
     relation_hash = write_json(
         run_root / TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
         relation_sidecar,
+    )
+    topic_interest_metadata_hash = write_json(
+        run_root / TOPIC_INTEREST_METADATA_PATH,
+        topic_interest_metadata,
     )
     register_artifact(
         conn,
@@ -769,13 +874,31 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         stage="stage_9_kg_proposals",
         validated=True,
     )
+    register_artifact(
+        conn,
+        path=TOPIC_INTEREST_METADATA_PATH,
+        hash_value=topic_interest_metadata_hash,
+        content_type="json",
+        schema_id="topic_interest_metadata.v1",
+        stage="stage_9_kg_proposals",
+        validated=True,
+    )
+    artifact_metadata = get_meta(conn, "artifact_metadata", {})
+    if not isinstance(artifact_metadata, dict):
+        artifact_metadata = {}
+    artifact_metadata = dict(artifact_metadata)
+    artifact_metadata["topic_interest_metadata"] = topic_interest_metadata
+    set_meta(conn, "artifact_metadata", artifact_metadata)
     set_meta(conn, "concept_cards_proposal_path", CONCEPT_CARDS_PROPOSAL_PATH)
     set_meta(conn, "topic_graph_relation_proposals_path", TOPIC_GRAPH_RELATION_PROPOSALS_PATH)
+    set_meta(conn, "topic_interest_metadata_path", TOPIC_INTEREST_METADATA_PATH)
     return {
         "concept_cards_proposal_path": CONCEPT_CARDS_PROPOSAL_PATH,
         "concept_cards_proposal_hash": concept_hash,
         "topic_graph_relation_proposals_path": TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
         "topic_graph_relation_proposals_hash": relation_hash,
+        "topic_interest_metadata_path": TOPIC_INTEREST_METADATA_PATH,
+        "topic_interest_metadata_hash": topic_interest_metadata_hash,
     }
 
 
@@ -858,12 +981,64 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         if operation == "update_patch"
         else "result/topic-analysis.json"
     )
+    topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
+    if not isinstance(topic_definition, dict) or not str(topic_definition.get("id") or "").strip():
+        raise ValueError("validate_final_artifacts requires topic_definition.id from stage_1_topic_intent")
+    artifact_metadata = get_meta(conn, "artifact_metadata", {})
+    topic_interest_metadata = build_topic_interest_metadata(topic_definition, artifact_metadata)
+    topic_interest_metadata_hash = write_json(
+        run_root / TOPIC_INTEREST_METADATA_PATH,
+        topic_interest_metadata,
+    )
+    register_artifact(
+        conn,
+        path=TOPIC_INTEREST_METADATA_PATH,
+        hash_value=topic_interest_metadata_hash,
+        content_type="json",
+        schema_id="topic_interest_metadata.v1",
+        stage="stage_11_render_and_validate",
+        validated=True,
+    )
+    topic_interest_metadata_manifest_entry = {
+        "path": TOPIC_INTEREST_METADATA_PATH,
+        "hash": topic_interest_metadata_hash,
+        "content_type": "json",
+        "schema_id": "topic_interest_metadata.v1",
+    }
+    concept_cards_proposal_hash = _require_registered_sidecar(
+        conn,
+        run_root,
+        CONCEPT_CARDS_PROPOSAL_PATH,
+        label="concept cards proposal",
+    )
+    topic_graph_relation_proposals_hash = _require_registered_sidecar(
+        conn,
+        run_root,
+        TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+        label="topic graph relation proposals",
+    )
+    sidecars_manifest = {
+        "topic_interest_metadata": topic_interest_metadata_manifest_entry,
+        "concept_cards_proposal": {
+            "path": CONCEPT_CARDS_PROPOSAL_PATH,
+            "hash": concept_cards_proposal_hash,
+            "content_type": "json",
+            "schema_id": "synthesis.concept_cards_proposal",
+        },
+        "topic_graph_relation_proposals": {
+            "path": TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
+            "hash": topic_graph_relation_proposals_hash,
+            "content_type": "json",
+            "schema_id": "synthesis.topic_graph_relation_proposals",
+        },
+    }
     if operation == "update_patch":
         manifest = {
             "schema_id": "synthesis.topic_section_patch_manifest",
             "schema_version": "2.0.0",
             "operation": "update_patch",
             "language": language,
+            "sidecars": sidecars_manifest,
             "changed_sections": sorted(sections),
             "read_section_hashes": get_meta(conn, "read_section_hashes", {}),
             "sections": manifest_sections,
@@ -874,12 +1049,10 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
             "schema_version": "2.0.0",
             "operation": operation,
             "language": language,
+            "sidecars": sidecars_manifest,
             "sections": manifest_sections,
         }
     manifest_hash = write_json(run_root / manifest_path, manifest)
-    topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
-    if not isinstance(topic_definition, dict) or not str(topic_definition.get("id") or "").strip():
-        raise ValueError("validate_final_artifacts requires topic_definition.id from stage_1_topic_intent")
     resolver_manifest_path = "runtime/payloads/resolver.json"
     resolver_diagnostics = get_key_value(
         conn,
@@ -896,18 +1069,6 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "paper_refs_count": len(paper_refs(conn)),
         "manifest_hash": sha256_file(resolver_manifest_file) if resolver_manifest_file.exists() else "",
     }
-    _require_registered_sidecar(
-        conn,
-        run_root,
-        CONCEPT_CARDS_PROPOSAL_PATH,
-        label="concept cards proposal",
-    )
-    _require_registered_sidecar(
-        conn,
-        run_root,
-        TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
-        label="topic graph relation proposals",
-    )
     final = {
         "kind": "topic_synthesis",
         "operation": operation,
@@ -920,10 +1081,8 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "topic_definition": topic_definition,
         "resolver_manifest_path": resolver_manifest_path,
         "resolver_diagnostics": resolver_diagnostics,
-        "artifact_metadata": get_meta(conn, "artifact_metadata", {}),
+        "artifact_metadata": artifact_metadata,
         "analysis_manifest_path": manifest_path,
-        "concept_cards_proposal_path": CONCEPT_CARDS_PROPOSAL_PATH,
-        "topic_graph_relation_proposals_path": TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
     }
     if operation == "update_patch":
         final["topic_id"] = (
@@ -955,6 +1114,8 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
     return {
         "manifest_path": manifest_path,
         "manifest_hash": manifest_hash,
+        "topic_interest_metadata_path": TOPIC_INTEREST_METADATA_PATH,
+        "topic_interest_metadata_hash": topic_interest_metadata_hash,
         "final_path": "result/result.json",
         "final_hash": final_hash,
     }

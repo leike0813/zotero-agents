@@ -10,6 +10,7 @@ import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRunti
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
 
 let unbindManagedLocalRuntimeStateChange: (() => void) | null = null;
+const SYNTHESIS_DB_RESET_CONFIRMATION_TEXT = "RESET SYNTHESIS DATABASE";
 
 export async function registerPrefsScripts(window: Window) {
   if (!addon.data.prefs) {
@@ -81,6 +82,15 @@ function bindPrefEvents() {
   const runtimeDataCategories = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-categories`,
   ) as HTMLElement | null;
+  const runtimeDataIssuesToggleButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-toggle-issues`,
+  ) as XUL.Button | null;
+  const runtimeDataIssuesPanel = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-issues-panel`,
+  ) as HTMLElement | null;
+  const runtimeDataStateDbInfo = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`,
+  ) as HTMLElement | null;
   const runtimeDataRescanButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-rescan`,
   ) as XUL.Button | null;
@@ -90,6 +100,12 @@ function bindPrefEvents() {
   const runtimeDataOpenRootButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-open-root`,
   ) as XUL.Button | null;
+  const synthesisDbResetButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-synthesis-db-reset`,
+  ) as XUL.Button | null;
+  const synthesisDbResetStatus = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-synthesis-db-reset-status`,
+  ) as HTMLElement | null;
 
   const localRuntimeDeployButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`,
@@ -204,6 +220,22 @@ function bindPrefEvents() {
   setButtonHidden(localRuntimeOpenDebugConsoleButton, !debugModeEnabled);
 
   let lastRuntimeDataRoot = "";
+  let runtimeDataIssuesExpanded = false;
+  let lastRuntimeDataSnapshot: any = null;
+
+  const clearChildren = (
+    element: {
+      firstChild?: Node | null;
+      removeChild?: (child: Node) => unknown;
+    } | null,
+  ) => {
+    if (!element?.removeChild) {
+      return;
+    }
+    while (element.firstChild) {
+      element.removeChild(element.firstChild);
+    }
+  };
 
   const formatBytes = (bytesRaw: unknown) => {
     const bytes = Math.max(0, Number(bytesRaw || 0) || 0);
@@ -220,7 +252,201 @@ function bindPrefEvents() {
     return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
   };
 
+  const setRuntimeDataIssuesExpanded = (expanded: boolean) => {
+    runtimeDataIssuesExpanded = expanded;
+    if (lastRuntimeDataSnapshot) {
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
+    } else {
+      renderRuntimeDataUsage(null);
+    }
+  };
+
+  const bindDynamicButtonAction = (
+    button: XUL.Button,
+    onCommand: () => void,
+  ) => {
+    let handling = false;
+    const handler = (event?: Event) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      if (handling) {
+        return;
+      }
+      handling = true;
+      try {
+        onCommand();
+      } finally {
+        setTimeout(() => {
+          handling = false;
+        }, 0);
+      }
+    };
+    button.addEventListener("click", handler as EventListener);
+    button.addEventListener("command", handler as EventListener);
+  };
+
+  const runtimeDataCategoryOrder = [
+    "logs",
+    "skillrunner-ledger",
+    "acp-conversations",
+    "acp-skill-runs",
+    "cache",
+    "tmp",
+  ];
+
+  const runtimeDataCategoryLabels: Record<string, string> = {
+    logs: "Runtime logs",
+    "skillrunner-ledger": "SkillRunner local ledger",
+    "acp-conversations": "ACP conversations",
+    "acp-skill-runs": "ACP skill runs",
+    cache: "Cache",
+    tmp: "Temporary files",
+  };
+
+  let runtimeDataScanState: "idle" | "scanning" | "ready" | "failed" = "idle";
+  let runtimeDataScanProgressIndex = 0;
+  let runtimeDataScanProgressTimer: ReturnType<typeof setInterval> | null =
+    null;
+
+  const stopRuntimeDataScanProgress = () => {
+    if (runtimeDataScanProgressTimer) {
+      clearInterval(runtimeDataScanProgressTimer);
+      runtimeDataScanProgressTimer = null;
+    }
+  };
+
+  const formatRuntimeDataDetail = (category: any, scanned: boolean) => {
+    if (!scanned) {
+      return getString("pref-runtime-data-not-scanned" as any);
+    }
+    const bytesText = formatBytes(category?.bytes);
+    const recordCount = Number(category?.recordCount || 0);
+    if (recordCount > 0) {
+      return `${bytesText} · ${recordCount} ${getString(
+        (recordCount === 1
+          ? "pref-runtime-data-record"
+          : "pref-runtime-data-records") as any,
+      )}`;
+    }
+    return bytesText;
+  };
+
+  const isRuntimeCategoryCleanable = (category: any, scanned: boolean) => {
+    if (!scanned || runtimeDataScanState === "scanning") {
+      return false;
+    }
+    if (category?.cleanable !== true) {
+      return false;
+    }
+    const bytes = Number(category?.bytes || 0);
+    const itemCount = Number(category?.itemCount || 0);
+    const recordCount = Number(category?.recordCount || 0);
+    return (
+      category?.exists === true || bytes > 0 || itemCount > 0 || recordCount > 0
+    );
+  };
+
+  const renderRuntimeDataIssues = (integrity: any) => {
+    const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
+    const issueCount = Number(integrity?.issueCount ?? issues.length ?? 0) || 0;
+    if (issueCount <= 0) {
+      runtimeDataIssuesExpanded = false;
+    }
+    if (runtimeDataIssuesToggleButton) {
+      runtimeDataIssuesToggleButton.textContent = getString(
+        (runtimeDataIssuesExpanded
+          ? "pref-runtime-data-hide-issues"
+          : "pref-runtime-data-show-issues") as any,
+      );
+      runtimeDataIssuesToggleButton.setAttribute(
+        "aria-expanded",
+        runtimeDataIssuesExpanded ? "true" : "false",
+      );
+      if (issueCount <= 0) {
+        runtimeDataIssuesToggleButton.setAttribute("disabled", "true");
+      } else {
+        runtimeDataIssuesToggleButton.removeAttribute("disabled");
+      }
+    }
+    if (!runtimeDataIssuesPanel) {
+      return;
+    }
+    clearChildren(runtimeDataIssuesPanel);
+    runtimeDataIssuesPanel.textContent = "";
+    if (!runtimeDataIssuesExpanded) {
+      runtimeDataIssuesPanel.classList.remove("is-visible");
+      return;
+    }
+    runtimeDataIssuesPanel.classList.add("is-visible");
+    if (issues.length === 0) {
+      const empty = doc.createElement("div");
+      empty.className = "zs-runtime-issue-empty";
+      empty.textContent = getString("pref-runtime-data-no-issues" as any);
+      runtimeDataIssuesPanel.appendChild(empty);
+      return;
+    }
+    const issueGrid = doc.createElement("div");
+    issueGrid.className = "zs-runtime-issues-grid";
+    runtimeDataIssuesPanel.appendChild(issueGrid);
+    const appendIssueRow = (
+      label: string,
+      detail: string,
+      actionLabel: string,
+      enabled: boolean,
+      onCommand?: () => void,
+      title?: string,
+    ) => {
+      const rowLabel = doc.createElement("span");
+      rowLabel.className = "zs-runtime-data-category";
+      rowLabel.textContent = label;
+      if (title) {
+        rowLabel.setAttribute("title", title);
+      }
+      const rowDetail = doc.createElement("span");
+      rowDetail.className = "zs-runtime-data-path";
+      rowDetail.textContent = detail;
+      if (title) {
+        rowDetail.setAttribute("title", title);
+      }
+      const action = doc.createElement("button") as unknown as XUL.Button;
+      action.textContent = actionLabel;
+      if (!enabled || !onCommand) {
+        action.setAttribute("disabled", "true");
+      } else {
+        bindDynamicButtonAction(action, onCommand);
+      }
+      issueGrid.appendChild(rowLabel);
+      issueGrid.appendChild(rowDetail);
+      issueGrid.appendChild(action);
+    };
+    for (const issue of issues) {
+      const issueId = String(issue?.id || "").trim();
+      const type = String(issue?.type || "issue").trim();
+      const severity = String(issue?.severity || "info").trim();
+      const relativePath = String(
+        issue?.relativePath || issue?.owner || issue?.path || "",
+      ).trim();
+      const reason = String(issue?.reason || "").trim();
+      const label = `${severity}: ${type}`;
+      appendIssueRow(
+        label,
+        relativePath || "-",
+        getString("pref-runtime-data-cleanup" as any),
+        issue?.eligibleForCleanup === true && Boolean(issueId),
+        () => {
+          void cleanupPersistenceGovernanceIssue(
+            issueId,
+            label,
+            relativePath || reason || issueId,
+          );
+        },
+        reason,
+      );
+    }
+  };
+
   const renderRuntimeDataUsage = (snapshot: any) => {
+    lastRuntimeDataSnapshot = snapshot;
     const usage = snapshot?.usage?.categories ? snapshot.usage : snapshot;
     const integrity = snapshot?.integrity || snapshot?.cleanup?.report || {};
     const root = String(usage?.root || integrity?.root || "").trim();
@@ -231,13 +457,46 @@ function bindPrefEvents() {
     if (runtimeDataSummary) {
       const total = formatBytes(usage?.totalBytes);
       const scannedAt = String(usage?.scannedAt || "").trim();
-      const issueCount = Number(integrity?.issueCount || 0);
+      const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
+      const issueCount = Number(integrity?.issueCount ?? issues.length ?? 0);
       const issueText = `${getString("pref-runtime-data-issue-count" as any)} ${issueCount}`;
-      runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
+      if (runtimeDataScanState === "scanning") {
+        const progressIndex = Math.min(
+          runtimeDataScanProgressIndex,
+          runtimeDataCategoryOrder.length - 1,
+        );
+        const label =
+          runtimeDataCategoryLabels[runtimeDataCategoryOrder[progressIndex]] ||
+          "-";
+        runtimeDataSummary.textContent = `${getString(
+          "pref-runtime-data-scanning" as any,
+        )} ${progressIndex + 1}/${runtimeDataCategoryOrder.length}: ${label}`;
+      } else if (usage?.categories) {
+        runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
+      } else {
+        runtimeDataSummary.textContent = getString(
+          "pref-runtime-data-summary-idle" as any,
+        );
+      }
+    }
+    if (runtimeDataStateDbInfo) {
+      const stateDb = usage?.stateDatabase;
+      const statePath = String(stateDb?.path || "").trim();
+      const stateDetail = stateDb
+        ? `${getString("pref-runtime-data-state-db" as any)}: ${formatBytes(
+            stateDb.bytes,
+          )}${statePath ? ` · ${statePath}` : ""}`
+        : getString("pref-runtime-data-state-db-idle" as any);
+      runtimeDataStateDbInfo.textContent = stateDetail;
+      if (statePath) {
+        runtimeDataStateDbInfo.setAttribute("title", statePath);
+      }
     }
     if (!runtimeDataCategories) {
+      renderRuntimeDataIssues(integrity);
       return;
     }
+    clearChildren(runtimeDataCategories);
     runtimeDataCategories.textContent = "";
     const appendRow = (
       label: string,
@@ -261,74 +520,101 @@ function bindPrefEvents() {
       if (!enabled || !onCommand) {
         action.setAttribute("disabled", "true");
       } else {
-        action.addEventListener("command", onCommand);
+        bindDynamicButtonAction(action, onCommand);
       }
       runtimeDataCategories.appendChild(rowLabel);
       runtimeDataCategories.appendChild(rowSize);
       runtimeDataCategories.appendChild(action);
     };
-    appendRow(
-      getString("pref-runtime-data-protected-label" as any),
-      getString("pref-runtime-data-protected-detail" as any),
-      getString("pref-runtime-data-cleanup" as any),
-      false,
+    const categories = new Map(
+      (Array.isArray(usage?.categories) ? usage.categories : []).map(
+        (category: any) => [String(category?.category || "").trim(), category],
+      ),
     );
-    const categories = Array.isArray(usage?.categories) ? usage.categories : [];
-    for (const category of categories) {
-      const id = String(category?.category || "").trim();
-      const label = String(category?.label || id || "-").trim();
+    const scanned = Array.isArray(usage?.categories);
+    for (const id of runtimeDataCategoryOrder) {
+      const category = (categories.get(id) || {
+        category: id,
+        label: runtimeDataCategoryLabels[id] || id,
+        cleanable: false,
+      }) as any;
+      const label = String(
+        (category as any)?.label || runtimeDataCategoryLabels[id] || id || "-",
+      ).trim();
       const path = String(category?.path || "").trim();
       appendRow(
         label,
-        formatBytes(category?.bytes),
+        formatRuntimeDataDetail(category, scanned),
         getString("pref-runtime-data-cleanup" as any),
-        false,
-        undefined,
+        isRuntimeCategoryCleanable(category, scanned),
+        () => {
+          void cleanupRuntimeDataCategory(id, label);
+        },
         path,
       );
     }
-    const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
-    for (const issue of issues) {
-      const issueId = String(issue?.id || "").trim();
-      const type = String(issue?.type || "issue").trim();
-      const severity = String(issue?.severity || "info").trim();
-      const relativePath = String(
-        issue?.relativePath || issue?.owner || issue?.path || "",
-      ).trim();
-      const reason = String(issue?.reason || "").trim();
-      const label = `${severity}: ${type}`;
-      appendRow(
-        label,
-        relativePath || "-",
-        getString("pref-runtime-data-cleanup" as any),
-        issue?.eligibleForCleanup === true && Boolean(issueId),
-        () => {
-          void cleanupPersistenceGovernanceIssue(
-            issueId,
-            label,
-            relativePath || reason || issueId,
-          );
-        },
-        reason,
-      );
-    }
+    renderRuntimeDataIssues(integrity);
   };
 
   const refreshRuntimeDataUsage = async () => {
     try {
-      if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = getString(
-          "pref-runtime-data-scanning" as any,
-        );
-      }
+      runtimeDataScanState = "scanning";
+      runtimeDataScanProgressIndex = 0;
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
+      stopRuntimeDataScanProgress();
+      runtimeDataScanProgressTimer = setInterval(() => {
+        runtimeDataScanProgressIndex =
+          (runtimeDataScanProgressIndex + 1) % runtimeDataCategoryOrder.length;
+        renderRuntimeDataUsage(lastRuntimeDataSnapshot);
+      }, 350);
       const snapshot = await addon.hooks.onPrefsEvent(
         "scanPersistenceGovernance",
         {
           window: addon.data.prefs?.window,
         },
       );
+      stopRuntimeDataScanProgress();
+      runtimeDataScanState = "ready";
       renderRuntimeDataUsage(snapshot);
     } catch (error) {
+      stopRuntimeDataScanProgress();
+      runtimeDataScanState = "failed";
+      if (runtimeDataSummary) {
+        runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
+      }
+    }
+  };
+
+  const cleanupRuntimeDataCategory = async (
+    category: string,
+    label: string,
+  ) => {
+    const confirmed = confirmWithWindow(
+      `${getString("pref-runtime-data-category-cleanup-confirm" as any)}\n\n${label}`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      runtimeDataScanState = "scanning";
+      if (runtimeDataSummary) {
+        runtimeDataSummary.textContent = getString(
+          "pref-runtime-data-cleaning" as any,
+        );
+      }
+      const result = await addon.hooks.onPrefsEvent(
+        "cleanupRuntimePersistenceCategory",
+        {
+          window: addon.data.prefs?.window,
+          category,
+        },
+      );
+      const cleanupResult = result as any;
+      runtimeDataScanState = "ready";
+      renderRuntimeDataUsage(cleanupResult?.usage || cleanupResult);
+      await refreshRuntimeDataUsage();
+    } catch (error) {
+      runtimeDataScanState = "failed";
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
@@ -764,6 +1050,91 @@ function bindPrefEvents() {
       return hostWindow.confirm(message);
     }
     return true;
+  };
+
+  const promptWithWindow = (message: string, defaultValue = "") => {
+    const hostWindow = addon.data.prefs?.window as
+      | (Window & {
+          prompt?: (text: string, defaultValue?: string) => string | null;
+        })
+      | undefined;
+    if (typeof hostWindow?.prompt === "function") {
+      return hostWindow.prompt(message, defaultValue);
+    }
+    return "";
+  };
+
+  const setSynthesisDbResetStatus = (text: string) => {
+    if (!synthesisDbResetStatus) {
+      return;
+    }
+    synthesisDbResetStatus.textContent = text;
+  };
+
+  const sumDeletedRows = (deletedRowsByTable: unknown) => {
+    if (!deletedRowsByTable || typeof deletedRowsByTable !== "object") {
+      return 0;
+    }
+    return Object.values(deletedRowsByTable as Record<string, unknown>).reduce(
+      (sum: number, value) => sum + Math.max(0, Math.floor(Number(value) || 0)),
+      0,
+    );
+  };
+
+  const runSynthesisDatabaseReset = async () => {
+    const confirmed = confirmWithWindow(
+      getString("pref-synthesis-db-reset-confirm-message" as any),
+    );
+    if (!confirmed) {
+      setSynthesisDbResetStatus(
+        getString("pref-synthesis-db-reset-status-cancelled" as any),
+      );
+      return;
+    }
+    const typed = promptWithWindow(
+      getString("pref-synthesis-db-reset-prompt-message" as any),
+      "",
+    );
+    if (typed !== SYNTHESIS_DB_RESET_CONFIRMATION_TEXT) {
+      setSynthesisDbResetStatus(
+        getString(
+          "pref-synthesis-db-reset-status-confirmation-mismatch" as any,
+        ),
+      );
+      return;
+    }
+    setButtonDisabled(synthesisDbResetButton, true);
+    setSynthesisDbResetStatus(
+      getString("pref-synthesis-db-reset-status-working" as any),
+    );
+    try {
+      const response = (await addon.hooks.onPrefsEvent(
+        "resetSynthesisDatabase",
+        {
+          window: addon.data.prefs?.window,
+          confirmationText: typed,
+        },
+      )) as Record<string, unknown>;
+      if (response?.ok !== true) {
+        setSynthesisDbResetStatus(
+          getString(
+            "pref-synthesis-db-reset-status-confirmation-mismatch" as any,
+          ),
+        );
+        return;
+      }
+      const deletedRows = sumDeletedRows(response.deletedRowsByTable);
+      setSynthesisDbResetStatus(
+        `${getString("pref-synthesis-db-reset-status-success" as any)} ${deletedRows}`,
+      );
+      await refreshRuntimeDataUsage();
+    } catch (error) {
+      setSynthesisDbResetStatus(
+        `${getString("pref-synthesis-db-reset-status-failed" as any)} ${String(error)}`,
+      );
+    } finally {
+      setButtonDisabled(synthesisDbResetButton, false);
+    }
   };
 
   const confirmDeployForPlan = (planDetails: Record<string, unknown>) => {
@@ -1484,7 +1855,20 @@ function bindPrefEvents() {
     });
   }
 
+  if (runtimeDataIssuesToggleButton) {
+    runtimeDataIssuesToggleButton.addEventListener("command", () => {
+      setRuntimeDataIssuesExpanded(!runtimeDataIssuesExpanded);
+    });
+  }
+
+  if (synthesisDbResetButton) {
+    synthesisDbResetButton.addEventListener("command", () => {
+      void runSynthesisDatabaseReset();
+    });
+  }
+
   if (runtimeDataRoot || runtimeDataSummary || runtimeDataCategories) {
+    renderRuntimeDataUsage(null);
     void refreshRuntimeDataUsage();
   }
 

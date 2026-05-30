@@ -84,7 +84,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function parseSelectableOption(value: unknown): AcpSelectableOption | undefined {
+function parseSelectableOption(
+  value: unknown,
+): AcpSelectableOption | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -115,19 +117,19 @@ function parseAuthMethods(value: unknown) {
   }
   const normalized: AcpAuthMethod[] = [];
   for (const entry of value) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      const id = normalizeString(entry.id);
-      const name = normalizeString(entry.name);
-      if (!id || !name) {
-        continue;
-      }
-      normalized.push({
-        id,
-        name,
-        description: normalizeString(entry.description) || undefined,
-      });
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const id = normalizeString(entry.id);
+    const name = normalizeString(entry.name);
+    if (!id || !name) {
+      continue;
+    }
+    normalized.push({
+      id,
+      name,
+      description: normalizeString(entry.description) || undefined,
+    });
   }
   return normalized;
 }
@@ -138,18 +140,18 @@ function parseAvailableCommands(value: unknown) {
   }
   const normalized: AcpAvailableCommand[] = [];
   for (const entry of value) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      const name = normalizeString(entry.name);
-      if (!name) {
-        continue;
-      }
-      normalized.push({
-        name,
-        title: normalizeString(entry.title) || undefined,
-        description: normalizeString(entry.description) || undefined,
-      });
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const name = normalizeString(entry.name);
+    if (!name) {
+      continue;
+    }
+    normalized.push({
+      name,
+      title: normalizeString(entry.title) || undefined,
+      description: normalizeString(entry.description) || undefined,
+    });
   }
   return normalized;
 }
@@ -181,23 +183,26 @@ function parsePendingPermissionRequest(
     return null;
   }
   const options = Array.isArray(value.options)
-    ? value.options.reduce((acc, entry) => {
-        if (!isRecord(entry)) {
+    ? value.options.reduce(
+        (acc, entry) => {
+          if (!isRecord(entry)) {
+            return acc;
+          }
+          const optionId = normalizeString(entry.optionId);
+          const name = normalizeString(entry.name);
+          if (!optionId || !name) {
+            return acc;
+          }
+          acc.push({
+            optionId,
+            kind: normalizeString(entry.kind),
+            name,
+            description: normalizeString(entry.description) || undefined,
+          });
           return acc;
-        }
-        const optionId = normalizeString(entry.optionId);
-        const name = normalizeString(entry.name);
-        if (!optionId || !name) {
-          return acc;
-        }
-        acc.push({
-          optionId,
-          kind: normalizeString(entry.kind),
-          name,
-          description: normalizeString(entry.description) || undefined,
-        });
-        return acc;
-      }, [] as AcpPendingPermissionRequest["options"])
+        },
+        [] as AcpPendingPermissionRequest["options"],
+      )
     : [];
   return {
     requestId,
@@ -256,7 +261,8 @@ function parseHostContext(value: unknown): AcpHostContext | null {
   if (!isRecord(value)) {
     return null;
   }
-  const target = normalizeString(value.target) === "reader" ? "reader" : "library";
+  const target =
+    normalizeString(value.target) === "reader" ? "reader" : "library";
   const currentItem =
     isRecord(value.currentItem) &&
     (Number(value.currentItem.id || 0) > 0 ||
@@ -282,7 +288,10 @@ function parseHostContext(value: unknown): AcpHostContext | null {
 
 function parseConversationItem(payload: string) {
   try {
-    const parsed = JSON.parse(String(payload || "{}")) as Record<string, unknown>;
+    const parsed = JSON.parse(String(payload || "{}")) as Record<
+      string,
+      unknown
+    >;
     if (!isRecord(parsed)) {
       return null;
     }
@@ -325,9 +334,7 @@ function parseConversationItem(payload: string) {
         title: String(parsed.title || ""),
         toolKind: normalizeString(parsed.toolKind) || undefined,
         state:
-          state === "pending" ||
-          state === "in_progress" ||
-          state === "failed"
+          state === "pending" || state === "in_progress" || state === "failed"
             ? (state as "pending" | "in_progress" | "failed")
             : "completed",
         summary: normalizeString(parsed.summary) || undefined,
@@ -352,8 +359,13 @@ function parseConversationItem(payload: string) {
                 };
               })
               .filter(
-                (entry): entry is NonNullable<
-                  Exclude<AcpConversationItem, { kind: "message" | "thought" | "tool_call" | "status" }>["entries"][number]
+                (
+                  entry,
+                ): entry is NonNullable<
+                  Exclude<
+                    AcpConversationItem,
+                    { kind: "message" | "thought" | "tool_call" | "status" }
+                  >["entries"][number]
                 > => !!entry,
               )
           : [],
@@ -462,7 +474,9 @@ function normalizeSnapshotPayload(args: {
     snapshot.currentReasoningEffort = parseSelectableOption(
       parsed.currentReasoningEffort,
     );
-    snapshot.availableCommands = parseAvailableCommands(parsed.availableCommands);
+    snapshot.availableCommands = parseAvailableCommands(
+      parsed.availableCommands,
+    );
     snapshot.lastStopReason = normalizeString(parsed.lastStopReason);
     snapshot.usage = parseUsage(parsed.usage);
     snapshot.pendingPermissionRequest = parsePendingPermissionRequest(
@@ -493,7 +507,8 @@ export function resolveAcpChatRuntimePaths(
   backendIdRaw: string,
   conversationIdRaw?: string,
 ) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId = normalizeString(conversationIdRaw);
   const paths = getRuntimePersistencePaths();
   const agentWorkspaceDir = paths.acpChatWorkspaceDir;
@@ -584,10 +599,7 @@ function normalizeSessionIndexPayload(payload: string) {
   }
 }
 
-function readConversationItems(args: {
-  backendId: string;
-  requestId: string;
-}) {
+function readConversationItems(args: { backendId: string; requestId: string }) {
   return listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE)
     .filter(
       (entry) =>
@@ -611,7 +623,11 @@ function removeConversationRowsByRequestId(requestIds: Set<string>) {
     PLUGIN_TASK_DOMAIN_ACP,
     ACP_SCOPE_ACTIVE,
   ).filter((entry) => !requestIds.has(String(entry.requestId || "").trim()));
-  replacePluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE, preservedRows);
+  replacePluginTaskRowEntries(
+    PLUGIN_TASK_DOMAIN_ACP,
+    ACP_SCOPE_ACTIVE,
+    preservedRows,
+  );
 }
 
 function writeAcpChatSessionIndex(args: {
@@ -619,7 +635,8 @@ function writeAcpChatSessionIndex(args: {
   activeConversationId: string;
   sessions: AcpChatSessionSummary[];
 }) {
-  const backendId = String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const unique = new Map<string, AcpChatSessionSummary>();
   for (const session of args.sessions) {
     const conversationId = normalizeString(session.conversationId);
@@ -657,7 +674,8 @@ function writeAcpChatSessionIndex(args: {
 }
 
 function readStoredAcpChatSessionIndex(backendIdRaw: string) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   migrateLegacyConversationIfNeeded(backendId);
   const requestEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
@@ -678,7 +696,9 @@ function readStoredAcpChatSessionIndex(backendIdRaw: string) {
   return {
     activeConversationId: parsed.activeConversationId,
     sessions: parsed.sessions.filter((session) =>
-      existingRequestIds.has(conversationRequestId(backendId, session.conversationId)),
+      existingRequestIds.has(
+        conversationRequestId(backendId, session.conversationId),
+      ),
     ),
   };
 }
@@ -722,7 +742,8 @@ function migrateLegacyConversationIfNeeded(backendId: string) {
 }
 
 export function loadAcpChatSessionIndex(backendIdRaw: string) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const stored = readStoredAcpChatSessionIndex(backendId);
   if (stored.sessions.length > 0) {
     const visibleSessions = stored.sessions.filter(isVisibleSession);
@@ -738,28 +759,10 @@ export function loadAcpChatSessionIndex(backendIdRaw: string) {
       };
     }
   }
-  const conversationId = nextOpaqueId("acp-conversation");
-  const createdAt = nowIso();
-  const index = {
-    activeConversationId: conversationId,
-    sessions: [
-      {
-        conversationId,
-        title: "New Conversation",
-        messageCount: 0,
-        status: "idle" as const,
-        lastError: "",
-        createdAt,
-        updatedAt: createdAt,
-      },
-    ],
+  return {
+    activeConversationId: "",
+    sessions: [] as AcpChatSessionSummary[],
   };
-  writeAcpChatSessionIndex({
-    backendId,
-    activeConversationId: index.activeConversationId,
-    sessions: [...stored.sessions, ...index.sessions],
-  });
-  return index;
 }
 
 export function saveAcpChatSessionIndex(args: {
@@ -781,7 +784,8 @@ export function listAcpChatSessions(
 export function listStoredVisibleAcpChatSessions(
   backendIdRaw: string,
 ): AcpChatSessionSummary[] {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   return readStoredAcpChatSessionIndex(backendId)
     .sessions.filter(isVisibleSession)
     .map((entry) => ({ ...entry }));
@@ -790,13 +794,9 @@ export function listStoredVisibleAcpChatSessions(
 export function listAllAcpChatSessions(
   backendIdRaw: string,
 ): AcpChatSessionSummary[] {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const stored = readStoredAcpChatSessionIndex(backendId);
-  if (stored.sessions.length === 0) {
-    return loadAcpChatSessionIndex(backendId).sessions.map((entry) => ({
-      ...entry,
-    }));
-  }
   return stored.sessions.map((entry) => ({ ...entry }));
 }
 
@@ -805,7 +805,8 @@ export function renameAcpConversationState(args: {
   conversationId: string;
   title: string;
 }) {
-  const backendId = String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId = normalizeString(args.conversationId);
   const title = normalizeString(args.title);
   if (!conversationId || !title) {
@@ -854,7 +855,8 @@ export function loadAcpConversationState(
   backendIdRaw: string,
   conversationIdRaw?: string,
 ) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const index = loadAcpChatSessionIndex(backendId);
   const conversationId =
     normalizeString(conversationIdRaw) || index.activeConversationId;
@@ -875,7 +877,8 @@ export function loadAcpConversationState(
         conversationCreatedAt: nowIso(),
         updatedAt: nowIso(),
       };
-  snapshot.conversationId = normalizeString(snapshot.conversationId) || conversationId;
+  snapshot.conversationId =
+    normalizeString(snapshot.conversationId) || conversationId;
   snapshot.conversationCreatedAt =
     normalizeString(snapshot.conversationCreatedAt) || nowIso();
   snapshot.remoteSessionId =
@@ -929,9 +932,11 @@ export function saveAcpFrontendState(args: { activeBackendId: string }) {
 }
 
 export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
-  const backendId = String(snapshot.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(snapshot.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId =
-    normalizeString(snapshot.conversationId) || nextOpaqueId("acp-conversation");
+    normalizeString(snapshot.conversationId) ||
+    nextOpaqueId("acp-conversation");
   snapshot.conversationId = conversationId;
   snapshot.conversationCreatedAt =
     normalizeString(snapshot.conversationCreatedAt) || nowIso();
@@ -988,7 +993,9 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       currentReasoningEffort: cloneAcpSelectableOption(
         snapshot.currentReasoningEffort,
       ),
-      availableCommands: snapshot.availableCommands.map((entry) => ({ ...entry })),
+      availableCommands: snapshot.availableCommands.map((entry) => ({
+        ...entry,
+      })),
       lastStopReason: snapshot.lastStopReason,
       usage: snapshot.usage ? { ...snapshot.usage } : null,
       pendingPermissionRequest: snapshot.pendingPermissionRequest
@@ -1013,39 +1020,43 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       updatedAt: snapshot.updatedAt || nowIso(),
     }),
   });
-  replacePluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_ACP,
-    ACP_SCOPE_ACTIVE,
-    [
-      ...listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE).filter(
-        (entry) =>
-          String(entry.backendId || "").trim() !== backendId ||
-          String(entry.requestId || "").trim() !== requestId,
-      ),
-      ...snapshot.items
-        .filter((item) => normalizeString(item.id))
-        .map((item) => ({
-          taskId: item.id,
-          requestId,
-          backendId,
-          state:
-            item.kind === "message" || item.kind === "thought" || item.kind === "tool_call"
-              ? String(item.state || "")
-              : item.kind === "status"
-                ? item.level
-                : "complete",
-          updatedAt: String(item.updatedAt || item.createdAt || nowIso()),
-          payload: JSON.stringify(cloneAcpConversationItem(item)),
-        })),
-    ],
-  );
+  replacePluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE, [
+    ...listPluginTaskRowEntries(
+      PLUGIN_TASK_DOMAIN_ACP,
+      ACP_SCOPE_ACTIVE,
+    ).filter(
+      (entry) =>
+        String(entry.backendId || "").trim() !== backendId ||
+        String(entry.requestId || "").trim() !== requestId,
+    ),
+    ...snapshot.items
+      .filter((item) => normalizeString(item.id))
+      .map((item) => ({
+        taskId: item.id,
+        requestId,
+        backendId,
+        state:
+          item.kind === "message" ||
+          item.kind === "thought" ||
+          item.kind === "tool_call"
+            ? String(item.state || "")
+            : item.kind === "status"
+              ? item.level
+              : "complete",
+        updatedAt: String(item.updatedAt || item.createdAt || nowIso()),
+        payload: JSON.stringify(cloneAcpConversationItem(item)),
+      })),
+  ]);
   const indexEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
     sessionIndexRequestId(backendId),
   );
   const parsedIndex = indexEntry
     ? normalizeSessionIndexPayload(indexEntry.payload)
-    : { activeConversationId: conversationId, sessions: [] as AcpChatSessionSummary[] };
+    : {
+        activeConversationId: conversationId,
+        sessions: [] as AcpChatSessionSummary[],
+      };
   const summaries = parsedIndex.sessions.filter(
     (entry) => entry.conversationId !== conversationId,
   );
@@ -1053,7 +1064,8 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
     (entry) => entry.conversationId === conversationId,
   );
   const lastError =
-    normalizeString(snapshot.prerequisiteError) || normalizeString(snapshot.lastError);
+    normalizeString(snapshot.prerequisiteError) ||
+    normalizeString(snapshot.lastError);
   summaries.push({
     conversationId,
     title: snapshot.conversationTitle,
@@ -1075,16 +1087,14 @@ export function deleteAcpConversationState(
   backendIdRaw: string,
   conversationIdRaw: string,
 ) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const conversationId = normalizeString(conversationIdRaw);
   if (!conversationId) {
     return;
   }
   const requestId = conversationRequestId(backendId, conversationId);
-  deletePluginTaskRequestEntry(
-    PLUGIN_TASK_DOMAIN_ACP,
-    requestId,
-  );
+  deletePluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
   removeConversationRowsByRequestId(new Set([requestId]));
   const index = loadAcpChatSessionIndex(backendId);
   const stored = readStoredAcpChatSessionIndex(backendId);
@@ -1102,7 +1112,8 @@ export function deleteAcpConversationState(
 }
 
 export function clearAcpConversationState(backendIdRaw: string) {
-  const backendId = String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId =
+    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
   const index = readStoredAcpChatSessionIndex(backendId);
   const requestIds = new Set(
     index.sessions.map((entry) =>

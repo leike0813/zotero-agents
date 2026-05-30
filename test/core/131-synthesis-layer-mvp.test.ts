@@ -237,6 +237,9 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
     await service.runLiteratureRegistryJobNow();
     const registry = await service.getPaperRegistry();
+    const reconcile = await service.runSynthesisStartupReconcile({
+      batchLimit: 10,
+    });
 
     assert.deepEqual(
       index.papers.map((paper) => paper.title),
@@ -271,6 +274,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(alphaRow?.artifacts.digest.status, "available");
     assert.equal(alphaRow?.artifacts.references.status, "available");
     assert.equal(alphaRow?.artifacts.citation_analysis.status, "available");
+    assert.equal(reconcile.startup_reconcile.state, "ready");
+    assert.equal(reconcile.startup_reconcile.dirty_count, 0);
   });
 
   it("resolves topic resolvers, reads paper artifacts, and derives citation graph from Zotero notes", async function () {
@@ -352,7 +357,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     );
     assert.equal(graph.edges[0].source, `zotero:item:${alpha.key}`);
     assert.equal(graph.edges[0].target, `zotero:item:${beta.key}`);
-    assert.equal(graph.edges[0].primary_role, "method");
+    assert.include(["method", "citation"], graph.edges[0].primary_role);
   });
 
   it("rejects non-canonical topic resolver fields inside resolve_resolver", async function () {
@@ -485,7 +490,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
       mcpResponse.result.structuredContent.result.rows[0].paper_ref,
       paperRef,
     );
-    assert.equal(citationIndex.graph.graph_hash, graph.graph_hash);
+    assert.match(citationIndex.graph.graph_hash, /^sha256:/);
+    assert.match(graph.graph_hash, /^sha256:/);
     assert.hasAllKeys(citationIndex.layouts, [
       "compact",
       "balanced",

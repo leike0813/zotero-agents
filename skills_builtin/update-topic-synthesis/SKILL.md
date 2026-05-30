@@ -87,9 +87,7 @@ update 的目标是在保持 current topic
     "warnings": []
   },
   "artifact_metadata": {},
-  "analysis_manifest_path": "result/topic-analysis.patch.json",
-  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
-  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+  "analysis_manifest_path": "result/topic-analysis.patch.json"
 }
 ```
 
@@ -118,12 +116,14 @@ update 的目标是在保持 current topic
 - `update_full` 成功必须生成公开可消费产物：
   - `result/topic-analysis.json`
   - `result/result.json`
+  - `result/sidecars/topic-interest-metadata.json`
   - `result/sidecars/concept-cards-proposal.json`
   - `result/sidecars/topic-graph-relation-proposals.json`
   - `result/sections/*.json`
 - `update_patch` 成功必须生成公开可消费产物：
   - `result/topic-analysis.patch.json`
   - `result/result.json`
+  - `result/sidecars/topic-interest-metadata.json`
   - `result/sidecars/concept-cards-proposal.json`
   - `result/sidecars/topic-graph-relation-proposals.json`
   - changed `result/sections/*.json`
@@ -131,6 +131,7 @@ update 的目标是在保持 current topic
 - `update_patch` 是 section_patch 合同，只能替换 changed sections。
 - 最终 JSON 不得内嵌 `markdown`。
 - 最终 JSON 不包含正文 Markdown、agent-authored hash、canonical asset path、Zotero note shard 或 anchor。
+- sidecars 固定路径写入，但由 `result/topic-analysis.json` 或 `result/topic-analysis.patch.json` 的 `sidecars` manifest 对象公开；final stdout 不逐一列出 sidecar path。
 - Host apply 负责 canonical persistence 与导出渲染。
 
 ## zotero-bridge CLI 调用依赖
@@ -282,11 +283,11 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `evidence_map_refs`：最终 claims、timeline、taxonomy、comparison、debates、gaps 追溯到 evidence map candidate 的引用。
 - `taxonomy`：研究路线分析 section。
 - `timeline_events`：历史沿革分析 section，必须是 `{summary, events}`。
-- `kg_proposals`：`persist_kg_proposals` 的组合 payload，包含 concept 与 topic graph 两类 proposal。
+- `kg_proposals`：`persist_kg_proposals` 的组合 payload，包含 concept proposal、topic graph relation proposal 与 topic interest metadata。
 - `concept_cards_proposal`：agent-authored concept card proposal；只能描述待摄取概念、别名、定义、证据和 diagnostics，不写 canonical concept id。
-- `concept_cards_proposal_path`：最终 bundle 中的 concept proposal sidecar 路径，固定为 `result/sidecars/concept-cards-proposal.json`。
+- `topic_interest_metadata`：agent-authored topic discovery metadata；用于后续发现和匹配，不进入正文 section。
 - `topic_graph_relation_proposals`：agent-authored topic graph relation proposal；只能使用允许的 relation proposal type，不写 canonical edge id。
-- `topic_graph_relation_proposals_path`：最终 bundle 中的 relation proposal sidecar 路径，固定为 `result/sidecars/topic-graph-relation-proposals.json`。
+- `sidecars`：由 runtime 渲染进 final manifest 的 sidecar 索引；列出 topic interest metadata、concept proposal 与 relation proposal 的固定路径、hash、content type 和 schema id。
 - `result/sections/*.json`：最终 section 内容真源。
 - `analysis_manifest_path`：最终 topic-analysis manifest 或 patch manifest 路径。
 - `coverage_verdict`：覆盖判断，至少用于 external literature、coverage 和 statistics。
@@ -347,6 +348,23 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 runtime/payloads/topic-context.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "topic_definition": {
+    "id": "existing-topic-id",
+    "title": "Topic Title",
+    "aliases": [],
+    "scope_boundary": { "include": [], "exclude": [] }
+  },
+  "current_hashes": {},
+  "section_hashes": {},
+  "recommended_update": {},
+  "diagnostics": []
+}
+```
+
 然后执行 gate 返回的 persist 命令。payload 必须包含 `topic_definition.id` 与
 `topic_definition.title`，并保存 `current_hashes`、`section_hashes`、`recommended_update`。
 必须保留 current resolver/paper set、base hashes 与已存在 artifact/manifest 信息。
@@ -366,6 +384,18 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 runtime/payloads/resolver.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "schema_id": "synthesis.topic_resolver_manifest",
+  "schema_version": "1.0.0",
+  "topic_resolver": { "queries": [], "include": [], "exclude": [] },
+  "resolved_paper_set": { "papers": [] },
+  "resolver_diagnostics": {}
+}
+```
+
 runtime 从 resolver result 派生 paper workset。
 Patch 模式不得静默改变 paper set；如果 paper set、language、schema 或 topic boundary
 需要改变，必须走 full update。若需要重新解析 paper workset，library index page payload
@@ -383,6 +413,15 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 
 ```text
 runtime/payloads/citation-graph-metrics-batch.json
+```
+
+Schema skeleton：
+
+```json
+{
+  "paper_refs": ["1:ABC"],
+  "result": { "ok": true, "items": [], "diagnostics": [] }
+}
 ```
 
 metrics 缺失不阻断，但必须进入 diagnostics。
@@ -423,6 +462,22 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action p
 runtime/payloads/paper-artifacts-manifest.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "schema_id": "synthesis.filtered_artifact_manifest",
+  "papers": [
+    {
+      "paper_ref": "1:ABC",
+      "artifacts": [],
+      "payload_types_seen": []
+    }
+  ],
+  "diagnostics": []
+}
+```
+
 不要手写 artifact manifest。manifest 中每个 artifact status row 必须包含
 `payload_types_seen[]`。若某个 artifact 缺失且 host 没有看到对应 payload type，
 `payload_types_seen` 必须是空数组；如果 missing row 中包含自己的 `payload_type`，
@@ -440,6 +495,27 @@ LLM 读取 filtered content files，写：
 
 ```text
 runtime/payloads/paper-units-batch.json
+```
+
+Schema skeleton：
+
+```json
+{
+  "analyses": [
+    {
+      "paper_ref": "1:ABC",
+      "evidence_available": true,
+      "bibliographic": { "title": "", "year": 2026, "authors": [] },
+      "topic_relevance": { "level": "core", "reason": "" },
+      "research_problem": { "text": "", "scope": "" },
+      "method_contribution": {},
+      "evaluation_context": {},
+      "findings": [],
+      "limitations": [],
+      "missing_payloads": []
+    }
+  ]
+}
 ```
 
 payload 顶层必须是 `analyses[]`，不是 `paper_units[]`。每个 analysis 必须包含
@@ -483,6 +559,23 @@ LLM 写：
 runtime/payloads/cross-paper-evidence-map.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "schema_id": "synthesis.cross_paper_evidence_map",
+  "schema_version": "1.0.0",
+  "evidence_limits": {},
+  "taxonomy_candidates": [],
+  "comparison_dimensions": [],
+  "claim_candidates": [],
+  "debate_candidates": [],
+  "gap_candidates": [],
+  "review_outline_seeds": [],
+  "diagnostics": []
+}
+```
+
 语义目标：把已校验 paper units 聚合成 taxonomy/claim/debate/gap/review seeds。
 本阶段产出候选证据网络，不写最终 section 正文。
 
@@ -510,6 +603,15 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 runtime/payloads/route-timeline-synthesis.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "taxonomy": { "summary": {}, "nodes": [] },
+  "timeline_events": { "summary": {}, "events": [] }
+}
+```
+
 payload 必须包含 `taxonomy` 与 `timeline_events`。
 
 语义目标：`taxonomy` 回答“有哪些实质研究路线以及路线之间如何分化/互补/融合”，
@@ -525,6 +627,19 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 
 ```text
 runtime/payloads/core-analytical-sections.json
+```
+
+Schema skeleton：
+
+```json
+{
+  "positioning": {},
+  "claims": [],
+  "comparison_matrix": { "dimensions": [], "rows": [] },
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}
 ```
 
 payload 必须包含 positioning、claims、comparison_matrix、debates、gaps、review_outline。
@@ -545,19 +660,43 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 runtime/payloads/kg-proposals.json
 ```
 
+Schema skeleton：
+
+```json
+{
+  "schema_id": "synthesis.topic_synthesis_kg_proposals",
+  "schema_version": "1.0.0",
+  "concept_cards_proposal": { "cards": [], "diagnostics": [] },
+  "topic_graph_relation_proposals": { "proposals": [], "diagnostics": [] },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "",
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [],
+    "diagnostics": []
+  }
+}
+```
+
 payload 必须包含 `concept_cards_proposal.cards[]`、`concept_cards_proposal.diagnostics[]`、
-`topic_graph_relation_proposals.proposals[]` 与 `topic_graph_relation_proposals.diagnostics[]`。
+`topic_graph_relation_proposals.proposals[]`、`topic_graph_relation_proposals.diagnostics[]`
+与 `topic_interest_metadata`。
 relation proposal type 只允许 `broader_topic_candidate`、`related_topic_candidate`、
 `overlap_topic_candidate`、`contrast_topic_candidate`；concept card 只能描述 proposal，
-不能写 canonical concept id 或 canonical graph edge id。
-runtime 会校验并物化两个必交 sidecar：
+不能写 canonical concept id 或 canonical graph edge id。`topic_interest_metadata` 用于
+topic discovery metadata，不进入正文 section；字段细则见 `references/step_09_kg_proposals.md`。
+runtime 会校验并物化三个必交 sidecar：
 
 ```text
 result/sidecars/concept-cards-proposal.json
 result/sidecars/topic-graph-relation-proposals.json
+result/sidecars/topic-interest-metadata.json
 ```
 
-没有可靠 proposal 时也必须写空数组和 diagnostics，不能跳过本阶段。skill 只写 proposal，
+没有可靠 proposal 或 metadata seed 时也必须写空数组和 diagnostics，不能跳过本阶段。skill 只写 proposal 和 discovery metadata，
 不得写 canonical concept、sense、alias、topic graph node/edge、SQLite 或 Git sync metadata。
 
 ```bash
@@ -571,6 +710,25 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 
 ```text
 runtime/payloads/external-statistics-report.json
+```
+
+Schema skeleton：
+
+```json
+{
+  "sections": {
+    "topic": {},
+    "summary": {},
+    "paper_evidence": [],
+    "external_literature_analysis": {},
+    "coverage": {},
+    "statistics": {},
+    "synthesis_report": { "title": "", "body": "" },
+    "evidence_map": {},
+    "source_artifacts": [],
+    "diagnostics": {}
+  }
+}
 ```
 
 payload 顶层必须是 `sections` object。Full update 时只包含 Stage 10 首次生成的
@@ -611,6 +769,9 @@ python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root
 ```text
 result/topic-analysis.json
 result/topic-analysis.patch.json
+result/sidecars/topic-interest-metadata.json
+result/sidecars/concept-cards-proposal.json
+result/sidecars/topic-graph-relation-proposals.json
 result/result.json
 ```
 

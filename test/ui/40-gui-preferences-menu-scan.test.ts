@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFile } from "fs/promises";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
 import { registerPrefsScripts } from "../../src/modules/preferenceScript";
@@ -366,13 +367,18 @@ function setWorkflowState(workflows: LoadedWorkflow[]) {
 
 function createPrefsWindow(args?: {
   confirmResults?: boolean[];
+  promptResults?: Array<string | null>;
   includeRuntimeDataControls?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
     ? [...args!.confirmResults!]
     : [];
+  const promptResults = Array.isArray(args?.promptResults)
+    ? [...args!.promptResults!]
+    : [];
   const confirmMessages: string[] = [];
+  const promptMessages: string[] = [];
 
   const workflowDirInput = document.createXULElement("input");
   workflowDirInput.id = `zotero-prefpane-${config.addonRef}-workflow-dir`;
@@ -406,6 +412,24 @@ function createPrefsWindow(args?: {
   if (runtimeDataCategories) {
     runtimeDataCategories.id = `zotero-prefpane-${config.addonRef}-runtime-data-categories`;
   }
+  const runtimeDataIssuesToggleButton = args?.includeRuntimeDataControls
+    ? document.createXULElement("button")
+    : null;
+  if (runtimeDataIssuesToggleButton) {
+    runtimeDataIssuesToggleButton.id = `zotero-prefpane-${config.addonRef}-runtime-data-toggle-issues`;
+  }
+  const runtimeDataIssuesPanel = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  if (runtimeDataIssuesPanel) {
+    runtimeDataIssuesPanel.id = `zotero-prefpane-${config.addonRef}-runtime-data-issues-panel`;
+  }
+  const runtimeDataStateDbInfo = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  if (runtimeDataStateDbInfo) {
+    runtimeDataStateDbInfo.id = `zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`;
+  }
   const runtimeDataRescanButton = args?.includeRuntimeDataControls
     ? document.createXULElement("button")
     : null;
@@ -423,6 +447,18 @@ function createPrefsWindow(args?: {
     : null;
   if (runtimeDataOpenRootButton) {
     runtimeDataOpenRootButton.id = `zotero-prefpane-${config.addonRef}-runtime-data-open-root`;
+  }
+  const synthesisDbResetButton = args?.includeRuntimeDataControls
+    ? document.createXULElement("button")
+    : null;
+  if (synthesisDbResetButton) {
+    synthesisDbResetButton.id = `zotero-prefpane-${config.addonRef}-synthesis-db-reset`;
+  }
+  const synthesisDbResetStatus = args?.includeRuntimeDataControls
+    ? document.createXULElement("description")
+    : null;
+  if (synthesisDbResetStatus) {
+    synthesisDbResetStatus.id = `zotero-prefpane-${config.addonRef}-synthesis-db-reset-status`;
   }
   const localRuntimeDeployButton = document.createXULElement("button");
   localRuntimeDeployButton.id = `zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`;
@@ -491,6 +527,13 @@ function createPrefsWindow(args?: {
         }
         return true;
       },
+      prompt: (message: string) => {
+        promptMessages.push(message);
+        if (promptResults.length > 0) {
+          return promptResults.shift() ?? null;
+        }
+        return null;
+      },
     } as unknown as Window,
     workflowDirInput,
     workflowBrowseButton,
@@ -501,9 +544,14 @@ function createPrefsWindow(args?: {
     runtimeDataRoot,
     runtimeDataSummary,
     runtimeDataCategories,
+    runtimeDataIssuesToggleButton,
+    runtimeDataIssuesPanel,
+    runtimeDataStateDbInfo,
     runtimeDataRescanButton,
     runtimeDataCopyRootButton,
     runtimeDataOpenRootButton,
+    synthesisDbResetButton,
+    synthesisDbResetStatus,
     localRuntimeDeployButton,
     localRuntimeStopButton,
     localRuntimeUninstallButton,
@@ -523,6 +571,7 @@ function createPrefsWindow(args?: {
     localRuntimeProgressmeter,
     localRuntimeProgressText,
     confirmMessages,
+    promptMessages,
   };
 }
 
@@ -556,6 +605,7 @@ function assertMenuLabel(
 const itFullOnly = isFullTestMode() ? it : it.skip;
 
 describe("gui: preference scripts", function () {
+  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
 
   let prevAddon: unknown;
@@ -771,7 +821,21 @@ describe("gui: preference scripts", function () {
                 exists: true,
                 cleanable: true,
               },
+              {
+                category: "skillrunner-ledger",
+                label: "SkillRunner local ledger",
+                path: "C:\\RuntimeRoot\\state\\zotero-agents.db",
+                bytes: 0,
+                exists: true,
+                cleanable: true,
+                recordCount: 2,
+              },
             ],
+            stateDatabase: {
+              path: "C:\\RuntimeRoot\\state\\zotero-agents.db",
+              bytes: 4096,
+              exists: true,
+            },
           },
           integrity: {
             root: "C:\\RuntimeRoot",
@@ -850,6 +914,9 @@ describe("gui: preference scripts", function () {
       runtimeDataRoot,
       runtimeDataSummary,
       runtimeDataCategories,
+      runtimeDataIssuesToggleButton,
+      runtimeDataIssuesPanel,
+      runtimeDataStateDbInfo,
       confirmMessages,
     } = createPrefsWindow({ includeRuntimeDataControls: true });
     await registerPrefsScripts(window);
@@ -858,9 +925,45 @@ describe("gui: preference scripts", function () {
     assert.equal(runtimeDataRoot?.textContent, "C:\\RuntimeRoot");
     assert.include(String(runtimeDataSummary?.textContent || ""), "2.00 KB");
     assert.include(String(runtimeDataSummary?.textContent || ""), "1");
-    assert.isAtLeast(runtimeDataCategories?.children.length || 0, 9);
+    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    const categoryText = (runtimeDataCategories?.children || [])
+      .map((entry) => entry.textContent)
+      .join("\n");
+    assert.include(categoryText, "Runtime logs");
+    assert.include(categoryText, "SkillRunner local ledger");
+    assert.include(categoryText, "2");
+    assert.notInclude(categoryText, "Protected durable data");
+    assert.notInclude(categoryText, "State database");
+    assert.include(
+      String(runtimeDataStateDbInfo?.textContent || ""),
+      "pref-runtime-data-state-db",
+    );
+    assert.include(
+      String(runtimeDataStateDbInfo?.textContent || ""),
+      "4.00 KB",
+    );
+    assert.notInclude(categoryText, "expired_runtime_asset");
+    assert.isFalse(
+      runtimeDataIssuesPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      runtimeDataIssuesToggleButton?.getAttribute("aria-expanded"),
+      "false",
+    );
 
-    runtimeDataCategories?.children[8]?.dispatch("command");
+    runtimeDataIssuesToggleButton?.dispatch("command");
+    await flushTasks();
+
+    assert.isTrue(
+      runtimeDataIssuesPanel?.classList.contains("is-visible") || false,
+    );
+    const issueGrid = runtimeDataIssuesPanel?.children[0];
+    assert.include(
+      (issueGrid?.children || []).map((entry) => entry.textContent).join("\n"),
+      "expired_runtime_asset",
+    );
+
+    issueGrid?.children[2]?.dispatch("click");
     await flushTasks();
 
     assert.include(
@@ -892,6 +995,381 @@ describe("gui: preference scripts", function () {
       },
     );
     assert.lengthOf(confirmMessages, 1);
+    assert.isFalse(
+      runtimeDataIssuesPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      runtimeDataIssuesToggleButton?.getAttribute("disabled"),
+      "true",
+    );
+  });
+
+  it("keeps persistence categories visible while scanning and enables category cleanup after scan", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    let resolveScan:
+      | ((value: {
+          usage: Record<string, unknown>;
+          integrity: Record<string, unknown>;
+        }) => void)
+      | null = null;
+    let scanCalls = 0;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "scanPersistenceGovernance") {
+        scanCalls += 1;
+        if (scanCalls > 1) {
+          return {
+            usage: {
+              root: "C:\\RuntimeRoot",
+              scannedAt: "2026-04-28T00:02:00.000Z",
+              totalBytes: 0,
+              categories: [
+                {
+                  category: "logs",
+                  label: "Runtime logs",
+                  path: "C:\\RuntimeRoot\\logs",
+                  bytes: 0,
+                  exists: false,
+                  cleanable: true,
+                },
+              ],
+            },
+            integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
+          };
+        }
+        return new Promise((resolve) => {
+          resolveScan = resolve;
+        });
+      }
+      if (type === "cleanupRuntimePersistenceCategory") {
+        return {
+          ok: true,
+          category: data.category,
+          removedPaths: ["C:\\RuntimeRoot\\logs"],
+          details: {},
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-04-28T00:01:00.000Z",
+            totalBytes: 0,
+            categories: [
+              {
+                category: "logs",
+                label: "Runtime logs",
+                path: "C:\\RuntimeRoot\\logs",
+                bytes: 0,
+                exists: false,
+                cleanable: true,
+              },
+            ],
+          },
+        };
+      }
+      return {};
+    };
+
+    const {
+      window,
+      runtimeDataSummary,
+      runtimeDataCategories,
+      confirmMessages,
+    } = createPrefsWindow({
+      includeRuntimeDataControls: true,
+      confirmResults: [true],
+    });
+    await registerPrefsScripts(window);
+
+    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.include(String(runtimeDataSummary?.textContent || ""), "1/6");
+    assert.include(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
+      "pref-runtime-data-not-scanned",
+    );
+    assert.equal(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+
+    resolveScan?.({
+      usage: {
+        root: "C:\\RuntimeRoot",
+        scannedAt: "2026-04-28T00:00:00.000Z",
+        totalBytes: 2048,
+        categories: [
+          {
+            category: "logs",
+            label: "Runtime logs",
+            path: "C:\\RuntimeRoot\\logs",
+            bytes: 2048,
+            exists: true,
+            cleanable: true,
+          },
+        ],
+      },
+      integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
+    });
+    await flushTasks();
+
+    assert.notEqual(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+    runtimeDataCategories?.children[2]?.dispatch("click");
+    await flushTasks();
+
+    assert.include(
+      calls.map((entry) => entry.type),
+      "cleanupRuntimePersistenceCategory",
+    );
+    assert.deepEqual(
+      calls.find((entry) => entry.type === "cleanupRuntimePersistenceCategory")
+        ?.data,
+      {
+        window,
+        category: "logs",
+      },
+    );
+    assert.lengthOf(confirmMessages, 1);
+  });
+
+  it("hides legacy runtime data from persistence categories when debug mode is disabled", async function () {
+    setDebugModeOverrideForTests(false);
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-04-28T00:00:00.000Z",
+            totalBytes: 0,
+            categories: [
+              {
+                category: "logs",
+                label: "Runtime logs",
+                path: "C:\\RuntimeRoot\\logs",
+                bytes: 0,
+                exists: false,
+                cleanable: true,
+              },
+              {
+                category: "legacy",
+                label: "Legacy runtime data",
+                path: "C:\\LegacyRoot",
+                bytes: 1024,
+                exists: true,
+                cleanable: true,
+              },
+            ],
+          },
+          integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
+        };
+      }
+      return {};
+    };
+
+    const { window, runtimeDataCategories } = createPrefsWindow({
+      includeRuntimeDataControls: true,
+    });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.notInclude(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
+      "Legacy runtime data",
+    );
+  });
+
+  it("defines the dangerous Synthesis database reset preference controls", async function () {
+    const [xhtml, enLocale, zhLocale] = await Promise.all([
+      readFile("addon/content/preferences.xhtml", "utf8"),
+      readFile("addon/locale/en-US/preferences.ftl", "utf8"),
+      readFile("addon/locale/zh-CN/preferences.ftl", "utf8"),
+    ]);
+
+    assert.include(xhtml, "synthesis-db-reset");
+    assert.include(xhtml, "synthesis-db-reset-status");
+    assert.include(xhtml, "pref-synthesis-db-reset-warning");
+    assert.include(xhtml, "runtime-data-toggle-issues");
+    assert.include(xhtml, "runtime-data-issues-panel");
+    assert.include(xhtml, "runtime-data-state-db-info");
+    assert.include(enLocale, "pref-runtime-data-show-issues");
+    assert.include(enLocale, "pref-runtime-data-hide-issues");
+    assert.include(enLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(enLocale, "pref-runtime-data-state-db-idle");
+    assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
+    assert.include(enLocale, "RESET SYNTHESIS DATABASE");
+    assert.include(zhLocale, "pref-runtime-data-show-issues");
+    assert.include(zhLocale, "pref-runtime-data-hide-issues");
+    assert.include(zhLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(zhLocale, "pref-runtime-data-state-db-idle");
+    assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
+    assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
+  });
+
+  it("does not dispatch Synthesis database reset when the danger confirm is cancelled", async function () {
+    const calls: Array<{ type: string; data: unknown }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: { root: "C:\\RuntimeRoot", totalBytes: 0, categories: [] },
+          integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
+        };
+      }
+      return {};
+    };
+
+    const { window, synthesisDbResetButton, synthesisDbResetStatus } =
+      createPrefsWindow({
+        includeRuntimeDataControls: true,
+        confirmResults: [false],
+      });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    synthesisDbResetButton?.dispatch("command");
+    await flushTasks();
+
+    assert.notInclude(
+      calls.map((entry) => entry.type),
+      "resetSynthesisDatabase",
+    );
+    assert.isNotEmpty(String(synthesisDbResetStatus?.textContent || ""));
+  });
+
+  it("does not dispatch Synthesis database reset when the typed phrase mismatches", async function () {
+    const calls: Array<{ type: string; data: unknown }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: { root: "C:\\RuntimeRoot", totalBytes: 0, categories: [] },
+          integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
+        };
+      }
+      return {};
+    };
+
+    const { window, synthesisDbResetButton, synthesisDbResetStatus } =
+      createPrefsWindow({
+        includeRuntimeDataControls: true,
+        confirmResults: [true],
+        promptResults: ["RESET"],
+      });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    synthesisDbResetButton?.dispatch("command");
+    await flushTasks();
+
+    assert.notInclude(
+      calls.map((entry) => entry.type),
+      "resetSynthesisDatabase",
+    );
+    assert.isNotEmpty(String(synthesisDbResetStatus?.textContent || ""));
+  });
+
+  it("dispatches protected Synthesis database reset and refreshes persistence data", async function () {
+    const calls: Array<{ type: string; data: any }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-05-28T00:00:00.000Z",
+            totalBytes: 0,
+            categories: [],
+          },
+          integrity: {
+            root: "C:\\RuntimeRoot",
+            issueCount: 0,
+            issues: [],
+          },
+        };
+      }
+      if (type === "resetSynthesisDatabase") {
+        return {
+          ok: true,
+          status: "reset",
+          resetAt: "2026-05-28T00:00:00.000Z",
+          deletedRowsByTable: {
+            synt_literature_item: 1,
+            synt_review_item: 2,
+          },
+        };
+      }
+      return {};
+    };
+
+    const { window, synthesisDbResetButton, synthesisDbResetStatus } =
+      createPrefsWindow({
+        includeRuntimeDataControls: true,
+        confirmResults: [true],
+        promptResults: ["RESET SYNTHESIS DATABASE"],
+      });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    synthesisDbResetButton?.dispatch("command");
+    await flushTasks();
+
+    const resetCall = calls.find(
+      (entry) => entry.type === "resetSynthesisDatabase",
+    );
+    assert.deepEqual(resetCall?.data, {
+      window,
+      confirmationText: "RESET SYNTHESIS DATABASE",
+    });
+    assert.isAtLeast(
+      calls.filter((entry) => entry.type === "scanPersistenceGovernance")
+        .length,
+      2,
+    );
+    assert.include(String(synthesisDbResetStatus?.textContent || ""), "3");
   });
 
   it("binds local backend controls and dispatches oneclick/stop/uninstall/debug actions", async function () {
@@ -1493,7 +1971,9 @@ describe("gui: preference scripts", function () {
   });
 });
 
+// eslint-disable-next-line mocha/max-top-level-suites
 describe("gui: workflow runtime scan", function () {
+  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
@@ -1564,6 +2044,7 @@ describe("gui: workflow runtime scan", function () {
     assert.equal(getWorkflowRegistryState().workflowsDir, root);
   });
 
+  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
     "falls back to default workflow dir when preference is empty",
     function () {
@@ -1582,13 +2063,12 @@ describe("gui: workflow runtime scan", function () {
         );
         assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), effectiveDir);
       } finally {
-        if (!processEnv) {
-          return;
-        }
-        if (typeof previousOverride === "undefined") {
-          delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
-        } else {
-          processEnv.ZOTERO_TEST_WORKFLOW_DIR = previousOverride;
+        if (processEnv) {
+          if (typeof previousOverride === "undefined") {
+            delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
+          } else {
+            processEnv.ZOTERO_TEST_WORKFLOW_DIR = previousOverride;
+          }
         }
       }
     },
@@ -1758,6 +2238,7 @@ describe("gui: workflow context menu", function () {
     }
   });
 
+  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
     "dispatches openDashboard from context-menu dashboard action",
     async function () {

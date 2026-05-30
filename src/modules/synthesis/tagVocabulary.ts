@@ -1,22 +1,29 @@
 import { joinPath } from "../../utils/path";
 import {
   readRuntimeTextFile,
-  runtimePathExists,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
 import {
   buildSynthesisKnowledgeGraphPaths,
   hashCanonicalJson,
   initializeSynthesisKnowledgeGraphStore,
-  readCanonicalJsonAsset,
   readProjectionRegistryState,
   recordProjectionRebuild,
   SynthesisSchemaRegistry,
-  writeCanonicalDiagnostic,
   writeCanonicalTransaction,
+  writeCanonicalDiagnostic,
   type CanonicalTransactionReceipt,
   type ProjectionState,
 } from "./foundation";
+import {
+  createSynthesisRepository,
+  type SynthesisRepository,
+  type SynthesisTagAbbrevRecord,
+  type SynthesisTagAliasRecord,
+  type SynthesisTagProtocolRecord,
+  type SynthesisTagValidationWarningRecord,
+  type SynthesisTagVocabularyEntryRecord,
+} from "./repository";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
 export const SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID = "synthesis.tag_vocabulary";
@@ -149,6 +156,7 @@ export type SynthesisTagVocabularySnapshot = {
 type ServiceOptions = {
   root: string;
   now?: () => string;
+  repository?: SynthesisRepository;
 };
 
 const DEFAULT_PROTOCOL: SynthesisTagProtocolAsset = {
@@ -157,8 +165,6 @@ const DEFAULT_PROTOCOL: SynthesisTagProtocolAsset = {
   max_tag_length: TAGVOCAB_MAX_TAG_LENGTH,
   facets: [...SYNTHESIS_TAG_FACETS],
 };
-const EMPTY_ALIASES: SynthesisTagAliasesAsset = { aliases: {} };
-const EMPTY_ABBREV: SynthesisTagAbbrevAsset = { abbrevs: {} };
 
 type NormalizedVocabularyPayload = {
   entries: SynthesisTagVocabularyEntry[];
@@ -420,6 +426,7 @@ function createRegistry() {
   registry.registerDataSchema(SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID, {
     type: "object",
     anyOf: [{ required: ["tags"] }, { required: ["entries"] }],
+    additionalProperties: true,
     properties: {
       version: { type: "string" },
       updated_at: { type: "string" },
@@ -433,13 +440,14 @@ function createRegistry() {
   registry.registerDataSchema(SYNTHESIS_TAG_ALIASES_SCHEMA_ID, {
     type: "object",
     required: ["aliases"],
+    additionalProperties: true,
     properties: {
       aliases: { type: "object" },
     },
   });
   registry.registerDataSchema(SYNTHESIS_TAG_ABBREV_SCHEMA_ID, {
     type: "object",
-    anyOf: [{ required: ["abbrevs"] }, { required: ["abbrev"] }],
+    additionalProperties: true,
     properties: {
       abbrevs: { type: "object" },
       abbrev: { type: "object" },
@@ -448,7 +456,9 @@ function createRegistry() {
   registry.registerDataSchema(SYNTHESIS_TAG_PROTOCOL_SCHEMA_ID, {
     type: "object",
     required: ["tag_pattern", "max_tag_length", "facets"],
+    additionalProperties: true,
     properties: {
+      version: { type: "string" },
       tag_pattern: { type: "string" },
       max_tag_length: { type: "number" },
       facets: { type: "array", items: { type: "string" } },
@@ -463,6 +473,7 @@ function createRegistry() {
       "updated_at",
       "projection_target",
     ],
+    additionalProperties: true,
     properties: {
       manifest_hash: { type: "string" },
       entry_count: { type: "number" },
@@ -643,22 +654,189 @@ function buildImportPreview(args: {
   };
 }
 
+function jsonArrayText(values: unknown[]) {
+  return JSON.stringify(Array.isArray(values) ? values : []);
+}
+
+function parseJsonArrayText(value: unknown) {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function tagEntryToRecord(
+  entry: SynthesisTagVocabularyEntry,
+): SynthesisTagVocabularyEntryRecord {
+  return {
+    tag: entry.tag,
+    facet: cleanString(entry.facet),
+    note: entry.note,
+    source: entry.source,
+    deprecated: entry.deprecated,
+    replacement: entry.replacement,
+    aliasesJson: jsonArrayText(entry.aliases || []),
+    abbrevJson: jsonArrayText(entry.abbrev || []),
+    usageCount: entry.usage_count,
+    lastSyncedAt: entry.last_synced_at,
+  };
+}
+
+function tagEntryFromRecord(
+  record: SynthesisTagVocabularyEntryRecord,
+): SynthesisTagVocabularyEntry {
+  return normalizeTagEntry({
+    tag: record.tag,
+    facet: record.facet,
+    note: record.note,
+    source: record.source,
+    deprecated: record.deprecated,
+    replacement: record.replacement,
+    aliases: parseJsonArrayText(record.aliasesJson),
+    abbrev: parseJsonArrayText(record.abbrevJson),
+    usage_count: record.usageCount,
+    last_synced_at: record.lastSyncedAt,
+  })!;
+}
+
+function tagAliasRecords(
+  aliases: Record<string, string>,
+): SynthesisTagAliasRecord[] {
+  return Object.entries(normalizeRecordMap(aliases)).map(([alias, tag]) => ({
+    alias: cleanString(alias),
+    tag: cleanString(tag),
+  }));
+}
+
+function tagAliasesFromRecords(records: SynthesisTagAliasRecord[]) {
+  return Object.fromEntries(
+    records
+      .map((entry) => [cleanString(entry.alias), cleanString(entry.tag)])
+      .filter(([alias, tag]) => alias && tag)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function tagAbbrevRecords(
+  abbrev: Record<string, string>,
+): SynthesisTagAbbrevRecord[] {
+  return Object.entries(normalizeAbbrevRegistry(abbrev)).map(
+    ([abbrevKey, abbrevValue]) => ({
+      abbrevKey,
+      abbrevValue,
+    }),
+  );
+}
+
+function tagAbbrevFromRecords(records: SynthesisTagAbbrevRecord[]) {
+  return Object.fromEntries(
+    records
+      .map((entry) => [
+        cleanString(entry.abbrevKey).toLowerCase(),
+        cleanString(entry.abbrevValue),
+      ])
+      .filter(([key, value]) => key && value)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function tagProtocolToRecord(
+  protocol: SynthesisTagProtocolAsset,
+): SynthesisTagProtocolRecord {
+  return {
+    protocolId: "default",
+    version: protocol.version,
+    tagPattern: protocol.tag_pattern,
+    maxTagLength: protocol.max_tag_length,
+    facetsJson: jsonArrayText(protocol.facets),
+  };
+}
+
+function tagProtocolFromRecord(
+  record: SynthesisTagProtocolRecord | null,
+): SynthesisTagProtocolAsset {
+  if (!record) {
+    return DEFAULT_PROTOCOL;
+  }
+  return validateProtocolShape({
+    version: record.version,
+    tag_pattern: record.tagPattern,
+    max_tag_length: record.maxTagLength,
+    facets: parseJsonArrayText(record.facetsJson),
+  });
+}
+
+function tagWarningId(warning: SynthesisTagValidationWarning) {
+  return `tag-warning:${hashCanonicalJson(warning).slice("sha256:".length, "sha256:".length + 16)}`;
+}
+
+function tagWarningToRecord(
+  warning: SynthesisTagValidationWarning,
+): SynthesisTagValidationWarningRecord {
+  return {
+    warningId: tagWarningId(warning),
+    code: warning.code,
+    severity: warning.severity,
+    tag: warning.tag,
+    message: warning.message,
+  };
+}
+
+function tagWarningFromRecord(
+  record: SynthesisTagValidationWarningRecord,
+): SynthesisTagValidationWarning {
+  return {
+    code: record.code,
+    severity: record.severity === "error" ? "error" : "warning",
+    tag: record.tag,
+    message: record.message,
+  };
+}
+
+function tagProjectionFromSnapshot(args: {
+  snapshot: SynthesisTagVocabularySnapshot;
+  rebuiltAt: string;
+}): SynthesisTagIndexProjection {
+  return {
+    schema_id: "synthesis.tag_index_projection",
+    schema_version: SYNTHESIS_TAG_INDEX_SCHEMA_VERSION,
+    source_manifest_hash: args.snapshot.manifest.manifest_hash,
+    rebuilt_at: args.rebuiltAt,
+    tags: args.snapshot.entries
+      .filter((entry) => !entry.deprecated)
+      .map((entry) => entry.tag)
+      .sort((left, right) =>
+        left.localeCompare(right, "en", { sensitivity: "base" }),
+      ),
+    aliases: args.snapshot.aliases,
+    abbrev: args.snapshot.abbrev,
+    search: args.snapshot.entries.map((entry) => ({
+      tag: entry.tag,
+      normalized:
+        `${entry.tag} ${entry.note || ""} ${(entry.aliases || []).join(" ")} ${(entry.abbrev || []).join(" ")}`.toLowerCase(),
+      facet: cleanString(entry.facet),
+      aliases: entry.aliases || [],
+      abbrev: entry.abbrev || [],
+    })),
+    validation_warnings: args.snapshot.validation_warnings,
+  };
+}
+
 export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   const root = cleanString(options.root);
   if (!root) {
     throw new Error("Synthesis tag vocabulary service requires a storage root");
   }
   const now = options.now || nowIso;
-  const registry = createRegistry();
-
-  async function readAsset<T>(relativePath: string, schemaId: string) {
-    return readCanonicalJsonAsset<T>({
-      root,
-      registry,
-      relativePath,
-      schemaId,
+  const repository =
+    options.repository ||
+    createSynthesisRepository({
+      runtimeRoot: root,
+      now,
     });
-  }
+  const registry = createRegistry();
 
   async function commitAssets(args: {
     entries: SynthesisTagVocabularyEntry[];
@@ -690,6 +868,13 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
         `tag vocabulary validation failed: ${errors.map((entry) => entry.code).join(", ")}`,
       );
     }
+    repository.replaceTagVocabularyState({
+      entries: entries.map(tagEntryToRecord),
+      aliases: tagAliasRecords(aliases),
+      abbrevs: tagAbbrevRecords(abbrev),
+      protocol: tagProtocolToRecord(protocol),
+      validationWarnings: warnings.map(tagWarningToRecord),
+    });
     const manifest = buildManifest({
       entries,
       aliases,
@@ -697,54 +882,23 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       protocol,
       updatedAt: timestamp,
     });
-    const vocabulary = buildVocabularyAsset({
-      entries,
-      abbrev,
-      protocol,
-      updatedAt: timestamp,
-    });
-    return writeCanonicalTransaction({
-      root,
-      registry,
+    const receipt: CanonicalTransactionReceipt = {
+      schema_id: "synthesis.canonical_store_transaction_receipt",
+      schema_version: "1.0.0",
+      transaction_id:
+        cleanString(args.transactionId) || `tag-vocabulary-${timestamp}`,
       scope: "tags",
-      transactionId: args.transactionId,
-      projectionTargets: [SYNTHESIS_TAG_INDEX_TARGET],
-      sourceManifestHash: manifest.manifest_hash,
-      assets: [
-        {
-          relativePath: "tags/vocabulary.json",
-          schemaId: SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID,
-          data: vocabulary,
-        },
-        {
-          relativePath: "tags/aliases.json",
-          schemaId: SYNTHESIS_TAG_ALIASES_SCHEMA_ID,
-          data: { aliases },
-        },
-        {
-          relativePath: "tags/abbrev.json",
-          schemaId: SYNTHESIS_TAG_ABBREV_SCHEMA_ID,
-          data: { abbrevs: abbrev },
-        },
-        {
-          relativePath: "tags/protocol.json",
-          schemaId: SYNTHESIS_TAG_PROTOCOL_SCHEMA_ID,
-          data: protocol,
-        },
-        {
-          relativePath: "tags/manifest.json",
-          schemaId: SYNTHESIS_TAG_MANIFEST_SCHEMA_ID,
-          data: manifest,
-        },
-      ],
-    });
+      status: "committed",
+      changed_assets: [],
+      created_at: timestamp,
+    };
+    return { transactionId: receipt.transaction_id, receipt, manifest };
   }
 
   async function initializeIfMissing() {
     await initializeSynthesisKnowledgeGraphStore(root);
-    const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const vocabularyPath = joinPath(paths.tagsRoot, "vocabulary.json");
-    if (await runtimePathExists(vocabularyPath)) {
+    repository.initialize();
+    if (repository.getTagProtocol()) {
       return;
     }
     await commitAssets({
@@ -758,56 +912,28 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
 
   async function loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot> {
     await initializeIfMissing();
-    const vocabularyEnvelope = (
-      await readAsset<SynthesisTagVocabularyAsset>(
-        "tags/vocabulary.json",
-        SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID,
-      )
-    )?.data || { tags: [] };
-    const vocabulary = normalizeVocabularyPayload(vocabularyEnvelope);
-    const aliases =
-      (
-        await readAsset<SynthesisTagAliasesAsset>(
-          "tags/aliases.json",
-          SYNTHESIS_TAG_ALIASES_SCHEMA_ID,
-        )
-      )?.data || EMPTY_ALIASES;
-    const abbrev =
-      (
-        await readAsset<SynthesisTagAbbrevAsset>(
-          "tags/abbrev.json",
-          SYNTHESIS_TAG_ABBREV_SCHEMA_ID,
-        )
-      )?.data || EMPTY_ABBREV;
-    const protocol =
-      (
-        await readAsset<SynthesisTagProtocolAsset>(
-          "tags/protocol.json",
-          SYNTHESIS_TAG_PROTOCOL_SCHEMA_ID,
-        )
-      )?.data || DEFAULT_PROTOCOL;
-    const manifest =
-      (
-        await readAsset<SynthesisTagManifestAsset>(
-          "tags/manifest.json",
-          SYNTHESIS_TAG_MANIFEST_SCHEMA_ID,
-        )
-      )?.data ||
-      buildManifest({
-        entries: [],
-        aliases: {},
-        abbrev: {},
-        protocol: DEFAULT_PROTOCOL,
-        updatedAt: now(),
-      });
-    const entries = dedupeEntries(vocabulary.entries);
-    const aliasMap = normalizeRecordMap(aliases.aliases);
+    const entries = dedupeEntries(
+      repository.listTagVocabularyEntries().map(tagEntryFromRecord),
+    );
+    const aliasMap = normalizeRecordMap(
+      tagAliasesFromRecords(repository.listTagAliases()),
+    );
     const abbrevMap = normalizeAbbrevRegistry(
-      abbrev.abbrevs || abbrev.abbrev || vocabulary.abbrev,
+      tagAbbrevFromRecords(repository.listTagAbbrevs()),
     );
-    const normalizedProtocol = validateProtocolShape(
-      protocol || vocabulary.protocol || DEFAULT_PROTOCOL,
+    const normalizedProtocol = tagProtocolFromRecord(
+      repository.getTagProtocol(),
     );
+    const manifest = buildManifest({
+      entries,
+      aliases: aliasMap,
+      abbrev: abbrevMap,
+      protocol: normalizedProtocol,
+      updatedAt: now(),
+    });
+    const currentWarnings = repository
+      .listTagValidationWarnings()
+      .map(tagWarningFromRecord);
     const projectionState = await readProjectionRegistryState(root);
     return {
       entries,
@@ -815,12 +941,14 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       abbrev: abbrevMap,
       protocol: normalizedProtocol,
       manifest,
-      validation_warnings: validateVocabulary({
-        entries,
-        aliases: aliasMap,
-        abbrev: abbrevMap,
-        protocol: normalizedProtocol,
-      }),
+      validation_warnings: currentWarnings.length
+        ? currentWarnings
+        : validateVocabulary({
+            entries,
+            aliases: aliasMap,
+            abbrev: abbrevMap,
+            protocol: normalizedProtocol,
+          }),
       projection: projectionState.projections[SYNTHESIS_TAG_INDEX_TARGET],
     };
   }
@@ -837,6 +965,67 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   }> {
     const result = await commitAssets(args);
     return { transactionId: result.transactionId, receipt: result.receipt };
+  }
+
+  async function exportTagVocabularyCheckpoint(args?: {
+    transactionId?: string;
+  }) {
+    const snapshot = await loadTagVocabulary();
+    const timestamp = now();
+    const vocabulary = buildVocabularyAsset({
+      entries: snapshot.entries,
+      abbrev: snapshot.abbrev,
+      protocol: snapshot.protocol,
+      updatedAt: timestamp,
+    });
+    const manifest = buildManifest({
+      entries: snapshot.entries,
+      aliases: snapshot.aliases,
+      abbrev: snapshot.abbrev,
+      protocol: snapshot.protocol,
+      updatedAt: timestamp,
+    });
+    const result = await writeCanonicalTransaction({
+      root,
+      scope: "tags",
+      registry,
+      transactionId: args?.transactionId,
+      projectionTargets: [SYNTHESIS_TAG_INDEX_TARGET],
+      sourceManifestHash: manifest.manifest_hash,
+      now: timestamp,
+      assets: [
+        {
+          relativePath: "tags/vocabulary.json",
+          schemaId: SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID,
+          data: vocabulary,
+        },
+        {
+          relativePath: "tags/aliases.json",
+          schemaId: SYNTHESIS_TAG_ALIASES_SCHEMA_ID,
+          data: { aliases: snapshot.aliases },
+        },
+        {
+          relativePath: "tags/abbrev.json",
+          schemaId: SYNTHESIS_TAG_ABBREV_SCHEMA_ID,
+          data: { abbrevs: snapshot.abbrev },
+        },
+        {
+          relativePath: "tags/protocol.json",
+          schemaId: SYNTHESIS_TAG_PROTOCOL_SCHEMA_ID,
+          data: snapshot.protocol,
+        },
+        {
+          relativePath: "tags/manifest.json",
+          schemaId: SYNTHESIS_TAG_MANIFEST_SCHEMA_ID,
+          data: manifest,
+        },
+      ],
+    });
+    return {
+      transactionId: result.transactionId,
+      receipt: result.receipt,
+      manifest,
+    };
   }
 
   async function validateTagVocabulary(args?: {
@@ -908,29 +1097,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   async function rebuildTagIndexProjection() {
     const snapshot = await loadTagVocabulary();
     const rebuiltAt = now();
-    const projection: SynthesisTagIndexProjection = {
-      schema_id: "synthesis.tag_index_projection",
-      schema_version: SYNTHESIS_TAG_INDEX_SCHEMA_VERSION,
-      source_manifest_hash: snapshot.manifest.manifest_hash,
-      rebuilt_at: rebuiltAt,
-      tags: snapshot.entries
-        .filter((entry) => !entry.deprecated)
-        .map((entry) => entry.tag)
-        .sort((left, right) =>
-          left.localeCompare(right, "en", { sensitivity: "base" }),
-        ),
-      aliases: snapshot.aliases,
-      abbrev: snapshot.abbrev,
-      search: snapshot.entries.map((entry) => ({
-        tag: entry.tag,
-        normalized:
-          `${entry.tag} ${entry.note || ""} ${(entry.aliases || []).join(" ")} ${(entry.abbrev || []).join(" ")}`.toLowerCase(),
-        facet: cleanString(entry.facet),
-        aliases: entry.aliases || [],
-        abbrev: entry.abbrev || [],
-      })),
-      validation_warnings: snapshot.validation_warnings,
-    };
+    const projection = tagProjectionFromSnapshot({ snapshot, rebuiltAt });
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
     await writeRuntimeTextFile(
       joinPath(paths.stateRoot, "tag-index.json"),
@@ -953,7 +1120,10 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       const raw = await readRuntimeTextFile(projectionPath);
       return JSON.parse(raw) as SynthesisTagIndexProjection;
     } catch {
-      return null;
+      return tagProjectionFromSnapshot({
+        snapshot: await loadTagVocabulary(),
+        rebuiltAt: now(),
+      });
     }
   }
 
@@ -971,6 +1141,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   return {
     loadTagVocabulary,
     saveTagVocabulary,
+    exportTagVocabularyCheckpoint,
     validateTagVocabulary,
     previewImport,
     applyImport,

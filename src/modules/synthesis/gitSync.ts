@@ -176,6 +176,26 @@ type ServiceOptions = {
   lockTtlMs?: number;
   retryDelaysMs?: number[];
   autoRetryEnabled?: boolean;
+  progressReporter?: (report: {
+    jobName: string;
+    runId: string;
+    source: "git_sync";
+    label: string;
+    status:
+      | "running"
+      | "queued"
+      | "waiting"
+      | "completed"
+      | "failed_retryable"
+      | "failed_terminal";
+    phase?: string;
+    phaseLabel?: string;
+    message?: string;
+    processedCount?: number;
+    totalCount?: number;
+    progressMode?: "determinate" | "indeterminate";
+    diagnosticsJson?: string;
+  }) => void | Promise<void>;
 };
 
 type SynthesisGitSyncLockFile = {
@@ -1191,6 +1211,48 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     }
     const startedAt = now();
     const runId = `git-sync-${startedAt.replace(/[^0-9A-Za-z]+/g, "-")}`;
+    const jobName = "synthesis:git-sync";
+    const phases = [
+      "lock",
+      "export",
+      "copy",
+      "fetch",
+      "merge",
+      "validate",
+      "push",
+      "import",
+      "cleanup",
+    ];
+    let phaseIndex = 0;
+    const reportPhase = async (
+      phase: string,
+      index: number,
+      status:
+        | "running"
+        | "queued"
+        | "waiting"
+        | "completed"
+        | "failed_retryable"
+        | "failed_terminal" = "running",
+      message = "",
+      diagnosticsJson = "[]",
+    ) => {
+      phaseIndex = Math.max(phaseIndex, index);
+      await options.progressReporter?.({
+        jobName,
+        runId,
+        source: "git_sync",
+        label: "Git Sync",
+        status,
+        phase,
+        phaseLabel: phase.charAt(0).toUpperCase() + phase.slice(1),
+        message,
+        processedCount: index,
+        totalCount: phases.length,
+        progressMode: "determinate",
+        diagnosticsJson,
+      });
+    };
     const state = await loadGitSyncState();
     if (!adapter || state.queue_state === "disabled") {
       return state;
@@ -1205,18 +1267,22 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     if (!acquiredLock.acquired) {
       return persistState({ queue_state: "queued" });
     }
+    await reportPhase("lock", 1);
     const diagnostics: SynthesisGitSyncDiagnostic[] = [
       ...acquiredLock.diagnostics,
     ];
     await persistState({ queue_state: "syncing", diagnostics: [] });
     try {
       const remote = await describeRemote();
+      await reportPhase("export", 2);
       const exported = await exportCanonicalSnapshot();
       diagnostics.push(...exported.diagnostics);
       if (diagnostics.some((entry) => entry.severity === "error")) {
         throw new Error("Git Sync export failed validation.");
       }
+      await reportPhase("copy", 3);
       await copySnapshotToWorktree(exported.exportRoot);
+      await reportPhase("fetch", 4);
       const fetchResult = await adapter.fetch?.({
         worktreePath: syncPaths(root).worktreeRoot,
         remoteUrl: remote.remoteUrl,
@@ -1225,6 +1291,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       if (fetchResult?.diagnostics?.length) {
         diagnostics.push(...fetchResult.diagnostics);
       }
+      await reportPhase("merge", 5);
       const mergeResult = (await adapter.merge?.({
         worktreePath: syncPaths(root).worktreeRoot,
         remoteUrl: remote.remoteUrl,
@@ -1260,6 +1327,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           diagnostics: [...diagnostics, ...report.diagnostics],
         };
         await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await reportPhase(
+          "merge",
+          5,
+          "failed_retryable",
+          "Git Sync is blocked by merge conflicts.",
+          JSON.stringify(receipt.diagnostics),
+        );
         return persistState({
           queue_state: "blocked_conflict",
           conflict_report: report,
@@ -1270,6 +1344,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         });
       }
       const candidateRoot = joinPath(syncPaths(root).worktreeRoot, "synthesis");
+      await reportPhase("validate", 6);
       const validation = await validateGitSyncImportSnapshot(candidateRoot);
       if (!validation.ok) {
         const receipt: SynthesisGitSyncRunReceipt = {
@@ -1285,6 +1360,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           diagnostics: [...diagnostics, ...validation.diagnostics],
         };
         await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await reportPhase(
+          "validate",
+          6,
+          "failed_terminal",
+          "Git Sync validation failed.",
+          JSON.stringify(receipt.diagnostics),
+        );
         return persistState({
           queue_state: "failed_permanent",
           last_run: receipt,
@@ -1293,6 +1375,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           branch: remote.branch,
         });
       }
+      await reportPhase("push", 7);
       const pushResult = await adapter.push?.({
         worktreePath: syncPaths(root).worktreeRoot,
         remoteUrl: remote.remoteUrl,
@@ -1302,6 +1385,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       if (pushResult?.diagnostics?.length) {
         diagnostics.push(...pushResult.diagnostics);
       }
+      await reportPhase("import", 8);
       const imported = await importCanonicalSnapshot({
         synthesisRoot: candidateRoot,
         transactionId: runId,
@@ -1320,6 +1404,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           diagnostics: [...diagnostics, ...imported.validation.diagnostics],
         };
         await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await reportPhase(
+          "import",
+          8,
+          "failed_terminal",
+          "Git Sync import failed.",
+          JSON.stringify(receipt.diagnostics),
+        );
         return persistState({
           queue_state: "failed_permanent",
           last_run: receipt,
@@ -1340,6 +1431,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         canonical_receipt: imported.transaction.receipt,
       };
       await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+      await reportPhase("cleanup", 9, "completed", "Git Sync completed.");
       await removeRuntimePath(syncPaths(root).conflictPath);
       return persistState({
         queue_state: "idle",
@@ -1377,6 +1469,14 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         last_retry_at: now(),
       };
       await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+      await reportPhase(
+        phases[Math.max(0, Math.min(phases.length - 1, phaseIndex - 1))] ||
+          "sync",
+        Math.max(phaseIndex, 1),
+        "failed_retryable",
+        "Git Sync failed.",
+        JSON.stringify(receipt.diagnostics),
+      );
       return persistState({
         queue_state: "failed_retryable",
         last_run: receipt,

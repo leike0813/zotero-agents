@@ -1,0 +1,126 @@
+schema: synthesis.engineering.recovery.v1
+recovery_classes:
+  - id: atomic_transaction
+    description: all_mutations_commit_or_rollback_together
+  - id: rebuild_run
+    description: explicit_rebuild_preserves_previous_committed_state_until_final_short_transaction_commit
+  - id: after_commit_effect
+    description: derived_side_effect_failure_does_not_rollback_core_fact
+  - id: retryable_worker
+    description: worker_can_retry_from_dirty_event_or_job_state_after_interruption_or_failure
+  - id: needs_attention
+    description: user_handles_orphaned_or_hard_conflicted_override
+  - id: source_drift_incident
+    description: external_zotero_source_drift_is_too_large_or_suspicious_for_incremental_fanout
+  - id: database_corruption
+    description: sqlite_runtime_cannot_be_trusted_and_requires_explicit_recovery
+flows:
+  - id: recovery.registry_graph_cache_rebuild
+    class: rebuild_run
+    legacy_id: recovery.full_index_rebuild
+    committed_visibility: previous_committed_state_until_final_commit
+    failure_before_final_commit:
+      job_status: failed_retryable
+      ui_state: old_committed_snapshot_plus_failed_job
+      recovery_actions:
+        - retry
+        - abandon
+        - inspect_needs_attention
+    failure_during_final_commit:
+      job_status: failed_terminal
+      ui_state: old_committed_snapshot_plus_failed_job
+      recovery_actions:
+        - inspect
+        - manual_repair
+  - id: recovery.review_action
+    class: atomic_transaction
+    transaction_contains:
+      - review_state
+      - durable_effect
+      - domain_facts
+      - dirty_effects
+    stale_guard_failure:
+      result: conflict_requires_attention
+      recovery_actions:
+        - create_needs_attention_or_new_review
+  - id: recovery.topic_apply
+    class: atomic_transaction_plus_after_commit_effects
+    precommit_hard_contracts:
+      - result_bundle_schema
+      - core_topic_artifact
+      - required_topic_interest_metadata
+    after_commit_effects:
+      - concept_proposal_ingestion
+      - topic_graph_relation_proposal_ingestion
+      - source_manifest_baseline_update
+    after_commit_failure:
+      core_commit_visible: true
+      recovery_actions:
+        - retry_ingestion_job
+        - show_after_commit_failure
+  - id: recovery.interrupted_run
+    class: retryable_worker
+    detection:
+      - startup_running_rows_from_previous_session
+      - plugin_reload_with_running_rows
+      - epoch_or_basis_superseded_running_rows
+    recovery_actions:
+      - requeue_if_attempts_remain
+      - mark_failed_retryable
+      - mark_failed_terminal_after_max_attempts
+      - supersede_if_old_epoch_or_basis
+  - id: recovery.external_source_drift
+    class: source_drift_incident
+    severity:
+      small:
+        action: bounded_incremental_dirty_events
+      bulk:
+        action: record_incident_recommend_registry_graph_cache_rebuild
+        fanout: forbidden
+      structural:
+        action: fail_closed_require_inspect_or_repair
+        fanout: forbidden
+    ui_state:
+      active_jobs: bounded_summary_only
+      topics_fanout: forbidden
+      committed_visibility: preserve_previous_committed_state
+  - id: recovery.database_corruption
+    class: database_corruption
+    detection:
+      - db_open_failed_after_retry
+      - pragma_integrity_check_failed
+      - schema_meta_missing_or_inconsistent
+      - wal_or_shm_recovery_failed
+      - required_synt_table_missing
+      - large_invariant_or_foreign_key_failure
+    immediate_policy:
+      worker_fanout: paused
+      normal_mutations: paused
+      workbench_state: recovery_required
+      silent_reset: forbidden
+      silent_json_import: forbidden
+    recovery_actions:
+      - retry_open
+      - inspect_integrity
+      - quarantine
+      - rebuild_from_zotero_artifacts
+      - restore_from_checkpoint
+      - clean_install_reset
+    quarantine:
+      preserve_original_db: true
+      write_recovery_receipt: true
+    best_effort_preservation:
+      durable_effects_and_user_overrides_export: when_partially_readable
+      unverified_effects_after_rebuild: needs_attention
+interrupted_run_policy:
+  running_rows_from_previous_session: invalid
+  startup_cleanup_required: true
+  late_commit_after_epoch_or_basis_change: noop_or_reject
+  max_attempts_default: 3
+user_visible_failure_states:
+  - failed_retryable
+  - failed_terminal
+  - needs_attention
+  - incomplete_rebuild
+  - after_commit_failed
+  - recovery_required

@@ -2,6 +2,26 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Payload schema
+
+写入 `runtime/payloads/cross-paper-evidence-map.json`。完整约束以
+`assets/schemas/cross_paper_evidence_map.schema.json` 为准；语义解释见下文。
+
+```json
+{
+  "schema_id": "synthesis.cross_paper_evidence_map",
+  "schema_version": "1.0.0",
+  "evidence_limits": {},
+  "taxonomy_candidates": [],
+  "comparison_dimensions": [],
+  "claim_candidates": [],
+  "debate_candidates": [],
+  "gap_candidates": [],
+  "review_outline_seeds": [],
+  "diagnostics": []
+}
+```
+
 ## 目的
 
 Cross-paper evidence map 把 paper units 聚合为候选事实网络。它不是最终章节，而是后续

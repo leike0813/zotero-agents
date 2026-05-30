@@ -169,6 +169,7 @@ describe("Synthesis tab UI model", function () {
     ]);
     assert.include(snapshot.sync.git?.allowedActions || [], "retryGitSync");
     assert.equal(snapshot.maintenance.summary.status, "queued");
+    assert.deepEqual(snapshot.maintenance.backgroundJobs.rows, []);
     assert.equal(
       snapshot.maintenance.summary.activeWorkerKind,
       "paper-registry-incremental-worker",
@@ -185,6 +186,98 @@ describe("Synthesis tab UI model", function () {
     assert.isArray(snapshot.hostCommands);
     assert.include(snapshot.hostCommands, "syncNow");
     assert.include(snapshot.hostCommands, "resolveGitSyncConflict");
+  });
+
+  it("uses polished empty states for synthesis workbench sparse data", async function () {
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+
+    assert.include(source, "function renderEmptyState");
+    assert.include(source, "No literature index records yet");
+    assert.include(source, "No tag vocabulary indexed yet");
+    assert.include(source, "No concepts indexed yet");
+    assert.include(source, "No citation graph data");
+    assert.include(source, "Drawing graph");
+    assert.include(source, "function addHoverNeighborhood");
+    assert.include(source, "hover-only external hidden");
+    assert.include(source, "display_tier");
+    assert.include(source, "Tag index ready");
+    assert.include(source, "Concept index ready");
+    assert.notInclude(source, "tag-index ready");
+    assert.notInclude(source, "concept-kb-index ready");
+    assert.notInclude(source, "JSON.stringify(snapshot.graph.diagnostics");
+    assert.notInclude(source, "JSON.stringify(node || selected");
+    assert.notInclude(source, "JSON.stringify(edge || selected");
+    assert.include(css, ".empty-state");
+    assert.include(css, ".empty-state-actions");
+    assert.include(css, ".details .empty-state");
+    assert.include(css, ".graph-empty .empty-state");
+  });
+
+  it("normalizes Synthesis background jobs without inventing progress", function () {
+    const snapshot = buildSynthesisUiSnapshot({
+      libraryId: 1,
+      actions: {
+        inFlight: [
+          {
+            key: "runLiteratureRegistryJobNow",
+            command: "runLiteratureRegistryJobNow",
+            status: "running",
+            label: "Rebuild literature registry",
+          },
+        ],
+      },
+      maintenance: {
+        backgroundJobs: [
+          {
+            job_id: "synthesis:update-queue",
+            source: "update_queue",
+            status: "queued",
+            label: "Synthesis update queue",
+            detail: "2 queued - 0 running - 0 failed",
+            updated_at: "2026-05-25T00:00:00.000Z",
+            progress: { mode: "indeterminate" },
+          },
+          {
+            job_id: "synthesis:literature-registry",
+            source: "literature_registry",
+            status: "running",
+            label: "Literature registry rebuild",
+            updated_at: "2026-05-25T00:01:00.000Z",
+            progress: {
+              mode: "determinate",
+              percent: 30,
+              current: 3,
+              total: 10,
+            },
+          },
+          {
+            job_id: "",
+            source: "workbench",
+            status: "running",
+            label: "Ignored",
+          },
+        ],
+      },
+    });
+
+    assert.lengthOf(snapshot.maintenance.backgroundJobs.rows, 2);
+    assert.equal(snapshot.maintenance.backgroundJobs.runningCount, 1);
+    assert.equal(snapshot.maintenance.backgroundJobs.queuedCount, 1);
+    assert.equal(
+      snapshot.maintenance.backgroundJobs.primaryJob?.job_id,
+      "synthesis:literature-registry",
+    );
+    assert.deepEqual(snapshot.maintenance.backgroundJobs.rows[1]?.progress, {
+      mode: "indeterminate",
+    });
+    assert.deepEqual(snapshot.maintenance.backgroundJobs.rows[0]?.progress, {
+      mode: "determinate",
+      percent: 30,
+      current: 3,
+      total: 10,
+      label: undefined,
+    });
   });
 
   it("derives stable operation keys for scoped asynchronous actions", function () {
@@ -466,6 +559,12 @@ describe("Synthesis tab UI model", function () {
     assert.equal(next.state.graph.showLowSignalUnresolved, true);
     assert.equal(next.state.graph.role, "method");
     assert.isUndefined(next.hostCommand);
+
+    const cleared = applySynthesisUiAction(next.state, {
+      action: "setGraphView",
+      payload: { selectedElement: null },
+    });
+    assert.isUndefined(cleared.state.graph.selectedElement);
   });
 
   it("tracks the internal artifact reader view and selected topic", function () {
@@ -560,6 +659,72 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.graph.diagnostics.reference_stats.dropped_empty, 0);
   });
 
+  it("keeps low-degree external graph nodes out of the rendered graph while preserving drawer data", function () {
+    const input = {
+      libraryId: 1,
+      graph: {
+        graph_hash: "sha256:graph",
+        nodes: [{ id: "paper:a", label: "A", kind: "library_paper" as const }],
+        edges: [],
+        hoverOnlyNodes: [
+          {
+            id: "lit:single",
+            label: "Unique External",
+            kind: "external_reference" as const,
+            visibility: "hover_only" as const,
+            display_tier: "single_external" as const,
+            external_degree: 1,
+          },
+        ],
+        hoverOnlyEdges: [
+          {
+            id: "e-single",
+            source: "paper:a",
+            target: "lit:single",
+            primary_role: "citation",
+            visibility: "hover_only" as const,
+          },
+        ],
+      },
+    };
+
+    const defaultSnapshot = buildSynthesisUiSnapshot(
+      input,
+      createDefaultSynthesisUiState(),
+    );
+    const searchState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: { graph: { search: "Unique" } },
+      },
+    ).state;
+    const searchedSnapshot = buildSynthesisUiSnapshot(input, searchState);
+
+    assert.deepEqual(
+      defaultSnapshot.graph.visibleNodes.map((node) => node.id),
+      ["paper:a"],
+    );
+    assert.deepEqual(defaultSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      defaultSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["lit:single"],
+    );
+    assert.deepEqual(
+      searchedSnapshot.graph.visibleNodes.map((node) => node.id),
+      [],
+    );
+    assert.deepEqual(searchedSnapshot.graph.visibleEdges, []);
+    assert.deepEqual(
+      searchedSnapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      ["lit:single"],
+    );
+    assert.deepEqual(
+      searchedSnapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      ["e-single"],
+    );
+  });
+
   it("routes known host commands and rejects unknown actions", function () {
     const state = createDefaultSynthesisUiState();
     const known = applySynthesisUiAction(state, {
@@ -600,17 +765,20 @@ describe("Synthesis tab UI model", function () {
   });
 
   it("wires graph layout recompute to the layout-only worker", async function () {
-    const source = await fs.readFile(
+    const tabSource = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
+    const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
 
-    assert.include(source, "runCitationGraphLayoutWorker");
-    assert.include(source, "refreshGraphLayoutIfNeeded");
+    assert.include(tabSource, "runCitationGraphLayoutWorker");
+    assert.include(tabSource, "refreshGraphLayoutIfNeeded");
     assert.notInclude(
-      source,
+      tabSource,
       ".rebuildCitationGraphProjection()\n      .finally",
     );
+    assert.include(appSource, "maybeRequestGraphLayoutRefresh");
+    assert.include(appSource, 'reason: "auto"');
   });
 
   it("routes Workbench artifact delete and purge host commands", function () {
@@ -882,6 +1050,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "sidebarExpanded: false");
     assert.include(source, "brand brand-icon-only");
     assert.include(source, "function iconSvg(");
+    assert.include(source, "controls: [");
     assert.include(source, '["tags", "Tags", "tags"]');
     assert.include(source, '["concepts", "Concepts", "concepts"]');
     assert.include(source, "concepts: [");
@@ -1062,12 +1231,16 @@ describe("Synthesis tab UI model", function () {
   });
 
   it("preserves active Workbench controls across snapshot rerenders", async function () {
-    const app = await fs.readFile("addon/content/synthesis/app.js", "utf8");
-    assert.include(app, "captureActiveWorkbenchState");
-    assert.include(app, "restoreActiveWorkbenchState");
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    assert.include(app, "captureWorkbenchRenderState");
+    assert.include(app, "restoreWorkbenchRenderState");
     assert.include(app, "data-synthesis-control-key");
     assert.include(app, "data-synthesis-scroll-key");
-    assert.include(app, "renderShell(root, state.snapshot, preservedState)");
+    assert.include(app, "data-synthesis-details-key");
+    assert.include(app, "graphCamera");
+    assert.include(app, "snapshotContentSignature");
+    assert.include(app, "snapshotChromeSignature");
+    assert.include(app, "renderWorkbenchChrome");
   });
 
   it("keeps Workbench UI-only actions on cached snapshot input", async function () {
@@ -1145,11 +1318,33 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "ResizeObserver");
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
-    assert.include(source, 'node.kind === "library_paper" ? 7 : 2');
-    assert.include(source, 'targetKind === "library_paper" ? 1.15 : 0.35');
+    assert.include(source, "function graphNodeSize");
+    assert.include(source, 'targetTier === "shared_external"');
+    assert.include(source, "addHoverNeighborhood");
+    assert.include(source, "scheduleHoverClear");
+    assert.include(source, "cancelScheduledHoverClear");
     assert.include(source, "showHoverLabel");
     assert.include(source, "node === state.hoveredNode");
+    assert.include(source, "selectedGraphHoverNode");
+    assert.include(source, "pinnedHoverNode");
+    assert.include(source, 'renderer.on("clickStage"');
+    assert.include(source, "selectedElement: null");
+    assert.include(source, "collectSelectedNodeCitations");
+    assert.include(source, "renderSelectedNodeCitations");
+    assert.include(source, "graph-selection-drawer");
+    assert.include(source, "graph.selection");
+    assert.include(source, "snapshot.graph.hoverOnlyEdges");
+    assert.notInclude(
+      source,
+      "snapshot.graph.hoverOnlyNodes.map((node) => [node.id, node])",
+    );
+    assert.include(source, "enableEdgeEvents: false");
+    assert.include(source, "zIndex: true");
+    assert.include(source, "function graphNodeZIndex");
     assert.include(source, "graph-control-drawer");
+    assert.include(source, "graph-control-icon");
+    assert.include(source, "graph-control-title");
+    assert.include(source, 'iconSvg("controls")');
     assert.include(
       source,
       'detail.setAttribute("aria-label", "Graph controls")',
@@ -1161,8 +1356,19 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".graph-control-drawer");
     assert.include(css, ".graph-control-drawer:hover");
     assert.include(css, ".graph-control-drawer:focus-within");
+    assert.include(css, ".graph-control-icon svg");
+    assert.include(css, ".graph-control-title");
+    assert.include(css, "display: none;");
+    assert.notInclude(css, "writing-mode: vertical-rl;");
+    assert.include(css, ".graph-selection-drawer");
+    assert.include(css, ".graph-selection-content");
+    assert.include(css, ".graph-citation-list");
+    assert.include(css, ".graph-citation-card");
     assert.include(css, "width: 42px;");
+    assert.include(css, "left: 12px;");
+    assert.include(css, "right: 12px;");
     assert.include(css, "width: min(330px, calc(100% - 24px));");
+    assert.include(css, "width: min(360px, calc(100% - 24px));");
     assert.notInclude(css, "grid-template-columns: minmax(0, 1fr) 300px;");
     assert.include(config, "src/synthesisWorkbenchApp.ts");
     assert.include(config, "addon/content/synthesis/app.bundle.js");
@@ -1685,7 +1891,10 @@ describe("Synthesis tab UI model", function () {
       action: "hostCommand",
       payload: {
         command: "applyLiteratureCleanupAction",
-        args: { proposalId: "cleanup:1", action: "skip" },
+        args: {
+          proposalId: "cleanup:1",
+          action: "ignore_reference_instance",
+        },
       },
     });
 
@@ -1707,21 +1916,151 @@ describe("Synthesis tab UI model", function () {
     assert.include(snapshot.hostCommands, "retryLiteratureRegistryJob");
     assert.deepEqual(command.hostCommand, {
       command: "applyLiteratureCleanupAction",
-      args: { proposalId: "cleanup:1", action: "skip" },
+      args: {
+        proposalId: "cleanup:1",
+        action: "ignore_reference_instance",
+      },
     });
+  });
+
+  it("keeps Index default rows Zotero-bound and exposes referenced literature mode", function () {
+    const input = {
+      libraryId: 1,
+      registry: {
+        rows: [
+          {
+            paper_ref: "1:AAA",
+            title: "Library Paper",
+            readiness: "ready" as const,
+            coverage: "complete" as const,
+            missing_artifacts: [],
+            index_scope: "library" as const,
+            reference_count: 1,
+            references: [
+              {
+                reference_instance_id: "ref:1",
+                reference_index: 0,
+                title: "External Method",
+                resolution_status: "matched",
+                target_title: "External Method",
+                target_binding: "external" as const,
+              },
+            ],
+          },
+          {
+            paper_ref: "lit:external",
+            title: "External Method",
+            readiness: "partial" as const,
+            coverage: "missing" as const,
+            missing_artifacts: [],
+            index_scope: "referenced" as const,
+            literature_status: "reference-only" as const,
+            referenced_by_count: 1,
+          },
+        ],
+      },
+    };
+
+    const defaultSnapshot = buildSynthesisUiSnapshot(input);
+    const referencedState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: { registry: { literature: "reference-only" } },
+      },
+    ).state;
+    const referencedSnapshot = buildSynthesisUiSnapshot(input, referencedState);
+
+    assert.deepEqual(
+      defaultSnapshot.registry.visibleRows.map((row) => row.paper_ref),
+      ["1:AAA"],
+    );
+    assert.equal(defaultSnapshot.registry.visibleRows[0]?.reference_count, 1);
+    assert.equal(
+      defaultSnapshot.registry.visibleRows[0]?.references?.[0]?.target_binding,
+      "external",
+    );
+    assert.deepEqual(
+      referencedSnapshot.registry.visibleRows.map((row) => row.paper_ref),
+      ["lit:external"],
+    );
   });
 
   it("wires Literature filters and cleanup review card in the Workbench", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "needs-cleanup");
+    assert.include(source, "Only referenced literature");
+    assert.include(source, "renderRegistryTable");
+    assert.include(source, "registry-parent-row");
+    assert.include(source, "registry-reference-row");
+    assert.include(source, "state.registryExpandedRows");
+    assert.include(source, "registryReferencePrimaryTitle");
+    assert.include(source, "renderRegistryReferenceRow");
+    assert.include(source, "registryReferenceDisplayId");
+    assert.include(source, "registryRowDisplayId");
+    assert.include(source, "registryStatusTone");
+    assert.include(source, '"ID"');
+    assert.include(source, '"Artifacts"');
+    assert.include(source, '"References"');
+    assert.include(source, '"(Total/Unresolved)"');
+    assert.include(source, "registryArtifactBadges");
+    assert.include(source, "renderRegistryArtifacts");
+    assert.include(source, '"Digest artifact"');
+    assert.include(source, '"References artifact"');
+    assert.include(source, '"Citation analysis artifact"');
+    assert.include(source, "registry-artifacts-header");
+    assert.include(source, "registry-references-header");
+    assert.include(source, "registry-reference-count");
+    assert.include(source, 'status === "matched"');
+    assert.notInclude(source, "renderRegistryReferenceField");
+    assert.notInclude(source, "registryReferenceSecondaryText");
+    assert.notInclude(source, "registryReferenceTargetSummary");
+    assert.notInclude(
+      source,
+      '"Readiness",\n    "Coverage",\n    "Status",\n    "References",\n    "Missing",',
+    );
+    assert.notInclude(source, "registry-reference-details");
+    assert.notInclude(source, "registry-reference-form");
+    assert.notInclude(source, 'item.appendChild(el("span", "muted", target));');
     assert.include(source, "cleanup-review-panel");
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
     assert.notInclude(source, '["proposal id", proposal.proposal_id]');
     assert.include(source, "applyLiteratureCleanupAction");
+    assert.include(source, "confirm_literature_item");
+    assert.include(source, "match_existing_literature_item");
+    assert.include(source, "ignore_reference_instance");
+    assert.include(source, "defer_reference_resolution");
+    assert.include(source, "confirm_delete_item");
+    assert.include(source, "mark_as_dedupe_merge");
+    assert.include(source, "keep_for_now");
+    assert.include(source, "Zotero deletion review");
+    assert.include(source, "Zotero dedupe review");
     assert.include(source, "runLiteratureRegistryJobNow");
     assert.include(source, "retryLiteratureRegistryJob");
+    assert.include(css, ".registry-table");
+    assert.include(css, ".registry-parent-row td");
+    assert.include(css, ".registry-reference-row td");
+    assert.include(css, ".registry-reference-title-cell");
+    assert.include(css, ".registry-reference-disclosure");
+    assert.include(css, ".registry-reference-muted");
+    assert.include(css, ".registry-artifact-badges");
+    assert.include(css, ".registry-artifacts-cell");
+    assert.include(css, ".registry-references-cell");
+    assert.include(css, ".registry-column-header-subtitle");
+    assert.include(css, ".registry-reference-count");
+    assert.include(css, "grid-template-columns: repeat(3, max-content);");
+    assert.include(css, "table-layout: auto;");
+    assert.include(css, ".badge.blue");
+    assert.include(css, "overflow-wrap: anywhere;");
+    assert.include(css, "padding-block: 4px;");
+    assert.include(css, "white-space: nowrap;");
+    assert.include(css, "text-overflow: ellipsis;");
+    assert.notInclude(css, ".registry-reference-form");
+    assert.notInclude(css, ".registry-reference-field");
+    assert.notInclude(css, "table-layout: fixed;");
   });
 
   it("renders domain-local single review cards for Synthesis review workflows", async function () {
@@ -1759,10 +2098,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "localPendingActions");
     assert.include(app, "aria-busy");
     assert.include(app, "renderActionStatusbar");
+    assert.include(app, "listBackgroundJobs");
+    assert.include(app, "renderBackgroundJobPopover");
+    assert.include(app, "action-statusbar-job-button");
     assert.include(app, "action-statusbar");
     assert.include(app, "STATUSBAR_COMPLETED_TIMEOUT_MS");
     assert.include(app, "STATUSBAR_FAILED_TIMEOUT_MS");
-    assert.include(app, "button-spinner");
+    assert.include(app, "action-statusbar-progress");
     assert.include(app, "isOperationPending");
     assert.notInclude(app, "content.appendChild(actionNotice)");
     assert.include(host, "inFlightCommands");
@@ -1775,6 +2117,8 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(css, "height: var(--synthesis-statusbar-height)");
     assert.include(css, "line-height: 1.35");
-    assert.include(css, ".button-spinner");
+    assert.include(css, ".action-statusbar-progress");
+    assert.include(css, ".action-statusbar-job-popover");
+    assert.include(css, "@media (prefers-reduced-motion: reduce)");
   });
 });

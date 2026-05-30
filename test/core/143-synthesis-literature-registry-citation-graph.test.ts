@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   buildSynthesisKnowledgeGraphPaths,
   buildSynthesisStoragePaths,
@@ -9,6 +10,7 @@ import {
 } from "../../src/modules/synthesis/foundation";
 import { createSynthesisLiteratureRegistryService } from "../../src/modules/synthesis/literatureRegistry";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   readRuntimeTextFile,
   listRuntimeChildren,
@@ -18,6 +20,15 @@ import {
 } from "../../src/modules/runtimePersistence";
 import { buildPaperRegistryRows } from "../../src/modules/synthesis/registry";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  applySynthesisUiAction,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
+import {
+  getSynthesisJobProfilerDatabasePath,
+  readSynthesisJobProfilerSnapshotForTests,
+  resetSynthesisJobProfilerForTests,
+} from "../../src/modules/synthesis/jobProfiler";
 
 async function waitFor(predicate: () => Promise<boolean> | boolean) {
   const deadline = Date.now() + 1000;
@@ -99,9 +110,12 @@ const registryInputs = [
 describe("Synthesis literature registry and citation graph", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
+    resetSynthesisJobProfilerForTests();
   });
 
   afterEach(function () {
+    setDebugModeOverrideForTests();
+    resetSynthesisJobProfilerForTests();
     resetPluginStateStoreForTests();
   });
 
@@ -192,6 +206,301 @@ describe("Synthesis literature registry and citation graph", function () {
       "projection rebuild clears literature stale flag",
     );
     assert.isFalse(registry.projections["citation-graph-index"].stale);
+  });
+
+  it("resolves references by identity signals without literature matching metadata", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisLiteratureRegistryService({
+      root,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+
+    await service.rebuildLiteratureRegistry({
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "SRC",
+          title: "Source Paper",
+          year: "2024",
+          itemType: "journalArticle",
+          creators: ["Source"],
+          notes: [
+            {
+              key: "N-refs",
+              title: "References",
+              html: "",
+              payloadBlocks: [
+                {
+                  payloadType: "references-json",
+                  version: "1",
+                  format: "json",
+                  payload: {
+                    references: [
+                      {
+                        title: "CiteKey Target",
+                        year: "2022",
+                        authors: ["Target"],
+                        citekey: "target2022",
+                      },
+                      {
+                        title: "Title Year Author Target",
+                        year: "2023",
+                        authors: ["Ada Lovelace"],
+                      },
+                      {
+                        title: "Weak Title Only Target",
+                        year: "2024",
+                        authors: ["Different Author"],
+                      },
+                      {
+                        title: "Raw Arxiv Target",
+                        raw: "Available as arXiv:2201.12345.",
+                      },
+                      {
+                        title:
+                          "Dabdetr: Dynamic Anchor Boxes are Better Queries for DETR",
+                        year: "2022",
+                        authors: ["Shilong Zhang"],
+                      },
+                      {
+                        title:
+                          "YOLACT++: Better real-time instance segmentation",
+                        year: "2020",
+                        authors: ["Daniel Bolya", "Chong Zhou"],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "CK",
+          title: "CiteKey Target",
+          year: "2022",
+          itemType: "conferencePaper",
+          creators: ["Target"],
+          citekey: "target2022",
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "ARX",
+          title: "Arxiv Target",
+          year: "2022",
+          itemType: "preprint",
+          creators: ["Ada Lovelace"],
+          arxiv: "2201.12345",
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "TYA",
+          title: "Title Year Author Target",
+          year: "2023",
+          itemType: "conferencePaper",
+          creators: ["Ada Lovelace"],
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "DAB",
+          title: "DAB-DETR: Dynamic Anchor Boxes are Better Queries for DETR",
+          year: "2022",
+          itemType: "conferencePaper",
+          creators: ["Shilong Zhang", "Xiaokang Chen"],
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "WEAK",
+          title: "Weak Title Only Target",
+          year: "2024",
+          itemType: "conferencePaper",
+          creators: ["Grace Hopper"],
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "YOLACT",
+          title: "YOLACT: Real-time Instance Segmentation",
+          year: "2019",
+          itemType: "conferencePaper",
+          creators: ["Daniel Bolya", "Chong Zhou"],
+          notes: [],
+        },
+      ] as any[],
+      transactionId: "reference-identity-resolution",
+    });
+
+    const snapshot = await service.loadLiteratureRegistry();
+    const instanceByTitle = new Map(
+      snapshot.reference_instances.map((instance) => [
+        instance.title,
+        instance,
+      ]),
+    );
+    const resolutionForTitle = (title: string) =>
+      snapshot.reference_resolutions.find(
+        (resolution) =>
+          resolution.reference_instance_id ===
+          instanceByTitle.get(title)?.reference_instance_id,
+      );
+
+    assert.deepInclude(resolutionForTitle("CiteKey Target"), {
+      status: "matched",
+      target_paper_ref: "1:CK",
+      confidence: "deterministic",
+    });
+    assert.deepInclude(resolutionForTitle("Title Year Author Target"), {
+      status: "matched",
+      target_paper_ref: "1:TYA",
+      confidence: "deterministic",
+    });
+    assert.deepInclude(resolutionForTitle("Raw Arxiv Target"), {
+      status: "matched",
+      target_paper_ref: "1:ARX",
+      confidence: "deterministic",
+    });
+    assert.deepInclude(
+      resolutionForTitle(
+        "Dabdetr: Dynamic Anchor Boxes are Better Queries for DETR",
+      ),
+      {
+        status: "matched",
+        target_paper_ref: "1:DAB",
+        confidence: "deterministic",
+      },
+    );
+    assert.deepInclude(resolutionForTitle("Weak Title Only Target"), {
+      status: "matched",
+      target_paper_ref: "1:WEAK",
+      confidence: "deterministic",
+    });
+    assert.notEqual(
+      resolutionForTitle("YOLACT++: Better real-time instance segmentation")
+        ?.status,
+      "matched",
+    );
+    assert.isAtLeast(snapshot.cleanup_proposals.length, 1);
+  });
+
+  it("persists literature registry facts into typed SQLite repository rows", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const service = createSynthesisLiteratureRegistryService({
+      root,
+      repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+
+    await service.rebuildLiteratureRegistry({
+      registryInputs,
+      transactionId: "literature-registry-sqlite-sync",
+    });
+
+    assert.equal(repository.countRows("synt_literature_item"), 3);
+    assert.isAtLeast(repository.countRows("synt_literature_identifier"), 5);
+    assert.equal(repository.countRows("synt_zotero_binding"), 2);
+    assert.equal(repository.countRows("synt_artifact_state"), 6);
+    assert.equal(repository.countRows("synt_reference_instance"), 2);
+    assert.equal(repository.countRows("synt_reference_resolution"), 2);
+    assert.equal(repository.countRows("synt_review_item"), 1);
+  });
+
+  it("opens Zotero deletion P0 reviews when an indexed binding disappears", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const registry = createSynthesisLiteratureRegistryService({
+      root,
+      repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+
+    await registry.rebuildLiteratureRegistry({ registryInputs });
+    await registry.rebuildLiteratureRegistry({
+      registryInputs: [registryInputs[1]],
+      transactionId: "literature-registry-delete-review",
+    });
+
+    const review = repository
+      .listReviewItems({ reviewKind: "zotero_item_delete" })
+      .find((row) => row.status === "open");
+    assert.isOk(review);
+    assert.equal(review?.priority, 0);
+    assert.deepInclude(JSON.parse(review?.payloadJson || "{}"), {
+      paper_ref: "1:AAA",
+    });
+
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const snapshot = await service.getSynthesisSnapshotInput();
+    const uiReview = snapshot.registry.cleanupProposals.find(
+      (entry) => entry.kind === "zotero_item_delete",
+    );
+    assert.equal(uiReview?.status, "open");
+    assert.equal(uiReview?.priority, 0);
+
+    await service.applyCleanupProposalAction({
+      proposalId: uiReview!.proposal_id,
+      action: "keep_for_now",
+    });
+    const after = await service.getSynthesisSnapshotInput();
+    assert.isUndefined(
+      after.registry.cleanupProposals.find(
+        (entry) =>
+          entry.proposal_id === uiReview!.proposal_id &&
+          entry.status === "open",
+      ),
+    );
+    assert.equal(
+      after.registry.cleanupProposals.find(
+        (entry) => entry.proposal_id === uiReview!.proposal_id,
+      )?.status,
+      "deferred",
+    );
+  });
+
+  it("opens Zotero dedupe P0 reviews for duplicate strong identifiers", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const service = createSynthesisLiteratureRegistryService({
+      root,
+      repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+
+    await service.rebuildLiteratureRegistry({
+      registryInputs: [
+        ...registryInputs,
+        {
+          ...registryInputs[1],
+          itemKey: "CCC",
+          title: "Detection Transformer Duplicate",
+        },
+      ],
+    });
+
+    const review = repository
+      .listReviewItems({ reviewKind: "zotero_dedupe_candidate" })
+      .find((row) => row.status === "open");
+    assert.isOk(review);
+    assert.equal(review?.priority, 0);
+    const payload = JSON.parse(review?.payloadJson || "{}");
+    assert.equal(payload.identifier_key, "doi:10.1000/bbb");
+    assert.lengthOf(payload.candidates, 2);
   });
 
   it("uses short stable citation canonical asset filenames for long reference-derived identities", async function () {
@@ -320,27 +629,123 @@ describe("Synthesis literature registry and citation graph", function () {
     );
   });
 
-  it("applies cleanup proposal approve, reject, and skip actions", async function () {
-    const root = await makeRuntimeRoot();
-    const service = createSynthesisLiteratureRegistryService({ root });
-    await service.rebuildLiteratureRegistry({ registryInputs });
-    const proposal = (await service.listCleanupProposals())[0];
-    assert.isOk(proposal);
+  it("applies reference resolution cleanup decisions", async function () {
+    const scenarios = [
+      {
+        name: "create index item",
+        action: "confirm_literature_item" as const,
+        proposalStatus: "resolved",
+        resolutionStatus: "matched",
+        graphEdgeStatus: "matched",
+      },
+      {
+        name: "match existing literature item",
+        action: "match_existing_literature_item" as const,
+        targetPaperRef: "1:BBB",
+        proposalStatus: "resolved",
+        resolutionStatus: "matched",
+        graphEdgeStatus: "matched",
+      },
+      {
+        name: "ignore reference",
+        action: "ignore_reference_instance" as const,
+        proposalStatus: "resolved",
+        resolutionStatus: "ignored",
+        graphEdgeStatus: "ignored",
+      },
+      {
+        name: "defer reference",
+        action: "defer_reference_resolution" as const,
+        proposalStatus: "deferred",
+        resolutionStatus: "unmatched",
+        graphEdgeStatus: "unresolved",
+      },
+    ];
 
-    await service.applyCleanupProposalAction({
-      proposalId: proposal.proposal_id,
-      action: "approve",
-      transactionId: "cleanup-approve",
-    });
-    assert.equal(
-      (await service.listCleanupProposals()).find(
+    for (const scenario of scenarios) {
+      const root = await makeRuntimeRoot();
+      const repository = createSynthesisRepository();
+      const service = createSynthesisLiteratureRegistryService({
+        root,
+        repository,
+      });
+      await service.rebuildLiteratureRegistry({ registryInputs });
+      const proposal = (await service.listCleanupProposals())[0];
+      assert.isOk(proposal, scenario.name);
+
+      await service.applyCleanupProposalAction({
+        proposalId: proposal.proposal_id,
+        action: scenario.action,
+        targetPaperRef: scenario.targetPaperRef,
+        transactionId: `cleanup-${scenario.action}`,
+      });
+      const snapshot = await service.loadLiteratureRegistry();
+      const updatedProposal = snapshot.cleanup_proposals.find(
         (entry) => entry.proposal_id === proposal.proposal_id,
-      )?.status,
-      "approved",
-    );
+      );
+      const updatedResolution = snapshot.reference_resolutions.find(
+        (entry) =>
+          entry.reference_instance_id === proposal.reference_instance_id,
+      );
+
+      assert.equal(updatedProposal?.status, scenario.proposalStatus);
+      assert.equal(updatedResolution?.status, scenario.resolutionStatus);
+      assert.sameMembers(
+        repository.listDirtyEvents().map((entry) => entry.eventType),
+        [
+          "reference_resolution_review_action",
+          "citation_graph_structure_dirty",
+        ],
+      );
+      assert.include(
+        JSON.parse(
+          repository.listDirtyEvents({
+            eventTypes: ["reference_resolution_review_action"],
+          })[0]?.diagnosticsJson || "[]",
+        ).map((entry: any) => entry.code),
+        "index_summary_updated",
+      );
+      const graphEdge = repository
+        .listCitationEdges()
+        .find(
+          (entry) =>
+            entry.referenceInstanceId === proposal.reference_instance_id,
+        );
+      assert.equal(graphEdge?.edgeStatus, scenario.graphEdgeStatus);
+      if (scenario.action === "match_existing_literature_item") {
+        const targetBinding = repository
+          .listZoteroBindings()
+          .find((entry) => `${entry.libraryId}:${entry.itemKey}` === "1:BBB");
+        assert.equal(
+          graphEdge?.targetLiteratureItemId,
+          targetBinding?.literatureItemId,
+        );
+      }
+      if (scenario.action === "ignore_reference_instance") {
+        assert.isUndefined(graphEdge?.targetLiteratureItemId);
+      }
+      assert.equal(repository.countRows("synt_review_item"), 1, scenario.name);
+
+      if (scenario.action === "match_existing_literature_item") {
+        assert.equal(updatedResolution?.target_paper_ref, "1:BBB");
+      }
+      if (scenario.action === "confirm_literature_item") {
+        assert.isOk(updatedResolution?.target_work_id);
+      }
+      if (scenario.action === "ignore_reference_instance") {
+        assert.isUndefined(updatedResolution?.target_paper_ref);
+        assert.isUndefined(updatedResolution?.target_work_id);
+        assert.include(
+          repository
+            .listReferenceFacts()
+            .map((entry) => entry.resolutionStatus),
+          "ignored",
+        );
+      }
+    }
   });
 
-  it("serves cleanup review status from canonical records without projection rebuild", async function () {
+  it("does not surface canonical cleanup proposals in Workbench cleanup UI", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
       root,
@@ -350,36 +755,17 @@ describe("Synthesis literature registry and citation graph", function () {
     });
 
     await service.runLiteratureRegistryJobNow();
-    const before = await service.getSynthesisSnapshotInput();
-    const proposal = before.registry.cleanupProposals.find(
-      (entry) => entry.status === "open",
-    );
-    assert.isOk(proposal);
-    assert.equal(proposal?.source_paper_title, "Attention Paper");
-    assert.equal(proposal?.reference_raw, "Weak reference without identifiers");
+    const snapshot = await service.getSynthesisSnapshotInput();
 
-    await service.applyCleanupProposalAction({
-      proposalId: proposal!.proposal_id,
-      action: "skip",
-    });
-    const after = await service.getSynthesisSnapshotInput();
-
-    assert.isUndefined(
-      after.registry.cleanupProposals.find(
-        (entry) =>
-          entry.proposal_id === proposal!.proposal_id &&
-          entry.status === "open",
+    assert.deepEqual(snapshot.registry.cleanupProposals, []);
+    assert.isTrue(
+      snapshot.registry.rows.some(
+        (row) => row.paper_ref === "1:AAA" && row.index_scope === "library",
       ),
     );
-    assert.equal(
-      after.registry.cleanupProposals.find(
-        (entry) => entry.proposal_id === proposal!.proposal_id,
-      )?.status,
-      "skipped",
-    );
   });
 
-  it("routes Synthesis service registry, graph, and metrics through canonical-backed projections", async function () {
+  it("routes Synthesis service graph, slice, and metrics reads through SQLite rows", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
       root,
@@ -389,6 +775,10 @@ describe("Synthesis literature registry and citation graph", function () {
     });
 
     await service.runLiteratureRegistryJobNow();
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    await removeRuntimePath(
+      path.join(paths.stateRoot, "citation-graph-index.json"),
+    );
     const graph = await service.queryCitationGraph();
     const registry = await service.getPaperRegistry({ limit: 10 });
     const metrics = await service.getCitationGraphMetrics({ limit: 10 });
@@ -399,14 +789,123 @@ describe("Synthesis literature registry and citation graph", function () {
       maxEdges: 10,
     });
 
-    assert.isAtLeast(graph.nodes.length, 3);
+    assert.isAtLeast(graph.nodes.length, 2);
+    assert.isAtLeast((graph as any).hover_only_nodes?.length || 0, 1);
+    assert.equal((graph.diagnostics as any).storage, "sqlite");
     assert.equal(registry.total, 2);
+    assert.equal(registry.diagnostics.storage, "sqlite");
     assert.isTrue(metrics.ok);
     assert.isTrue(slice.ok);
-    assert.isOk(await service.readCitationGraphSnapshot());
+    const snapshot = await service.getSynthesisSnapshotInput();
+    assert.isAtLeast(snapshot.graph?.nodes.length || 0, 3);
+    assert.equal((snapshot.graph?.diagnostics as any).storage, "sqlite");
   });
 
-  it("falls back to latest legacy unified graph when canonical citation projection is empty", async function () {
+  it("refreshes Workbench citation graph layout from SQLite without projection JSON", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+
+    await service.runLiteratureRegistryJobNow();
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    await removeRuntimePath(
+      path.join(paths.stateRoot, "citation-graph-index.json"),
+    );
+    const graphState = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "selectTab",
+      payload: { tab: "graph" },
+    }).state;
+    const before = await service.getSynthesisSnapshotInput(graphState);
+
+    assert.isAtLeast(before.graph?.nodes.length || 0, 3);
+    assert.equal(before.graph?.layoutStatus, "missing");
+    assert.isFalse(
+      (before.graph?.nodes || []).some((node) => typeof node.x === "number"),
+    );
+
+    const result = await service.runCitationGraphLayoutWorker({
+      preset: "balanced",
+      timeBudgetMs: 1000,
+    });
+    const after = await service.getSynthesisSnapshotInput(graphState);
+
+    assert.equal(result.completed, 1);
+    assert.equal(after.graph?.layoutStatus, "ready");
+    assert.isTrue(
+      (after.graph?.nodes || []).some(
+        (node) => typeof node.x === "number" && typeof node.y === "number",
+      ),
+    );
+    const debug = await service.debugSynthesisWorkerRun({
+      worker: "citationGraphLayout",
+      preset: "balanced",
+      timeBudgetMs: 1000,
+    });
+    assert.equal(debug.worker, "citationGraphLayout");
+    assert.equal((debug.result as { skipped?: string }).skipped, "ready");
+  });
+
+  it("serves paper registry reads from SQLite after projection JSON is removed", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+
+    await service.runLiteratureRegistryJobNow();
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    await removeRuntimePath(
+      path.join(paths.stateRoot, "literature-registry-index.json"),
+    );
+
+    const registry = await service.getPaperRegistry({ limit: 10 });
+
+    assert.equal(registry.total, 2);
+    assert.equal(registry.rows[0].title, "Attention Paper");
+    assert.deepEqual(registry.rows[0].tags, ["model:transformer"]);
+    assert.equal(registry.rows[0].artifacts.references.status, "available");
+    assert.equal(registry.diagnostics.storage, "sqlite");
+    assert.deepEqual(registry.diagnostics.recommended_commands, []);
+
+    const snapshot = await service.getSynthesisSnapshot();
+    assert.deepEqual(
+      snapshot.registry.visibleRows.map((row) => row.paper_ref),
+      ["1:AAA", "1:BBB"],
+    );
+    const source = snapshot.registry.rows.find(
+      (row) => row.paper_ref === "1:AAA" && row.index_scope === "library",
+    );
+    assert.equal(source?.reference_count, 2);
+    assert.equal(source?.references?.[0]?.target_paper_ref, "1:BBB");
+
+    const referencedState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: { registry: { literature: "reference-only" } },
+      },
+    ).state;
+    const referencedSnapshot =
+      await service.getSynthesisSnapshot(referencedState);
+    assert.equal(referencedSnapshot.registry.visibleRows.length, 1);
+    assert.isTrue(
+      referencedSnapshot.registry.visibleRows.every(
+        (row) => row.index_scope === "referenced",
+      ),
+    );
+    assert.notInclude(
+      referencedSnapshot.registry.visibleRows.map((row) => row.paper_ref),
+      "1:BBB",
+    );
+  });
+
+  it("does not fall back to legacy unified graph for Workbench graph reads", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
       root,
@@ -449,19 +948,13 @@ describe("Synthesis literature registry and citation graph", function () {
     const graph = await service.queryCitationGraph();
     const snapshot = await service.getSynthesisSnapshotInput();
 
-    assert.deepEqual(
-      graph.nodes.map((node) => node.node_id),
-      ["zotero:item:LEGACY"],
-    );
-    assert.equal((graph.diagnostics as any).status, "legacy_projection_used");
-    assert.deepEqual(
-      snapshot.graph?.nodes.map((node) => node.id),
-      ["zotero:item:LEGACY"],
-    );
-    assert.equal(
-      (snapshot.graph?.diagnostics as any).status,
+    assert.deepEqual(graph.nodes, []);
+    assert.notEqual(
+      (graph.diagnostics as any).status,
       "legacy_projection_used",
     );
+    assert.deepEqual(snapshot.graph?.nodes, []);
+    assert.equal((snapshot.graph?.diagnostics as any).storage, "sqlite");
   });
 
   it("serves paper registry reads without synchronously rebuilding missing projections", async function () {
@@ -483,11 +976,11 @@ describe("Synthesis literature registry and citation graph", function () {
       "literature-registry-job-state.json",
     );
 
-    assert.equal(registry.total, 2);
+    assert.equal(registry.total, 0);
     assert.isFalse(registry.diagnostics.projection_found);
     assert.include(
       registry.diagnostics.warnings,
-      "literature registry projection is missing",
+      "literature registry SQLite rows are missing",
     );
     assert.deepEqual(registry.diagnostics.recommended_commands, [
       "runLiteratureRegistryJobNow",
@@ -549,6 +1042,57 @@ describe("Synthesis literature registry and citation graph", function () {
     assert.deepEqual(registry.diagnostics.recommended_commands, [
       "runLiteratureRegistryJobNow",
     ]);
+    assert.isFalse(await runtimePathExists(jobStatePath));
+  });
+
+  it("keeps Workbench snapshot reads from scanning literature freshness sources", async function () {
+    const root = await makeRuntimeRoot();
+    let registryInputCalls = 0;
+    let citationInputCalls = 0;
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      libraryAdapter: {
+        async getRegistryInputs() {
+          registryInputCalls += 1;
+          throw new Error("snapshot read must not scan registry inputs");
+        },
+        async getCitationGraphInputs() {
+          citationInputCalls += 1;
+          throw new Error("snapshot read must not scan citation graph inputs");
+        },
+        async getLibraryIndex() {
+          return {
+            libraryId: 1,
+            papers: [],
+            tags: [],
+            collections: [],
+            has_more: false,
+            returned: 0,
+            total_papers: 0,
+            index_hash: "",
+            page_hash: "",
+            diagnostics: [],
+          };
+        },
+        async readPaperArtifacts() {
+          return { artifacts: [], diagnostics: [] };
+        },
+      },
+      literatureJobDebounceMs: 20,
+    });
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const jobStatePath = path.join(
+      paths.stateRoot,
+      "literature-registry-job-state.json",
+    );
+
+    const snapshot = await service.getSynthesisSnapshotInput();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    assert.equal(registryInputCalls, 0);
+    assert.equal(citationInputCalls, 0);
+    assert.equal(snapshot.registry.literatureJob?.queue_state, "missing");
     assert.isFalse(await runtimePathExists(jobStatePath));
   });
 
@@ -865,18 +1409,28 @@ describe("Synthesis literature registry and citation graph", function () {
     });
     const stale = await service.readCitationGraphSnapshot();
     assert.equal(stale?.metric_layers?.complex.status, "stale");
+    const staleMetrics = await service.getCitationGraphMetrics({ limit: 10 });
+    assert.equal(staleMetrics.status, "stale");
+    assert.include(
+      staleMetrics.diagnostics.warnings,
+      "citation graph complex metrics are missing; using lightweight metrics",
+    );
 
     const result = await service.runCitationGraphComplexMetricsWorker({
       timeBudgetMs: 1000,
     });
-    const ready = await service.readCitationGraphSnapshot();
+    const ready = await service.getCitationGraphMetrics({ limit: 10 });
+    const projectionAfterWorker = await service.readCitationGraphSnapshot();
 
     assert.equal(result.completed, 1);
-    assert.equal(ready?.metric_layers?.complex.status, "ready");
-    assert.equal(ready?.metrics.graph_hash, ready?.graph.graph_hash);
+    assert.equal(ready.status, "ready");
+    assert.isTrue(ready.diagnostics.metrics_found);
+    assert.isFalse(ready.diagnostics.stale);
+    assert.isAtLeast(ready.items[0]?.foundation_score || 0, 0);
+    assert.equal(projectionAfterWorker?.metric_layers?.complex.status, "stale");
   });
 
-  it("marks citation graph layouts stale after structure changes and refreshes layouts on demand", async function () {
+  it("keeps layout refresh UI-driven and separate from complex metrics updates", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
       root,
@@ -884,8 +1438,18 @@ describe("Synthesis literature registry and citation graph", function () {
       registryInputs,
     });
     await service.runLiteratureRegistryJobNow();
-    const initial = await service.readCitationGraphSnapshot();
-    assert.equal(initial?.layout_layers?.balanced.status, "ready");
+    const graphState = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "selectTab",
+      payload: { tab: "graph" },
+    }).state;
+    const initial = await service.getSynthesisSnapshotInput(graphState);
+    assert.equal(initial.graph?.layoutStatus, "missing");
+    await service.runCitationGraphLayoutWorker({
+      preset: "balanced",
+      timeBudgetMs: 1000,
+    });
+    const initialReady = await service.getSynthesisSnapshotInput(graphState);
+    assert.equal(initialReady.graph?.layoutStatus, "ready");
 
     const updated = createSynthesisService({
       root,
@@ -907,13 +1471,11 @@ describe("Synthesis literature registry and citation graph", function () {
       batchLimit: 1,
       timeBudgetMs: 1000,
     });
-    const stale = await updated.readCitationGraphSnapshot();
-    const staleInput = await updated.getSynthesisSnapshotInput();
+    const staleInput = await updated.getSynthesisSnapshotInput(graphState);
 
-    assert.equal(stale?.layout_layers?.balanced.status, "stale");
     assert.equal(staleInput.graph?.layoutStatus, "dirty");
     assert.isOk(
-      stale?.layouts?.balanced,
+      staleInput.graph?.nodes.some((node) => typeof node.x === "number"),
       "latest usable layout remains available while stale",
     );
 
@@ -921,16 +1483,21 @@ describe("Synthesis literature registry and citation graph", function () {
       preset: "balanced",
       timeBudgetMs: 1000,
     });
-    const ready = await updated.readCitationGraphSnapshot();
+    const ready = await updated.getSynthesisSnapshotInput(graphState);
 
     assert.equal(result.completed, 1);
-    assert.equal(ready?.layout_layers?.balanced.status, "ready");
-    assert.equal(
-      ready?.layout_layers?.balanced.source_graph_hash,
-      ready?.graph.graph_hash,
+    assert.equal(ready.graph?.layoutStatus, "ready");
+    assert.isTrue(
+      ready.graph?.nodes.some(
+        (node) => typeof node.x === "number" && typeof node.y === "number",
+      ),
     );
-    assert.equal(ready?.metric_layers?.complex.status, "ready");
-    assert.equal(ready?.layout_layers?.compact.status, "stale");
+    const metrics = await updated.getCitationGraphMetrics({ limit: 10 });
+    assert.equal(
+      metrics.status,
+      "stale",
+      "layout refresh must not recompute complex metrics",
+    );
   });
 
   it("keeps citation graph read APIs from writing layout projection state", async function () {
@@ -984,6 +1551,60 @@ describe("Synthesis literature registry and citation graph", function () {
     assert.equal(events[0]?.status, "queued");
   });
 
+  it("hydrates literature matching metadata cache from dirty item digest payload", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          ...registryInputs[0],
+          notes: [
+            {
+              ...(registryInputs[0] as any).notes[0],
+              payloadBlocks: [
+                ...((registryInputs[0] as any).notes[0].payloadBlocks || []),
+                {
+                  payloadType: "literature-matching-metadata-json",
+                  version: "1",
+                  format: "json",
+                  payload: {
+                    schema: "literature_matching_metadata.v1",
+                    key_terms: ["object query", "set prediction"],
+                    methods: ["Hungarian matching"],
+                    problems: ["object detection"],
+                    datasets: ["COCO"],
+                    exclude_terms: ["speech recognition"],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ] as any[],
+      synthesisRepository: repository,
+    });
+    await service.recordSynthesisUpdateEvent({
+      eventType: "literature_matching_metadata_changed",
+      source: "test",
+      scope: { kind: "zotero_item", ref: "AAA" },
+    });
+
+    const result = await service.runPaperRegistryIncrementalWorker({
+      batchLimit: 1,
+    });
+    const rows = repository.listLiteratureMatchingMetadata();
+
+    assert.equal(result.completed, 1);
+    assert.lengthOf(rows, 1);
+    assert.deepEqual(JSON.parse(rows[0]!.keyTermsJson || "[]"), [
+      "object query",
+      "set prediction",
+    ]);
+  });
+
   it("does not process citation structure events while synthesis updates are paused", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
@@ -1033,7 +1654,7 @@ describe("Synthesis literature registry and citation graph", function () {
     );
   });
 
-  it("records startup reconcile dirty events without parsing artifacts", async function () {
+  it("skips unknown startup reconcile fingerprints on an empty Synthesis DB", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
       root,
@@ -1046,14 +1667,135 @@ describe("Synthesis literature registry and citation graph", function () {
     });
     const events = await service.listSynthesisUpdateEvents();
 
+    assert.equal(state.startup_reconcile.state, "ready");
+    assert.equal(state.startup_reconcile.dirty_count, 0);
+    assert.lengthOf(events, 0);
+  });
+
+  it("records startup reconcile dirty events for known DB papers", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const seeded = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs,
+      synthesisRepository: repository,
+    });
+    await seeded.rebuildLiteratureRegistry();
+    const service = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs: [
+        { ...registryInputs[0], title: "Attention Paper Updated" },
+        registryInputs[1],
+      ],
+      synthesisRepository: repository,
+    });
+
+    const state = await service.runSynthesisStartupReconcile({
+      batchLimit: 10,
+    });
+    const events = await service.listSynthesisUpdateEvents();
+
     assert.equal(state.startup_reconcile.state, "queued");
-    assert.equal(state.startup_reconcile.dirty_count, 2);
-    assert.lengthOf(events, 2);
+    assert.equal(state.startup_reconcile.dirty_count, 1);
+    assert.lengthOf(events, 1);
     assert.isTrue(
       events.every(
         (event) =>
           event.event_type === "startup_reconcile_detected_dirty_items",
       ),
+    );
+  });
+
+  it("keeps startup reconcile profiler no-op when debug mode is off", async function () {
+    setDebugModeOverrideForTests(false);
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const seeded = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs,
+      synthesisRepository: repository,
+    });
+    await seeded.rebuildLiteratureRegistry();
+    const service = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs: [
+        { ...registryInputs[0], title: "Attention Paper Updated" },
+        registryInputs[1],
+      ],
+      synthesisRepository: repository,
+    });
+
+    const state = await service.runSynthesisStartupReconcile({
+      batchLimit: 10,
+    });
+    const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+
+    assert.equal(state.startup_reconcile.state, "queued");
+    assert.lengthOf(snapshot.runs, 0);
+    assert.lengthOf(snapshot.phases, 0);
+    assert.isFalse(
+      await runtimePathExists(path.join(paths.stateRoot, "debug")),
+    );
+  });
+
+  it("records debug profiler rows for startup reconcile in an independent store", async function () {
+    setDebugModeOverrideForTests(true);
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const seeded = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs,
+      synthesisRepository: repository,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+    await seeded.rebuildLiteratureRegistry();
+    const service = createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      registryInputs: [
+        { ...registryInputs[0], title: "Attention Paper Updated" },
+        registryInputs[1],
+      ],
+      synthesisRepository: repository,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+
+    const state = await service.runSynthesisStartupReconcile({
+      batchLimit: 10,
+    });
+    const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
+    const [run] = snapshot.runs;
+    const counters = JSON.parse(run.counters_json);
+
+    assert.equal(state.startup_reconcile.state, "queued");
+    assert.equal(
+      snapshot.databasePath,
+      getSynthesisJobProfilerDatabasePath(root),
+    );
+    assert.lengthOf(snapshot.runs, 1);
+    assert.equal(run.job_name, "synthesis.startup_reconcile");
+    assert.equal(run.trigger, "startup_reconcile");
+    assert.equal(run.status, "queued");
+    assert.equal(run.batch_limit, 10);
+    assert.equal(run.processed_count, 2);
+    assert.equal(run.failed_count, 0);
+    assert.equal(counters.fingerprint_count, 2);
+    assert.equal(counters.dirty_count, 1);
+    assert.sameMembers(
+      snapshot.phases.map((phase) => phase.phase_name),
+      ["compute_delta", "load_existing_rows", "load_input_rows"],
     );
   });
 
@@ -1064,7 +1806,7 @@ describe("Synthesis literature registry and citation graph", function () {
     try {
       await service.applyCleanupProposalAction({
         proposalId: `${root}\\secret\\token=abc123`,
-        action: "reject",
+        action: "ignore_reference_instance",
         transactionId: "cleanup-sensitive",
       });
       assert.fail("expected cleanup action to fail");

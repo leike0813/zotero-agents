@@ -2,6 +2,36 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Payload schema
+
+写入 `runtime/payloads/external-statistics-report.json`。完整约束以
+`assets/schemas/topic_synthesis_artifact.schema.json` 和 section schemas 为准；
+语义解释见下文。
+
+```json
+{
+  "sections": {
+    "topic": {},
+    "summary": {},
+    "paper_evidence": [],
+    "external_literature_analysis": {},
+    "coverage": {},
+    "statistics": {},
+    "synthesis_report": {
+      "title": "",
+      "source_section_chapters": {
+        "research_routes": "taxonomy.summary",
+        "historical_progression": "timeline_events.summary"
+      },
+      "body": ""
+    },
+    "evidence_map": {},
+    "source_artifacts": [],
+    "diagnostics": {}
+  }
+}
+```
+
 ## External Literature
 
 外部文献不作为主 timeline/claim 证据，但必须分析：

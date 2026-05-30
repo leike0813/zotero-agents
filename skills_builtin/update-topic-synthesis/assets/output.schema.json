@@ -19,9 +19,7 @@
         "resolver_manifest_path",
         "resolver_diagnostics",
         "artifact_metadata",
-        "analysis_manifest_path",
-        "concept_cards_proposal_path",
-        "topic_graph_relation_proposals_path"
+        "analysis_manifest_path"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
@@ -39,13 +37,7 @@
         "resolver_manifest_path": { "type": "string", "minLength": 1 },
         "resolver_diagnostics": { "type": "object" },
         "artifact_metadata": { "type": "object" },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "concept_cards_proposal_path": {
-          "const": "result/sidecars/concept-cards-proposal.json"
-        },
-        "topic_graph_relation_proposals_path": {
-          "const": "result/sidecars/topic-graph-relation-proposals.json"
-        }
+        "analysis_manifest_path": { "type": "string", "minLength": 1 }
       }
     },
     {
@@ -58,9 +50,7 @@
         "base_hashes",
         "read_section_hashes",
         "artifact_metadata",
-        "analysis_manifest_path",
-        "concept_cards_proposal_path",
-        "topic_graph_relation_proposals_path"
+        "analysis_manifest_path"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
@@ -69,13 +59,7 @@
         "base_hashes": { "type": "object" },
         "read_section_hashes": { "type": "object" },
         "artifact_metadata": { "type": "object" },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "concept_cards_proposal_path": {
-          "const": "result/sidecars/concept-cards-proposal.json"
-        },
-        "topic_graph_relation_proposals_path": {
-          "const": "result/sidecars/topic-graph-relation-proposals.json"
-        }
+        "analysis_manifest_path": { "type": "string", "minLength": 1 }
       }
     },
     {

@@ -1,6 +1,5 @@
 import { listNotePayloadBlocks } from "../notePayloadCodec";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
-import { joinPath } from "../../utils/path";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 
 export type RegistryArtifactType =
@@ -52,6 +51,18 @@ export type PaperRegistryFacets = {
   reference: PaperRegistryFacet;
   readiness: PaperRegistryFacet;
   topic_usage: PaperRegistryFacet;
+};
+
+export type PaperRegistryMetadataFingerprintPayload = {
+  title: string;
+  year: string;
+  item_type: string;
+  creators: string[];
+  tags: string[];
+  collections: string[];
+  doi: string;
+  arxiv: string;
+  url: string;
 };
 
 export type PaperRegistryInputNote = {
@@ -119,6 +130,31 @@ function normalizeStringList(values: unknown[] | undefined) {
 function normalizeLibraryId(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+export function buildPaperRegistryMetadataFingerprintPayload(input: {
+  title?: unknown;
+  year?: unknown;
+  itemType?: unknown;
+  item_type?: unknown;
+  creators?: unknown[];
+  tags?: unknown[];
+  collections?: unknown[];
+  doi?: unknown;
+  arxiv?: unknown;
+  url?: unknown;
+}): PaperRegistryMetadataFingerprintPayload {
+  return {
+    title: normalizeString(input.title),
+    year: normalizeString(input.year),
+    item_type: normalizeString(input.itemType ?? input.item_type),
+    creators: normalizeStringList(input.creators),
+    tags: normalizeStringList(input.tags),
+    collections: normalizeStringList(input.collections),
+    doi: normalizeString(input.doi),
+    arxiv: normalizeString(input.arxiv),
+    url: normalizeString(input.url),
+  };
 }
 
 function artifactLabel(type: RegistryArtifactType) {
@@ -307,17 +343,7 @@ function buildRegistryFacets(args: {
     citekey: normalizeString(args.input.citekey),
     date_added: normalizeString(args.input.dateAdded),
   };
-  const metadata = {
-    title: normalizeString(args.input.title),
-    year: normalizeString(args.input.year),
-    item_type: normalizeString(args.input.itemType),
-    creators: normalizeStringList(args.input.creators),
-    tags: normalizeStringList(args.input.tags),
-    collections: normalizeStringList(args.input.collections),
-    doi: normalizeString(args.input.doi),
-    arxiv: normalizeString(args.input.arxiv),
-    url: normalizeString(args.input.url),
-  };
+  const metadata = buildPaperRegistryMetadataFingerprintPayload(args.input);
   const artifact = Object.fromEntries(
     Object.entries(args.artifacts).map(([type, row]) => [
       type,
@@ -434,6 +460,5 @@ export function buildPaperRegistryRows(inputs: PaperRegistryInput[]) {
 }
 
 export function buildSynthesisLayerDbPath(runtimeRoot?: string) {
-  const paths = getRuntimePersistencePaths(runtimeRoot);
-  return joinPath(paths.stateDir, "synthesis-layer.db");
+  return getRuntimePersistencePaths(runtimeRoot).stateDbPath;
 }

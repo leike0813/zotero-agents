@@ -523,9 +523,6 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
-    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
-    topic_graph_relation_proposals_path:
-      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
@@ -537,6 +534,46 @@ function createAnalysisManifest(sections: Record<string, unknown>) {
     operation: "create",
     topic_id: "object-detection",
     language: "zh-CN",
+    sidecars: {
+      topic_interest_metadata: {
+        path: "result/sidecars/topic-interest-metadata.json",
+        hash: hashCanonicalJson({
+          schema: "topic_interest_metadata.v1",
+          topic_id: "object-detection",
+          include_terms: ["object detection", "DETR"],
+          must_have_terms: ["object detection"],
+          methods: ["DETR"],
+          exclude_terms: [],
+          seed_literature_item_ids: ["lit:detr"],
+          diagnostics: [],
+        }),
+        content_type: "json",
+        schema_id: "topic_interest_metadata.v1",
+      },
+      concept_cards_proposal: {
+        path: "result/sidecars/concept-cards-proposal.json",
+        hash: hashCanonicalJson({
+          schema_id: "synthesis.concept_cards_proposal",
+          schema_version: "1.0.0",
+          cards: [],
+          diagnostics: [],
+        }),
+        content_type: "json",
+        schema_id: "synthesis.concept_cards_proposal",
+      },
+      topic_graph_relation_proposals: {
+        path: "result/sidecars/topic-graph-relation-proposals.json",
+        hash: hashCanonicalJson({
+          schema_id: "synthesis.topic_graph_relation_proposals",
+          schema_version: "1.0.0",
+          source_topic_id: "object-detection",
+          proposals: [],
+          diagnostics: [],
+        }),
+        content_type: "json",
+        schema_id: "synthesis.topic_graph_relation_proposals",
+      },
+    },
     sections: Object.fromEntries(
       Object.entries(sections).map(([section, value]) => [
         section,
@@ -607,6 +644,16 @@ async function createRunWorkspace(args: {
     schema_id: "synthesis.concept_cards_proposal",
     schema_version: "1.0.0",
     cards: [],
+    diagnostics: [],
+  });
+  await writeJsonFile(runRoot, "result/sidecars/topic-interest-metadata.json", {
+    schema: "topic_interest_metadata.v1",
+    topic_id: "object-detection",
+    include_terms: ["object detection", "DETR"],
+    must_have_terms: ["object detection"],
+    methods: ["DETR"],
+    exclude_terms: [],
+    seed_literature_item_ids: ["lit:detr"],
     diagnostics: [],
   });
   await writeJsonFile(
@@ -752,6 +799,7 @@ db.record_action_receipt(conn, action_name="persist_filtered_artifact_manifest",
 db.record_action_receipt(conn, action_name="persist_paper_units", payload={}, result={"paper_refs": ["1:DETR"]})
 sidecars = [
     ("result/sidecars/concept-cards-proposal.json", "synthesis.concept_cards_proposal", {"schema_id": "synthesis.concept_cards_proposal", "schema_version": "1.0.0", "cards": [], "diagnostics": []}),
+    ("result/sidecars/topic-interest-metadata.json", "topic_interest_metadata.v1", {"schema": "topic_interest_metadata.v1", "topic_id": "object-detection", "include_terms": ["object detection", "DETR"], "must_have_terms": ["object detection"], "methods": ["DETR"], "exclude_terms": [], "seed_literature_item_ids": ["lit:detr"], "diagnostics": []}),
     ("result/sidecars/topic-graph-relation-proposals.json", "synthesis.topic_graph_relation_proposals", {"schema_id": "synthesis.topic_graph_relation_proposals", "schema_version": "1.0.0", "source_topic_id": "object-detection", "proposals": [], "diagnostics": []}),
 ]
 for relative_path, schema_id, value in sidecars:
@@ -760,6 +808,7 @@ for relative_path, schema_id, value in sidecars:
     path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     db.register_artifact(conn, path=relative_path, hash_value=db.sha256_file(path), content_type="json", schema_id=schema_id, stage="stage_9_kg_proposals", validated=True)
 db.set_meta(conn, "concept_cards_proposal_path", "result/sidecars/concept-cards-proposal.json")
+db.set_meta(conn, "topic_interest_metadata_path", "result/sidecars/topic-interest-metadata.json")
 db.set_meta(conn, "topic_graph_relation_proposals_path", "result/sidecars/topic-graph-relation-proposals.json")
 for stage in db.STAGES[:11]:
     db.set_stage_state(conn, stage, "completed")
@@ -1078,6 +1127,16 @@ describe("Topic synthesis contract pipeline", function () {
           proposals: [],
           diagnostics: [{ code: "no_reliable_relations" }],
         },
+        topic_interest_metadata: {
+          schema: "topic_interest_metadata.v1",
+          topic_id: "object-detection",
+          include_terms: ["object detection", "DETR"],
+          must_have_terms: ["object detection"],
+          methods: ["DETR"],
+          exclude_terms: ["semantic segmentation"],
+          seed_literature_item_ids: ["lit:detr"],
+          diagnostics: [{ code: "explicit_stage9_metadata" }],
+        },
       },
     });
     const conceptSidecar = await readJsonFile<JsonObject>(
@@ -1086,14 +1145,68 @@ describe("Topic synthesis contract pipeline", function () {
     const relationSidecar = await readJsonFile<JsonObject>(
       path.join(runRoot, "result/sidecars/topic-graph-relation-proposals.json"),
     );
+    const topicInterestMetadata = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result/sidecars/topic-interest-metadata.json"),
+    );
 
     assert.equal(
       result.result.concept_cards_proposal_path,
       "result/sidecars/concept-cards-proposal.json",
     );
+    assert.equal(
+      result.result.topic_interest_metadata_path,
+      "result/sidecars/topic-interest-metadata.json",
+    );
     assert.deepEqual(conceptSidecar.cards, []);
     assert.equal(relationSidecar.source_topic_id, "object-detection");
     assert.deepEqual(relationSidecar.proposals, []);
+    assert.equal(topicInterestMetadata.schema, "topic_interest_metadata.v1");
+    assert.deepEqual(topicInterestMetadata.methods, ["DETR"]);
+    assert.notInclude(
+      topicInterestMetadata.diagnostics as string[],
+      "topic_interest_metadata_derived_from_topic_definition",
+    );
+  });
+
+  it("rejects Stage 9 KG proposal payloads without topic interest metadata", async function () {
+    const runRoot = await makeRoot("zs-topic-kg-proposals-missing-metadata-");
+    const sections = baseSections();
+    const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
+    runCreateStageAction({
+      runRoot,
+      dbPath,
+      action: "persist_route_timeline",
+      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
+      payload: routeTimelinePayload(sections),
+    });
+    runCreateStageAction({
+      runRoot,
+      dbPath,
+      action: "persist_core_sections",
+      payloadPath: "runtime/payloads/core-analytical-sections.json",
+      payload: coreSectionsPayload(sections),
+    });
+
+    const message = captureCreateStageActionError({
+      runRoot,
+      dbPath,
+      action: "persist_kg_proposals",
+      payloadPath: "runtime/payloads/kg-proposals.json",
+      payload: {
+        schema_id: "synthesis.topic_synthesis_kg_proposals",
+        schema_version: "1.0.0",
+        concept_cards_proposal: {
+          cards: [],
+          diagnostics: [],
+        },
+        topic_graph_relation_proposals: {
+          proposals: [],
+          diagnostics: [],
+        },
+      },
+    });
+
+    assert.match(message, /topic_interest_metadata/i);
   });
 
   it("prevalidates Stage 10 payload and materializes sections only after it passes", async function () {
@@ -1446,6 +1559,7 @@ describe("Topic synthesis contract pipeline", function () {
       operation: "update_patch",
       topic_id: "object-detection",
       language: "zh-CN",
+      sidecars: currentManifest.sidecars,
       base: {
         current_manifest_hash:
           currentManifest.manifest_hash || currentManifest.hash || "",
@@ -1490,10 +1604,6 @@ describe("Topic synthesis contract pipeline", function () {
         claims: currentClaimHash,
       },
       analysis_manifest_path: "result/topic-analysis.patch.json",
-      concept_cards_proposal_path:
-        "result/sidecars/concept-cards-proposal.json",
-      topic_graph_relation_proposals_path:
-        "result/sidecars/topic-graph-relation-proposals.json",
       artifact_metadata: {
         topic_id: "object-detection",
         update_reason: "contract_pipeline_patch_test",
@@ -1514,6 +1624,20 @@ describe("Topic synthesis contract pipeline", function () {
         schema_id: "synthesis.concept_cards_proposal",
         schema_version: "1.0.0",
         cards: [],
+        diagnostics: [],
+      },
+    );
+    await writeJsonFile(
+      runRoot,
+      "result/sidecars/topic-interest-metadata.json",
+      {
+        schema: "topic_interest_metadata.v1",
+        topic_id: "object-detection",
+        include_terms: ["object detection", "DETR"],
+        must_have_terms: ["object detection"],
+        methods: ["DETR"],
+        exclude_terms: [],
+        seed_literature_item_ids: ["lit:detr"],
         diagnostics: [],
       },
     );

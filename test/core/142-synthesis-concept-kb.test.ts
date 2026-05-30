@@ -2,11 +2,9 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import {
-  buildSynthesisKnowledgeGraphPaths,
-  readProjectionRegistryState,
-} from "../../src/modules/synthesis/foundation";
+import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
 import { createSynthesisConceptKbService } from "../../src/modules/synthesis/conceptKb";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   readRuntimeTextFile,
   removeRuntimePath,
@@ -18,32 +16,22 @@ async function makeRuntimeRoot() {
 }
 
 describe("Synthesis concept KB", function () {
-  it("initializes canonical concept assets in an empty KG store", async function () {
+  it("initializes Concept KB runtime state in SQLite without canonical assets", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisConceptKbService({ root });
 
     const snapshot = await service.loadConceptKb();
     const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
 
     assert.deepEqual(snapshot.concepts, []);
-    for (const dirName of [
-      "concepts",
-      "senses",
-      "aliases",
-      "relations",
-      "review",
-      "tombstones",
-    ]) {
-      assert.isTrue(
-        await runtimePathExists(path.join(paths.conceptsRoot, dirName)),
-      );
-    }
-    assert.isTrue(
+    assert.equal(repository.countRows("synt_concept"), 0);
+    assert.isFalse(
       await runtimePathExists(path.join(paths.conceptsRoot, "manifest.json")),
     );
   });
 
-  it("writes, reads, and marks concept-kb-index stale for canonical concept records", async function () {
+  it("writes and reads concept records from SQLite", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisConceptKbService({
       root,
@@ -99,18 +87,15 @@ describe("Synthesis concept KB", function () {
     });
 
     const snapshot = await service.loadConceptKb();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
     assert.deepEqual(
       snapshot.concepts.map((entry) => entry.concept_id),
       ["concept:cv:detr"],
     );
     assert.equal(snapshot.overlay_entries[0]?.alias, "DETR");
-
-    const registry = await readProjectionRegistryState(root);
-    assert.isTrue(registry.projections["concept-kb-index"].stale);
-    assert.equal(
-      registry.projections["concept-kb-index"].last_transaction_id,
-      "concept-kb-save",
-    );
+    assert.equal(repository.countRows("synt_concept"), 1);
+    assert.equal(repository.countRows("synt_concept_sense"), 1);
+    assert.equal(repository.countRows("synt_concept_alias"), 1);
   });
 
   it("ingests concept card proposals into concept, sense, alias, and topic link records", async function () {
@@ -145,7 +130,9 @@ describe("Synthesis concept KB", function () {
     assert.lengthOf(result.topic_links, 1);
 
     const paths = buildSynthesisKnowledgeGraphPaths(root);
-    assert.isTrue(
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    assert.equal(repository.countRows("synt_topic_concept_link"), 1);
+    assert.isFalse(
       await runtimePathExists(
         path.join(
           paths.topicsRoot,
@@ -153,6 +140,52 @@ describe("Synthesis concept KB", function () {
           "current",
           "concepts.json",
         ),
+      ),
+    );
+  });
+
+  it("exports Concept KB JSON only through an explicit checkpoint", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisConceptKbService({
+      root,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+    const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const manifestPath = path.join(paths.conceptsRoot, "manifest.json");
+
+    await service.ingestConceptCardProposals({
+      topicId: "object-detection",
+      topicPathId: "object-detection",
+      payload: {
+        cards: [
+          {
+            label: "DETR",
+            concept_type: "model",
+            domain: "computer vision",
+            short_definition: "End-to-end object detector.",
+            definition: "Transformer-based object detection model.",
+            confidence: 0.9,
+          },
+        ],
+      },
+    });
+
+    assert.isFalse(await runtimePathExists(manifestPath));
+
+    const checkpoint = await service.exportConceptKbCheckpoint({
+      transactionId: "concept-kb-checkpoint",
+    });
+    const manifest = JSON.parse(await readRuntimeTextFile(manifestPath));
+
+    assert.equal(checkpoint.transactionId, "concept-kb-checkpoint");
+    assert.equal(manifest.schema_id, "synthesis.concept_manifest");
+    assert.equal(manifest.data.concept_count, 1);
+    assert.includeMembers(checkpoint.receipt.changed_assets, [
+      "concepts/manifest.json",
+    ]);
+    assert.isTrue(
+      checkpoint.receipt.changed_assets.some((asset) =>
+        asset.startsWith("concepts/topic-links/topic_"),
       ),
     );
   });
@@ -254,8 +287,9 @@ describe("Synthesis concept KB", function () {
       ["Weak Candidate"],
     );
     assert.equal(snapshot.review_items[0]?.status, "approved");
-    const registry = await readProjectionRegistryState(root);
-    assert.isTrue(registry.projections["concept-kb-index"].stale);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    assert.equal(repository.countRows("synt_concept"), 1);
+    assert.equal(repository.countRows("synt_concept_review_item"), 1);
   });
 
   it("queues ambiguous concept reviews and merges them into an existing concept", async function () {
@@ -359,7 +393,7 @@ describe("Synthesis concept KB", function () {
     assert.equal(snapshot.review_items[0]?.status, "rejected");
   });
 
-  it("rebuilds concept-kb-index projection from canonical files after cache deletion", async function () {
+  it("rebuilds concept-kb-index projection explicitly and computes missing projection from SQLite", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisConceptKbService({ root });
     await service.ingestConceptCardProposals({
@@ -390,6 +424,7 @@ describe("Synthesis concept KB", function () {
       projection.concepts.map((entry) => entry.label),
       ["Object Detection"],
     );
+    assert.isFalse(await runtimePathExists(indexPath));
   });
 
   it("writes sanitized diagnostics for malformed proposal sidecars", async function () {

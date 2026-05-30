@@ -2561,6 +2561,7 @@ def all_required_final_artifacts_registered(conn: sqlite3.Connection, *, operati
     required = {
         manifest_path,
         "result/result.json",
+        "result/sidecars/topic-interest-metadata.json",
         "result/sidecars/concept-cards-proposal.json",
         "result/sidecars/topic-graph-relation-proposals.json",
     }

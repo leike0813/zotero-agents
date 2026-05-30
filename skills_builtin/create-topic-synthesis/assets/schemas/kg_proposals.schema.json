@@ -7,7 +7,8 @@
     "schema_id",
     "schema_version",
     "concept_cards_proposal",
-    "topic_graph_relation_proposals"
+    "topic_graph_relation_proposals",
+    "topic_interest_metadata"
   ],
   "properties": {
     "schema_id": { "const": "synthesis.topic_synthesis_kg_proposals" },
@@ -34,6 +35,52 @@
         "source_topic_id": { "type": "string" },
         "proposals": { "type": "array" },
         "diagnostics": { "type": "array" }
+      }
+    },
+    "topic_interest_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "topic_id",
+        "include_terms",
+        "must_have_terms",
+        "methods",
+        "exclude_terms",
+        "seed_literature_item_ids"
+      ],
+      "properties": {
+        "schema": { "const": "topic_interest_metadata.v1" },
+        "topic_id": { "type": "string", "minLength": 1 },
+        "include_terms": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "must_have_terms": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "methods": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "exclude_terms": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "seed_literature_item_ids": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     }
   }

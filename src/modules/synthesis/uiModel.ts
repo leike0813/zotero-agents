@@ -80,12 +80,44 @@ export type SynthesisUiRegistryRow = {
   literature_status?: SynthesisUiLiteratureFilter;
   stale?: boolean;
   cleanup_count?: number;
+  index_scope?: "library" | "referenced";
+  literature_item_id?: string;
+  reference_count?: number;
+  unresolved_reference_count?: number;
+  referenced_by_count?: number;
+  references?: SynthesisUiRegistryReferenceRow[];
+};
+
+export type SynthesisUiRegistryReferenceRow = {
+  reference_instance_id: string;
+  reference_index: number;
+  title: string;
+  year?: string;
+  raw_reference?: string;
+  resolution_status: string;
+  confidence?: string;
+  target_literature_item_id?: string;
+  target_title?: string;
+  target_paper_ref?: string;
+  target_binding: "library" | "external" | "none";
 };
 
 export type SynthesisUiCleanupProposalRow = {
   proposal_id: string;
-  status: "open" | "approved" | "rejected" | "skipped";
+  status:
+    | "open"
+    | "resolved"
+    | "deferred"
+    | "blocked_by_upstream_review"
+    | "superseded"
+    | "retargeted"
+    | "approved"
+    | "rejected"
+    | "skipped";
   kind?: string;
+  review_kind?: string;
+  priority?: number;
+  blocked_by_review_item_id?: string;
   source_paper_ref: string;
   source_paper_title?: string;
   reference_instance_id?: string;
@@ -94,6 +126,7 @@ export type SynthesisUiCleanupProposalRow = {
   reference_raw?: string;
   target_paper_ref?: string;
   target_paper_title?: string;
+  target_literature_item_id?: string;
   target_work_id?: string;
   target_work_title?: string;
   reason: string;
@@ -283,6 +316,9 @@ export type SynthesisUiGraphNode = {
   x?: number;
   y?: number;
   low_signal?: boolean;
+  external_degree?: number;
+  visibility?: "default" | "hover_only";
+  display_tier?: "library" | "shared_external" | "single_external";
 };
 
 export type SynthesisUiGraphEdge = {
@@ -291,6 +327,7 @@ export type SynthesisUiGraphEdge = {
   target: string;
   primary_role?: string;
   mention_count?: number;
+  visibility?: "default" | "hover_only";
 };
 
 export type SynthesisUiPreferencesStatus = {
@@ -395,6 +432,57 @@ export type SynthesisUiMaintenanceSummary = {
   diagnostics: SynthesisUiSyncDiagnostic[];
 };
 
+export type SynthesisUiBackgroundJobStatus =
+  | "submitted"
+  | "queued"
+  | "running"
+  | "waiting"
+  | "failed";
+
+export type SynthesisUiBackgroundJobProgress =
+  | {
+      mode: "indeterminate";
+      label?: string;
+    }
+  | {
+      mode: "determinate";
+      percent: number;
+      current?: number;
+      total?: number;
+      label?: string;
+    };
+
+export type SynthesisUiBackgroundJobRow = {
+  job_id: string;
+  source:
+    | "workbench"
+    | "update_queue"
+    | "dirty_event"
+    | "startup_reconcile"
+    | "literature_registry"
+    | "citation_graph_layout"
+    | "git_sync"
+    | "canonical_maintenance";
+  status: SynthesisUiBackgroundJobStatus;
+  label: string;
+  detail?: string;
+  updated_at?: string;
+  command?: SynthesisUiHostCommandName;
+  targetTab?: SynthesisUiTab;
+  progress?: SynthesisUiBackgroundJobProgress;
+};
+
+export type SynthesisUiBackgroundJobSummary = {
+  rows: SynthesisUiBackgroundJobRow[];
+  activeCount: number;
+  submittedCount: number;
+  queuedCount: number;
+  runningCount: number;
+  waitingCount: number;
+  failedCount: number;
+  primaryJob?: SynthesisUiBackgroundJobRow;
+};
+
 export type SynthesisUiSyncStatus = {
   status:
     | "ready"
@@ -480,6 +568,7 @@ export type SynthesisUiSnapshotInput = {
   maintenance?: {
     updateQueue?: Partial<SynthesisUpdateQueueStatus>;
     summary?: Partial<SynthesisUiMaintenanceSummary>;
+    backgroundJobs?: Array<Partial<SynthesisUiBackgroundJobRow>>;
   };
   storage?: Partial<SynthesisUiStorageStatus>;
   preferences?: Partial<SynthesisUiPreferencesStatus>;
@@ -559,6 +648,8 @@ export type SynthesisUiSnapshotInput = {
     diagnostics?: Record<string, unknown>;
     nodes?: SynthesisUiGraphNode[];
     edges?: SynthesisUiGraphEdge[];
+    hoverOnlyNodes?: SynthesisUiGraphNode[];
+    hoverOnlyEdges?: SynthesisUiGraphEdge[];
   };
 };
 
@@ -569,6 +660,7 @@ export type SynthesisUiSnapshot = {
   maintenance: {
     updateQueue: SynthesisUpdateQueueStatus;
     summary: SynthesisUiMaintenanceSummary;
+    backgroundJobs: SynthesisUiBackgroundJobSummary;
   };
   storage: SynthesisUiStorageStatus;
   preferences: SynthesisUiPreferencesStatus;
@@ -662,6 +754,8 @@ export type SynthesisUiSnapshot = {
     selectedElement?: SynthesisUiGraphElement;
     nodes: SynthesisUiGraphNode[];
     edges: SynthesisUiGraphEdge[];
+    hoverOnlyNodes: SynthesisUiGraphNode[];
+    hoverOnlyEdges: SynthesisUiGraphEdge[];
     diagnostics: Record<string, unknown>;
     visibleNodes: SynthesisUiGraphNode[];
     visibleEdges: SynthesisUiGraphEdge[];
@@ -807,7 +901,7 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   acceptTopicGraphRelation: "Accept topic relation",
   rejectTopicGraphRelation: "Reject topic relation",
   applyTopicGraphReviewAction: "Apply topic graph review",
-  applyLiteratureCleanupAction: "Apply cleanup action",
+  applyLiteratureCleanupAction: "Apply reference decision",
   runLiteratureRegistryJobNow: "Rebuild literature registry",
   retryLiteratureRegistryJob: "Retry literature registry job",
   deleteTopicArtifact: "Delete topic artifact",
@@ -1284,6 +1378,43 @@ function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
     );
 }
 
+function normalizeRegistryReferences(
+  rows: SynthesisUiRegistryReferenceRow[] | undefined,
+) {
+  return [...(rows || [])]
+    .map((row) => {
+      const binding = cleanString(row.target_binding);
+      const targetBinding =
+        binding === "library" || binding === "external" ? binding : "none";
+      return {
+        reference_instance_id: cleanString(row.reference_instance_id),
+        reference_index: Math.max(
+          0,
+          Math.floor(cleanNumber(row.reference_index, 0)),
+        ),
+        title:
+          cleanString(row.title) ||
+          cleanString(row.raw_reference) ||
+          cleanString(row.reference_instance_id),
+        year: cleanString(row.year) || undefined,
+        raw_reference: cleanString(row.raw_reference) || undefined,
+        resolution_status: cleanString(row.resolution_status) || "unresolved",
+        confidence: cleanString(row.confidence) || undefined,
+        target_literature_item_id:
+          cleanString(row.target_literature_item_id) || undefined,
+        target_title: cleanString(row.target_title) || undefined,
+        target_paper_ref: cleanString(row.target_paper_ref) || undefined,
+        target_binding: targetBinding as "library" | "external" | "none",
+      };
+    })
+    .filter((row) => row.reference_instance_id)
+    .sort(
+      (left, right) =>
+        left.reference_index - right.reference_index ||
+        left.reference_instance_id.localeCompare(right.reference_instance_id),
+    );
+}
+
 function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
   return [...(rows || [])]
     .map((row) => {
@@ -1294,6 +1425,8 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
         Math.floor(cleanNumber(row.cleanup_count, 0)),
       );
       const status = normalizeLiteratureFilter(row.literature_status);
+      const indexScope =
+        row.index_scope === "referenced" ? "referenced" : "library";
       return {
         paper_ref: cleanString(row.paper_ref),
         title: cleanString(row.title) || cleanString(row.paper_ref),
@@ -1307,10 +1440,27 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
               ? "needs-cleanup"
               : stale
                 ? "stale"
-                : "library"
+                : indexScope === "referenced"
+                  ? "reference-only"
+                  : "library"
             : status,
         stale,
         cleanup_count: cleanupCount,
+        index_scope: indexScope as "library" | "referenced",
+        literature_item_id: cleanString(row.literature_item_id) || undefined,
+        reference_count: Math.max(
+          0,
+          Math.floor(cleanNumber(row.reference_count, 0)),
+        ),
+        unresolved_reference_count: Math.max(
+          0,
+          Math.floor(cleanNumber(row.unresolved_reference_count, 0)),
+        ),
+        referenced_by_count: Math.max(
+          0,
+          Math.floor(cleanNumber(row.referenced_by_count, 0)),
+        ),
+        references: normalizeRegistryReferences(row.references),
       };
     })
     .filter((row) => row.paper_ref)
@@ -1328,12 +1478,21 @@ function normalizeCleanupProposals(
     .map((row) => ({
       proposal_id: cleanString(row.proposal_id),
       status:
+        row.status === "resolved" ||
+        row.status === "deferred" ||
+        row.status === "blocked_by_upstream_review" ||
+        row.status === "superseded" ||
+        row.status === "retargeted" ||
         row.status === "approved" ||
         row.status === "rejected" ||
         row.status === "skipped"
           ? row.status
           : ("open" as const),
       kind: cleanString(row.kind) || undefined,
+      review_kind: cleanString(row.review_kind) || undefined,
+      priority: Math.max(0, Math.floor(Number(row.priority) || 0)),
+      blocked_by_review_item_id:
+        cleanString(row.blocked_by_review_item_id) || undefined,
       source_paper_ref: cleanString(row.source_paper_ref),
       source_paper_title: cleanString(row.source_paper_title) || undefined,
       reference_instance_id:
@@ -1343,6 +1502,8 @@ function normalizeCleanupProposals(
       reference_raw: cleanString(row.reference_raw) || undefined,
       target_paper_ref: cleanString(row.target_paper_ref) || undefined,
       target_paper_title: cleanString(row.target_paper_title) || undefined,
+      target_literature_item_id:
+        cleanString(row.target_literature_item_id) || undefined,
       target_work_id: cleanString(row.target_work_id) || undefined,
       target_work_title: cleanString(row.target_work_title) || undefined,
       reason: cleanString(row.reason),
@@ -2008,6 +2169,21 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
       x: typeof node.x === "number" ? node.x : undefined,
       y: typeof node.y === "number" ? node.y : undefined,
       low_signal: Boolean(node.low_signal),
+      external_degree:
+        typeof node.external_degree === "number"
+          ? Math.max(0, Math.floor(node.external_degree))
+          : undefined,
+      visibility:
+        node.visibility === "hover_only"
+          ? ("hover_only" as const)
+          : ("default" as const),
+      display_tier:
+        node.display_tier === "shared_external" ||
+        node.display_tier === "single_external"
+          ? node.display_tier
+          : node.kind === "library_paper"
+            ? ("library" as const)
+            : ("shared_external" as const),
     }))
     .filter((node) => node.id)
     .sort(
@@ -2028,6 +2204,10 @@ function normalizeGraphEdges(edges: SynthesisUiGraphEdge[] | undefined) {
         0,
         Math.floor(cleanNumber(edge.mention_count, 0)),
       ),
+      visibility:
+        edge.visibility === "hover_only"
+          ? ("hover_only" as const)
+          : ("default" as const),
     }))
     .filter((edge) => edge.id && edge.source && edge.target)
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -2147,7 +2327,16 @@ function filterRegistry(
   return rows.filter((row) => {
     if (
       !includesText(
-        `${row.title} ${row.paper_ref} ${row.year || ""}`,
+        `${row.title} ${row.paper_ref} ${row.year || ""} ${(
+          row.references || []
+        )
+          .map(
+            (reference) =>
+              `${reference.title} ${reference.raw_reference || ""} ${
+                reference.target_title || ""
+              }`,
+          )
+          .join(" ")}`,
         filters.search,
       )
     ) {
@@ -2163,6 +2352,9 @@ function filterRegistry(
       return false;
     }
     if (filters.literature !== "all") {
+      if (filters.literature === "reference-only") {
+        return row.index_scope === "referenced";
+      }
       if (filters.literature === "stale") {
         return Boolean(row.stale);
       }
@@ -2171,7 +2363,7 @@ function filterRegistry(
       }
       return row.literature_status === filters.literature;
     }
-    return true;
+    return row.index_scope !== "referenced";
   });
 }
 
@@ -2209,17 +2401,25 @@ function filterGraph(
   edges: SynthesisUiGraphEdge[],
   filters: SynthesisUiState["graph"],
 ) {
-  const visibleNodes = nodes.filter(
-    (node) =>
-      filters.nodeKinds.includes(node.kind) &&
-      (filters.showLowSignalUnresolved || !node.low_signal) &&
-      includesText(
-        `${node.label} ${node.id} ${node.year || ""} ${(node.tags || []).join(" ")} ${(node.collections || []).join(" ")}`,
-        filters.search,
-      ),
-  );
+  const searchable = (node: SynthesisUiGraphNode) =>
+    `${node.label} ${node.id} ${node.year || ""} ${(node.tags || []).join(" ")} ${(node.collections || []).join(" ")}`;
+  const matchesNodeBaseFilters = (node: SynthesisUiGraphNode) =>
+    filters.nodeKinds.includes(node.kind) &&
+    (filters.showLowSignalUnresolved || !node.low_signal);
+  const visibleNodes = nodes.filter((node) => {
+    if (!matchesNodeBaseFilters(node)) {
+      return false;
+    }
+    if (node.visibility === "hover_only") {
+      return false;
+    }
+    return includesText(searchable(node), filters.search);
+  });
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = edges.filter((edge) => {
+    if (edge.visibility === "hover_only") {
+      return false;
+    }
     if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
       return false;
     }
@@ -2354,6 +2554,144 @@ function normalizeMaintenanceSummary(
   };
 }
 
+function normalizeBackgroundJobStatus(
+  value: unknown,
+): SynthesisUiBackgroundJobStatus {
+  const status = cleanString(value);
+  if (
+    status === "submitted" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting" ||
+    status === "failed"
+  ) {
+    return status;
+  }
+  return "queued";
+}
+
+function normalizeBackgroundJobSource(
+  value: unknown,
+): SynthesisUiBackgroundJobRow["source"] {
+  const source = cleanString(value);
+  if (
+    source === "workbench" ||
+    source === "update_queue" ||
+    source === "dirty_event" ||
+    source === "startup_reconcile" ||
+    source === "literature_registry" ||
+    source === "citation_graph_layout" ||
+    source === "git_sync" ||
+    source === "canonical_maintenance"
+  ) {
+    return source;
+  }
+  return "workbench";
+}
+
+function normalizeBackgroundJobProgress(
+  value: unknown,
+): SynthesisUiBackgroundJobProgress | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const input = value as Record<string, unknown>;
+  const label = cleanString(input.label) || undefined;
+  if (cleanString(input.mode) === "determinate") {
+    const total = Math.max(0, Math.floor(cleanNumber(input.total, 0)));
+    const current = Math.max(0, Math.floor(cleanNumber(input.current, 0)));
+    const percentSource = cleanNumber(input.percent, Number.NaN);
+    const percent =
+      Number.isFinite(percentSource) && percentSource >= 0
+        ? percentSource
+        : total > 0
+          ? (Math.min(current, total) / total) * 100
+          : Number.NaN;
+    if (!Number.isFinite(percent)) {
+      return label
+        ? { mode: "indeterminate", label }
+        : { mode: "indeterminate" };
+    }
+    return {
+      mode: "determinate",
+      percent: Math.max(0, Math.min(100, Math.round(percent))),
+      current: total > 0 ? Math.min(current, total) : undefined,
+      total: total > 0 ? total : undefined,
+      label,
+    };
+  }
+  return label ? { mode: "indeterminate", label } : { mode: "indeterminate" };
+}
+
+function normalizeBackgroundJobRows(
+  values: unknown,
+): SynthesisUiBackgroundJobRow[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const rows = new Map<string, SynthesisUiBackgroundJobRow>();
+  for (const entry of values) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const input = entry as Partial<SynthesisUiBackgroundJobRow>;
+    const jobId = cleanString(input.job_id);
+    const label = cleanString(input.label);
+    if (!jobId || !label) {
+      continue;
+    }
+    const command = cleanString(input.command) as SynthesisUiHostCommandName;
+    const targetTab = cleanString(input.targetTab)
+      ? normalizeTab(input.targetTab)
+      : undefined;
+    const row: SynthesisUiBackgroundJobRow = {
+      job_id: jobId,
+      source: normalizeBackgroundJobSource(input.source),
+      status: normalizeBackgroundJobStatus(input.status),
+      label,
+      detail: cleanString(input.detail) || undefined,
+      updated_at: cleanString(input.updated_at) || undefined,
+      command: HOST_COMMANDS.includes(command) ? command : undefined,
+      targetTab,
+      progress: normalizeBackgroundJobProgress(input.progress),
+    };
+    const existing = rows.get(row.job_id);
+    if (
+      !existing ||
+      cleanString(row.updated_at).localeCompare(
+        cleanString(existing.updated_at),
+      ) >= 0
+    ) {
+      rows.set(row.job_id, row);
+    }
+  }
+  return Array.from(rows.values()).sort((left, right) =>
+    cleanString(right.updated_at).localeCompare(cleanString(left.updated_at)),
+  );
+}
+
+function summarizeBackgroundJobs(
+  rows: SynthesisUiBackgroundJobRow[],
+): SynthesisUiBackgroundJobSummary {
+  const activeRows = rows.filter((row) => row.status !== "failed");
+  const running = rows.filter((row) => row.status === "running");
+  const waiting = rows.filter((row) => row.status === "waiting");
+  const queued = rows.filter((row) => row.status === "queued");
+  const submitted = rows.filter((row) => row.status === "submitted");
+  const failed = rows.filter((row) => row.status === "failed");
+  return {
+    rows,
+    activeCount: activeRows.length,
+    submittedCount: submitted.length,
+    queuedCount: queued.length,
+    runningCount: running.length,
+    waitingCount: waiting.length,
+    failedCount: failed.length,
+    primaryJob:
+      running[0] || waiting[0] || queued[0] || submitted[0] || failed[0],
+  };
+}
+
 function normalizeActionOperation(
   input: unknown,
 ): SynthesisUiActionOperation | undefined {
@@ -2455,12 +2793,35 @@ export function buildSynthesisUiSnapshot(
   const conceptTypes = normalizeStringList(
     conceptRows.map((row) => row.concept_type),
   );
-  const graphNodes = normalizeGraphNodes(input.graph?.nodes);
-  const graphEdges = normalizeGraphEdges(input.graph?.edges);
+  const graphNodes = normalizeGraphNodes([
+    ...(input.graph?.nodes || []),
+    ...(input.graph?.hoverOnlyNodes || []),
+  ]);
+  const graphEdges = normalizeGraphEdges([
+    ...(input.graph?.edges || []),
+    ...(input.graph?.hoverOnlyEdges || []),
+  ]);
+  const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
+  const graphEdgeById = new Map(graphEdges.map((edge) => [edge.id, edge]));
+  const normalizedGraphNodes = Array.from(graphNodeById.values());
+  const normalizedGraphEdges = Array.from(graphEdgeById.values());
+  const hoverOnlyGraphNodes = normalizedGraphNodes.filter(
+    (node) => node.visibility === "hover_only",
+  );
+  const hoverOnlyGraphEdges = normalizedGraphEdges.filter(
+    (edge) => edge.visibility === "hover_only",
+  );
   const deletedArtifactRows = normalizeDeletedArtifactRows(
     input.deletedArtifacts?.rows,
   );
-  const filteredGraph = filterGraph(graphNodes, graphEdges, state.graph);
+  const filteredGraph = filterGraph(
+    normalizedGraphNodes,
+    normalizedGraphEdges,
+    state.graph,
+  );
+  const backgroundJobRows = normalizeBackgroundJobRows(
+    input.maintenance?.backgroundJobs,
+  );
 
   return {
     libraryId: Math.max(0, Math.floor(cleanNumber(input.libraryId, 0))),
@@ -2469,6 +2830,7 @@ export function buildSynthesisUiSnapshot(
     maintenance: {
       updateQueue: normalizeUpdateQueueStatus(input.maintenance?.updateQueue),
       summary: normalizeMaintenanceSummary(input.maintenance?.summary),
+      backgroundJobs: summarizeBackgroundJobs(backgroundJobRows),
     },
     storage: {
       rootPath: cleanString(input.storage?.rootPath) || undefined,
@@ -2652,8 +3014,10 @@ export function buildSynthesisUiSnapshot(
       nodeKinds: [...state.graph.nodeKinds],
       showLowSignalUnresolved: state.graph.showLowSignalUnresolved,
       selectedElement: state.graph.selectedElement,
-      nodes: graphNodes,
-      edges: graphEdges,
+      nodes: normalizedGraphNodes,
+      edges: normalizedGraphEdges,
+      hoverOnlyNodes: hoverOnlyGraphNodes,
+      hoverOnlyEdges: hoverOnlyGraphEdges,
       diagnostics:
         input.graph?.diagnostics && typeof input.graph.diagnostics === "object"
           ? { ...input.graph.diagnostics }

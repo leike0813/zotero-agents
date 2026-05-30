@@ -295,6 +295,12 @@ describe("Synthesis git sync", function () {
   it("runs a successful adapter-backed sync and emits one canonical event", async function () {
     const root = await makeRuntimeRoot();
     await writeTagAsset(root, "model:transformer");
+    const progressReports: Array<{
+      status: string;
+      phase?: string;
+      processedCount?: number;
+      totalCount?: number;
+    }> = [];
     const adapter: SynthesisGitSyncAdapter = {
       describeRemote: () => ({
         remoteUrl: "https://user:secret@example.invalid/repo.git",
@@ -306,6 +312,9 @@ describe("Synthesis git sync", function () {
       root,
       adapter,
       now: () => "2026-05-25T00:00:00.000Z",
+      progressReporter: (report) => {
+        progressReports.push(report);
+      },
     });
 
     const state = await service.runSync();
@@ -339,6 +348,26 @@ describe("Synthesis git sync", function () {
     ]);
     assert.isTrue(projections.projections["tag-index"].stale);
     assert.isTrue(projections.projections["citation-graph-index"].stale);
+    assert.includeMembers(
+      progressReports.map((report) => report.phase),
+      [
+        "lock",
+        "export",
+        "copy",
+        "fetch",
+        "merge",
+        "validate",
+        "push",
+        "import",
+        "cleanup",
+      ],
+    );
+    assert.deepInclude(progressReports.at(-1), {
+      status: "completed",
+      phase: "cleanup",
+      processedCount: 9,
+      totalCount: 9,
+    });
   });
 
   it("blocks conflicts before importing remote changes", async function () {

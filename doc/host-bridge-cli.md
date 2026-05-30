@@ -225,6 +225,8 @@ zotero-bridge file download <fileId> --output <path> [--force]
 - `synthesis get-citation-graph-metrics` -> `synthesis.get_citation_graph_metrics`
 - `synthesis export-filtered-paper-artifacts` -> `synthesis.export_filtered_paper_artifacts`
 - `literature ingest` -> `mutation.execute` with operation `literature.ingest`
+- raw `call mutation.execute` with operation `note.upsertPayload` -> upsert one
+  embedded workflow payload attachment on a Zotero note
 
 这些命令不会直接读取 Zotero SQLite、storage 目录或本地文件路径。读命令只通过
 Host Bridge capability 返回 JSON-safe DTO；`literature ingest` 只通过审批后的
@@ -1013,6 +1015,27 @@ Content-Type: application/json
 `literature.ingest` 是文献入库的 canonical mutation operation，只接受单篇
 `paper`。旧 `paper.ingest` operation 和 `papers` 批量 payload 不再支持；多篇
 候选必须由调用方逐篇调用。
+
+`note.upsertPayload` 是 Zotero note hidden workflow payload 的正式写入边界。
+它通过 embedded image attachment 写入或替换同 note 下同 `payloadType` 的 payload，
+不会修改 note 正文 HTML，也不会写旧式 `data-zs-payload` block。示例：
+
+```json
+{
+  "operation": "note.upsertPayload",
+  "note": { "libraryId": 1, "key": "NOTEKEY" },
+  "noteKind": "digest",
+  "payloadType": "literature-matching-metadata-json",
+  "payload": {
+    "schema": "literature_matching_metadata.v1",
+    "key_terms": [],
+    "methods": [],
+    "problems": [],
+    "datasets": [],
+    "exclude_terms": []
+  }
+}
+```
 
 成功 `data` 是 Host Bridge capability envelope，内部包含
 `mutation.execute` 结果：

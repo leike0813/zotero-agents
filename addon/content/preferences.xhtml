@@ -17,7 +17,16 @@
     monospace; font-size: 11px; word-break: break-all; color: #334155; }
     .zs-runtime-data-category { color: #334155; } .zs-runtime-data-size { color:
     #0f172a; font-variant-numeric: tabular-nums; text-align: right; white-space:
-    nowrap; } #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
+    nowrap; }
+    .zs-runtime-issues-panel { display: none; max-height: 160px; overflow: auto;
+    border: 1px solid rgba(148, 163, 184, 0.45); border-radius: 6px; padding:
+    8px; background: rgba(255, 251, 235, 0.45); }
+    .zs-runtime-issues-panel.is-visible { display: block; }
+    .zs-runtime-issues-grid { display: grid; grid-template-columns:
+    minmax(140px, 1fr) minmax(180px, 2fr) auto; gap: 6px 10px; align-items:
+    center; font-size: 12px; } .zs-runtime-issue-empty { color: #64748b;
+    font-size: 12px; }
+    #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
     gap: 8px; align-items: center; flex-wrap: wrap; } .zs-runtime-led { width:
     10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px
     solid #6b7280; background: #9ca3af; } .zs-runtime-led.is-green { background:
@@ -48,7 +57,12 @@
     0.22); display: flex; flex-direction: column; gap: 10px; }
     .zs-uninstall-options-actions { display: flex; gap: 8px; justify-content:
     flex-end; } .zs-uninstall-option { display: flex; align-items: center; gap:
-    8px; }
+    8px; } .zs-pref-danger-zone { border: 1px solid rgba(185, 28, 28, 0.45);
+    border-radius: 8px; padding: 10px; background: rgba(254, 242, 242, 0.85);
+    display: flex; flex-direction: column; gap: 6px; } .zs-pref-danger-title {
+    color: #991b1b; font-weight: 700; } .zs-pref-danger-description { color:
+    #7f1d1d; } .zs-pref-danger-status { color: #7f1d1d; font-size: 12px; }
+    .zs-pref-danger-button { color: #991b1b; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -124,7 +138,9 @@
             id="zotero-prefpane-__addonRef__-host-bridge-pin-port-enabled"
             type="checkbox"
           ></html:input>
-          <html:span data-l10n-id="pref-host-bridge-pin-port-enabled"></html:span>
+          <html:span
+            data-l10n-id="pref-host-bridge-pin-port-enabled"
+          ></html:span>
         </html:label>
         <html:input
           id="zotero-prefpane-__addonRef__-host-bridge-pinned-port"
@@ -181,6 +197,10 @@
           id="zotero-prefpane-__addonRef__-runtime-data-open-root"
           data-l10n-id="pref-runtime-data-open-root"
         ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-runtime-data-toggle-issues"
+          data-l10n-id="pref-runtime-data-show-issues"
+        ></button>
       </hbox>
       <description
         id="zotero-prefpane-__addonRef__-runtime-data-summary"
@@ -190,6 +210,36 @@
         id="zotero-prefpane-__addonRef__-runtime-data-categories"
         class="zs-runtime-data-grid"
       ></html:div>
+        <html:div
+          id="zotero-prefpane-__addonRef__-runtime-data-issues-panel"
+          class="zs-runtime-issues-panel"
+        ></html:div>
+        <html:div
+          id="zotero-prefpane-__addonRef__-runtime-data-state-db-info"
+          class="zs-runtime-data-path"
+        ></html:div>
+        <vbox class="zs-pref-danger-zone">
+        <label
+          class="zs-pref-danger-title"
+          data-l10n-id="pref-synthesis-db-reset-title"
+        ></label>
+        <description
+          class="zs-pref-danger-description"
+          data-l10n-id="pref-synthesis-db-reset-warning"
+        ></description>
+        <hbox class="zs-pref-actions-row">
+          <button
+            id="zotero-prefpane-__addonRef__-synthesis-db-reset"
+            class="zs-pref-danger-button"
+            data-l10n-id="pref-synthesis-db-reset"
+          ></button>
+        </hbox>
+        <description
+          id="zotero-prefpane-__addonRef__-synthesis-db-reset-status"
+          class="zs-pref-danger-status"
+          data-l10n-id="pref-synthesis-db-reset-status-idle"
+        ></description>
+      </vbox>
     </vbox>
 
     <vbox class="zs-pref-card">

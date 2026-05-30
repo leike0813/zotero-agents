@@ -35,6 +35,9 @@ import {
   REPRESENTATIVE_IMAGE_EXPORT_FILE_NAME,
 } from "./representativeImage.mjs";
 
+export const LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE =
+  "literature-matching-metadata-json";
+
 function renderSourceMetadataBlock(sourceAttachmentItemKey) {
   const itemKey = String(sourceAttachmentItemKey || "").trim();
   if (!itemKey) {
@@ -247,12 +250,18 @@ function removeLeadingRepresentativeImageHtml(noteContent) {
 function htmlBlocksToMarkdown(noteContent) {
   let html = removeLeadingRepresentativeImageHtml(noteContent)
     .replace(/<span\b[^>]*data-zs-block=(["'])payload\1[^>]*>\s*<\/span>/gi, "")
-    .replace(/<span\b[^>]*data-zs-meta=(["'])source-attachment\1[^>]*>\s*<\/span>/gi, "")
+    .replace(
+      /<span\b[^>]*data-zs-meta=(["'])source-attachment\1[^>]*>\s*<\/span>/gi,
+      "",
+    )
     .replace(/<br\s*\/?>/gi, "\n");
 
-  html = html.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level, text) => {
-    return `\n${"#".repeat(Number(level))} ${stripHtmlTags(text)}\n\n`;
-  });
+  html = html.replace(
+    /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi,
+    (_m, level, text) => {
+      return `\n${"#".repeat(Number(level))} ${stripHtmlTags(text)}\n\n`;
+    },
+  );
   html = html.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, text) => {
     return `\n- ${stripHtmlTags(text)}`;
   });
@@ -273,7 +282,9 @@ function htmlBlocksToMarkdown(noteContent) {
 }
 
 export function stripDigestWrapperHeading(markdown) {
-  let text = String(markdown || "").replace(/\r\n?/g, "\n").trim();
+  let text = String(markdown || "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
   while (/^#\s+(?:Digest|Literature Digest)\s*(?:\n|$)/i.test(text)) {
     text = text
       .replace(/^#\s+(?:Digest|Literature Digest)\s*(?:\n+|$)/i, "")
@@ -572,6 +583,15 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
           representativeImage: args.digest.representativeImage,
           existingNotes: existingByKind.get("digest"),
         });
+        if (args.digest.literatureMatchingMetadata) {
+          await attachWorkbenchPayloadToNote({
+            runtime: args.runtime,
+            note: digestApplied.note,
+            noteKind: "digest",
+            payloadType: LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE,
+            payload: args.digest.literatureMatchingMetadata,
+          });
+        }
         representativeImage = digestApplied.representativeImage;
         writtenNotes.push(digestApplied.note);
       }
@@ -633,6 +653,56 @@ export async function upsertLiteratureDigestGeneratedNotes(args) {
   );
 }
 
+export async function resolveLiteratureMatchingMetadataForDigestNote(args) {
+  const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
+    runtime: args.runtime,
+    noteItem: args.noteItem || args.note,
+    payloadType: LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE,
+  });
+  if (!embedded || embedded.errors?.length) {
+    return {
+      metadata: null,
+      diagnostics: [
+        {
+          code: "literature_matching_metadata_missing",
+          severity: "warning",
+          message: "digest note has no literature matching metadata payload",
+        },
+      ],
+    };
+  }
+  return {
+    metadata: embedded.payload,
+    source: embedded.source || "embedded-image-attachment",
+    payloadType: LITERATURE_MATCHING_METADATA_PAYLOAD_TYPE,
+    diagnostics: [],
+  };
+}
+
+export async function resolveLiteratureMatchingMetadataForParentItem(args) {
+  const existingByKind = collectGeneratedNotesByKind(
+    args.parentItem,
+    args.runtime,
+  );
+  const digestNote = existingByKind.get("digest")?.[0] || null;
+  if (!digestNote) {
+    return {
+      metadata: null,
+      diagnostics: [
+        {
+          code: "digest_note_missing",
+          severity: "warning",
+          message: "parent item has no generated digest note",
+        },
+      ],
+    };
+  }
+  return resolveLiteratureMatchingMetadataForDigestNote({
+    runtime: args.runtime,
+    noteItem: digestNote,
+  });
+}
+
 export async function exportGeneratedNoteCandidate(args) {
   const noteItem = args.runtime.helpers.resolveItemRef(args.noteItemID);
   const noteContent = String(noteItem.getNote?.() || "");
@@ -691,7 +761,8 @@ export async function exportGeneratedNoteCandidate(args) {
       runtime: args.runtime,
       noteItem,
       payloadType: "citation-analysis-json",
-      parseLegacy: () => parseCitationAnalysisPayload(noteContent, args.runtime),
+      parseLegacy: () =>
+        parseCitationAnalysisPayload(noteContent, args.runtime),
     });
     const nativeArtifact = toNativeCitationArtifact(parsed.payload);
     return {

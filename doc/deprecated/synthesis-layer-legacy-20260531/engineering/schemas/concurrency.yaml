@@ -1,0 +1,118 @@
+schema: synthesis.engineering.concurrency.v1
+runtime_model:
+  process: zotero_plugin_single_process
+  scheduler: javascript_event_loop_cooperative_async
+  distributed_workers: false
+  lease_heartbeat_protocol: forbidden
+  lock_ordering_deadlock_protocol: forbidden
+transaction_policy:
+  write_transaction: begin_immediate_short_transaction
+  long_compute_inside_write_transaction: forbidden
+  io_inside_write_transaction: forbidden
+  ui_reads: committed_state_only
+  snapshot_consistency:
+    rule: read_current_committed_state_or_return_bounded_diagnostic
+worker_coordination:
+  model: local_in_progress_marker
+  marker_fields:
+    - run_id
+    - worker_id
+    - scope_kind
+    - scope_ref
+    - optional_basis_epoch
+    - optional_source_hash
+    - started_at
+    - updated_at
+    - attempt_count
+  duplicate_scope_policy:
+    - coalesce_duplicate_dirty_events
+    - keep_later_worker_queued
+    - make_stale_final_commit_noop
+  final_commit_checks:
+    - run_marker_still_current
+    - source_or_basis_still_current
+    - scope_not_reset
+stale_action_guard:
+  conflict_result: conflict_requires_attention
+  evidence_hash_scope: action_moment_only
+  evidence_hash_does_not_invalidate_saved_overrides_on_rebuild: true
+  rules:
+    - domain: reference_resolution
+      fields:
+        - reference_instance_id
+        - evidence_hash
+        - target_version
+        - target_identity_state_version
+        - target_binding_state_version
+    - domain: registry_cache_deletion_review
+      fields:
+        - literature_item_id
+        - binding_state_version
+    - domain: registry_cache_dedupe_review
+      fields:
+        - source_literature_item_id
+        - survivor_literature_item_id
+        - evidence_hash
+    - domain: topic_discovery_override
+      fields:
+        - topic_id
+        - literature_item_id
+        - hint_state_version
+    - domain: topic_graph_concept_tag_proposals
+      fields:
+        - proposal_evidence_hash
+rebuild_epoch_guard:
+  semantic_operation: registry_graph_cache_rebuild
+  advances: registry_epoch
+  implementation_alias: index_generation
+  stale_worker_commit_policy: noop_or_mark_superseded
+  final_commit: short_transaction_replace_cache_facts_and_advance_epoch
+epoch_compatibility:
+  registry_epoch:
+    role: registry_cache_committed_basis
+    advanced_by: full_registry_cache_rebuild_or_structural_cache_replacement
+    invalidates:
+      - registry_cache_dirty_events_from_older_basis
+      - graph_work_based_on_older_registry_basis
+  graph_epoch:
+    role: citation_graph_committed_basis
+    basis_required: basis_registry_epoch_or_graph_input_hash
+    may_advance_independently: true
+    final_commit_check:
+      - basis_still_matches_current_registry_cache_basis
+    stale_policy: noop_or_mark_superseded
+  topic_artifact_version:
+    role: topic_domain_artifact_basis
+    advanced_by:
+      - topic_apply
+      - topic_update
+      - topic_delete
+    independent_from:
+      - registry_epoch
+      - graph_epoch
+    forbidden_triggers:
+      - registry_cache_rebuild
+      - citation_graph_rebuild
+      - digest_apply
+      - topic_discovery_hint_change
+conflicts:
+  - id: stale_basis_commit
+    resolution: final_commit_noop_or_mark_superseded
+  - id: interrupted_run_detected
+    resolution: startup_recovery_requeues_fails_or_supersedes
+  - id: review_evidence_changed
+    resolution: reject_action_create_needs_attention_or_new_review
+  - id: scope_run_conflict
+    resolution: keep_later_worker_queued
+  - id: snapshot_basis_changed
+    resolution: retry_or_show_old_snapshot_with_running_job
+  - id: overlapping_p0_identity_action
+    resolution: first_commit_wins_later_action_conflict_requires_attention
+  - id: p1_reference_target_changed_by_p0
+    resolution: reject_resolution_action_supersede_or_needs_attention
+  - id: stale_worker_candidate_after_user_action
+    resolution: final_commit_noop_or_superseded
+  - id: discovery_filter_vs_apply_match
+    resolution: preserve_filtered_override_update_diagnostics_only
+  - id: import_apply_vs_open_review_action
+    resolution: import_policy_stale_guard_or_conflict_requires_attention

@@ -2,6 +2,26 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Payload schema
+
+写入 `runtime/payloads/route-timeline-synthesis.json`。完整约束以
+`assets/schemas/route_timeline_synthesis.schema.json` 为准；语义解释见下文。
+
+```json
+{
+  "taxonomy": {
+    "primary_axis": "",
+    "axis_rationale": "",
+    "summary": {},
+    "nodes": []
+  },
+  "timeline_events": {
+    "summary": {},
+    "events": []
+  }
+}
+```
+
 ## Taxonomy 深度
 
 `taxonomy` 必须包含 `summary` 与 `nodes`。`summary` 不是一句简介，而是把所有路线串联起来，
@@ -88,7 +108,13 @@ events 负责前端 marker。
   },
   "timeline_events": {
     "summary": { "text": "2020 到 2024 年有很多论文。" },
-    "events": [{ "id": "event:paper", "year": 2020, "description": "A paper was published." }]
+    "events": [
+      {
+        "id": "event:paper",
+        "year": 2020,
+        "description": "A paper was published."
+      }
+    ]
   }
 }
 ```
@@ -98,7 +124,9 @@ events 负责前端 marker。
 ```json
 {
   "taxonomy": {
-    "summary": { "analysis": "Transformer detection evolves from dense anchors toward query-based set prediction..." },
+    "summary": {
+      "analysis": "Transformer detection evolves from dense anchors toward query-based set prediction..."
+    },
     "nodes": [
       {
         "id": "route:set-prediction",
@@ -114,7 +142,9 @@ events 负责前端 marker。
     ]
   },
   "timeline_events": {
-    "summary": { "analysis": "The field first reframed detection, then optimized convergence and scale..." },
+    "summary": {
+      "analysis": "The field first reframed detection, then optimized convergence and scale..."
+    },
     "events": [
       {
         "id": "event:detr-set-prediction",
@@ -127,5 +157,3 @@ events 负责前端 marker。
   }
 }
 ```
-
-

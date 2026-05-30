@@ -172,6 +172,11 @@ Dashboard 当前不支持：
 - Zotero Host Capability Broker SSOT：`doc/components/zotero-host-capability-broker-ssot.md`
 - Plugin Skill Registry / ACP Compatible SSOT：`doc/components/plugin-skill-registry-and-acp-compatible-ssot.md`
 - Runtime Persistence Governance SSOT：`doc/components/runtime-persistence-governance-ssot.md`
+- Synthesis Layer 文档入口：`doc/synthesis-layer/README.md`
+- Synthesis Layer 分域模型：`doc/synthesis-layer/domain-model.md`
+- Synthesis Registry/Citation Graph：`doc/synthesis-layer/registry-and-citation-graph.md`
+- Synthesis Topics/Discovery：`doc/synthesis-layer/topics-and-discovery.md`
+- Synthesis Runtime/Rebuild：`doc/synthesis-layer/runtime-and-rebuild.md`
 - Providers：`doc/components/providers.md`
 - Selection/Context：`doc/components/selection-context.md`
 - Selection/Context Schema：`doc/components/selection-context.schema.json`

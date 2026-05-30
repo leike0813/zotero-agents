@@ -73,6 +73,9 @@ pub enum Command {
 
     #[command(about = "Download registered Host Bridge files")]
     File(FileArgs),
+
+    #[command(about = "Debug-only Host Bridge diagnostics and controls")]
+    Debug(DebugArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -439,6 +442,136 @@ pub struct FileArgs {
     pub command: FileCommand,
 }
 
+#[derive(Debug, Clone, Args)]
+pub struct DebugArgs {
+    #[command(subcommand)]
+    pub command: DebugCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugCommand {
+    #[command(about = "Read debug-only Host Bridge runtime status")]
+    Status,
+
+    #[command(about = "Read debug-only persistence diagnostics")]
+    Persistence(DebugInputArgs),
+
+    #[command(about = "Read debug-only workflow task diagnostics")]
+    Tasks(DebugInputArgs),
+
+    #[command(about = "Debug Synthesis Layer state and workers")]
+    Synthesis(DebugSynthesisArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugSynthesisArgs {
+    #[command(subcommand)]
+    pub command: DebugSynthesisCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugSynthesisCommand {
+    #[command(about = "Read a debug-only Synthesis snapshot")]
+    Snapshot(DebugInputArgs),
+
+    #[command(about = "Read debug-only Synthesis DB/cache differences")]
+    Diff(DebugInputArgs),
+
+    #[command(about = "Inspect one debug Synthesis paper")]
+    InspectPaper(DebugInputArgs),
+
+    #[command(about = "Inspect one debug Synthesis topic")]
+    InspectTopic(DebugInputArgs),
+
+    #[command(about = "Debug Synthesis update queue")]
+    Queue(DebugSynthesisQueueArgs),
+
+    #[command(about = "Debug Synthesis job progress")]
+    Jobs(DebugSynthesisJobsArgs),
+
+    #[command(about = "Run one debug Synthesis worker")]
+    Worker(DebugSynthesisWorkerArgs),
+
+    #[command(about = "Run one debug Synthesis maintenance pass")]
+    Maintenance(DebugSynthesisMaintenanceArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugSynthesisQueueArgs {
+    #[command(subcommand)]
+    pub command: DebugSynthesisQueueCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugSynthesisQueueCommand {
+    #[command(about = "List debug Synthesis queue events")]
+    List(DebugInputArgs),
+
+    #[command(about = "Enqueue one debug Synthesis dirty event")]
+    Enqueue(DebugInputArgs),
+
+    #[command(about = "Retry debug Synthesis queue failures")]
+    Retry(DebugInputArgs),
+
+    #[command(about = "Pause debug Synthesis queue processing")]
+    Pause(DebugInputArgs),
+
+    #[command(about = "Resume debug Synthesis queue processing")]
+    Resume(DebugInputArgs),
+
+    #[command(about = "Dangerous debug operation: clear Synthesis queue")]
+    Clear(DebugInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugSynthesisJobsArgs {
+    #[command(subcommand)]
+    pub command: DebugSynthesisJobsCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugSynthesisJobsCommand {
+    #[command(about = "List debug Synthesis job progress rows")]
+    List(DebugInputArgs),
+
+    #[command(about = "Mark stale debug Synthesis jobs as retryable failures")]
+    ClearStale(DebugInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugSynthesisWorkerArgs {
+    #[command(subcommand)]
+    pub command: DebugSynthesisWorkerCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugSynthesisWorkerCommand {
+    #[command(about = "Run one debug Synthesis worker")]
+    Run(DebugInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugSynthesisMaintenanceArgs {
+    #[command(subcommand)]
+    pub command: DebugSynthesisMaintenanceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugSynthesisMaintenanceCommand {
+    #[command(about = "Run one debug Synthesis maintenance pass")]
+    Run(DebugInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugInputArgs {
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Debug capability input as inline JSON, a file path, @file, or '-' for stdin"
+    )]
+    pub input: Option<String>,
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub enum FileCommand {
     #[command(
@@ -482,6 +615,33 @@ mod tests {
         assert!(help.contains("workflow"));
         assert!(help.contains("task"));
         assert!(help.contains("file"));
+        assert!(help.contains("debug"));
+    }
+
+    #[test]
+    fn debug_help_exposes_synthesis_controls() {
+        let mut command = Cli::command();
+        let debug = command.find_subcommand_mut("debug").unwrap();
+        let help = debug.render_long_help().to_string();
+
+        assert!(help.contains("status"));
+        assert!(help.contains("persistence"));
+        assert!(help.contains("tasks"));
+        assert!(help.contains("synthesis"));
+        let synthesis = debug.find_subcommand_mut("synthesis").unwrap();
+        let synthesis_help = synthesis.render_long_help().to_string();
+        for name in [
+            "snapshot",
+            "diff",
+            "inspect-paper",
+            "inspect-topic",
+            "queue",
+            "jobs",
+            "worker",
+            "maintenance",
+        ] {
+            assert!(synthesis_help.contains(name), "missing {name}");
+        }
     }
 
     #[test]

@@ -569,8 +569,9 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
       assert.include(skillText, "references/step_05_paper_units.md");
-      assert.include(skillText, "concept_cards_proposal_path");
-      assert.include(skillText, "topic_graph_relation_proposals_path");
+      assert.include(skillText, "sidecars");
+      assert.include(skillText, "concept_cards_proposal");
+      assert.include(skillText, "topic_graph_relation_proposals");
       assert.include(
         skillText,
         "references/topic_synthesis_content_contract.md",
@@ -785,9 +786,6 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
       },
     },
     analysis_manifest_path: "result/topic-analysis.json",
-    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
-    topic_graph_relation_proposals_path:
-      "result/sidecars/topic-graph-relation-proposals.json",
     ...overrides,
   };
 }
@@ -809,9 +807,6 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
       claims: "sha256:old-claims",
     },
     analysis_manifest_path: "result/topic-analysis.patch.json",
-    concept_cards_proposal_path: "result/sidecars/concept-cards-proposal.json",
-    topic_graph_relation_proposals_path:
-      "result/sidecars/topic-graph-relation-proposals.json",
     artifact_metadata: {
       update_reason: "digest_changed",
     },
@@ -910,20 +905,33 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     assert.notProperty(result.bundle, "markdown_path");
   });
 
-  it("requires KG proposal sidecars outside structured artifact sections", function () {
+  it("tolerates legacy top-level discovery and KG proposal sidecar paths", function () {
     const result = validateSynthesisResultBundle(
       v2CompleteBundle({
+        topic_interest_metadata_path:
+          "result/sidecars/topic-interest-metadata.json",
         concept_cards_proposal_path:
           "result/sidecars/concept-cards-proposal.json",
         topic_graph_relation_proposals_path:
           "result/sidecars/topic-graph-relation-proposals.json",
       }),
     );
-    const patch = validateSynthesisResultBundle(v2PatchBundle());
+    const patch = validateSynthesisResultBundle(
+      v2PatchBundle({
+        topic_interest_metadata_path:
+          "result/sidecars/topic-interest-metadata.json",
+        topic_graph_relation_proposals_path:
+          "result/sidecars/topic-graph-relation-proposals.json",
+      }),
+    );
 
     assert.equal(
       result.bundle.concept_cards_proposal_path,
       "result/sidecars/concept-cards-proposal.json",
+    );
+    assert.equal(
+      result.bundle.topic_interest_metadata_path,
+      "result/sidecars/topic-interest-metadata.json",
     );
     assert.equal(
       result.bundle.topic_graph_relation_proposals_path,
@@ -932,6 +940,10 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     assert.equal(
       patch.bundle.topic_graph_relation_proposals_path,
       "result/sidecars/topic-graph-relation-proposals.json",
+    );
+    assert.equal(
+      patch.bundle.topic_interest_metadata_path,
+      "result/sidecars/topic-interest-metadata.json",
     );
     assert.notProperty(result.bundle, "topic_graph_relation_proposals");
     assert.notProperty(result.bundle, "concept_cards");
@@ -958,27 +970,6 @@ describe("Synthesize topic workflow v2 structured contract", function () {
           }),
         ),
       /analysis_manifest_path|section manifest/i,
-    );
-  });
-
-  it("rejects v2 final bundles missing KG proposal sidecar paths", function () {
-    assert.throws(
-      () =>
-        validateSynthesisResultBundle(
-          v2CompleteBundle({
-            concept_cards_proposal_path: "",
-          }),
-        ),
-      /concept_cards_proposal_path/i,
-    );
-    assert.throws(
-      () =>
-        validateSynthesisResultBundle(
-          v2PatchBundle({
-            topic_graph_relation_proposals_path: "",
-          }),
-        ),
-      /topic_graph_relation_proposals_path/i,
     );
   });
 
@@ -1031,6 +1022,18 @@ describe("Synthesize topic workflow v2 structured contract", function () {
         "utf8",
       ),
     );
+    const createKgSchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/create-topic-synthesis/assets/schemas/kg_proposals.schema.json",
+        "utf8",
+      ),
+    );
+    const updateKgSchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/update-topic-synthesis/assets/schemas/kg_proposals.schema.json",
+        "utf8",
+      ),
+    );
 
     assert.include(createSkill, "persist_kg_proposals");
     assert.include(createSkill, "result/sidecars/concept-cards-proposal.json");
@@ -1038,18 +1041,32 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       createSkill,
       "result/sidecars/topic-graph-relation-proposals.json",
     );
+    assert.include(createSkill, "topic_interest_metadata");
+    assert.include(createSkill, "result/sidecars/topic-interest-metadata.json");
+    assert.include(updateSkill, "topic_interest_metadata");
+    assert.include(updateSkill, "result/sidecars/topic-interest-metadata.json");
     assert.notInclude(createSkill, "stage_5_6_topic_graph_relation_proposals");
     assert.notInclude(createSkill, "stage_5_5_concept_cards");
-    assert.include(createSkill, "concept_cards_proposal_path");
+    assert.include(createSkill, "sidecars");
     assert.include(updateSkill, "broader_topic_candidate");
     assert.include(updateSkill, "canonical concept");
     assert.include(createRuntime, "topic_graph_relation_proposals_path");
+    assert.include(createRuntime, "topic_interest_metadata_path");
     assert.include(createRuntime, "concept_cards_proposal_path");
     assert.include(createRuntime, "persist_kg_proposals");
-    assert.include(
+    assert.notInclude(
       JSON.stringify(createSchema),
       "topic_graph_relation_proposals_path",
     );
-    assert.include(JSON.stringify(createSchema), "concept_cards_proposal_path");
+    assert.notInclude(
+      JSON.stringify(createSchema),
+      "topic_interest_metadata_path",
+    );
+    assert.notInclude(
+      JSON.stringify(createSchema),
+      "concept_cards_proposal_path",
+    );
+    assert.include(JSON.stringify(createKgSchema), "topic_interest_metadata");
+    assert.include(JSON.stringify(updateKgSchema), "topic_interest_metadata");
   });
 });

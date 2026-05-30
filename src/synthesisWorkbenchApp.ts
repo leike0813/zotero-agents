@@ -40,6 +40,9 @@ type GraphNode = {
   x?: number;
   y?: number;
   low_signal?: boolean;
+  external_degree?: number;
+  visibility?: "default" | "hover_only";
+  display_tier?: "library" | "shared_external" | "single_external";
 };
 
 type GraphEdge = {
@@ -48,23 +51,38 @@ type GraphEdge = {
   target: string;
   primary_role?: string;
   mention_count?: number;
+  visibility?: "default" | "hover_only";
 };
+
+type SynthesisTab =
+  | "overview"
+  | "artifacts"
+  | "registry"
+  | "tags"
+  | "concepts"
+  | "graph"
+  | "reader";
 
 type Snapshot = {
   libraryId: number;
-  selectedTab:
-    | "overview"
-    | "artifacts"
-    | "registry"
-    | "tags"
-    | "concepts"
-    | "graph"
-    | "reader";
+  selectedTab: SynthesisTab;
   actions?: {
     inFlight?: ActionOperation[];
     lastCompleted?: ActionOperation;
     lastFailed?: ActionOperation;
     warnings?: ActionOperation[];
+  };
+  maintenance?: {
+    backgroundJobs?: {
+      rows?: BackgroundJobRow[];
+      activeCount?: number;
+      submittedCount?: number;
+      queuedCount?: number;
+      runningCount?: number;
+      waitingCount?: number;
+      failedCount?: number;
+      primaryJob?: BackgroundJobRow;
+    };
   };
   storage: Record<string, string>;
   preferences: Record<string, unknown>;
@@ -222,6 +240,8 @@ type Snapshot = {
     selectedElement?: { kind: "node" | "edge"; id: string };
     nodes: GraphNode[];
     edges: GraphEdge[];
+    hoverOnlyNodes: GraphNode[];
+    hoverOnlyEdges: GraphEdge[];
     visibleNodes: GraphNode[];
     visibleEdges: GraphEdge[];
     diagnostics: Record<string, unknown>;
@@ -304,6 +324,38 @@ type ActionOperation = {
   message?: string;
 };
 
+type BackgroundJobStatus =
+  | "submitted"
+  | "queued"
+  | "running"
+  | "waiting"
+  | "failed";
+
+type BackgroundJobProgress =
+  | {
+      mode: "indeterminate";
+      label?: string;
+    }
+  | {
+      mode: "determinate";
+      percent: number;
+      current?: number;
+      total?: number;
+      label?: string;
+    };
+
+type BackgroundJobRow = {
+  job_id: string;
+  source: string;
+  status: BackgroundJobStatus;
+  label: string;
+  detail?: string;
+  updated_at?: string;
+  command?: string;
+  targetTab?: SynthesisTab;
+  progress?: BackgroundJobProgress;
+};
+
 type OptimisticReviewDecision = {
   key: string;
   operationKey: string;
@@ -317,7 +369,8 @@ const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
 
 const state: {
   snapshot: Snapshot | null;
-  lastSnapshotSignature?: string;
+  lastChromeSignature?: string;
+  lastContentSignature?: string;
   artifactReader?: ArtifactReaderDto;
   topicDetail?: TopicDetailDto;
   topicDetailSection: TopicDetailSection;
@@ -330,13 +383,19 @@ const state: {
   sigmaResizeObserver?: ResizeObserver;
   graph?: Graph;
   hoveredNode?: string;
+  hoverClearTimer?: number;
+  dynamicHoverNodeIds: Set<string>;
+  dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
   optimisticReviewDecisions: Map<string, OptimisticReviewDecision>;
   lastLocalAction?: ActionOperation;
   statusbarExpirations: Map<string, number>;
   statusbarTimer?: number;
+  jobPopoverOpen: boolean;
   tagImportOpen: boolean;
   dismissedTagImportPreviewSignature?: string;
+  autoLayoutRequests: Set<string>;
+  registryExpandedRows: Set<string>;
 } = {
   snapshot: null,
   topicDetailSection: "overview",
@@ -346,12 +405,17 @@ const state: {
   localPendingActions: new Map(),
   optimisticReviewDecisions: new Map(),
   statusbarExpirations: new Map(),
+  jobPopoverOpen: false,
   tagImportOpen: false,
+  autoLayoutRequests: new Set(),
+  registryExpandedRows: new Set(),
+  dynamicHoverNodeIds: new Set(),
+  dynamicHoverEdgeIds: new Set(),
 };
 
 const colors: Record<GraphNodeKind, string> = {
   library_paper: "#1967b3",
-  external_reference: "#b35300",
+  external_reference: "#7a861f",
   unresolved_reference: "#657385",
 };
 
@@ -376,7 +440,7 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
         label: operationLabel(command),
         started_at: new Date().toISOString(),
       });
-      render();
+      renderWorkbenchChrome();
     }
   }
   const direct = window.__zoteroSkillsSynthesisWorkbenchBridge;
@@ -477,7 +541,7 @@ function operationLabel(command: string) {
     acceptTopicGraphRelation: "Accepting topic relation",
     rejectTopicGraphRelation: "Rejecting topic relation",
     applyTopicGraphReviewAction: "Applying topic graph review",
-    applyLiteratureCleanupAction: "Applying cleanup action",
+    applyLiteratureCleanupAction: "Applying reference decision",
     runLiteratureRegistryJobNow: "Rebuilding literature registry",
     retryLiteratureRegistryJob: "Retrying literature registry job",
     runSynthesizeTopic: "Starting topic synthesis",
@@ -593,8 +657,10 @@ function iconSvg(
     | "index"
     | "tags"
     | "concepts"
+    | "controls"
     | "panel-open"
-    | "panel-close",
+    | "panel-close"
+    | "jobs",
 ) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -635,8 +701,27 @@ function iconSvg(
       "M8.8 6.1 7.4 4.7",
       "M15.2 6.1l1.4-1.4",
     ],
+    controls: [
+      "M4 7h4",
+      "M12 7h8",
+      "M8 5v4",
+      "M4 12h10",
+      "M18 12h2",
+      "M14 10v4",
+      "M4 17h8",
+      "M16 17h4",
+      "M16 15v4",
+    ],
     "panel-open": ["M4 5h16v14H4z", "M9 5v14", "M13 9l3 3-3 3"],
     "panel-close": ["M4 5h16v14H4z", "M9 5v14", "M16 9l-3 3 3 3"],
+    jobs: [
+      "M5 7h14",
+      "M5 12h14",
+      "M5 17h14",
+      "M3 7h.01",
+      "M3 12h.01",
+      "M3 17h.01",
+    ],
   };
   paths[name].forEach((data) => {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -654,6 +739,41 @@ function clear(node: Element) {
 
 function badge(text: unknown, tone = "") {
   return el("span", `badge ${tone}`, String(text || "-"));
+}
+
+function renderEmptyState({
+  title,
+  message,
+  action,
+  tone = "default",
+}: {
+  title: string;
+  message?: string;
+  action?: HTMLElement;
+  tone?: "default" | "info" | "warning";
+}) {
+  const empty = el("div", `empty-state empty-state-${tone}`);
+  empty.appendChild(el("strong", "empty-state-title", title));
+  if (message) {
+    empty.appendChild(el("p", "empty-state-message", message));
+  }
+  if (action) {
+    const actions = el("div", "empty-state-actions");
+    actions.appendChild(action);
+    empty.appendChild(actions);
+  }
+  return empty;
+}
+
+function renderDetailList(fields: Array<[string, unknown]>) {
+  const list = el("div", "detail-list");
+  fields.forEach(([label, value]) => {
+    const row = el("div", "detail-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("strong", "", textValue(value, "-") || "-"));
+    list.appendChild(row);
+  });
+  return list;
 }
 
 function toneFor(value: unknown) {
@@ -738,7 +858,7 @@ function scheduleStatusbarExpiry(delayMs: number) {
   state.statusbarTimer = window.setTimeout(
     () => {
       state.statusbarTimer = undefined;
-      render();
+      renderWorkbenchChrome();
     },
     Math.max(0, delayMs) + STATUSBAR_EXPIRY_RENDER_GRACE_MS,
   );
@@ -784,19 +904,244 @@ function statusbarMessage(entry: ActionOperation) {
   return message ? `${label} - ${message}` : label;
 }
 
-function renderActionStatusbar(snapshot: Snapshot) {
-  const pending = [
-    ...Array.from(state.localPendingActions.values()),
-    ...(snapshot.actions?.inFlight || []),
-  ];
-  const seen = new Set<string>();
-  const uniquePending = pending.filter((entry) => {
-    if (!entry.key || seen.has(entry.key)) {
-      return false;
+function normalizeJobStatus(value: unknown): BackgroundJobStatus {
+  const status = textValue(value);
+  if (
+    status === "submitted" ||
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting" ||
+    status === "failed"
+  ) {
+    return status;
+  }
+  return "queued";
+}
+
+function actionStatusToJobStatus(
+  status: ActionOperation["status"],
+): BackgroundJobStatus | undefined {
+  if (status === "pending") return "submitted";
+  if (status === "queued") return "queued";
+  if (status === "running") return "running";
+  if (status === "failed") return "failed";
+  return undefined;
+}
+
+function actionToBackgroundJob(
+  entry: ActionOperation,
+): BackgroundJobRow | null {
+  const status = actionStatusToJobStatus(entry.status);
+  if (!status || !entry.key) {
+    return null;
+  }
+  return {
+    job_id: `synthesis:workbench:${entry.key}`,
+    source: "workbench",
+    status,
+    label: textValue(entry.label, entry.command || "Workbench action"),
+    detail: textValue(entry.message, entry.command),
+    updated_at: entry.completed_at || entry.started_at,
+    progress: status === "failed" ? undefined : { mode: "indeterminate" },
+  };
+}
+
+function normalizeSnapshotBackgroundJob(
+  entry: unknown,
+): BackgroundJobRow | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const row = entry as Partial<BackgroundJobRow>;
+  const jobId = textValue(row.job_id);
+  const label = textValue(row.label);
+  if (!jobId || !label) {
+    return null;
+  }
+  const progress =
+    row.progress && typeof row.progress === "object"
+      ? (row.progress as BackgroundJobProgress)
+      : undefined;
+  return {
+    job_id: jobId,
+    source: textValue(row.source, "workbench"),
+    status: normalizeJobStatus(row.status),
+    label,
+    detail: textValue(row.detail) || undefined,
+    updated_at: textValue(row.updated_at) || undefined,
+    command: textValue(row.command) || undefined,
+    targetTab: textValue(row.targetTab) as SynthesisTab | undefined,
+    progress,
+  };
+}
+
+function backgroundJobPriority(status: BackgroundJobStatus) {
+  if (status === "running") return 0;
+  if (status === "waiting") return 1;
+  if (status === "queued") return 2;
+  if (status === "submitted") return 3;
+  return 4;
+}
+
+function listBackgroundJobs(snapshot: Snapshot) {
+  const rows = new Map<string, BackgroundJobRow>();
+  const accept = (row: BackgroundJobRow | null) => {
+    if (!row) return;
+    const existing = rows.get(row.job_id);
+    if (
+      !existing ||
+      textValue(row.updated_at).localeCompare(textValue(existing.updated_at)) >=
+        0
+    ) {
+      rows.set(row.job_id, row);
     }
-    seen.add(entry.key);
-    return true;
+  };
+  for (const entry of state.localPendingActions.values()) {
+    accept(actionToBackgroundJob(entry));
+  }
+  for (const entry of snapshot.actions?.inFlight || []) {
+    accept(actionToBackgroundJob(entry));
+  }
+  for (const entry of snapshot.maintenance?.backgroundJobs?.rows || []) {
+    accept(normalizeSnapshotBackgroundJob(entry));
+  }
+  return Array.from(rows.values()).sort(
+    (left, right) =>
+      backgroundJobPriority(left.status) -
+        backgroundJobPriority(right.status) ||
+      textValue(right.updated_at).localeCompare(textValue(left.updated_at)),
+  );
+}
+
+function statusLabelForJob(status: BackgroundJobStatus) {
+  if (status === "submitted") return "Submitted";
+  if (status === "queued") return "Queued";
+  if (status === "running") return "Running";
+  if (status === "waiting") return "Waiting";
+  return "Failed";
+}
+
+function sourceLabelForJob(source: string) {
+  const labels: Record<string, string> = {
+    workbench: "Workbench",
+    update_queue: "Update queue",
+    dirty_event: "Dirty event",
+    startup_reconcile: "Startup reconcile",
+    literature_registry: "Literature",
+    citation_graph_layout: "Graph layout",
+    git_sync: "Git Sync",
+    canonical_maintenance: "Canonical",
+  };
+  return labels[source] || source || "Synthesis";
+}
+
+function progressLabel(progress: BackgroundJobProgress | undefined) {
+  if (!progress) return "";
+  if (progress.mode === "determinate") {
+    if (progress.label) return `${progress.label} - ${progress.percent}%`;
+    if (progress.total) return `${progress.current || 0}/${progress.total}`;
+    return `${progress.percent}%`;
+  }
+  return progress.label || "In progress";
+}
+
+function renderStatusbarProgress(progress: BackgroundJobProgress | undefined) {
+  const meter = el(
+    "span",
+    `action-statusbar-progress ${
+      progress?.mode === "determinate" ? "is-determinate" : "is-indeterminate"
+    }`,
+  );
+  meter.setAttribute("aria-hidden", "true");
+  const fill = el("span", "action-statusbar-progress-fill");
+  if (progress?.mode === "determinate") {
+    fill.style.width = `${progress.percent}%`;
+  }
+  meter.appendChild(fill);
+  return meter;
+}
+
+function handleBackgroundJobOpen(job: BackgroundJobRow) {
+  state.jobPopoverOpen = false;
+  if (job.command) {
+    sendAction("hostCommand", {
+      command: job.command,
+      args: {},
+    });
+    return;
+  }
+  if (job.targetTab && job.targetTab !== "reader") {
+    sendAction("selectTab", { tab: job.targetTab });
+    return;
+  }
+  render();
+}
+
+function renderBackgroundJobPopover(jobs: BackgroundJobRow[]) {
+  const popover = el("div", "action-statusbar-job-popover");
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute("aria-label", "Synthesis jobs");
+  const header = el("div", "action-statusbar-job-popover-header");
+  header.appendChild(el("strong", "", "Synthesis jobs"));
+  const close = el("button", "icon-only action-statusbar-job-popover-close");
+  close.type = "button";
+  close.title = "Close";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "x";
+  close.addEventListener("click", () => {
+    state.jobPopoverOpen = false;
+    render();
   });
+  header.appendChild(close);
+  popover.appendChild(header);
+
+  if (!jobs.length) {
+    popover.appendChild(
+      el("div", "action-statusbar-job-empty", "No active Synthesis jobs."),
+    );
+    return popover;
+  }
+
+  const list = el("div", "action-statusbar-job-list");
+  jobs.slice(0, 10).forEach((job) => {
+    const row = el("button", `action-statusbar-job-row is-${job.status}`);
+    row.type = "button";
+    row.addEventListener("click", () => handleBackgroundJobOpen(job));
+    const meta = el("span", "action-statusbar-job-meta");
+    meta.appendChild(
+      el(
+        "span",
+        `action-statusbar-job-state is-${job.status}`,
+        statusLabelForJob(job.status),
+      ),
+    );
+    meta.appendChild(
+      el("span", "action-statusbar-job-source", sourceLabelForJob(job.source)),
+    );
+    const title = el("span", "action-statusbar-job-title", job.label);
+    const detail = el(
+      "span",
+      "action-statusbar-job-detail",
+      [job.detail, progressLabel(job.progress)].filter(Boolean).join(" - "),
+    );
+    row.appendChild(meta);
+    row.appendChild(title);
+    if (detail.textContent) {
+      row.appendChild(detail);
+    }
+    if (job.progress) {
+      row.appendChild(renderStatusbarProgress(job.progress));
+    }
+    list.appendChild(row);
+  });
+  popover.appendChild(list);
+  return popover;
+}
+
+function renderActionStatusbar(snapshot: Snapshot) {
+  const jobs = listBackgroundJobs(snapshot);
+  const activeJobs = jobs.filter((job) => job.status !== "failed");
+  const failedJob = jobs.find((job) => job.status === "failed");
   const latestWarning = (snapshot.actions?.warnings || []).slice(-1)[0];
   const failed =
     snapshot.actions?.lastFailed ||
@@ -812,27 +1157,69 @@ function renderActionStatusbar(snapshot: Snapshot) {
   statusbar.setAttribute("role", "status");
   statusbar.setAttribute("aria-live", "polite");
 
-  if (uniquePending.length) {
-    const latest = uniquePending[0];
-    const label =
-      latest.status === "queued"
-        ? "Queued"
-        : latest.status === "running"
-          ? "Running"
-          : "Submitting";
-    statusbar.className = "action-statusbar is-busy";
-    const spinner = el("span", "button-spinner");
-    spinner.setAttribute("aria-hidden", "true");
-    statusbar.appendChild(spinner);
-    statusbar.appendChild(el("span", "action-statusbar-state", label));
-    statusbar.appendChild(
-      el("span", "action-statusbar-message", statusbarMessage(latest)),
+  const appendJobButton = () => {
+    const button = el("button", "action-statusbar-job-button");
+    button.type = "button";
+    button.title = "Show Synthesis jobs";
+    button.setAttribute("aria-label", "Show Synthesis jobs");
+    button.setAttribute(
+      "aria-expanded",
+      state.jobPopoverOpen ? "true" : "false",
     );
-    if (uniquePending.length > 1) {
-      statusbar.appendChild(
-        el("span", "action-statusbar-count", `+${uniquePending.length - 1}`),
+    button.appendChild(iconSvg("jobs"));
+    const count = jobs.length;
+    if (count > 0) {
+      button.appendChild(
+        el("span", "action-statusbar-job-button-count", String(count)),
       );
     }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      state.jobPopoverOpen = !state.jobPopoverOpen;
+      renderWorkbenchChrome();
+    });
+    const wrap = el("span", "action-statusbar-job-anchor");
+    wrap.appendChild(button);
+    if (state.jobPopoverOpen) {
+      wrap.appendChild(renderBackgroundJobPopover(jobs));
+    }
+    statusbar.appendChild(wrap);
+  };
+
+  if (activeJobs.length) {
+    const latest = activeJobs[0];
+    const label = statusLabelForJob(latest.status);
+    statusbar.className = "action-statusbar is-busy";
+    statusbar.appendChild(renderStatusbarProgress(latest.progress));
+    statusbar.appendChild(el("span", "action-statusbar-state", label));
+    statusbar.appendChild(
+      el(
+        "span",
+        "action-statusbar-message",
+        [latest.label, latest.detail].filter(Boolean).join(" - "),
+      ),
+    );
+    if (activeJobs.length > 1) {
+      statusbar.appendChild(
+        el("span", "action-statusbar-count", `+${activeJobs.length - 1}`),
+      );
+    }
+    appendJobButton();
+    return statusbar;
+  }
+
+  if (failedJob) {
+    statusbar.className = "action-statusbar is-danger";
+    statusbar.appendChild(el("span", "action-statusbar-state", "Failed"));
+    statusbar.appendChild(
+      el(
+        "span",
+        "action-statusbar-message",
+        [failedJob.label, failedJob.detail].filter(Boolean).join(" - "),
+      ),
+    );
+    appendJobButton();
     return statusbar;
   }
 
@@ -844,6 +1231,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(failed!)),
     );
+    if (jobs.length) appendJobButton();
     return statusbar;
   }
 
@@ -859,6 +1247,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(latestWarning!)),
     );
+    if (jobs.length) appendJobButton();
     return statusbar;
   }
 
@@ -874,10 +1263,14 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(completed!)),
     );
+    if (jobs.length) appendJobButton();
     return statusbar;
   }
 
   statusbar.appendChild(el("span", "action-statusbar-state", "Ready"));
+  if (jobs.length || state.jobPopoverOpen) {
+    appendJobButton();
+  }
   return statusbar;
 }
 
@@ -885,11 +1278,6 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   clear(root);
   root.classList.toggle("sidebar-expanded", state.sidebarExpanded);
   root.classList.toggle("sidebar-collapsed", !state.sidebarExpanded);
-  state.sigmaResizeObserver?.disconnect();
-  state.sigmaResizeObserver = undefined;
-  state.sigma?.kill();
-  state.sigma = undefined;
-  state.graph = undefined;
 
   const sidebar = el("aside", "sidebar");
   const brand = el("div", "brand brand-icon-only");
@@ -964,6 +1352,31 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   content.appendChild(main);
   content.appendChild(renderActionStatusbar(snapshot));
   root.appendChild(content);
+}
+
+function renderWorkbenchChrome() {
+  const root = document.getElementById("app") as HTMLElement | null;
+  if (!root || !state.snapshot) {
+    return;
+  }
+  const existingStatusbar = root.querySelector(".action-statusbar");
+  if (existingStatusbar) {
+    existingStatusbar.replaceWith(renderActionStatusbar(state.snapshot));
+    return;
+  }
+  render();
+}
+
+function disposeGraphRenderer() {
+  cancelScheduledHoverClear();
+  state.sigmaResizeObserver?.disconnect();
+  state.sigmaResizeObserver = undefined;
+  state.sigma?.kill();
+  state.sigma = undefined;
+  state.graph = undefined;
+  state.hoveredNode = undefined;
+  state.dynamicHoverNodeIds.clear();
+  state.dynamicHoverEdgeIds.clear();
 }
 
 function scheduleSigmaResize(renderer: Sigma, container: HTMLElement) {
@@ -1168,7 +1581,14 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
   const topicGrid = el("div", "topic-grid");
   const rows = sortedTopTopics(snapshot);
   if (!rows.length) {
-    topicGrid.appendChild(el("div", "empty", "No synthesis topics yet."));
+    topicGrid.appendChild(
+      renderEmptyState({
+        title: "No synthesis topics yet",
+        message:
+          "Create a topic synthesis to populate the topic workspace and graph views.",
+        tone: "info",
+      }),
+    );
   } else {
     rows.forEach((row) => topicGrid.appendChild(renderTopicCard(row)));
   }
@@ -1327,6 +1747,7 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const filters = el("div", "filters");
   const search = el("input");
+  search.dataset.synthesisControlKey = "registry.search";
   search.placeholder = "Search";
   search.value = snapshot.artifacts.filters.search || "";
   search.addEventListener("input", () =>
@@ -1379,9 +1800,26 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
     panel.appendChild(renderTopicsGraph(snapshot));
   } else if (snapshot.artifacts.filters.viewMode === "grid") {
     const grid = el("div", "topic-grid panel-grid");
-    snapshot.artifacts.visibleRows.forEach((row) =>
-      grid.appendChild(renderTopicCard(row)),
-    );
+    if (!snapshot.artifacts.visibleRows.length) {
+      grid.appendChild(
+        renderEmptyState({
+          title: snapshot.artifacts.rows.length
+            ? "No topics match the current filters"
+            : "No synthesis topics yet",
+          message: snapshot.artifacts.rows.length
+            ? "Adjust the search or sort settings to show more topics."
+            : "Create a topic synthesis to make it available here.",
+          action: makeButton("Create Topic", "hostCommand", {
+            command: "runSynthesizeTopic",
+          }),
+          tone: "info",
+        }),
+      );
+    } else {
+      snapshot.artifacts.visibleRows.forEach((row) =>
+        grid.appendChild(renderTopicCard(row)),
+      );
+    }
     panel.appendChild(grid);
   } else {
     panel.appendChild(
@@ -1418,6 +1856,18 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
             }),
           ]),
         ],
+        renderEmptyState({
+          title: snapshot.artifacts.rows.length
+            ? "No topics match the current filters"
+            : "No synthesis topics yet",
+          message: snapshot.artifacts.rows.length
+            ? "Adjust the search or sort settings to show more topics."
+            : "Create a topic synthesis to make it available here.",
+          action: makeButton("Create Topic", "hostCommand", {
+            command: "runSynthesizeTopic",
+          }),
+          tone: snapshot.artifacts.rows.length ? "default" : "info",
+        }),
       ),
     );
   }
@@ -1477,7 +1927,20 @@ function renderTopicsGraph(snapshot: Snapshot) {
 
   if (!snapshot.topicGraph.visibleNodes.length) {
     const empty = el("div", "topic-graph-canvas is-empty");
-    empty.appendChild(el("div", "empty", "No topics in this graph view."));
+    empty.appendChild(
+      renderEmptyState({
+        title: snapshot.artifacts.rows.length
+          ? "No topics in this graph view"
+          : "No topic graph data yet",
+        message: snapshot.artifacts.rows.length
+          ? "Adjust the graph mode or search terms to reveal existing topics."
+          : "Create or update topic synthesis artifacts, then rebuild the topic graph.",
+        action: makeButton("Rebuild Index", "hostCommand", {
+          command: "rebuildTopicGraphIndex",
+        }),
+        tone: "info",
+      }),
+    );
     board.appendChild(empty);
   } else {
     board.appendChild(renderTopicGraphCanvas(snapshot));
@@ -4146,7 +4609,13 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   const detail = state.topicDetail;
   const app = el("div", "topic-detail-shell detail-shell-in-workbench");
   if (!detail) {
-    app.appendChild(el("div", "empty", "No structured topic selected."));
+    app.appendChild(
+      renderEmptyState({
+        title: "No structured topic selected",
+        message: "Open a topic from the Topics tab to inspect its synthesis.",
+        tone: "info",
+      }),
+    );
     root.appendChild(app);
     return;
   }
@@ -4206,11 +4675,317 @@ function renderArtifactReader(main: HTMLElement, snapshot: Snapshot) {
   header.appendChild(actions);
   panel.appendChild(header);
   if (!reader) {
-    panel.appendChild(el("div", "empty", "No artifact selected."));
+    panel.appendChild(
+      renderEmptyState({
+        title: "No artifact selected",
+        message: "Open a topic artifact to preview its Markdown export.",
+        tone: "info",
+      }),
+    );
   } else {
     panel.appendChild(renderMarkdown(reader.markdown));
   }
   main.appendChild(panel);
+}
+
+function registryReferences(row: Record<string, unknown>) {
+  return Array.isArray(row.references)
+    ? (row.references as Array<Record<string, unknown>>)
+    : [];
+}
+
+function registryRowKey(row: Record<string, unknown>) {
+  return (
+    textValue(row.paper_ref) ||
+    textValue(row.literature_item_id) ||
+    textValue(row.title)
+  );
+}
+
+function registryRowDisplayId(row: Record<string, unknown>) {
+  return textValue(row.paper_ref) || textValue(row.literature_item_id) || "-";
+}
+
+function registryReferencePrimaryTitle(reference: Record<string, unknown>) {
+  return (
+    textValue(reference.target_title) ||
+    textValue(reference.title) ||
+    textValue(reference.raw_reference) ||
+    textValue(reference.target_paper_ref) ||
+    textValue(reference.target_literature_item_id) ||
+    textValue(reference.reference_instance_id) ||
+    "Untitled reference"
+  );
+}
+
+function registryReferenceDisplayIndex(reference: Record<string, unknown>) {
+  const index = Number(reference.reference_index);
+  return Number.isFinite(index) ? `#${Math.max(0, Math.floor(index)) + 1}` : "";
+}
+
+function registryReferenceTargetId(reference: Record<string, unknown>) {
+  return (
+    textValue(reference.target_paper_ref) ||
+    textValue(reference.target_literature_item_id)
+  );
+}
+
+function registryReferenceDisplayId(reference: Record<string, unknown>) {
+  return (
+    registryReferenceTargetId(reference) ||
+    textValue(reference.reference_instance_id) ||
+    "-"
+  );
+}
+
+function registryStatusTone(value: unknown) {
+  const status = textValue(value);
+  if (status === "matched") {
+    return "blue";
+  }
+  if (status === "resolved" || status === "confirmed") {
+    return "ok";
+  }
+  if (status === "unresolved" || status === "ambiguous") {
+    return "warn";
+  }
+  return toneFor(status);
+}
+
+const registryArtifactBadges = [
+  ["digest", "D", "Digest artifact"],
+  ["references", "R", "References artifact"],
+  ["citation_analysis", "C", "Citation analysis artifact"],
+] as const;
+
+function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
+  const coverage = textValue(row.coverage);
+  const missing = Array.isArray(row.missing_artifacts)
+    ? row.missing_artifacts.map((entry) => textValue(entry))
+    : [];
+  if (coverage === "complete") {
+    return true;
+  }
+  if (coverage === "missing") {
+    return false;
+  }
+  return !missing.includes(artifact);
+}
+
+function renderRegistryArtifacts(row: Record<string, unknown>) {
+  const wrap = el("div", "registry-artifact-badges");
+  registryArtifactBadges.forEach(([artifact, label, title]) => {
+    const available = hasRegistryArtifact(row, artifact);
+    const node = badge(label, available ? "ok" : "danger");
+    node.classList.add("registry-artifact-badge");
+    node.title = `${title}: ${available ? "available" : "missing"}`;
+    node.setAttribute("aria-label", node.title);
+    wrap.appendChild(node);
+  });
+  return wrap;
+}
+
+function renderRegistryHeader(
+  label: string,
+  options: { subtitle?: string; className?: string } = {},
+) {
+  const th = el("th", options.className || "");
+  th.appendChild(el("span", "registry-column-header-label", label));
+  if (options.subtitle) {
+    th.appendChild(
+      el("span", "registry-column-header-subtitle", options.subtitle),
+    );
+  }
+  return th;
+}
+
+function renderRegistryTitle(row: Record<string, unknown>) {
+  const references = registryReferences(row);
+  if (!references.length || textValue(row.index_scope) === "referenced") {
+    return textValue(row.title);
+  }
+  const key = registryRowKey(row);
+  const expanded = !!key && state.registryExpandedRows.has(key);
+  const title = el("div", "registry-reference-title-cell");
+  const disclosure = el(
+    "button",
+    "registry-reference-disclosure",
+    expanded ? "-" : "+",
+  );
+  disclosure.type = "button";
+  disclosure.setAttribute("aria-expanded", String(expanded));
+  disclosure.setAttribute(
+    "aria-label",
+    expanded ? "Collapse references" : "Expand references",
+  );
+  disclosure.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!key) {
+      return;
+    }
+    if (state.registryExpandedRows.has(key)) {
+      state.registryExpandedRows.delete(key);
+    } else {
+      state.registryExpandedRows.add(key);
+    }
+    render();
+  });
+  title.appendChild(disclosure);
+  title.appendChild(
+    el("span", "registry-reference-parent-title", textValue(row.title)),
+  );
+  title.appendChild(
+    el("span", "registry-reference-muted", `${references.length} refs`),
+  );
+  return title;
+}
+
+function renderRegistryReferenceSummary(row: Record<string, unknown>) {
+  const count = Number(row.reference_count || 0);
+  const unresolved = Number(row.unresolved_reference_count || 0);
+  const safeTotal = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  const safeUnresolved = Number.isFinite(unresolved)
+    ? Math.max(0, Math.floor(unresolved))
+    : 0;
+  return el(
+    "span",
+    "registry-reference-count",
+    `${safeTotal}/${safeUnresolved}`,
+  );
+}
+
+function appendRegistryCell(
+  rowNode: HTMLTableRowElement,
+  cell: Node | unknown,
+  className = "",
+) {
+  const td = el("td", className);
+  if (cell instanceof Node) {
+    td.appendChild(cell);
+  } else {
+    td.textContent = String(cell ?? "");
+  }
+  rowNode.appendChild(td);
+}
+
+function renderRegistryReferenceTitle(reference: Record<string, unknown>) {
+  const primaryTitle = registryReferencePrimaryTitle(reference);
+  const title = el("div", "registry-reference-title-cell is-child");
+  title.appendChild(el("span", "registry-reference-child-marker", ""));
+  title.appendChild(el("span", "registry-reference-primary", primaryTitle));
+  const index = registryReferenceDisplayIndex(reference);
+  if (index) {
+    title.appendChild(el("span", "registry-reference-muted", index));
+  }
+  return title;
+}
+
+function renderRegistryReferenceRow(reference: Record<string, unknown>) {
+  const rowNode = el("tr", "registry-reference-row");
+  const cells: Array<[unknown, string?]> = [
+    [renderRegistryReferenceTitle(reference)],
+    [reference.year || "-"],
+    ["-"],
+    ["-", "registry-artifacts-cell"],
+    [
+      badge(
+        textValue(reference.resolution_status, "unresolved"),
+        registryStatusTone(reference.resolution_status),
+      ),
+    ],
+    ["", "registry-references-cell"],
+    [registryReferenceDisplayId(reference)],
+  ];
+  cells.forEach(([cell, className]) =>
+    appendRegistryCell(rowNode, cell, className),
+  );
+  return rowNode;
+}
+
+function renderRegistryParentRow(row: Record<string, unknown>) {
+  const rowNode = el("tr", "registry-parent-row");
+  const cells: Array<[unknown, string?]> = [
+    [renderRegistryTitle(row)],
+    [row.year || "-"],
+    [badge(row.readiness, toneFor(row.readiness))],
+    [renderRegistryArtifacts(row), "registry-artifacts-cell"],
+    [
+      row.cleanup_count
+        ? badge("needs cleanup", "warn")
+        : badge(row.literature_status || "library", "ok"),
+    ],
+    [renderRegistryReferenceSummary(row), "registry-references-cell"],
+    [registryRowDisplayId(row)],
+  ];
+  cells.forEach(([cell, className]) =>
+    appendRegistryCell(rowNode, cell, className),
+  );
+  return rowNode;
+}
+
+function renderRegistryTable(snapshot: Snapshot) {
+  const rows = snapshot.registry.visibleRows;
+  if (!rows.length) {
+    return renderEmptyState({
+      title: snapshot.registry.rows.length
+        ? "No index rows match the current filters"
+        : "No literature index records yet",
+      message: snapshot.registry.rows.length
+        ? "Adjust the search or literature filter to show more records."
+        : "Rebuild the literature index after adding papers or references.",
+      action: makeButton(
+        "Rebuild",
+        "hostCommand",
+        {
+          command: "runLiteratureRegistryJobNow",
+        },
+        false,
+        ["queued", "running"].includes(
+          textValue(snapshot.registry.literatureJob?.queue_state),
+        ),
+      ),
+      tone: snapshot.registry.rows.length ? "default" : "info",
+    });
+  }
+  const wrap = el("div", "table-wrap registry-table-wrap");
+  const table = el("table", "registry-table");
+  const thead = el("thead");
+  const header = el("tr");
+  [
+    renderRegistryHeader("Title"),
+    renderRegistryHeader("Year"),
+    renderRegistryHeader("Readiness"),
+    renderRegistryHeader("Artifacts", {
+      className: "registry-artifacts-header",
+    }),
+    renderRegistryHeader("Status"),
+    renderRegistryHeader("References", {
+      subtitle: "(Total/Unresolved)",
+      className: "registry-references-header",
+    }),
+    renderRegistryHeader("ID"),
+  ].forEach((node) => header.appendChild(node));
+  thead.appendChild(header);
+  table.appendChild(thead);
+
+  const tbody = el("tbody");
+  rows.forEach((row) => {
+    tbody.appendChild(renderRegistryParentRow(row));
+    const key = registryRowKey(row);
+    const references = registryReferences(row);
+    if (
+      key &&
+      state.registryExpandedRows.has(key) &&
+      textValue(row.index_scope) !== "referenced"
+    ) {
+      references.forEach((reference) => {
+        tbody.appendChild(renderRegistryReferenceRow(reference));
+      });
+    }
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
 }
 
 function renderIndex(main: HTMLElement, snapshot: Snapshot) {
@@ -4237,6 +5012,21 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
       ],
       snapshot.registry.filters.literature || "all",
       (literature) => sendAction("setFilters", { registry: { literature } }),
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "Only referenced literature",
+      "setFilters",
+      {
+        registry: {
+          literature:
+            snapshot.registry.filters.literature === "reference-only"
+              ? "all"
+              : "reference-only",
+        },
+      },
+      snapshot.registry.filters.literature === "reference-only",
     ),
   );
   filters.appendChild(
@@ -4276,24 +5066,9 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     );
   }
   panel.appendChild(renderPanelToolbar(filters));
-  panel.appendChild(
-    tableView(
-      ["Title", "Year", "Readiness", "Coverage", "Status", "Missing"],
-      snapshot.registry.visibleRows,
-      (row) => [
-        row.title,
-        row.year || "-",
-        badge(row.readiness, toneFor(row.readiness)),
-        badge(row.coverage, toneFor(row.coverage)),
-        row.cleanup_count
-          ? badge("needs cleanup", "warn")
-          : badge(row.literature_status || "library", "ok"),
-        Array.isArray(row.missing_artifacts) && row.missing_artifacts.length
-          ? row.missing_artifacts.join(", ")
-          : "-",
-      ],
-    ),
-  );
+  const registryTable = renderRegistryTable(snapshot);
+  registryTable.dataset.synthesisScrollKey = "registry.table";
+  panel.appendChild(registryTable);
   const cleanup = (snapshot.registry.cleanupProposals || []).filter(
     (proposal) =>
       proposal.status === "open" &&
@@ -4301,6 +5076,9 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   );
   if (cleanup.length) {
     const proposal = cleanup[0];
+    const reviewKind = textValue(proposal.review_kind || proposal.kind);
+    const isDeleteReview = reviewKind === "zotero_item_delete";
+    const isDedupeReview = reviewKind === "zotero_dedupe_candidate";
     const sourceTitle =
       textValue(proposal.source_paper_title) ||
       textValue(proposal.source_paper_ref, "Source paper");
@@ -4315,12 +5093,19 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     panel.appendChild(
       renderReviewPanel(
         renderReviewCard({
-          kind: "Cleanup",
-          title: `${sourceTitle} -> ${referenceTitle}`,
+          kind: isDeleteReview || isDedupeReview ? "Index review" : "Cleanup",
+          title:
+            isDeleteReview || isDedupeReview
+              ? sourceTitle
+              : `${sourceTitle} -> ${referenceTitle}`,
           meta:
             cleanup.length > 1
               ? `${cleanup.length - 1} more proposal(s)`
-              : "Open cleanup proposal",
+              : isDeleteReview
+                ? "Zotero deletion review"
+                : isDedupeReview
+                  ? "Zotero dedupe review"
+                  : "Open cleanup proposal",
           body:
             textValue(proposal.decision_summary) ||
             "Decide how this unresolved reference should be handled in the literature registry.",
@@ -4330,14 +5115,92 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
             ["target", targetTitle],
             ["kind", proposal.kind],
             ["reason", proposal.reason],
+            ["blocked by", proposal.blocked_by_review_item_id],
             ["diagnostics", proposal.diagnostics],
           ],
-          actions: ["approve", "reject", "skip"].map((action) =>
-            makeButton(action, "hostCommand", {
-              command: "applyLiteratureCleanupAction",
-              args: { proposalId: proposal.proposal_id, action },
-            }),
-          ),
+          actions:
+            isDeleteReview || isDedupeReview
+              ? [
+                  ...(isDeleteReview
+                    ? [
+                        makeButton("Confirm removed", "hostCommand", {
+                          command: "applyLiteratureCleanupAction",
+                          args: {
+                            proposalId: proposal.proposal_id,
+                            action: "confirm_delete_item",
+                          },
+                        }),
+                      ]
+                    : []),
+                  ...(isDedupeReview
+                    ? [
+                        makeButton(
+                          "Merge into target",
+                          "hostCommand",
+                          {
+                            command: "applyLiteratureCleanupAction",
+                            args: {
+                              proposalId: proposal.proposal_id,
+                              action: "mark_as_dedupe_merge",
+                              targetPaperRef: proposal.target_paper_ref,
+                              targetLiteratureItemId:
+                                proposal.target_literature_item_id,
+                            },
+                          },
+                          false,
+                          !textValue(proposal.target_paper_ref) &&
+                            !textValue(proposal.target_literature_item_id),
+                        ),
+                      ]
+                    : []),
+                  makeButton("Keep for now", "hostCommand", {
+                    command: "applyLiteratureCleanupAction",
+                    args: {
+                      proposalId: proposal.proposal_id,
+                      action: "keep_for_now",
+                    },
+                  }),
+                ]
+              : [
+                  makeButton("Create index item", "hostCommand", {
+                    command: "applyLiteratureCleanupAction",
+                    args: {
+                      proposalId: proposal.proposal_id,
+                      action: "confirm_literature_item",
+                    },
+                  }),
+                  makeButton(
+                    "Match target",
+                    "hostCommand",
+                    {
+                      command: "applyLiteratureCleanupAction",
+                      args: {
+                        proposalId: proposal.proposal_id,
+                        action: "match_existing_literature_item",
+                        targetPaperRef: proposal.target_paper_ref,
+                        targetLiteratureItemId:
+                          proposal.target_literature_item_id,
+                      },
+                    },
+                    false,
+                    !textValue(proposal.target_paper_ref) &&
+                      !textValue(proposal.target_literature_item_id),
+                  ),
+                  makeButton("Ignore reference", "hostCommand", {
+                    command: "applyLiteratureCleanupAction",
+                    args: {
+                      proposalId: proposal.proposal_id,
+                      action: "ignore_reference_instance",
+                    },
+                  }),
+                  makeButton("Defer", "hostCommand", {
+                    command: "applyLiteratureCleanupAction",
+                    args: {
+                      proposalId: proposal.proposal_id,
+                      action: "defer_reference_resolution",
+                    },
+                  }),
+                ],
         }),
         "cleanup-review-panel",
       ),
@@ -4360,7 +5223,12 @@ function renderTagInspector(snapshot: Snapshot) {
   panel.appendChild(header);
   const details = el("div", "details");
   if (!selected) {
-    details.appendChild(el("div", "empty", "No tag selected."));
+    details.appendChild(
+      renderEmptyState({
+        title: "No tag selected",
+        message: "Select a tag row to inspect aliases, usage, and validation.",
+      }),
+    );
     panel.appendChild(details);
     return panel;
   }
@@ -4411,6 +5279,7 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const filters = el("div", "filters");
   const search = el("input");
+  search.dataset.synthesisControlKey = "tags.search";
   search.placeholder = "Search tags";
   search.value = snapshot.tags.filters.search || "";
   search.addEventListener("input", () =>
@@ -4456,7 +5325,9 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
   const status = el("div", "details");
   status.appendChild(
     badge(
-      snapshot.tags.projection.stale ? "tag-index stale" : "tag-index ready",
+      snapshot.tags.projection.stale
+        ? "Tag index needs rebuild"
+        : "Tag index ready",
       snapshot.tags.projection.stale ? "warn" : "ok",
     ),
   );
@@ -4489,6 +5360,18 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
             ),
         row.usage_count || 0,
       ],
+      renderEmptyState({
+        title: snapshot.tags.rows.length
+          ? "No tags match the current filters"
+          : "No tag vocabulary indexed yet",
+        message: snapshot.tags.rows.length
+          ? "Adjust the search, facet, or status filters to show more tags."
+          : "Import tags or rebuild the tag vocabulary index.",
+        action: makeButton("Rebuild Index", "hostCommand", {
+          command: "rebuildTagVocabularyIndex",
+        }),
+        tone: snapshot.tags.rows.length ? "default" : "info",
+      }),
     ),
   );
   const tagImportPanel = renderTagImportPanel(snapshot);
@@ -4627,6 +5510,7 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const filters = el("div", "filters");
   const search = el("input");
+  search.dataset.synthesisControlKey = "concepts.search";
   search.placeholder = "Search concepts";
   search.value = snapshot.concepts.filters.search || "";
   search.addEventListener("input", () =>
@@ -4665,8 +5549,8 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
   status.appendChild(
     badge(
       snapshot.concepts.projection.stale
-        ? "concept-kb-index stale"
-        : "concept-kb-index ready",
+        ? "Concept index needs rebuild"
+        : "Concept index ready",
       snapshot.concepts.projection.stale ? "warn" : "ok",
     ),
   );
@@ -4689,6 +5573,18 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
           : "-",
         badge(row.status || "active", toneFor(row.status)),
       ],
+      renderEmptyState({
+        title: snapshot.concepts.rows.length
+          ? "No concepts match the current filters"
+          : "No concepts indexed yet",
+        message: snapshot.concepts.rows.length
+          ? "Adjust the search, concept type, or status filters to show more concepts."
+          : "Rebuild the concept index after adding concept knowledge.",
+        action: makeButton("Rebuild Index", "hostCommand", {
+          command: "rebuildConceptKbIndex",
+        }),
+        tone: snapshot.concepts.rows.length ? "default" : "info",
+      }),
     ),
   );
   const reviewItems = (snapshot.concepts.reviewItems || []).filter(
@@ -4797,7 +5693,12 @@ function renderConceptInspector(snapshot: Snapshot) {
   panel.appendChild(header);
   const details = el("div", "details");
   if (!selected) {
-    details.appendChild(el("div", "empty", "No concept selected."));
+    details.appendChild(
+      renderEmptyState({
+        title: "No concept selected",
+        message: "Select a concept row to inspect definitions and senses.",
+      }),
+    );
     panel.appendChild(details);
     return panel;
   }
@@ -4865,6 +5766,41 @@ function roleOptions(snapshot: Snapshot) {
   ).sort((left, right) => left.localeCompare(right));
 }
 
+function graphDiagnosticSummary(
+  diagnostics: Record<string, unknown>,
+  layoutStatus: Snapshot["graph"]["layoutStatus"],
+) {
+  const entries = objectEntries(diagnostics);
+  if (!entries.length) {
+    if (layoutStatus === "running") {
+      return "The citation graph layout is still being computed.";
+    }
+    if (layoutStatus === "missing") {
+      return "No graph layout has been generated for the current registry.";
+    }
+    if (layoutStatus === "dirty") {
+      return "The graph layout is stale and should be rebuilt.";
+    }
+    if (layoutStatus === "failed") {
+      return "The last graph layout attempt failed. Rebuild to retry.";
+    }
+    return "The citation graph is not ready yet.";
+  }
+  return entries
+    .slice(0, 3)
+    .map(([key, value]) => {
+      const label = key.replace(/_/g, " ");
+      if (Array.isArray(value)) {
+        return `${label}: ${value.length} item(s)`;
+      }
+      if (isRecord(value)) {
+        return `${label}: ${Object.keys(value).length} field(s)`;
+      }
+      return `${label}: ${textValue(value, "available")}`;
+    })
+    .join("; ");
+}
+
 function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const shell = el("div", "graph-shell");
   const stage = el("div", "graph-stage");
@@ -4876,42 +5812,116 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   detail.tabIndex = 0;
   detail.setAttribute("aria-label", "Graph controls");
   const header = el("div", "panel-header");
-  header.appendChild(el("strong", "", "Graph Controls"));
+  const controlIcon = el("span", "graph-control-icon");
+  controlIcon.appendChild(iconSvg("controls"));
+  header.appendChild(controlIcon);
+  header.appendChild(el("strong", "graph-control-title", "Graph Controls"));
   detail.appendChild(header);
   const controls = el("div", "details");
+  controls.dataset.synthesisScrollKey = "graph.controls";
   controls.appendChild(renderGraphControls(snapshot));
   controls.appendChild(
     el(
       "p",
       "muted",
-      `${snapshot.graph.visibleNodes.length} nodes, ${snapshot.graph.visibleEdges.length} edges`,
+      `${snapshot.graph.visibleNodes.length} shown nodes, ${snapshot.graph.visibleEdges.length} shown edges`,
     ),
   );
-  controls.appendChild(renderSelectedDetail(snapshot));
+  const libraryCount = Number(
+    snapshot.graph.diagnostics.library_node_count || 0,
+  );
+  const sharedExternalCount = Number(
+    snapshot.graph.diagnostics.shared_external_count || 0,
+  );
+  const hoverOnlyExternalCount = Number(
+    snapshot.graph.diagnostics.hover_only_external_count ||
+      snapshot.graph.hoverOnlyNodes.length ||
+      0,
+  );
+  controls.appendChild(
+    el(
+      "p",
+      "muted",
+      `${libraryCount} library, ${sharedExternalCount} shared external, ${hoverOnlyExternalCount} hover-only external hidden`,
+    ),
+  );
   detail.appendChild(controls);
   shell.appendChild(detail);
+
+  if (snapshot.graph.selectedElement) {
+    const selection = el("aside", "panel details graph-selection-drawer");
+    selection.tabIndex = 0;
+    selection.setAttribute("aria-label", "Graph selection");
+    const selectionHeader = el("div", "panel-header");
+    selectionHeader.appendChild(el("strong", "", "Selection"));
+    selection.appendChild(selectionHeader);
+    const selectionBody = el("div", "graph-selection-content");
+    selectionBody.dataset.synthesisScrollKey = "graph.selection";
+    selectionBody.appendChild(renderSelectedDetail(snapshot));
+    selection.appendChild(selectionBody);
+    shell.appendChild(selection);
+  }
   main.appendChild(shell);
 
-  if (!snapshot.graph.graph_hash || snapshot.graph.layoutStatus !== "ready") {
+  const hasGraphData = snapshot.graph.nodes.length > 0;
+  const hasVisibleCoordinates = snapshot.graph.visibleNodes.some(
+    (node) => typeof node.x === "number" && typeof node.y === "number",
+  );
+  if (!snapshot.graph.graph_hash || !hasGraphData) {
     const empty = el("div", "graph-empty");
-    empty.appendChild(el("strong", "", "Graph snapshot unavailable"));
     empty.appendChild(
-      el(
-        "p",
-        "muted",
-        JSON.stringify(snapshot.graph.diagnostics || {}, null, 2),
-      ),
-    );
-    empty.appendChild(
-      makeButton("Rebuild graph", "hostCommand", {
-        command: "manualRecomputeLayout",
-        args: {
-          reason: "graph_tab",
-          preset: snapshot.graph.filters.layoutPreset,
-        },
+      renderEmptyState({
+        title: "No citation graph data",
+        message: graphDiagnosticSummary(
+          snapshot.graph.diagnostics || {},
+          snapshot.graph.layoutStatus,
+        ),
+        action: makeButton("Rebuild graph", "hostCommand", {
+          command: "manualRecomputeLayout",
+          args: {
+            reason: "graph_tab",
+            preset: snapshot.graph.filters.layoutPreset,
+          },
+        }),
+        tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
       }),
     );
     stage.appendChild(empty);
+    return;
+  }
+  if (snapshot.graph.layoutStatus !== "ready") {
+    const banner = el("div", "graph-layout-banner");
+    banner.appendChild(
+      el(
+        "strong",
+        "",
+        snapshot.graph.layoutStatus === "running"
+          ? "Drawing graph"
+          : "Refreshing graph layout",
+      ),
+    );
+    banner.appendChild(
+      el(
+        "span",
+        "muted",
+        snapshot.graph.layoutStatus === "failed"
+          ? "The latest layout attempt failed. Showing available graph data."
+          : "The citation graph is available; layout is being refreshed.",
+      ),
+    );
+    stage.appendChild(banner);
+  }
+  if (!hasVisibleCoordinates) {
+    const pending = el("div", "graph-empty");
+    pending.appendChild(
+      renderEmptyState({
+        title: "Drawing graph",
+        message:
+          "The citation graph data is ready. Layout coordinates are being computed.",
+        tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
+      }),
+    );
+    stage.appendChild(pending);
     return;
   }
   renderSigmaGraph(canvas, snapshot);
@@ -4921,6 +5931,7 @@ function renderGraphControls(snapshot: Snapshot) {
   const wrap = el("div", "graph-controls");
   const filters = el("div", "filters");
   const search = el("input");
+  search.dataset.synthesisControlKey = "graph.search";
   search.placeholder = "Search node";
   search.value = snapshot.graph.filters.search || "";
   search.addEventListener("input", () => {
@@ -5000,8 +6011,100 @@ function renderGraphControls(snapshot: Snapshot) {
   return wrap;
 }
 
+function graphNodeColor(node: GraphNode) {
+  if (node.display_tier === "single_external") {
+    return "#b6bd74";
+  }
+  return colors[node.kind];
+}
+
+function graphNodeSize(node: GraphNode) {
+  if (node.kind === "library_paper") {
+    return 7;
+  }
+  if (node.display_tier === "shared_external") {
+    return 4;
+  }
+  if (node.display_tier === "single_external") {
+    return 2.2;
+  }
+  return 2.5;
+}
+
+function graphNodeZIndex(node: GraphNode) {
+  if (node.kind === "library_paper") {
+    return 4;
+  }
+  if (node.display_tier === "shared_external") {
+    return 2;
+  }
+  if (node.visibility === "hover_only") {
+    return 1;
+  }
+  return 2;
+}
+
+function clearDynamicHoverGraph(graph: Graph) {
+  for (const edgeId of Array.from(state.dynamicHoverEdgeIds)) {
+    if (graph.hasEdge(edgeId)) {
+      graph.dropEdge(edgeId);
+    }
+  }
+  for (const nodeId of Array.from(state.dynamicHoverNodeIds)) {
+    if (graph.hasNode(nodeId)) {
+      graph.dropNode(nodeId);
+    }
+  }
+  state.dynamicHoverEdgeIds.clear();
+  state.dynamicHoverNodeIds.clear();
+}
+
+function cancelScheduledHoverClear() {
+  if (state.hoverClearTimer) {
+    window.clearTimeout(state.hoverClearTimer);
+    state.hoverClearTimer = undefined;
+  }
+}
+
+function scheduleHoverClear(
+  renderer: Sigma,
+  graph: Graph,
+  pinnedNode?: string,
+) {
+  cancelScheduledHoverClear();
+  state.hoverClearTimer = window.setTimeout(() => {
+    state.hoverClearTimer = undefined;
+    if (state.sigma !== renderer || state.graph !== graph) {
+      return;
+    }
+    if (pinnedNode && graph.hasNode(pinnedNode)) {
+      addHoverNeighborhood(graph, pinnedNode);
+      state.hoveredNode = pinnedNode;
+    } else {
+      clearDynamicHoverGraph(graph);
+      state.hoveredNode = undefined;
+    }
+    renderer.refresh();
+  }, 80);
+}
+
+function addHoverNeighborhood(graph: Graph, hoveredNode: string) {
+  clearDynamicHoverGraph(graph);
+  if (!graph.hasNode(hoveredNode)) return;
+}
+
+function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
+  const selected = snapshot.graph.selectedElement;
+  if (selected?.kind !== "node" || !graph.hasNode(selected.id)) {
+    return undefined;
+  }
+  return selected.id;
+}
+
 function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const graph = new Graph({ multi: false, type: "directed" });
+  state.dynamicHoverNodeIds.clear();
+  state.dynamicHoverEdgeIds.clear();
   const visibleIds = new Set(
     snapshot.graph.visibleNodes.map((node) => node.id),
   );
@@ -5011,45 +6114,70 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       label: "",
       x: typeof node.x === "number" ? node.x : 0,
       y: typeof node.y === "number" ? node.y : 0,
-      size: node.kind === "library_paper" ? 7 : 2,
-      color: colors[node.kind],
+      size: graphNodeSize(node),
+      color: graphNodeColor(node),
+      zIndex: graphNodeZIndex(node),
       kind: node.kind,
+      visibility: node.visibility || "default",
+      display_tier: node.display_tier || "library",
     });
   }
   for (const edge of snapshot.graph.visibleEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
       const targetKind = graph.getNodeAttribute(edge.target, "kind");
+      const targetTier = graph.getNodeAttribute(edge.target, "display_tier");
       graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
         color: "#8a98a8",
         size:
-          (targetKind === "library_paper" ? 1.15 : 0.35) *
-          Math.max(1, Math.min(2, edge.mention_count || 1)),
+          (targetKind === "library_paper"
+            ? 1.15
+            : targetTier === "shared_external"
+              ? 0.55
+              : 0.35) * Math.max(1, Math.min(2, edge.mention_count || 1)),
         label: edge.primary_role || "",
+        zIndex: 0,
+        visibility: edge.visibility || "default",
       });
     }
   }
 
   state.graph = graph;
+  const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
+  state.hoveredNode = pinnedHoverNode;
+  if (pinnedHoverNode) {
+    addHoverNeighborhood(graph, pinnedHoverNode);
+  }
   const renderer = new Sigma(graph, container, {
     allowInvalidContainer: true,
+    enableEdgeEvents: false,
     renderEdgeLabels: false,
+    zIndex: true,
     nodeReducer(node: string, data: Record<string, unknown>) {
       if (!state.hoveredNode) return data;
+      if (!graph.hasNode(state.hoveredNode)) return data;
       const neighbor =
         node === state.hoveredNode ||
         graph.areNeighbors(node, state.hoveredNode);
       const showHoverLabel =
         node === state.hoveredNode ||
-        (neighbor && data.kind === "library_paper");
+        (neighbor &&
+          (data.kind === "library_paper" || data.visibility === "hover_only"));
       return {
         ...data,
         color: neighbor ? data.color : "#d3d8de",
-        zIndex: neighbor ? 1 : 0,
+        size:
+          neighbor || data.visibility !== "hover_only"
+            ? data.size
+            : Math.max(1, Number(data.size || 1) * 0.6),
+        zIndex: neighbor
+          ? Math.max(10, Number(data.zIndex || 0))
+          : Number(data.zIndex || 0),
         label: showHoverLabel ? data.title : "",
       };
     },
     edgeReducer(edge: string, data: Record<string, unknown>) {
       if (!state.hoveredNode) return data;
+      if (!graph.hasNode(state.hoveredNode)) return data;
       const source = graph.source(edge);
       const target = graph.target(edge);
       const neighbor =
@@ -5069,18 +6197,54 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   }
   scheduleSigmaResize(renderer, container);
   renderer.on("enterNode", ({ node }: { node: string }) => {
+    const pinnedNode = selectedGraphHoverNode(snapshot, graph);
+    if (pinnedNode && node !== pinnedNode) {
+      renderer.refresh();
+      return;
+    }
+    cancelScheduledHoverClear();
+    if (
+      state.dynamicHoverNodeIds.has(node) &&
+      state.hoveredNode &&
+      graph.hasNode(state.hoveredNode)
+    ) {
+      renderer.refresh();
+      return;
+    }
+    if (node === state.hoveredNode) {
+      renderer.refresh();
+      return;
+    }
+    addHoverNeighborhood(graph, node);
     state.hoveredNode = node;
     renderer.refresh();
   });
   renderer.on("leaveNode", () => {
-    state.hoveredNode = undefined;
-    renderer.refresh();
+    scheduleHoverClear(
+      renderer,
+      graph,
+      selectedGraphHoverNode(snapshot, graph),
+    );
   });
   renderer.on("clickNode", ({ node }: { node: string }) => {
+    cancelScheduledHoverClear();
+    addHoverNeighborhood(graph, node);
+    state.hoveredNode = node;
+    renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "node", id: node } });
   });
   renderer.on("clickEdge", ({ edge }: { edge: string }) => {
+    cancelScheduledHoverClear();
+    state.hoveredNode = undefined;
+    renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "edge", id: edge } });
+  });
+  renderer.on("clickStage", () => {
+    cancelScheduledHoverClear();
+    clearDynamicHoverGraph(graph);
+    state.hoveredNode = undefined;
+    renderer.refresh();
+    sendAction("setGraphView", { selectedElement: null });
   });
 }
 
@@ -5109,15 +6273,26 @@ function focusSearch(query: string) {
 
 function renderSelectedDetail(snapshot: Snapshot) {
   const wrap = el("div", "selected-detail");
-  wrap.appendChild(el("h3", "", "Selection"));
   const selected = snapshot.graph.selectedElement;
   if (!selected) {
-    wrap.appendChild(el("pre", "", "No selection"));
+    wrap.appendChild(
+      renderEmptyState({
+        title: "No graph item selected",
+        message: "Select a node or edge to inspect citation graph details.",
+      }),
+    );
     return wrap;
   }
   if (selected.kind === "node") {
-    const node = snapshot.graph.nodes.find((entry) => entry.id === selected.id);
-    wrap.appendChild(el("pre", "", JSON.stringify(node || selected, null, 2)));
+    const node = graphNodeById(snapshot).get(selected.id);
+    const fields: Array<[string, unknown]> = [
+      ["title", node?.label || selected.id],
+      ["type", node?.kind || selected.kind],
+      ["year", node?.year || "-"],
+      ["signal", node?.low_signal ? "low" : "normal"],
+      ["id", selected.id],
+    ];
+    wrap.appendChild(renderDetailList(fields));
     if (node?.kind === "library_paper") {
       wrap.appendChild(
         makeButton("Open Zotero item", "hostCommand", {
@@ -5125,21 +6300,127 @@ function renderSelectedDetail(snapshot: Snapshot) {
           args: { nodeId: node.id },
         }),
       );
+      wrap.appendChild(renderSelectedNodeCitations(snapshot, node));
     }
     return wrap;
   }
-  const edge = snapshot.graph.edges.find((entry) => entry.id === selected.id);
-  wrap.appendChild(el("pre", "", JSON.stringify(edge || selected, null, 2)));
+  const edge = graphEdgeById(snapshot).get(selected.id);
+  wrap.appendChild(
+    renderDetailList([
+      ["role", edge?.primary_role || "-"],
+      ["source", edge?.source || "-"],
+      ["target", edge?.target || "-"],
+      ["mentions", edge?.mention_count || 0],
+      ["id", selected.id],
+    ]),
+  );
   return wrap;
+}
+
+function graphNodeById(snapshot: Snapshot) {
+  return new Map(
+    [...snapshot.graph.nodes, ...snapshot.graph.hoverOnlyNodes].map((node) => [
+      node.id,
+      node,
+    ]),
+  );
+}
+
+function graphEdgeById(snapshot: Snapshot) {
+  return new Map(
+    [...snapshot.graph.edges, ...snapshot.graph.hoverOnlyEdges].map((edge) => [
+      edge.id,
+      edge,
+    ]),
+  );
+}
+
+function collectSelectedNodeCitations(snapshot: Snapshot, sourceId: string) {
+  const nodesById = graphNodeById(snapshot);
+  const edgesById = graphEdgeById(snapshot);
+  return Array.from(edgesById.values())
+    .filter((edge) => edge.source === sourceId)
+    .sort(
+      (left, right) =>
+        (nodesById.get(left.target)?.label || left.target).localeCompare(
+          nodesById.get(right.target)?.label || right.target,
+        ) || left.id.localeCompare(right.id),
+    )
+    .map((edge) => ({
+      edge,
+      target: nodesById.get(edge.target),
+    }));
+}
+
+function graphCitationKindLabel(node: GraphNode | undefined) {
+  if (!node) return "reference";
+  if (node.kind === "library_paper") return "library";
+  if (node.kind === "external_reference") {
+    return node.display_tier === "single_external"
+      ? "single external"
+      : "shared external";
+  }
+  return "unresolved";
+}
+
+function renderSelectedNodeCitations(snapshot: Snapshot, node: GraphNode) {
+  const section = el("section", "graph-citation-section");
+  const header = el("div", "graph-citation-header");
+  header.appendChild(el("h3", "", "Citations"));
+  const citations = collectSelectedNodeCitations(snapshot, node.id);
+  header.appendChild(el("span", "badge", `${citations.length} outgoing`));
+  section.appendChild(header);
+  if (!citations.length) {
+    section.appendChild(
+      renderEmptyState({
+        title: "No outgoing citations",
+        message: "This library paper has no citation targets in the graph.",
+      }),
+    );
+    return section;
+  }
+  const list = el("div", "graph-citation-list");
+  citations.forEach(({ edge, target }) => {
+    const card = el("article", "graph-citation-card");
+    const title = el(
+      "strong",
+      "graph-citation-title",
+      target?.label || edge.target,
+    );
+    card.appendChild(title);
+    const meta = el("div", "graph-citation-meta");
+    meta.appendChild(badge(graphCitationKindLabel(target), target?.kind || ""));
+    if (target?.year) {
+      meta.appendChild(el("span", "muted", target.year));
+    }
+    if (edge.primary_role) {
+      meta.appendChild(el("span", "muted", edge.primary_role));
+    }
+    meta.appendChild(
+      el("span", "muted", `${Math.max(0, edge.mention_count || 0)} mentions`),
+    );
+    card.appendChild(meta);
+    card.title = `${target?.label || edge.target} (${edge.id})`;
+    list.appendChild(card);
+  });
+  section.appendChild(list);
+  return section;
 }
 
 function matrixTableView(
   headers: string[],
   rows: Array<Record<string, unknown>>,
   mapRow: (row: Record<string, unknown>) => Array<Node | unknown>,
+  emptyState?: HTMLElement,
 ) {
   if (!rows.length) {
-    return el("div", "empty", "No rows.");
+    return (
+      emptyState ||
+      renderEmptyState({
+        title: "No rows to show",
+        message: "This view has no records for the current selection.",
+      })
+    );
   }
   const wrap = el("div", "matrix-table-wrap");
   const table = el("table", "matrix-table");
@@ -5171,9 +6452,16 @@ function tableView(
   headers: string[],
   rows: Array<Record<string, unknown>>,
   mapRow: (row: Record<string, unknown>) => Array<Node | unknown>,
+  emptyState?: HTMLElement,
 ) {
   if (!rows.length) {
-    return el("div", "empty", "No rows.");
+    return (
+      emptyState ||
+      renderEmptyState({
+        title: "No rows to show",
+        message: "This view has no records for the current filters.",
+      })
+    );
   }
   const wrap = el("div", "table-wrap");
   const table = el("table");
@@ -5201,21 +6489,165 @@ function tableView(
   return wrap;
 }
 
+function snapshotChromeSignature(snapshot: Snapshot | null) {
+  if (!snapshot) {
+    return "";
+  }
+  return JSON.stringify({
+    actions: snapshot.actions || {},
+    maintenance: snapshot.maintenance?.backgroundJobs || {},
+    sync: snapshot.sync?.status,
+    jobPopoverOpen: state.jobPopoverOpen,
+  });
+}
+
+function snapshotContentSignature(snapshot: Snapshot | null) {
+  if (!snapshot) {
+    return "";
+  }
+  const selectedTab = snapshot.selectedTab;
+  if (selectedTab === "registry") {
+    return JSON.stringify({
+      selectedTab,
+      filters: snapshot.registry.filters,
+      rows: snapshot.registry.visibleRows,
+      cleanup: snapshot.registry.cleanupProposals || [],
+      projection: snapshot.registry.projection || {},
+    });
+  }
+  if (selectedTab === "graph") {
+    return JSON.stringify({
+      selectedTab,
+      filters: snapshot.graph.filters,
+      graph_hash: snapshot.graph.graph_hash,
+      layoutPreset: snapshot.graph.layoutPreset,
+      selectedElement: snapshot.graph.selectedElement,
+      nodes: snapshot.graph.nodes.map((node) => ({
+        id: node.id,
+        kind: node.kind,
+        label: node.label,
+        year: node.year,
+        x: node.x,
+        y: node.y,
+        low_signal: node.low_signal,
+        visibility: node.visibility,
+        display_tier: node.display_tier,
+      })),
+      edges: snapshot.graph.edges,
+      visibleNodeIds: snapshot.graph.visibleNodes.map((node) => node.id),
+      visibleEdgeIds: snapshot.graph.visibleEdges.map((edge) => edge.id),
+      hoverOnlyNodeIds: snapshot.graph.hoverOnlyNodes.map((node) => node.id),
+      hoverOnlyEdgeIds: snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+    });
+  }
+  if (selectedTab === "tags") {
+    return JSON.stringify({
+      selectedTab,
+      filters: snapshot.tags.filters,
+      rows: snapshot.tags.visibleRows,
+      selected: snapshot.tags.selected,
+      importPreview: snapshot.tags.importPreview,
+      importDraft: snapshot.tags.importDraft,
+      projection: snapshot.tags.projection,
+    });
+  }
+  if (selectedTab === "concepts") {
+    return JSON.stringify({
+      selectedTab,
+      filters: snapshot.concepts.filters,
+      rows: snapshot.concepts.visibleRows,
+      selected: snapshot.concepts.selected,
+      reviewItems: snapshot.concepts.reviewItems,
+      projection: snapshot.concepts.projection,
+    });
+  }
+  if (selectedTab === "artifacts") {
+    return JSON.stringify({
+      selectedTab,
+      filters: snapshot.artifacts.filters,
+      rows: snapshot.artifacts.visibleRows,
+      topicGraph: snapshot.topicGraph,
+      deletedArtifacts: snapshot.deletedArtifacts,
+    });
+  }
+  if (selectedTab === "reader") {
+    return JSON.stringify({
+      selectedTab,
+      reader: snapshot.reader,
+      artifactReader: state.artifactReader,
+      topicDetail: state.topicDetail,
+      topicDetailSection: state.topicDetailSection,
+      evidenceExplorerOpen: state.evidenceExplorerOpen,
+      selectedEvidenceId: state.selectedEvidenceId,
+    });
+  }
+  return JSON.stringify({
+    selectedTab,
+    artifacts: snapshot.artifacts.rows,
+    registryCount: snapshot.registry.rows.length,
+    graphCount: snapshot.graph.visibleNodes.length,
+    sync: snapshot.sync,
+    conflicts: snapshot.conflicts,
+  });
+}
+
 type WorkbenchRenderState = {
   selectedTab?: string;
   mainScrollTop: number;
-  scrollTops: number[];
+  scrollTops: Record<string, number>;
+  openDetails: string[];
+  activeControlKey?: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  graphCamera?: Record<string, unknown>;
 };
 
 function captureWorkbenchRenderState(root: HTMLElement): WorkbenchRenderState {
   const main = root.querySelector(".main") as HTMLElement | null;
-  const scrollContainers = Array.from(
-    root.querySelectorAll(".table-wrap, .matrix-table-wrap, .reader-shell"),
-  ) as HTMLElement[];
+  const scrollTops: Record<string, number> = {};
+  Array.from(root.querySelectorAll("[data-synthesis-scroll-key]")).forEach(
+    (node) => {
+      if (node instanceof HTMLElement) {
+        const key = node.dataset.synthesisScrollKey || "";
+        if (key) {
+          scrollTops[key] = node.scrollTop || 0;
+        }
+      }
+    },
+  );
+  const active = (root.ownerDocument || document)
+    .activeElement as HTMLElement | null;
+  const activeControlKey = active?.dataset?.synthesisControlKey || undefined;
+  const graphCamera = (() => {
+    try {
+      return (state.sigma?.getCamera?.() as any)?.getState?.();
+    } catch {
+      return undefined;
+    }
+  })();
   return {
     selectedTab: state.snapshot?.selectedTab,
     mainScrollTop: main?.scrollTop || 0,
-    scrollTops: scrollContainers.map((node) => node.scrollTop || 0),
+    scrollTops,
+    openDetails: (
+      Array.from(
+        root.querySelectorAll("details[data-synthesis-details-key][open]"),
+      ) as HTMLElement[]
+    )
+      .map((node) => node.getAttribute("data-synthesis-details-key") || "")
+      .filter(Boolean),
+    activeControlKey,
+    selectionStart:
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+        ? active.selectionStart
+        : undefined,
+    selectionEnd:
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+        ? active.selectionEnd
+        : undefined,
+    graphCamera,
   };
 }
 
@@ -5231,13 +6663,50 @@ function restoreWorkbenchRenderState(
     main.scrollTop = previous.mainScrollTop;
   }
   const scrollContainers = Array.from(
-    root.querySelectorAll(".table-wrap, .matrix-table-wrap, .reader-shell"),
+    root.querySelectorAll("[data-synthesis-scroll-key]"),
   ) as HTMLElement[];
-  scrollContainers.forEach((node, index) => {
-    if (typeof previous.scrollTops[index] === "number") {
-      node.scrollTop = previous.scrollTops[index];
+  scrollContainers.forEach((node) => {
+    const key = node.dataset.synthesisScrollKey || "";
+    if (key && typeof previous.scrollTops[key] === "number") {
+      node.scrollTop = previous.scrollTops[key];
     }
   });
+  previous.openDetails.forEach((key) => {
+    const escaped =
+      typeof CSS !== "undefined" && CSS.escape ? CSS.escape(key) : key;
+    const details = root.querySelector(
+      `details[data-synthesis-details-key="${escaped}"]`,
+    ) as HTMLDetailsElement | null;
+    if (details) {
+      details.open = true;
+    }
+  });
+  if (previous.activeControlKey) {
+    const escaped =
+      typeof CSS !== "undefined" && CSS.escape
+        ? CSS.escape(previous.activeControlKey)
+        : previous.activeControlKey;
+    const control = root.querySelector(
+      `[data-synthesis-control-key="${escaped}"]`,
+    ) as HTMLElement | null;
+    control?.focus();
+    if (
+      (control instanceof HTMLInputElement ||
+        control instanceof HTMLTextAreaElement) &&
+      typeof previous.selectionStart === "number" &&
+      typeof previous.selectionEnd === "number"
+    ) {
+      control.setSelectionRange(previous.selectionStart, previous.selectionEnd);
+    }
+  }
+  if (previous.graphCamera && state.sigma) {
+    try {
+      (state.sigma.getCamera() as any).setState(previous.graphCamera);
+      state.sigma.refresh();
+    } catch {
+      // Camera restore is best-effort because Sigma may reject stale bounds.
+    }
+  }
 }
 
 function selectControl(
@@ -5277,13 +6746,43 @@ function render() {
     return;
   }
   const renderState = captureWorkbenchRenderState(root as HTMLElement);
+  disposeGraphRenderer();
   renderShell(root as HTMLElement, state.snapshot);
   restoreWorkbenchRenderState(root as HTMLElement, renderState);
   renderDigestModal(root as HTMLElement);
+  state.lastContentSignature = snapshotContentSignature(state.snapshot);
+  state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
+  maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
-function snapshotPayloadSignature(snapshot: Snapshot | null) {
-  return snapshot ? JSON.stringify(snapshot) : "";
+function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
+  if (!snapshot || snapshot.selectedTab !== "graph") {
+    return;
+  }
+  if (
+    !snapshot.graph.graph_hash ||
+    snapshot.graph.nodes.length === 0 ||
+    (snapshot.graph.layoutStatus !== "missing" &&
+      snapshot.graph.layoutStatus !== "dirty")
+  ) {
+    return;
+  }
+  const preset =
+    snapshot.graph.filters.layoutPreset || snapshot.graph.layoutPreset;
+  const key = `${snapshot.graph.graph_hash}:${preset}`;
+  if (
+    state.autoLayoutRequests.has(key) ||
+    isOperationPending("manualRecomputeLayout", { preset })
+  ) {
+    return;
+  }
+  state.autoLayoutRequests.add(key);
+  window.setTimeout(() => {
+    sendAction("hostCommand", {
+      command: "manualRecomputeLayout",
+      args: { reason: "auto", preset },
+    });
+  }, 0);
 }
 
 function buildDigestOutline(markdownNode: HTMLElement) {
@@ -5450,13 +6949,21 @@ window.addEventListener("message", (event: MessageEvent) => {
   }
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {
     const nextSnapshot = (data.payload || null) as Snapshot | null;
-    const nextSignature = snapshotPayloadSignature(nextSnapshot);
-    if (nextSignature === state.lastSnapshotSignature) {
+    const nextContentSignature = snapshotContentSignature(nextSnapshot);
+    const nextChromeSignature = snapshotChromeSignature(nextSnapshot);
+    const contentChanged = nextContentSignature !== state.lastContentSignature;
+    const chromeChanged = nextChromeSignature !== state.lastChromeSignature;
+    if (!contentChanged && !chromeChanged) {
       return;
     }
     state.snapshot = nextSnapshot;
-    state.lastSnapshotSignature = nextSignature;
     clearResolvedLocalPending(state.snapshot);
+    if (!contentChanged) {
+      state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
+      renderWorkbenchChrome();
+      maybeRequestGraphLayoutRefresh(state.snapshot);
+      return;
+    }
     render();
   }
   if (data.type === "synthesis:artifact") {

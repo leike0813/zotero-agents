@@ -456,13 +456,31 @@
 
 ## KG Proposal Sidecars
 
-KG proposal sidecars 是 final bundle 的必交可空旁路产物，不是 structured topic artifact
-section。Completed final bundle 应引用：
+KG proposal sidecars 是 final manifest 的必交可空旁路产物，不是 structured topic artifact
+section。Completed manifest 应在 `sidecars` 中引用：
 
 ```json
 {
-  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
-  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+  "sidecars": {
+    "topic_interest_metadata": {
+      "path": "result/sidecars/topic-interest-metadata.json",
+      "hash": "sha256:...",
+      "content_type": "json",
+      "schema_id": "topic_interest_metadata.v1"
+    },
+    "concept_cards_proposal": {
+      "path": "result/sidecars/concept-cards-proposal.json",
+      "hash": "sha256:...",
+      "content_type": "json",
+      "schema_id": "synthesis.concept_cards_proposal"
+    },
+    "topic_graph_relation_proposals": {
+      "path": "result/sidecars/topic-graph-relation-proposals.json",
+      "hash": "sha256:...",
+      "content_type": "json",
+      "schema_id": "synthesis.topic_graph_relation_proposals"
+    }
+  }
 }
 ```
 
@@ -607,6 +625,6 @@ section。Completed final bundle 应引用：
 - synthesis report 没有把 topic definition、research routes、historical progression、core findings、
   comparison/debates、gaps/coverage、external literature 串成连续报告。
 - concept/relation proposal 被错误写进 structured sections，而不是 `result/sidecars/`。
-- 缺失 `concept_cards_proposal_path` 或 `topic_graph_relation_proposals_path` 会破坏 final bundle 合同。
+- 缺失 manifest `sidecars.concept_cards_proposal` 或 `sidecars.topic_graph_relation_proposals` 会破坏 final manifest 合同。
 - KG proposal 不得写 `canonical_concept_id` 或 `canonical_edge_id`；canonical 摄取由插件 apply 阶段完成。
 - 不能因为 sidecar “必交可空”就跳过文件；无候选时也要写空数组和 diagnostics。

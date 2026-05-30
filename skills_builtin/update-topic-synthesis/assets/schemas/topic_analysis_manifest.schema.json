@@ -3,13 +3,69 @@
   "title": "Topic Synthesis Analysis Manifest",
   "type": "object",
   "additionalProperties": true,
-  "required": ["schema_id", "schema_version", "operation", "language", "sections"],
+  "required": [
+    "schema_id",
+    "schema_version",
+    "operation",
+    "language",
+    "sidecars",
+    "sections"
+  ],
   "properties": {
     "schema_id": { "const": "synthesis.topic_analysis_manifest" },
     "schema_version": { "type": "string" },
     "operation": { "enum": ["create", "update_full"] },
     "topic_id": { "type": "string" },
     "language": { "type": "string", "minLength": 1 },
+    "sidecars": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_interest_metadata",
+        "concept_cards_proposal",
+        "topic_graph_relation_proposals"
+      ],
+      "properties": {
+        "topic_interest_metadata": {
+          "type": "object",
+          "required": ["path", "hash", "content_type", "schema_id"],
+          "properties": {
+            "path": {
+              "const": "result/sidecars/topic-interest-metadata.json"
+            },
+            "hash": { "type": "string", "minLength": 1 },
+            "content_type": { "const": "json" },
+            "schema_id": { "const": "topic_interest_metadata.v1" }
+          }
+        },
+        "concept_cards_proposal": {
+          "type": "object",
+          "required": ["path", "hash", "content_type", "schema_id"],
+          "properties": {
+            "path": {
+              "const": "result/sidecars/concept-cards-proposal.json"
+            },
+            "hash": { "type": "string", "minLength": 1 },
+            "content_type": { "const": "json" },
+            "schema_id": { "const": "synthesis.concept_cards_proposal" }
+          }
+        },
+        "topic_graph_relation_proposals": {
+          "type": "object",
+          "required": ["path", "hash", "content_type", "schema_id"],
+          "properties": {
+            "path": {
+              "const": "result/sidecars/topic-graph-relation-proposals.json"
+            },
+            "hash": { "type": "string", "minLength": 1 },
+            "content_type": { "const": "json" },
+            "schema_id": {
+              "const": "synthesis.topic_graph_relation_proposals"
+            }
+          }
+        }
+      }
+    },
     "sections": {
       "type": "object",
       "required": [
@@ -47,9 +103,6 @@
     }
   },
   "not": {
-    "anyOf": [
-      { "required": ["markdown"] },
-      { "required": ["markdown_path"] }
-    ]
+    "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }]
   }
 }

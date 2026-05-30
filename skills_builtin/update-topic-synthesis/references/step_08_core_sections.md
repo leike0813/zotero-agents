@@ -2,6 +2,22 @@
 
 本文件是可选扩展材料；硬约束以 `SKILL.md` 为准；gate 输出和 JSON schema 是执行时补充约束。
 
+## Payload schema
+
+写入 `runtime/payloads/core-analytical-sections.json`。完整约束以
+`assets/schemas/core_analytical_sections.schema.json` 为准；语义解释见下文。
+
+```json
+{
+  "positioning": {},
+  "claims": [],
+  "comparison_matrix": { "dimensions": [], "rows": [] },
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}
+```
+
 ## 输出范围
 
 本阶段写 `positioning`、`claims`、`comparison_matrix`、`debates`、`gaps` 和

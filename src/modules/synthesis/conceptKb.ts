@@ -1,9 +1,6 @@
-import { getBaseName, joinPath } from "../../utils/path";
+import { joinPath } from "../../utils/path";
 import {
-  ensureRuntimeDirectory,
-  listRuntimeChildren,
   readRuntimeTextFile,
-  runtimePathExists,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
 import {
@@ -11,15 +8,24 @@ import {
   canonicalAssetFileName,
   hashCanonicalJson,
   initializeSynthesisKnowledgeGraphStore,
-  readCanonicalJsonAsset,
   readProjectionRegistryState,
   recordProjectionRebuild,
   SynthesisSchemaRegistry,
-  writeCanonicalDiagnostic,
   writeCanonicalTransaction,
+  writeCanonicalDiagnostic,
   type CanonicalTransactionReceipt,
   type ProjectionState,
 } from "./foundation";
+import {
+  createSynthesisRepository,
+  type SynthesisConceptAliasRecord,
+  type SynthesisConceptRecord,
+  type SynthesisConceptRelationRecord,
+  type SynthesisConceptReviewItemRecord,
+  type SynthesisConceptSenseRecord,
+  type SynthesisRepository,
+  type SynthesisTopicConceptLinkRecord,
+} from "./repository";
 
 export const SYNTHESIS_CONCEPT_INDEX_TARGET = "concept-kb-index";
 export const SYNTHESIS_CONCEPT_SCHEMA_ID = "synthesis.concept";
@@ -242,6 +248,7 @@ export type SynthesisConceptReviewActionResult = {
 type ServiceOptions = {
   root: string;
   now?: () => string;
+  repository?: SynthesisRepository;
 };
 
 function cleanString(value: unknown) {
@@ -301,50 +308,6 @@ function confidenceOf(value: unknown): SynthesisConceptConfidence {
     return confidence;
   }
   return "medium";
-}
-
-function conceptFileName(conceptId: string) {
-  return canonicalAssetFileName("concept", conceptId);
-}
-
-function senseFileName(senseId: string) {
-  return canonicalAssetFileName("sense", senseId);
-}
-
-function aliasFileName(aliasId: string) {
-  return canonicalAssetFileName("alias", aliasId);
-}
-
-function relationFileName(relationId: string) {
-  return canonicalAssetFileName("relation", relationId);
-}
-
-function reviewFileName(reviewId: string) {
-  return canonicalAssetFileName("review", reviewId);
-}
-
-function relativeTopicConceptLinksPath(topicPathId: string) {
-  return `topics/${safeId(topicPathId, "topic")}/current/concepts.json`;
-}
-
-function relativeConceptPath(conceptId: string) {
-  return `concepts/concepts/${conceptFileName(conceptId)}`;
-}
-
-function relativeSensePath(senseId: string) {
-  return `concepts/senses/${senseFileName(senseId)}`;
-}
-
-function relativeAliasPath(aliasId: string) {
-  return `concepts/aliases/${aliasFileName(aliasId)}`;
-}
-
-function relativeRelationPath(relationId: string) {
-  return `concepts/relations/${relationFileName(relationId)}`;
-}
-
-function relativeReviewPath(reviewId: string) {
-  return `concepts/review/${reviewFileName(reviewId)}`;
 }
 
 function conceptIdFromLabel(label: string, domain: string) {
@@ -749,76 +712,353 @@ function buildOverlayEntries(args: {
   );
 }
 
+function jsonArrayText(values: unknown[]) {
+  return JSON.stringify(Array.isArray(values) ? values : []);
+}
+
+function parseJsonArrayText(value: unknown) {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObjectText(value: unknown) {
+  try {
+    const parsed = JSON.parse(cleanString(value) || "{}");
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function conceptStatus(value: unknown): SynthesisConceptStatus {
+  const normalized = cleanString(value);
+  return normalized === "review" || normalized === "deprecated"
+    ? normalized
+    : "active";
+}
+
+function relationStatus(
+  value: unknown,
+): "suggested" | "confirmed" | "rejected" {
+  const normalized = cleanString(value);
+  return normalized === "confirmed" || normalized === "rejected"
+    ? normalized
+    : "suggested";
+}
+
+function reviewStatus(value: unknown): SynthesisConceptReviewStatus {
+  const normalized = cleanString(value);
+  if (
+    normalized === "approved" ||
+    normalized === "merged" ||
+    normalized === "rejected"
+  ) {
+    return normalized;
+  }
+  return "open";
+}
+
+function conceptToRecord(concept: SynthesisConcept): SynthesisConceptRecord {
+  return {
+    conceptId: concept.concept_id,
+    label: concept.label,
+    aliasesJson: jsonArrayText(concept.aliases),
+    conceptType: concept.concept_type,
+    domain: concept.domain,
+    status: concept.status,
+    shortDefinition: concept.short_definition,
+    definition: concept.definition,
+    usageNote: concept.usage_note,
+    editorialNote: concept.editorial_note,
+    senseIdsJson: jsonArrayText(concept.sense_ids),
+    createdAt: concept.created_at,
+    updatedAt: concept.updated_at,
+  };
+}
+
+function conceptFromRecord(record: SynthesisConceptRecord): SynthesisConcept {
+  return {
+    concept_id: record.conceptId,
+    label: record.label,
+    aliases: normalizeStringList(parseJsonArrayText(record.aliasesJson)),
+    concept_type: record.conceptType || "concept",
+    domain: record.domain || "general",
+    status: conceptStatus(record.status),
+    short_definition: record.shortDefinition,
+    definition: record.definition,
+    usage_note: record.usageNote,
+    editorial_note: record.editorialNote,
+    sense_ids: normalizeStringList(parseJsonArrayText(record.senseIdsJson)),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function senseToRecord(
+  sense: SynthesisConceptSense,
+): SynthesisConceptSenseRecord {
+  return {
+    senseId: sense.sense_id,
+    conceptId: sense.concept_id,
+    label: sense.label,
+    aliasesJson: jsonArrayText(sense.aliases),
+    domain: sense.domain,
+    shortDefinition: sense.short_definition,
+    definition: sense.definition,
+    disambiguation: sense.disambiguation,
+    topicRelevance: sense.topic_relevance,
+    confidence: sense.confidence,
+    sourceTopicIdsJson: jsonArrayText(sense.source_topic_ids),
+    evidenceJson: jsonArrayText(sense.evidence),
+    createdAt: sense.created_at,
+    updatedAt: sense.updated_at,
+  };
+}
+
+function senseFromRecord(
+  record: SynthesisConceptSenseRecord,
+): SynthesisConceptSense {
+  return {
+    sense_id: record.senseId,
+    concept_id: record.conceptId,
+    label: record.label,
+    aliases: normalizeStringList(parseJsonArrayText(record.aliasesJson)),
+    domain: record.domain || "general",
+    short_definition: record.shortDefinition || "",
+    definition: record.definition || "",
+    disambiguation: record.disambiguation,
+    topic_relevance: record.topicRelevance,
+    confidence: confidenceOf(record.confidence),
+    source_topic_ids: normalizeStringList(
+      parseJsonArrayText(record.sourceTopicIdsJson),
+    ),
+    evidence: parseJsonArrayText(record.evidenceJson),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function aliasToRecord(
+  alias: SynthesisConceptAlias,
+): SynthesisConceptAliasRecord {
+  return {
+    aliasId: alias.alias_id,
+    alias: alias.alias,
+    normalized: alias.normalized,
+    conceptId: alias.concept_id,
+    senseId: alias.sense_id,
+    status: alias.status,
+    confidence: alias.confidence,
+    createdAt: alias.created_at,
+    updatedAt: alias.updated_at,
+  };
+}
+
+function aliasFromRecord(
+  record: SynthesisConceptAliasRecord,
+): SynthesisConceptAlias {
+  return {
+    alias_id: record.aliasId,
+    alias: record.alias,
+    normalized: record.normalized,
+    concept_id: record.conceptId,
+    sense_id: record.senseId,
+    status: conceptStatus(record.status),
+    confidence: confidenceOf(record.confidence),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function relationToRecord(
+  relation: SynthesisConceptRelation,
+): SynthesisConceptRelationRecord {
+  return {
+    relationId: relation.relation_id,
+    sourceConceptId: relation.source_concept_id,
+    targetConceptId: relation.target_concept_id,
+    relation: relation.relation,
+    status: relation.status,
+    confidence: relation.confidence,
+    provenanceJson: jsonArrayText(relation.provenance),
+    createdAt: relation.created_at,
+    updatedAt: relation.updated_at,
+  };
+}
+
+function relationFromRecord(
+  record: SynthesisConceptRelationRecord,
+): SynthesisConceptRelation {
+  return {
+    relation_id: record.relationId,
+    source_concept_id: record.sourceConceptId,
+    target_concept_id: record.targetConceptId,
+    relation:
+      record.relation === "used_by" ||
+      record.relation === "uses" ||
+      record.relation === "broader_than" ||
+      record.relation === "narrower_than" ||
+      record.relation === "contrasts_with" ||
+      record.relation === "part_of" ||
+      record.relation === "has_part"
+        ? record.relation
+        : "related_to",
+    status: relationStatus(record.status),
+    confidence: confidenceOf(record.confidence),
+    provenance: parseJsonArrayText(record.provenanceJson),
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function reviewItemToRecord(
+  reviewItem: SynthesisConceptReviewItem,
+): SynthesisConceptReviewItemRecord {
+  return {
+    reviewId: reviewItem.review_id,
+    status: reviewItem.status,
+    reason: reviewItem.reason,
+    topicId: reviewItem.topic_id,
+    topicPathId: reviewItem.topic_path_id,
+    label: reviewItem.label,
+    confidence: reviewItem.confidence,
+    candidateConceptIdsJson: jsonArrayText(reviewItem.candidate_concept_ids),
+    proposalJson: JSON.stringify(reviewItem.proposal || {}),
+    targetConceptId: reviewItem.target_concept_id,
+    createdAt: reviewItem.created_at,
+    updatedAt: reviewItem.updated_at,
+    resolvedAt: reviewItem.resolved_at,
+  };
+}
+
+function reviewItemFromRecord(
+  record: SynthesisConceptReviewItemRecord,
+): SynthesisConceptReviewItem {
+  return {
+    review_id: record.reviewId,
+    status: reviewStatus(record.status),
+    reason:
+      record.reason === "ambiguous_concept_match"
+        ? "ambiguous_concept_match"
+        : "low_confidence_concept",
+    topic_id: record.topicId,
+    topic_path_id: record.topicPathId,
+    label: record.label,
+    confidence: confidenceOf(record.confidence),
+    candidate_concept_ids: normalizeStringList(
+      parseJsonArrayText(record.candidateConceptIdsJson),
+    ),
+    proposal: normalizeProposal(parseJsonObjectText(record.proposalJson)) || {
+      label: record.label,
+      aliases: [],
+      concept_type: "concept",
+      domain: "general",
+      short_definition: "",
+      definition: "",
+      evidence: [],
+      relations: [],
+      merge_hints: [],
+      confidence: confidenceOf(record.confidence),
+    },
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+    resolved_at: record.resolvedAt,
+    target_concept_id: record.targetConceptId,
+  };
+}
+
+function topicLinkToRecord(
+  link: SynthesisTopicConceptLink,
+): SynthesisTopicConceptLinkRecord {
+  return {
+    topicId: link.topic_id,
+    conceptId: link.concept_id,
+    senseId: link.sense_id,
+    label: link.label,
+    relevance: link.relevance,
+    confidence: link.confidence,
+    source: link.source,
+    createdAt: link.created_at,
+    updatedAt: link.updated_at,
+  };
+}
+
+function topicLinkFromRecord(
+  record: SynthesisTopicConceptLinkRecord,
+): SynthesisTopicConceptLink {
+  return {
+    topic_id: record.topicId,
+    concept_id: record.conceptId,
+    sense_id: record.senseId,
+    label: record.label,
+    relevance: record.relevance,
+    confidence: confidenceOf(record.confidence),
+    source:
+      record.source === "manual" ? "manual" : "topic_synthesis_concept_cards",
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+function conceptProjectionFromSnapshot(args: {
+  snapshot: SynthesisConceptKbSnapshot;
+  rebuiltAt: string;
+}): SynthesisConceptIndexProjection {
+  return {
+    schema_id: "synthesis.concept_kb_index_projection",
+    schema_version: SYNTHESIS_CONCEPT_INDEX_SCHEMA_VERSION,
+    source_manifest_hash: args.snapshot.manifest.manifest_hash,
+    rebuilt_at: args.rebuiltAt,
+    concepts: args.snapshot.concepts,
+    senses: args.snapshot.senses,
+    aliases: args.snapshot.aliases,
+    relations: args.snapshot.relations,
+    review_items: args.snapshot.review_items,
+    search: args.snapshot.concepts.map((concept) => ({
+      concept_id: concept.concept_id,
+      label: concept.label,
+      normalized:
+        `${concept.label} ${concept.aliases.join(" ")} ${concept.short_definition || ""} ${concept.definition || ""}`.toLowerCase(),
+      concept_type: concept.concept_type,
+      domain: concept.domain,
+    })),
+    overlay_entries: args.snapshot.overlay_entries,
+    diagnostics: args.snapshot.diagnostics,
+  };
+}
+
 export function createSynthesisConceptKbService(options: ServiceOptions) {
   const root = cleanString(options.root);
   if (!root) {
     throw new Error("Synthesis concept KB service requires a storage root");
   }
   const now = options.now || nowIso;
-  const registry = createRegistry();
-
-  async function readAsset<T>(relativePath: string, schemaId: string) {
-    return readCanonicalJsonAsset<T>({
-      root,
-      registry,
-      relativePath,
-      schemaId,
+  const repository =
+    options.repository ||
+    createSynthesisRepository({
+      runtimeRoot: root,
+      now,
     });
-  }
+  const registry = createRegistry();
 
   async function ensureConceptStore() {
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await Promise.all([
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "concepts")),
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "senses")),
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "aliases")),
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "relations")),
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "review")),
-      ensureRuntimeDirectory(joinPath(paths.conceptsRoot, "tombstones")),
-    ]);
-    if (
-      !(await runtimePathExists(joinPath(paths.conceptsRoot, "manifest.json")))
-    ) {
-      await commitConceptState({
-        concepts: [],
-        senses: [],
-        aliases: [],
-        relations: [],
-        transactionId: "concept-kb-init",
-      });
-    }
+    repository.initialize();
     return paths;
   }
 
-  async function readDirAssets<T>(dirName: string, schemaId: string) {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    const dir = joinPath(paths.conceptsRoot, dirName);
-    await ensureRuntimeDirectory(dir);
-    const rows: T[] = [];
-    for (const child of await listRuntimeChildren(dir)) {
-      if (!getBaseName(child).endsWith(".json")) {
-        continue;
-      }
-      const parsed = await readAsset<T>(
-        `concepts/${dirName}/${getBaseName(child)}`,
-        schemaId,
-      ).catch(() => null);
-      if (parsed?.data) {
-        rows.push(parsed.data);
-      }
-    }
-    return rows;
-  }
-
-  async function readTopicConceptLinks(args: {
-    topicPathId: string;
-    topicId: string;
-  }) {
-    const parsed = await readAsset<SynthesisTopicConceptLinksAsset>(
-      relativeTopicConceptLinksPath(args.topicPathId),
-      SYNTHESIS_CONCEPT_TOPIC_LINKS_SCHEMA_ID,
-    ).catch(() => null);
-    return parsed?.data || { topic_id: args.topicId, links: [] };
+  async function readTopicConceptLinks(args: { topicId: string }) {
+    await ensureConceptStore();
+    return {
+      topic_id: args.topicId,
+      links: repository
+        .listTopicConceptLinks({ topicIds: [args.topicId] })
+        .map(topicLinkFromRecord),
+    };
   }
 
   async function readManifest(args: {
@@ -827,51 +1067,28 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     aliases: SynthesisConceptAlias[];
     relations: SynthesisConceptRelation[];
   }) {
-    return (
-      (
-        await readAsset<SynthesisConceptManifest>(
-          "concepts/manifest.json",
-          SYNTHESIS_CONCEPT_MANIFEST_SCHEMA_ID,
-        ).catch(() => null)
-      )?.data ||
-      buildManifest({
-        ...args,
-        updatedAt: now(),
-      })
-    );
+    return buildManifest({
+      ...args,
+      updatedAt: now(),
+    });
   }
 
   async function loadConceptKb(): Promise<SynthesisConceptKbSnapshot> {
     await ensureConceptStore();
     const concepts = sortConcepts(
-      await readDirAssets<SynthesisConcept>(
-        "concepts",
-        SYNTHESIS_CONCEPT_SCHEMA_ID,
-      ),
+      repository.listConcepts().map(conceptFromRecord),
     );
     const senses = sortSenses(
-      await readDirAssets<SynthesisConceptSense>(
-        "senses",
-        SYNTHESIS_CONCEPT_SENSE_SCHEMA_ID,
-      ),
+      repository.listConceptSenses().map(senseFromRecord),
     );
     const aliases = sortAliases(
-      await readDirAssets<SynthesisConceptAlias>(
-        "aliases",
-        SYNTHESIS_CONCEPT_ALIAS_SCHEMA_ID,
-      ),
+      repository.listConceptAliases().map(aliasFromRecord),
     );
     const relations = sortRelations(
-      await readDirAssets<SynthesisConceptRelation>(
-        "relations",
-        SYNTHESIS_CONCEPT_RELATION_SCHEMA_ID,
-      ),
+      repository.listConceptRelations().map(relationFromRecord),
     );
     const reviewItems = sortReviewItems(
-      await readDirAssets<SynthesisConceptReviewItem>(
-        "review",
-        SYNTHESIS_CONCEPT_REVIEW_ITEM_SCHEMA_ID,
-      ),
+      repository.listConceptReviewItems().map(reviewItemFromRecord),
     );
     const manifest = await readManifest({
       concepts,
@@ -893,6 +1110,106 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     };
   }
 
+  async function exportConceptKbCheckpoint(args?: { transactionId?: string }) {
+    const snapshot = await loadConceptKb();
+    const timestamp = now();
+    const manifest = buildManifest({
+      concepts: snapshot.concepts,
+      senses: snapshot.senses,
+      aliases: snapshot.aliases,
+      relations: snapshot.relations,
+      updatedAt: timestamp,
+    });
+    const linksByTopicId = new Map<string, SynthesisTopicConceptLink[]>();
+    for (const link of repository
+      .listTopicConceptLinks()
+      .map(topicLinkFromRecord)) {
+      linksByTopicId.set(link.topic_id, [
+        ...(linksByTopicId.get(link.topic_id) || []),
+        link,
+      ]);
+    }
+    const topicLinkAssets = Array.from(linksByTopicId.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([topicId, links]) => ({
+        topic_id: topicId,
+        links: [...links].sort(
+          (left, right) =>
+            left.concept_id.localeCompare(right.concept_id) ||
+            left.sense_id.localeCompare(right.sense_id),
+        ),
+      }));
+    const result = await writeCanonicalTransaction({
+      root,
+      scope: "concepts",
+      registry,
+      transactionId: args?.transactionId,
+      projectionTargets: [SYNTHESIS_CONCEPT_INDEX_TARGET],
+      sourceManifestHash: manifest.manifest_hash,
+      now: timestamp,
+      assets: [
+        ...snapshot.concepts.map((concept) => ({
+          relativePath: `concepts/concepts/${canonicalAssetFileName(
+            "concept",
+            concept.concept_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_SCHEMA_ID,
+          data: concept,
+        })),
+        ...snapshot.senses.map((sense) => ({
+          relativePath: `concepts/senses/${canonicalAssetFileName(
+            "sense",
+            sense.sense_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_SENSE_SCHEMA_ID,
+          data: sense,
+        })),
+        ...snapshot.aliases.map((alias) => ({
+          relativePath: `concepts/aliases/${canonicalAssetFileName(
+            "alias",
+            alias.alias_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_ALIAS_SCHEMA_ID,
+          data: alias,
+        })),
+        ...snapshot.relations.map((relation) => ({
+          relativePath: `concepts/relations/${canonicalAssetFileName(
+            "relation",
+            relation.relation_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_RELATION_SCHEMA_ID,
+          data: relation,
+        })),
+        ...snapshot.review_items.map((reviewItem) => ({
+          relativePath: `concepts/review/${canonicalAssetFileName(
+            "review",
+            reviewItem.review_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_REVIEW_ITEM_SCHEMA_ID,
+          data: reviewItem,
+        })),
+        ...topicLinkAssets.map((asset) => ({
+          relativePath: `concepts/topic-links/${canonicalAssetFileName(
+            "topic",
+            asset.topic_id,
+          )}`,
+          schemaId: SYNTHESIS_CONCEPT_TOPIC_LINKS_SCHEMA_ID,
+          data: asset,
+        })),
+        {
+          relativePath: "concepts/manifest.json",
+          schemaId: SYNTHESIS_CONCEPT_MANIFEST_SCHEMA_ID,
+          data: manifest,
+        },
+      ],
+    });
+    return {
+      transactionId: result.transactionId,
+      receipt: result.receipt,
+      manifest,
+    };
+  }
+
   async function commitConceptState(args: {
     concepts: SynthesisConcept[];
     senses: SynthesisConceptSense[];
@@ -911,6 +1228,29 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     const aliases = sortAliases(args.aliases);
     const relations = sortRelations(args.relations);
     const reviewItems = sortReviewItems(args.reviewItems || []);
+    const topicLinksByKey = new Map(
+      repository
+        .listTopicConceptLinks()
+        .map(topicLinkFromRecord)
+        .map((link) => [
+          `${link.topic_id}:${link.concept_id}:${link.sense_id}`,
+          link,
+        ]),
+    );
+    for (const entry of args.topicLinks || []) {
+      const topicId = entry.data.topic_id;
+      for (const [key, link] of Array.from(topicLinksByKey.entries())) {
+        if (link.topic_id === topicId) {
+          topicLinksByKey.delete(key);
+        }
+      }
+      for (const link of entry.data.links) {
+        topicLinksByKey.set(
+          `${link.topic_id}:${link.concept_id}:${link.sense_id}`,
+          link,
+        );
+      }
+    }
     const manifest = buildManifest({
       concepts,
       senses,
@@ -918,51 +1258,25 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       relations,
       updatedAt: timestamp,
     });
-    return writeCanonicalTransaction({
-      root,
-      registry,
-      scope: "concepts",
-      transactionId: args.transactionId,
-      projectionTargets: [SYNTHESIS_CONCEPT_INDEX_TARGET],
-      sourceManifestHash: manifest.manifest_hash,
-      assets: [
-        ...concepts.map((concept) => ({
-          relativePath: relativeConceptPath(concept.concept_id),
-          schemaId: SYNTHESIS_CONCEPT_SCHEMA_ID,
-          data: concept,
-        })),
-        ...senses.map((sense) => ({
-          relativePath: relativeSensePath(sense.sense_id),
-          schemaId: SYNTHESIS_CONCEPT_SENSE_SCHEMA_ID,
-          data: sense,
-        })),
-        ...aliases.map((alias) => ({
-          relativePath: relativeAliasPath(alias.alias_id),
-          schemaId: SYNTHESIS_CONCEPT_ALIAS_SCHEMA_ID,
-          data: alias,
-        })),
-        ...relations.map((relation) => ({
-          relativePath: relativeRelationPath(relation.relation_id),
-          schemaId: SYNTHESIS_CONCEPT_RELATION_SCHEMA_ID,
-          data: relation,
-        })),
-        ...reviewItems.map((reviewItem) => ({
-          relativePath: relativeReviewPath(reviewItem.review_id),
-          schemaId: SYNTHESIS_CONCEPT_REVIEW_ITEM_SCHEMA_ID,
-          data: reviewItem,
-        })),
-        ...(args.topicLinks || []).map((entry) => ({
-          relativePath: relativeTopicConceptLinksPath(entry.topicPathId),
-          schemaId: SYNTHESIS_CONCEPT_TOPIC_LINKS_SCHEMA_ID,
-          data: entry.data,
-        })),
-        {
-          relativePath: "concepts/manifest.json",
-          schemaId: SYNTHESIS_CONCEPT_MANIFEST_SCHEMA_ID,
-          data: manifest,
-        },
-      ],
+    repository.replaceConceptKbState({
+      concepts: concepts.map(conceptToRecord),
+      senses: senses.map(senseToRecord),
+      aliases: aliases.map(aliasToRecord),
+      relations: relations.map(relationToRecord),
+      reviewItems: reviewItems.map(reviewItemToRecord),
+      topicLinks: Array.from(topicLinksByKey.values()).map(topicLinkToRecord),
     });
+    const receipt: CanonicalTransactionReceipt = {
+      schema_id: "synthesis.canonical_store_transaction_receipt",
+      schema_version: "1.0.0",
+      transaction_id:
+        cleanString(args.transactionId) || `concept-kb-${timestamp}`,
+      scope: "concepts",
+      status: "committed",
+      changed_assets: [],
+      created_at: timestamp,
+    };
+    return { transactionId: receipt.transaction_id, receipt, manifest };
   }
 
   async function saveConceptKb(args: {
@@ -977,6 +1291,30 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       senses: args.senses || [],
       aliases: args.aliases || [],
       relations: args.relations || [],
+      transactionId: args.transactionId,
+    });
+    return { transactionId: result.transactionId, receipt: result.receipt };
+  }
+
+  async function importConceptKbCheckpoint(args: {
+    concepts?: SynthesisConcept[];
+    senses?: SynthesisConceptSense[];
+    aliases?: SynthesisConceptAlias[];
+    relations?: SynthesisConceptRelation[];
+    reviewItems?: SynthesisConceptReviewItem[];
+    topicLinks?: SynthesisTopicConceptLinksAsset[];
+    transactionId?: string;
+  }) {
+    const result = await commitConceptState({
+      concepts: args.concepts || [],
+      senses: args.senses || [],
+      aliases: args.aliases || [],
+      relations: args.relations || [],
+      reviewItems: args.reviewItems || [],
+      topicLinks: (args.topicLinks || []).map((data) => ({
+        topicPathId: data.topic_id,
+        data,
+      })),
       transactionId: args.transactionId,
     });
     return { transactionId: result.transactionId, receipt: result.receipt };
@@ -1120,7 +1458,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       .map((entry) => normalizeProposal(entry))
       .filter((entry): entry is SynthesisConceptCardProposal => Boolean(entry));
     const current = await loadConceptKb();
-    const existingLinks = await readTopicConceptLinks({ topicPathId, topicId });
+    const existingLinks = await readTopicConceptLinks({ topicId });
     const timestamp = now();
     const conceptsById = new Map(
       current.concepts.map((entry) => [entry.concept_id, entry]),
@@ -1378,7 +1716,6 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       snapshot.review_items.map((entry) => [entry.review_id, entry]),
     );
     const existingLinks = await readTopicConceptLinks({
-      topicPathId: review.topic_path_id,
       topicId: review.topic_id,
     });
     const linksByKey = new Map(
@@ -1602,27 +1939,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
   async function rebuildConceptKbIndexProjection() {
     const snapshot = await loadConceptKb();
     const rebuiltAt = now();
-    const projection: SynthesisConceptIndexProjection = {
-      schema_id: "synthesis.concept_kb_index_projection",
-      schema_version: SYNTHESIS_CONCEPT_INDEX_SCHEMA_VERSION,
-      source_manifest_hash: snapshot.manifest.manifest_hash,
-      rebuilt_at: rebuiltAt,
-      concepts: snapshot.concepts,
-      senses: snapshot.senses,
-      aliases: snapshot.aliases,
-      relations: snapshot.relations,
-      review_items: snapshot.review_items,
-      search: snapshot.concepts.map((concept) => ({
-        concept_id: concept.concept_id,
-        label: concept.label,
-        normalized:
-          `${concept.label} ${concept.aliases.join(" ")} ${concept.short_definition || ""} ${concept.definition || ""}`.toLowerCase(),
-        concept_type: concept.concept_type,
-        domain: concept.domain,
-      })),
-      overlay_entries: snapshot.overlay_entries,
-      diagnostics: snapshot.diagnostics,
-    };
+    const projection = conceptProjectionFromSnapshot({ snapshot, rebuiltAt });
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
     await writeRuntimeTextFile(
       joinPath(paths.stateRoot, "concept-kb-index.json"),
@@ -1645,18 +1962,21 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       const raw = await readRuntimeTextFile(projectionPath);
       return JSON.parse(raw) as SynthesisConceptIndexProjection;
     } catch {
-      await rebuildConceptKbIndexProjection();
-      const raw = await readRuntimeTextFile(projectionPath);
-      return JSON.parse(raw) as SynthesisConceptIndexProjection;
+      return conceptProjectionFromSnapshot({
+        snapshot: await loadConceptKb(),
+        rebuiltAt: now(),
+      });
     }
   }
 
   return {
     loadConceptKb,
     saveConceptKb,
+    importConceptKbCheckpoint,
     ingestConceptCardProposals,
     applyConceptReviewAction,
     updateConceptDisplayText,
+    exportConceptKbCheckpoint,
     rebuildConceptKbIndexProjection,
     readConceptKbIndexProjection,
   };

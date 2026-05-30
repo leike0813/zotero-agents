@@ -1122,6 +1122,16 @@ describe("Topic synthesis runtime contract", function () {
           "related_topic_candidate",
           "overlap_topic_candidate",
           "contrast_topic_candidate",
+          "topic_interest_metadata",
+          "Topic Interest Metadata 判断口径",
+          "include_terms",
+          "must_have_terms",
+          "methods",
+          "exclude_terms",
+          "seed_literature_item_ids",
+          "不发明",
+          "外部文献",
+          "citation metrics",
           "空数组",
           "不合格反例",
         ],
@@ -1161,6 +1171,47 @@ describe("Topic synthesis runtime contract", function () {
     }
   });
 
+  it("keeps payload-writing guidance schema-first", async function () {
+    const schemaFirstReferences = [
+      "references/step_05_paper_units.md",
+      "references/step_06_cross_paper_map.md",
+      "references/step_07_taxonomy_timeline.md",
+      "references/step_08_core_sections.md",
+      "references/step_09_kg_proposals.md",
+      "references/step_10_external_statistics_report.md",
+      "references/step_11_render_validate.md",
+    ];
+
+    for (const runtimeRoot of skillRuntimeRoots) {
+      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
+      assert.include(skillText, "Schema skeleton");
+      assert.include(skillText, "sidecars");
+
+      for (const relativePath of schemaFirstReferences) {
+        const text = await readRequiredRuntimeFile(runtimeRoot, relativePath);
+        const schemaIndex = Math.max(
+          text.indexOf("## Payload schema"),
+          text.indexOf("## Manifest / stdout schema"),
+        );
+        assert.isAtLeast(
+          schemaIndex,
+          0,
+          `${runtimeRoot}/${relativePath} should start from schema context`,
+        );
+        const semanticIndex = text.search(
+          /## (分析目标|目的|Taxonomy|输出范围|上下文使用原则|External Literature|最终动作)/,
+        );
+        if (semanticIndex >= 0) {
+          assert.isBelow(
+            schemaIndex,
+            semanticIndex,
+            `${runtimeRoot}/${relativePath} should show schema before semantic guidance`,
+          );
+        }
+      }
+    }
+  });
+
   it("documents KG proposal sidecar boundaries in the content contract and examples", async function () {
     for (const runtimeRoot of skillRuntimeRoots) {
       const contract = await readRequiredRuntimeFile(
@@ -1173,8 +1224,9 @@ describe("Topic synthesis runtime contract", function () {
       );
 
       for (const text of [contract, examples]) {
-        assert.include(text, "concept_cards_proposal_path");
-        assert.include(text, "topic_graph_relation_proposals_path");
+        assert.include(text, "sidecars");
+        assert.include(text, "concept_cards_proposal");
+        assert.include(text, "topic_graph_relation_proposals");
         assert.include(text, "result/sidecars/");
       }
 

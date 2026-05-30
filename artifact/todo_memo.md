@@ -70,7 +70,7 @@
 - [x] synthesis页面中的run synthesis按钮语义应该改为create topic
 - [x] 四个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮；活动中的acp skills任务如果有新动作，会话抽屉中的任务卡片的更新时间会刷新，在刷新时会导致抽屉无法交互
 - [p] **Topic graph 和知识库**
-- [ ] **进一步优化synthesis skills**，每一步的细节指令要结合payload schema来说，明确各字段的语义及写作建议、示例，进一步约束agent行为，降低错误率，提高质量
+- [x] **进一步优化synthesis skills**，每一步的细节指令要结合payload schema来说，明确各字段的语义及写作建议、示例，进一步约束agent行为，降低错误率，提高质量
 - [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
 - [ ] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
@@ -93,8 +93,9 @@
 - [ ] 执行失败时的弹窗信息太多太乱
 - [x] Dashboard 正在运行任务窗口似乎会频繁刷新导致scroll不正常
 - [x] **工具栏上的快捷任务观察窗（hover展开）**
-- [ ] Tag 管理协议和功能内建化，支持用户自定义tag规则
-- [ ] **ACP 本地已归档 transcript/Skill runner 本地账本/任务的清理/管理机制**
+- [p] Tag 管理协议和功能内建化，支持用户自定义tag规则
+- [x] **ACP 本地已归档 transcript/Skill runner 本地账本/任务的清理/管理机制**
+- [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [p] **兼容 Zotero 9**
 - [ ] workflow 多语言文案机制

@@ -14,6 +14,7 @@ import type {
   PaperRegistryInputNote,
   RegistryArtifactType,
 } from "./registry";
+import { buildPaperRegistryMetadataFingerprintPayload } from "./registry";
 
 export type SynthesisLibraryIndexPaper = {
   paper_ref: string;
@@ -290,22 +291,17 @@ function metadataFingerprintFromItem(
     typeof item?.isDeleted === "function"
       ? item.isDeleted()
       : Boolean(item?.deleted);
-  const metadata = {
-    library_id: libraryId,
-    item_key: itemKey,
-    deleted,
+  const metadata = buildPaperRegistryMetadataFingerprintPayload({
     title: getTitle(item),
     year: getYear(date),
-    item_type: cleanString(item?.itemType),
+    itemType: cleanString(item?.itemType),
     creators: getCreators(item),
     tags: getTags(item),
     collections: collectionRefs(item),
     doi: readField(item, "DOI"),
     url: readField(item, "url"),
     arxiv: "",
-    citekey: getCitekey(item),
-    date_added: cleanString(item?.dateAdded),
-  };
+  });
   return {
     library_id: libraryId,
     item_key: itemKey,

@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Interest Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "topic_id",
+    "include_terms",
+    "must_have_terms",
+    "methods",
+    "exclude_terms",
+    "seed_literature_item_ids"
+  ],
+  "properties": {
+    "schema": { "const": "topic_interest_metadata.v1" },
+    "topic_id": { "type": "string", "minLength": 1 },
+    "include_terms": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "must_have_terms": {
+      "type": "array",
+      "maxItems": 6,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "methods": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "exclude_terms": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "seed_literature_item_ids": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

@@ -2,7 +2,31 @@
 
 > 可选扩展材料：硬约束以 `SKILL.md` 为准。本文件只补充 KG proposal 的判断口径和示例。
 
-本步骤在 `persist_core_sections` 之后执行，目标是把既有 topic 本次更新中已经形成的语义上下文转成插件可摄取的 KG proposal sidecars。你只写 proposal，不写 canonical KG assets，也不把 proposal 写进最终正文 section。
+本步骤在 `persist_core_sections` 之后执行，目标是把既有 topic 本次更新中已经形成的语义上下文转成插件可摄取的 KG proposal sidecars，并同步生成 topic discovery 使用的 `topic_interest_metadata`。你只写 proposal 和 discovery metadata，不写 canonical KG assets，也不把这些内容写进最终正文 section。
+
+## Payload schema
+
+写入 `runtime/payloads/kg-proposals.json`。完整约束以
+`assets/schemas/kg_proposals.schema.json` 为准；语义解释见下文。
+
+```json
+{
+  "schema_id": "synthesis.topic_synthesis_kg_proposals",
+  "schema_version": "1.0.0",
+  "concept_cards_proposal": { "cards": [], "diagnostics": [] },
+  "topic_graph_relation_proposals": { "proposals": [], "diagnostics": [] },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "",
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [],
+    "diagnostics": []
+  }
+}
+```
 
 ## 上下文使用原则
 
@@ -18,7 +42,7 @@
 
 ## 输出结构
 
-写入 `runtime/payloads/kg-proposals.json`，runtime 会校验并物化两个必交 sidecar：
+写入 `runtime/payloads/kg-proposals.json`，runtime 会校验并物化三类必交 sidecar：
 
 ```json
 {
@@ -37,11 +61,21 @@
     "source_topic_id": "object-detection-transformers",
     "proposals": [],
     "diagnostics": []
+  },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "object-detection-transformers",
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [],
+    "diagnostics": []
   }
 }
 ```
 
-两个数组都必交可空。没有可靠 proposal 时也必须写空数组，并在对应 `diagnostics[]` 中说明原因；不能跳过本步骤，也不能省略文件。
+三类输出都必交可空。没有可靠 proposal 或 metadata seed 时也必须写空数组，并在对应 `diagnostics[]` 中说明原因；不能跳过本步骤，也不能省略文件。
 
 ## Concept Card Proposal 判断口径
 
@@ -96,6 +130,26 @@
 - `diagnostics`：候选 topic 不明确、证据不足、可能形成 broader cycle、边界重叠过大等问题。
 
 不要写 canonical edge id；插件负责转换、去重、cycle/review 规则和 canonical 摄取。若候选关系主要来自名称相似、而当前 synthesis 没有语义支撑，应写 diagnostics，不应写成有效 proposal。
+
+## Topic Interest Metadata 判断口径
+
+`topic_interest_metadata` 面向后续 topic discovery、匹配和候选召回，不进入最终正文 section。它应该从既有 topic boundary、本次更新理由、scope、route/timeline、core sections、cross-paper evidence map 和库内论文集合中抽取检索语义，不是再写摘要，也不是生成 citation ranking。
+
+字段规则：
+
+- `include_terms`：用于召回的扩展术语。优先来自 topic title、aliases、scope include、跨论文反复出现的核心概念、任务名、机制名和稳定问题表述。最多 16 个；不要为了凑数填入 `method`、`model`、`performance` 这类泛词。
+- `must_have_terms`：最能界定 topic 的强边界词。通常是 title 的关键短语、必要任务/对象/场景组合或不可缺少的方法族。最多 6 个；应比 `include_terms` 更少、更强。
+- `methods`：只有当方法、模型族、算法、评测协议、数据集或机制确实构成 topic 边界时才填写。最多 8 个；不要把 citation graph metrics 或排序指标当作方法来源。
+- `exclude_terms`：用于排除歧义和相邻但不属于本 topic 的方向。优先来自 scope exclude、相邻 topic 边界、常见 false positive 或本 synthesis 明确排除的任务/方法。最多 8 个。
+- `seed_literature_item_ids`：只能填写当前库内已经解析出的 literature item id，例如 resolved paper set、paper workset、paper evidence 中可追溯的 item id。最多 50 个；不发明 id，不使用外部文献、未入库参考文献或纯 citation context 作为 seed。
+- `diagnostics`：记录保守为空、边界不清、seed 不可追溯、术语证据不足等原因。不要用 diagnostics 替代必填数组。
+
+边界要求：
+
+- 不为凑数填泛词，不把章节标题或普通形容词当 discovery term。
+- 不用外部文献作为 `seed_literature_item_ids`；外部文献只能帮助解释 coverage 或背景，不能成为库内 seed。
+- 不把 citation metrics、PageRank、centrality 或引用数量当语义来源；它们只能辅助诊断和排序，不能单独证明 interest metadata。
+- 不发明 literature item id；无法确认时保持空数组并写 diagnostics。
 
 ## 合格示例
 
@@ -154,6 +208,22 @@
       }
     ],
     "diagnostics": []
+  },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "detr-object-detection",
+    "include_terms": [
+      "DETR object detection",
+      "set prediction",
+      "object query matching",
+      "Hungarian matching",
+      "end-to-end object detection"
+    ],
+    "must_have_terms": ["object detection", "DETR", "set prediction"],
+    "methods": ["DETR", "Hungarian matching", "object queries"],
+    "exclude_terms": ["semantic segmentation", "generic transformer NLP"],
+    "seed_literature_item_ids": ["lit:detr2020", "lit:dab-detr2022"],
+    "diagnostics": []
   }
 }
 ```
@@ -185,6 +255,21 @@
         "message": "No candidate neighboring topic was available with enough boundary evidence for a relation proposal."
       }
     ]
+  },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "object-detection-transformers",
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [],
+    "diagnostics": [
+      {
+        "code": "insufficient_interest_metadata_evidence",
+        "message": "The topic boundary was too broad and no resolved library item id was safe to use as a discovery seed."
+      }
+    ]
   }
 }
 ```
@@ -207,11 +292,24 @@
       }
     ],
     "diagnostics": []
+  },
+  "topic_interest_metadata": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "detr-object-detection",
+    "include_terms": ["AI", "model", "performance", "paper"],
+    "must_have_terms": ["AI"],
+    "methods": ["high PageRank papers"],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [
+      "made-up-item-id",
+      "external:arxiv-only-paper"
+    ],
+    "diagnostics": []
   }
 }
 ```
 
-问题：把单个模型名当作概念，没有定义和证据；写入了 canonical id；topic relation 只靠名称相似，没有 topic boundary、route、claim 或 gap 支撑。
+问题：把单个模型名当作概念，没有定义和证据；写入了 canonical id；topic relation 只靠名称相似，没有 topic boundary、route、claim 或 gap 支撑；metadata 用泛词凑数，把 citation metrics 当语义来源，并发明了不可追溯的 literature item id。
 
 ```json
 {
@@ -220,4 +318,4 @@
 }
 ```
 
-问题：用“没有 proposal”逃避必交 sidecar。即使没有可靠候选，也必须写 `cards: []`、`proposals: []` 和 diagnostics。
+问题：用“没有 proposal”逃避必交 sidecar。即使没有可靠候选，也必须写 `cards: []`、`proposals: []`、`topic_interest_metadata` 的必填数组和 diagnostics。

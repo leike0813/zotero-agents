@@ -1,0 +1,193 @@
+schema: synthesis.engineering.rebuild_contracts.v1
+runbooks:
+  - id: run.index.full_rebuild
+    operation: full_registry_graph_cache_rebuild
+    semantic_owner: registry_cache
+    naming_note: index_id_is_historical
+    confirmation: required
+    epoch:
+      advances: registry_epoch
+      implementation_alias: index_generation
+      final_commit: short_transaction_replace_cache_facts_and_advance_epoch
+      stale_guard: true
+      invalidates:
+        - paper_registry_dirty_events
+        - citation_graph_jobs
+        - topic_discovery_repair_jobs
+    progress:
+      mode: determinate_plus_phase
+      performance_budget_ref: worker_budgets.registry_graph_cache_rebuild
+      counts:
+        - zotero_items
+        - artifact_notes
+        - references
+      phases:
+        - scan_sources
+        - rebuild_registry_cache
+        - preserve_overrides
+        - rebuild_graph_structure
+        - skip_topic_source_check_planning
+        - finalize
+    override_policy: preserve_effects_needs_attention_for_orphans
+    stale_worker_commit_policy: noop_or_mark_superseded
+    failure_policy:
+      before_final_commit: preserve_previous_committed_state
+      override_preservation_failure: failed_retryable_or_needs_attention
+      incomplete_rows_visible_to_ui: false
+    forbidden:
+      - legacy_json_auto_import
+      - old_epoch_active_jobs
+      - discovery_candidate_marks_topic_stale
+      - full_discovery_backscan
+  - id: run.index.external_source_rebuild
+    operation: external_source_drift_registry_graph_cache_rebuild
+    semantic_owner: registry_cache
+    naming_note: index_id_is_historical
+    confirmation: required
+    epoch:
+      advances: registry_epoch
+      implementation_alias: index_generation
+      final_commit: short_transaction_replace_cache_facts_and_advance_epoch
+      stale_guard: true
+      invalidates:
+        - external_source_drift_incident
+        - paper_registry_dirty_events
+        - citation_graph_jobs
+    progress:
+      mode: determinate_plus_phase
+      performance_budget_ref: worker_budgets.registry_graph_cache_rebuild
+      counts:
+        - zotero_items
+        - artifact_notes
+        - drift_examples
+      phases:
+        - inspect_drift_summary
+        - scan_sources
+        - rebuild_registry_cache
+        - rebuild_graph_structure
+        - finalize
+    override_policy: preserve_effects_needs_attention_for_orphans
+    stale_worker_commit_policy: noop_or_mark_superseded
+    failure_policy:
+      before_final_commit: preserve_previous_committed_state
+      drift_rebuild_failure: failed_retryable_or_needs_attention
+      incomplete_rows_visible_to_ui: false
+    forbidden:
+      - per_item_bulk_drift_fanout
+      - topic_source_check_fanout
+      - structural_drift_incremental_processing
+  - id: run.index.incremental
+    operation: bounded_registry_cache_update
+    semantic_owner: registry_cache
+    naming_note: index_id_is_historical
+    confirmation: none
+    basis:
+      uses_current: registry_epoch_or_source_hash
+      implementation_alias: index_generation
+    worker_commit:
+      requires:
+        - run_id
+        - run_marker_still_current
+        - basis_still_current
+        - source_version_or_evidence_hash
+    progress:
+      mode: determinate
+      performance_budget_ref: worker_budgets.paper_registry_incremental
+      counts:
+        - dirty_events
+    override_policy: preserve
+  - id: run.graph.structure_rebuild
+    operation: citation_graph_structure_rebuild
+    confirmation: optional
+    epoch:
+      advances: graph_epoch
+      basis_required: registry_epoch_or_graph_input_hash
+      final_commit_requires_current_basis: true
+      invalidates:
+        - graph_layout_jobs
+        - complex_metrics_jobs
+    progress:
+      mode: determinate
+      performance_budget_ref: worker_budgets.citation_graph_structure
+      counts:
+        - nodes
+        - edges
+    override_policy: no_override_mutation
+  - id: run.graph.layout_rebuild
+    operation: citation_graph_layout_rebuild
+    confirmation: none
+    basis:
+      uses_current: graph_epoch_or_graph_hash
+      scoped_by:
+        - graph_hash
+        - preset
+    progress:
+      mode: determinate_or_phase
+      performance_budget_ref: worker_budgets.citation_graph_layout
+      counts:
+        - visible_nodes
+    override_policy: no_override_mutation
+  - id: run.topic.source_check
+    operation: explicit_topic_source_check
+    confirmation: none
+    basis:
+      uses_current: source_facade_snapshot
+    progress:
+      mode: determinate
+      performance_budget_ref: worker_budgets.topic_source_check
+      counts:
+        - saved_sources
+    override_policy: preserve
+  - id: run.topic.discovery_apply_match
+    operation: digest_apply_time_discovery_match
+    confirmation: none
+    basis:
+      uses_current: active_topics_and_single_literature_metadata
+    progress:
+      mode: determinate
+      performance_budget_ref: worker_budgets.topic_discovery_apply_time_match
+      counts:
+        - active_topics
+    override_policy: preserve_filtered_candidates
+  - id: run.topic.discovery_repair
+    operation: explicit_topic_discovery_repair
+    confirmation: none
+    basis:
+      uses_current: bounded_topic_literature_scope
+    progress:
+      mode: determinate
+      performance_budget_ref: worker_budgets.topic_discovery_repair
+      counts:
+        - bounded_topic_literature_pairs
+    override_policy: preserve_filtered_candidates
+  - id: run.reset.synthesis_db
+    operation: synthesis_db_reset
+    confirmation: double_confirmation
+    reset_scope:
+      clears:
+        - synthesis_runtime_tables
+        - dirty_events
+        - job_progress
+    progress:
+      mode: table_counts
+    override_policy: clear_only_if_reset_scope_says_so
+  - id: run.reset.clean_install
+    operation: clean_install_reset
+    confirmation: fixed_phrase
+    reset_scope:
+      clears:
+        - synthesis_runtime_tables
+        - synthesis_file_residue
+    progress:
+      mode: table_and_file_counts
+    override_policy: clear_runtime_overrides_by_policy
+  - id: run.import.preview_apply
+    operation: explicit_bundle_import
+    confirmation: preview_then_apply
+    import_run:
+      invalidates:
+        - affected_domain_jobs
+    progress:
+      mode: file_and_row_counts
+      performance_budget_ref: worker_budgets.import_preview_apply
+    override_policy: policy_driven_preview_required

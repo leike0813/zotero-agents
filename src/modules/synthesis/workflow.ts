@@ -14,6 +14,7 @@ export type SynthesisResultBundle = {
   resolver_diagnostics: Record<string, unknown>;
   artifact_metadata: Record<string, unknown>;
   analysis_manifest_path?: string;
+  topic_interest_metadata_path?: string;
   concept_cards_proposal_path?: string;
   topic_graph_relation_proposals_path?: string;
   markdown: string;
@@ -97,13 +98,14 @@ export function validateSynthesisResultBundle(input: unknown): {
       throw new Error("synthesis result bundle must not embed markdown");
     }
     const analysisManifestPath = requireString(input, "analysis_manifest_path");
-    const relationProposalsPath = requireString(
-      input,
-      "topic_graph_relation_proposals_path",
+    const topicInterestMetadataPath = cleanString(
+      input.topic_interest_metadata_path,
     );
-    const conceptCardsProposalPath = requireString(
-      input,
-      "concept_cards_proposal_path",
+    const relationProposalsPath = cleanString(
+      input.topic_graph_relation_proposals_path,
+    );
+    const conceptCardsProposalPath = cleanString(
+      input.concept_cards_proposal_path,
     );
     const baseHashes = requireObject(input, "base_hashes") as Record<
       string,
@@ -131,6 +133,7 @@ export function validateSynthesisResultBundle(input: unknown): {
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
+          topic_interest_metadata_path: topicInterestMetadataPath,
           concept_cards_proposal_path: conceptCardsProposalPath,
           topic_graph_relation_proposals_path: relationProposalsPath,
           markdown: "",
@@ -155,6 +158,7 @@ export function validateSynthesisResultBundle(input: unknown): {
         resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
         artifact_metadata: artifactMetadata,
         analysis_manifest_path: analysisManifestPath,
+        topic_interest_metadata_path: topicInterestMetadataPath,
         concept_cards_proposal_path: conceptCardsProposalPath,
         topic_graph_relation_proposals_path: relationProposalsPath,
         markdown: "",

@@ -1,0 +1,93 @@
+@startuml
+title Zotero Skills / Synthesis Domain Dependencies
+left to right direction
+skinparam backgroundColor transparent
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName "Microsoft YaHei"
+skinparam package {
+  BorderColor #94a3b8
+  BackgroundColor #f8fafc
+}
+
+package "平台执行域" as Platform #eff6ff {
+  [Workflow / Skill Provider] as Workflow
+  [ACP Runtime] as ACP
+  [Host Bridge / CLI] as Bridge
+}
+
+package "源事实域" as Source #f0fdf4 {
+  [Zotero Library] as Zotero
+  [Derived Artifact Notes] as Notes
+}
+
+package "Synthesis Layer" as Synthesis #fffbeb {
+  [Foundation / Repository] as Foundation
+  [Host Library / Artifact Facade] as SourceFacade
+  [Paper Registry Cache] as Registry
+  [Reference Resolution] as Resolver
+  [Citation Graph] as Graph
+  [Tag Vocabulary] as Tags
+  [Topics / Topic Graph] as Topics
+  [Concept KB] as Concepts
+  [Maintenance / Jobs / Debug] as Jobs
+  [Sync / Import / Export] as Sync
+}
+
+Bridge --> Workflow : submit / inspect
+ACP --> Workflow : provider runtime
+Workflow --> Notes : artifact writes
+Workflow --> Topics : topic synthesis
+
+Zotero --> Notes : stores notes
+Zotero --> Registry : item metadata
+Notes --> Registry : digest / references / matching metadata
+Zotero --> SourceFacade : item metadata
+Notes --> SourceFacade : digest / references / citation analysis
+Bridge --> SourceFacade : topic workflow reads
+
+Foundation ..> Registry : storage ownership
+Foundation ..> SourceFacade : service facade
+Foundation ..> Resolver
+Foundation ..> Graph
+Foundation ..> Tags
+Foundation ..> Topics
+Foundation ..> Concepts
+
+Registry --> Resolver : reference instances
+Resolver --> Graph : matched / unresolved edges
+SourceFacade --> Topics : primary workflow inputs
+Tags --> Topics : controlled vocabulary
+Topics --> Concepts : proposal ingestion
+Concepts ..> Topics : optional overlay context
+Graph ..> Topics : optional metrics / diagnostics
+
+Jobs --> Registry : incremental registry cache
+Jobs --> Graph : structure / metrics / layout
+Jobs ..> Topics : explicit source check only
+Bridge ..> Jobs : debug capabilities only
+
+Sync ..> Tags : canonical export/import
+Sync ..> Topics
+Sync ..> Concepts
+
+note bottom of SourceFacade
+Topic create/update 的主输入来自
+Host Library / Artifact Facade：
+library index、resolver result、
+filtered digest/references/citation-analysis。
+它不是 registry cache rebuild 的完成状态。
+end note
+
+note bottom of Registry
+Paper Registry Cache 是 registry/citation graph 的运行态缓存：
+它规整外部 item/note/artifact facts，
+但不是全局 Synthesis SSOT，也不驱动 topic artifact lifecycle。
+end note
+
+note bottom of Graph
+Citation Graph 消费 Registry Cache / Resolver facts。
+默认 UI 只展示库内互引与共享外部引用；
+单入度外部引用是 hover-only 展示层。
+end note
+@enduml
