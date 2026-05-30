@@ -67,9 +67,12 @@ foreach ($skill in $Skills) {
 
 # Fetch and verify base branch
 git -C $DevRoot fetch origin --prune 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Log-Warn "git fetch failed — proceeding with local refs only."
+}
 $baseRef = "origin/$BaseBranch"
-$hasBase = git -C $DevRoot show-ref --verify --quiet "refs/remotes/$baseRef"
-if (-not $hasBase) {
+git -C $DevRoot show-ref --verify --quiet "refs/remotes/$baseRef"
+if ($LASTEXITCODE -ne 0) {
     Log-Error "Remote branch '$baseRef' not found. Run 'git fetch origin' or check -BaseBranch."
 }
 
