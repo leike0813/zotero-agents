@@ -82,88 +82,85 @@ if ($LASTEXITCODE -ne 0) {
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zotero-skills-publish-$([Guid]::NewGuid().ToString('N').Substring(0,8))"
 New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
-$cleanup = {
+# ---------------------------
+# Main
+# ---------------------------
+try {
+    # Dry run
+    if ($DryRun) {
+        Log-Info "DRY RUN plan:"
+        foreach ($skill in $Skills) {
+            $branch = "$Prefix$skill"
+            $fileCount = (Get-ChildItem -Recurse -File (Join-Path $DevRoot "skills_builtin\$skill")).Count
+            $exists = git -C $DevRoot show-ref --verify --quiet "refs/remotes/origin/$branch"
+            $action = if ($exists) { "update" } else { "create" }
+            Write-Host "  - $action branch '$branch' with $fileCount files from skills_builtin\$skill" -ForegroundColor Gray
+        }
+        if ($Push) { Write-Host "  - would push all branches to origin" -ForegroundColor Gray }
+        exit 0
+    }
+
+    # Publish each skill
+    foreach ($skill in $Skills) {
+        $skillDir = Join-Path $DevRoot "skills_builtin\$skill"
+        $branch   = "$Prefix$skill"
+        $skillWt  = Join-Path $TempDir "wt-$skill"
+
+        Log-Info "Publishing '$skill' -> branch '$branch'"
+
+        # Create temp worktree detached from origin/base
+        git -C $DevRoot worktree add --detach "$skillWt" "$baseRef" 2>&1 | Out-Null
+
+        try {
+            # Create orphan branch
+            git -C $skillWt checkout --orphan "$branch" 2>&1 | Out-Null
+
+            # Clear all contents including hidden files
+            Get-ChildItem -Path $skillWt -Force -Recurse | Where-Object {
+                $_.FullName -ne $skillWt
+            } | Remove-Item -Recurse -Force
+
+            # Copy skill files into worktree
+            Copy-Item -Path "$skillDir\*" -Destination "$skillWt" -Recurse -Force
+
+            # Stage and commit
+            git -C $skillWt add -A 2>&1 | Out-Null
+            $hasChanges = -not (git -C $skillWt diff --cached --quiet 2>$null)
+
+            if ($hasChanges) {
+                git -C $skillWt commit -m "publish($skill): sync skill root" 2>&1 | Out-Null
+            } else {
+                git -C $skillWt commit --allow-empty -m "init($skill): create $branch" 2>&1 | Out-Null
+            }
+
+            # Push if requested
+            if ($Push) {
+                Log-Info "  Pushing '$branch' to origin..."
+                git -C $skillWt push -u origin "$branch" 2>&1 | Out-Null
+            }
+
+            Log-Info "  Done: $branch"
+        }
+        finally {
+            # Clean up worktree
+            if (Test-Path $skillWt) {
+                git -C $DevRoot worktree remove --force "$skillWt" 2>$null | Out-Null
+                if (Test-Path $skillWt) {
+                    Remove-Item -Recurse -Force $skillWt -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
+    git -C $DevRoot worktree prune 2>$null | Out-Null
+    Log-Info "All $($Skills.Count) skill(s) published."
+    if ($Push) { Log-Info "Branches pushed to origin." }
+    else       { Log-Info "Add -Push to push branches to remote." }
+}
+finally {
+    # Cleanup temp dir on any exit path
     if (Test-Path $TempDir) {
         git -C $DevRoot worktree prune 2>$null
         Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
     }
 }
-Register-ObjectEvent -InputObject $null -EventName 'Disposed' -Action $cleanup 2>$null | Out-Null
-# Also register via trap for reliable cleanup
-trap { $cleanup.Invoke(); throw }
-
-# ---------------------------
-# Dry run
-# ---------------------------
-if ($DryRun) {
-    Log-Info "DRY RUN plan:"
-    foreach ($skill in $Skills) {
-        $branch = "$Prefix$skill"
-        $fileCount = (Get-ChildItem -Recurse -File (Join-Path $DevRoot "skills_builtin\$skill")).Count
-        $exists = git -C $DevRoot show-ref --verify --quiet "refs/remotes/origin/$branch"
-        $action = if ($exists) { "update" } else { "create" }
-        Write-Host "  - $action branch '$branch' with $fileCount files from skills_builtin\$skill" -ForegroundColor Gray
-    }
-    if ($Push) { Write-Host "  - would push all branches to origin" -ForegroundColor Gray }
-    exit 0
-}
-
-# ---------------------------
-# Publish each skill
-# ---------------------------
-foreach ($skill in $Skills) {
-    $skillDir = Join-Path $DevRoot "skills_builtin\$skill"
-    $branch   = "$Prefix$skill"
-    $skillWt  = Join-Path $TempDir "wt-$skill"
-
-    Log-Info "Publishing '$skill' -> branch '$branch'"
-
-    # Create temp worktree detached from origin/base
-    git -C $DevRoot worktree add --detach "$skillWt" "$baseRef" 2>&1 | Out-Null
-
-    try {
-        # Create orphan branch
-        git -C $skillWt checkout --orphan "$branch" 2>&1 | Out-Null
-
-        # Clear all contents including hidden files
-        Get-ChildItem -Path $skillWt -Force -Recurse | Where-Object {
-            $_.FullName -ne $skillWt
-        } | Remove-Item -Recurse -Force
-
-        # Copy skill files into worktree
-        Copy-Item -Path "$skillDir\*" -Destination "$skillWt" -Recurse -Force
-
-        # Stage and commit
-        git -C $skillWt add -A 2>&1 | Out-Null
-        $hasChanges = -not (git -C $skillWt diff --cached --quiet 2>$null)
-
-        if ($hasChanges) {
-            git -C $skillWt commit -m "publish($skill): sync skill root" 2>&1 | Out-Null
-        } else {
-            git -C $skillWt commit --allow-empty -m "init($skill): create $branch" 2>&1 | Out-Null
-        }
-
-        # Push if requested
-        if ($Push) {
-            Log-Info "  Pushing '$branch' to origin..."
-            git -C $skillWt push -u origin "$branch" 2>&1 | Out-Null
-        }
-
-        Log-Info "  Done: $branch"
-    }
-    finally {
-        # Clean up worktree
-        if (Test-Path $skillWt) {
-            # Remove .git file so worktree remove works cleanly
-            git -C $DevRoot worktree remove --force "$skillWt" 2>$null | Out-Null
-            if (Test-Path $skillWt) {
-                Remove-Item -Recurse -Force $skillWt -ErrorAction SilentlyContinue
-            }
-        }
-    }
-}
-
-git -C $DevRoot worktree prune 2>$null | Out-Null
-Log-Info "All $($Skills.Count) skill(s) published."
-if ($Push) { Log-Info "Branches pushed to origin." }
-else       { Log-Info "Add -Push to push branches to remote." }
