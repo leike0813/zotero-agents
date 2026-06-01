@@ -10,11 +10,10 @@ export type ReviewResolvedPaper = {
   match_reasons: string[];
 };
 
-export type ReviewRegistryReadinessRow = {
+export type ReviewRegistryArtifactCoverageRow = {
   paper_ref: string;
   title: string;
-  readiness: "ready" | "partial";
-  coverage: "complete" | "partial" | "missing";
+  artifactCoverage: "complete" | "partial" | "missing";
   missing_artifacts: string[];
 };
 
@@ -70,8 +69,8 @@ export type ReviewWorkflowInput = {
     papers: ReviewResolvedPaper[];
     snapshot: Record<string, unknown>;
   };
-  registry_readiness: {
-    rows: ReviewRegistryReadinessRow[];
+  registry_artifact_coverage: {
+    rows: ReviewRegistryArtifactCoverageRow[];
   };
   citation_graph_slice: ReviewCitationGraphSlice;
   missing_artifact_diagnostics: ReviewMissingArtifactDiagnostic[];
@@ -100,8 +99,7 @@ export type ReviewWorkflowInputArgs = {
   registry_rows: Array<{
     paper_ref: string;
     title?: string;
-    readiness?: string;
-    coverage?: string;
+    artifactCoverage?: string;
     missing_artifacts?: string[];
   }>;
   citation_graph: CitationGraph;
@@ -191,10 +189,6 @@ function normalizeStringList(values: unknown) {
   ).sort((left, right) => left.localeCompare(right));
 }
 
-function normalizeReadiness(value: unknown): "ready" | "partial" {
-  return cleanString(value) === "ready" ? "ready" : "partial";
-}
-
 function normalizeCoverage(value: unknown): "complete" | "partial" | "missing" {
   const coverage = cleanString(value);
   if (coverage === "complete" || coverage === "partial") {
@@ -243,11 +237,10 @@ function normalizeRegistryRows(
 ) {
   const allowed = new Set(paperRefs);
   return [...(rows || [])]
-    .map((row): ReviewRegistryReadinessRow => ({
+    .map((row): ReviewRegistryArtifactCoverageRow => ({
       paper_ref: cleanString(row.paper_ref),
       title: cleanString(row.title) || cleanString(row.paper_ref),
-      readiness: normalizeReadiness(row.readiness),
-      coverage: normalizeCoverage(row.coverage),
+      artifactCoverage: normalizeCoverage(row.artifactCoverage),
       missing_artifacts: normalizeStringList(row.missing_artifacts),
     }))
     .filter((row) => row.paper_ref && allowed.has(row.paper_ref))
@@ -294,7 +287,7 @@ export function projectCitationGraphSliceForReview(args: {
   };
 }
 
-function buildMissingArtifactDiagnostics(rows: ReviewRegistryReadinessRow[]) {
+function buildMissingArtifactDiagnostics(rows: ReviewRegistryArtifactCoverageRow[]) {
   return rows
     .flatMap((row) =>
       row.missing_artifacts.map((artifactType) => ({
@@ -352,7 +345,7 @@ export function buildReviewWorkflowInput(
         papers: resolvedPapers,
       },
     },
-    registry_readiness: {
+    registry_artifact_coverage: {
       rows: registryRows,
     },
     citation_graph_slice: projectCitationGraphSliceForReview({

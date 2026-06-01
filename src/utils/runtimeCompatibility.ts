@@ -43,6 +43,10 @@ export async function delay(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
+export async function yieldToEventLoop() {
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+}
+
 function extractSubprocess(value: unknown) {
   const record = value && typeof value === "object"
     ? (value as { Subprocess?: unknown })

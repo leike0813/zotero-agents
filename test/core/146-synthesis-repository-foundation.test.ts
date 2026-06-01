@@ -16,6 +16,10 @@ import {
   upsertPluginTaskRequestEntry,
 } from "../../src/modules/pluginStateStore";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  applySynthesisUiAction,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
 
 describe("Synthesis repository foundation", function () {
   beforeEach(function () {
@@ -99,16 +103,14 @@ describe("Synthesis repository foundation", function () {
     const names = schema.map((entry) => entry.name);
     assert.includeMembers(names, [
       "synt_schema_meta",
-      "synt_dirty_event",
-      "synt_job_state",
+      "synt_operation",
+      "synt_cache_basis",
       "synt_review_item",
-      "synt_literature_item",
-      "synt_literature_identifier",
-      "synt_zotero_binding",
-      "synt_literature_redirect",
-      "synt_artifact_state",
-      "synt_reference_instance",
-      "synt_reference_resolution",
+      "synt_artifact_sidecar",
+      "synt_raw_reference",
+      "synt_canonical_reference",
+      "synt_canonical_reference_redirect",
+      "synt_reference_binding",
       "synt_citation_node",
       "synt_citation_edge",
       "synt_citation_source_ownership",
@@ -116,6 +118,7 @@ describe("Synthesis repository foundation", function () {
       "synt_citation_metrics_light",
       "synt_citation_metrics_complex",
       "synt_citation_layout_state",
+      "synt_related_items_sync_effect",
       "synt_literature_matching_metadata",
       "synt_topic_interest_metadata",
       "synt_topic_discovery_hint",
@@ -133,22 +136,27 @@ describe("Synthesis repository foundation", function () {
       "synt_tag_abbrev",
       "synt_tag_protocol",
       "synt_tag_validation_warning",
-      "idx_synt_literature_item_status_updated",
-      "idx_synt_literature_identifier_kind_value",
-      "idx_synt_zotero_binding_literature_status",
-      "idx_synt_literature_redirect_from",
-      "idx_synt_reference_instance_source",
-      "idx_synt_reference_resolution_target_status",
+      "idx_synt_operation_type_status_updated",
+      "idx_synt_cache_basis_kind_status",
+      "idx_synt_artifact_sidecar_source",
+      "idx_synt_artifact_sidecar_hash",
+      "idx_synt_raw_reference_source",
+      "idx_synt_raw_reference_canonical_status",
+      "idx_synt_canonical_reference_title",
+      "idx_synt_reference_binding_target",
+      "idx_synt_reference_binding_canonical",
       "idx_synt_citation_edge_source_status",
       "idx_synt_citation_edge_target_status",
       "idx_synt_citation_source_owner_source",
       "idx_synt_citation_incoming_target",
       "idx_synt_citation_metrics_complex_status_foundation",
       "idx_synt_citation_layout_view_status",
+      "idx_synt_related_items_sync_effect_status",
+      "idx_synt_related_items_sync_effect_pair",
       "idx_synt_literature_matching_metadata_updated",
       "idx_synt_topic_interest_metadata_updated",
       "idx_synt_topic_discovery_hint_topic_status",
-      "idx_synt_topic_discovery_hint_literature_status",
+      "idx_synt_topic_discovery_hint_source_status",
       "idx_synt_topic_discovery_hint_updated",
       "idx_synt_topic_graph_node_type_updated",
       "idx_synt_topic_graph_edge_source_status",
@@ -166,12 +174,27 @@ describe("Synthesis repository foundation", function () {
       "idx_synt_tag_abbrev_value",
       "idx_synt_tag_validation_severity",
       "idx_synt_review_item_priority_status",
-      "idx_synt_dirty_event_status_retry",
-      "idx_synt_job_state_status_updated",
     ]);
-    assert.match(
+    assert.notIncludeMembers(names, [
+      "synt_dirty_event",
+      "synt_job_state",
+      "synt_work_item",
+      "synt_work_run",
+      "synt_work_queue_meta",
+      "synt_registry_basis_meta",
+      "synt_registry_rebuild_run",
+      ["synt", "literature", "item"].join("_"),
+      ["synt", "literature", "identifier"].join("_"),
+      ["synt", "zotero", "binding"].join("_"),
+      ["synt", "literature", "redirect"].join("_"),
+      ["synt", "artifact", "state"].join("_"),
+      ["synt", "reference", "instance"].join("_"),
+      ["synt", "reference", "resolution"].join("_"),
+      ["synt", "reference", "binding", "decision"].join("_"),
+    ]);
+    assert.equal(
       repository.getSchemaVersion(),
-      /^2026-05-29\.phase7-workbench-db-ui$/,
+      "2026-06-01.sidecar-cache-hard-cut",
     );
   });
 
@@ -183,19 +206,20 @@ describe("Synthesis repository foundation", function () {
     assert.throws(
       () =>
         repository.transaction(() => {
-          repository.upsertLiteratureItem({
-            literatureItemId: "lit:rollback",
-            displayTitle: "Rollback Paper",
-            normalizedTitle: "rollback paper",
-            titleNormalizerVersion: "deterministic-v1",
-            createdFrom: "test",
+          repository.upsertArtifactSidecar({
+            sourceRef: "1:ROLLBACK",
+            libraryId: 1,
+            itemKey: "ROLLBACK",
+            artifactType: "references",
+            status: "available",
+            artifactHash: "sha256:rollback",
           });
           throw new Error("force rollback");
         }),
       /force rollback/,
     );
 
-    assert.isNull(repository.getLiteratureItem("lit:rollback"));
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 0);
   });
 
   it("resets Synthesis runtime tables while preserving schema metadata and non-Synthesis state", function () {
@@ -210,11 +234,13 @@ describe("Synthesis repository foundation", function () {
       payload: JSON.stringify({ keep: true }),
     });
 
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:reset",
-      displayTitle: "Reset Candidate",
-      normalizedTitle: "reset candidate",
-      titleNormalizerVersion: "deterministic-v1",
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:RESET",
+      libraryId: 1,
+      itemKey: "RESET",
+      artifactType: "references",
+      status: "available",
+      artifactHash: "sha256:reset",
     });
     repository.upsertTopicGraphNode({
       topicId: "topic:reset",
@@ -263,19 +289,23 @@ describe("Synthesis repository foundation", function () {
       priority: 0,
       status: "open",
     });
-    repository.upsertDirtyEvent({
-      eventId: "dirty:reset",
-      eventType: "reset-test",
-      status: "queued",
-    });
-    repository.upsertJobProgress({
-      jobName: "synthesis:reset-job",
-      source: "update_queue",
+    repository.upsertOperation({
+      operationId: "operation:reset",
+      operationType: "reference_sidecar_refresh",
       label: "Reset job",
       status: "running",
       processedCount: 1,
       totalCount: 2,
       progressMode: "determinate",
+    });
+    repository.upsertCacheBasis({
+      cacheKey: "citation-graph:library",
+      cacheKind: "citation_graph",
+      scopeKind: "library",
+      scopeRef: "1",
+      status: "stale",
+      basisKind: "test",
+      basisValue: "reset",
     });
     repository.upsertCitationGraphLayoutState({
       layoutKey: "workbench_overview:balanced",
@@ -288,39 +318,39 @@ describe("Synthesis repository foundation", function () {
       diagnosticsJson: "[]",
     });
 
-    assert.equal(repository.countRows("synt_literature_item"), 1);
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 1);
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_concept"), 1);
     assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
     assert.equal(repository.countRows("synt_review_item"), 1);
-    assert.equal(repository.countRows("synt_dirty_event"), 1);
-    assert.equal(repository.countRows("synt_job_state"), 1);
+    assert.equal(repository.countRows("synt_operation"), 1);
+    assert.equal(repository.countRows("synt_cache_basis"), 1);
     assert.equal(repository.countRows("synt_citation_layout_state"), 1);
 
     const result = repository.resetSynthesisState();
 
     assert.deepInclude(result.deletedRowsByTable, {
-      synt_literature_item: 1,
+      synt_artifact_sidecar: 1,
       synt_topic_graph_node: 1,
       synt_concept: 1,
       synt_tag_vocabulary_entry: 1,
       synt_review_item: 1,
-      synt_dirty_event: 1,
-      synt_job_state: 1,
+      synt_operation: 1,
+      synt_cache_basis: 1,
       synt_citation_layout_state: 1,
     });
     assert.equal(result.resetAt, "2026-05-28T00:00:00.000Z");
-    assert.equal(repository.countRows("synt_literature_item"), 0);
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 0);
     assert.equal(repository.countRows("synt_topic_graph_node"), 0);
     assert.equal(repository.countRows("synt_concept"), 0);
     assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 0);
     assert.equal(repository.countRows("synt_review_item"), 0);
-    assert.equal(repository.countRows("synt_dirty_event"), 0);
-    assert.equal(repository.countRows("synt_job_state"), 0);
+    assert.equal(repository.countRows("synt_operation"), 0);
+    assert.equal(repository.countRows("synt_cache_basis"), 0);
     assert.equal(repository.countRows("synt_citation_layout_state"), 0);
     assert.equal(
       repository.getSchemaVersion(),
-      "2026-05-29.phase7-workbench-db-ui",
+      "2026-06-01.sidecar-cache-hard-cut",
     );
     assert.include(
       repository.inspectSchema().map((entry) => entry.name),
@@ -334,15 +364,14 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
-  it("tracks Synthesis job progress lifecycle rows", function () {
+  it("tracks explicit operation lifecycle rows", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-28T00:00:00.000Z",
     });
 
-    repository.upsertJobProgress({
-      jobName: "synthesis:test-job",
-      runId: "run:1",
-      source: "update_queue",
+    repository.upsertOperation({
+      operationId: "operation:test",
+      operationType: "reference_sidecar_refresh",
       label: "Test job",
       status: "running",
       phase: "scan",
@@ -352,10 +381,9 @@ describe("Synthesis repository foundation", function () {
       progressMode: "determinate",
     });
 
-    assert.deepInclude(repository.listActiveJobProgress()[0], {
-      jobName: "synthesis:test-job",
-      runId: "run:1",
-      source: "update_queue",
+    assert.deepInclude(repository.listOperations()[0], {
+      operationId: "operation:test",
+      operationType: "reference_sidecar_refresh",
       label: "Test job",
       status: "running",
       phase: "scan",
@@ -365,43 +393,33 @@ describe("Synthesis repository foundation", function () {
       progressMode: "determinate",
     });
 
-    repository.completeJobProgress({
-      jobName: "synthesis:test-job",
-      runId: "run:1",
-      source: "update_queue",
-      label: "Test job",
+    repository.updateOperationStatus({
+      operationId: "operation:test",
+      status: "completed",
       processedCount: 4,
       totalCount: 4,
-      progressMode: "determinate",
     });
 
-    assert.deepEqual(repository.listActiveJobProgress(), []);
+    assert.deepEqual(repository.listOperations(), []);
     assert.equal(
-      repository.listActiveJobProgress({ includeCompleted: true })[0]?.status,
+      repository.listOperations({ includeCompleted: true })[0]?.status,
       "completed",
     );
 
-    repository.upsertJobProgress({
-      jobName: "synthesis:stale-job",
-      source: "update_queue",
-      label: "Stale job",
+    repository.upsertOperation({
+      operationId: "operation:failed",
+      operationType: "citation_graph_refresh",
+      label: "Failed operation",
       status: "running",
-      heartbeatAt: "2026-05-27T00:00:00.000Z",
     });
-
-    const stale = repository.clearStaleJobProgress({
-      staleBefore: "2026-05-28T00:00:00.000Z",
+    repository.updateOperationStatus({
+      operationId: "operation:failed",
+      status: "failed",
+      message: "explicit failure",
     });
-
-    assert.deepEqual(
-      stale.map((row) => row.jobName),
-      ["synthesis:stale-job"],
-    );
     assert.equal(
-      repository
-        .listActiveJobProgress()
-        .find((row) => row.jobName === "synthesis:stale-job")?.status,
-      "failed_retryable",
+      repository.listOperations({ includeCompleted: true })[0]?.status,
+      "failed",
     );
   });
 
@@ -416,11 +434,13 @@ describe("Synthesis repository foundation", function () {
       now: () => "2026-05-28T00:00:00.000Z",
       synthesisRepository: repository,
     });
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:service-reset",
-      displayTitle: "Service Reset",
-      normalizedTitle: "service reset",
-      titleNormalizerVersion: "deterministic-v1",
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:SERVICE",
+      libraryId: 1,
+      itemKey: "SERVICE",
+      artifactType: "references",
+      status: "available",
+      artifactHash: "sha256:service",
     });
 
     const rejected = await service.resetSynthesisDatabase({
@@ -431,7 +451,7 @@ describe("Synthesis repository foundation", function () {
       ok: false,
       status: "confirmation_mismatch",
     });
-    assert.equal(repository.countRows("synt_literature_item"), 1);
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 1);
     assert.deepInclude(
       await service.resetSynthesisDatabase({
         confirmationText: ` ${SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT} `,
@@ -441,7 +461,7 @@ describe("Synthesis repository foundation", function () {
         status: "confirmation_mismatch",
       },
     );
-    assert.equal(repository.countRows("synt_literature_item"), 1);
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 1);
 
     const accepted = await service.resetSynthesisDatabase({
       confirmationText: SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT,
@@ -452,36 +472,8 @@ describe("Synthesis repository foundation", function () {
       status: "reset",
       resetAt: "2026-05-28T00:00:00.000Z",
     });
-    assert.equal(accepted.deletedRowsByTable?.synt_literature_item, 1);
-    assert.equal(repository.countRows("synt_literature_item"), 0);
-  });
-
-  it("stores typed Synthesis rows without plugin_task_rows payload_json", function () {
-    const repository = createSynthesisRepository({
-      now: () => "2026-05-26T00:00:00.000Z",
-    });
-
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:item",
-      displayTitle: "Deformable DETR",
-      normalizedTitle: "deformable detr",
-      titleNormalizerVersion: "deterministic-v1",
-      year: "2021",
-      authorsJson: JSON.stringify(["Zhu"]),
-      status: "active",
-      createdFrom: "zotero-binding",
-      confidence: "deterministic",
-    });
-
-    assert.deepInclude(repository.getLiteratureItem("lit:item"), {
-      literatureItemId: "lit:item",
-      displayTitle: "Deformable DETR",
-      normalizedTitle: "deformable detr",
-      titleNormalizerVersion: "deterministic-v1",
-      status: "active",
-      createdFrom: "zotero-binding",
-    });
-    assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
+    assert.equal(accepted.deletedRowsByTable?.synt_artifact_sidecar, 1);
+    assert.equal(repository.countRows("synt_artifact_sidecar"), 0);
   });
 
   it("stores minimal topic discovery metadata contracts as typed rows", function () {
@@ -553,17 +545,11 @@ describe("Synthesis repository foundation", function () {
     assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
   });
 
-  it("builds topic discovery hints as candidate-only state from metadata overlap", function () {
+  it("builds topic discovery hints as candidate-only state from metadata overlap [inv.discovery.apply_time_token_overlap]", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
     });
 
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:candidate",
-      displayTitle: "Deformable DETR for Object Detection",
-      normalizedTitle: "deformable detr for object detection",
-      titleNormalizerVersion: "deterministic-v1",
-    });
     repository.upsertLiteratureMatchingMetadata({
       literatureItemId: "lit:candidate",
       keyTermsJson: JSON.stringify(["object detection", "DETR"]),
@@ -602,10 +588,9 @@ describe("Synthesis repository foundation", function () {
     assert.equal(result.scannedTopics, 1);
     assert.equal(result.scannedLiterature, 3);
     assert.equal(result.open, 1);
-    assert.equal(result.filtered, 1);
+    assert.equal(result.rejected, 0);
     assert.deepEqual(allHints.map((hint) => hint.literatureItemId).sort(), [
       "lit:candidate",
-      "lit:excluded",
     ]);
     assert.deepEqual(
       openHints.map((hint) => hint.literatureItemId),
@@ -617,8 +602,168 @@ describe("Synthesis repository foundation", function () {
       missing_must_have_terms: [],
       exclude_hits: [],
     });
-    assert.equal(repository.countRows("synt_topic_discovery_hint"), 2);
+    assert.equal(repository.countRows("synt_topic_discovery_hint"), 1);
     assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
+  });
+
+  it("normalizes legacy topic discovery statuses to reject-only lifecycle states [inv.discovery.apply_time_only]", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:filtered",
+      topicId: "topic:detection",
+      literatureItemId: "lit:filtered",
+      score: 1,
+      status: "filtered",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:accepted",
+      topicId: "topic:detection",
+      literatureItemId: "lit:accepted",
+      score: 1,
+      status: "accepted",
+    });
+
+    assert.deepEqual(
+      repository
+        .listTopicDiscoveryHints({ topicIds: ["topic:detection"] })
+        .map((hint) => [hint.literatureItemId, hint.status])
+        .sort(),
+      [
+        ["lit:accepted", "open"],
+        ["lit:filtered", "rejected"],
+      ],
+    );
+    assert.deepEqual(
+      repository
+        .listTopicDiscoveryHints({ statuses: ["filtered"] })
+        .map((hint) => hint.literatureItemId),
+      ["lit:filtered"],
+    );
+    assert.deepEqual(
+      repository
+        .listTopicDiscoveryHints({ statuses: ["accepted"] })
+        .map((hint) => hint.literatureItemId),
+      ["lit:accepted"],
+    );
+  });
+
+  it("preserves rejected topic discovery hints during rebuild [inv.discovery.rejected_suppression]", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+
+    repository.upsertLiteratureMatchingMetadata({
+      literatureItemId: "lit:candidate",
+      keyTermsJson: JSON.stringify(["object detection", "DETR"]),
+      methodsJson: JSON.stringify(["attention"]),
+      problemsJson: JSON.stringify(["detection"]),
+    });
+    repository.upsertTopicInterestMetadata({
+      topicId: "topic:detection",
+      includeTermsJson: JSON.stringify(["object detection", "DETR"]),
+      mustHaveTermsJson: JSON.stringify(["detection"]),
+      methodsJson: JSON.stringify(["attention"]),
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:rejected",
+      topicId: "topic:detection",
+      literatureItemId: "lit:candidate",
+      score: 0.5,
+      status: "rejected",
+      createdAt: "2026-05-25T00:00:00.000Z",
+    });
+
+    const result = repository.rebuildTopicDiscoveryHints({
+      topicIds: ["topic:detection"],
+      timestamp: "2026-05-26T00:00:00.000Z",
+    });
+    const hints = repository.listTopicDiscoveryHints({
+      topicIds: ["topic:detection"],
+    });
+
+    assert.equal(result.open, 0);
+    assert.equal(result.rejected, 1);
+    assert.deepEqual(
+      hints.map((hint) => [hint.hintId, hint.literatureItemId, hint.status]),
+      [["hint:rejected", "lit:candidate", "rejected"]],
+    );
+    assert.equal(hints[0].createdAt, "2026-05-25T00:00:00.000Z");
+  });
+
+  it("rejects and restores topic discovery hints without accept actions", async function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root: "C:/zs-topic-discovery-hints",
+      libraryId: 1,
+      synthesisRepository: repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:reject-restore",
+      topicId: "topic:detection",
+      literatureItemId: "lit:candidate",
+      score: 1,
+      status: "open",
+      createdAt: "2026-05-25T00:00:00.000Z",
+    });
+
+    const rejected = await service.rejectTopicDiscoveryHint({
+      hintId: "hint:reject-restore",
+    });
+    const restored = await service.restoreTopicDiscoveryHint({
+      hintId: "hint:reject-restore",
+    });
+    const rejectCommand = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "rejectTopicDiscoveryHint",
+          args: { hintId: "hint:reject-restore" },
+        },
+      },
+    );
+    const restoreCommand = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "restoreTopicDiscoveryHint",
+          args: { hintId: "hint:reject-restore" },
+        },
+      },
+    );
+    const invalidAccept = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "acceptTopicDiscoveryHint",
+          args: { hintId: "hint:reject-restore" },
+        },
+      },
+    );
+
+    assert.isTrue(rejected.ok);
+    assert.equal(rejected.hint?.status, "rejected");
+    assert.isTrue(restored.ok);
+    assert.equal(restored.hint?.status, "open");
+    assert.equal(
+      rejectCommand.hostCommand?.command,
+      "rejectTopicDiscoveryHint",
+    );
+    assert.equal(rejectCommand.hostCommand?.args.hintId, "hint:reject-restore");
+    assert.equal(
+      restoreCommand.hostCommand?.command,
+      "restoreTopicDiscoveryHint",
+    );
+    assert.isFalse(invalidAccept.handled);
+    assert.equal(invalidAccept.reason, "unknown_host_command");
   });
 
   it("stores topic graph nodes, edges, and review items as runtime DB state", function () {
@@ -907,7 +1052,7 @@ describe("Synthesis repository foundation", function () {
           targetLiteratureItemId: "lit:target",
           referenceInstanceId: "ref:1",
           resolutionId: "resolution:1",
-          edgeStatus: "matched",
+          edgeStatus: "accepted",
           rolesJson: JSON.stringify([{ role: "background", count: 1 }]),
           weight: 1,
           createdAt: "2026-05-26T00:00:00.000Z",
@@ -920,7 +1065,7 @@ describe("Synthesis repository foundation", function () {
           edgeId: "edge:source-ref-1",
           referenceInstanceId: "ref:1",
           targetLiteratureItemId: "lit:target",
-          edgeStatus: "matched",
+          edgeStatus: "accepted",
           updatedAt: "2026-05-26T00:00:00.000Z",
         },
       ],
@@ -930,7 +1075,7 @@ describe("Synthesis repository foundation", function () {
           sourceLiteratureItemId: "lit:source",
           edgeId: "edge:source-ref-1",
           referenceInstanceId: "ref:1",
-          edgeStatus: "matched",
+          edgeStatus: "accepted",
           updatedAt: "2026-05-26T00:00:00.000Z",
         },
       ],
@@ -976,7 +1121,7 @@ describe("Synthesis repository foundation", function () {
       sourceLiteratureItemId: "lit:source",
       targetLiteratureItemId: "lit:target",
       referenceInstanceId: "ref:1",
-      edgeStatus: "matched",
+      edgeStatus: "accepted",
       weight: 1,
     });
     assert.deepInclude(repository.listCitationLightMetrics()[1], {
@@ -987,371 +1132,4 @@ describe("Synthesis repository foundation", function () {
     });
   });
 
-  it("synchronously projects Index state into citation structure and lightweight metrics", function () {
-    const repository = createSynthesisRepository({
-      now: () => "2026-05-26T00:00:00.000Z",
-    });
-
-    repository.replaceIndexState({
-      literatureItems: [
-        {
-          literatureItemId: "lit:source",
-          displayTitle: "Source Paper",
-          normalizedTitle: "source paper",
-          titleNormalizerVersion: "deterministic-v1",
-          status: "active",
-        },
-        {
-          literatureItemId: "lit:target",
-          displayTitle: "Target Paper",
-          normalizedTitle: "target paper",
-          titleNormalizerVersion: "deterministic-v1",
-          status: "active",
-        },
-      ],
-      zoteroBindings: [
-        {
-          libraryId: 1,
-          itemKey: "SRC",
-          literatureItemId: "lit:source",
-          bindingStatus: "active",
-        },
-      ],
-      referenceInstances: [
-        {
-          referenceInstanceId: "ref:matched",
-          sourceLiteratureItemId: "lit:source",
-          referenceIndex: 0,
-        },
-        {
-          referenceInstanceId: "ref:unresolved",
-          sourceLiteratureItemId: "lit:source",
-          referenceIndex: 1,
-        },
-      ],
-      referenceResolutions: [
-        {
-          resolutionId: "resolution:matched",
-          referenceInstanceId: "ref:matched",
-          sourceLiteratureItemId: "lit:source",
-          targetLiteratureItemId: "lit:target",
-          status: "matched",
-        },
-        {
-          resolutionId: "resolution:unresolved",
-          referenceInstanceId: "ref:unresolved",
-          sourceLiteratureItemId: "lit:source",
-          status: "unresolved",
-        },
-      ],
-    });
-
-    assert.sameMembers(
-      repository.listCitationNodes().map((entry) => entry.literatureItemId),
-      ["lit:source", "lit:target"],
-    );
-    assert.deepInclude(repository.listCitationNodes()[0], {
-      literatureItemId: "lit:source",
-      hasZoteroBinding: true,
-    });
-    assert.deepInclude(
-      repository
-        .listCitationEdges()
-        .find((entry) => entry.referenceInstanceId === "ref:matched"),
-      {
-        sourceLiteratureItemId: "lit:source",
-        targetLiteratureItemId: "lit:target",
-        edgeStatus: "matched",
-      },
-    );
-    assert.deepInclude(
-      repository
-        .listCitationEdges()
-        .find((entry) => entry.referenceInstanceId === "ref:unresolved"),
-      {
-        sourceLiteratureItemId: "lit:source",
-        edgeStatus: "unresolved",
-      },
-    );
-    assert.deepInclude(
-      repository
-        .listCitationLightMetrics()
-        .find((entry) => entry.literatureItemId === "lit:source"),
-      {
-        outgoingCount: 2,
-        incomingCount: 0,
-        matchedOutgoingCount: 1,
-        unresolvedOutgoingCount: 1,
-        localDegree: 2,
-      },
-    );
-    assert.deepInclude(
-      repository
-        .listCitationLightMetrics()
-        .find((entry) => entry.literatureItemId === "lit:target"),
-      {
-        outgoingCount: 0,
-        incomingCount: 1,
-        localDegree: 1,
-      },
-    );
-  });
-
-  it("applies Zotero deletion review actions and supersedes dependent reference reviews", function () {
-    const repository = createSynthesisRepository({
-      now: () => "2026-05-26T00:00:00.000Z",
-    });
-
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:deleted",
-      displayTitle: "Deleted Paper",
-      normalizedTitle: "deleted paper",
-      titleNormalizerVersion: "deterministic-v1",
-      status: "pending_delete_review",
-    });
-    repository.upsertZoteroBinding({
-      libraryId: 1,
-      itemKey: "AAA",
-      literatureItemId: "lit:deleted",
-      bindingStatus: "pending_delete_review",
-    });
-    repository.upsertArtifactState({
-      literatureItemId: "lit:deleted",
-      artifactType: "digest",
-      status: "available",
-    });
-    repository.upsertReferenceInstance({
-      referenceInstanceId: "ref:deleted-source",
-      sourceLiteratureItemId: "lit:deleted",
-      referenceIndex: 0,
-    });
-    repository.upsertReviewItem({
-      reviewItemId: "review:p0-delete",
-      reviewKind: "zotero_item_delete",
-      priority: 0,
-      status: "open",
-      scopeKind: "zotero_binding",
-      scopeRef: "1:AAA",
-      payloadJson: JSON.stringify({ literature_item_id: "lit:deleted" }),
-    });
-    repository.upsertReviewItem({
-      reviewItemId: "review:p1-ref",
-      reviewKind: "reference_resolution",
-      priority: 1,
-      status: "blocked_by_upstream_review",
-      scopeKind: "reference_instance",
-      scopeRef: "ref:deleted-source",
-      blockedByReviewItemId: "review:p0-delete",
-      payloadJson: JSON.stringify({
-        target_literature_item_id: "lit:target",
-      }),
-    });
-
-    const result = repository.applyIndexReviewAction({
-      reviewItemId: "review:p0-delete",
-      action: "confirm_delete_item",
-    });
-
-    assert.deepEqual(result.indexSummary.affectedLiteratureItemIds, [
-      "lit:deleted",
-    ]);
-    assert.deepEqual(result.indexSummary.affectedReferenceInstanceIds, [
-      "ref:deleted-source",
-    ]);
-    assert.deepEqual(
-      result.graphDirtyEffects.map((entry) => entry.eventType),
-      ["citation_graph_structure_dirty"],
-    );
-    assert.include(
-      result.diagnostics.map((entry) => entry.code),
-      "index_summary_updated",
-    );
-    assert.equal(
-      repository.listZoteroBindings()[0]?.bindingStatus,
-      "deleted_confirmed",
-    );
-    assert.equal(
-      repository.getLiteratureItem("lit:deleted")?.status,
-      "unavailable",
-    );
-    assert.equal(repository.listArtifactStates()[0]?.status, "unavailable");
-    assert.equal(
-      repository
-        .listReviewItems()
-        .find((row) => row.reviewItemId === "review:p1-ref")?.status,
-      "superseded",
-    );
-    assert.sameMembers(
-      repository.listDirtyEvents().map((entry) => entry.eventType),
-      ["index_review_action", "citation_graph_structure_dirty"],
-    );
-    assert.include(
-      JSON.parse(
-        repository.listDirtyEvents({ eventTypes: ["index_review_action"] })[0]
-          ?.diagnosticsJson || "[]",
-      ).map((entry: any) => entry.code),
-      "index_review_action_applied",
-    );
-  });
-
-  it("applies Zotero dedupe merge actions and retargets dependent reference reviews", function () {
-    const repository = createSynthesisRepository({
-      now: () => "2026-05-26T00:00:00.000Z",
-    });
-
-    for (const [id, title] of [
-      ["lit:old", "Old Binding"],
-      ["lit:survivor", "Survivor Binding"],
-      ["lit:source", "Source Paper"],
-    ]) {
-      repository.upsertLiteratureItem({
-        literatureItemId: id,
-        displayTitle: title,
-        normalizedTitle: title.toLowerCase(),
-        titleNormalizerVersion: "deterministic-v1",
-        status: "active",
-      });
-    }
-    repository.upsertZoteroBinding({
-      libraryId: 1,
-      itemKey: "OLD",
-      literatureItemId: "lit:old",
-      bindingStatus: "active",
-    });
-    repository.upsertZoteroBinding({
-      libraryId: 1,
-      itemKey: "SURVIVE",
-      literatureItemId: "lit:survivor",
-      bindingStatus: "active",
-    });
-    repository.upsertReferenceInstance({
-      referenceInstanceId: "ref:target-old",
-      sourceLiteratureItemId: "lit:source",
-      referenceIndex: 0,
-    });
-    repository.upsertReferenceResolution({
-      resolutionId: "resolution:target-old",
-      referenceInstanceId: "ref:target-old",
-      sourceLiteratureItemId: "lit:source",
-      targetLiteratureItemId: "lit:old",
-      status: "matched",
-    });
-    repository.upsertReviewItem({
-      reviewItemId: "review:p0-dedupe",
-      reviewKind: "zotero_dedupe_candidate",
-      priority: 0,
-      status: "open",
-      scopeKind: "identifier",
-      scopeRef: "doi:10.1000/x",
-      payloadJson: JSON.stringify({
-        literature_item_id: "lit:old",
-        surviving_literature_item_id: "lit:survivor",
-      }),
-    });
-    repository.upsertReviewItem({
-      reviewItemId: "review:p1-target",
-      reviewKind: "reference_resolution",
-      priority: 1,
-      status: "blocked_by_upstream_review",
-      scopeKind: "reference_instance",
-      scopeRef: "ref:target-old",
-      blockedByReviewItemId: "review:p0-dedupe",
-      payloadJson: JSON.stringify({
-        target_literature_item_id: "lit:old",
-      }),
-    });
-
-    const result = repository.applyIndexReviewAction({
-      reviewItemId: "review:p0-dedupe",
-      action: "mark_as_dedupe_merge",
-    });
-
-    assert.deepEqual(result.indexSummary.affectedLiteratureItemIds, [
-      "lit:old",
-      "lit:survivor",
-    ]);
-    assert.sameMembers(
-      result.graphDirtyEffects.map((entry) => entry.scopeRef),
-      ["ref:target-old"],
-    );
-    assert.equal(repository.countRows("synt_literature_redirect"), 1);
-    assert.equal(repository.getLiteratureItem("lit:old")?.status, "tombstoned");
-    assert.equal(
-      repository.listReferenceResolutions()[0]?.targetLiteratureItemId,
-      "lit:survivor",
-    );
-    assert.deepInclude(repository.listCitationEdges()[0], {
-      referenceInstanceId: "ref:target-old",
-      targetLiteratureItemId: "lit:survivor",
-      edgeStatus: "matched",
-    });
-    assert.deepInclude(
-      repository
-        .listCitationLightMetrics()
-        .find((entry) => entry.literatureItemId === "lit:survivor"),
-      {
-        incomingCount: 1,
-        localDegree: 1,
-      },
-    );
-    const p1 = repository
-      .listReviewItems()
-      .find((row) => row.reviewItemId === "review:p1-target");
-    assert.equal(p1?.status, "open");
-    assert.equal(
-      JSON.parse(p1?.payloadJson || "{}").target_literature_item_id,
-      "lit:survivor",
-    );
-    assert.sameMembers(
-      repository.listDirtyEvents().map((entry) => entry.eventType),
-      ["index_review_action", "citation_graph_structure_dirty"],
-    );
-  });
-
-  it("rolls back index review action domain facts, dirty effects, and diagnostics together", function () {
-    const repository = createSynthesisRepository({
-      now: () => "2026-05-26T00:00:00.000Z",
-    });
-
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:old",
-      displayTitle: "Old Binding",
-      normalizedTitle: "old binding",
-      titleNormalizerVersion: "deterministic-v1",
-      status: "active",
-    });
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:inactive-target",
-      displayTitle: "Inactive Target",
-      normalizedTitle: "inactive target",
-      titleNormalizerVersion: "deterministic-v1",
-      status: "inactive",
-    });
-    repository.upsertReviewItem({
-      reviewItemId: "review:p0-dedupe",
-      reviewKind: "zotero_dedupe_candidate",
-      priority: 0,
-      status: "open",
-      scopeKind: "identifier",
-      scopeRef: "doi:10.1000/x",
-      payloadJson: JSON.stringify({
-        literature_item_id: "lit:old",
-        surviving_literature_item_id: "lit:inactive-target",
-      }),
-    });
-
-    assert.throws(
-      () =>
-        repository.applyIndexReviewAction({
-          reviewItemId: "review:p0-dedupe",
-          action: "mark_as_dedupe_merge",
-        }),
-      /dedupe merge target literature item is not active/,
-    );
-
-    assert.equal(repository.getLiteratureItem("lit:old")?.status, "active");
-    assert.equal(repository.listReviewItems()[0]?.status, "open");
-    assert.equal(repository.countRows("synt_literature_redirect"), 0);
-    assert.equal(repository.countRows("synt_dirty_event"), 0);
-  });
 });

@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Plugin UI rendering should update live status without disrupting active user interaction state.
+
+## Requirements
 
 ### Requirement: Live UI updates preserve interaction state
 
@@ -24,4 +28,3 @@ updates so background activity does not reset user interaction state.
 - **WHEN** graph/canvas content data has not changed
 - **THEN** status or progress updates SHALL NOT destroy and recreate the graph
   renderer or reset its camera.
-

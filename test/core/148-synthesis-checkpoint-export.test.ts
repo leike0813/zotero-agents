@@ -4,7 +4,6 @@ import os from "os";
 import path from "path";
 import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
 import { createSynthesisConceptKbService } from "../../src/modules/synthesis/conceptKb";
-import { createSynthesisLiteratureRegistryService } from "../../src/modules/synthesis/literatureRegistry";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
@@ -25,57 +24,9 @@ describe("Synthesis checkpoint export", function () {
     const now = () => "2026-05-27T00:00:00.000Z";
     const repository = createSynthesisRepository({ runtimeRoot: root, now });
     const paths = buildSynthesisKnowledgeGraphPaths(root);
+    const oldSidecarIndexFile = ["reference-sidecar", "index.json"].join("-");
+    const oldGraphIndexFile = ["citation", "graph-index.json"].join("-");
 
-    await createSynthesisLiteratureRegistryService({
-      root,
-      now,
-      repository,
-    }).importLiteratureRegistryCheckpoint({
-      papers: [
-        {
-          paper_ref: "1:CHECKPT",
-          library_id: 1,
-          item_key: "CHECKPT",
-          title: "Checkpoint Paper",
-          year: "2026",
-          item_type: "journalArticle",
-          tags: ["field:cv"],
-          collections: ["synthesis"],
-          creators: ["Ada Lovelace"],
-          doi: "10.1000/checkpoint",
-          artifacts: {},
-          readiness: "ready",
-          coverage: "complete",
-          diagnostics: [],
-          row_hash: "sha256:checkpoint-paper",
-        },
-      ],
-      referenceInstances: [
-        {
-          reference_instance_id: "refinst:checkpoint:0",
-          source_paper_ref: "1:CHECKPT",
-          reference_index: 0,
-          provisional_key: "reference:missing",
-          title: "Missing Reference",
-          year: "2025",
-          authors: ["Grace Hopper"],
-          raw: "Grace Hopper. Missing Reference. 2025.",
-          roles: ["background"],
-        },
-      ],
-      referenceResolutions: [
-        {
-          resolution_id: "resolution:checkpoint:0",
-          reference_instance_id: "refinst:checkpoint:0",
-          source_paper_ref: "1:CHECKPT",
-          provisional_key: "reference:missing",
-          status: "unmatched",
-          confidence: "review",
-          diagnostics: [],
-        },
-      ],
-      transactionId: "sqlite-seed-literature",
-    });
     await createSynthesisTopicGraphService({
       root,
       now,
@@ -176,11 +127,6 @@ describe("Synthesis checkpoint export", function () {
       transactionId: "sqlite-checkpoint",
     });
 
-    const literatureManifest = JSON.parse(
-      await readRuntimeTextFile(
-        path.join(paths.citationGraphRoot, "manifest.json"),
-      ),
-    );
     const topicManifest = JSON.parse(
       await readRuntimeTextFile(
         path.join(paths.topicGraphRoot, "manifest.json"),
@@ -194,33 +140,27 @@ describe("Synthesis checkpoint export", function () {
     );
 
     assert.equal(checkpoint.transactionId, "sqlite-checkpoint");
-    assert.equal(
-      checkpoint.domains.literature.transactionId,
-      "sqlite-checkpoint-literature",
-    );
-    assert.equal(literatureManifest.data.paper_count, 1);
-    assert.equal(literatureManifest.data.reference_instance_count, 1);
+    assert.notProperty(checkpoint.domains, "literature");
     assert.equal(topicManifest.data.node_count, 1);
     assert.equal(conceptManifest.data.concept_count, 1);
     assert.deepEqual(
       vocabulary.data.tags.map((entry: { tag: string }) => entry.tag),
       ["field:cv"],
     );
-    assert.isTrue(
+    assert.isFalse(
       await runtimePathExists(
-        path.join(paths.stateRoot, "literature-registry-index.json"),
+        path.join(paths.stateRoot, oldSidecarIndexFile),
       ),
     );
-    assert.isTrue(
+    assert.isFalse(
       await runtimePathExists(
-        path.join(paths.stateRoot, "citation-graph-index.json"),
+        path.join(paths.stateRoot, oldGraphIndexFile),
       ),
     );
 
     const verified = await service.verifySynthesisCheckpoint();
 
     assert.isTrue(verified.ok);
-    assert.equal(verified.domains.literature.db.counts.papers, 1);
     assert.equal(verified.domains.topicGraph.db.counts.nodes, 1);
     assert.equal(verified.domains.conceptKb.db.counts.concepts, 1);
     assert.equal(verified.domains.tagVocabulary.db.counts.entries, 1);

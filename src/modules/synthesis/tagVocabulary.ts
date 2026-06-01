@@ -78,6 +78,17 @@ export type SynthesisTagProtocolAsset = {
   facets: string[];
 };
 
+type IndexRebuildOptions = {
+  yieldControl?: () => Promise<void>;
+  reportProgress?: (progress: {
+    phase: string;
+    phaseLabel: string;
+    processedCount: number;
+    totalCount: number;
+    message?: string;
+  }) => void | Promise<void>;
+};
+
 export type SynthesisTagManifestAsset = {
   manifest_hash: string;
   entry_count: number;
@@ -910,11 +921,14 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     });
   }
 
-  async function loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot> {
+  async function loadTagVocabulary(
+    options: IndexRebuildOptions = {},
+  ): Promise<SynthesisTagVocabularySnapshot> {
     await initializeIfMissing();
     const entries = dedupeEntries(
       repository.listTagVocabularyEntries().map(tagEntryFromRecord),
     );
+    await options.yieldControl?.();
     const aliasMap = normalizeRecordMap(
       tagAliasesFromRecords(repository.listTagAliases()),
     );
@@ -924,6 +938,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     const normalizedProtocol = tagProtocolFromRecord(
       repository.getTagProtocol(),
     );
+    await options.yieldControl?.();
     const manifest = buildManifest({
       entries,
       aliases: aliasMap,
@@ -935,6 +950,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       .listTagValidationWarnings()
       .map(tagWarningFromRecord);
     const projectionState = await readProjectionRegistryState(root);
+    await options.yieldControl?.();
     return {
       entries,
       aliases: aliasMap,
@@ -1094,15 +1110,40 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     });
   }
 
-  async function rebuildTagIndexProjection() {
-    const snapshot = await loadTagVocabulary();
+  async function rebuildTagIndexProjection(options: IndexRebuildOptions = {}) {
+    const totalCount = 4;
+    const reportProgress = async (
+      phase: string,
+      phaseLabel: string,
+      processedCount: number,
+      message?: string,
+    ) =>
+      options.reportProgress?.({
+        phase,
+        phaseLabel,
+        processedCount,
+        totalCount,
+        message,
+      });
+    await reportProgress("load_source", "Load source", 0);
+    const snapshot = await loadTagVocabulary(options);
+    await reportProgress(
+      "build_projection",
+      "Build projection",
+      1,
+      `${snapshot.entries.length} tag entries loaded`,
+    );
     const rebuiltAt = now();
     const projection = tagProjectionFromSnapshot({ snapshot, rebuiltAt });
+    await options.yieldControl?.();
+    await reportProgress("write_projection", "Write projection", 2);
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
     await writeRuntimeTextFile(
       joinPath(paths.stateRoot, "tag-index.json"),
       `${JSON.stringify(projection, null, 2)}\n`,
     );
+    await options.yieldControl?.();
+    await reportProgress("record_projection", "Record projection", 3);
     return recordProjectionRebuild({
       root,
       target: SYNTHESIS_TAG_INDEX_TARGET,

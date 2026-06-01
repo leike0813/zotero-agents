@@ -29,92 +29,6 @@ export type SynthesisRepositoryPage = {
   nextCursor: number | null;
 };
 
-export type SynthesisLiteratureItemRecord = {
-  literatureItemId: string;
-  displayTitle: string;
-  normalizedTitle: string;
-  titleNormalizerVersion: string;
-  year?: string;
-  venue?: string;
-  authorsJson?: string;
-  status?: string;
-  createdFrom?: string;
-  confidence?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisLiteratureIdentifierRecord = {
-  literatureItemId: string;
-  kind: string;
-  normalizedValue: string;
-  displayValue?: string;
-  source?: string;
-  confidence?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisZoteroBindingRecord = {
-  libraryId: number;
-  itemKey: string;
-  literatureItemId: string;
-  itemType?: string;
-  bindingStatus?: string;
-  dateAdded?: string;
-  deletedAt?: string;
-  tagsJson?: string;
-  collectionsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisLiteratureRedirectRecord = {
-  redirectId: string;
-  fromLiteratureItemId: string;
-  toLiteratureItemId: string;
-  reason: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisArtifactStateRecord = {
-  literatureItemId: string;
-  artifactType: string;
-  status: string;
-  payloadHash?: string;
-  noteKey?: string;
-  diagnosticsJson?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisReferenceInstanceRecord = {
-  referenceInstanceId: string;
-  sourceLiteratureItemId: string;
-  referenceIndex: number;
-  parsedTitle?: string;
-  normalizedTitle?: string;
-  year?: string;
-  authorsJson?: string;
-  rawReference?: string;
-  rawReferenceHash?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisReferenceResolutionRecord = {
-  resolutionId: string;
-  referenceInstanceId: string;
-  sourceLiteratureItemId: string;
-  targetLiteratureItemId?: string;
-  status: string;
-  confidence?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
 export type SynthesisReviewItemRecord = {
   reviewItemId: string;
   reviewKind: string;
@@ -129,58 +43,124 @@ export type SynthesisReviewItemRecord = {
   updatedAt?: string;
 };
 
-export type SynthesisDirtyEventRecord = {
-  eventId: string;
+export type SynthesisOperationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export type SynthesisOperationProgressMode =
+  | "determinate"
+  | "indeterminate";
+
+export type SynthesisOperationRecord = {
+  operationId: string;
+  operationType: string;
   libraryId?: number;
-  eventType: string;
-  source?: string;
   scopeKind?: string;
   scopeRef?: string;
+  status?: SynthesisOperationStatus;
+  label?: string;
+  phase?: string;
+  phaseLabel?: string;
+  message?: string;
+  progressMode?: SynthesisOperationProgressMode;
+  processedCount?: number;
+  skippedCount?: number;
+  failedCount?: number;
+  totalCount?: number;
+  basisKind?: string;
+  basisValue?: string;
   sourceHash?: string;
-  status?: string;
-  attemptCount?: number;
-  coalescedCount?: number;
-  nextRetryAt?: string;
+  diagnosticsJson?: string;
+  createdAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+};
+
+export type SynthesisCacheBasisRecord = {
+  cacheKey: string;
+  cacheKind: string;
+  scopeKind?: string;
+  scopeRef?: string;
+  status?: "missing" | "ready" | "stale" | "refreshing" | "failed";
+  basisKind?: string;
+  basisValue?: string;
+  sourceHash?: string;
+  policyVersion?: string;
+  activeOperationId?: string;
+  refreshedAt?: string;
+  staleReason?: string;
+  diagnosticsJson?: string;
+  updatedAt?: string;
+};
+
+export type SynthesisArtifactSidecarRecord = {
+  sourceRef: string;
+  libraryId: number;
+  itemKey: string;
+  artifactType: "digest" | "references" | "citation_analysis" | string;
+  status: "available" | "missing" | "decode_error" | "unsupported" | string;
+  artifactHash?: string;
+  locatorJson?: string;
+  diagnosticsJson?: string;
+  scannedAt?: string;
+  updatedAt?: string;
+};
+
+export type SynthesisRawReferenceRecord = {
+  rawReferenceId: string;
+  sourceRef: string;
+  referencesArtifactHash: string;
+  referenceIndex: number;
+  rawHash: string;
+  parsedTitle?: string;
+  normalizedTitle?: string;
+  year?: string;
+  authorsJson?: string;
+  rawReference?: string;
+  canonicalReferenceId?: string;
+  status?: "active" | "stale" | "parse_error" | string;
   diagnosticsJson?: string;
   createdAt?: string;
   updatedAt?: string;
 };
 
-export type SynthesisJobProgressStatus =
-  | "idle"
-  | "queued"
-  | "running"
-  | "waiting"
-  | "completed"
-  | "failed_retryable"
-  | "failed_terminal";
+export type SynthesisCanonicalReferenceRecord = {
+  canonicalReferenceId: string;
+  title?: string;
+  normalizedTitle?: string;
+  year?: string;
+  authorsJson?: string;
+  identifiersJson?: string;
+  metadataHash?: string;
+  status?: "active" | "merged" | "stale" | string;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
-export type SynthesisJobProgressMode = "determinate" | "indeterminate";
-
-export type SynthesisJobProgressRecord = {
-  jobName: string;
-  runId?: string;
-  source?: string;
-  label?: string;
-  status?: SynthesisJobProgressStatus;
-  phase?: string;
-  phaseLabel?: string;
-  message?: string;
-  queueWaitMs?: number;
-  timeBudgetMs?: number;
-  batchLimit?: number;
-  processedCount?: number;
-  skippedCount?: number;
-  failedCount?: number;
-  totalCount?: number;
-  retryAttempt?: number;
-  nextRetryAt?: string;
+export type SynthesisCanonicalReferenceRedirectRecord = {
+  fromCanonicalReferenceId: string;
+  toCanonicalReferenceId: string;
+  reason?: string;
   diagnosticsJson?: string;
-  progressMode?: SynthesisJobProgressMode;
-  progressJson?: string;
-  startedAt?: string;
-  completedAt?: string;
-  heartbeatAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type SynthesisReferenceBindingRecord = {
+  bindingId: string;
+  canonicalReferenceId: string;
+  libraryId: number;
+  itemKey: string;
+  status: "accepted" | "candidate" | "rejected" | "stale_target";
+  confidence?: string;
+  reviewer?: string;
+  basisHash?: string;
+  diagnosticsJson?: string;
+  createdAt?: string;
   updatedAt?: string;
 };
 
@@ -191,30 +171,11 @@ export type SynthesisReviewActionDiagnostic = {
   details?: Record<string, unknown>;
 };
 
-export type SynthesisReviewActionDirtyEffect = {
-  eventId: string;
-  eventType: string;
+export type SynthesisReviewActionCacheEffect = {
+  cacheKey: string;
+  cacheKind: string;
   scopeKind: string;
   scopeRef: string;
-};
-
-export type SynthesisReviewActionIndexSummary = {
-  affectedLiteratureItemIds: string[];
-  affectedReferenceInstanceIds: string[];
-  affectedReviewItemIds: string[];
-  affectedArtifactLiteratureItemIds: string[];
-};
-
-export type SynthesisIndexReviewActionResult = {
-  transactionId: string;
-  reviewItemId: string;
-  action: string;
-  literatureItemId: string;
-  targetLiteratureItemId?: string;
-  indexSummary: SynthesisReviewActionIndexSummary;
-  graphDirtyEffects: SynthesisReviewActionDirtyEffect[];
-  dirtyEventIds: string[];
-  diagnostics: SynthesisReviewActionDiagnostic[];
 };
 
 export type SynthesisCitationNodeRecord = {
@@ -319,6 +280,44 @@ export type SynthesisCitationLayoutRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisRelatedItemsSyncStatus =
+  | "pending_external_write"
+  | "applied"
+  | "already_existed"
+  | "revoked"
+  | "already_absent"
+  | "failed"
+  | "needs_attention";
+
+export type SynthesisRelatedItemsEchoState =
+  | "none"
+  | "awaiting_echo"
+  | "observed"
+  | "expired";
+
+export type SynthesisRelatedItemsSyncEffectRecord = {
+  effectId: string;
+  operationId: string;
+  citationEdgeId?: string;
+  sourceLiteratureItemId: string;
+  targetLiteratureItemId: string;
+  sourceLibraryId: number;
+  sourceItemKey: string;
+  targetLibraryId: number;
+  targetItemKey: string;
+  action: "add" | "revoke";
+  status: SynthesisRelatedItemsSyncStatus;
+  createdBySynthesis?: boolean;
+  graphBasisHash?: string;
+  graphHash?: string;
+  externalWriteAt?: string;
+  echoState?: SynthesisRelatedItemsEchoState;
+  echoObservedAt?: string;
+  diagnosticsJson?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type SynthesisCitationGraphStateReplacement = {
   nodes: SynthesisCitationNodeRecord[];
   edges?: SynthesisCitationEdgeRecord[];
@@ -374,7 +373,7 @@ export type SynthesisTopicDiscoveryBuildResult = {
   scannedLiterature: number;
   upserted: number;
   open: number;
-  filtered: number;
+  rejected: number;
   hints: SynthesisTopicDiscoveryHintRecord[];
   diagnostics: SynthesisReviewActionDiagnostic[];
 };
@@ -555,82 +554,19 @@ export type SynthesisTagValidationWarningRecord = {
   updatedAt?: string;
 };
 
-type InternalReviewActionEffect = {
-  affectedLiteratureItemIds?: string[];
-  affectedReferenceInstanceIds?: string[];
-  affectedReviewItemIds?: string[];
-  affectedArtifactLiteratureItemIds?: string[];
-  diagnostics?: SynthesisReviewActionDiagnostic[];
-};
-
-export type SynthesisIndexStateReplacement = {
-  literatureItems: SynthesisLiteratureItemRecord[];
-  identifiers?: SynthesisLiteratureIdentifierRecord[];
-  zoteroBindings?: SynthesisZoteroBindingRecord[];
-  redirects?: SynthesisLiteratureRedirectRecord[];
-  artifactStates?: SynthesisArtifactStateRecord[];
-  referenceInstances?: SynthesisReferenceInstanceRecord[];
-  referenceResolutions?: SynthesisReferenceResolutionRecord[];
-  reviewItems?: SynthesisReviewItemRecord[];
-};
-
 export type SynthesisDiscoveryMetadataStateReplacement = {
   literatureMatchingMetadata?: SynthesisLiteratureMatchingMetadataRecord[];
   topicInterestMetadata?: SynthesisTopicInterestMetadataRecord[];
   topicDiscoveryHints?: SynthesisTopicDiscoveryHintRecord[];
 };
 
-export type SynthesisPaperRegistryFact = {
-  literatureItemId: string;
-  displayTitle: string;
-  year?: string;
-  authorsJson?: string;
-  libraryId: number;
-  itemKey: string;
-  itemType?: string;
-  dateAdded?: string;
-  tagsJson?: string;
-  collectionsJson?: string;
-  identifiers: SynthesisLiteratureIdentifierRecord[];
-  artifacts: SynthesisArtifactStateRecord[];
-};
-
-export type SynthesisPaperRegistryFactPage = {
-  entries: SynthesisPaperRegistryFact[];
-  cursor: number;
-  nextCursor: number | null;
-  hasMore: boolean;
-  returned: number;
-  total: number;
-  limit: number;
-};
-
-export type SynthesisIndexReferenceFact = {
-  referenceInstanceId: string;
-  sourceLiteratureItemId: string;
-  referenceIndex: number;
-  title?: string;
-  rawReference?: string;
-  year?: string;
-  authorsJson?: string;
-  resolutionId?: string;
-  resolutionStatus: string;
-  confidence?: string;
-  targetLiteratureItemId?: string;
-  targetTitle?: string;
-  targetYear?: string;
-  targetHasZoteroBinding: boolean;
-  targetPaperRef?: string;
-};
-
 export type SynthesisRepositoryTableName =
-  | "synt_literature_item"
-  | "synt_literature_identifier"
-  | "synt_zotero_binding"
-  | "synt_literature_redirect"
-  | "synt_artifact_state"
-  | "synt_reference_instance"
-  | "synt_reference_resolution"
+  | "synt_cache_basis"
+  | "synt_artifact_sidecar"
+  | "synt_raw_reference"
+  | "synt_canonical_reference"
+  | "synt_canonical_reference_redirect"
+  | "synt_reference_binding"
   | "synt_citation_node"
   | "synt_citation_edge"
   | "synt_citation_source_ownership"
@@ -638,6 +574,7 @@ export type SynthesisRepositoryTableName =
   | "synt_citation_metrics_light"
   | "synt_citation_metrics_complex"
   | "synt_citation_layout_state"
+  | "synt_related_items_sync_effect"
   | "synt_literature_matching_metadata"
   | "synt_topic_interest_metadata"
   | "synt_topic_discovery_hint"
@@ -656,8 +593,7 @@ export type SynthesisRepositoryTableName =
   | "synt_tag_protocol"
   | "synt_tag_validation_warning"
   | "synt_review_item"
-  | "synt_dirty_event"
-  | "synt_job_state";
+  | "synt_operation";
 
 export type SynthesisRepositoryOptions = {
   runtimeRoot?: string;
@@ -665,12 +601,12 @@ export type SynthesisRepositoryOptions = {
   adapter?: SqlAdapter;
 };
 
-const SCHEMA_VERSION = "2026-05-29.phase7-workbench-db-ui";
+const SCHEMA_VERSION = "2026-06-01.sidecar-cache-hard-cut";
 const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 250;
+const RELATED_ITEMS_SYNC_ECHO_WINDOW_MS = 10 * 60 * 1000;
 const SYNTHESIS_RESET_TABLES: SynthesisRepositoryTableName[] = [
-  "synt_job_state",
-  "synt_dirty_event",
+  "synt_operation",
   "synt_review_item",
   "synt_topic_discovery_hint",
   "synt_topic_interest_metadata",
@@ -692,27 +628,26 @@ const SYNTHESIS_RESET_TABLES: SynthesisRepositoryTableName[] = [
   "synt_citation_layout_state",
   "synt_citation_metrics_complex",
   "synt_citation_metrics_light",
+  "synt_related_items_sync_effect",
   "synt_citation_incoming_group",
   "synt_citation_source_ownership",
   "synt_citation_edge",
   "synt_citation_node",
-  "synt_reference_resolution",
-  "synt_reference_instance",
-  "synt_artifact_state",
-  "synt_literature_redirect",
-  "synt_zotero_binding",
-  "synt_literature_identifier",
-  "synt_literature_item",
+  "synt_reference_binding",
+  "synt_canonical_reference_redirect",
+  "synt_canonical_reference",
+  "synt_raw_reference",
+  "synt_artifact_sidecar",
+  "synt_cache_basis",
 ];
 
 export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
-  "synt_literature_item",
-  "synt_literature_identifier",
-  "synt_zotero_binding",
-  "synt_literature_redirect",
-  "synt_artifact_state",
-  "synt_reference_instance",
-  "synt_reference_resolution",
+  "synt_cache_basis",
+  "synt_artifact_sidecar",
+  "synt_raw_reference",
+  "synt_canonical_reference",
+  "synt_canonical_reference_redirect",
+  "synt_reference_binding",
   "synt_citation_node",
   "synt_citation_edge",
   "synt_citation_source_ownership",
@@ -720,6 +655,7 @@ export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
   "synt_citation_metrics_light",
   "synt_citation_metrics_complex",
   "synt_citation_layout_state",
+  "synt_related_items_sync_effect",
   "synt_literature_matching_metadata",
   "synt_topic_interest_metadata",
   "synt_topic_discovery_hint",
@@ -738,8 +674,7 @@ export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
   "synt_tag_protocol",
   "synt_tag_validation_warning",
   "synt_review_item",
-  "synt_dirty_event",
-  "synt_job_state",
+  "synt_operation",
 ];
 
 let defaultRepository: SynthesisRepository | null = null;
@@ -824,15 +759,35 @@ function normalizeLimit(value: unknown, fallback: number, max: number) {
   return Math.min(parsed, max);
 }
 
-function parseJsonObject(value: unknown): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(cleanString(value) || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+function appendInFilter(
+  clauses: string[],
+  params: SqlParams,
+  column: string,
+  keyPrefix: string,
+  values: Iterable<unknown>,
+) {
+  const cleaned = Array.from(values).map(cleanString).filter(Boolean);
+  if (!cleaned.length) {
+    return;
   }
+  const placeholders = cleaned.map((value, index) => {
+    const key = `${keyPrefix}_${index}`;
+    params[key] = value;
+    return `@${key}`;
+  });
+  clauses.push(`${column} IN (${placeholders.join(", ")})`);
+}
+
+function appendLimitClause(
+  params: SqlParams,
+  limit: number,
+  defaultSql = "",
+) {
+  if (limit <= 0) {
+    return defaultSql;
+  }
+  params.limit = limit;
+  return " LIMIT @limit";
 }
 
 function parseJsonArray(value: unknown): unknown[] {
@@ -890,19 +845,18 @@ function stableShortKey(value: unknown) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function normalizeLiteratureStatus(value: unknown) {
+function normalizeTopicDiscoveryHintStatus(value: unknown) {
   const normalized = cleanString(value);
-  if (
-    normalized === "inactive" ||
-    normalized === "unavailable" ||
-    normalized === "pending_delete_review" ||
-    normalized === "tombstoned" ||
-    normalized === "purge_eligible" ||
-    normalized === "purged"
-  ) {
+  if (normalized === "filtered") {
+    return "rejected";
+  }
+  if (normalized === "accepted") {
+    return "open";
+  }
+  if (normalized === "rejected" || normalized === "superseded") {
     return normalized;
   }
-  return "active";
+  return "open";
 }
 
 function nonNegativeInt(value: unknown, fallback = 0) {
@@ -910,25 +864,60 @@ function nonNegativeInt(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function normalizeJobProgressStatus(
-  value: unknown,
-): SynthesisJobProgressStatus {
+function normalizeOperationStatus(value: unknown): SynthesisOperationStatus {
   const normalized = cleanString(value);
   if (
-    normalized === "queued" ||
+    normalized === "pending" ||
     normalized === "running" ||
-    normalized === "waiting" ||
     normalized === "completed" ||
-    normalized === "failed_retryable" ||
-    normalized === "failed_terminal"
+    normalized === "failed" ||
+    normalized === "canceled"
   ) {
     return normalized;
   }
-  return "idle";
+  return "pending";
 }
 
-function normalizeJobProgressMode(value: unknown): SynthesisJobProgressMode {
+function normalizeOperationProgressMode(
+  value: unknown,
+): SynthesisOperationProgressMode {
   return cleanString(value) === "determinate" ? "determinate" : "indeterminate";
+}
+
+function normalizeCacheBasisStatus(
+  value: unknown,
+): NonNullable<SynthesisCacheBasisRecord["status"]> {
+  const normalized = cleanString(value);
+  if (
+    normalized === "ready" ||
+    normalized === "stale" ||
+    normalized === "refreshing" ||
+    normalized === "failed"
+  ) {
+    return normalized;
+  }
+  return "missing";
+}
+
+function normalizeReferenceBindingState(
+  value: unknown,
+): SynthesisReferenceBindingRecord["status"] {
+  const normalized = cleanString(value);
+  if (normalized === "accepted" || normalized === "auto" || normalized === "confirmed") {
+    return "accepted";
+  }
+  if (
+    normalized === "candidate" ||
+    normalized === "rejected" ||
+    normalized === "stale_target"
+  ) {
+    return normalized;
+  }
+  return "candidate";
+}
+
+function expandReferenceBindingStatusFilter(value: string) {
+  return value === "accepted" ? ["accepted", "auto", "confirmed"] : [value];
 }
 
 function applyOptionalMigration(db: SqlAdapter, sql: string) {
@@ -936,6 +925,28 @@ function applyOptionalMigration(db: SqlAdapter, sql: string) {
     db.run(sql);
   } catch {
     // Additive compatibility migration. Existing columns raise duplicate errors.
+  }
+}
+
+function dropRemovedSynchronizationTables(db: SqlAdapter) {
+  for (const tableName of [
+    "synt_dirty_event",
+    "synt_job_state",
+    "synt_work_item",
+    "synt_work_run",
+    "synt_work_queue_meta",
+    "synt_registry_rebuild_run",
+    "synt_registry_basis_meta",
+    "synt_literature_item",
+    "synt_literature_identifier",
+    "synt_zotero_binding",
+    "synt_literature_redirect",
+    "synt_artifact_state",
+    "synt_reference_instance",
+    "synt_reference_resolution",
+    "synt_reference_binding_decision",
+  ]) {
+    db.run(`DROP TABLE IF EXISTS ${tableName}`);
   }
 }
 
@@ -1085,17 +1096,23 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
 
   return {
     run(sql, params) {
-      const statement = conn.createStatement!(sql) as {
-        execute?: () => void;
-        finalize?: () => void;
-      };
       const placeholders = collectNamedPlaceholders(sql);
+      let statement:
+        | {
+            execute?: () => void;
+            finalize?: () => void;
+          }
+        | undefined;
       try {
+        statement = conn.createStatement!(sql) as {
+          execute?: () => void;
+          finalize?: () => void;
+        };
         bindParams(statement, sql, params);
         statement.execute?.();
       } catch (error) {
         throw storageError({
-          operation: "run.execute",
+          operation: statement ? "run.execute" : "run.createStatement",
           sql,
           placeholders,
           params,
@@ -1103,18 +1120,26 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           cause: error,
         });
       } finally {
-        statement.finalize?.();
+        statement?.finalize?.();
       }
     },
     all(sql, params) {
-      const statement = conn.createStatement!(sql) as {
-        columnCount?: number;
-        executeStep?: () => boolean;
-        finalize?: () => void;
-        getColumnName?: (index: number) => string;
-      };
       const placeholders = collectNamedPlaceholders(sql);
+      let statement:
+        | {
+            columnCount?: number;
+            executeStep?: () => boolean;
+            finalize?: () => void;
+            getColumnName?: (index: number) => string;
+          }
+        | undefined;
       try {
+        statement = conn.createStatement!(sql) as {
+          columnCount?: number;
+          executeStep?: () => boolean;
+          finalize?: () => void;
+          getColumnName?: (index: number) => string;
+        };
         bindParams(statement, sql, params);
         const rows: SqlRow[] = [];
         while (statement.executeStep?.()) {
@@ -1131,7 +1156,7 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
         return rows;
       } catch (error) {
         throw storageError({
-          operation: "all.executeStep",
+          operation: statement ? "all.executeStep" : "all.createStatement",
           sql,
           placeholders,
           params,
@@ -1139,7 +1164,7 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           cause: error,
         });
       } finally {
-        statement.finalize?.();
+        statement?.finalize?.();
       }
     },
     get(sql, params) {
@@ -1169,13 +1194,12 @@ export function createSynthesisSqlAdapterForPath(dbPath: string): SqlAdapter {
 
 type MemoryState = {
   schemaMeta: Map<string, string>;
-  literatureItems: Map<string, Record<string, SqlPrimitive>>;
-  identifiers: Map<string, Record<string, SqlPrimitive>>;
-  zoteroBindings: Map<string, Record<string, SqlPrimitive>>;
-  redirects: Map<string, Record<string, SqlPrimitive>>;
-  artifactStates: Map<string, Record<string, SqlPrimitive>>;
-  referenceInstances: Map<string, Record<string, SqlPrimitive>>;
-  referenceResolutions: Map<string, Record<string, SqlPrimitive>>;
+  cacheBasis: Map<string, Record<string, SqlPrimitive>>;
+  artifactSidecars: Map<string, Record<string, SqlPrimitive>>;
+  rawReferences: Map<string, Record<string, SqlPrimitive>>;
+  canonicalReferences: Map<string, Record<string, SqlPrimitive>>;
+  canonicalReferenceRedirects: Map<string, Record<string, SqlPrimitive>>;
+  referenceBindings: Map<string, Record<string, SqlPrimitive>>;
   citationNodes: Map<string, Record<string, SqlPrimitive>>;
   citationEdges: Map<string, Record<string, SqlPrimitive>>;
   citationSourceOwnership: Map<string, Record<string, SqlPrimitive>>;
@@ -1183,6 +1207,7 @@ type MemoryState = {
   citationLightMetrics: Map<string, Record<string, SqlPrimitive>>;
   citationComplexMetrics: Map<string, Record<string, SqlPrimitive>>;
   citationLayoutStates: Map<string, Record<string, SqlPrimitive>>;
+  relatedItemsSyncEffects: Map<string, Record<string, SqlPrimitive>>;
   literatureMatchingMetadata: Map<string, Record<string, SqlPrimitive>>;
   topicInterestMetadata: Map<string, Record<string, SqlPrimitive>>;
   topicDiscoveryHints: Map<string, Record<string, SqlPrimitive>>;
@@ -1201,8 +1226,7 @@ type MemoryState = {
   tagProtocols: Map<string, Record<string, SqlPrimitive>>;
   tagValidationWarnings: Map<string, Record<string, SqlPrimitive>>;
   reviewItems: Map<string, Record<string, SqlPrimitive>>;
-  dirtyEvents: Map<string, Record<string, SqlPrimitive>>;
-  jobStates: Map<string, Record<string, SqlPrimitive>>;
+  operations: Map<string, Record<string, SqlPrimitive>>;
   tables: Set<string>;
   indexes: Set<string>;
 };
@@ -1210,18 +1234,14 @@ type MemoryState = {
 function cloneMemoryState(state: MemoryState): MemoryState {
   return {
     schemaMeta: new Map(state.schemaMeta),
-    literatureItems: new Map(
-      Array.from(state.literatureItems.entries()).map(([key, value]) => [
-        key,
-        { ...value },
-      ]),
+    cacheBasis: cloneMemoryRows(state.cacheBasis),
+    artifactSidecars: cloneMemoryRows(state.artifactSidecars),
+    rawReferences: cloneMemoryRows(state.rawReferences),
+    canonicalReferences: cloneMemoryRows(state.canonicalReferences),
+    canonicalReferenceRedirects: cloneMemoryRows(
+      state.canonicalReferenceRedirects,
     ),
-    identifiers: cloneMemoryRows(state.identifiers),
-    zoteroBindings: cloneMemoryRows(state.zoteroBindings),
-    redirects: cloneMemoryRows(state.redirects),
-    artifactStates: cloneMemoryRows(state.artifactStates),
-    referenceInstances: cloneMemoryRows(state.referenceInstances),
-    referenceResolutions: cloneMemoryRows(state.referenceResolutions),
+    referenceBindings: cloneMemoryRows(state.referenceBindings),
     citationNodes: cloneMemoryRows(state.citationNodes),
     citationEdges: cloneMemoryRows(state.citationEdges),
     citationSourceOwnership: cloneMemoryRows(state.citationSourceOwnership),
@@ -1229,6 +1249,7 @@ function cloneMemoryState(state: MemoryState): MemoryState {
     citationLightMetrics: cloneMemoryRows(state.citationLightMetrics),
     citationComplexMetrics: cloneMemoryRows(state.citationComplexMetrics),
     citationLayoutStates: cloneMemoryRows(state.citationLayoutStates),
+    relatedItemsSyncEffects: cloneMemoryRows(state.relatedItemsSyncEffects),
     literatureMatchingMetadata: cloneMemoryRows(
       state.literatureMatchingMetadata,
     ),
@@ -1249,8 +1270,7 @@ function cloneMemoryState(state: MemoryState): MemoryState {
     tagProtocols: cloneMemoryRows(state.tagProtocols),
     tagValidationWarnings: cloneMemoryRows(state.tagValidationWarnings),
     reviewItems: cloneMemoryRows(state.reviewItems),
-    dirtyEvents: cloneMemoryRows(state.dirtyEvents),
-    jobStates: cloneMemoryRows(state.jobStates),
+    operations: cloneMemoryRows(state.operations),
     tables: new Set(state.tables),
     indexes: new Set(state.indexes),
   };
@@ -1265,13 +1285,12 @@ function cloneMemoryRows(rows: Map<string, Record<string, SqlPrimitive>>) {
 function createMemoryAdapter(): SqlAdapter {
   let state: MemoryState = {
     schemaMeta: new Map(),
-    literatureItems: new Map(),
-    identifiers: new Map(),
-    zoteroBindings: new Map(),
-    redirects: new Map(),
-    artifactStates: new Map(),
-    referenceInstances: new Map(),
-    referenceResolutions: new Map(),
+    cacheBasis: new Map(),
+    artifactSidecars: new Map(),
+    rawReferences: new Map(),
+    canonicalReferences: new Map(),
+    canonicalReferenceRedirects: new Map(),
+    referenceBindings: new Map(),
     citationNodes: new Map(),
     citationEdges: new Map(),
     citationSourceOwnership: new Map(),
@@ -1279,6 +1298,7 @@ function createMemoryAdapter(): SqlAdapter {
     citationLightMetrics: new Map(),
     citationComplexMetrics: new Map(),
     citationLayoutStates: new Map(),
+    relatedItemsSyncEffects: new Map(),
     literatureMatchingMetadata: new Map(),
     topicInterestMetadata: new Map(),
     topicDiscoveryHints: new Map(),
@@ -1297,8 +1317,7 @@ function createMemoryAdapter(): SqlAdapter {
     tagProtocols: new Map(),
     tagValidationWarnings: new Map(),
     reviewItems: new Map(),
-    dirtyEvents: new Map(),
-    jobStates: new Map(),
+    operations: new Map(),
     tables: new Set(),
     indexes: new Set(),
   };
@@ -1328,36 +1347,54 @@ function createMemoryAdapter(): SqlAdapter {
       if (addSchemaObject(sql) || normalized.startsWith("pragma")) {
         return;
       }
-      if (normalized.startsWith("delete from synt_job_state")) {
-        state.jobStates.clear();
+      const dropTable = normalized.match(/^drop table if exists ([a-z0-9_]+)/);
+      if (dropTable) {
+        const name = dropTable[1];
+        state.tables.delete(name);
+        const table = memoryTable(state, name, { allowMissing: true });
+        table?.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_dirty_event")) {
-        state.dirtyEvents.clear();
+      if (normalized.startsWith("delete from synt_operation")) {
+        state.operations.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_literature_identifier")) {
-        state.identifiers.clear();
+      if (normalized.startsWith("delete from synt_cache_basis")) {
+        state.cacheBasis.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_zotero_binding")) {
-        state.zoteroBindings.clear();
+      if (normalized.startsWith("delete from synt_artifact_sidecar")) {
+        state.artifactSidecars.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_literature_redirect")) {
-        state.redirects.clear();
+      if (normalized.startsWith("delete from synt_raw_reference")) {
+        const sourceRef = cleanString(params.source_ref);
+        const artifactHash = cleanString(params.references_artifact_hash);
+        if (sourceRef || artifactHash) {
+          for (const [key, row] of Array.from(state.rawReferences.entries())) {
+            if (
+              (!sourceRef || cleanString(row.source_ref) === sourceRef) &&
+              (!artifactHash ||
+                cleanString(row.references_artifact_hash) === artifactHash)
+            ) {
+              state.rawReferences.delete(key);
+            }
+          }
+          return;
+        }
+        state.rawReferences.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_artifact_state")) {
-        state.artifactStates.clear();
+      if (normalized.startsWith("delete from synt_canonical_reference_redirect")) {
+        state.canonicalReferenceRedirects.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_reference_instance")) {
-        state.referenceInstances.clear();
+      if (normalized.startsWith("delete from synt_canonical_reference")) {
+        state.canonicalReferences.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_reference_resolution")) {
-        state.referenceResolutions.clear();
+      if (normalized.startsWith("delete from synt_reference_binding")) {
+        state.referenceBindings.clear();
         return;
       }
       if (normalized.startsWith("delete from synt_citation_node")) {
@@ -1422,6 +1459,10 @@ function createMemoryAdapter(): SqlAdapter {
           return;
         }
         state.citationLayoutStates.clear();
+        return;
+      }
+      if (normalized.startsWith("delete from synt_related_items_sync_effect")) {
+        state.relatedItemsSyncEffects.clear();
         return;
       }
       if (
@@ -1503,10 +1544,6 @@ function createMemoryAdapter(): SqlAdapter {
         state.reviewItems.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_literature_item")) {
-        state.literatureItems.clear();
-        return;
-      }
       if (normalized.startsWith("insert or replace into synt_schema_meta")) {
         state.schemaMeta.set(
           cleanString(params.meta_key),
@@ -1514,82 +1551,48 @@ function createMemoryAdapter(): SqlAdapter {
         );
         return;
       }
-      if (
-        normalized.startsWith("insert or replace into synt_literature_item")
-      ) {
-        const literatureItemId = cleanString(params.literature_item_id);
-        if (!literatureItemId) {
-          return;
-        }
-        state.literatureItems.set(literatureItemId, {
-          literature_item_id: literatureItemId,
-          display_title: cleanString(params.display_title),
-          normalized_title: cleanString(params.normalized_title),
-          title_normalizer_version: cleanString(
-            params.title_normalizer_version,
-          ),
-          year: cleanString(params.year),
-          venue: cleanString(params.venue),
-          authors_json: cleanString(params.authors_json),
-          status: cleanString(params.status),
-          created_from: cleanString(params.created_from),
-          confidence: cleanString(params.confidence),
-          created_at: cleanString(params.created_at),
-          updated_at: cleanString(params.updated_at),
-        });
+      if (normalized.startsWith("insert or replace into synt_cache_basis")) {
+        state.cacheBasis.set(cleanString(params.cache_key), memoryRow(params));
         return;
       }
-      if (
-        normalized.startsWith(
-          "insert or replace into synt_literature_identifier",
-        )
-      ) {
+      if (normalized.startsWith("insert or replace into synt_artifact_sidecar")) {
         const key = [
-          cleanString(params.literature_item_id),
-          cleanString(params.kind),
-          cleanString(params.normalized_value),
-        ].join("::");
-        state.identifiers.set(key, memoryRow(params));
-        return;
-      }
-      if (normalized.startsWith("insert or replace into synt_zotero_binding")) {
-        const key = [
-          cleanString(params.library_id),
-          cleanString(params.item_key),
-        ].join("::");
-        state.zoteroBindings.set(key, memoryRow(params));
-        return;
-      }
-      if (
-        normalized.startsWith("insert or replace into synt_literature_redirect")
-      ) {
-        state.redirects.set(cleanString(params.redirect_id), memoryRow(params));
-        return;
-      }
-      if (normalized.startsWith("insert or replace into synt_artifact_state")) {
-        const key = [
-          cleanString(params.literature_item_id),
+          cleanString(params.source_ref),
           cleanString(params.artifact_type),
         ].join("::");
-        state.artifactStates.set(key, memoryRow(params));
+        state.artifactSidecars.set(key, memoryRow(params));
+        return;
+      }
+      if (normalized.startsWith("insert or replace into synt_raw_reference")) {
+        state.rawReferences.set(
+          cleanString(params.raw_reference_id),
+          memoryRow(params),
+        );
         return;
       }
       if (
-        normalized.startsWith("insert or replace into synt_reference_instance")
+        normalized.startsWith("insert or replace into synt_canonical_reference ")
       ) {
-        state.referenceInstances.set(
-          cleanString(params.reference_instance_id),
+        state.canonicalReferences.set(
+          cleanString(params.canonical_reference_id),
           memoryRow(params),
         );
         return;
       }
       if (
         normalized.startsWith(
-          "insert or replace into synt_reference_resolution",
+          "insert or replace into synt_canonical_reference_redirect",
         )
       ) {
-        state.referenceResolutions.set(
-          cleanString(params.resolution_id),
+        state.canonicalReferenceRedirects.set(
+          cleanString(params.from_canonical_reference_id),
+          memoryRow(params),
+        );
+        return;
+      }
+      if (normalized.startsWith("insert or replace into synt_reference_binding")) {
+        state.referenceBindings.set(
+          cleanString(params.binding_id),
           memoryRow(params),
         );
         return;
@@ -1658,6 +1661,17 @@ function createMemoryAdapter(): SqlAdapter {
       ) {
         state.citationLayoutStates.set(
           cleanString(params.layout_key),
+          memoryRow(params),
+        );
+        return;
+      }
+      if (
+        normalized.startsWith(
+          "insert or replace into synt_related_items_sync_effect",
+        )
+      ) {
+        state.relatedItemsSyncEffects.set(
+          cleanString(params.effect_id),
           memoryRow(params),
         );
         return;
@@ -1815,12 +1829,11 @@ function createMemoryAdapter(): SqlAdapter {
         );
         return;
       }
-      if (normalized.startsWith("insert or replace into synt_dirty_event")) {
-        state.dirtyEvents.set(cleanString(params.event_id), memoryRow(params));
-        return;
-      }
-      if (normalized.startsWith("insert or replace into synt_job_state")) {
-        state.jobStates.set(cleanString(params.job_name), memoryRow(params));
+      if (normalized.startsWith("insert or replace into synt_operation")) {
+        state.operations.set(
+          cleanString(params.operation_id),
+          memoryRow(params),
+        );
       }
     },
     all(sql, params = {}) {
@@ -1850,65 +1863,39 @@ function createMemoryAdapter(): SqlAdapter {
           value,
         }));
       }
-      if (normalized.includes("from synt_literature_item")) {
-        const id = cleanString(params.literature_item_id);
-        const rows = id
-          ? [state.literatureItems.get(id)].filter(
+      if (normalized.includes("from synt_cache_basis")) {
+        const cacheKey = cleanString(params.cache_key);
+        const rows = cacheKey
+          ? [state.cacheBasis.get(cacheKey)].filter(
               (row): row is Record<string, SqlPrimitive> => Boolean(row),
             )
-          : Array.from(state.literatureItems.values());
+          : Array.from(state.cacheBasis.values());
         return rows.map((row) => ({ ...row }));
       }
-      if (
-        normalized.includes("from synt_zotero_binding") &&
-        normalized.includes("join synt_literature_item")
-      ) {
-        return Array.from(state.zoteroBindings.values())
-          .map((binding) => {
-            const item = state.literatureItems.get(
-              cleanString(binding.literature_item_id),
-            );
-            return item ? { ...item, ...binding } : null;
-          })
-          .filter((row): row is Record<string, SqlPrimitive> => Boolean(row))
-          .sort((left, right) => {
-            const library =
-              Number(left.library_id || 0) - Number(right.library_id || 0);
-            if (library !== 0) {
-              return library;
-            }
-            return cleanString(left.item_key).localeCompare(
-              cleanString(right.item_key),
-            );
-          });
-      }
-      if (normalized.includes("from synt_literature_identifier")) {
-        return Array.from(state.identifiers.values()).map((row) => ({
+      if (normalized.includes("from synt_artifact_sidecar")) {
+        return Array.from(state.artifactSidecars.values()).map((row) => ({
           ...row,
         }));
       }
-      if (normalized.includes("from synt_zotero_binding")) {
-        return Array.from(state.zoteroBindings.values()).map((row) => ({
+      if (normalized.includes("from synt_raw_reference")) {
+        return Array.from(state.rawReferences.values()).map((row) => ({
           ...row,
         }));
       }
-      if (normalized.includes("from synt_literature_redirect")) {
-        return Array.from(state.redirects.values()).map((row) => ({
+      if (normalized.includes("from synt_canonical_reference_redirect")) {
+        return Array.from(state.canonicalReferenceRedirects.values()).map(
+          (row) => ({
+            ...row,
+          }),
+        );
+      }
+      if (normalized.includes("from synt_canonical_reference")) {
+        return Array.from(state.canonicalReferences.values()).map((row) => ({
           ...row,
         }));
       }
-      if (normalized.includes("from synt_artifact_state")) {
-        return Array.from(state.artifactStates.values()).map((row) => ({
-          ...row,
-        }));
-      }
-      if (normalized.includes("from synt_reference_instance")) {
-        return Array.from(state.referenceInstances.values()).map((row) => ({
-          ...row,
-        }));
-      }
-      if (normalized.includes("from synt_reference_resolution")) {
-        return Array.from(state.referenceResolutions.values()).map((row) => ({
+      if (normalized.includes("from synt_reference_binding")) {
+        return Array.from(state.referenceBindings.values()).map((row) => ({
           ...row,
         }));
       }
@@ -1951,6 +1938,15 @@ function createMemoryAdapter(): SqlAdapter {
               (row): row is Record<string, SqlPrimitive> => Boolean(row),
             )
           : Array.from(state.citationLayoutStates.values());
+        return rows.map((row) => ({ ...row }));
+      }
+      if (normalized.includes("from synt_related_items_sync_effect")) {
+        const effectId = cleanString(params.effect_id);
+        const rows = effectId
+          ? [state.relatedItemsSyncEffects.get(effectId)].filter(
+              (row): row is Record<string, SqlPrimitive> => Boolean(row),
+            )
+          : Array.from(state.relatedItemsSyncEffects.values());
         return rows.map((row) => ({ ...row }));
       }
       if (normalized.includes("from synt_literature_matching_metadata")) {
@@ -2055,20 +2051,14 @@ function createMemoryAdapter(): SqlAdapter {
           ...row,
         }));
       }
-      if (normalized.includes("from synt_dirty_event")) {
-        return Array.from(state.dirtyEvents.values()).map((row) => ({
-          ...row,
-        }));
-      }
-      if (normalized.includes("from synt_job_state")) {
-        const jobName = cleanString(params.job_name);
-        if (jobName) {
-          const row = state.jobStates.get(jobName);
-          return row ? [{ ...row }] : [];
-        }
-        return Array.from(state.jobStates.values()).map((row) => ({
-          ...row,
-        }));
+      if (normalized.includes("from synt_operation")) {
+        const operationId = cleanString(params.operation_id);
+        const rows = operationId
+          ? [state.operations.get(operationId)].filter(
+              (row): row is Record<string, SqlPrimitive> => Boolean(row),
+            )
+          : Array.from(state.operations.values());
+        return rows.map((row) => ({ ...row }));
       }
       return [];
     },
@@ -2078,7 +2068,10 @@ function createMemoryAdapter(): SqlAdapter {
         /^select count\(\*\) as value from (synt_[a-z_]+)/,
       );
       if (countMatch) {
-        return { value: memoryTable(state, countMatch[1]).size };
+        return {
+          value: memoryTable(state, countMatch[1], { allowMissing: true })
+            ?.size ?? 0,
+        };
       }
       return this.all(sql, params)[0] || null;
     },
@@ -2106,20 +2099,21 @@ function memoryRow(params: SqlParams) {
 function memoryTable(
   state: MemoryState,
   name: string,
-): Map<string, Record<string, SqlPrimitive>> {
+  options: { allowMissing?: boolean } = {},
+): Map<string, Record<string, SqlPrimitive>> | undefined {
   switch (name) {
-    case "synt_literature_identifier":
-      return state.identifiers;
-    case "synt_zotero_binding":
-      return state.zoteroBindings;
-    case "synt_literature_redirect":
-      return state.redirects;
-    case "synt_artifact_state":
-      return state.artifactStates;
-    case "synt_reference_instance":
-      return state.referenceInstances;
-    case "synt_reference_resolution":
-      return state.referenceResolutions;
+    case "synt_cache_basis":
+      return state.cacheBasis;
+    case "synt_artifact_sidecar":
+      return state.artifactSidecars;
+    case "synt_raw_reference":
+      return state.rawReferences;
+    case "synt_canonical_reference":
+      return state.canonicalReferences;
+    case "synt_canonical_reference_redirect":
+      return state.canonicalReferenceRedirects;
+    case "synt_reference_binding":
+      return state.referenceBindings;
     case "synt_citation_node":
       return state.citationNodes;
     case "synt_citation_edge":
@@ -2134,6 +2128,8 @@ function memoryTable(
       return state.citationComplexMetrics;
     case "synt_citation_layout_state":
       return state.citationLayoutStates;
+    case "synt_related_items_sync_effect":
+      return state.relatedItemsSyncEffects;
     case "synt_literature_matching_metadata":
       return state.literatureMatchingMetadata;
     case "synt_topic_interest_metadata":
@@ -2170,13 +2166,13 @@ function memoryTable(
       return state.tagValidationWarnings;
     case "synt_review_item":
       return state.reviewItems;
-    case "synt_dirty_event":
-      return state.dirtyEvents;
-    case "synt_job_state":
-      return state.jobStates;
-    case "synt_literature_item":
+    case "synt_operation":
+      return state.operations;
     default:
-      return state.literatureItems;
+      if (options.allowMissing) {
+        return undefined;
+      }
+      throw new Error(`Unsupported in-memory synthesis table: ${name}`);
   }
 }
 
@@ -2209,107 +2205,95 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
-    CREATE TABLE IF NOT EXISTS synt_literature_item (
-      literature_item_id TEXT PRIMARY KEY,
-      display_title TEXT NOT NULL DEFAULT '',
+    CREATE TABLE IF NOT EXISTS synt_cache_basis (
+      cache_key TEXT PRIMARY KEY,
+      cache_kind TEXT NOT NULL,
+      scope_kind TEXT NOT NULL DEFAULT '',
+      scope_ref TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'missing',
+      basis_kind TEXT NOT NULL DEFAULT '',
+      basis_value TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL DEFAULT '',
+      policy_version TEXT NOT NULL DEFAULT '',
+      active_operation_id TEXT NOT NULL DEFAULT '',
+      refreshed_at TEXT NOT NULL DEFAULT '',
+      stale_reason TEXT NOT NULL DEFAULT '',
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_artifact_sidecar (
+      source_ref TEXT NOT NULL,
+      library_id INTEGER NOT NULL DEFAULT 0,
+      item_key TEXT NOT NULL DEFAULT '',
+      artifact_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'missing',
+      artifact_hash TEXT NOT NULL DEFAULT '',
+      locator_json TEXT NOT NULL DEFAULT '{}',
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      scanned_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (source_ref, artifact_type)
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_raw_reference (
+      raw_reference_id TEXT PRIMARY KEY,
+      source_ref TEXT NOT NULL,
+      references_artifact_hash TEXT NOT NULL DEFAULT '',
+      reference_index INTEGER NOT NULL DEFAULT 0,
+      raw_hash TEXT NOT NULL DEFAULT '',
+      parsed_title TEXT NOT NULL DEFAULT '',
       normalized_title TEXT NOT NULL DEFAULT '',
-      title_normalizer_version TEXT NOT NULL DEFAULT '',
       year TEXT NOT NULL DEFAULT '',
-      venue TEXT NOT NULL DEFAULT '',
       authors_json TEXT NOT NULL DEFAULT '[]',
+      raw_reference TEXT NOT NULL DEFAULT '',
+      canonical_reference_id TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active',
-      created_from TEXT NOT NULL DEFAULT '',
-      confidence TEXT NOT NULL DEFAULT '',
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
   db.run(`
-    CREATE TABLE IF NOT EXISTS synt_literature_identifier (
-      literature_item_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      normalized_value TEXT NOT NULL,
-      display_value TEXT NOT NULL DEFAULT '',
-      source TEXT NOT NULL DEFAULT '',
-      confidence TEXT NOT NULL DEFAULT '',
+    CREATE TABLE IF NOT EXISTS synt_canonical_reference (
+      canonical_reference_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      normalized_title TEXT NOT NULL DEFAULT '',
+      year TEXT NOT NULL DEFAULT '',
+      authors_json TEXT NOT NULL DEFAULT '[]',
+      identifiers_json TEXT NOT NULL DEFAULT '{}',
+      metadata_hash TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (literature_item_id, kind, normalized_value)
+      updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
   db.run(`
-    CREATE TABLE IF NOT EXISTS synt_zotero_binding (
-      library_id INTEGER NOT NULL,
-      item_key TEXT NOT NULL,
-      literature_item_id TEXT NOT NULL,
-      item_type TEXT NOT NULL DEFAULT '',
-      binding_status TEXT NOT NULL DEFAULT 'active',
-      date_added TEXT NOT NULL DEFAULT '',
-      deleted_at TEXT NOT NULL DEFAULT '',
-      tags_json TEXT NOT NULL DEFAULT '[]',
-      collections_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (library_id, item_key)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_literature_redirect (
-      redirect_id TEXT PRIMARY KEY,
-      from_literature_item_id TEXT NOT NULL,
-      to_literature_item_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS synt_canonical_reference_redirect (
+      from_canonical_reference_id TEXT PRIMARY KEY,
+      to_canonical_reference_id TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '',
       diagnostics_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  applyOptionalMigration(
-    db,
-    "ALTER TABLE synt_zotero_binding ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'",
-  );
-  applyOptionalMigration(
-    db,
-    "ALTER TABLE synt_zotero_binding ADD COLUMN collections_json TEXT NOT NULL DEFAULT '[]'",
-  );
   db.run(`
-    CREATE TABLE IF NOT EXISTS synt_artifact_state (
-      literature_item_id TEXT NOT NULL,
-      artifact_type TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'missing',
-      payload_hash TEXT NOT NULL DEFAULT '',
-      note_key TEXT NOT NULL DEFAULT '',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (literature_item_id, artifact_type)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_reference_instance (
-      reference_instance_id TEXT PRIMARY KEY,
-      source_literature_item_id TEXT NOT NULL,
-      reference_index INTEGER NOT NULL DEFAULT 0,
-      parsed_title TEXT NOT NULL DEFAULT '',
-      normalized_title TEXT NOT NULL DEFAULT '',
-      year TEXT NOT NULL DEFAULT '',
-      authors_json TEXT NOT NULL DEFAULT '[]',
-      raw_reference TEXT NOT NULL DEFAULT '',
-      raw_reference_hash TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_reference_resolution (
-      resolution_id TEXT PRIMARY KEY,
-      reference_instance_id TEXT NOT NULL,
-      source_literature_item_id TEXT NOT NULL,
-      target_literature_item_id TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'unresolved',
+    CREATE TABLE IF NOT EXISTS synt_reference_binding (
+      binding_id TEXT PRIMARY KEY,
+      canonical_reference_id TEXT NOT NULL,
+      library_id INTEGER NOT NULL DEFAULT 0,
+      item_key TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'candidate',
       confidence TEXT NOT NULL DEFAULT '',
+      reviewer TEXT NOT NULL DEFAULT '',
+      basis_hash TEXT NOT NULL DEFAULT '',
       diagnostics_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
+      updated_at TEXT NOT NULL DEFAULT '',
+      UNIQUE(canonical_reference_id, library_id, item_key)
     );
   `);
   db.run(`
@@ -2330,7 +2314,7 @@ function ensureSchema(db: SqlAdapter) {
       target_literature_item_id TEXT NOT NULL DEFAULT '',
       reference_instance_id TEXT NOT NULL DEFAULT '',
       resolution_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unresolved',
+      edge_status TEXT NOT NULL DEFAULT 'unbound',
       roles_json TEXT NOT NULL DEFAULT '[]',
       weight REAL NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT '',
@@ -2344,7 +2328,7 @@ function ensureSchema(db: SqlAdapter) {
       edge_id TEXT NOT NULL,
       reference_instance_id TEXT NOT NULL DEFAULT '',
       target_literature_item_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unresolved',
+      edge_status TEXT NOT NULL DEFAULT 'unbound',
       updated_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (source_literature_item_id, edge_id)
     );
@@ -2355,7 +2339,7 @@ function ensureSchema(db: SqlAdapter) {
       source_literature_item_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
       reference_instance_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unresolved',
+      edge_status TEXT NOT NULL DEFAULT 'unbound',
       updated_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (target_literature_item_id, edge_id)
     );
@@ -2418,6 +2402,46 @@ function ensureSchema(db: SqlAdapter) {
       UNIQUE(view_key, preset)
     );
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_related_items_sync_effect (
+      effect_id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL DEFAULT '',
+      citation_edge_id TEXT NOT NULL DEFAULT '',
+      source_literature_item_id TEXT NOT NULL,
+      target_literature_item_id TEXT NOT NULL,
+      source_library_id INTEGER NOT NULL DEFAULT 0,
+      source_item_key TEXT NOT NULL DEFAULT '',
+      target_library_id INTEGER NOT NULL DEFAULT 0,
+      target_item_key TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL DEFAULT 'add',
+      status TEXT NOT NULL DEFAULT 'pending_external_write',
+      created_by_synthesis INTEGER NOT NULL DEFAULT 0,
+      graph_basis_hash TEXT NOT NULL DEFAULT '',
+      graph_hash TEXT NOT NULL DEFAULT '',
+      external_write_at TEXT NOT NULL DEFAULT '',
+      echo_state TEXT NOT NULL DEFAULT 'none',
+      echo_observed_at TEXT NOT NULL DEFAULT '',
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_related_items_sync_effect ADD COLUMN external_write_at TEXT NOT NULL DEFAULT ''",
+  );
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_related_items_sync_effect ADD COLUMN echo_state TEXT NOT NULL DEFAULT 'none'",
+  );
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_related_items_sync_effect ADD COLUMN echo_observed_at TEXT NOT NULL DEFAULT ''",
+  );
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_related_items_sync_effect ADD COLUMN graph_basis_hash TEXT NOT NULL DEFAULT ''",
+  );
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_literature_matching_metadata (
       literature_item_id TEXT PRIMARY KEY,
@@ -2671,112 +2695,64 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
-    CREATE TABLE IF NOT EXISTS synt_dirty_event (
-      event_id TEXT PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS synt_operation (
+      operation_id TEXT PRIMARY KEY,
+      operation_type TEXT NOT NULL,
       library_id INTEGER NOT NULL DEFAULT 0,
-      event_type TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT '',
       scope_kind TEXT NOT NULL DEFAULT '',
       scope_ref TEXT NOT NULL DEFAULT '',
-      source_hash TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'queued',
-      attempt_count INTEGER NOT NULL DEFAULT 0,
-      coalesced_count INTEGER NOT NULL DEFAULT 1,
-      next_retry_at TEXT NOT NULL DEFAULT '',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_job_state (
-      job_name TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL DEFAULT '',
-      source TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
       label TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'idle',
       phase TEXT NOT NULL DEFAULT '',
       phase_label TEXT NOT NULL DEFAULT '',
       message TEXT NOT NULL DEFAULT '',
-      queue_wait_ms INTEGER NOT NULL DEFAULT 0,
-      time_budget_ms INTEGER NOT NULL DEFAULT 0,
-      batch_limit INTEGER NOT NULL DEFAULT 0,
+      progress_mode TEXT NOT NULL DEFAULT 'indeterminate',
       processed_count INTEGER NOT NULL DEFAULT 0,
       skipped_count INTEGER NOT NULL DEFAULT 0,
       failed_count INTEGER NOT NULL DEFAULT 0,
       total_count INTEGER NOT NULL DEFAULT 0,
-      retry_attempt INTEGER NOT NULL DEFAULT 0,
-      next_retry_at TEXT NOT NULL DEFAULT '',
+      basis_kind TEXT NOT NULL DEFAULT '',
+      basis_value TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL DEFAULT '',
       diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      progress_mode TEXT NOT NULL DEFAULT 'indeterminate',
-      progress_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT '',
       started_at TEXT NOT NULL DEFAULT '',
       completed_at TEXT NOT NULL DEFAULT '',
-      heartbeat_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  for (const sql of [
-    "ALTER TABLE synt_dirty_event ADD COLUMN library_id INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE synt_dirty_event ADD COLUMN coalesced_count INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE synt_job_state ADD COLUMN run_id TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN source TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN label TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN phase TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN phase_label TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN message TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE synt_job_state ADD COLUMN progress_mode TEXT NOT NULL DEFAULT 'indeterminate'",
-    "ALTER TABLE synt_job_state ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE synt_job_state ADD COLUMN started_at TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN completed_at TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE synt_job_state ADD COLUMN heartbeat_at TEXT NOT NULL DEFAULT ''",
-  ]) {
-    applyOptionalMigration(db, sql);
-  }
+  dropRemovedSynchronizationTables(db);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_item_status_updated
-      ON synt_literature_item(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_synt_cache_basis_kind_status
+      ON synt_cache_basis(cache_kind, status, updated_at DESC);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_item_normalized_title
-      ON synt_literature_item(normalized_title);
+    CREATE INDEX IF NOT EXISTS idx_synt_artifact_sidecar_source
+      ON synt_artifact_sidecar(source_ref, artifact_type, updated_at DESC);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_item_created_status
-      ON synt_literature_item(created_from, status);
+    CREATE INDEX IF NOT EXISTS idx_synt_artifact_sidecar_hash
+      ON synt_artifact_sidecar(artifact_type, artifact_hash);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_identifier_kind_value
-      ON synt_literature_identifier(kind, normalized_value);
+    CREATE INDEX IF NOT EXISTS idx_synt_raw_reference_source
+      ON synt_raw_reference(source_ref, references_artifact_hash, reference_index);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_zotero_binding_item
-      ON synt_zotero_binding(library_id, item_key);
+    CREATE INDEX IF NOT EXISTS idx_synt_raw_reference_canonical_status
+      ON synt_raw_reference(canonical_reference_id, status);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_zotero_binding_literature_status
-      ON synt_zotero_binding(literature_item_id, binding_status);
+    CREATE INDEX IF NOT EXISTS idx_synt_canonical_reference_title
+      ON synt_canonical_reference(normalized_title, year);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_redirect_from
-      ON synt_literature_redirect(from_literature_item_id);
+    CREATE INDEX IF NOT EXISTS idx_synt_reference_binding_target
+      ON synt_reference_binding(library_id, item_key, status);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_literature_redirect_to
-      ON synt_literature_redirect(to_literature_item_id);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_instance_source
-      ON synt_reference_instance(source_literature_item_id, reference_index);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_resolution_instance
-      ON synt_reference_resolution(reference_instance_id);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_resolution_target_status
-      ON synt_reference_resolution(target_literature_item_id, status);
+    CREATE INDEX IF NOT EXISTS idx_synt_reference_binding_canonical
+      ON synt_reference_binding(canonical_reference_id, status);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_citation_node_status
@@ -2819,6 +2795,14 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_citation_layout_state(view_key, preset, status, updated_at DESC);
   `);
   db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_related_items_sync_effect_status
+      ON synt_related_items_sync_effect(status, updated_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_related_items_sync_effect_pair
+      ON synt_related_items_sync_effect(source_library_id, source_item_key, target_library_id, target_item_key, status);
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_literature_matching_metadata_updated
       ON synt_literature_matching_metadata(updated_at DESC);
   `);
@@ -2839,12 +2823,16 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_topic_discovery_hint(topic_id, status, score DESC);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_discovery_hint_literature_status
+    CREATE INDEX IF NOT EXISTS idx_synt_topic_discovery_hint_source_status
       ON synt_topic_discovery_hint(literature_item_id, status, score DESC);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_topic_discovery_hint_updated
       ON synt_topic_discovery_hint(updated_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_related_items_sync_echo
+      ON synt_related_items_sync_effect(source_library_id, source_item_key, echo_state, external_write_at);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_node_type_updated
@@ -2971,16 +2959,8 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_review_item(blocked_by_review_item_id, status);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_dirty_event_status_retry
-      ON synt_dirty_event(status, next_retry_at, updated_at);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_dirty_event_scope_type_status
-      ON synt_dirty_event(scope_kind, scope_ref, event_type, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_job_state_status_updated
-      ON synt_job_state(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_synt_operation_type_status_updated
+      ON synt_operation(operation_type, status, updated_at DESC);
   `);
   db.run(
     `
@@ -2994,109 +2974,82 @@ function ensureSchema(db: SqlAdapter) {
   );
 }
 
-function rowToLiteratureItem(
-  row: SqlRow | null,
-): SynthesisLiteratureItemRecord | null {
-  if (!row) {
-    return null;
-  }
+function rowToArtifactSidecar(row: SqlRow): SynthesisArtifactSidecarRecord {
   return {
-    literatureItemId: cleanString(row.literature_item_id),
-    displayTitle: cleanString(row.display_title),
-    normalizedTitle: cleanString(row.normalized_title),
-    titleNormalizerVersion: cleanString(row.title_normalizer_version),
-    year: cleanString(row.year) || undefined,
-    venue: cleanString(row.venue) || undefined,
-    authorsJson: cleanString(row.authors_json) || undefined,
-    status: cleanString(row.status) || undefined,
-    createdFrom: cleanString(row.created_from) || undefined,
-    confidence: cleanString(row.confidence) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToIdentifier(row: SqlRow): SynthesisLiteratureIdentifierRecord {
-  return {
-    literatureItemId: cleanString(row.literature_item_id),
-    kind: cleanString(row.kind),
-    normalizedValue: cleanString(row.normalized_value),
-    displayValue: cleanString(row.display_value) || undefined,
-    source: cleanString(row.source) || undefined,
-    confidence: cleanString(row.confidence) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToZoteroBinding(row: SqlRow): SynthesisZoteroBindingRecord {
-  return {
+    sourceRef: cleanString(row.source_ref),
     libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
     itemKey: cleanString(row.item_key),
-    literatureItemId: cleanString(row.literature_item_id),
-    itemType: cleanString(row.item_type) || undefined,
-    bindingStatus: cleanString(row.binding_status) || "active",
-    dateAdded: cleanString(row.date_added) || undefined,
-    deletedAt: cleanString(row.deleted_at) || undefined,
-    tagsJson: cleanString(row.tags_json) || undefined,
-    collectionsJson: cleanString(row.collections_json) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToRedirect(row: SqlRow): SynthesisLiteratureRedirectRecord {
-  return {
-    redirectId: cleanString(row.redirect_id),
-    fromLiteratureItemId: cleanString(row.from_literature_item_id),
-    toLiteratureItemId: cleanString(row.to_literature_item_id),
-    reason: cleanString(row.reason),
-    diagnosticsJson: cleanString(row.diagnostics_json) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToArtifactState(row: SqlRow): SynthesisArtifactStateRecord {
-  return {
-    literatureItemId: cleanString(row.literature_item_id),
     artifactType: cleanString(row.artifact_type),
     status: cleanString(row.status) || "missing",
-    payloadHash: cleanString(row.payload_hash) || undefined,
-    noteKey: cleanString(row.note_key) || undefined,
-    diagnosticsJson: cleanString(row.diagnostics_json) || undefined,
+    artifactHash: cleanString(row.artifact_hash) || undefined,
+    locatorJson: cleanString(row.locator_json) || "{}",
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
+    scannedAt: cleanString(row.scanned_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
 
-function rowToReferenceInstance(row: SqlRow): SynthesisReferenceInstanceRecord {
+function rowToRawReference(row: SqlRow): SynthesisRawReferenceRecord {
   return {
-    referenceInstanceId: cleanString(row.reference_instance_id),
-    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
+    rawReferenceId: cleanString(row.raw_reference_id),
+    sourceRef: cleanString(row.source_ref),
+    referencesArtifactHash: cleanString(row.references_artifact_hash),
     referenceIndex: Math.max(0, Math.floor(Number(row.reference_index) || 0)),
+    rawHash: cleanString(row.raw_hash),
     parsedTitle: cleanString(row.parsed_title) || undefined,
     normalizedTitle: cleanString(row.normalized_title) || undefined,
     year: cleanString(row.year) || undefined,
     authorsJson: cleanString(row.authors_json) || undefined,
     rawReference: cleanString(row.raw_reference) || undefined,
-    rawReferenceHash: cleanString(row.raw_reference_hash) || undefined,
+    canonicalReferenceId: cleanString(row.canonical_reference_id) || undefined,
+    status: cleanString(row.status) || "active",
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
 
-function rowToReferenceResolution(
+function rowToCanonicalReference(
   row: SqlRow,
-): SynthesisReferenceResolutionRecord {
+): SynthesisCanonicalReferenceRecord {
   return {
-    resolutionId: cleanString(row.resolution_id),
-    referenceInstanceId: cleanString(row.reference_instance_id),
-    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
-    targetLiteratureItemId:
-      cleanString(row.target_literature_item_id) || undefined,
-    status: cleanString(row.status) || "unresolved",
+    canonicalReferenceId: cleanString(row.canonical_reference_id),
+    title: cleanString(row.title) || undefined,
+    normalizedTitle: cleanString(row.normalized_title) || undefined,
+    year: cleanString(row.year) || undefined,
+    authorsJson: cleanString(row.authors_json) || "[]",
+    identifiersJson: cleanString(row.identifiers_json) || "{}",
+    metadataHash: cleanString(row.metadata_hash) || undefined,
+    status: cleanString(row.status) || "active",
+    createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToCanonicalReferenceRedirect(
+  row: SqlRow,
+): SynthesisCanonicalReferenceRedirectRecord {
+  return {
+    fromCanonicalReferenceId: cleanString(row.from_canonical_reference_id),
+    toCanonicalReferenceId: cleanString(row.to_canonical_reference_id),
+    reason: cleanString(row.reason) || undefined,
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
+    createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToReferenceBinding(row: SqlRow): SynthesisReferenceBindingRecord {
+  return {
+    bindingId: cleanString(row.binding_id),
+    canonicalReferenceId: cleanString(row.canonical_reference_id),
+    libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
+    itemKey: cleanString(row.item_key),
+    status: normalizeReferenceBindingState(row.status),
     confidence: cleanString(row.confidence) || undefined,
-    diagnosticsJson: cleanString(row.diagnostics_json) || undefined,
+    reviewer: cleanString(row.reviewer) || undefined,
+    basisHash: cleanString(row.basis_hash) || undefined,
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -3122,7 +3075,7 @@ function rowToCitationEdge(row: SqlRow): SynthesisCitationEdgeRecord {
       cleanString(row.target_literature_item_id) || undefined,
     referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
     resolutionId: cleanString(row.resolution_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unresolved",
+    edgeStatus: cleanString(row.edge_status) || "unbound",
     rolesJson: cleanString(row.roles_json) || "[]",
     weight: Number(row.weight) || 0,
     createdAt: cleanString(row.created_at) || undefined,
@@ -3139,7 +3092,7 @@ function rowToCitationSourceOwnership(
     referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
     targetLiteratureItemId:
       cleanString(row.target_literature_item_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unresolved",
+    edgeStatus: cleanString(row.edge_status) || "unbound",
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -3152,7 +3105,7 @@ function rowToCitationIncomingGroup(
     sourceLiteratureItemId: cleanString(row.source_literature_item_id),
     edgeId: cleanString(row.edge_id),
     referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unresolved",
+    edgeStatus: cleanString(row.edge_status) || "unbound",
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -3263,6 +3216,71 @@ function rowToCitationLayoutState(row: SqlRow): SynthesisCitationLayoutRecord {
   };
 }
 
+function normalizeRelatedItemsSyncStatus(
+  value: unknown,
+): SynthesisRelatedItemsSyncStatus {
+  const status = cleanString(value);
+  if (
+    status === "applied" ||
+    status === "already_existed" ||
+    status === "revoked" ||
+    status === "already_absent" ||
+    status === "failed" ||
+    status === "needs_attention"
+  ) {
+    return status;
+  }
+  return "pending_external_write";
+}
+
+function normalizeRelatedItemsEchoState(
+  value: unknown,
+): SynthesisRelatedItemsEchoState {
+  const state = cleanString(value);
+  if (
+    state === "awaiting_echo" ||
+    state === "observed" ||
+    state === "expired"
+  ) {
+    return state;
+  }
+  return "none";
+}
+
+function rowToRelatedItemsSyncEffect(
+  row: SqlRow,
+): SynthesisRelatedItemsSyncEffectRecord {
+  const action = cleanString(row.action) === "revoke" ? "revoke" : "add";
+  return {
+    effectId: cleanString(row.effect_id),
+    operationId: cleanString(row.operation_id),
+    citationEdgeId: cleanString(row.citation_edge_id) || undefined,
+    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
+    targetLiteratureItemId: cleanString(row.target_literature_item_id),
+    sourceLibraryId: Math.max(
+      0,
+      Math.floor(Number(row.source_library_id) || 0),
+    ),
+    sourceItemKey: cleanString(row.source_item_key),
+    targetLibraryId: Math.max(
+      0,
+      Math.floor(Number(row.target_library_id) || 0),
+    ),
+    targetItemKey: cleanString(row.target_item_key),
+    action,
+    status: normalizeRelatedItemsSyncStatus(row.status),
+    createdBySynthesis: Boolean(Number(row.created_by_synthesis) || 0),
+    graphBasisHash: cleanString(row.graph_basis_hash) || undefined,
+    graphHash: cleanString(row.graph_hash) || undefined,
+    externalWriteAt: cleanString(row.external_write_at) || undefined,
+    echoState: normalizeRelatedItemsEchoState(row.echo_state),
+    echoObservedAt: cleanString(row.echo_observed_at) || undefined,
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
+    createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
 function rowToLiteratureMatchingMetadata(
   row: SqlRow,
 ): SynthesisLiteratureMatchingMetadataRecord {
@@ -3310,8 +3328,27 @@ function rowToTopicDiscoveryHint(
     score: Number(row.score) || 0,
     method: cleanString(row.method) || "metadata-overlap-v1",
     matchingFieldsJson: cleanString(row.matching_fields_json) || "{}",
-    status: cleanString(row.status) || "open",
+    status: normalizeTopicDiscoveryHintStatus(row.status),
     createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToCacheBasis(row: SqlRow): SynthesisCacheBasisRecord {
+  return {
+    cacheKey: cleanString(row.cache_key),
+    cacheKind: cleanString(row.cache_kind),
+    scopeKind: cleanString(row.scope_kind) || undefined,
+    scopeRef: cleanString(row.scope_ref) || undefined,
+    status: normalizeCacheBasisStatus(row.status),
+    basisKind: cleanString(row.basis_kind) || undefined,
+    basisValue: cleanString(row.basis_value) || undefined,
+    sourceHash: cleanString(row.source_hash) || undefined,
+    policyVersion: cleanString(row.policy_version) || undefined,
+    activeOperationId: cleanString(row.active_operation_id) || undefined,
+    refreshedAt: cleanString(row.refreshed_at) || undefined,
+    staleReason: cleanString(row.stale_reason) || undefined,
+    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -3550,50 +3587,30 @@ function rowToReviewItem(row: SqlRow): SynthesisReviewItemRecord {
   };
 }
 
-function rowToDirtyEvent(row: SqlRow): SynthesisDirtyEventRecord {
+function rowToOperation(row: SqlRow): SynthesisOperationRecord {
   return {
-    eventId: cleanString(row.event_id),
+    operationId: cleanString(row.operation_id),
+    operationType: cleanString(row.operation_type),
     libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
-    eventType: cleanString(row.event_type),
-    source: cleanString(row.source) || undefined,
     scopeKind: cleanString(row.scope_kind) || undefined,
     scopeRef: cleanString(row.scope_ref) || undefined,
-    sourceHash: cleanString(row.source_hash) || undefined,
-    status: cleanString(row.status) || "queued",
-    attemptCount: Math.max(0, Math.floor(Number(row.attempt_count) || 0)),
-    coalescedCount: Math.max(1, Math.floor(Number(row.coalesced_count) || 1)),
-    nextRetryAt: cleanString(row.next_retry_at) || undefined,
-    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToJobProgress(row: SqlRow): SynthesisJobProgressRecord {
-  return {
-    jobName: cleanString(row.job_name),
-    runId: cleanString(row.run_id) || undefined,
-    source: cleanString(row.source) || undefined,
+    status: normalizeOperationStatus(row.status),
     label: cleanString(row.label) || undefined,
-    status: normalizeJobProgressStatus(row.status),
     phase: cleanString(row.phase) || undefined,
     phaseLabel: cleanString(row.phase_label) || undefined,
     message: cleanString(row.message) || undefined,
-    queueWaitMs: nonNegativeInt(row.queue_wait_ms),
-    timeBudgetMs: nonNegativeInt(row.time_budget_ms),
-    batchLimit: nonNegativeInt(row.batch_limit),
+    progressMode: normalizeOperationProgressMode(row.progress_mode),
     processedCount: nonNegativeInt(row.processed_count),
     skippedCount: nonNegativeInt(row.skipped_count),
     failedCount: nonNegativeInt(row.failed_count),
     totalCount: nonNegativeInt(row.total_count),
-    retryAttempt: nonNegativeInt(row.retry_attempt),
-    nextRetryAt: cleanString(row.next_retry_at) || undefined,
+    basisKind: cleanString(row.basis_kind) || undefined,
+    basisValue: cleanString(row.basis_value) || undefined,
+    sourceHash: cleanString(row.source_hash) || undefined,
     diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    progressMode: normalizeJobProgressMode(row.progress_mode),
-    progressJson: cleanString(row.progress_json) || "{}",
+    createdAt: cleanString(row.created_at) || undefined,
     startedAt: cleanString(row.started_at) || undefined,
     completedAt: cleanString(row.completed_at) || undefined,
-    heartbeatAt: cleanString(row.heartbeat_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -3633,7 +3650,7 @@ function discoveryTextContains(text: string, term: string) {
 
 function discoveryFieldsForLiterature(args: {
   metadata: SynthesisLiteratureMatchingMetadataRecord;
-  item?: SynthesisLiteratureItemRecord | null;
+  item?: { displayTitle?: string; normalizedTitle?: string } | null;
   tags?: string[];
 }) {
   return {
@@ -3662,7 +3679,7 @@ const DISCOVERY_FIELD_WEIGHTS: Record<string, number> = {
 function scoreDiscoveryPair(args: {
   topic: SynthesisTopicInterestMetadataRecord;
   literature: SynthesisLiteratureMatchingMetadataRecord;
-  item?: SynthesisLiteratureItemRecord | null;
+  item?: { displayTitle?: string; normalizedTitle?: string } | null;
   tags?: string[];
   method: string;
   timestamp: string;
@@ -3712,24 +3729,43 @@ function scoreDiscoveryPair(args: {
       score += weight;
     }
   }
-  const allLiteratureText = Object.values(fields)
-    .flat()
+  const comparableLiteratureText = Object.entries(fields)
+    .filter(([field]) => field !== "literature_exclude_terms")
+    .flatMap(([, values]) => values)
     .map(normalizedDiscoveryTerm);
+  const literatureExcludeTerms = uniqueDiscoveryTerms(
+    fields.literature_exclude_terms || [],
+  );
   const missingMustHaveTerms = mustHaveTerms.filter(
     (term) => !matchedTerms.has(term),
   );
   const excludeHits = topicExcludeTerms.filter((term) =>
-    allLiteratureText.some((value) => discoveryTextContains(value, term)),
+    comparableLiteratureText.some((value) =>
+      discoveryTextContains(value, term),
+    ),
   );
+  const literatureExcludeHits = queryTerms.filter((term) =>
+    literatureExcludeTerms.some(
+      (excludeTerm) =>
+        discoveryTextContains(excludeTerm, term) ||
+        discoveryTextContains(term, excludeTerm),
+    ),
+  );
+  if (
+    missingMustHaveTerms.length ||
+    excludeHits.length ||
+    literatureExcludeHits.length
+  ) {
+    return null;
+  }
   if (score < args.minScore) {
     return null;
   }
-  const status =
-    missingMustHaveTerms.length || excludeHits.length ? "filtered" : "open";
   const matchingFields = {
     matched_terms: Array.from(matchedTerms).sort(),
     missing_must_have_terms: missingMustHaveTerms.sort(),
     exclude_hits: excludeHits.sort(),
+    literature_exclude_hits: literatureExcludeHits.sort(),
     field_matches: Object.fromEntries(
       Object.entries(fieldMatches).map(([field, terms]) => [
         field,
@@ -3748,7 +3784,7 @@ function scoreDiscoveryPair(args: {
     score: Math.round(score * 1000) / 1000,
     method: args.method,
     matchingFieldsJson: JSON.stringify(matchingFields),
-    status,
+    status: "open",
     createdAt: args.timestamp,
     updatedAt: args.timestamp,
   };
@@ -3838,164 +3874,626 @@ export class SynthesisRepository {
     });
   }
 
-  clearDirtyEvents(args: { statuses?: string[]; eventTypes?: string[] } = {}) {
+  getCacheBasis(cacheKeyRaw: string) {
     this.initialize();
-    const events = this.listDirtyEvents(args);
-    return this.db.transaction(() => {
-      for (const event of events) {
-        this.db.run("DELETE FROM synt_dirty_event WHERE event_id=@event_id", {
-          event_id: event.eventId,
-        });
-      }
-      return {
-        deleted: events.length,
-        eventIds: events.map((event) => event.eventId),
-        clearedAt: this.now(),
-      };
-    });
-  }
-
-  deleteJobProgress(jobNameRaw: string) {
-    this.initialize();
-    const jobName = cleanString(jobNameRaw);
-    if (!jobName) {
-      return 0;
+    const cacheKey = cleanString(cacheKeyRaw);
+    if (!cacheKey) {
+      return null;
     }
-    const before = this.getJobProgress(jobName) ? 1 : 0;
-    this.db.run("DELETE FROM synt_job_state WHERE job_name=@job_name", {
-      job_name: jobName,
-    });
-    return before;
+    const row = this.db.get(
+      `
+        SELECT *
+        FROM synt_cache_basis
+        WHERE cache_key=@cache_key
+        LIMIT 1
+      `,
+      { cache_key: cacheKey },
+    );
+    return row ? rowToCacheBasis(row) : null;
   }
 
-  upsertLiteratureItem(record: SynthesisLiteratureItemRecord) {
+  upsertCacheBasis(record: SynthesisCacheBasisRecord) {
     this.initialize();
-    const literatureItemId = cleanString(record.literatureItemId);
-    if (!literatureItemId) {
-      throw new Error("literatureItemId must be non-empty");
+    const cacheKey = cleanString(record.cacheKey);
+    if (!cacheKey) {
+      throw new Error("cacheKey must be non-empty");
     }
     const timestamp = this.now();
     this.db.run(
       `
-        INSERT OR REPLACE INTO synt_literature_item (
-          literature_item_id,
-          display_title,
-          normalized_title,
-          title_normalizer_version,
-          year,
-          venue,
-          authors_json,
+        INSERT OR REPLACE INTO synt_cache_basis (
+          cache_key,
+          cache_kind,
+          scope_kind,
+          scope_ref,
           status,
-          created_from,
-          confidence,
+          basis_kind,
+          basis_value,
+          source_hash,
+          policy_version,
+          active_operation_id,
+          refreshed_at,
+          stale_reason,
+          diagnostics_json,
+          updated_at
+        )
+        VALUES (
+          @cache_key,
+          @cache_kind,
+          @scope_kind,
+          @scope_ref,
+          @status,
+          @basis_kind,
+          @basis_value,
+          @source_hash,
+          @policy_version,
+          @active_operation_id,
+          @refreshed_at,
+          @stale_reason,
+          @diagnostics_json,
+          @updated_at
+        )
+      `,
+      {
+        cache_key: cacheKey,
+        cache_kind: cleanString(record.cacheKind),
+        scope_kind: cleanString(record.scopeKind),
+        scope_ref: cleanString(record.scopeRef),
+        status: normalizeCacheBasisStatus(record.status),
+        basis_kind: cleanString(record.basisKind),
+        basis_value: cleanString(record.basisValue),
+        source_hash: cleanString(record.sourceHash),
+        policy_version: cleanString(record.policyVersion),
+        active_operation_id: cleanString(record.activeOperationId),
+        refreshed_at: cleanString(record.refreshedAt),
+        stale_reason: cleanString(record.staleReason),
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listCacheBasis(args: { cacheKinds?: string[]; statuses?: string[] } = {}) {
+    this.initialize();
+    const cacheKinds = new Set(
+      (args.cacheKinds || []).map(cleanString).filter(Boolean),
+    );
+    const statuses = new Set(
+      (args.statuses || []).map(cleanString).filter(Boolean),
+    );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "cache_kind", "cache_kind", cacheKinds);
+    appendInFilter(clauses, params, "status", "status", statuses);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_cache_basis
+          ${where}
+          ORDER BY updated_at DESC, cache_key ASC
+        `,
+        params,
+      )
+      .map(rowToCacheBasis)
+      .filter((row) => !cacheKinds.size || cacheKinds.has(row.cacheKind))
+      .filter((row) => !statuses.size || statuses.has(row.status || ""));
+  }
+
+  upsertArtifactSidecar(record: SynthesisArtifactSidecarRecord) {
+    this.initialize();
+    const sourceRef = cleanString(record.sourceRef);
+    const artifactType = cleanString(record.artifactType);
+    if (!sourceRef || !artifactType) {
+      throw new Error("sourceRef and artifactType must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_artifact_sidecar (
+          source_ref,
+          library_id,
+          item_key,
+          artifact_type,
+          status,
+          artifact_hash,
+          locator_json,
+          diagnostics_json,
+          scanned_at,
+          updated_at
+        )
+        VALUES (
+          @source_ref,
+          @library_id,
+          @item_key,
+          @artifact_type,
+          @status,
+          @artifact_hash,
+          @locator_json,
+          @diagnostics_json,
+          @scanned_at,
+          @updated_at
+        )
+      `,
+      {
+        source_ref: sourceRef,
+        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
+        item_key: cleanString(record.itemKey),
+        artifact_type: artifactType,
+        status: cleanString(record.status) || "missing",
+        artifact_hash: cleanString(record.artifactHash),
+        locator_json: cleanString(record.locatorJson) || "{}",
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        scanned_at: cleanString(record.scannedAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listArtifactSidecars(
+    args: { sourceRefs?: string[]; artifactTypes?: string[] } = {},
+  ) {
+    this.initialize();
+    const sourceRefs = new Set(
+      (args.sourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    const artifactTypes = new Set(
+      (args.artifactTypes || []).map(cleanString).filter(Boolean),
+    );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "source_ref", "source_ref", sourceRefs);
+    appendInFilter(
+      clauses,
+      params,
+      "artifact_type",
+      "artifact_type",
+      artifactTypes,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_artifact_sidecar
+          ${where}
+          ORDER BY source_ref ASC, artifact_type ASC
+        `,
+        params,
+      )
+      .map(rowToArtifactSidecar)
+      .filter((row) => !sourceRefs.size || sourceRefs.has(row.sourceRef))
+      .filter(
+        (row) => !artifactTypes.size || artifactTypes.has(row.artifactType),
+      );
+  }
+
+  upsertCanonicalReference(record: SynthesisCanonicalReferenceRecord) {
+    this.initialize();
+    const canonicalReferenceId = cleanString(record.canonicalReferenceId);
+    if (!canonicalReferenceId) {
+      throw new Error("canonicalReferenceId must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_canonical_reference (
+          canonical_reference_id,
+          title,
+          normalized_title,
+          year,
+          authors_json,
+          identifiers_json,
+          metadata_hash,
+          status,
           created_at,
           updated_at
         )
         VALUES (
-          @literature_item_id,
-          @display_title,
+          @canonical_reference_id,
+          @title,
           @normalized_title,
-          @title_normalizer_version,
           @year,
-          @venue,
           @authors_json,
+          @identifiers_json,
+          @metadata_hash,
           @status,
-          @created_from,
-          @confidence,
           @created_at,
           @updated_at
         )
       `,
       {
-        literature_item_id: literatureItemId,
-        display_title: cleanString(record.displayTitle),
+        canonical_reference_id: canonicalReferenceId,
+        title: cleanString(record.title),
         normalized_title: cleanString(record.normalizedTitle),
-        title_normalizer_version: cleanString(record.titleNormalizerVersion),
         year: cleanString(record.year),
-        venue: cleanString(record.venue),
         authors_json: cleanString(record.authorsJson) || "[]",
-        status: normalizeLiteratureStatus(record.status),
-        created_from: cleanString(record.createdFrom),
-        confidence: cleanString(record.confidence),
+        identifiers_json: cleanString(record.identifiersJson) || "{}",
+        metadata_hash: cleanString(record.metadataHash),
+        status: cleanString(record.status) || "active",
         created_at: cleanString(record.createdAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
     );
   }
 
-  replaceIndexState(state: SynthesisIndexStateReplacement) {
-    this.transaction(() => {
-      for (const table of [
-        "synt_review_item",
-        "synt_reference_resolution",
-        "synt_reference_instance",
-        "synt_artifact_state",
-        "synt_zotero_binding",
-        "synt_literature_identifier",
-        "synt_literature_item",
-      ]) {
-        this.db.run(`DELETE FROM ${table}`);
-      }
-      for (const record of state.literatureItems) {
-        this.upsertLiteratureItem(record);
-      }
-      for (const record of state.identifiers || []) {
-        this.upsertIdentifier(record);
-      }
-      for (const record of state.zoteroBindings || []) {
-        this.upsertZoteroBinding(record);
-      }
-      for (const record of state.redirects || []) {
-        this.upsertRedirect(record);
-      }
-      for (const record of state.artifactStates || []) {
-        this.upsertArtifactState(record);
-      }
-      for (const record of state.referenceInstances || []) {
-        this.upsertReferenceInstance(record);
-      }
-      for (const record of state.referenceResolutions || []) {
-        this.upsertReferenceResolution(record);
-      }
-      for (const record of state.reviewItems || []) {
-        this.upsertReviewItem(record);
-      }
-      this.syncCitationGraphFromIndex({
-        timestamp: this.now(),
+  listCanonicalReferences(args: { statuses?: string[] } = {}) {
+    this.initialize();
+    const statuses = new Set(
+      (args.statuses || []).map(cleanString).filter(Boolean),
+    );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "status", "status", statuses);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_canonical_reference
+          ${where}
+          ORDER BY canonical_reference_id ASC
+        `,
+        params,
+      )
+      .map(rowToCanonicalReference)
+      .filter((row) => !statuses.size || statuses.has(row.status || ""));
+  }
+
+  upsertCanonicalReferenceRedirect(
+    record: SynthesisCanonicalReferenceRedirectRecord,
+  ) {
+    this.initialize();
+    const from = cleanString(record.fromCanonicalReferenceId);
+    const to = cleanString(record.toCanonicalReferenceId);
+    if (!from || !to) {
+      throw new Error("canonical reference redirect endpoints must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_canonical_reference_redirect (
+          from_canonical_reference_id,
+          to_canonical_reference_id,
+          reason,
+          diagnostics_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @from_canonical_reference_id,
+          @to_canonical_reference_id,
+          @reason,
+          @diagnostics_json,
+          @created_at,
+          @updated_at
+        )
+      `,
+      {
+        from_canonical_reference_id: from,
+        to_canonical_reference_id: to,
+        reason: cleanString(record.reason),
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        created_at: cleanString(record.createdAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listCanonicalReferenceRedirects() {
+    this.initialize();
+    return this.db
+      .all("SELECT * FROM synt_canonical_reference_redirect")
+      .map(rowToCanonicalReferenceRedirect);
+  }
+
+  resolveEffectiveCanonicalReferenceId(canonicalReferenceIdRaw: string) {
+    let current = cleanString(canonicalReferenceIdRaw);
+    if (!current) {
+      return "";
+    }
+    const redirects = new Map(
+      this.listCanonicalReferenceRedirects().map(
+        (row) =>
+          [
+            row.fromCanonicalReferenceId,
+            row.toCanonicalReferenceId,
+          ] as const,
+      ),
+    );
+    const seen = new Set<string>();
+    while (redirects.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = redirects.get(current) || current;
+    }
+    return current;
+  }
+
+  upsertRawReference(record: SynthesisRawReferenceRecord) {
+    this.initialize();
+    const rawReferenceId = cleanString(record.rawReferenceId);
+    if (!rawReferenceId) {
+      throw new Error("rawReferenceId must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_raw_reference (
+          raw_reference_id,
+          source_ref,
+          references_artifact_hash,
+          reference_index,
+          raw_hash,
+          parsed_title,
+          normalized_title,
+          year,
+          authors_json,
+          raw_reference,
+          canonical_reference_id,
+          status,
+          diagnostics_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @raw_reference_id,
+          @source_ref,
+          @references_artifact_hash,
+          @reference_index,
+          @raw_hash,
+          @parsed_title,
+          @normalized_title,
+          @year,
+          @authors_json,
+          @raw_reference,
+          @canonical_reference_id,
+          @status,
+          @diagnostics_json,
+          @created_at,
+          @updated_at
+        )
+      `,
+      {
+        raw_reference_id: rawReferenceId,
+        source_ref: cleanString(record.sourceRef),
+        references_artifact_hash: cleanString(record.referencesArtifactHash),
+        reference_index: Math.max(
+          0,
+          Math.floor(Number(record.referenceIndex) || 0),
+        ),
+        raw_hash: cleanString(record.rawHash),
+        parsed_title: cleanString(record.parsedTitle),
+        normalized_title: cleanString(record.normalizedTitle),
+        year: cleanString(record.year),
+        authors_json: cleanString(record.authorsJson) || "[]",
+        raw_reference: cleanString(record.rawReference),
+        canonical_reference_id: cleanString(record.canonicalReferenceId),
+        status: cleanString(record.status) || "active",
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        created_at: cleanString(record.createdAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listRawReferences(
+    args: {
+      sourceRefs?: string[];
+      statuses?: string[];
+      referencesArtifactHashes?: string[];
+      limit?: number;
+    } = {},
+  ) {
+    this.initialize();
+    const sourceRefs = new Set(
+      (args.sourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    const statuses = new Set(
+      (args.statuses || []).map(cleanString).filter(Boolean),
+    );
+    const hashes = new Set(
+      (args.referencesArtifactHashes || []).map(cleanString).filter(Boolean),
+    );
+    const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "source_ref", "source_ref", sourceRefs);
+    appendInFilter(clauses, params, "status", "status", statuses);
+    appendInFilter(
+      clauses,
+      params,
+      "references_artifact_hash",
+      "references_artifact_hash",
+      hashes,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, limit);
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_raw_reference
+          ${where}
+          ORDER BY source_ref ASC, reference_index ASC, raw_reference_id ASC
+          ${limitSql}
+        `,
+        params,
+      )
+      .map(rowToRawReference)
+      .filter((row) => !sourceRefs.size || sourceRefs.has(row.sourceRef))
+      .filter((row) => !statuses.size || statuses.has(row.status || ""))
+      .filter(
+        (row) =>
+          !hashes.size || hashes.has(cleanString(row.referencesArtifactHash)),
+      )
+      .slice(0, limit || Number.POSITIVE_INFINITY);
+  }
+
+  markRawReferencesStaleForSource(args: {
+    sourceRef: string;
+    exceptReferencesArtifactHash?: string;
+    timestamp?: string;
+  }) {
+    this.initialize();
+    const sourceRef = cleanString(args.sourceRef);
+    if (!sourceRef) {
+      return 0;
+    }
+    const timestamp = cleanString(args.timestamp) || this.now();
+    const rows = this.listRawReferences({
+      sourceRefs: [sourceRef],
+      statuses: ["active"],
+    }).filter(
+      (row) =>
+        !args.exceptReferencesArtifactHash ||
+        row.referencesArtifactHash !== args.exceptReferencesArtifactHash,
+    );
+    for (const row of rows) {
+      this.upsertRawReference({
+        ...row,
+        status: "stale",
+        updatedAt: timestamp,
       });
-    });
+    }
+    return rows.length;
+  }
+
+  upsertReferenceBinding(record: SynthesisReferenceBindingRecord) {
+    this.initialize();
+    const bindingId = cleanString(record.bindingId);
+    if (!bindingId) {
+      throw new Error("bindingId must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_reference_binding (
+          binding_id,
+          canonical_reference_id,
+          library_id,
+          item_key,
+          status,
+          confidence,
+          reviewer,
+          basis_hash,
+          diagnostics_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @binding_id,
+          @canonical_reference_id,
+          @library_id,
+          @item_key,
+          @status,
+          @confidence,
+          @reviewer,
+          @basis_hash,
+          @diagnostics_json,
+          @created_at,
+          @updated_at
+        )
+      `,
+      {
+        binding_id: bindingId,
+        canonical_reference_id: cleanString(record.canonicalReferenceId),
+        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
+        item_key: cleanString(record.itemKey),
+        status: normalizeReferenceBindingState(record.status),
+        confidence: cleanString(record.confidence),
+        reviewer: cleanString(record.reviewer),
+        basis_hash: cleanString(record.basisHash),
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        created_at: cleanString(record.createdAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listReferenceBindings(
+    args: { canonicalReferenceIds?: string[]; statuses?: string[] } = {},
+  ) {
+    this.initialize();
+    const canonicalIds = new Set(
+      (args.canonicalReferenceIds || []).map(cleanString).filter(Boolean),
+    );
+    const statuses = new Set(
+      (args.statuses || [])
+        .map(cleanString)
+        .filter(Boolean)
+        .flatMap(expandReferenceBindingStatusFilter),
+    );
+    const normalizedStatuses = new Set(
+      (args.statuses || [])
+        .map((status) => normalizeReferenceBindingState(status))
+        .filter(Boolean),
+    );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "canonical_reference_id",
+      "canonical_reference_id",
+      canonicalIds,
+    );
+    appendInFilter(clauses, params, "status", "status", statuses);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_reference_binding
+          ${where}
+          ORDER BY canonical_reference_id ASC, binding_id ASC
+        `,
+        params,
+      )
+      .map(rowToReferenceBinding)
+      .filter(
+        (row) =>
+          !canonicalIds.size || canonicalIds.has(row.canonicalReferenceId),
+      )
+      .filter((row) => !normalizedStatuses.size || normalizedStatuses.has(row.status));
+  }
+
+  private replaceCitationGraphStateRows(
+    state: SynthesisCitationGraphStateReplacement,
+  ) {
+    for (const table of [
+      "synt_citation_metrics_light",
+      "synt_citation_metrics_complex",
+      "synt_citation_incoming_group",
+      "synt_citation_source_ownership",
+      "synt_citation_edge",
+      "synt_citation_node",
+    ]) {
+      this.db.run(`DELETE FROM ${table}`);
+    }
+    for (const record of state.nodes) {
+      this.upsertCitationNode(record);
+    }
+    for (const record of state.edges || []) {
+      this.upsertCitationEdge(record);
+    }
+    for (const record of state.sourceOwnership || []) {
+      this.upsertCitationSourceOwnership(record);
+    }
+    for (const record of state.incomingGroups || []) {
+      this.upsertCitationIncomingGroup(record);
+    }
+    for (const record of state.lightweightMetrics || []) {
+      this.upsertCitationLightMetrics(record);
+    }
+    for (const record of state.complexMetrics || []) {
+      this.upsertCitationComplexMetrics(record);
+    }
   }
 
   replaceCitationGraphState(state: SynthesisCitationGraphStateReplacement) {
     this.transaction(() => {
-      for (const table of [
-        "synt_citation_metrics_light",
-        "synt_citation_metrics_complex",
-        "synt_citation_incoming_group",
-        "synt_citation_source_ownership",
-        "synt_citation_edge",
-        "synt_citation_node",
-      ]) {
-        this.db.run(`DELETE FROM ${table}`);
-      }
-      for (const record of state.nodes) {
-        this.upsertCitationNode(record);
-      }
-      for (const record of state.edges || []) {
-        this.upsertCitationEdge(record);
-      }
-      for (const record of state.sourceOwnership || []) {
-        this.upsertCitationSourceOwnership(record);
-      }
-      for (const record of state.incomingGroups || []) {
-        this.upsertCitationIncomingGroup(record);
-      }
-      for (const record of state.lightweightMetrics || []) {
-        this.upsertCitationLightMetrics(record);
-      }
-      for (const record of state.complexMetrics || []) {
-        this.upsertCitationComplexMetrics(record);
-      }
+      this.replaceCitationGraphStateRows(state);
     });
   }
 
@@ -4029,364 +4527,6 @@ export class SynthesisRepository {
         this.upsertTopicDiscoveryHint(record);
       }
     });
-  }
-
-  syncCitationGraphFromIndex(
-    args: {
-      sourceLiteratureItemIds?: string[];
-      literatureItemIds?: string[];
-      referenceInstanceIds?: string[];
-      timestamp?: string;
-    } = {},
-  ) {
-    this.initialize();
-    const timestamp = cleanString(args.timestamp) || this.now();
-    const references = this.listReferenceInstances();
-    const resolutionsByReferenceId = new Map(
-      this.listReferenceResolutions().map(
-        (entry) => [entry.referenceInstanceId, entry] as const,
-      ),
-    );
-    const requestedReferenceIds = new Set(
-      (args.referenceInstanceIds || []).map(cleanString).filter(Boolean),
-    );
-    const scoped =
-      Boolean(args.sourceLiteratureItemIds?.length) ||
-      Boolean(args.literatureItemIds?.length) ||
-      Boolean(args.referenceInstanceIds?.length);
-    const sourceIds = new Set(
-      (args.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
-    );
-    for (const reference of references) {
-      if (requestedReferenceIds.has(reference.referenceInstanceId)) {
-        sourceIds.add(reference.sourceLiteratureItemId);
-      }
-    }
-    if (!scoped) {
-      for (const table of [
-        "synt_citation_metrics_light",
-        "synt_citation_incoming_group",
-        "synt_citation_source_ownership",
-        "synt_citation_edge",
-        "synt_citation_node",
-      ]) {
-        this.db.run(`DELETE FROM ${table}`);
-      }
-      for (const reference of references) {
-        sourceIds.add(reference.sourceLiteratureItemId);
-      }
-    }
-
-    const oldEdges = sourceIds.size
-      ? this.listCitationEdges({
-          sourceLiteratureItemIds: Array.from(sourceIds),
-        })
-      : [];
-    const affectedLiteratureIds = new Set(
-      (args.literatureItemIds || []).map(cleanString).filter(Boolean),
-    );
-    for (const sourceId of sourceIds) {
-      affectedLiteratureIds.add(sourceId);
-    }
-    for (const edge of oldEdges) {
-      if (edge.targetLiteratureItemId) {
-        affectedLiteratureIds.add(edge.targetLiteratureItemId);
-      }
-    }
-
-    for (const sourceId of sourceIds) {
-      this.deleteCitationRowsForSource(sourceId);
-      const sourceReferences = references.filter(
-        (reference) => reference.sourceLiteratureItemId === sourceId,
-      );
-      for (const reference of sourceReferences) {
-        const resolution = resolutionsByReferenceId.get(
-          reference.referenceInstanceId,
-        );
-        const edge = this.citationEdgeForReference({
-          reference,
-          resolution,
-          timestamp,
-        });
-        this.upsertCitationEdge(edge);
-        this.upsertCitationSourceOwnership({
-          sourceLiteratureItemId: edge.sourceLiteratureItemId,
-          edgeId: edge.edgeId,
-          referenceInstanceId: edge.referenceInstanceId,
-          targetLiteratureItemId: edge.targetLiteratureItemId,
-          edgeStatus: edge.edgeStatus,
-          updatedAt: timestamp,
-        });
-        if (edge.targetLiteratureItemId && edge.edgeStatus !== "ignored") {
-          affectedLiteratureIds.add(edge.targetLiteratureItemId);
-          this.upsertCitationIncomingGroup({
-            targetLiteratureItemId: edge.targetLiteratureItemId,
-            sourceLiteratureItemId: edge.sourceLiteratureItemId,
-            edgeId: edge.edgeId,
-            referenceInstanceId: edge.referenceInstanceId,
-            edgeStatus: edge.edgeStatus,
-            updatedAt: timestamp,
-          });
-        }
-      }
-    }
-
-    if (!scoped) {
-      for (const item of this.listLiteratureItems()) {
-        affectedLiteratureIds.add(item.literatureItemId);
-      }
-    }
-    this.upsertCitationNodes(Array.from(affectedLiteratureIds), timestamp);
-    this.recomputeCitationLightMetrics(
-      Array.from(affectedLiteratureIds),
-      timestamp,
-    );
-  }
-
-  upsertIdentifier(record: SynthesisLiteratureIdentifierRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_literature_identifier (
-          literature_item_id,
-          kind,
-          normalized_value,
-          display_value,
-          source,
-          confidence,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @literature_item_id,
-          @kind,
-          @normalized_value,
-          @display_value,
-          @source,
-          @confidence,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        literature_item_id: cleanString(record.literatureItemId),
-        kind: cleanString(record.kind),
-        normalized_value: cleanString(record.normalizedValue),
-        display_value: cleanString(record.displayValue),
-        source: cleanString(record.source),
-        confidence: cleanString(record.confidence),
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertZoteroBinding(record: SynthesisZoteroBindingRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_zotero_binding (
-          library_id,
-          item_key,
-          literature_item_id,
-          item_type,
-          binding_status,
-          date_added,
-          deleted_at,
-          tags_json,
-          collections_json,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @library_id,
-          @item_key,
-          @literature_item_id,
-          @item_type,
-          @binding_status,
-          @date_added,
-          @deleted_at,
-          @tags_json,
-          @collections_json,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
-        item_key: cleanString(record.itemKey),
-        literature_item_id: cleanString(record.literatureItemId),
-        item_type: cleanString(record.itemType),
-        binding_status: cleanString(record.bindingStatus) || "active",
-        date_added: cleanString(record.dateAdded),
-        deleted_at: cleanString(record.deletedAt),
-        tags_json: cleanString(record.tagsJson) || "[]",
-        collections_json: cleanString(record.collectionsJson) || "[]",
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertRedirect(record: SynthesisLiteratureRedirectRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_literature_redirect (
-          redirect_id,
-          from_literature_item_id,
-          to_literature_item_id,
-          reason,
-          diagnostics_json,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @redirect_id,
-          @from_literature_item_id,
-          @to_literature_item_id,
-          @reason,
-          @diagnostics_json,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        redirect_id: cleanString(record.redirectId),
-        from_literature_item_id: cleanString(record.fromLiteratureItemId),
-        to_literature_item_id: cleanString(record.toLiteratureItemId),
-        reason: cleanString(record.reason),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertArtifactState(record: SynthesisArtifactStateRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_artifact_state (
-          literature_item_id,
-          artifact_type,
-          status,
-          payload_hash,
-          note_key,
-          diagnostics_json,
-          updated_at
-        )
-        VALUES (
-          @literature_item_id,
-          @artifact_type,
-          @status,
-          @payload_hash,
-          @note_key,
-          @diagnostics_json,
-          @updated_at
-        )
-      `,
-      {
-        literature_item_id: cleanString(record.literatureItemId),
-        artifact_type: cleanString(record.artifactType),
-        status: cleanString(record.status) || "missing",
-        payload_hash: cleanString(record.payloadHash),
-        note_key: cleanString(record.noteKey),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertReferenceInstance(record: SynthesisReferenceInstanceRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_reference_instance (
-          reference_instance_id,
-          source_literature_item_id,
-          reference_index,
-          parsed_title,
-          normalized_title,
-          year,
-          authors_json,
-          raw_reference,
-          raw_reference_hash,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @reference_instance_id,
-          @source_literature_item_id,
-          @reference_index,
-          @parsed_title,
-          @normalized_title,
-          @year,
-          @authors_json,
-          @raw_reference,
-          @raw_reference_hash,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        reference_instance_id: cleanString(record.referenceInstanceId),
-        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
-        reference_index: Math.max(
-          0,
-          Math.floor(Number(record.referenceIndex) || 0),
-        ),
-        parsed_title: cleanString(record.parsedTitle),
-        normalized_title: cleanString(record.normalizedTitle),
-        year: cleanString(record.year),
-        authors_json: cleanString(record.authorsJson) || "[]",
-        raw_reference: cleanString(record.rawReference),
-        raw_reference_hash: cleanString(record.rawReferenceHash),
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertReferenceResolution(record: SynthesisReferenceResolutionRecord) {
-    this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_reference_resolution (
-          resolution_id,
-          reference_instance_id,
-          source_literature_item_id,
-          target_literature_item_id,
-          status,
-          confidence,
-          diagnostics_json,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @resolution_id,
-          @reference_instance_id,
-          @source_literature_item_id,
-          @target_literature_item_id,
-          @status,
-          @confidence,
-          @diagnostics_json,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        resolution_id: cleanString(record.resolutionId),
-        reference_instance_id: cleanString(record.referenceInstanceId),
-        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
-        target_literature_item_id: cleanString(record.targetLiteratureItemId),
-        status: cleanString(record.status) || "unresolved",
-        confidence: cleanString(record.confidence),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
   }
 
   upsertCitationNode(record: SynthesisCitationNodeRecord) {
@@ -4459,7 +4599,7 @@ export class SynthesisRepository {
         target_literature_item_id: cleanString(record.targetLiteratureItemId),
         reference_instance_id: cleanString(record.referenceInstanceId),
         resolution_id: cleanString(record.resolutionId),
-        edge_status: cleanString(record.edgeStatus) || "unresolved",
+        edge_status: cleanString(record.edgeStatus) || "unbound",
         roles_json: cleanString(record.rolesJson) || "[]",
         weight: Number.isFinite(Number(record.weight))
           ? Number(record.weight)
@@ -4498,7 +4638,7 @@ export class SynthesisRepository {
         edge_id: cleanString(record.edgeId),
         reference_instance_id: cleanString(record.referenceInstanceId),
         target_literature_item_id: cleanString(record.targetLiteratureItemId),
-        edge_status: cleanString(record.edgeStatus) || "unresolved",
+        edge_status: cleanString(record.edgeStatus) || "unbound",
         updated_at: cleanString(record.updatedAt) || this.now(),
       },
     );
@@ -4530,7 +4670,7 @@ export class SynthesisRepository {
         source_literature_item_id: cleanString(record.sourceLiteratureItemId),
         edge_id: cleanString(record.edgeId),
         reference_instance_id: cleanString(record.referenceInstanceId),
-        edge_status: cleanString(record.edgeStatus) || "unresolved",
+        edge_status: cleanString(record.edgeStatus) || "unbound",
         updated_at: cleanString(record.updatedAt) || this.now(),
       },
     );
@@ -4876,7 +5016,7 @@ export class SynthesisRepository {
         score: Math.max(0, Number(record.score) || 0),
         method,
         matching_fields_json: cleanString(record.matchingFieldsJson) || "{}",
-        status: cleanString(record.status) || "open",
+        status: normalizeTopicDiscoveryHintStatus(record.status),
         created_at: cleanString(record.createdAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
@@ -4930,369 +5070,224 @@ export class SynthesisRepository {
     );
   }
 
-  upsertDirtyEvent(record: SynthesisDirtyEventRecord) {
+  upsertOperation(record: SynthesisOperationRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_dirty_event (
-          event_id,
-          library_id,
-          event_type,
-          source,
-          scope_kind,
-          scope_ref,
-          source_hash,
-          status,
-          attempt_count,
-          coalesced_count,
-          next_retry_at,
-          diagnostics_json,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @event_id,
-          @library_id,
-          @event_type,
-          @source,
-          @scope_kind,
-          @scope_ref,
-          @source_hash,
-          @status,
-          @attempt_count,
-          @coalesced_count,
-          @next_retry_at,
-          @diagnostics_json,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        event_id: cleanString(record.eventId),
-        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
-        event_type: cleanString(record.eventType),
-        source: cleanString(record.source),
-        scope_kind: cleanString(record.scopeKind),
-        scope_ref: cleanString(record.scopeRef),
-        source_hash: cleanString(record.sourceHash),
-        status: cleanString(record.status) || "queued",
-        attempt_count: Math.max(
-          0,
-          Math.floor(Number(record.attemptCount) || 0),
-        ),
-        coalesced_count: Math.max(
-          1,
-          Math.floor(Number(record.coalescedCount) || 1),
-        ),
-        next_retry_at: cleanString(record.nextRetryAt),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
-  }
-
-  upsertJobProgress(record: SynthesisJobProgressRecord) {
-    this.initialize();
-    const jobName = cleanString(record.jobName);
-    if (!jobName) {
-      throw new Error("jobName must be non-empty");
+    const operationId = cleanString(record.operationId);
+    if (!operationId) {
+      throw new Error("operationId must be non-empty");
     }
     const timestamp = this.now();
-    const status = normalizeJobProgressStatus(record.status || "running");
-    const startedAt = cleanString(record.startedAt) || timestamp;
-    const totalCount = nonNegativeInt(record.totalCount);
-    const progressMode =
-      record.progressMode || (totalCount > 0 ? "determinate" : "indeterminate");
     this.db.run(
       `
-        INSERT OR REPLACE INTO synt_job_state (
-          job_name,
-          run_id,
-          source,
-          label,
+        INSERT OR REPLACE INTO synt_operation (
+          operation_id,
+          operation_type,
+          library_id,
+          scope_kind,
+          scope_ref,
           status,
+          label,
           phase,
           phase_label,
           message,
-          queue_wait_ms,
-          time_budget_ms,
-          batch_limit,
+          progress_mode,
           processed_count,
           skipped_count,
           failed_count,
           total_count,
-          retry_attempt,
-          next_retry_at,
+          basis_kind,
+          basis_value,
+          source_hash,
           diagnostics_json,
-          progress_mode,
-          progress_json,
+          created_at,
           started_at,
           completed_at,
-          heartbeat_at,
           updated_at
         )
         VALUES (
-          @job_name,
-          @run_id,
-          @source,
-          @label,
+          @operation_id,
+          @operation_type,
+          @library_id,
+          @scope_kind,
+          @scope_ref,
           @status,
+          @label,
           @phase,
           @phase_label,
           @message,
-          @queue_wait_ms,
-          @time_budget_ms,
-          @batch_limit,
+          @progress_mode,
           @processed_count,
           @skipped_count,
           @failed_count,
           @total_count,
-          @retry_attempt,
-          @next_retry_at,
+          @basis_kind,
+          @basis_value,
+          @source_hash,
           @diagnostics_json,
-          @progress_mode,
-          @progress_json,
+          @created_at,
           @started_at,
           @completed_at,
-          @heartbeat_at,
           @updated_at
         )
       `,
       {
-        job_name: jobName,
-        run_id: cleanString(record.runId),
-        source: cleanString(record.source),
+        operation_id: operationId,
+        operation_type: cleanString(record.operationType),
+        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
+        scope_kind: cleanString(record.scopeKind),
+        scope_ref: cleanString(record.scopeRef),
+        status: normalizeOperationStatus(record.status),
         label: cleanString(record.label),
-        status,
         phase: cleanString(record.phase),
         phase_label: cleanString(record.phaseLabel),
         message: cleanString(record.message),
-        queue_wait_ms: nonNegativeInt(record.queueWaitMs),
-        time_budget_ms: nonNegativeInt(record.timeBudgetMs),
-        batch_limit: nonNegativeInt(record.batchLimit),
+        progress_mode: normalizeOperationProgressMode(record.progressMode),
         processed_count: nonNegativeInt(record.processedCount),
         skipped_count: nonNegativeInt(record.skippedCount),
         failed_count: nonNegativeInt(record.failedCount),
-        total_count: totalCount,
-        retry_attempt: nonNegativeInt(record.retryAttempt),
-        next_retry_at: cleanString(record.nextRetryAt),
+        total_count: nonNegativeInt(record.totalCount),
+        basis_kind: cleanString(record.basisKind),
+        basis_value: cleanString(record.basisValue),
+        source_hash: cleanString(record.sourceHash),
         diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        progress_mode: progressMode,
-        progress_json: cleanString(record.progressJson) || "{}",
-        started_at: startedAt,
+        created_at: cleanString(record.createdAt) || timestamp,
+        started_at: cleanString(record.startedAt) || timestamp,
         completed_at: cleanString(record.completedAt),
-        heartbeat_at: cleanString(record.heartbeatAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
     );
   }
 
-  completeJobProgress(record: SynthesisJobProgressRecord) {
-    this.upsertJobProgress({
-      ...record,
-      status: "completed",
-      completedAt: record.completedAt || this.now(),
-    });
-  }
-
-  failJobProgress(
-    record: SynthesisJobProgressRecord & {
-      status?: "failed_retryable" | "failed_terminal";
-    },
-  ) {
-    this.upsertJobProgress({
-      ...record,
-      status: record.status || "failed_retryable",
-      completedAt: record.completedAt || this.now(),
-    });
-  }
-
-  listActiveJobProgress(args: { includeCompleted?: boolean } = {}) {
+  getOperation(operationIdRaw: string) {
     this.initialize();
-    const activeStatuses = new Set([
-      "queued",
-      "running",
-      "waiting",
-      "failed_retryable",
-      "failed_terminal",
-    ]);
-    if (args.includeCompleted) {
-      activeStatuses.add("completed");
-    }
-    return this.db
-      .all("SELECT * FROM synt_job_state")
-      .map(rowToJobProgress)
-      .filter((row) => row.jobName && activeStatuses.has(row.status || "idle"))
-      .sort(
-        (left, right) =>
-          (right.updatedAt || "").localeCompare(left.updatedAt || "") ||
-          left.jobName.localeCompare(right.jobName),
-      );
-  }
-
-  getJobProgress(jobNameRaw: string) {
-    this.initialize();
-    const jobName = cleanString(jobNameRaw);
-    if (!jobName) {
+    const operationId = cleanString(operationIdRaw);
+    if (!operationId) {
       return null;
     }
     const row = this.db.get(
       `
         SELECT *
-        FROM synt_job_state
-        WHERE job_name=@job_name
+        FROM synt_operation
+        WHERE operation_id=@operation_id
         LIMIT 1
       `,
-      { job_name: jobName },
+      { operation_id: operationId },
     );
-    return row ? rowToJobProgress(row) : null;
+    return row ? rowToOperation(row) : null;
   }
 
-  clearStaleJobProgress(args: { staleBefore: string }) {
-    this.initialize();
-    const staleBefore = cleanString(args.staleBefore);
-    if (!staleBefore) {
-      return [];
+  updateOperationStatus(args: {
+    operationId: string;
+    status: SynthesisOperationStatus;
+    phase?: string;
+    phaseLabel?: string;
+    message?: string;
+    processedCount?: number;
+    skippedCount?: number;
+    failedCount?: number;
+    totalCount?: number;
+    diagnosticsJson?: string;
+  }) {
+    const existing = this.getOperation(args.operationId);
+    if (!existing) {
+      return null;
     }
     const timestamp = this.now();
-    const staleRows = this.db
-      .all("SELECT * FROM synt_job_state")
-      .map(rowToJobProgress)
-      .filter(
-        (row) =>
-          row.status === "running" &&
-          cleanString(row.heartbeatAt || row.updatedAt) &&
-          cleanString(row.heartbeatAt || row.updatedAt) < staleBefore,
-      );
-    for (const row of staleRows) {
-      this.upsertJobProgress({
-        ...row,
-        status: "failed_retryable",
-        message: row.message || "Job progress heartbeat became stale.",
-        diagnosticsJson:
-          row.diagnosticsJson && row.diagnosticsJson !== "[]"
-            ? row.diagnosticsJson
-            : JSON.stringify([
-                {
-                  code: "synthesis_job_progress_stale",
-                  severity: "warning",
-                  message: "Job progress heartbeat became stale.",
-                },
-              ]),
-        completedAt: timestamp,
-        updatedAt: timestamp,
-      });
-    }
-    return staleRows;
+    const completedAt = ["completed", "failed", "canceled"].includes(
+      args.status,
+    )
+      ? timestamp
+      : existing.completedAt;
+    const next: SynthesisOperationRecord = {
+      ...existing,
+      status: args.status,
+      phase: args.phase !== undefined ? args.phase : existing.phase,
+      phaseLabel:
+        args.phaseLabel !== undefined ? args.phaseLabel : existing.phaseLabel,
+      message: args.message !== undefined ? args.message : existing.message,
+      processedCount:
+        args.processedCount !== undefined
+          ? args.processedCount
+          : existing.processedCount,
+      skippedCount:
+        args.skippedCount !== undefined
+          ? args.skippedCount
+          : existing.skippedCount,
+      failedCount:
+        args.failedCount !== undefined ? args.failedCount : existing.failedCount,
+      totalCount:
+        args.totalCount !== undefined ? args.totalCount : existing.totalCount,
+      diagnosticsJson:
+        args.diagnosticsJson !== undefined
+          ? args.diagnosticsJson
+          : existing.diagnosticsJson,
+      completedAt,
+      updatedAt: timestamp,
+    };
+    this.upsertOperation(next);
+    return next;
   }
 
-  listPaperRegistryFacts(
+  listOperations(
     args: {
-      paperRefs?: string[];
-      cursor?: unknown;
-      limit?: unknown;
+      statuses?: string[];
+      operationTypes?: string[];
+      includeCompleted?: boolean;
+      limit?: number;
     } = {},
-  ): SynthesisPaperRegistryFactPage {
+  ) {
     this.initialize();
-    const refs = new Set(
-      (args.paperRefs || []).map(cleanString).filter(Boolean),
+    const statuses = new Set(
+      (args.statuses || []).map(cleanString).filter(Boolean),
     );
+    const operationTypes = new Set(
+      (args.operationTypes || []).map(cleanString).filter(Boolean),
+    );
+    const terminal = new Set(["completed", "failed", "canceled"]);
+    const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "status", "status", statuses);
+    appendInFilter(
+      clauses,
+      params,
+      "operation_type",
+      "operation_type",
+      operationTypes,
+    );
+    if (!args.includeCompleted) {
+      clauses.push("status NOT IN ('completed', 'failed', 'canceled')");
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, limit);
     const rows = this.db
       .all(
         `
-          SELECT
-            item.literature_item_id,
-            item.display_title,
-            item.year,
-            item.authors_json,
-            item.status,
-            binding.library_id,
-            binding.item_key,
-            binding.item_type,
-            binding.binding_status,
-            binding.date_added,
-            binding.tags_json,
-            binding.collections_json
-          FROM synt_zotero_binding binding
-          JOIN synt_literature_item item
-            ON item.literature_item_id = binding.literature_item_id
-          ORDER BY binding.library_id ASC, binding.item_key ASC
+          SELECT *
+          FROM synt_operation
+          ${where}
+          ORDER BY updated_at DESC, operation_id ASC
+          ${limitSql}
         `,
+        params,
       )
-      .filter((row) => {
-        if (cleanString(row.binding_status) !== "active") {
-          return false;
-        }
-        if (normalizeLiteratureStatus(row.status) !== "active") {
-          return false;
-        }
-        if (!refs.size) {
-          return true;
-        }
-        return refs.has(
-          `${Math.floor(Number(row.library_id) || 0)}:${cleanString(row.item_key)}`,
-        );
-      });
-    const page = this.paginate({
-      cursor: args.cursor,
-      limit: args.limit,
-      defaultLimit: DEFAULT_PAGE_LIMIT,
-      maxLimit: MAX_PAGE_LIMIT,
-    });
-    const paged = rows.slice(page.cursor, page.cursor + page.limit);
-    const literatureIds = new Set(
-      paged.map((row) => cleanString(row.literature_item_id)).filter(Boolean),
-    );
-    const identifiersByItem = new Map<
-      string,
-      SynthesisLiteratureIdentifierRecord[]
-    >();
-    for (const row of this.db.all("SELECT * FROM synt_literature_identifier")) {
-      const record = rowToIdentifier(row);
-      if (!literatureIds.has(record.literatureItemId)) {
-        continue;
-      }
-      const bucket = identifiersByItem.get(record.literatureItemId) || [];
-      bucket.push(record);
-      identifiersByItem.set(record.literatureItemId, bucket);
-    }
-    const artifactsByItem = new Map<string, SynthesisArtifactStateRecord[]>();
-    for (const row of this.db.all("SELECT * FROM synt_artifact_state")) {
-      const record = rowToArtifactState(row);
-      if (!literatureIds.has(record.literatureItemId)) {
-        continue;
-      }
-      const bucket = artifactsByItem.get(record.literatureItemId) || [];
-      bucket.push(record);
-      artifactsByItem.set(record.literatureItemId, bucket);
-    }
-    const nextCursor = page.cursor + paged.length;
-    return {
-      entries: paged.map((row) => {
-        const literatureItemId = cleanString(row.literature_item_id);
-        return {
-          literatureItemId,
-          displayTitle: cleanString(row.display_title),
-          year: cleanString(row.year) || undefined,
-          authorsJson: cleanString(row.authors_json) || undefined,
-          libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
-          itemKey: cleanString(row.item_key),
-          itemType: cleanString(row.item_type) || undefined,
-          dateAdded: cleanString(row.date_added) || undefined,
-          tagsJson: cleanString(row.tags_json) || undefined,
-          collectionsJson: cleanString(row.collections_json) || undefined,
-          identifiers: identifiersByItem.get(literatureItemId) || [],
-          artifacts: artifactsByItem.get(literatureItemId) || [],
-        };
-      }),
-      cursor: page.cursor,
-      nextCursor: nextCursor < rows.length ? nextCursor : null,
-      hasMore: nextCursor < rows.length,
-      returned: paged.length,
-      total: rows.length,
-      limit: page.limit,
-    };
+      .map(rowToOperation)
+      .filter((row) => !statuses.size || statuses.has(row.status || ""))
+      .filter(
+        (row) =>
+          !operationTypes.size || operationTypes.has(row.operationType),
+      )
+      .filter(
+        (row) =>
+          args.includeCompleted ||
+          !terminal.has(normalizeOperationStatus(row.status)),
+      )
+      .sort(
+        (left, right) =>
+          (right.updatedAt || "").localeCompare(left.updatedAt || "") ||
+          left.operationId.localeCompare(right.operationId),
+      );
+    return limit > 0 ? rows.slice(0, limit) : rows;
   }
 
   listReferenceFacts(args: { sourceLiteratureItemIds?: string[] } = {}) {
@@ -5300,137 +5295,92 @@ export class SynthesisRepository {
     const sourceIds = new Set(
       (args.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
     );
-    const itemsById = new Map(
-      this.db
-        .all("SELECT * FROM synt_literature_item")
-        .map((row) => [cleanString(row.literature_item_id), row]),
+    const canonicalById = new Map(
+      this.listCanonicalReferences().map(
+        (row) => [row.canonicalReferenceId, row] as const,
+      ),
     );
-    const activeBindingsByItem = new Map<string, SqlRow>();
-    for (const row of this.db.all("SELECT * FROM synt_zotero_binding")) {
-      if (cleanString(row.binding_status) !== "active") {
-        continue;
+    const bindingsByCanonical = new Map<string, SynthesisReferenceBindingRecord>();
+    const bindingPriority = (status: string) =>
+      status === "accepted"
+        ? 4
+        : status === "candidate"
+          ? 3
+          : status === "stale_target"
+            ? 2
+            : status === "rejected"
+              ? 1
+              : 0;
+    const bindingResolutionStatus = (
+      binding: SynthesisReferenceBindingRecord | undefined,
+    ) => {
+      if (!binding) {
+        return "unbound";
       }
-      activeBindingsByItem.set(cleanString(row.literature_item_id), row);
+      if (binding.status === "candidate") {
+        return "candidate";
+      }
+      if (binding.status === "rejected") {
+        return "rejected";
+      }
+      if (binding.status === "stale_target") {
+        return "stale_target";
+      }
+      return "accepted";
+    };
+    for (const binding of this.listReferenceBindings()) {
+      const effectiveId = this.resolveEffectiveCanonicalReferenceId(
+        binding.canonicalReferenceId,
+      );
+      const existing = bindingsByCanonical.get(effectiveId);
+      if (
+        !existing ||
+        bindingPriority(binding.status) > bindingPriority(existing.status)
+      ) {
+        bindingsByCanonical.set(effectiveId, binding);
+      }
     }
-    const resolutionsByInstance = new Map(
-      this.db
-        .all("SELECT * FROM synt_reference_resolution")
-        .map(rowToReferenceResolution)
-        .map((row) => [row.referenceInstanceId, row]),
-    );
-    return this.db
-      .all("SELECT * FROM synt_reference_instance")
-      .map(rowToReferenceInstance)
+    return this.listRawReferences({ statuses: ["active"] })
       .filter(
-        (row) => !sourceIds.size || sourceIds.has(row.sourceLiteratureItemId),
+        (row) => !sourceIds.size || sourceIds.has(row.sourceRef),
       )
       .sort(
         (left, right) =>
-          left.sourceLiteratureItemId.localeCompare(
-            right.sourceLiteratureItemId,
-          ) || left.referenceIndex - right.referenceIndex,
+          left.sourceRef.localeCompare(right.sourceRef) ||
+          left.referenceIndex - right.referenceIndex,
       )
-      .map((reference): SynthesisIndexReferenceFact => {
-        const resolution = resolutionsByInstance.get(
-          reference.referenceInstanceId,
+      .map((reference) => {
+        const canonicalId = this.resolveEffectiveCanonicalReferenceId(
+          reference.canonicalReferenceId || "",
         );
-        const targetItem = resolution?.targetLiteratureItemId
-          ? itemsById.get(resolution.targetLiteratureItemId)
+        const canonical = canonicalById.get(canonicalId);
+        const binding = canonicalId
+          ? bindingsByCanonical.get(canonicalId)
           : undefined;
-        const targetBinding = resolution?.targetLiteratureItemId
-          ? activeBindingsByItem.get(resolution.targetLiteratureItemId)
+        const targetPaperRef = binding?.itemKey
+          ? `${binding.libraryId}:${binding.itemKey}`
           : undefined;
         return {
-          referenceInstanceId: reference.referenceInstanceId,
-          sourceLiteratureItemId: reference.sourceLiteratureItemId,
+          referenceInstanceId: reference.rawReferenceId,
+          sourceLiteratureItemId: reference.sourceRef,
           referenceIndex: reference.referenceIndex,
           title: reference.parsedTitle,
           rawReference: reference.rawReference,
           year: reference.year,
           authorsJson: reference.authorsJson,
-          resolutionId: resolution?.resolutionId,
-          resolutionStatus: resolution?.status || "unresolved",
-          confidence: resolution?.confidence,
-          targetLiteratureItemId: resolution?.targetLiteratureItemId,
-          targetTitle: cleanString(targetItem?.display_title) || undefined,
-          targetYear: cleanString(targetItem?.year) || undefined,
-          targetHasZoteroBinding: Boolean(targetBinding),
-          targetPaperRef: targetBinding
-            ? `${Math.floor(Number(targetBinding.library_id) || 0)}:${cleanString(
-                targetBinding.item_key,
-              )}`
-            : undefined,
+          resolutionId: canonicalId,
+          resolutionStatus: bindingResolutionStatus(binding),
+          confidence: binding?.confidence,
+          targetLiteratureItemId: binding ? targetPaperRef : canonicalId,
+          targetTitle: binding
+            ? targetPaperRef
+            : canonical?.title || reference.parsedTitle,
+          targetYear: canonical?.year || reference.year,
+          targetHasZoteroBinding: Boolean(binding),
+          targetPaperRef,
+          bindingStatus: binding?.status,
         };
       });
-  }
-
-  listLiteratureItems() {
-    this.initialize();
-    return this.db
-      .all("SELECT * FROM synt_literature_item")
-      .map(rowToLiteratureItem)
-      .filter((row): row is SynthesisLiteratureItemRecord => row !== null)
-      .sort((left, right) =>
-        left.literatureItemId.localeCompare(right.literatureItemId),
-      );
-  }
-
-  listZoteroBindings(
-    args: { statuses?: string[]; literatureItemIds?: string[] } = {},
-  ) {
-    this.initialize();
-    const statuses = new Set(
-      (args.statuses || []).map(cleanString).filter(Boolean),
-    );
-    const literatureItemIds = new Set(
-      (args.literatureItemIds || []).map(cleanString).filter(Boolean),
-    );
-    return this.db
-      .all("SELECT * FROM synt_zotero_binding")
-      .map(rowToZoteroBinding)
-      .filter((row) => !statuses.size || statuses.has(row.bindingStatus || ""))
-      .filter(
-        (row) =>
-          !literatureItemIds.size ||
-          literatureItemIds.has(row.literatureItemId),
-      )
-      .sort(
-        (left, right) =>
-          left.libraryId - right.libraryId ||
-          left.itemKey.localeCompare(right.itemKey),
-      );
-  }
-
-  listIdentifiers() {
-    this.initialize();
-    return this.db
-      .all("SELECT * FROM synt_literature_identifier")
-      .map(rowToIdentifier);
-  }
-
-  listArtifactStates(args: { literatureItemIds?: string[] } = {}) {
-    this.initialize();
-    const ids = new Set(
-      (args.literatureItemIds || []).map(cleanString).filter(Boolean),
-    );
-    return this.db
-      .all("SELECT * FROM synt_artifact_state")
-      .map(rowToArtifactState)
-      .filter((row) => !ids.size || ids.has(row.literatureItemId));
-  }
-
-  listReferenceInstances() {
-    this.initialize();
-    return this.db
-      .all("SELECT * FROM synt_reference_instance")
-      .map(rowToReferenceInstance);
-  }
-
-  listReferenceResolutions() {
-    this.initialize();
-    return this.db
-      .all("SELECT * FROM synt_reference_resolution")
-      .map(rowToReferenceResolution);
   }
 
   listCitationNodes(
@@ -5451,17 +5401,36 @@ export class SynthesisRepository {
       args.limit === undefined
         ? Number.POSITIVE_INFINITY
         : normalizeLimit(args.limit, MAX_PAGE_LIMIT, MAX_PAGE_LIMIT);
+    const sqlLimit = Number.isFinite(limit) ? limit : 0;
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "node_status", "node_status", statuses);
+    appendInFilter(
+      clauses,
+      params,
+      "literature_item_id",
+      "literature_item_id",
+      literatureItemIds,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, sqlLimit);
     return this.db
-      .all("SELECT * FROM synt_citation_node")
+      .all(
+        `
+          SELECT *
+          FROM synt_citation_node
+          ${where}
+          ORDER BY literature_item_id ASC
+          ${limitSql}
+        `,
+        params,
+      )
       .map(rowToCitationNode)
       .filter((row) => !statuses.size || statuses.has(row.nodeStatus))
       .filter(
         (row) =>
           !literatureItemIds.size ||
           literatureItemIds.has(row.literatureItemId),
-      )
-      .sort((left, right) =>
-        left.literatureItemId.localeCompare(right.literatureItemId),
       )
       .slice(0, limit);
   }
@@ -5488,8 +5457,37 @@ export class SynthesisRepository {
       args.limit === undefined
         ? Number.POSITIVE_INFINITY
         : normalizeLimit(args.limit, MAX_PAGE_LIMIT, MAX_PAGE_LIMIT);
+    const sqlLimit = Number.isFinite(limit) ? limit : 0;
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "source_literature_item_id",
+      "source_literature_item_id",
+      sourceIds,
+    );
+    appendInFilter(
+      clauses,
+      params,
+      "target_literature_item_id",
+      "target_literature_item_id",
+      targetIds,
+    );
+    appendInFilter(clauses, params, "edge_status", "edge_status", statuses);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, sqlLimit);
     return this.db
-      .all("SELECT * FROM synt_citation_edge")
+      .all(
+        `
+          SELECT *
+          FROM synt_citation_edge
+          ${where}
+          ORDER BY source_literature_item_id ASC, edge_id ASC
+          ${limitSql}
+        `,
+        params,
+      )
       .map(rowToCitationEdge)
       .filter(
         (row) =>
@@ -5502,12 +5500,6 @@ export class SynthesisRepository {
       .filter(
         (row) =>
           !statuses.size || statuses.has(cleanString(row.edgeStatus) || ""),
-      )
-      .sort(
-        (left, right) =>
-          left.sourceLiteratureItemId.localeCompare(
-            right.sourceLiteratureItemId,
-          ) || left.edgeId.localeCompare(right.edgeId),
       )
       .slice(0, limit);
   }
@@ -5753,6 +5745,241 @@ export class SynthesisRepository {
     });
   }
 
+  upsertRelatedItemsSyncEffect(record: SynthesisRelatedItemsSyncEffectRecord) {
+    this.initialize();
+    const timestamp = this.now();
+    const effectId = cleanString(record.effectId);
+    if (!effectId) {
+      throw new Error("effectId must be non-empty");
+    }
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_related_items_sync_effect (
+          effect_id,
+          operation_id,
+          citation_edge_id,
+          source_literature_item_id,
+          target_literature_item_id,
+          source_library_id,
+          source_item_key,
+          target_library_id,
+          target_item_key,
+          action,
+          status,
+          created_by_synthesis,
+          graph_basis_hash,
+          graph_hash,
+          external_write_at,
+          echo_state,
+          echo_observed_at,
+          diagnostics_json,
+          created_at,
+          updated_at
+        ) VALUES (
+          @effect_id,
+          @operation_id,
+          @citation_edge_id,
+          @source_literature_item_id,
+          @target_literature_item_id,
+          @source_library_id,
+          @source_item_key,
+          @target_library_id,
+          @target_item_key,
+          @action,
+          @status,
+          @created_by_synthesis,
+          @graph_basis_hash,
+          @graph_hash,
+          @external_write_at,
+          @echo_state,
+          @echo_observed_at,
+          @diagnostics_json,
+          @created_at,
+          @updated_at
+        )
+      `,
+      {
+        effect_id: effectId,
+        operation_id: cleanString(record.operationId) || effectId,
+        citation_edge_id: cleanString(record.citationEdgeId),
+        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
+        target_literature_item_id: cleanString(record.targetLiteratureItemId),
+        source_library_id: Math.max(
+          0,
+          Math.floor(Number(record.sourceLibraryId) || 0),
+        ),
+        source_item_key: cleanString(record.sourceItemKey),
+        target_library_id: Math.max(
+          0,
+          Math.floor(Number(record.targetLibraryId) || 0),
+        ),
+        target_item_key: cleanString(record.targetItemKey),
+        action: record.action === "revoke" ? "revoke" : "add",
+        status: normalizeRelatedItemsSyncStatus(record.status),
+        created_by_synthesis: record.createdBySynthesis ? 1 : 0,
+        graph_basis_hash: cleanString(record.graphBasisHash),
+        graph_hash: cleanString(record.graphHash),
+        external_write_at: cleanString(record.externalWriteAt),
+        echo_state: normalizeRelatedItemsEchoState(record.echoState),
+        echo_observed_at: cleanString(record.echoObservedAt),
+        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
+        created_at: cleanString(record.createdAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  getRelatedItemsSyncEffect(effectIdRaw: string) {
+    this.initialize();
+    const effectId = cleanString(effectIdRaw);
+    if (!effectId) {
+      return null;
+    }
+    const row = this.db.get(
+      `
+        SELECT *
+        FROM synt_related_items_sync_effect
+        WHERE effect_id=@effect_id
+        LIMIT 1
+      `,
+      { effect_id: effectId },
+    );
+    return row ? rowToRelatedItemsSyncEffect(row) : null;
+  }
+
+  listRelatedItemsSyncEffects(
+    args: {
+      statuses?: string[];
+      citationEdgeIds?: string[];
+      sourceItemKeys?: string[];
+    } = {},
+  ) {
+    this.initialize();
+    const statuses = new Set(
+      (args.statuses || []).map(normalizeRelatedItemsSyncStatus),
+    );
+    const citationEdgeIds = new Set(
+      (args.citationEdgeIds || []).map(cleanString).filter(Boolean),
+    );
+    const sourceItemKeys = new Set(
+      (args.sourceItemKeys || []).map(cleanString).filter(Boolean),
+    );
+    return this.db
+      .all("SELECT * FROM synt_related_items_sync_effect")
+      .map(rowToRelatedItemsSyncEffect)
+      .filter((row) => !statuses.size || statuses.has(row.status))
+      .filter(
+        (row) =>
+          !citationEdgeIds.size ||
+          (row.citationEdgeId
+            ? citationEdgeIds.has(row.citationEdgeId)
+            : false),
+      )
+      .filter(
+        (row) => !sourceItemKeys.size || sourceItemKeys.has(row.sourceItemKey),
+      )
+      .sort(
+        (left, right) =>
+          (right.updatedAt || "").localeCompare(left.updatedAt || "") ||
+          left.effectId.localeCompare(right.effectId),
+      );
+  }
+
+  classifyRelatedItemsSyncEcho(args: {
+    libraryId: number;
+    itemKey: string;
+    relatedItemKey?: string;
+  }) {
+    const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    const itemKey = cleanString(args.itemKey);
+    const relatedItemKey = cleanString(args.relatedItemKey);
+    return this.listRelatedItemsSyncEffects({
+      statuses: ["pending_external_write", "applied", "already_existed"],
+    }).find(
+      (effect) =>
+        effect.sourceLibraryId === libraryId &&
+        effect.sourceItemKey === itemKey &&
+        (!relatedItemKey || effect.targetItemKey === relatedItemKey),
+    );
+  }
+
+  consumeRelatedItemsSyncEcho(args: {
+    libraryId: number;
+    itemKey: string;
+    relatedItemKey?: string;
+  }) {
+    const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    const itemKey = cleanString(args.itemKey);
+    const relatedItemKey = cleanString(args.relatedItemKey);
+    if (!libraryId || !itemKey) {
+      return null;
+    }
+    const timestamp = this.now();
+    const nowMs = Date.parse(timestamp);
+    const matchingEffects = this.listRelatedItemsSyncEffects({
+      statuses: ["pending_external_write", "applied"],
+    }).filter((effect) => {
+      const sourceMatches =
+        effect.sourceLibraryId === libraryId &&
+        effect.sourceItemKey === itemKey &&
+        (!relatedItemKey || effect.targetItemKey === relatedItemKey);
+      const targetMatches =
+        effect.targetLibraryId === libraryId &&
+        effect.targetItemKey === itemKey &&
+        (!relatedItemKey || effect.sourceItemKey === relatedItemKey);
+      return sourceMatches || targetMatches;
+    });
+    for (const effect of matchingEffects) {
+      if (
+        normalizeRelatedItemsEchoState(effect.echoState) !== "awaiting_echo"
+      ) {
+        continue;
+      }
+      const writeMs = Date.parse(
+        cleanString(effect.externalWriteAt || effect.updatedAt),
+      );
+      if (
+        Number.isFinite(nowMs) &&
+        Number.isFinite(writeMs) &&
+        nowMs - writeMs > RELATED_ITEMS_SYNC_ECHO_WINDOW_MS
+      ) {
+        this.upsertRelatedItemsSyncEffect({
+          ...effect,
+          echoState: "expired",
+          diagnosticsJson: JSON.stringify([
+            ...parseJsonArray(effect.diagnosticsJson),
+            {
+              code: "related_items_sync_echo_window_expired",
+              severity: "info",
+              message:
+                "Related-items sync echo window expired before Zotero notifier event was observed.",
+            },
+          ]),
+          updatedAt: timestamp,
+        });
+        continue;
+      }
+      const consumed = {
+        ...effect,
+        echoState: "observed" as const,
+        echoObservedAt: timestamp,
+        diagnosticsJson: JSON.stringify([
+          ...parseJsonArray(effect.diagnosticsJson),
+          {
+            code: "related_items_sync_echo_observed",
+            severity: "info",
+            message:
+              "Zotero notifier event was classified as a Synthesis related-items sync echo.",
+          },
+        ]),
+        updatedAt: timestamp,
+      };
+      this.upsertRelatedItemsSyncEffect(consumed);
+      return this.getRelatedItemsSyncEffect(effect.effectId) || consumed;
+    }
+    return null;
+  }
+
   listLiteratureMatchingMetadata(args: { literatureItemIds?: string[] } = {}) {
     this.initialize();
     const ids = new Set(
@@ -5833,8 +6060,10 @@ export class SynthesisRepository {
     const literatureItemIds = new Set(
       (args.literatureItemIds || []).map(cleanString).filter(Boolean),
     );
-    const statuses = new Set(
-      (args.statuses || []).map(cleanString).filter(Boolean),
+    const statuses: Set<string> = new Set(
+      (args.statuses || [])
+        .map(normalizeTopicDiscoveryHintStatus)
+        .filter(Boolean),
     );
     const method = cleanString(args.method);
     const limit =
@@ -5885,6 +6114,27 @@ export class SynthesisRepository {
     return row ? rowToTopicDiscoveryHint(row) : null;
   }
 
+  updateTopicDiscoveryHintStatus(args: { hintId: string; status: string }) {
+    const existing = this.getTopicDiscoveryHint(args.hintId);
+    if (!existing) {
+      return null;
+    }
+    this.upsertTopicDiscoveryHint({
+      ...existing,
+      status: normalizeTopicDiscoveryHintStatus(args.status),
+      updatedAt: this.now(),
+    });
+    return this.getTopicDiscoveryHint(existing.hintId);
+  }
+
+  rejectTopicDiscoveryHint(hintId: string) {
+    return this.updateTopicDiscoveryHintStatus({ hintId, status: "rejected" });
+  }
+
+  restoreTopicDiscoveryHint(hintId: string) {
+    return this.updateTopicDiscoveryHintStatus({ hintId, status: "open" });
+  }
+
   clearTopicDiscoveryHints(
     args: {
       topicIds?: string[];
@@ -5926,34 +6176,41 @@ export class SynthesisRepository {
     const literature = this.listLiteratureMatchingMetadata({
       literatureItemIds: args.literatureItemIds,
     });
-    const itemsById = new Map(
-      this.listLiteratureItems().map((item) => [item.literatureItemId, item]),
+    const scopedExistingRejected = new Map(
+      this.listTopicDiscoveryHints({
+        topicIds: args.topicIds,
+        literatureItemIds: args.literatureItemIds,
+        statuses: ["rejected"],
+        method,
+      }).map((hint) => [
+        `${hint.topicId}\u0000${hint.literatureItemId}\u0000${hint.method || method}`,
+        hint,
+      ]),
     );
-    const tagsByItem = new Map<string, string[]>();
-    for (const binding of this.listZoteroBindings({ statuses: ["active"] })) {
-      const tags = parsedStringArray(binding.tagsJson);
-      if (!tags.length) {
-        continue;
-      }
-      tagsByItem.set(binding.literatureItemId, [
-        ...(tagsByItem.get(binding.literatureItemId) || []),
-        ...tags,
-      ]);
-    }
     const hints: SynthesisTopicDiscoveryHintRecord[] = [];
     for (const topic of topics) {
       for (const entry of literature) {
         const hint = scoreDiscoveryPair({
           topic,
           literature: entry,
-          item: itemsById.get(entry.literatureItemId),
-          tags: tagsByItem.get(entry.literatureItemId),
           method,
           timestamp,
           minScore,
         });
         if (hint) {
-          hints.push(hint);
+          const rejected = scopedExistingRejected.get(
+            `${hint.topicId}\u0000${hint.literatureItemId}\u0000${hint.method || method}`,
+          );
+          hints.push(
+            rejected
+              ? {
+                  ...hint,
+                  hintId: rejected.hintId || hint.hintId,
+                  status: "rejected",
+                  createdAt: rejected.createdAt || hint.createdAt,
+                }
+              : hint,
+          );
         }
       }
     }
@@ -5961,22 +6218,30 @@ export class SynthesisRepository {
       this.clearTopicDiscoveryHints({
         topicIds: args.topicIds,
         literatureItemIds: args.literatureItemIds,
+        statuses: ["open", "superseded"],
         method,
       });
       for (const hint of hints) {
         this.upsertTopicDiscoveryHint(hint);
       }
     });
-    const open = hints.filter((hint) => hint.status === "open").length;
-    const filtered = hints.filter((hint) => hint.status === "filtered").length;
+    const finalHints = this.listTopicDiscoveryHints({
+      topicIds: args.topicIds,
+      literatureItemIds: args.literatureItemIds,
+      method,
+    });
+    const open = finalHints.filter((hint) => hint.status === "open").length;
+    const rejected = finalHints.filter(
+      (hint) => hint.status === "rejected",
+    ).length;
     return {
       method,
       scannedTopics: topics.length,
       scannedLiterature: literature.length,
       upserted: hints.length,
       open,
-      filtered,
-      hints,
+      rejected,
+      hints: finalHints,
       diagnostics: [],
     };
   }
@@ -7000,247 +7265,43 @@ export class SynthesisRepository {
       );
   }
 
-  listRedirects() {
-    this.initialize();
-    return this.db
-      .all("SELECT * FROM synt_literature_redirect")
-      .map(rowToRedirect)
-      .sort((left, right) => left.redirectId.localeCompare(right.redirectId));
-  }
-
-  listDirtyEvents(args: { statuses?: string[]; eventTypes?: string[] } = {}) {
-    this.initialize();
-    const statuses = new Set(
-      (args.statuses || []).map(cleanString).filter(Boolean),
-    );
-    const eventTypes = new Set(
-      (args.eventTypes || []).map(cleanString).filter(Boolean),
-    );
-    return this.db
-      .all("SELECT * FROM synt_dirty_event")
-      .map(rowToDirtyEvent)
-      .filter((row) => !statuses.size || statuses.has(row.status || ""))
-      .filter((row) => !eventTypes.size || eventTypes.has(row.eventType))
-      .sort(
-        (left, right) =>
-          (left.updatedAt || "").localeCompare(right.updatedAt || "") ||
-          left.eventId.localeCompare(right.eventId),
-      );
-  }
-
-  applyIndexReviewAction(args: {
-    reviewItemId: string;
-    action: string;
-    targetLiteratureItemId?: string;
-    targetPaperRef?: string;
-  }): SynthesisIndexReviewActionResult {
-    const reviewItemId = cleanString(args.reviewItemId);
-    const action = cleanString(args.action);
-    if (!reviewItemId || !action) {
-      throw new Error("reviewItemId and action must be non-empty");
-    }
-    return this.transaction(() => {
-      const timestamp = this.now();
-      const review = this.listReviewItems().find(
-        (entry) => entry.reviewItemId === reviewItemId,
-      );
-      if (!review) {
-        throw new Error("index review item was not found");
-      }
-      if (
-        review.reviewKind !== "zotero_item_delete" &&
-        review.reviewKind !== "zotero_dedupe_candidate"
-      ) {
-        throw new Error(
-          "index review action does not support this review kind",
-        );
-      }
-      const payload = parseJsonObject(review.payloadJson);
-      const literatureItemId = cleanString(
-        payload.literature_item_id || payload.from_literature_item_id,
-      );
-      const targetLiteratureItemId =
-        cleanString(args.targetLiteratureItemId) ||
-        this.literatureItemIdFromPaperRef(args.targetPaperRef) ||
-        cleanString(
-          payload.surviving_literature_item_id ||
-            payload.target_literature_item_id,
-        );
-      if (!literatureItemId) {
-        throw new Error("index review payload is missing literature_item_id");
-      }
-      let effect: InternalReviewActionEffect;
-      if (action === "confirm_delete_item") {
-        effect = this.confirmDeleteReview({
-          review,
-          payload,
-          literatureItemId,
-          timestamp,
-        });
-      } else if (action === "mark_as_dedupe_merge") {
-        if (!targetLiteratureItemId) {
-          throw new Error(
-            "mark_as_dedupe_merge requires targetLiteratureItemId or targetPaperRef",
-          );
-        }
-        effect = this.applyDedupeMergeReview({
-          review,
-          payload,
-          literatureItemId,
-          targetLiteratureItemId,
-          timestamp,
-        });
-      } else if (action === "keep_for_now") {
-        effect = this.deferIndexReview({
-          review,
-          payload,
-          literatureItemId,
-          timestamp,
-        });
-      } else {
-        throw new Error(`unsupported index review action: ${action}`);
-      }
-      const indexSummary: SynthesisReviewActionIndexSummary = {
-        affectedLiteratureItemIds: uniqueCleanStrings([
-          literatureItemId,
-          targetLiteratureItemId,
-          ...(effect.affectedLiteratureItemIds || []),
-        ]),
-        affectedReferenceInstanceIds: uniqueCleanStrings(
-          effect.affectedReferenceInstanceIds || [],
-        ),
-        affectedReviewItemIds: uniqueCleanStrings([
-          reviewItemId,
-          ...(effect.affectedReviewItemIds || []),
-        ]),
-        affectedArtifactLiteratureItemIds: uniqueCleanStrings(
-          effect.affectedArtifactLiteratureItemIds || [],
-        ),
-      };
-      const diagnostics = [
-        actionDiagnostic({
-          code: "index_review_action_applied",
-          message: "Index review action updated domain facts and review state.",
-          details: {
-            review_item_id: reviewItemId,
-            action,
-            literature_item_id: literatureItemId,
-            target_literature_item_id: targetLiteratureItemId || undefined,
-          },
-        }),
-        actionDiagnostic({
-          code: "index_summary_updated",
-          message: "Affected Index summary facts are observable from SQLite.",
-          details: indexSummary,
-        }),
-        ...(effect.diagnostics || []),
-      ];
-      this.syncCitationGraphFromIndex({
-        literatureItemIds: indexSummary.affectedLiteratureItemIds,
-        referenceInstanceIds: indexSummary.affectedReferenceInstanceIds,
-        timestamp,
-      });
-      const dirtyEventIds: string[] = [];
-      const transactionId = `index-review:${stableShortKey({
-        reviewItemId,
-        action,
-        timestamp,
-      })}`;
-      const actionDirtyEventId = `dirty:${transactionId}`;
-      this.upsertDirtyEvent({
-        eventId: actionDirtyEventId,
-        eventType: "index_review_action",
-        source: "synthesis.index_review",
-        scopeKind: review.scopeKind,
-        scopeRef: review.scopeRef,
-        sourceHash: stableShortKey({
-          reviewItemId,
-          action,
-          literatureItemId,
-          targetLiteratureItemId,
-        }),
-        status: "queued",
-        diagnosticsJson: JSON.stringify(diagnostics),
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      dirtyEventIds.push(actionDirtyEventId);
-      const graphDirtyEffects = this.recordCitationGraphDirtyEffects({
-        transactionId,
-        source: "synthesis.index_review",
-        literatureItemId,
-        affectedReferenceInstanceIds: indexSummary.affectedReferenceInstanceIds,
-        diagnostics,
-        timestamp,
-      });
-      dirtyEventIds.push(...graphDirtyEffects.map((entry) => entry.eventId));
-      return {
-        transactionId,
-        reviewItemId,
-        action,
-        literatureItemId,
-        ...(targetLiteratureItemId ? { targetLiteratureItemId } : {}),
-        indexSummary,
-        graphDirtyEffects,
-        dirtyEventIds,
-        diagnostics: [
-          ...diagnostics,
-          actionDiagnostic({
-            code: "citation_graph_structure_dirty_recorded",
-            message:
-              "Citation graph structure dirty effects were recorded transactionally.",
-            details: {
-              event_ids: graphDirtyEffects.map((entry) => entry.eventId),
-            },
-          }),
-        ],
-      };
-    });
-  }
-
-  recordCitationGraphDirtyEffects(args: {
+  markCitationGraphCacheStale(args: {
     transactionId: string;
-    source: string;
-    literatureItemId?: string;
-    affectedReferenceInstanceIds?: string[];
+    sourceRef?: string;
+    rawReferenceIds?: string[];
     diagnostics?: SynthesisReviewActionDiagnostic[];
     timestamp: string;
-  }): SynthesisReviewActionDirtyEffect[] {
+  }): SynthesisReviewActionCacheEffect[] {
     const referenceScopes = uniqueCleanStrings(
-      args.affectedReferenceInstanceIds || [],
-    ).map((referenceInstanceId) => ({
-      scopeKind: "reference_instance",
-      scopeRef: referenceInstanceId,
+      args.rawReferenceIds || [],
+    ).map((rawReferenceId) => ({
+      scopeKind: "raw_reference",
+      scopeRef: rawReferenceId,
     }));
     const scopes = referenceScopes.length
       ? referenceScopes
-      : uniqueCleanStrings([args.literatureItemId]).map((literatureItemId) => ({
-          scopeKind: "literature_item",
-          scopeRef: literatureItemId,
+      : uniqueCleanStrings([args.sourceRef]).map((sourceRef) => ({
+          scopeKind: "source_ref",
+          scopeRef: sourceRef,
         }));
-    const effects: SynthesisReviewActionDirtyEffect[] = [];
+    const effects: SynthesisReviewActionCacheEffect[] = [];
     for (const scope of scopes) {
-      const eventId = `dirty:citation-graph-structure:${stableShortKey({
-        transactionId: args.transactionId,
-        scope,
-      })}`;
-      this.upsertDirtyEvent({
-        eventId,
-        eventType: "citation_graph_structure_dirty",
-        source: cleanString(args.source) || "synthesis.review_action",
+      const cacheKey = `citation-graph:${scope.scopeKind}:${scope.scopeRef}`;
+      this.upsertCacheBasis({
+        cacheKey,
+        cacheKind: "citation_graph",
         scopeKind: scope.scopeKind,
         scopeRef: scope.scopeRef,
-        sourceHash: stableShortKey({
-          transactionId: args.transactionId,
-          scope,
-        }),
-        status: "queued",
+        status: "stale",
+        basisKind: "review_action",
+        basisValue: args.transactionId,
+        staleReason: "reference_or_binding_review_changed",
         diagnosticsJson: JSON.stringify([
           ...(args.diagnostics || []),
           actionDiagnostic({
-            code: "citation_graph_structure_dirty_recorded",
+            code: "citation_graph_cache_stale",
             message:
-              "Citation graph structure must be refreshed for this bounded scope.",
+              "Citation graph cache should be refreshed explicitly for this bounded scope.",
             details: {
               scope_kind: scope.scopeKind,
               scope_ref: scope.scopeRef,
@@ -7248,518 +7309,17 @@ export class SynthesisRepository {
             },
           }),
         ]),
-        createdAt: args.timestamp,
         updatedAt: args.timestamp,
       });
       effects.push({
-        eventId,
-        eventType: "citation_graph_structure_dirty",
+        cacheKey,
+        cacheKind: "citation_graph",
         scopeKind: scope.scopeKind,
         scopeRef: scope.scopeRef,
       });
     }
     return effects;
   }
-
-  private literatureItemIdFromPaperRef(value: unknown) {
-    const paperRef = cleanString(value);
-    if (!paperRef) {
-      return "";
-    }
-    const binding = this.listZoteroBindings().find(
-      (entry) => `${entry.libraryId}:${entry.itemKey}` === paperRef,
-    );
-    return binding?.literatureItemId || "";
-  }
-
-  private closeReview(args: {
-    review: SynthesisReviewItemRecord;
-    status: string;
-    payload: Record<string, unknown>;
-    action: string;
-    timestamp: string;
-  }) {
-    this.upsertReviewItem({
-      ...args.review,
-      status: args.status,
-      blockedByReviewItemId: "",
-      payloadJson: JSON.stringify({
-        ...args.payload,
-        action: args.action,
-        resolved_at: args.timestamp,
-      }),
-      diagnosticsJson: JSON.stringify([
-        ...parseJsonArray(args.review.diagnosticsJson),
-        {
-          code: "index_review_action",
-          action: args.action,
-          applied_at: args.timestamp,
-        },
-      ]),
-      updatedAt: args.timestamp,
-    });
-  }
-
-  private dependentReferenceReviews(args: {
-    literatureItemId: string;
-    blockedByReviewItemId?: string;
-  }) {
-    const referencesById = new Map(
-      this.listReferenceInstances().map(
-        (entry) => [entry.referenceInstanceId, entry] as const,
-      ),
-    );
-    const resolutionsByReferenceId = new Map(
-      this.listReferenceResolutions().map(
-        (entry) => [entry.referenceInstanceId, entry] as const,
-      ),
-    );
-    return this.listReviewItems({ reviewKind: "reference_resolution" }).filter(
-      (review) => {
-        if (
-          args.blockedByReviewItemId &&
-          review.blockedByReviewItemId === args.blockedByReviewItemId
-        ) {
-          return true;
-        }
-        const payload = parseJsonObject(review.payloadJson);
-        const scopeRef = cleanString(review.scopeRef || payload.scope_ref);
-        const reference = referencesById.get(scopeRef);
-        const resolution = resolutionsByReferenceId.get(scopeRef);
-        return (
-          reference?.sourceLiteratureItemId === args.literatureItemId ||
-          resolution?.targetLiteratureItemId === args.literatureItemId ||
-          cleanString(payload.target_literature_item_id) ===
-            args.literatureItemId
-        );
-      },
-    );
-  }
-
-  private unblockDependentReviews(args: {
-    reviewItemId: string;
-    status?: string;
-    timestamp: string;
-  }) {
-    for (const dependent of this.listReviewItems().filter(
-      (review) => review.blockedByReviewItemId === args.reviewItemId,
-    )) {
-      const payload = parseJsonObject(dependent.payloadJson);
-      this.upsertReviewItem({
-        ...dependent,
-        status: args.status || "open",
-        blockedByReviewItemId: "",
-        payloadJson: JSON.stringify({
-          ...payload,
-          dependency_resolved_at: args.timestamp,
-        }),
-        updatedAt: args.timestamp,
-      });
-    }
-  }
-
-  private confirmDeleteReview(args: {
-    review: SynthesisReviewItemRecord;
-    payload: Record<string, unknown>;
-    literatureItemId: string;
-    timestamp: string;
-  }): InternalReviewActionEffect {
-    const bindings = this.listZoteroBindings().filter(
-      (binding) => binding.literatureItemId === args.literatureItemId,
-    );
-    for (const binding of bindings) {
-      this.upsertZoteroBinding({
-        ...binding,
-        bindingStatus: "deleted_confirmed",
-        deletedAt: args.timestamp,
-        updatedAt: args.timestamp,
-      });
-    }
-    const item = this.getLiteratureItem(args.literatureItemId);
-    if (item) {
-      this.upsertLiteratureItem({
-        ...item,
-        status: "unavailable",
-        updatedAt: args.timestamp,
-      });
-    }
-    const artifacts = this.listArtifactStates({
-      literatureItemIds: [args.literatureItemId],
-    });
-    for (const artifact of artifacts) {
-      this.upsertArtifactState({
-        ...artifact,
-        status: "unavailable",
-        diagnosticsJson: JSON.stringify([
-          ...parseJsonArray(artifact.diagnosticsJson),
-          { code: "zotero_binding_deleted_confirmed" },
-        ]),
-        updatedAt: args.timestamp,
-      });
-    }
-    const dependents = this.dependentReferenceReviews({
-      literatureItemId: args.literatureItemId,
-      blockedByReviewItemId: args.review.reviewItemId,
-    });
-    for (const dependent of dependents) {
-      const payload = parseJsonObject(dependent.payloadJson);
-      this.upsertReviewItem({
-        ...dependent,
-        status: "superseded",
-        blockedByReviewItemId: "",
-        payloadJson: JSON.stringify({
-          ...payload,
-          superseded_by_review_item_id: args.review.reviewItemId,
-          superseded_at: args.timestamp,
-        }),
-        updatedAt: args.timestamp,
-      });
-    }
-    this.closeReview({
-      review: args.review,
-      status: "resolved",
-      payload: args.payload,
-      action: "confirm_delete_item",
-      timestamp: args.timestamp,
-    });
-    return {
-      affectedLiteratureItemIds: [args.literatureItemId],
-      affectedReferenceInstanceIds: uniqueCleanStrings(
-        dependents.map((entry) => entry.scopeRef),
-      ),
-      affectedReviewItemIds: dependents.map((entry) => entry.reviewItemId),
-      affectedArtifactLiteratureItemIds: artifacts.map(
-        (entry) => entry.literatureItemId,
-      ),
-      diagnostics: [
-        actionDiagnostic({
-          code: "zotero_delete_domain_facts_updated",
-          message:
-            "Zotero binding, literature item, artifact state, and dependent reviews were updated.",
-          details: {
-            binding_count: bindings.length,
-            artifact_count: artifacts.length,
-            dependent_review_count: dependents.length,
-          },
-        }),
-      ],
-    };
-  }
-
-  private applyDedupeMergeReview(args: {
-    review: SynthesisReviewItemRecord;
-    payload: Record<string, unknown>;
-    literatureItemId: string;
-    targetLiteratureItemId: string;
-    timestamp: string;
-  }): InternalReviewActionEffect {
-    const target = this.getLiteratureItem(args.targetLiteratureItemId);
-    if (!target || normalizeLiteratureStatus(target.status) !== "active") {
-      throw new Error("dedupe merge target literature item is not active");
-    }
-    this.upsertRedirect({
-      redirectId: `redirect:${stableShortKey({
-        from: args.literatureItemId,
-        to: args.targetLiteratureItemId,
-        reason: "zotero_dedupe",
-      })}`,
-      fromLiteratureItemId: args.literatureItemId,
-      toLiteratureItemId: args.targetLiteratureItemId,
-      reason: "zotero_dedupe",
-      diagnosticsJson: JSON.stringify([]),
-      createdAt: args.timestamp,
-      updatedAt: args.timestamp,
-    });
-    const item = this.getLiteratureItem(args.literatureItemId);
-    if (item) {
-      this.upsertLiteratureItem({
-        ...item,
-        status: "tombstoned",
-        updatedAt: args.timestamp,
-      });
-    }
-    for (const binding of this.listZoteroBindings().filter(
-      (entry) => entry.literatureItemId === args.literatureItemId,
-    )) {
-      this.upsertZoteroBinding({
-        ...binding,
-        bindingStatus: "merged",
-        deletedAt: args.timestamp,
-        updatedAt: args.timestamp,
-      });
-    }
-    const retargetedResolutions = this.listReferenceResolutions().filter(
-      (entry) => entry.targetLiteratureItemId === args.literatureItemId,
-    );
-    for (const resolution of retargetedResolutions) {
-      this.upsertReferenceResolution({
-        ...resolution,
-        targetLiteratureItemId: args.targetLiteratureItemId,
-        diagnosticsJson: JSON.stringify([
-          ...parseJsonArray(resolution.diagnosticsJson),
-          {
-            code: "reference_resolution_retargeted_by_dedupe",
-            from_literature_item_id: args.literatureItemId,
-            to_literature_item_id: args.targetLiteratureItemId,
-          },
-        ]),
-        updatedAt: args.timestamp,
-      });
-    }
-    const dependents = this.dependentReferenceReviews({
-      literatureItemId: args.literatureItemId,
-      blockedByReviewItemId: args.review.reviewItemId,
-    });
-    for (const dependent of dependents) {
-      const payload = parseJsonObject(dependent.payloadJson);
-      this.upsertReviewItem({
-        ...dependent,
-        status: "open",
-        blockedByReviewItemId: "",
-        payloadJson: JSON.stringify({
-          ...payload,
-          target_literature_item_id:
-            cleanString(payload.target_literature_item_id) ===
-            args.literatureItemId
-              ? args.targetLiteratureItemId
-              : payload.target_literature_item_id,
-          retargeted_from_literature_item_id: args.literatureItemId,
-          retargeted_at: args.timestamp,
-        }),
-        updatedAt: args.timestamp,
-      });
-    }
-    this.closeReview({
-      review: args.review,
-      status: "resolved",
-      payload: {
-        ...args.payload,
-        surviving_literature_item_id: args.targetLiteratureItemId,
-      },
-      action: "mark_as_dedupe_merge",
-      timestamp: args.timestamp,
-    });
-    return {
-      affectedLiteratureItemIds: [
-        args.literatureItemId,
-        args.targetLiteratureItemId,
-      ],
-      affectedReferenceInstanceIds: [
-        ...retargetedResolutions.map((entry) => entry.referenceInstanceId),
-        ...uniqueCleanStrings(dependents.map((entry) => entry.scopeRef)),
-      ],
-      affectedReviewItemIds: dependents.map((entry) => entry.reviewItemId),
-      diagnostics: [
-        actionDiagnostic({
-          code: "zotero_dedupe_domain_facts_updated",
-          message:
-            "Redirect, tombstone, binding, reference resolution, and dependent review rows were updated.",
-          details: {
-            retargeted_resolution_count: retargetedResolutions.length,
-            dependent_review_count: dependents.length,
-          },
-        }),
-      ],
-    };
-  }
-
-  private deferIndexReview(args: {
-    review: SynthesisReviewItemRecord;
-    payload: Record<string, unknown>;
-    literatureItemId: string;
-    timestamp: string;
-  }): InternalReviewActionEffect {
-    const dependents = this.dependentReferenceReviews({
-      literatureItemId: args.literatureItemId,
-      blockedByReviewItemId: args.review.reviewItemId,
-    });
-    const item = this.getLiteratureItem(args.literatureItemId);
-    if (item && item.status === "pending_delete_review") {
-      this.upsertLiteratureItem({
-        ...item,
-        status: "active",
-        updatedAt: args.timestamp,
-      });
-    }
-    this.closeReview({
-      review: args.review,
-      status: "deferred",
-      payload: args.payload,
-      action: "keep_for_now",
-      timestamp: args.timestamp,
-    });
-    this.unblockDependentReviews({
-      reviewItemId: args.review.reviewItemId,
-      timestamp: args.timestamp,
-    });
-    return {
-      affectedLiteratureItemIds: [args.literatureItemId],
-      affectedReferenceInstanceIds: uniqueCleanStrings(
-        dependents.map((entry) => entry.scopeRef),
-      ),
-      affectedReviewItemIds: dependents.map((entry) => entry.reviewItemId),
-      diagnostics: [
-        actionDiagnostic({
-          code: "index_review_deferred",
-          message: "Index review was deferred and dependent reviews unblocked.",
-          details: { dependent_review_count: dependents.length },
-        }),
-      ],
-    };
-  }
-
-  private deleteCitationRowsForSource(sourceLiteratureItemIdRaw: string) {
-    const sourceLiteratureItemId = cleanString(sourceLiteratureItemIdRaw);
-    if (!sourceLiteratureItemId) {
-      return;
-    }
-    this.db.run(
-      `
-        DELETE FROM synt_citation_incoming_group
-        WHERE source_literature_item_id=@source_literature_item_id
-      `,
-      { source_literature_item_id: sourceLiteratureItemId },
-    );
-    this.db.run(
-      `
-        DELETE FROM synt_citation_source_ownership
-        WHERE source_literature_item_id=@source_literature_item_id
-      `,
-      { source_literature_item_id: sourceLiteratureItemId },
-    );
-    this.db.run(
-      `
-        DELETE FROM synt_citation_edge
-        WHERE source_literature_item_id=@source_literature_item_id
-      `,
-      { source_literature_item_id: sourceLiteratureItemId },
-    );
-  }
-
-  private citationEdgeForReference(args: {
-    reference: SynthesisReferenceInstanceRecord;
-    resolution?: SynthesisReferenceResolutionRecord;
-    timestamp: string;
-  }): SynthesisCitationEdgeRecord {
-    const edgeStatus = this.citationEdgeStatus(args.resolution);
-    return {
-      edgeId: `edge:${stableShortKey({
-        source: args.reference.sourceLiteratureItemId,
-        reference: args.reference.referenceInstanceId,
-      })}`,
-      sourceLiteratureItemId: args.reference.sourceLiteratureItemId,
-      targetLiteratureItemId:
-        edgeStatus === "ignored" ? "" : args.resolution?.targetLiteratureItemId,
-      referenceInstanceId: args.reference.referenceInstanceId,
-      resolutionId: args.resolution?.resolutionId,
-      edgeStatus,
-      rolesJson: "[]",
-      weight: 1,
-      createdAt: args.reference.createdAt || args.timestamp,
-      updatedAt: args.timestamp,
-    };
-  }
-
-  private citationEdgeStatus(resolution?: SynthesisReferenceResolutionRecord) {
-    const status = cleanString(resolution?.status);
-    if (status === "ignored") {
-      return "ignored";
-    }
-    if (status === "ambiguous") {
-      return "ambiguous";
-    }
-    if (
-      status === "blocked_by_review" ||
-      status === "blocked_by_upstream_review"
-    ) {
-      return "blocked_by_review";
-    }
-    if (
-      status === "matched" &&
-      cleanString(resolution?.targetLiteratureItemId)
-    ) {
-      return "matched";
-    }
-    return "unresolved";
-  }
-
-  private upsertCitationNodes(literatureItemIds: string[], timestamp: string) {
-    const ids = new Set(literatureItemIds.map(cleanString).filter(Boolean));
-    const bindingsByItem = new Map<string, SynthesisZoteroBindingRecord[]>();
-    for (const binding of this.listZoteroBindings()) {
-      const bucket = bindingsByItem.get(binding.literatureItemId) || [];
-      bucket.push(binding);
-      bindingsByItem.set(binding.literatureItemId, bucket);
-    }
-    for (const item of this.listLiteratureItems()) {
-      if (!ids.has(item.literatureItemId)) {
-        continue;
-      }
-      const bindings = bindingsByItem.get(item.literatureItemId) || [];
-      this.upsertCitationNode({
-        literatureItemId: item.literatureItemId,
-        nodeStatus:
-          item.status === "pending_delete_review"
-            ? "review-blocked"
-            : normalizeLiteratureStatus(item.status),
-        hasZoteroBinding: bindings.some(
-          (binding) => binding.bindingStatus === "active",
-        ),
-        title: item.displayTitle,
-        year: item.year,
-        summaryJson: JSON.stringify({
-          literature_status: normalizeLiteratureStatus(item.status),
-          zotero_binding_statuses: bindings
-            .map((binding) => binding.bindingStatus || "active")
-            .sort(),
-        }),
-        updatedAt: timestamp,
-      });
-    }
-  }
-
-  private recomputeCitationLightMetrics(
-    literatureItemIds: string[],
-    timestamp: string,
-  ) {
-    const ids = new Set(literatureItemIds.map(cleanString).filter(Boolean));
-    const edges = this.listCitationEdges();
-    const structureVersion = Math.max(
-      0,
-      Math.floor(Date.parse(timestamp) || 0),
-    );
-    for (const literatureItemId of ids) {
-      const outgoing = edges.filter(
-        (edge) => edge.sourceLiteratureItemId === literatureItemId,
-      );
-      const effectiveOutgoing = outgoing.filter(
-        (edge) => edge.edgeStatus !== "ignored",
-      );
-      const incoming = edges.filter(
-        (edge) =>
-          edge.targetLiteratureItemId === literatureItemId &&
-          edge.edgeStatus !== "ignored",
-      );
-      this.upsertCitationLightMetrics({
-        literatureItemId,
-        outgoingCount: effectiveOutgoing.length,
-        incomingCount: incoming.length,
-        matchedOutgoingCount: outgoing.filter(
-          (edge) => edge.edgeStatus === "matched",
-        ).length,
-        unresolvedOutgoingCount: outgoing.filter(
-          (edge) => edge.edgeStatus === "unresolved",
-        ).length,
-        ambiguousOutgoingCount: outgoing.filter(
-          (edge) => edge.edgeStatus === "ambiguous",
-        ).length,
-        localDegree: effectiveOutgoing.length + incoming.length,
-        sourceStructureVersion: structureVersion,
-        updatedAt: timestamp,
-      });
-    }
-  }
-
   countRows(tableName: SynthesisRepositoryTableName) {
     this.initialize();
     return Math.max(
@@ -7768,27 +7328,6 @@ export class SynthesisRepository {
         Number(
           this.db.get(`SELECT COUNT(*) AS value FROM ${tableName}`)?.value || 0,
         ),
-      ),
-    );
-  }
-
-  getLiteratureItem(literatureItemIdRaw: string) {
-    this.initialize();
-    const literatureItemId = cleanString(literatureItemIdRaw);
-    if (!literatureItemId) {
-      return null;
-    }
-    return rowToLiteratureItem(
-      this.db.get(
-        `
-          SELECT *
-          FROM synt_literature_item
-          WHERE literature_item_id=@literature_item_id
-          LIMIT 1
-        `,
-        {
-          literature_item_id: literatureItemId,
-        },
       ),
     );
   }

@@ -1,123 +1,147 @@
-schema: synthesis.invariants.v1
-description: Stable invariant IDs for Synthesis docs, tests, and debug diagnostics.
+schema: synthesis.invariants.v2
+description: Active invariant IDs for the hard-cut Synthesis sidecar model.
 
 invariants:
-  - id: inv.ui.db_first
+  - id: inv.library.zotero_ssot
     severity: fatal
-    statement: Workbench UI hot paths read repository-backed state and do not use legacy JSON fallback.
-    evidence: Snapshot tests and debug.synthesis.snapshot.
-  - id: inv.files.no_hot_data_synthesis_writes
+    statement: Zotero Library is the source of truth for Zotero-owned facts; Synthesis sidecar cache rows must not copy or be treated as authoritative item existence, metadata, tag, collection, note, attachment, or native relation state.
+    evidence: Direct source facade tests and Workbench read-path review.
+
+  - id: inv.sidecar.cache_not_sync
     severity: fatal
-    statement: Normal startup, snapshot, registry rebuild, graph workers, source check, and discovery do not write data/synthesis.
-    evidence: File boundary regression test.
-  - id: inv.topic.registry_rebuild_not_changed
+    statement: Synthesis sidecar projections may be stale and must not require or trigger automatic library-wide synchronization, startup reconcile, dirty-event fan-out, WorkItem execution, WorkRun recovery, or queue drain.
+    evidence: Static guard tests and startup/snapshot tests.
+
+  - id: inv.sidecar.old_sync_removed
     severity: fatal
-    statement: Registry rebuild alone does not mark complete fresh topics source-check changed when library and source artifacts are unchanged.
-    evidence: Topic source-check regression test.
+    statement: Active implementation must not create, claim, replay, or expose dirty events, WorkItems, WorkRuns, startup reconcile state, queue meta, or Registry rebuild runs.
+    evidence: Repository schema tests, service API tests, and Host Bridge manifest tests.
+
+  - id: inv.sidecar.destructive_cutover
+    severity: high
+    statement: The Synthesis sidecar schema may drop old synchronization tables without replaying or migrating their rows.
+    evidence: Repository migration tests.
+
+  - id: inv.operation.explicit_only
+    severity: fatal
+    statement: Long-running Synthesis work is represented only by explicit operation records created by workflow apply, user action, protected import/export/reset, or scoped debug command.
+    evidence: Operation API tests and Workbench maintenance tests.
+
+  - id: inv.operation.not_queue
+    severity: fatal
+    statement: Explicit operation records do not support owner-worker claiming, global queue drain, startup replay, queue pause/resume, or hidden retry scheduling.
+    evidence: Static guard tests and Host Bridge debug tests.
+
+  - id: inv.workflow.apply_direct_sidecar
+    severity: fatal
+    statement: Literature digest and reference matching apply hooks write bounded artifact sidecar, raw-reference, canonical-reference, and binding candidate state directly for the affected source_ref and do not record Synthesis update events.
+    evidence: Workflow apply tests.
+
+  - id: inv.reference.refresh_two_stage
+    severity: fatal
+    statement: "Reference sidecar refresh is a two-stage operation: first scan artifact sidecar state and diff references artifact hashes, then extract and reconcile only changed references artifacts."
+    evidence: Reference refresh operation tests and Workbench progress tests.
+
+  - id: inv.reference.no_library_fact_projection
+    severity: fatal
+    statement: Reference sidecar refresh must not rebuild or persist a Synthesis-owned Zotero library item index or binding table as library fact projections.
+    evidence: Repository schema tests, migration tests, and static guards.
+
+  - id: inv.reference.refresh_not_graph_rebuild
+    severity: fatal
+    statement: Reference sidecar refresh must not synchronously rebuild Citation Graph cache; it may only mark the graph cache stale after promoting Reference Sidecar readiness.
+    evidence: Reference sidecar refresh tests and invariant static guard.
+
+  - id: inv.reference.readiness_cache_basis_only
+    severity: fatal
+    statement: Workbench and Host Bridge readiness for Reference Sidecar and Citation Graph cache comes from synt_cache_basis, while synt_operation is progress/history only.
+    evidence: Cache basis tests, stale failed operation regression tests, and invariant static guard.
+
+  - id: inv.topic.freshness_direct_sources
+    severity: fatal
+    statement: Topic freshness/source check compares the topic source manifest with current Zotero Library and artifact reads, not with reference cache or graph cache freshness.
+    evidence: Topic source-check regression tests.
+
   - id: inv.topics.workflow_uses_source_facade
     severity: fatal
     statement: Topic create/update primary inputs come from the Host Library / Artifact Facade; Citation Graph metrics are optional enrichment only.
     evidence: Topic workflow input tests.
-  - id: inv.topics.manifest_sidecars
-    severity: high
-    statement: Topic synthesis apply uses analysis_manifest_path and manifest.sidecars as the canonical sidecar discovery entrypoint for topic interest metadata, concept proposals, and topic graph proposals.
-    evidence: Topic synthesis runtime contract tests.
-  - id: inv.graph.basis_epoch_checked
-    severity: high
-    statement: Graph derived rows record the registry epoch they were built from, remain staged or inactive until a final transaction-local basis check promotes them, and stale worker output cannot become visible.
-    evidence: Graph worker promotion tests.
-  - id: inv.reference.no_matching_metadata_for_citations
-    severity: fatal
-    statement: literature_matching_metadata is not used for literature-to-literature reference resolution.
-    evidence: Reference matcher unit tests.
-  - id: inv.reference.precision_first
-    severity: high
-    statement: Automatic matched citation edges require high-confidence evidence; suggestions do not create graph edges.
-    evidence: Reference-resolution benchmark.
-  - id: inv.discovery.no_global_llm_nxm
-    severity: fatal
-    statement: Topic discovery does not run global topic x literature LLM judging.
-    evidence: Discovery worker/design review.
-  - id: inv.discovery.apply_time_token_overlap
-    severity: high
-    statement: Topic discovery uses lightweight apply-time token/phrase overlap by default and does not require BM25, embeddings, semantic search, or LLM pairwise judging.
-    evidence: Discovery policy tests and digest apply integration tests.
+
   - id: inv.discovery.apply_time_only
     severity: high
-    statement: Normal discovery hints are generated only by literature-digest apply-time matching or explicit repair, not by Workbench snapshots or Registry rebuild.
-    evidence: Digest apply and Registry rebuild regression tests.
+    statement: Normal discovery hints are generated only by literature-digest apply-time matching or explicit repair, not by Workbench snapshots, cache refresh, graph cache rebuild, or Registry rebuild.
+    evidence: Digest apply and discovery tests.
+
   - id: inv.discovery.rejected_suppression
     severity: high
-    statement: Rejected topic-literature discovery hints do not reopen because of digest rerun, metadata hash drift, or Registry rebuild.
-    evidence: Discovery override regression tests.
-  - id: inv.runtime.local_async_only
+    statement: Rejected topic-literature discovery hints do not reopen because of digest rerun, metadata hash drift, cache refresh, or graph cache rebuild.
+    evidence: Discovery override tests.
+
+  - id: inv.reference.precision_first
     severity: high
-    statement: Runtime coordination uses local async markers, short transactions, and startup cleanup, not distributed queue protocols.
-    evidence: Runtime docs and queue implementation review.
-  - id: inv.review.user_manageable
-    severity: high
-    statement: Durable user decisions are visible and removable through Workbench management UI.
-    evidence: Workbench UI tests or manual checklist.
-  - id: inv.ids.paper_ref_format
-    severity: high
-    statement: Public paper references use canonical paper_ref v1 format `<libraryId>:<itemKey>` or an explicitly documented DTO equivalent.
-    evidence: Host Bridge/API validation tests.
-  - id: inv.ids.deterministic_literature_item_id
+    statement: Graph-affecting reference matches require deterministic safe apply or explicit user-approved binding decisions; suggestions do not create graph edges.
+    evidence: Reference matcher tests and graph cache tests.
+
+  - id: inv.reference.no_matching_metadata_for_citations
     severity: fatal
-    statement: literature_item_id values are deterministic from the selected identity anchor; accepted redirects and unique strong work identifiers take precedence over Zotero binding fallback derived from paper_ref.
-    evidence: Registry rebuild identity anchor tests.
-  - id: inv.ids.resolve_before_allocate
-    severity: fatal
-    statement: Registry rebuild resolves accepted redirects, strong identifiers, current Zotero bindings, and compatible fallback/provisional identities before allocating a new literature_item_id.
-    evidence: Registry rebuild identity tests.
-  - id: inv.graph.external_identity_stable
-    severity: high
-    statement: External work nodes with strong identifiers reuse stable identity across rebuilds.
-    evidence: Citation graph rebuild tests.
-  - id: inv.graph.provisional_identity_not_raw_scoped
-    severity: high
-    statement: Raw reference fingerprints identify reference instances and diagnostics; they are not part of the default provisional external work key. Weak references without enough normalized work evidence remain unresolved or reference-scoped placeholders.
-    evidence: External provisional identity tests.
+    statement: literature_matching_metadata is topic-discovery metadata and is not used for literature-to-literature reference resolution.
+    evidence: Reference matcher unit tests.
+
   - id: inv.review.queue_bounded
     severity: high
     statement: Duplicate, dedupe, and reference-resolution review candidates are generated through indexed blocking and bounded per-source limits, not all-pairs expansion.
-    evidence: Review candidate generation tests and debug queue counts.
+    evidence: Review candidate generation tests and static guards.
+
   - id: inv.review.action_short_core_transaction
     severity: high
-    statement: Review actions commit core durable facts in a short transaction and enqueue expensive cascades as bounded follow-up work.
+    statement: Review actions commit durable sidecar decisions in a short transaction and leave expensive cache refresh to explicit operations.
     evidence: Review action integration tests.
-  - id: inv.registry.staged_promote
+
+  - id: inv.graph.cache_projection
     severity: fatal
-    statement: Registry rebuild writes candidate state, validates it, and promotes a new registry_epoch only after validation succeeds.
-    evidence: Registry rebuild failure tests.
-  - id: inv.registry.validation_gate_defined
+    statement: Citation graph nodes, edges, metrics, and layout are cache projections built from active raw references, effective canonical references, reference bindings, and direct Zotero binding checks.
+    evidence: Graph cache refresh tests.
+
+  - id: inv.graph.data_rebuild_separate_from_layout
     severity: fatal
-    statement: Registry rebuild candidate validation checks deterministic IDs, binding uniqueness, redirect/tombstone integrity, observed-source accounting, suspicious count deltas, reference integrity, durable effects, and bounded diagnostics before promotion.
-    evidence: Registry candidate validation tests.
-  - id: inv.registry.last_known_good
+    statement: Citation graph data cache rebuild and Citation graph layout rebuild are separate explicit operations; layout rebuild must not repair missing graph data.
+    evidence: Workbench UI tests and invariant static guard.
+
+  - id: inv.graph.refresh_not_topic_lifecycle
+    severity: fatal
+    statement: Graph cache rebuild does not mark topics changed, start topic discovery, or affect topic source-check state.
+    evidence: Topic/graph integration tests.
+
+  - id: inv.graph.previous_cache_on_failure
     severity: high
-    statement: Registry retains a last-known-good basis so failed rebuilds do not replace active state and bad promoted epochs can be explicitly rolled back.
-    evidence: Registry rollback tests.
-  - id: inv.external_source.bulk_drift_no_fanout
+    statement: Failed graph/reference cache refresh keeps the previous active cache readable and stores diagnostics on the explicit operation.
+    evidence: Cache refresh failure tests.
+
+  - id: inv.graph.related_items_sync_explicit
     severity: fatal
-    statement: Bulk or structural Zotero/source-artifact drift records a bounded incident and does not expand into unbounded dirty events, review items, graph jobs, or topic work.
-    evidence: Startup reconcile drift tests.
-  - id: inv.external_source.structural_drift_fail_closed
-    severity: fatal
-    statement: Structural external source drift pauses incremental processing until explicit inspect or repair.
-    evidence: Startup reconcile structural drift tests.
-  - id: inv.graph.related_items_sync_no_echo_loop
-    severity: fatal
-    statement: Zotero change events caused by Synthesis related-items sync are classified as sync echoes through durable sync attempt/effect rows and do not re-enter Registry reindex or enqueue another related-items sync loop.
-    evidence: Related-items sync integration test.
+    statement: Zotero related-items sync runs only as an explicit provenance-protected operation or explicit approved review action; graph cache rebuild never schedules it automatically.
+    evidence: Related-items sync tests.
+
   - id: inv.graph.related_items_sync_provenance_required
     severity: fatal
     statement: Related-items sync may revoke only Zotero related links that have recorded Synthesis-created provenance and still match current Zotero state; user-created or pre-existing links are never deleted automatically.
     evidence: Related-items sync provenance tests.
-  - id: inv.graph.related_items_sync_outbox_durable
+
+  - id: inv.files.no_hot_data_synthesis_writes
     severity: fatal
-    statement: Related-items sync writes a durable pending external-write attempt before calling Zotero APIs, and startup recovery reconciles pending attempts against observed Zotero related-item state.
-    evidence: Related-items sync crash-recovery tests.
+    statement: Normal startup, snapshot, cache read, graph read, source check read, and discovery read do not write data/synthesis legacy files or start sidecar refresh.
+    evidence: File boundary and snapshot tests.
+
+  - id: inv.ui.cache_not_truth
+    severity: fatal
+    statement: Workbench presents reference/graph sidecar rows as cache or explicit decisions and does not present them as synchronized Zotero Library truth.
+    evidence: Workbench UI tests.
+
+  - id: inv.host_bridge.cache_views
+    severity: high
+    statement: Host Bridge and MCP registry/graph reads are cache views and must not imply library synchronization or start refresh.
+    evidence: Host Bridge/MCP tests and CLI documentation review.
+
   - id: inv.concepts.overlay_optional
     severity: high
     statement: Concept overlay context is optional and bounded; Concept KB read or ingestion failure does not silently rewrite or invalidate topic artifacts.

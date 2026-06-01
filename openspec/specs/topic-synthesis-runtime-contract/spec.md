@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+The topic synthesis runtime validates fixed-path final artifacts and required sidecar proposals before formal output.
+
+## Requirements
 
 ### Requirement: Final artifacts are file-authored and validated
 

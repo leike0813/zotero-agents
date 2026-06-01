@@ -25,15 +25,6 @@ import {
   type SynthesisTopicConceptLinksAsset,
 } from "./conceptKb";
 import {
-  createSynthesisLiteratureRegistryService,
-  type LiteratureRegistryCleanupProposalRecord,
-  type LiteratureRegistryPaperRecord,
-  type LiteratureRegistryReferenceInstanceRecord,
-  type LiteratureRegistryReferenceResolutionRecord,
-  type LiteratureRegistryWorkRecord,
-} from "./literatureRegistry";
-import type { PaperRegistryRow } from "./registry";
-import {
   createSynthesisRepository,
   type SynthesisRepository,
 } from "./repository";
@@ -74,7 +65,6 @@ export type SynthesisJsonImportReport = {
   action: "dry-run" | "apply";
   applied: boolean;
   domains: {
-    literature: SynthesisJsonImportDomainReport;
     topicGraph: SynthesisJsonImportDomainReport;
     conceptKb: SynthesisJsonImportDomainReport;
     tagVocabulary: SynthesisJsonImportDomainReport;
@@ -95,16 +85,6 @@ type CanonicalEnvelopeRecord = {
 };
 
 type JsonImportData = {
-  literature: {
-    source: SynthesisJsonImportDomainReport["source"];
-    papers: LiteratureRegistryPaperRecord[];
-    works: LiteratureRegistryWorkRecord[];
-    referenceInstances: LiteratureRegistryReferenceInstanceRecord[];
-    referenceResolutions: LiteratureRegistryReferenceResolutionRecord[];
-    cleanupProposals: LiteratureRegistryCleanupProposalRecord[];
-    registryRows: PaperRegistryRow[];
-    diagnostics: SynthesisJsonImportDiagnostic[];
-  };
   topicGraph: {
     source: SynthesisJsonImportDomainReport["source"];
     nodes: SynthesisTopicGraphNode[];
@@ -133,15 +113,6 @@ type JsonImportData = {
   diagnostics: SynthesisJsonImportDiagnostic[];
 };
 
-const LITERATURE_PAPER_SCHEMA_ID = "synthesis.literature_registry.paper";
-const LITERATURE_WORK_SCHEMA_ID = "synthesis.literature_registry.work";
-const LITERATURE_REFERENCE_INSTANCE_SCHEMA_ID =
-  "synthesis.literature_registry.reference_instance";
-const LITERATURE_REFERENCE_RESOLUTION_SCHEMA_ID =
-  "synthesis.literature_registry.reference_resolution";
-const LITERATURE_CLEANUP_PROPOSAL_SCHEMA_ID =
-  "synthesis.literature_registry.cleanup_proposal";
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -156,16 +127,6 @@ function normalizeRelativePath(value: string) {
 
 function emptyData(): JsonImportData {
   return {
-    literature: {
-      source: "empty",
-      papers: [],
-      works: [],
-      referenceInstances: [],
-      referenceResolutions: [],
-      cleanupProposals: [],
-      registryRows: [],
-      diagnostics: [],
-    },
     topicGraph: {
       source: "empty",
       nodes: [],
@@ -286,48 +247,12 @@ function hasCanonicalTags(data: JsonImportData) {
   );
 }
 
-function hasCanonicalLiterature(data: JsonImportData) {
-  return (
-    data.literature.papers.length ||
-    data.literature.works.length ||
-    data.literature.referenceInstances.length ||
-    data.literature.referenceResolutions.length ||
-    data.literature.cleanupProposals.length
-  );
-}
-
 function ingestEnvelope(
   data: JsonImportData,
   envelope: CanonicalEnvelopeRecord,
 ) {
   const payload = envelope.data;
   switch (envelope.schemaId) {
-    case LITERATURE_PAPER_SCHEMA_ID:
-      data.literature.papers.push(payload as LiteratureRegistryPaperRecord);
-      data.literature.source = setSource(data.literature.source, "canonical");
-      break;
-    case LITERATURE_WORK_SCHEMA_ID:
-      data.literature.works.push(payload as LiteratureRegistryWorkRecord);
-      data.literature.source = setSource(data.literature.source, "canonical");
-      break;
-    case LITERATURE_REFERENCE_INSTANCE_SCHEMA_ID:
-      data.literature.referenceInstances.push(
-        payload as LiteratureRegistryReferenceInstanceRecord,
-      );
-      data.literature.source = setSource(data.literature.source, "canonical");
-      break;
-    case LITERATURE_REFERENCE_RESOLUTION_SCHEMA_ID:
-      data.literature.referenceResolutions.push(
-        payload as LiteratureRegistryReferenceResolutionRecord,
-      );
-      data.literature.source = setSource(data.literature.source, "canonical");
-      break;
-    case LITERATURE_CLEANUP_PROPOSAL_SCHEMA_ID:
-      data.literature.cleanupProposals.push(
-        payload as LiteratureRegistryCleanupProposalRecord,
-      );
-      data.literature.source = setSource(data.literature.source, "canonical");
-      break;
     case SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID:
       data.topicGraph.nodes.push(payload as SynthesisTopicGraphNode);
       data.topicGraph.source = setSource(data.topicGraph.source, "canonical");
@@ -500,20 +425,6 @@ async function readProjectionFallbacks(root: string, data: JsonImportData) {
       }
     }
   }
-  if (!hasCanonicalLiterature(data)) {
-    const projection = await readJsonFile(
-      joinPath(paths.stateRoot, "literature-registry-index.json"),
-    ).catch(() => null);
-    if (isRecord(projection) && Array.isArray(projection.rows)) {
-      data.literature.registryRows = projection.rows as PaperRegistryRow[];
-      if (data.literature.registryRows.length) {
-        data.literature.source = setSource(
-          data.literature.source,
-          "projection",
-        );
-      }
-    }
-  }
 }
 
 async function readImportData(root: string): Promise<JsonImportData> {
@@ -544,18 +455,6 @@ function reportFor(
     action,
     applied,
     domains: {
-      literature: domainReport(
-        data.literature.source,
-        {
-          papers: data.literature.papers.length,
-          works: data.literature.works.length,
-          referenceInstances: data.literature.referenceInstances.length,
-          referenceResolutions: data.literature.referenceResolutions.length,
-          cleanupProposals: data.literature.cleanupProposals.length,
-          projectionRows: data.literature.registryRows.length,
-        },
-        data.literature.diagnostics,
-      ),
       topicGraph: domainReport(
         data.topicGraph.source,
         {
@@ -595,7 +494,6 @@ function reportFor(
 function hasImportErrors(data: JsonImportData) {
   return [
     ...data.diagnostics,
-    ...data.literature.diagnostics,
     ...data.topicGraph.diagnostics,
     ...data.conceptKb.diagnostics,
     ...data.tagVocabulary.diagnostics,
@@ -613,11 +511,6 @@ export function createSynthesisJsonImportService(options: ServiceOptions) {
       runtimeRoot: root,
       now: options.now,
     });
-  const literatureRegistry = createSynthesisLiteratureRegistryService({
-    root,
-    now: options.now,
-    repository,
-  });
   const topicGraph = createSynthesisTopicGraphService({
     root,
     now: options.now,
@@ -650,19 +543,6 @@ export function createSynthesisJsonImportService(options: ServiceOptions) {
         message: "Synthesis JSON import failed dry-run validation.",
       });
       return report;
-    }
-    if (data.literature.source !== "empty") {
-      await literatureRegistry.importLiteratureRegistryCheckpoint({
-        papers: data.literature.papers,
-        works: data.literature.works,
-        referenceInstances: data.literature.referenceInstances,
-        referenceResolutions: data.literature.referenceResolutions,
-        cleanupProposals: data.literature.cleanupProposals,
-        registryRows: data.literature.registryRows,
-        transactionId: args.transactionId
-          ? `${args.transactionId}-literature`
-          : undefined,
-      });
     }
     if (data.topicGraph.source !== "empty") {
       await topicGraph.importTopicGraphCheckpoint({

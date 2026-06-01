@@ -7,23 +7,33 @@ This file is the terminology SSOT. If another document needs a term, link here i
 | Term | Canonical Meaning |
 | --- | --- |
 | `libraryId:itemKey` | Zotero item binding. It identifies a Zotero item inside one Zotero library. It is not stable across deletion/reimport and must not be used as a durable intellectual-work ID. |
-| `paper_ref` | Canonical public locator for a Zotero-bound paper. Format v1 is `<libraryId>:<itemKey>`, for example `1:EIMSDEU3`. API DTOs may carry `{ libraryId, itemKey }`, and parsers may accept older URI-like strings only as compatibility input, but new docs and artifacts use the v1 string. It is useful for Host Bridge lookup, UI/debug display, and historical topic source manifests; it is not a durable intellectual-work ID and must not be the default seed for canonical literature identity. |
-| Identity anchor | Stable evidence used to choose or derive a `literature_item_id`. Accepted redirects and durable merge decisions have highest priority, followed by unique non-conflicting strong identifiers such as DOI, arXiv, ISBN, and stable canonical URL. A Zotero binding anchor derived from `paper_ref` is only a local fallback when no stronger work identity is available. |
-| `literature_item_id` | Deterministic opaque Synthesis ID for one canonical literature/work record. Current format is `lit:<24 hex chars>`. It derives from the selected identity anchor, not from `paper_ref` by default. Strong work identifiers should produce the same ID whether the work is currently Zotero-bound or external-only. Binding-derived fallback IDs may later redirect to a stronger work identity when DOI/arXiv/ISBN/stable URL evidence or a user decision becomes available. Rebuild must resolve redirects, strong identifiers, current bindings, and fallback anchors before allocating any new provisional ID. |
-| Registry binding | The relationship between a `literature_item_id` and zero or more current Zotero item bindings. Binding rows preserve `paper_ref` lookup/display semantics without making the binding key the canonical work identity. |
+| `source_ref` | Sidecar key for a Zotero source item that has, had, or may have Synthesis artifacts. Format is `<libraryId>:<itemKey>`. It is the primary key for artifact sidecar rows and the source key on raw references. |
+| `paper_ref` | Legacy-compatible public locator for a Zotero-bound paper. New Synthesis sidecar docs should prefer `source_ref` when the key denotes an artifact source item. |
+| Artifact sidecar row | Lightweight sidecar row keyed by `source_ref` that records only whether digest, references, and citation-analysis artifacts exist plus their hashes/locators. It must not copy Zotero item metadata. |
+| Raw reference | One reference entry extracted from a references artifact for a specific `source_ref` and `references_artifact_hash`. It is regenerable and becomes `stale` when that source artifact hash is replaced or disappears. |
+| Canonical reference | Synthesis-owned dedupe representative for one or more raw references. It stores normalized identity evidence and redirects, but it is not a copy of a Zotero library item. |
+| Canonical reference redirect | Durable sidecar fact that maps one canonical reference to another after dedupe, merge, or retarget review. Reads must resolve effective canonical references through redirects. |
+| Reference binding | Sidecar relation from a canonical reference to a current Zotero `libraryId:itemKey`, with minimal status `accepted`, `candidate`, `rejected`, or `stale_target`. Automatic versus reviewed origin is provenance, not binding state. |
+| `literature_item_id` | Legacy Registry identity term from the old library-index model. New sidecar documents should not allocate or depend on it for source items or reference cache refresh. |
+| Registry binding | Legacy relationship between `literature_item_id` and Zotero item bindings. New design uses `reference_binding` for canonical-reference-to-Zotero binding and direct Zotero reads for source item facts. |
 | Source artifact | A derived note/artifact produced by workflows such as `literature-digest`; Synthesis consumes it but does not own its generation contract. |
-| External work node | Citation Graph node for a referenced work that is not currently bound to a Zotero item. It still needs stable identity through strong identifiers or a provisional reference key. |
+| External work node | Citation Graph node for an effective canonical reference that is not currently bound to a Zotero item. |
+| Zotero Library SSOT | Zotero Library is the authoritative source for Zotero-owned facts: item existence, metadata, tags, collections, native relations, notes, and attachments. Synthesis may cache projections of those facts, but the cache is not a competing source of truth. |
+| Artifact SSOT | Workflow artifacts stored in Zotero notes or embedded payload attachments are authoritative for digest/reference/topic output. Synthesis sidecar rows summarize or index them for speed. |
 
 ## Domain Terms
 
 | Term | Canonical Meaning |
 | --- | --- |
-| Paper Registry Cache | DB-backed cache of current library papers, artifact coverage, bibliographic identity, and reference facts. This replaces older “Index” wording for the core Synthesis base layer. |
-| Literature Registry | Historical name. Use only when referring to old code or archived documents. Prefer Paper Registry Cache in new docs. |
-| Citation Graph | Derived graph built from Registry reference facts and reference-resolution results. It contains library nodes and external work nodes. |
-| Topic artifact | User-facing synthesis result for a topic. It is owned by the Topics domain and should not be silently rewritten by Registry or Graph rebuilds. |
+| Synthesis sidecar cache | Local Synthesis persistence that stores cache projections and user-approved derived decisions beside Zotero Library. It is allowed to be stale and must record enough basis/provenance for users and debug tools to understand that state. |
+| Cache projection | Regenerable sidecar data built from artifact sidecar rows, raw references, canonical references, binding decisions, and direct Zotero reads where needed. A missing or stale projection should degrade UI features, not block core workflows. |
+| Reference Sidecar Index | Zotero direct-read plus Synthesis sidecar join used by the Workbench Index view and read APIs. It is a cache/read model, not Zotero Library truth. |
+| Sidecar Cache | Plugin-owned cache for artifact status, raw references, canonical references, redirects, bindings, and graph cache inputs. Zotero Library remains the source of truth for Zotero-owned facts. |
+| Citation Graph Cache | Derived graph built from active raw references, effective canonical references, and reference bindings. It contains Zotero-bound source/reference nodes and external canonical reference nodes, but it is a cache for graph/query speed rather than a topic correctness dependency. |
+| Topic artifact | User-facing synthesis result for a topic. It is owned by the Topics domain and should not be silently rewritten by reference sidecar or graph cache refresh. |
 | Concept KB | Concept knowledge base used by Topics through bounded proposal ingestion and overlay context. It does not own topic artifacts. |
 | Tag Vocabulary | Controlled or curated tags used as topic inputs and filters. Topics may depend on tags, but tags do not depend on topics. |
+| Reference binding review | Explicit user-facing process that approves, rejects, merges, or repairs reference-to-Zotero-item binding decisions. Ambiguous binding/dedupe should live here, not in automatic library sync. |
 
 ## Freshness Terms
 
@@ -32,18 +42,19 @@ This file is the terminology SSOT. If another document needs a term, link here i
 | Coverage | Diagnostic comparison between a topic artifact and the source artifacts it explicitly used. Coverage answers “what did this topic include?” |
 | Source check | Explicit check that verifies whether a topic artifact’s cited/used source artifacts still exist and whether their relevant hashes changed. |
 | Fresh | A topic artifact whose recorded source check passes. Fresh does not mean “all newly added papers have been considered.” |
-| Changed source check | A source-check result showing that a topic artifact’s used sources changed or disappeared. Registry rebuild alone must not mark a topic changed when library and artifacts are unchanged. |
-| Stale | Technical derived-state term for graph layout, epoch/basis guards, job/run markers, or review evidence guards. Do not use `stale` as the primary topic freshness/source-check state. |
+| Changed source check | A source-check result showing that a topic artifact’s used sources changed or disappeared. Cache refresh alone must not mark a topic changed when library and artifacts are unchanged. |
+| Stale | Technical derived-state term for cache projections, graph layout, basis guards, or review evidence guards. Do not use `stale` as the primary topic freshness/source-check state. |
 | Discovery hint | Best-effort suggestion that a new/changed literature item might be relevant to a topic. It is not a freshness signal. |
 
 ## Runtime Terms
 
 | Term | Canonical Meaning |
 | --- | --- |
-| Dirty event | Repository-backed work item indicating derived state should be recomputed. It is not an event-sourcing ledger. |
-| Job progress | Current or recent user-visible progress row for background work. It may be determinate or indeterminate. |
-| `registry_epoch` | Lightweight counter or marker advanced by Registry rebuilds that replace Registry facts. |
-| Candidate registry epoch | Rebuild output that has not been promoted. It must not affect Workbench reads until validation and promotion succeed. |
-| Last-known-good registry epoch | Previous promoted Registry basis retained so a failed or bad rebuild can leave or restore a usable state. |
-| `graph_basis_registry_epoch` | Registry epoch used as the basis for a Citation Graph build/layout. A graph can be stale if its basis no longer matches the current Registry epoch. |
+| Explicit cache refresh | User/debug-triggered operation that refreshes selected sidecar projections. For reference sidecar refresh, the operation is two-stage: artifact sidecar scan/diff first, then changed-reference extraction/dedupe/binding. |
+| Dirty event | Removed implementation term from the old automatic synchronization model. Do not create, render, or replay dirty events in active Synthesis code. |
+| Explicit operation progress | Current or recent user-visible progress row for a bounded explicit operation. It may be determinate or indeterminate, but it is not a worker queue item. |
+| `registry_epoch` | Removed runtime truth marker from the old Registry rebuild model. New graph/reference cache basis uses source artifact hashes, binding decision version, policy version, scope, and refresh time. |
+| Candidate registry epoch | Legacy/cache rebuild output that has not been promoted. It must not affect Workbench reads until validation and promotion succeed. |
+| Last-known-good registry epoch | Previous promoted Registry cache basis retained so a failed or bad cache rebuild can leave or restore a usable graph/reference projection. |
+| `graph_basis_registry_epoch` | Removed graph-basis field from the old Registry epoch model. New graph cache basis must not depend on Registry epoch truth. |
 | Topic artifact version | Version/hash recorded by the Topics domain for a topic artifact. It is independent from Registry epoch. |

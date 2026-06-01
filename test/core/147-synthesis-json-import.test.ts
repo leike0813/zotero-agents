@@ -36,8 +36,6 @@ async function makeRuntimeRoot() {
 function importTestRegistry() {
   const registry = new SynthesisSchemaRegistry();
   for (const schemaId of [
-    "synthesis.literature_registry.paper",
-    "synthesis.literature_registry.manifest",
     SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID,
     SYNTHESIS_CONCEPT_SCHEMA_ID,
     SYNTHESIS_CONCEPT_SENSE_SCHEMA_ID,
@@ -75,27 +73,6 @@ async function writeImportAsset(args: {
 describe("Synthesis JSON import tooling", function () {
   it("dry-runs and applies canonical JSON import into SQLite without deleting sources", async function () {
     const root = await makeRuntimeRoot();
-    await writeImportAsset({
-      root,
-      relativePath: "citation-graph/papers/paper_test.json",
-      schemaId: "synthesis.literature_registry.paper",
-      data: {
-        paper_ref: "1:ABCD1234",
-        library_id: 1,
-        item_key: "ABCD1234",
-        title: "A Test Paper",
-        year: "2026",
-        item_type: "journalArticle",
-        tags: ["field:cv"],
-        collections: [],
-        creators: ["Ada Lovelace"],
-        artifacts: {},
-        readiness: "ready",
-        coverage: "complete",
-        diagnostics: [],
-        row_hash: "sha256:paper",
-      },
-    });
     await writeImportAsset({
       root,
       relativePath: "topic-graph/nodes/topic_alpha.json",
@@ -219,8 +196,6 @@ describe("Synthesis JSON import tooling", function () {
     const preview = await service.previewSynthesisJsonImport();
 
     assert.isFalse(preview.applied);
-    assert.equal(repository.countRows("synt_literature_item"), 0);
-    assert.equal(preview.domains.literature.counts.papers, 1);
     assert.equal(preview.domains.topicGraph.counts.nodes, 1);
     assert.equal(preview.domains.conceptKb.counts.concepts, 1);
     assert.equal(preview.domains.tagVocabulary.counts.entries, 1);
@@ -230,7 +205,6 @@ describe("Synthesis JSON import tooling", function () {
     });
 
     assert.isTrue(applied.applied);
-    assert.equal(repository.countRows("synt_literature_item"), 1);
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_concept"), 1);
     assert.equal(repository.countRows("synt_topic_concept_link"), 1);
@@ -291,29 +265,8 @@ describe("Synthesis JSON import tooling", function () {
     );
   });
 
-  it("does not auto-import existing checkpoint JSON during startup reconcile", async function () {
+  it("does not auto-import existing checkpoint JSON during service reads", async function () {
     const root = await makeRuntimeRoot();
-    await writeImportAsset({
-      root,
-      relativePath: "citation-graph/papers/paper_startup.json",
-      schemaId: "synthesis.literature_registry.paper",
-      data: {
-        paper_ref: "1:STARTUP",
-        library_id: 1,
-        item_key: "STARTUP",
-        title: "Startup Checkpoint Paper",
-        year: "2026",
-        item_type: "journalArticle",
-        tags: [],
-        collections: [],
-        creators: [],
-        artifacts: {},
-        readiness: "ready",
-        coverage: "complete",
-        diagnostics: [],
-        row_hash: "sha256:startup",
-      },
-    });
     await writeImportAsset({
       root,
       relativePath: "topic-graph/nodes/topic_startup.json",
@@ -348,15 +301,10 @@ describe("Synthesis JSON import tooling", function () {
       synthesisRepository: repository,
     });
 
-    const state = await service.runSynthesisStartupReconcile({
-      batchLimit: 10,
-    });
+    await service.getSynthesisSnapshot();
 
-    assert.equal(preview.domains.literature.counts.papers, 1);
     assert.equal(preview.domains.topicGraph.counts.nodes, 1);
     assert.equal(preview.domains.tagVocabulary.counts.entries, 1);
-    assert.equal(state.startup_reconcile.state, "ready");
-    assert.equal(repository.countRows("synt_literature_item"), 0);
     assert.equal(repository.countRows("synt_topic_graph_node"), 0);
     assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 0);
   });

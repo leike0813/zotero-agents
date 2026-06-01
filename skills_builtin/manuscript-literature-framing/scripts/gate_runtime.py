@@ -111,7 +111,7 @@ def build_gate(state_path: str) -> dict:
             ),
             required_reads=[
                 "synthesis.get_review_input",
-                "synthesis.get_paper_registry",
+                "synthesis.get_reference_sidecar_index",
                 "synthesis.get_citation_graph_metrics",
                 "synthesis.get_citation_graph_slice",
                 "synthesis.resolve_topic_paper_digest",

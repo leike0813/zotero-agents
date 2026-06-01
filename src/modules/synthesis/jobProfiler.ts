@@ -11,6 +11,7 @@ import {
 type JsonObject = Record<string, unknown>;
 
 export type SynthesisJobProfileStatus =
+  | "running"
   | "ready"
   | "queued"
   | "failed_retryable"
@@ -51,7 +52,10 @@ export type SynthesisJobProfileSnapshot = {
 };
 
 export type SynthesisJobProfilePhase = {
-  end: (args?: { counters?: JsonObject; diagnostics?: unknown[] }) => void;
+  end: (args?: {
+    counters?: JsonObject;
+    diagnostics?: unknown[];
+  }) => Promise<void>;
 };
 
 export type SynthesisJobProfileRun = {
@@ -82,7 +86,7 @@ const memoryStoresByDbPath = new Map<string, MemoryProfilerStore>();
 let runSequence = 0;
 
 const NOOP_PHASE: SynthesisJobProfilePhase = {
-  end() {
+  async end() {
     // no-op
   },
 };
@@ -159,6 +163,18 @@ function getMemoryStore(dbPath: string) {
   return created;
 }
 
+function replaceMemoryRun(
+  store: MemoryProfilerStore,
+  run: SynthesisJobProfileRunRow,
+) {
+  const existingIndex = store.runs.findIndex((entry) => entry.run_id === run.run_id);
+  if (existingIndex >= 0) {
+    store.runs[existingIndex] = run;
+    return;
+  }
+  store.runs.push(run);
+}
+
 function ensureProfilerSchema(db: SqlAdapter) {
   db.run(`
     CREATE TABLE IF NOT EXISTS job_profile_run (
@@ -195,11 +211,79 @@ function ensureProfilerSchema(db: SqlAdapter) {
   `);
 }
 
+async function writeStartedProfileRun(
+  root: string,
+  run: SynthesisJobProfileRunRow,
+) {
+  const dbPath = getSynthesisJobProfilerDatabasePath(root);
+  if (!hasZoteroSqlRuntime()) {
+    const store = getMemoryStore(dbPath);
+    if (!store.runs.some((entry) => entry.run_id === run.run_id)) {
+      store.runs.push(run);
+    }
+    return;
+  }
+
+  await ensureRuntimeDirectory(
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+  );
+  const db = createSynthesisSqlAdapterForPath(dbPath);
+  ensureProfilerSchema(db);
+  db.run(
+    `
+      INSERT OR IGNORE INTO job_profile_run (
+        run_id, job_name, trigger, status, started_at, finished_at,
+        duration_ms, queue_wait_ms, time_budget_ms, batch_limit,
+        processed_count, skipped_count, failed_count, counters_json,
+        diagnostics_json
+      ) VALUES (
+        :run_id, :job_name, :trigger, :status, :started_at, :finished_at,
+        :duration_ms, :queue_wait_ms, :time_budget_ms, :batch_limit,
+        :processed_count, :skipped_count, :failed_count, :counters_json,
+        :diagnostics_json
+      );
+    `,
+    run,
+  );
+}
+
+async function appendProfilePhase(
+  root: string,
+  phase: SynthesisJobProfilePhaseRow,
+) {
+  const dbPath = getSynthesisJobProfilerDatabasePath(root);
+  if (!hasZoteroSqlRuntime()) {
+    getMemoryStore(dbPath).phases.push(phase);
+    return;
+  }
+
+  await ensureRuntimeDirectory(
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+  );
+  const db = createSynthesisSqlAdapterForPath(dbPath);
+  ensureProfilerSchema(db);
+  db.run(
+    `
+      INSERT INTO job_profile_phase (
+        run_id, phase_name, started_at, duration_ms, counters_json,
+        diagnostics_json
+      ) VALUES (
+        :run_id, :phase_name, :started_at, :duration_ms, :counters_json,
+        :diagnostics_json
+      );
+    `,
+    phase,
+  );
+}
+
 async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
   const dbPath = getSynthesisJobProfilerDatabasePath(root);
   if (!hasZoteroSqlRuntime()) {
     const store = getMemoryStore(dbPath);
-    store.runs.push(draft.run);
+    replaceMemoryRun(store, draft.run);
+    store.phases = store.phases.filter(
+      (phase) => phase.run_id !== draft.run.run_id,
+    );
     store.phases.push(...draft.phases);
     return;
   }
@@ -225,6 +309,10 @@ async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
         );
       `,
       draft.run,
+    );
+    db.run(
+      "DELETE FROM job_profile_phase WHERE run_id = :run_id;",
+      { run_id: draft.run.run_id },
     );
     for (const phase of draft.phases) {
       db.run(
@@ -303,6 +391,33 @@ export function maybeStartSynthesisJobProfileRun(args: {
     String(runSequence).padStart(4, "0"),
   ].join(":");
   let finished = false;
+  const pendingWrites: Promise<void>[] = [];
+  const enqueueWrite = (write: Promise<void>) => {
+    const guarded = write.catch(() => {
+      // Debug profiler failures must never affect Synthesis background jobs.
+    });
+    pendingWrites.push(guarded);
+    return guarded;
+  };
+  enqueueWrite(
+    writeStartedProfileRun(args.root, {
+      run_id: runId,
+      job_name: String(args.jobName || "synthesis.job"),
+      trigger: String(args.trigger || ""),
+      status: "running",
+      started_at: startedAt,
+      finished_at: "",
+      duration_ms: 0,
+      queue_wait_ms: normalizeNullableNonNegativeInt(args.queueWaitMs),
+      time_budget_ms: normalizeNullableNonNegativeInt(args.timeBudgetMs),
+      batch_limit: normalizeNullableNonNegativeInt(args.batchLimit),
+      processed_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+      counters_json: "{}",
+      diagnostics_json: "[]",
+    }),
+  );
 
   return {
     enabled: true,
@@ -312,20 +427,32 @@ export function maybeStartSynthesisJobProfileRun(args: {
       const phaseStartedAt = now();
       const phaseStartedMs = Date.now();
       let phaseFinished = false;
+      enqueueWrite(
+        appendProfilePhase(args.root, {
+          run_id: runId,
+          phase_name: `${cleanPhaseName}:start`,
+          started_at: phaseStartedAt,
+          duration_ms: 0,
+          counters_json: stringifyJson({ event: "start" }, {}),
+          diagnostics_json: "[]",
+        }),
+      );
       return {
-        end(phaseArgs = {}) {
+        async end(phaseArgs = {}) {
           if (phaseFinished || finished) {
             return;
           }
           phaseFinished = true;
-          phases.push({
+          const phase = {
             run_id: runId,
             phase_name: cleanPhaseName,
             started_at: phaseStartedAt,
             duration_ms: Math.max(0, Date.now() - phaseStartedMs),
             counters_json: stringifyJson(phaseArgs.counters, {}),
             diagnostics_json: stringifyJson(phaseArgs.diagnostics, []),
-          });
+          };
+          phases.push(phase);
+          await enqueueWrite(appendProfilePhase(args.root, phase));
         },
       };
     },
@@ -334,6 +461,7 @@ export function maybeStartSynthesisJobProfileRun(args: {
         return;
       }
       finished = true;
+      await Promise.all(pendingWrites.splice(0));
       const draft: ProfileRunDraft = {
         run: {
           run_id: runId,
@@ -363,7 +491,7 @@ export function maybeStartSynthesisJobProfileRun(args: {
   };
 }
 
-export async function readSynthesisJobProfilerSnapshotForTests(root: string) {
+export async function readSynthesisJobProfilerSnapshot(root: string) {
   const dbPath = getSynthesisJobProfilerDatabasePath(root);
   if (!hasZoteroSqlRuntime()) {
     const store = getMemoryStore(dbPath);
@@ -386,6 +514,9 @@ export async function readSynthesisJobProfilerSnapshotForTests(root: string) {
       .map(mapPhaseRow),
   };
 }
+
+export const readSynthesisJobProfilerSnapshotForTests =
+  readSynthesisJobProfilerSnapshot;
 
 export function resetSynthesisJobProfilerForTests(root?: string) {
   if (root) {

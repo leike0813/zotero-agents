@@ -2,7 +2,11 @@ import {
   getLoadedWorkflowSourceById,
 } from "./workflowRuntime";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
-import { listWorkflowTasks, type WorkflowTaskRecord } from "./taskRuntime";
+import {
+  listActiveWorkflowTasks,
+  listWorkflowTasks,
+  type WorkflowTaskRecord,
+} from "./taskRuntime";
 import {
   listTaskDashboardHistory,
   type TaskDashboardHistoryRecord,
@@ -91,6 +95,7 @@ export type HostBridgeTaskFilters = {
   runId?: string;
   state?: string;
   includeHistory?: boolean;
+  activeOnly?: boolean;
 };
 
 export type HostBridgeWorkflowTaskDto = {
@@ -567,13 +572,17 @@ export function listHostBridgeTasks(
   filters: HostBridgeTaskFilters = {},
 ): HostBridgeWorkflowTaskDto[] {
   const byId = new Map<string, HostBridgeWorkflowTaskDto>();
-  for (const task of listWorkflowTasks()) {
+  const activeOnly = filters.activeOnly || filters.includeHistory === false;
+  const workflowTasks = activeOnly
+    ? listActiveWorkflowTasks()
+    : listWorkflowTasks();
+  for (const task of workflowTasks) {
     const dto = taskToDto(task, "active");
     if (matchesFilters(dto, filters)) {
       byId.set(dto.id, dto);
     }
   }
-  if (filters.includeHistory !== false) {
+  if (!activeOnly && filters.includeHistory !== false) {
     for (const task of listTaskDashboardHistory(filters)) {
       const dto = taskToDto(task, "history");
       if (matchesFilters(dto, filters) && !byId.has(dto.id)) {

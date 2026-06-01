@@ -629,18 +629,31 @@ Synthesis tools are job-time host capabilities. They should return compact
 navigation and diagnostics to the agent, while large paper artifacts flow through
 run-workspace bundle files.
 
+Registry, reference, library-index, and citation-graph tools expose Synthesis
+sidecar cache views. They are not synchronized Zotero Library truth. Clients
+that need current item metadata, tags, collections, notes, attachments, or
+native related-item state must use Zotero library/note tools. Clients that need
+current generated digest or topic artifacts must use artifact-oriented Synthesis
+reads.
+
 Bounded behavior:
 
-- `synthesis.get_paper_registry` supports `paperRefs`, `cursor`, and `limit`.
+- `synthesis.get_reference_sidecar_index` supports `sourceRefs`, `cursor`, and
+  `limit`. Responses include cache diagnostics and do not imply Zotero Library
+  sync.
 - `synthesis.resolve_resolver` supports `cursor` and `limit` and returns
   `next_cursor`, `has_more`, `returned`, and `total`.
 - `synthesis.get_library_index` returns a bounded paper page by default.
   `includeTags`, `includeCollections`, and `includeItems` opt into larger
-  sections.
+  sections. The result is a cache view and may be stale or empty.
 - `synthesis.get_topic_context` is summary-first. Full markdown, manifest, or
   structured artifact bodies require explicit include flags.
 - `synthesis.get_review_input` enforces graph/text bounds and records truncation
   diagnostics.
+
+Read tools must not start sidecar refresh, enqueue background work, or write
+operation rows when cache is missing or stale. They return bounded data plus
+diagnostics instead.
 
 ## Permission-Gated Write Tools
 

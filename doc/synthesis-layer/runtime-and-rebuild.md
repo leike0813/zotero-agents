@@ -1,237 +1,166 @@
-# Runtime and Rebuild
+# Runtime and Cache Refresh
 
-Synthesis runs inside a single Zotero plugin process on a single JavaScript event loop. The design should use local async coordination, short SQLite transactions, and startup cleanup. It should not imitate distributed queue systems.
+Synthesis runs inside a single Zotero plugin process on a single JavaScript event loop. The target runtime model is therefore explicit, bounded cache maintenance rather than automatic library-wide synchronization.
 
-## Runtime Model
+The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
-- Workers are cooperative async tasks in one process.
-- SQLite transactions provide atomic visibility for writes.
-- UI reads committed snapshots; it may observe state before or after a transaction, but never half a transaction.
-- Long work is split into batches with progress rows and resumable dirty events.
-- In-progress markers are cleaned on startup or explicit maintenance.
-- User actions that imply cascades should commit the core decision first, then enqueue bounded maintenance work.
+## Runtime Principles
 
-Do not use distributed queue, audit-log, or lock-order protocols unless the runtime model changes.
+- Zotero Library is read directly when correctness matters.
+- Source artifacts are read directly when topic or digest workflows need them.
+- Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
+- Workbench snapshot reads must not create or drain background work.
+- Normal startup must not reconcile the whole Zotero Library into Synthesis.
+- Long work must be user/debug-triggered, scoped, cancellable when practical, and visibly stale-tolerant.
+- Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, Registry rebuild, and registry epochs are removed implementation targets.
 
-## Events
+## Normal Runtime Flow
 
-Events are operational work records, not an immutable audit ledger.
+Normal workflow apply is the only automatic sidecar update path:
 
-- Source events come from Zotero/artifact changes, user actions, or explicit rebuild/reset commands.
-- Dirty events represent bounded recomputation work.
-- Progress events update user-visible job state.
-- Review items are user-facing decisions, not queue infrastructure.
+1. `literature-digest` reads Zotero item/attachment/note data directly.
+2. The workflow writes digest/reference artifacts to Zotero notes or embedded payload attachments.
+3. Host apply updates bounded sidecar projections for that `source_ref`: artifact existence/hash state, changed references extraction, canonical-reference dedupe, and optional literature matching metadata.
+4. Topic create/update reads Zotero Library and source artifacts directly. Citation graph metrics may be included only as optional enrichment.
+5. Topic apply updates topic artifact sidecars, source manifest summaries, discovery profile metadata, and Concept/Topic Graph proposals.
 
-Stable IDs live in [states-and-events.yaml](./contracts/states-and-events.yaml).
+No step above requires a full Registry rebuild, startup reconcile, or global dirty queue drain.
 
-### Event Routing Policy
+## Explicit Cache Operations
 
-Synthesis uses a thin routing policy, not a global impact planner. The policy converts a source change into bounded dirty events, review items, job recommendations, diagnostics, and supersede/clear commands. It must not own domain facts or perform matching itself.
+Broad maintenance is explicit:
 
-Target interface:
+| Operation | Trigger | Writes | Does Not Do |
+| --- | --- | --- | --- |
+| Artifact cache sync | digest/topic apply for one item/topic | selected artifact existence/hash projection rows | scan unrelated Zotero items or persist Zotero item metadata |
+| Reference sidecar refresh | user/debug selects item/library scope | artifact sidecar scan/diff, changed raw-reference extraction, canonical-reference dedupe, safe best-effort binding, `reference-sidecar:library=ready`, and `citation-graph:library=stale` | full library metadata projection, graph cache rebuild, graph layout rebuild, or user approval decisions |
+| Reference binding repair/review | user starts review flow | accepted/rejected binding, merge, dedupe, or retarget decisions | silently rewrite Zotero item metadata or run from ordinary refresh |
+| Citation graph cache rebuild | user opens Graph rebuild/debug command | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; `citation-graph:library=ready` | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed |
+| Citation graph layout rebuild | user opens layout/debug command | layout coordinates for an existing graph hash and preset | rebuild graph data or refresh reference sidecar |
+| Topic source check | user/debug/maintenance request for selected topic | source-check diagnostic from direct Zotero/artifact reads | read reference or graph cache as truth |
+| Topic discovery repair | user/debug bounded repair | bounded hint rows | global LLM n x m judging |
+| Related-items sync | explicit or approved graph side effect | Zotero native relation effect rows and diagnostics | delete unproven user-created Zotero relations |
+| Reset/import/export | protected command | sidecar state according to declared scope | silently import legacy JSON into runtime |
 
-```ts
-type SynthesisRoutingInput =
-  | { kind: "paper_added"; paperRef: string; literatureItemId: string }
-  | { kind: "paper_artifact_changed"; paperRef: string; artifactTypes: string[] }
-  | { kind: "paper_deleted"; paperRef: string; literatureItemId: string }
-  | { kind: "paper_merged"; fromLiteratureItemId: string; toLiteratureItemId: string }
-  | { kind: "external_literature_dedupe_candidate"; leftLiteratureItemId: string; rightLiteratureItemId: string }
-  | { kind: "literature_redirect_materialized"; fromLiteratureItemId: string; toLiteratureItemId: string }
-  | { kind: "digest_applied"; paperRef: string; literatureItemId: string }
-  | { kind: "topic_source_check_requested"; topicId: string }
-  | { kind: "external_source_drift_detected"; severity: "small" | "bulk" | "structural"; libraryId: number }
-  | { kind: "registry_cache_rebuilt"; registryEpoch: string }
-  | { kind: "citation_graph_changed"; graphHash: string }
-  | { kind: "zotero_related_items_sync_requested"; sourceLiteratureItemIds?: string[]; graphEpoch?: string }
-  | { kind: "zotero_related_items_sync_echo"; sourceLiteratureItemIds: string[]; operationId: string }
-  | { kind: "topic_interest_metadata_changed"; topicId: string }
-  | { kind: "literature_matching_metadata_changed"; literatureItemId: string };
+Explicit operations should report progress using real counts or fixed phases. If the total is unknown, UI must show indeterminate progress rather than inventing a percent.
 
-type SynthesisRoutingResult = {
-  dirtyEvents: DirtyEventDraft[];
-  reviewItems: ReviewItemDraft[];
-  jobRecommendations: JobRecommendation[];
-  diagnostics: Diagnostic[];
-  supersedeOrClear?: SupersedeCommand[];
-};
-```
+`synt_operation` is operation progress/history. It is the only source for running, failed, and completed command progress, but it is not a data-readiness source. `synt_cache_basis` is the only runtime source for Reference Sidecar and Citation Graph cache readiness. A completed operation does not imply ready data unless the corresponding cache basis was promoted; a failed operation must not overwrite an existing ready basis.
 
-Routing output must not contain semantic matcher results, graph nodes/edges/layout, file scan rows, topic source-check decisions from Registry changes, direct cross-domain writes, or unbounded fan-out.
+## Removed Synchronization Mechanisms
 
-Core rules:
+The hard-cut implementation must remove:
 
-| Change | Must Affect | Must Not Directly Affect |
-| --- | --- | --- |
-| paper added, no digest | Registry Cache | topic source check, discovery candidates |
-| digest applied with matching metadata | Registry artifact state; one-literature apply-time discovery | topic artifact text; all-library discovery scan |
-| paper artifact changed | Registry Cache; Citation Graph dirty slice | topic source-check changed diagnostic |
-| paper deleted | binding/delete review; affected graph slice | silent topic dependency deletion |
-| paper merged | redirect/binding state; reference retarget | topic resolver rewrite without explicit decision |
-| external dedupe candidate | strong identifier auto redirect or bounded review | fuzzy auto merge |
-| literature redirect materialized | retarget affected resolutions/edges; related-items sync dirty | delete original review evidence |
-| registry full rebuild | advance `registry_epoch`; supersede old registry/graph/discovery-repair queue; graph rebuild | topic source-check/freshness; discovery full backscan |
-| graph structure changed | metrics/layout dirty; related-items sync dirty | Registry facts; topic source-check state |
-| reference resolution review action | affected graph slice; related-items sync for matched library edge | legacy reference-matching workflow path |
-| related-items sync echo | sync diagnostics only when matched to a durable sync effect/attempt | Registry reindex / graph rebuild / another related-items sync based only on recent in-memory markers |
-| topic source check requested | source manifest diagnostic | topic artifact rewrite |
-| external source small drift | bounded Registry dirty events | full rebuild fan-out |
-| external source bulk drift | bounded drift incident and rebuild recommendation | per-item dirty/review/graph fan-out |
-| external source structural drift | diagnostic/repair required; pause incremental fan-out | treating source as trusted |
-| topic interest metadata changed | future digest apply matching | coverage/freshness; old literature backscan |
-| literature matching metadata changed | digest apply-time discovery input | literature-to-literature reference matching |
+- `synt_dirty_event`;
+- `synt_job_state`;
+- `synt_work_item`;
+- `synt_work_run`;
+- `synt_work_queue_meta`;
+- `synt_registry_rebuild_run`;
+- `recordSynthesisUpdateEvent`;
+- startup reconcile;
+- worker drain, queue pause/resume/retry, and worker claiming;
+- Registry full rebuild and `registry_epoch` as runtime truth.
 
-## Review Action Transactions
-
-Review actions must keep the UI responsive. A review action transaction should include only the core facts required to make the decision durable:
-
-- the resolved/rejected review row;
-- direct domain fact changes such as a binding, redirect, tombstone, or accepted reference resolution;
-- minimal diagnostics needed to explain the decision;
-- dirty events for downstream recomputation.
-
-Expensive cascade work must be processed after commit in bounded worker batches. Examples include refreshing dependent review rows, rebuilding graph structure, recomputing summaries, syncing Zotero related items, and updating broad diagnostics.
-
-A failed cascade must not roll back the already accepted user decision. It should leave retryable dirty events or diagnostics.
-
-## Queue Semantics
-
-Dirty events should be repository-backed and scope-aware:
-
-- Registry work handles changed Zotero items and source artifacts.
-- Graph work handles reference resolution, graph structure, metrics, layout, and related-items sync.
-- Topic work handles explicit source checks and discovery review surfaces.
-- Reset/rebuild operations may clear or supersede queued work whose basis is no longer meaningful.
-
-When a worker crashes because Zotero exits, startup cleanup marks old in-progress rows as retryable or cleared according to operation type.
+Do not keep no-op compatibility shims for these APIs. Callers must move to direct sidecar writes or explicit operations.
 
 ## External Source Drift
 
-Startup reconcile is a bounded detector, not an unbounded impact executor. It classifies Zotero Library and artifact-note drift before enqueueing work:
+The target model avoids automatic drift fan-out. Zotero Library drift is handled by direct reads and explicit inspection:
 
-| Severity | Threshold | Action |
-| --- | --- | --- |
-| `small` | changed items <= 50 and <= 5% active library; decode failure ratio < 2%; fingerprint scan within budget | Emit bounded Registry dirty events. |
-| `bulk` | changed items > 50 or > 5%; suspicious bulk merge/delete/update; scan over soft budget without structural anomaly | Record bounded incident and recommend explicit Registry/Graph rebuild; fan-out forbidden. |
-| `structural` | binding collision, impossible parent note structure, decode failure ratio >= 2%, hard fingerprint timeout, inconsistent Zotero API/DB result | Fail closed and require inspect/repair/reset/rebuild; fan-out forbidden. |
-
-Bulk and structural drift must create a bounded drift incident with counts, examples, severity, and recommended inspect/rebuild commands. They must not expand into thousands of per-item dirty events, graph jobs, review cards, or topic source-check/discovery work.
-
-Structural drift should fail closed: pause incremental Registry fan-out until the user runs explicit inspect, repair, reset, or rebuild action.
-
-## Rebuild Semantics
-
-Registry rebuild is foundational and should be guarded:
-
-- It needs explicit confirmation in UI/CLI.
-- It clears or supersedes pending Registry/Graph work from the old basis.
-- It advances `registry_epoch` only after a staged rebuild passes validation and is atomically promoted.
-- It reports real progress using item counts when available.
-- It should trigger graph rebuild because graph facts depend on Registry facts.
-
-Registry rebuild uses staged promotion:
-
-1. Create a rebuild run with a candidate epoch and write rebuilt Registry facts into staging state or rows marked by run ID.
-2. Validate identity resolution, required table counts, reference-resolution integrity, and bounded diagnostics before promotion.
-3. Promote the candidate epoch in one short transaction that swaps the active Registry basis.
-4. Keep the previous active epoch as the last-known-good basis until the new epoch is accepted.
-
-If rebuild fails before promotion, the active `registry_epoch` does not change and the Workbench continues reading the previous committed Registry. If a promoted epoch is later found bad, an explicit rollback action may repoint active Registry state to the last-known-good epoch and enqueue Graph rebuild on that basis.
-
-Graph rebuild records `graph_basis_registry_epoch`. If Registry advances while Graph work is queued or running, stale graph work may finish computation but its final promotion must be rejected by the repository commit gate and retried on the new basis.
-
-Topic artifacts are independent from Registry epoch. Registry rebuild should not mark complete/fresh topics changed by itself.
-
-### Derived Work Commit Gate
-
-Running workers cannot be physically preempted in the single-process JavaScript runtime. Epoch/basis guards are therefore commit gates, not cancellation guarantees.
-
-All derived workers that replace visible Registry-dependent state, including graph structure, metrics, layout, and related read models, must follow a staged commit pattern:
-
-1. Read the current basis at worker start and store it on the dirty event/job/run, for example `graph_basis_registry_epoch`.
-2. Write intermediate output into staging rows or rows scoped by `run_id` and basis. Normal Workbench reads must not read these rows.
-3. At final promotion, open one short repository transaction.
-4. Inside that transaction, reread the current active basis.
-5. If the active basis differs from the worker basis, mark the event/job/run `superseded`, leave active pointers unchanged, and do not expose staged rows.
-6. If the basis still matches, promote the staged output by swapping the active pointer or otherwise atomically marking that run as active.
-
-Workers may still finish computation after their basis becomes stale. The safety requirement is that stale results cannot become visible or overwrite newer committed rows. A pre-commit basis check outside the final write transaction is only advisory and is not sufficient.
-
-### Registry Candidate Validation Gate
-
-Validation is a safety gate before promotion, not a best-effort warning. It runs against the candidate epoch and previous active epoch, producing a bounded report with pass/fail/suspicious status.
-
-Required checks:
-
-| Check | Failure Condition |
+| Situation | Target Behavior |
 | --- | --- |
-| Schema and required tables | Missing `synt_*` table family, schema meta mismatch, or migration error. |
-| Identity anchor resolution | Candidate rows do not apply accepted redirects first, fail to converge unique non-conflicting strong identifiers across Zotero-bound and external records, or allocate binding-fallback/provisional IDs before checking existing compatible identities. |
-| Binding uniqueness | Duplicate active `(library_id, item_key)` binding or active binding pointing to conflicting literature IDs. |
-| Redirect/tombstone integrity | Redirect cycle, redirect target missing, tombstone resurrected without explicit restore, or survivor unavailable. |
-| Observed-source accounting | Candidate Zotero-bound count differs from observed active Zotero/artifact scan without explicit skipped/unsupported/deleted counters explaining the delta. |
-| Suspicious count delta | Candidate count drops or rises by more than 50% from previous active epoch without matching external drift classification. |
-| Reference integrity | Reference instances point to missing source literature rows, matched resolutions point to missing/tombstoned targets, or ambiguous results materialize graph edges. |
-| Durable effects | Active overrides are either preserved, marked `needs_attention`, or explicitly out of scope; silent drop is failure. |
-| Bounded diagnostics | Validation output is bounded, includes examples, and marks truncation when limits are hit. |
+| User opens a topic | Source check compares the topic source manifest with current Zotero/artifact reads for that topic. |
+| User opens Graph | Graph view may show missing/stale/failed cache and offer citation graph cache rebuild. |
+| Digest is applied | Only that item's sidecar projection is updated. |
+| Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair. |
+| Structural inconsistency is suspected | Fail closed for cache writes and ask for inspect/repair; do not generate per-item fan-out. |
 
-Empty candidate Registry is valid only when the observed active Zotero-bound source set is empty or the user requested clean reset/import semantics. Otherwise it is a hard failure.
+Startup may do repository health checks, but it must not scan Zotero Library, reconcile sidecar cache, enqueue work, replay old operations, or start refresh.
 
-Validation budget:
+## Cache Refresh Safety
 
-- normal path soft target: 3000 ms;
-- hard budget: 30000 ms or the active debug/user-configured validation budget;
-- long validation must batch and report progress; timeout before promotion is `failed_retryable` and keeps the previous active epoch.
+Cache refresh/rebuild replaces regenerable projections. It does not own Zotero Library facts.
 
-Suspicious but structurally valid candidates must not auto-promote. The UI/CLI may offer an advanced `promote suspicious candidate` action only after showing count deltas, examples, lost/added categories, and the last-known-good rollback option. This action requires dangerous-operation confirmation. It is not the default path.
+Required safety properties:
 
-If validation is valid but wrong because the validation logic has a bug, protection comes from staged promotion plus last-known-good rollback:
+1. Read only the selected scope required by the operation. Reference sidecar refresh scans artifact presence/hash and reads changed references artifacts; binding repair may read Zotero metadata for the selected candidate scope.
+2. Record cache basis: scope, artifact hashes or fingerprints, extractor/matcher policy version, binding decision version where relevant, and refresh time where available.
+3. Write intermediate output to staging or otherwise keep it invisible until the operation completes.
+4. Promote refreshed projection only after validation passes.
+5. Preserve accepted binding/dedupe decisions or mark them `stale_target`; never silently drop them.
+6. If refresh fails, keep the previous cache projection readable with diagnostics.
 
-- keep previous active epoch until promotion;
-- keep last-known-good after promotion;
-- expose rebuild report and count deltas in Workbench/debug;
-- allow explicit rollback to last-known-good and requeue graph rebuild on that basis.
+`registry_epoch` and `graph_basis_registry_epoch` are removed as runtime truth markers. Reference and graph cache basis should use artifact hashes/fingerprints, raw-reference extractor version, binding decision versions, policy version, scope, and refresh time.
 
-### Rebuild Operation Matrix
+Legacy sidecar state files, sidecar index files, graph index files, and graph manifests must not be read to infer Workbench job status or cache readiness.
 
-| Operation | Trigger | Confirmation | Old Work Handling | Epoch / Basis | Downstream Impact | Progress |
-| --- | --- | --- | --- | --- | --- | --- |
-| Paper incremental update | source dirty event | no | consume same-scope event | registry epoch unchanged | graph scoped dirty | item count |
-| Full Registry/Graph rebuild | explicit command | yes | clear/supersede old registry/graph/discovery-repair work | advance `registry_epoch`; old graph basis becomes stale | full graph rebuild; no topic work; no discovery full backscan | item count + phases |
-| External source drift rebuild | bulk/structural incident -> explicit command | yes | do not expand drift incident per item; clear related registry/graph queue | advance `registry_epoch` after promotion | full graph rebuild; old committed state readable until promotion | item count + phases |
-| Citation graph structure rebuild | graph dirty or explicit | usually no | clear stale graph structure/layout jobs | new graph basis bound to current `registry_epoch` | metrics/layout dirty; no topic source check | node/edge/reference count |
-| Complex metrics rebuild | graph changed or explicit | no | clear old metrics jobs | graph epoch scoped | metrics rows | fixed phase/time |
-| Layout rebuild | Graph UI or explicit | no | clear same-preset stale layout job | layout key scoped | layout state only | node count or phase |
-| Topic source check | explicit user/debug/maintenance request | no | clear same-topic source-check job | topic state scoped | source manifest diagnostic only | saved source count |
-| Topic discovery apply-time match | literature-digest apply | no | merge same-literature unfinished match | literature scope | bounded hints for that literature | active topic count |
-| Topic discovery repair | explicit debug/maintenance | no | clear same bounded repair job | repair run scoped | bounded hint repair | bounded topic-literature pairs |
-| Topic artifact update | workflow apply | workflow confirmation | supersede old topic apply conflicts | topic artifact version/hash | topic graph/concept proposals/source baseline | workflow progress |
-| Synthesis DB reset | prefs/debug protected action | double confirmation | clear synthesis queue/job | reset epoch | empty runtime state | table counts |
-| Clean-install reset | debug protected action | exact phrase | clear runtime/file residue | reset epoch | empty synthesis state | table counts |
-| Checkpoint export | explicit command | optional | no queue effect | none | file output | file count |
-| JSON import | explicit dry-run/apply | apply confirmation | import scope events | import run id | DB facts | row/file count |
+## Two-Stage Reference Sidecar Refresh
+
+Reference sidecar refresh is the broadest ordinary maintenance operation and must stay cheaper than the old Registry rebuild.
+
+Stage 1 scans artifact sidecar state:
+
+1. Enumerate the selected Zotero source scope.
+2. Locate digest, references, and citation-analysis artifacts.
+3. Update artifact sidecar existence, locator, fingerprint/hash, and diagnostics.
+4. Compare `references_hash` against the previous sidecar row and build a changed set.
+
+Stage 2 processes only changed references artifacts:
+
+1. Mark old active raw references for disappeared or replaced `source_ref + references_hash` values as `stale`.
+2. Read and parse only changed references artifacts.
+3. Insert new raw references.
+4. Assign canonical references and apply incremental redirects/dedupe.
+5. Run safe best-effort binding only for new or affected canonical references when it fits the operation budget.
+6. Leave ambiguous binding and broad metadata scans to explicit binding repair/review.
+
+The operation should expose progress from real counts: scanned sources, changed artifacts, extracted raw references, canonical matches, and affected binding candidates. If a single source fails to parse, the operation should record a source-scoped diagnostic and continue where safe.
+
+After successful stage 2, the reference sidecar cache basis is ready and the citation graph cache basis is stale. A separate citation graph cache rebuild is required before Graph reads should be considered ready.
+
+## Reference Binding Review
+
+Reference binding is the most important sidecar-owned area. It should be explicit and reviewable because false positives can create wrong graph edges.
+
+The flow is:
+
+1. Generate candidates using indexed blocking keys such as normalized identifiers, compact title keys, and bounded author/year buckets.
+2. Auto-accept only precision-first deterministic matches.
+3. Present ambiguous dedupe, merge, and binding candidates for user review.
+4. Store accepted/rejected decisions with provenance, confidence, evidence summary, and affected Zotero binding refs.
+5. Mark graph cache stale or recommend graph cache rebuild; do not rebuild graph inside the review action unless the user explicitly requested that operation.
+
+Rejected or accepted decisions are durable sidecar facts, not ordinary cache rows.
+
+## Related Items Sync
+
+Zotero native related-item relations remain Zotero-owned facts. Synthesis may optionally apply graph-derived related-item changes only with durable provenance:
+
+- create a pending external-write effect before calling Zotero APIs;
+- never remove a relation without recorded Synthesis-created provenance;
+- treat pre-existing relations as `already_existed`;
+- if Zotero state diverges from recorded provenance, mark `stale_target` and leave Zotero untouched;
+- failures update sync diagnostics and do not roll back graph/reference cache.
 
 ## Failure Recovery
 
-Use simple local recovery:
+Use local recovery:
 
 - A failed short transaction rolls back.
-- A failed batch keeps completed prior transactions and marks remaining work retryable.
-- A failed after-commit side effect writes diagnostics and can be retried.
-- A failed staged Registry rebuild leaves the previous epoch active.
-- A bad promoted Registry epoch requires explicit rollback to last-known-good; Graph workers then rebuild from the restored basis.
-- Startup cleanup handles interrupted in-progress markers.
+- A failed cache refresh keeps the previous projection.
+- A failed side effect writes diagnostics and can be retried explicitly.
+- A bad approved reference/binding decision is corrected through review/repair, not through hidden rebuild behavior.
 - Database corruption recovery is covered in [Persistence and Files](./persistence-and-files.md).
 
 ## Dangerous Operations
 
-Dangerous operations need UI confirmation and exact confirmation text:
+Dangerous operations need UI confirmation and, when destructive, exact confirmation text:
 
-- Registry full rebuild.
-- Registry rollback to a previous epoch.
-- Synthesis database reset.
-- Clean-install reset.
-- Queue clear.
-- Import that overwrites current state.
+- full sidecar reset;
+- clean-install reset;
+- import that overwrites sidecar state;
+- explicit broad graph/reference cache refresh;
+- rollback or deletion of user-approved binding/dedupe decisions;
+- related-items sync revoke operation.
 
-Dry-run should be available for debug-only destructive maintenance where practical.
+Dry-run should be available for broad repair/import operations where practical.

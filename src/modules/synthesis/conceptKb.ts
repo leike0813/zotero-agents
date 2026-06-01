@@ -69,6 +69,17 @@ export type SynthesisConcept = {
   updated_at: string;
 };
 
+type IndexRebuildOptions = {
+  yieldControl?: () => Promise<void>;
+  reportProgress?: (progress: {
+    phase: string;
+    phaseLabel: string;
+    processedCount: number;
+    totalCount: number;
+    message?: string;
+  }) => void | Promise<void>;
+};
+
 export type SynthesisConceptSense = {
   sense_id: string;
   concept_id: string;
@@ -1073,23 +1084,28 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     });
   }
 
-  async function loadConceptKb(): Promise<SynthesisConceptKbSnapshot> {
+  async function loadConceptKb(
+    options: IndexRebuildOptions = {},
+  ): Promise<SynthesisConceptKbSnapshot> {
     await ensureConceptStore();
     const concepts = sortConcepts(
       repository.listConcepts().map(conceptFromRecord),
     );
+    await options.yieldControl?.();
     const senses = sortSenses(
       repository.listConceptSenses().map(senseFromRecord),
     );
     const aliases = sortAliases(
       repository.listConceptAliases().map(aliasFromRecord),
     );
+    await options.yieldControl?.();
     const relations = sortRelations(
       repository.listConceptRelations().map(relationFromRecord),
     );
     const reviewItems = sortReviewItems(
       repository.listConceptReviewItems().map(reviewItemFromRecord),
     );
+    await options.yieldControl?.();
     const manifest = await readManifest({
       concepts,
       senses,
@@ -1097,6 +1113,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       relations,
     });
     const projectionState = await readProjectionRegistryState(root);
+    await options.yieldControl?.();
     return {
       concepts,
       senses,
@@ -1936,15 +1953,42 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     return { transactionId: result.transactionId, receipt: result.receipt };
   }
 
-  async function rebuildConceptKbIndexProjection() {
-    const snapshot = await loadConceptKb();
+  async function rebuildConceptKbIndexProjection(
+    options: IndexRebuildOptions = {},
+  ) {
+    const totalCount = 4;
+    const reportProgress = async (
+      phase: string,
+      phaseLabel: string,
+      processedCount: number,
+      message?: string,
+    ) =>
+      options.reportProgress?.({
+        phase,
+        phaseLabel,
+        processedCount,
+        totalCount,
+        message,
+      });
+    await reportProgress("load_source", "Load source", 0);
+    const snapshot = await loadConceptKb(options);
+    await reportProgress(
+      "build_projection",
+      "Build projection",
+      1,
+      `${snapshot.concepts.length} concepts loaded`,
+    );
     const rebuiltAt = now();
     const projection = conceptProjectionFromSnapshot({ snapshot, rebuiltAt });
+    await options.yieldControl?.();
+    await reportProgress("write_projection", "Write projection", 2);
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
     await writeRuntimeTextFile(
       joinPath(paths.stateRoot, "concept-kb-index.json"),
       `${JSON.stringify(projection, null, 2)}\n`,
     );
+    await options.yieldControl?.();
+    await reportProgress("record_projection", "Record projection", 3);
     return recordProjectionRebuild({
       root,
       target: SYNTHESIS_CONCEPT_INDEX_TARGET,

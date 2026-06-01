@@ -173,6 +173,7 @@ Dashboard 当前不支持：
 - Plugin Skill Registry / ACP Compatible SSOT：`doc/components/plugin-skill-registry-and-acp-compatible-ssot.md`
 - Runtime Persistence Governance SSOT：`doc/components/runtime-persistence-governance-ssot.md`
 - Synthesis Layer 文档入口：`doc/synthesis-layer/README.md`
+- Synthesis Library SSOT / Sidecar Cache：`doc/synthesis-layer/library-ssot-and-sidecar-cache.md`
 - Synthesis Layer 分域模型：`doc/synthesis-layer/domain-model.md`
 - Synthesis Registry/Citation Graph：`doc/synthesis-layer/registry-and-citation-graph.md`
 - Synthesis Topics/Discovery：`doc/synthesis-layer/topics-and-discovery.md`

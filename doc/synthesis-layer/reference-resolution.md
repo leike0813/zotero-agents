@@ -4,7 +4,7 @@ This document is the executable policy contract for literature-to-literature ref
 
 ## Goals
 
-- Resolve extracted reference instances to Zotero-bound `literature_item_id` rows with very high precision.
+- Resolve extracted raw references to canonical references and, when evidence is strong enough, to Zotero-bound reference bindings with very high precision.
 - Deduplicate repeated external work nodes without collapsing adjacent but distinct works.
 - Preserve useful weaker candidates as bounded suggestions/review data.
 - Make matcher changes measurable through fixture, gold labels, and experiment reports.
@@ -13,9 +13,9 @@ This document is the executable policy contract for literature-to-literature ref
 
 The matcher consumes only identity-bearing fields:
 
-- library paper: `paper_ref`, Zotero `libraryId:itemKey`, title, year, authors, DOI, arXiv, URL, citeKey;
-- reference instance: parsed title, year, authors, raw reference text, DOI, arXiv, URL, citeKey when available;
-- existing redirects, tombstones, confirmed/ignored reference-resolution effects.
+- current Zotero candidate metadata read for the selected binding/repair scope: `libraryId:itemKey`, title, year, authors, DOI, arXiv, URL, citeKey;
+- raw reference: parsed title, year, authors, raw reference text, DOI, arXiv, URL, citeKey when available;
+- existing canonical reference redirects, accepted/rejected bindings, and review effects.
 
 The matcher must not read topic profiles, topic interest metadata, literature matching metadata, BM25 topic documents, citation metrics, graph layout, or LLM semantic judgments.
 
@@ -25,19 +25,20 @@ Reference identity work has three related operations:
 
 | Operation | Meaning | Materialization Risk |
 | --- | --- | --- |
-| `reference_matching` | Map one reference instance to a canonical `literature_item_id`. | False positives create wrong graph edges. |
+| `canonical_dedupe` | Map one raw reference to an existing or new canonical reference. | False merges pollute many future references. |
+| `reference_binding` | Map one effective canonical reference to a current Zotero `libraryId:itemKey`. | False positives create wrong graph edges. |
 | `external_dedupe` | Decide whether two non-Zotero-bound work nodes are the same work. | False merges pollute many future references. |
 | `retarget_to_library` | Replace an external target with an active Zotero-bound item when the same work is in the library. | Incorrect retarget hides an external work. |
 
 Canonical target precedence:
 
-1. active Zotero-bound library item;
-2. external item redirected to an active Zotero-bound item;
-3. existing canonical external literature item;
-4. new provisional external literature item;
-5. unresolved / ambiguous / review.
+1. accepted binding to an active Zotero item;
+2. canonical reference redirected to a bound canonical reference;
+3. existing active unbound canonical reference;
+4. new provisional canonical reference;
+5. unbound / ambiguous / review candidate.
 
-Citation graph materialization consumes canonicalized reference resolutions. It must not perform matching or dedupe itself.
+Citation graph materialization consumes active raw references, effective canonical references, and reference bindings. It must not perform matching or dedupe itself.
 
 ## Identifier Normalization
 
@@ -73,17 +74,17 @@ A unique `strong_compact_title` hit is strong identity evidence even when author
 
 Evaluate candidates in this order:
 
-1. Strong identifiers: DOI, arXiv, URL-derived arXiv, raw arXiv, raw DOI. Unique hits are deterministic `matched`.
-2. citeKey: unique exact citeKey hit is deterministic `matched`.
-3. Unique `strong_compact_title`: deterministic/high-confidence `matched`, unless a danger pair or multiple targets exist.
+1. Strong identifiers: DOI, arXiv, URL-derived arXiv, raw arXiv, raw DOI. Unique hits may create deterministic `accepted` bindings.
+2. citeKey: unique exact citeKey hit may create a deterministic `accepted` binding.
+3. Unique `strong_compact_title`: may create a deterministic/high-confidence `accepted` binding, unless a danger pair or multiple targets exist.
 4. Exact `normalized_title` + author evidence + same/near year: low-confidence `suggested` when unique.
 5. Stripped exact title + author evidence + same/near year: low-confidence `suggested` when unique.
 6. `compact_title` + author evidence + same/near year: low-confidence `suggested` when unique.
 7. Guarded fuzzy title: may auto-match only with very high title similarity, strong author overlap, acceptable year evidence, and no danger-neighbor signal; otherwise suggestion only.
 
-When multiple candidates survive an auto-match tier, return `ambiguous` with suggestions instead of automatic match.
+When multiple candidates survive an automatic tier, keep them as review candidates instead of writing an accepted binding.
 
-Low-confidence tiers preserve useful candidates for review and diagnostics, but they do not return automatic `matched` results and must not materialize citation graph edges. A review action can later convert one suggested candidate into a confirmed reference-resolution fact.
+Low-confidence tiers preserve useful candidates for review and diagnostics, but they do not write `accepted` bindings and must not materialize library-to-library citation graph edges. A review action can later convert one candidate into an accepted reference binding.
 
 ## External Dedupe Policy
 
@@ -107,7 +108,7 @@ There are two weak-identity classes:
 | Class | Meaning | Graph/Dedupe Semantics |
 | --- | --- | --- |
 | `provisional_work` | A lower-confidence work-level external identity built from enough normalized bibliographic evidence. | May become an external graph node and may participate in bounded external dedupe/review. |
-| `reference_scoped_placeholder` | A display/diagnostic placeholder for one reference instance whose evidence is too weak to safely form a work-level key. | Must not become a canonical external dedupe target; may appear only as unresolved/reference-scoped context. |
+| `reference_scoped_placeholder` | A display/diagnostic placeholder for one reference instance whose evidence is too weak to safely form a work-level key. | Must not become a canonical external dedupe target; may appear only as unbound/reference-scoped context. |
 
 Canonical `provisional_work` key inputs:
 
@@ -116,18 +117,18 @@ Canonical `provisional_work` key inputs:
 3. year when present, as positive evidence rather than a hard discriminator;
 4. optional normalized venue/container evidence when it improves separation without becoming a hard discriminator.
 
-Raw reference fingerprint belongs to `reference_instance_id` and diagnostics by default. It must not be part of the default `provisional_work` key because the same work often appears with different raw reference strings across source papers. If normalized title/author/year/container evidence is insufficient to form a work-level key, return unresolved or create a `reference_scoped_placeholder` instead of adding raw text as an identity tie-breaker.
+Raw reference fingerprint belongs to `reference_instance_id` and diagnostics by default. It must not be part of the default `provisional_work` key because the same work often appears with different raw reference strings across source papers. If normalized title/author/year/container evidence is insufficient to form a work-level key, leave the reference unbound or create a `reference_scoped_placeholder` instead of adding raw text as an identity tie-breaker.
 
-The key should be deterministic and policy-versioned, for example `provisional:v1:<hash>`. Two code paths that see the same normalized work evidence must produce the same provisional external `literature_item_id`.
+The key should be deterministic and policy-versioned, for example `provisional:v1:<hash>`. Two code paths that see the same normalized work evidence must produce the same provisional canonical reference identity.
 
 Lifecycle:
 
 - A `provisional_work` external node can remain provisional indefinitely without blocking graph display.
-- A `reference_scoped_placeholder` can remain unresolved indefinitely without blocking graph display, but it must not be deduped or retargeted as a canonical work without first being promoted to `provisional_work` by stronger evidence or review.
+- A `reference_scoped_placeholder` can remain unbound indefinitely without blocking graph display, but it must not be deduped or retargeted as a canonical work without first being promoted to `provisional_work` by stronger evidence or review.
 - If a later reference, library item, import, or review action supplies a strong identifier for the same work, the system may retarget through a redirect.
 - Automatic provisional-to-strong redirect is allowed only when the strong identifier match is unique and the provisional title evidence is compatible.
 - If multiple provisional nodes or a library item compete for the same strong identity, open a bounded dedupe/retarget review item.
-- Rebuild reuses deterministic provisional keys and existing redirects; it must not create a fresh provisional ID for the same normalized evidence.
+- Refresh reuses deterministic provisional keys and existing redirects; it must not create a fresh provisional ID for the same normalized evidence.
 
 Provisional status is not an error state. It is a lower-confidence identity class. Workbench/debug should expose counts for provisional work nodes, reference-scoped placeholders, promoted/redirected nodes, and ambiguous retarget candidates.
 
@@ -148,14 +149,14 @@ The matcher returns a layered result:
 
 | Field | Meaning |
 | --- | --- |
-| `status` | `matched`, `suggested`, `unmatched`, or `ambiguous`. |
-| `targetLiteratureItemId` | Present only for auto-matched results. |
-| `targetPaperRef` | Optional Zotero-bound target `paper_ref` when the target has an active binding. |
+| `status` | Matcher-local evidence outcome. It is not an Index/UI state. Materialized sidecar state is expressed as reference binding `accepted`, `candidate`, `rejected`, or `stale_target`. |
+| `targetCanonicalReferenceId` | Effective canonical reference selected by dedupe or binding policy. |
+| `targetSourceRef` | Optional Zotero-bound target `source_ref` when the target has an active binding. |
 | `confidence` | `deterministic`, `high`, `low`, or `review`. |
 | `diagnostics` | Structured evidence, tier, policy version, and reason codes. |
 | `suggestedCandidates` | Bounded ranked candidates with target, score, evidence fields, and reasons. |
 
-Only automatic `status=matched` results with `confidence=deterministic` or `confidence=high` may create or update matched citation graph edges. Low-confidence and review-confidence results are suggestions or review payloads until an explicit review action writes a confirmed resolution fact. Suggestions alone never change graph facts.
+Only deterministic or high-confidence automatic outcomes may create or update `accepted` bindings. Low-confidence and review-confidence outcomes are candidates or review payloads until an explicit review action writes an accepted binding. Candidates alone never create library-to-library graph edges.
 
 ## Evaluation Metrics
 
@@ -180,4 +181,4 @@ Reference resolution must avoid unbounded `references * registry` fuzzy scans.
 - Diagnostics/review candidates are normally top 3 to top 5 per reference instance.
 - Batch rebuilds report timing by phase: identifier extraction, candidate generation, scoring, materialization, graph invalidation.
 
-If candidate generation exceeds budget, prefer unresolved/suggested candidates over lowering precision.
+If candidate generation exceeds budget, prefer unbound or candidate outcomes over lowering precision.

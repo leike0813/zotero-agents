@@ -1,11 +1,13 @@
-## MODIFIED Requirements
+## Purpose
 
-### Requirement: Maintenance workers respect the Synthesis file boundary
+Synthesis maintenance is explicit and observable; it is not a background worker subsystem.
 
-Synthesis maintenance workers SHALL report progress and durable runtime state through SQLite-backed queues/job state and SHALL NOT write legacy JSON state under `<persistence>/data/synthesis/**`.
+## Requirements
 
-#### Scenario: Worker progress remains visible without data-root files
+### Requirement: Maintenance is explicit operation only
+Synthesis maintenance SHALL run only as explicit user/debug operations or bounded workflow apply sidecar sync.
 
-- **WHEN** an index rebuild or background worker runs
-- **THEN** statusbar/popover progress is available from `synt_job_state`
-- **AND** no data-root Synthesis file is required.
+#### Scenario: Maintenance status is read
+- **WHEN** UI or Host Bridge reads maintenance state
+- **THEN** it SHALL return explicit operation status and cache diagnostics
+- **AND** it SHALL NOT expose background worker queue state.

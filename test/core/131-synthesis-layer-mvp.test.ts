@@ -4,7 +4,6 @@ import os from "os";
 import path from "path";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
-import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
 import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 
@@ -235,11 +234,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const artifactManifest = await service.getPaperArtifactManifest({
       paper_ref: `${alpha.libraryID}:${alpha.key}`,
     });
-    await service.runLiteratureRegistryJobNow();
-    const registry = await service.getPaperRegistry();
-    const reconcile = await service.runSynthesisStartupReconcile({
-      batchLimit: 10,
-    });
+    await service.refreshReferenceSidecarNow();
+    const registry = await service.getReferenceSidecarIndex();
 
     assert.deepEqual(
       index.papers.map((paper) => paper.title),
@@ -274,8 +270,6 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(alphaRow?.artifacts.digest.status, "available");
     assert.equal(alphaRow?.artifacts.references.status, "available");
     assert.equal(alphaRow?.artifacts.citation_analysis.status, "available");
-    assert.equal(reconcile.startup_reconcile.state, "ready");
-    assert.equal(reconcile.startup_reconcile.dirty_count, 0);
   });
 
   it("resolves topic resolvers, reads paper artifacts, and derives citation graph from Zotero notes", async function () {
@@ -328,7 +322,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
       paper_refs: [`${alpha.libraryID}:${alpha.key}`],
       artifact_types: ["references-json", "citation-analysis-json"] as any,
     });
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     const graph = await service.queryCitationGraph();
 
     assert.deepEqual(
@@ -464,39 +459,30 @@ describe("Synthesis Layer MVP real-data closure", function () {
     await service.applyTopicSynthesisResult(
       validBundle("topic-alpha", [paperRef]),
     );
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     const graph = await service.queryCitationGraph();
     const snapshot = await service.getSynthesisSnapshot();
     const reviewInput = await service.getReviewInput({
       topicId: "topic-alpha",
     });
     const mcpResponse: any = await handleZoteroMcpRequestForTests(
-      mcpRequest(1, "synthesis.get_paper_registry"),
+      mcpRequest(1, "synthesis.get_reference_sidecar_index"),
       { resolveSynthesisService: () => service },
     );
-    const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    const citationIndex = JSON.parse(
-      await fs.readFile(
-        path.join(kgPaths.stateRoot, "citation-graph-index.json"),
-        "utf8",
-      ),
-    );
-
     assert.equal(snapshot.artifacts.rows[0].id, "topic-alpha");
     assert.equal(snapshot.registry.rows[0].paper_ref, paperRef);
     assert.equal(reviewInput.topic.topic_id, "topic-alpha");
-    assert.equal(reviewInput.registry_readiness.rows[0].paper_ref, paperRef);
+    assert.equal(
+      reviewInput.registry_artifact_coverage.rows[0].paper_ref,
+      paperRef,
+    );
     assert.equal(
       mcpResponse.result.structuredContent.result.rows[0].paper_ref,
       paperRef,
     );
-    assert.match(citationIndex.graph.graph_hash, /^sha256:/);
     assert.match(graph.graph_hash, /^sha256:/);
-    assert.hasAllKeys(citationIndex.layouts, [
-      "compact",
-      "balanced",
-      "expanded",
-    ]);
+    assert.equal(snapshot.graph.diagnostics.cache_status, "ready");
   });
 
   it("resolves digest representative image data for the topic digest modal", async function () {

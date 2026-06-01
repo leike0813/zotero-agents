@@ -262,7 +262,6 @@ export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
   if (
-    capability === "debug.synthesis.queue.clear" ||
     capability === "debug.synthesis.cleanInstallReset"
   ) {
     return "zotero-ui-required";

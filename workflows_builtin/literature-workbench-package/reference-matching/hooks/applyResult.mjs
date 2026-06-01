@@ -631,6 +631,57 @@ function resolveMatchedItem(candidate, runtime) {
   return null;
 }
 
+function sidecarItemFromMatchedCandidate(candidate, runtime) {
+  const item = resolveMatchedItem(candidate, runtime);
+  if (item) {
+    return {
+      item,
+      libraryId: item.libraryID,
+      itemKey: item.key,
+      itemType: item.itemType,
+      title: getItemField(item, "title") || candidate?.title,
+      date: getItemField(item, "date"),
+      citekey: candidate?.citekey || extractCitekeyFromItem(item),
+    };
+  }
+  const source = candidate?.item;
+  return {
+    libraryId: source?.libraryID || source?.libraryId || source?.library_id,
+    itemKey: source?.key || source?.itemKey || source?.item_key,
+    itemType: source?.itemType || source?.item_type,
+    title: candidate?.title || source?.title,
+    year: candidate?.year || source?.year,
+    creators: candidate?.authors || source?.authors || source?.creators,
+    citekey: candidate?.citekey || source?.citekey || source?.citationKey,
+  };
+}
+
+async function applyReferenceMatchingSidecar(args) {
+  if (!args.parentItem) {
+    return null;
+  }
+  const synthesis = requireHostApi(args.runtime)?.synthesis;
+  if (
+    !synthesis ||
+    typeof synthesis.applyReferenceMatchingSidecar !== "function"
+  ) {
+    return null;
+  }
+  return synthesis.applyReferenceMatchingSidecar({
+    parentItem: args.parentItem,
+    noteItem: args.noteItem,
+    references: args.references,
+    matchedItems: args.matchedCandidates.map((candidate) =>
+      sidecarItemFromMatchedCandidate(candidate, args.runtime),
+    ),
+    basis: args.basis,
+    source: {
+      workflow: "reference-matching",
+      data_source: args.dataSource,
+    },
+  });
+}
+
 async function syncParentRelatedItems({
   parentItem,
   matchedCandidates,
@@ -676,28 +727,6 @@ async function syncParentRelatedItems({
     existing,
     skipped: unresolved,
   };
-}
-
-async function recordSynthesisReferenceMatchingEvent(args) {
-  try {
-    const service = requireHostApi(args.runtime)?.synthesis;
-    const record = service?.recordSynthesisUpdateEvent;
-    if (typeof record !== "function") {
-      return;
-    }
-    const itemKey = String(args.parentItem?.key || "").trim();
-    if (!itemKey) {
-      return;
-    }
-    await record({
-      eventType: "reference_matching_applied",
-      source: "reference-matching.applyResult",
-      scope: { kind: "zotero_item", ref: itemKey },
-      sourceHash: `${args.matched || 0}:${args.total || 0}`,
-    });
-  } catch {
-    // Synthesis maintenance hints must not affect reference matching apply.
-  }
 }
 
 export async function applyResultImpl({ runResult, runtime, manifest }) {
@@ -802,16 +831,19 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
     matchedCandidates,
     runtime,
   });
+  const sidecarApply = await applyReferenceMatchingSidecar({
+    runtime,
+    parentItem,
+    noteItem,
+    references: nextReferences,
+    matchedCandidates,
+    basis: nextPayload.reference_matching,
+    dataSource,
+  });
 
   const matched = nextReferences.filter((entry) =>
     String(entry?.citekey || "").trim(),
   ).length;
-  await recordSynthesisReferenceMatchingEvent({
-    runtime,
-    parentItem,
-    matched,
-    total: nextReferences.length,
-  });
   return {
     updated: 1,
     matched,
@@ -819,6 +851,7 @@ export async function applyResultImpl({ runResult, runtime, manifest }) {
     related_added: related.added,
     related_existing: related.existing,
     related_skipped: related.skipped,
+    sidecar_apply: sidecarApply,
   };
 }
 

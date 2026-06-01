@@ -1,143 +1,63 @@
-schema: synthesis.states_and_events.v2
-description: Stable state machine, sequence, and event IDs for Synthesis docs, tests, and debug output.
+schema: synthesis.states_and_events.v3
+description: Active state machine, sequence, and event IDs for the hard-cut Synthesis sidecar model.
 
 state_machines:
-  - id: sm.identity.literature_item
-    owner: registry_identity_service
-    object: literature_item
-    states:
-      - active
-      - merged
-      - tombstoned
-      - needs_attention
+  - id: sm.reference.canonical
+    owner: reference_sidecar_service
+    object: canonical_reference
+    states: [active, merged, deprecated, needs_attention]
     transitions:
-      - from: active
-        to: needs_attention
-      - from: active
-        to: merged
-      - from: active
-        to: tombstoned
-      - from: merged
-        to: active
-      - from: merged
-        to: tombstoned
-      - from: tombstoned
-        to: needs_attention
-      - from: needs_attention
-        to: active
-      - from: needs_attention
-        to: tombstoned
+      - { from: active, to: needs_attention }
+      - { from: active, to: merged }
+      - { from: active, to: deprecated }
+      - { from: merged, to: active }
+      - { from: deprecated, to: active }
+      - { from: needs_attention, to: active }
+      - { from: needs_attention, to: merged }
+      - { from: needs_attention, to: deprecated }
     forbidden_transitions:
-      - from: tombstoned
-        to: active
-        reason: reconcile_alone_must_not_restore_user_confirmed_drop
+      - from: active
+        to: deleted_by_refresh
+        reason: active_raw_or_durable_binding_requires_preservation
       - from: merged
         to: active
-        reason: redirect_retarget_decision_required
+        reason: explicit_split_retarget_or_import_policy_required
 
-  - id: sm.identity.zotero_binding
-    owner: registry_identity_service
-    object: zotero_binding
-    states:
-      - active
-      - missing_in_zotero
-      - deleted_confirmed
-      - merged
-      - ignored
+  - id: sm.reference.binding
+    owner: reference_binding_review
+    object: reference_binding
+    states: [candidate, accepted, rejected, stale_target]
     transitions:
-      - from: active
-        to: missing_in_zotero
-      - from: missing_in_zotero
-        to: active
-      - from: missing_in_zotero
-        to: deleted_confirmed
-      - from: active
-        to: merged
-      - from: merged
-        to: active
-      - from: active
-        to: ignored
-      - from: ignored
-        to: active
+      - { from: candidate, to: accepted }
+      - { from: candidate, to: rejected }
+      - { from: accepted, to: rejected }
+      - { from: accepted, to: stale_target }
+      - { from: stale_target, to: accepted }
+      - { from: rejected, to: candidate }
     forbidden_transitions:
-      - from: deleted_confirmed
-        to: active
-        reason: explicit_restore_or_import_policy_required
-      - from: merged
-        to: active
-        reason: explicit_restore_required
-
-  - id: sm.reference.resolution
-    owner: reference_resolution_service
-    object: reference_resolution
-    states:
-      - unresolved
-      - suggested
-      - ambiguous
-      - matched_auto
-      - matched_confirmed
-      - rejected
-      - needs_attention
-      - superseded
-    transitions:
-      - from: unresolved
-        to: suggested
-      - from: unresolved
-        to: ambiguous
-      - from: unresolved
-        to: matched_auto
-      - from: suggested
-        to: matched_confirmed
-      - from: suggested
-        to: rejected
-      - from: suggested
-        to: unresolved
-      - from: ambiguous
-        to: matched_confirmed
-      - from: ambiguous
-        to: rejected
-      - from: matched_auto
-        to: matched_confirmed
-      - from: matched_auto
-        to: needs_attention
-      - from: matched_confirmed
-        to: needs_attention
-      - from: matched_confirmed
-        to: superseded
-      - from: rejected
-        to: unresolved
-      - from: needs_attention
-        to: matched_confirmed
-      - from: needs_attention
-        to: rejected
-    forbidden_transitions:
-      - from: suggested
-        to: matched_auto
-        reason: weak_candidates_do_not_become_auto_matches
-      - from: ambiguous
-        to: matched_auto
-        reason: ambiguity_requires_review
+      - from: accepted
+        to: deleted_by_refresh
+        reason: refresh_must_not_delete_accepted_binding
+      - from: candidate
+        to: accepted
+        reason: weak_candidates_require_review_or_deterministic_policy
+      - from: accepted
+        to: topic_source_changed
+        reason: binding_cache_is_not_topic_freshness
 
   - id: sm.topic.discovery_hint
     owner: topic_discovery_service
     object: topic_discovery_hint
-    states:
-      - open
-      - rejected
-      - superseded
+    states: [open, rejected, superseded]
     transitions:
-      - from: open
-        to: rejected
-      - from: rejected
-        to: open
-      - from: open
-        to: superseded
-      - from: rejected
-        to: superseded
+      - { from: open, to: rejected }
+      - { from: rejected, to: open }
+      - { from: open, to: superseded }
+      - { from: rejected, to: superseded }
     forbidden_transitions:
       - from: rejected
         to: open
-        reason: digest_rerun_metadata_hash_drift_or_registry_rebuild_must_not_reopen
+        reason: digest_rerun_metadata_hash_drift_or_cache_refresh_must_not_reopen
       - from: open
         to: source_check_changed
         reason: discovery_is_not_freshness
@@ -145,34 +65,18 @@ state_machines:
   - id: sm.review.item
     owner: domain_services
     object: review_item
-    states:
-      - open
-      - deferred
-      - resolved
-      - rejected
-      - blocked_by_upstream_review
-      - superseded
+    states: [open, deferred, resolved, rejected, blocked_by_upstream_review, superseded]
     transitions:
-      - from: open
-        to: deferred
-      - from: open
-        to: resolved
-      - from: open
-        to: rejected
-      - from: open
-        to: blocked_by_upstream_review
-      - from: deferred
-        to: open
-      - from: blocked_by_upstream_review
-        to: open
-      - from: open
-        to: superseded
-      - from: deferred
-        to: superseded
-      - from: resolved
-        to: superseded
-      - from: rejected
-        to: superseded
+      - { from: open, to: deferred }
+      - { from: open, to: resolved }
+      - { from: open, to: rejected }
+      - { from: open, to: blocked_by_upstream_review }
+      - { from: deferred, to: open }
+      - { from: blocked_by_upstream_review, to: open }
+      - { from: open, to: superseded }
+      - { from: deferred, to: superseded }
+      - { from: resolved, to: superseded }
+      - { from: rejected, to: superseded }
     forbidden_transitions:
       - from: resolved
         to: open
@@ -183,307 +87,119 @@ state_machines:
 
   - id: sm.override.durable_effect
     owner: domain_services
-    object: durable_effect
-    states:
-      - active
-      - preserved
-      - needs_attention
-      - revoked
-      - orphaned
+    object: durable_user_decision
+    states: [active, preserved, needs_attention, revoked, orphaned]
     transitions:
-      - from: active
-        to: preserved
-      - from: preserved
-        to: active
-      - from: active
-        to: needs_attention
-      - from: needs_attention
-        to: active
-      - from: needs_attention
-        to: revoked
-      - from: active
-        to: revoked
-      - from: active
-        to: orphaned
+      - { from: active, to: preserved }
+      - { from: preserved, to: active }
+      - { from: active, to: needs_attention }
+      - { from: needs_attention, to: active }
+      - { from: needs_attention, to: revoked }
+      - { from: active, to: revoked }
+      - { from: active, to: orphaned }
     forbidden_transitions:
       - from: active
         to: revoked
-        reason: ordinary_digest_metadata_change_must_not_revoke
+        reason: cache_refresh_must_not_revoke_user_decision
       - from: preserved
         to: revoked
-        reason: user_reset_import_or_explicit_action_required
+        reason: explicit_user_reset_import_or_action_required
 
-  - id: sm.queue.dirty_event
-    owner: runtime_queue
-    object: dirty_event
-    states:
-      - queued
-      - running
-      - paused
-      - retryable
-      - failed
-      - completed
-      - superseded
-      - cleared
+  - id: sm.cache.projection
+    owner: sidecar_cache_service
+    object: cache_projection
+    runtime_source: synt_cache_basis
+    states: [missing, refreshing, ready, stale, failed]
     transitions:
-      - from: queued
-        to: running
-      - from: queued
-        to: paused
-      - from: paused
-        to: queued
-      - from: queued
-        to: superseded
-      - from: running
-        to: completed
-      - from: running
-        to: retryable
-      - from: running
-        to: failed
-      - from: running
-        to: superseded
-      - from: retryable
-        to: queued
-      - from: queued
-        to: cleared
-      - from: retryable
-        to: cleared
+      - { from: missing, to: refreshing }
+      - { from: stale, to: refreshing }
+      - { from: refreshing, to: ready }
+      - { from: refreshing, to: failed }
+      - { from: ready, to: stale }
+      - { from: failed, to: refreshing }
+      - { from: stale, to: missing }
     forbidden_transitions:
-      - from: completed
-        to: queued
-        reason: create_new_event_instead
-      - from: running
-        to: active_after_startup
-        reason: previous_session_running_rows_must_be_recovered
+      - from: stale
+        to: topic_source_changed
+        reason: cache_freshness_is_not_topic_freshness
+      - from: missing
+        to: block_literature_digest
+        reason: cache_projection_is_not_required_for_core_digest_workflow
+      - from: refreshing
+        to: mutate_zotero_library_metadata
+        reason: sidecar_cache_refresh_must_not_rewrite_library_facts
 
-  - id: sm.job.progress
-    owner: runtime_workers
-    object: job_progress
-    states:
-      - submitted
-      - queued
-      - running
-      - waiting
-      - completed
-      - retryable
-      - failed
-      - superseded
-      - archived
+  - id: sm.operation.explicit
+    owner: explicit_operation_service
+    object: explicit_operation
+    runtime_source: synt_operation
+    states: [submitted, running, waiting, completed, failed, cancelled, archived]
     transitions:
+      - { from: submitted, to: running }
+      - { from: running, to: waiting }
+      - { from: waiting, to: running }
+      - { from: running, to: completed }
+      - { from: running, to: failed }
+      - { from: running, to: cancelled }
+      - { from: failed, to: running }
+      - { from: completed, to: archived }
+      - { from: failed, to: archived }
+      - { from: cancelled, to: archived }
+    forbidden_transitions:
       - from: submitted
-        to: queued
-      - from: queued
-        to: running
-      - from: running
-        to: waiting
+        to: claimed_by_worker
+        reason: operations_are_not_work_queue_items
       - from: waiting
-        to: running
-      - from: running
-        to: completed
-      - from: running
-        to: retryable
-      - from: running
-        to: failed
-      - from: queued
-        to: superseded
-      - from: running
-        to: superseded
-      - from: retryable
-        to: queued
-      - from: completed
-        to: archived
+        to: running_by_global_drain
+        reason: continuation_requires_explicit_operation_control
+      - from: submitted
+        to: replayed_on_startup
+        reason: startup_must_not_resume_hidden_work
       - from: failed
-        to: archived
-      - from: superseded
-        to: archived
-    forbidden_transitions:
-      - from: running
-        to: active_after_startup
-        reason: startup_cleanup_required
-      - from: running
-        to: fake_percent
-        reason: determinate_progress_requires_real_count_or_phase
-
-  - id: sm.rebuild.registry_run
-    owner: registry_rebuild_service
-    object: registry_rebuild_run
-    states:
-      - staging
-      - validating
-      - promoting
-      - promoted
-      - failed
-      - rollback_available
-      - rolled_back
-      - abandoned
-    transitions:
-      - from: staging
-        to: validating
-      - from: validating
-        to: promoting
-      - from: promoting
-        to: promoted
-      - from: staging
-        to: failed
-      - from: validating
-        to: failed
-      - from: promoting
-        to: rollback_available
-      - from: promoted
-        to: rollback_available
-      - from: rollback_available
-        to: rolled_back
-      - from: failed
-        to: abandoned
-    forbidden_transitions:
-      - from: staging
-        to: promoted
-        reason: validation_and_promotion_required
-      - from: validating
-        to: active_epoch
-        reason: epoch_advances_only_after_promotion
+        to: cache_readiness
+        reason: terminal_operations_are_not_data_readiness
 
   - id: sm.topic.source_check
-    owner: topic_source_check_worker
+    owner: topic_source_check_service
     object: topic_source_check_diagnostic
-    states:
-      - not_checked
-      - running
-      - fresh
-      - changed
-      - missing_source
-      - error
-      - superseded
-      - cleared
+    states: [not_checked, running, fresh, changed, missing_source, error, superseded, cleared]
     transitions:
-      - from: not_checked
-        to: running
-      - from: fresh
-        to: running
-      - from: changed
-        to: running
-      - from: missing_source
-        to: running
-      - from: running
-        to: fresh
-      - from: running
-        to: changed
-      - from: running
-        to: missing_source
-      - from: running
-        to: error
-      - from: error
-        to: running
-      - from: fresh
-        to: superseded
-      - from: changed
-        to: superseded
-      - from: missing_source
-        to: superseded
-      - from: error
-        to: superseded
-      - from: fresh
-        to: cleared
-      - from: changed
-        to: cleared
-      - from: missing_source
-        to: cleared
-      - from: error
-        to: cleared
+      - { from: not_checked, to: running }
+      - { from: fresh, to: running }
+      - { from: changed, to: running }
+      - { from: missing_source, to: running }
+      - { from: running, to: fresh }
+      - { from: running, to: changed }
+      - { from: running, to: missing_source }
+      - { from: running, to: error }
+      - { from: error, to: running }
+      - { from: fresh, to: superseded }
+      - { from: changed, to: superseded }
+      - { from: missing_source, to: superseded }
+      - { from: error, to: superseded }
+      - { from: fresh, to: cleared }
+      - { from: changed, to: cleared }
+      - { from: missing_source, to: cleared }
+      - { from: error, to: cleared }
     forbidden_transitions:
-      - from: registry_dirty_event
+      - from: cache_refresh
         to: running
-        reason: source_check_requires_explicit_request
+        reason: source_check_requires_explicit_topic_request
       - from: discovery_hint
         to: changed
         reason: discovery_is_not_source_check
 
-  - id: sm.graph.layout
-    owner: graph_layout_worker
-    object: citation_graph_layout
-    states:
-      - missing
-      - running
-      - ready
-      - stale
-      - failed
-    transitions:
-      - from: missing
-        to: running
-      - from: running
-        to: ready
-      - from: running
-        to: failed
-      - from: ready
-        to: stale
-      - from: stale
-        to: running
-      - from: failed
-        to: running
-    forbidden_transitions:
-      - from: missing
-        to: graph_not_drawn
-        reason: graph_structure_can_render_while_layout_refreshes
-      - from: hover_only_external_changed
-        to: full_layout_required
-        reason: hover_only_nodes_use_local_placement
-
-  - id: sm.external_source.drift_incident
-    owner: startup_reconcile
-    object: external_source_drift_incident
-    states:
-      - none
-      - small
-      - bulk
-      - structural
-      - repair_required
-      - resolved
-    transitions:
-      - from: none
-        to: small
-      - from: none
-        to: bulk
-      - from: none
-        to: structural
-      - from: small
-        to: resolved
-      - from: bulk
-        to: repair_required
-      - from: structural
-        to: repair_required
-      - from: repair_required
-        to: resolved
-    forbidden_transitions:
-      - from: bulk
-        to: per_item_fanout
-        reason: bounded_incident_required
-      - from: structural
-        to: small
-        reason: explicit_inspection_required
-
   - id: sm.import.lifecycle
     owner: import_export_service
     object: import_run
-    states:
-      - previewing
-      - preview_ready
-      - applying
-      - applied
-      - failed
-      - cancelled
+    states: [previewing, preview_ready, applying, applied, failed, cancelled]
     transitions:
-      - from: previewing
-        to: preview_ready
-      - from: preview_ready
-        to: applying
-      - from: preview_ready
-        to: cancelled
-      - from: applying
-        to: applied
-      - from: applying
-        to: failed
-      - from: failed
-        to: previewing
+      - { from: previewing, to: preview_ready }
+      - { from: preview_ready, to: applying }
+      - { from: preview_ready, to: cancelled }
+      - { from: applying, to: applied }
+      - { from: applying, to: failed }
+      - { from: failed, to: previewing }
     forbidden_transitions:
       - from: previewing
         to: applying
@@ -493,42 +209,38 @@ state_machines:
         reason: import_must_write_through_repository_apis
 
 sequences:
-  - id: seq.registry.incremental_item_update
-    owner: registry_cache
-    trigger: registry_item_reindex
-    output: registry_facts_and_optional_graph_dirty_event
+  - id: seq.sidecar.digest_apply_sync
+    owner: sidecar_cache_service
+    trigger: literature_digest_apply_succeeded
+    output: scoped_artifact_reference_and_matching_projection
+  - id: seq.topic.source_check
+    owner: topic_source_check_service
+    trigger: topic_source_check_requested
+    output: source_check_diagnostic
+  - id: seq.reference.binding_review
+    owner: reference_binding_review
+    trigger: reference_binding_review_requested
+    output: approved_or_rejected_binding_decisions
+  - id: seq.reference.sidecar_refresh
+    owner: reference_sidecar_service
+    trigger: reference_sidecar_refresh_requested
+    output: reference_sidecar_ready_and_citation_graph_stale_cache_basis
+  - id: seq.graph.cache_rebuild
+    owner: citation_graph_cache
+    trigger: graph_cache_rebuild_requested
+    output: refreshed_graph_projection_and_ready_cache_basis
+  - id: seq.graph.layout_rebuild
+    owner: citation_graph_layout
+    trigger: graph_layout_rebuild_requested
+    output: refreshed_layout_for_existing_graph_hash
   - id: seq.discovery.digest_apply_match
     owner: topic_discovery_service
     trigger: digest_applied
     output: bounded_topic_discovery_hints
-  - id: seq.registry.staged_full_rebuild
-    owner: registry_rebuild_service
-    trigger: registry_rebuild_requested
-    output: promoted_registry_epoch_or_failed_candidate
-  - id: seq.startup.external_source_reconcile
-    owner: startup_reconcile
-    trigger: plugin_startup
-    output: bounded_dirty_events_or_drift_incident
-  - id: seq.review.apply_action
-    owner: domain_services
-    trigger: user_review_action_applied
-    output: core_fact_commit_and_cascade_dirty_event
   - id: seq.graph.related_items_sync
-    owner: citation_graph
-    trigger: citation_related_items_sync
+    owner: related_items_sync_operation
+    trigger: related_items_sync_requested
     output: zotero_related_items_sync_summary
-  - id: seq.worker.interrupted_run_recovery
-    owner: runtime_workers
-    trigger: plugin_startup
-    output: recovered_dirty_events_and_jobs
-  - id: seq.topic.source_check
-    owner: topic_source_check_worker
-    trigger: topic_source_check_requested
-    output: source_check_diagnostic
-  - id: seq.reset.clean_install
-    owner: synthesis_service
-    trigger: synthesis_clean_install_reset_requested
-    output: empty_synthesis_runtime_state
   - id: seq.import.preview_apply
     owner: import_export_service
     trigger: import_preview_or_apply_requested
@@ -536,36 +248,36 @@ sequences:
 
 events:
   source:
-    - zotero_item_changed
-    - zotero_item_deleted
-    - zotero_item_merged
     - digest_applied
     - topic_artifact_applied
     - user_review_action_applied
-    - external_source_drift_detected
-    - registry_rebuild_requested
-    - registry_rollback_requested
-    - graph_rebuild_requested
-    - zotero_related_items_sync_echo
+    - graph_cache_rebuild_requested
+    - graph_layout_rebuild_requested
+    - reference_binding_review_requested
+    - reference_sidecar_refresh_requested
+    - sidecar_cache_refresh_requested
+    - sidecar_cache_repair_requested
+    - related_items_sync_requested
     - import_preview_requested
     - import_apply_requested
     - synthesis_reset_requested
     - synthesis_clean_install_reset_requested
-  dirty:
-    - registry_item_reindex
-    - registry_full_rebuild
-    - citation_reference_resolution
-    - citation_graph_structure
-    - citation_graph_metrics
-    - citation_graph_layout
-    - citation_related_items_sync
+  operation:
+    - sidecar_artifact_cache_sync
+    - reference_binding_review
+    - reference_sidecar_refresh
+    - graph_cache_rebuild
+    - graph_layout_rebuild
+    - related_items_sync
     - topic_source_check
     - topic_discovery_apply
-    - review_cascade_maintenance
+    - import_preview
+    - import_apply
+    - sidecar_reset
   progress:
-    - job_started
-    - job_progress
-    - job_completed
-    - job_failed
-    - job_cleared
-    - source_drift_incident_recorded
+    - operation_started
+    - operation_progress
+    - operation_waiting
+    - operation_completed
+    - operation_failed
+    - operation_cancelled

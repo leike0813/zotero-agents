@@ -5,9 +5,9 @@ TBD - created by archiving change complete-synthesis-layer-mvp. Update Purpose a
 ## Requirements
 ### Requirement: Synthesis service uses real personal-library data by default
 
-The default Synthesis service SHALL build its library index, paper registry, and
-citation graph projections from Zotero personal-library metadata and derived
-artifact notes.
+The default Synthesis service SHALL build its library index, Reference Sidecar
+Index, and citation graph cache from Zotero personal-library metadata, sidecar
+rows, and derived artifact notes.
 
 #### Scenario: Personal library contains papers
 
@@ -15,7 +15,7 @@ artifact notes.
   child notes
 - **THEN** `getLibraryIndex()` SHALL return bounded paper, tag, and collection
   summaries
-- **AND** `getPaperRegistry()` SHALL return rows for those papers.
+- **AND** `getReferenceSidecarIndex()` SHALL return rows for those papers.
 
 ### Requirement: Resolver execution is deterministic
 
@@ -26,7 +26,7 @@ expose a separate `synthesis.validate_resolver` MCP tool.
 #### Scenario: Tag query includes and excludes papers
 
 - **WHEN** a resolver uses `and`, `or`, or `not` tag clauses
-- **THEN** matching SHALL be evaluated against registry row tags.
+- **THEN** matching SHALL be evaluated against current source tags.
 
 #### Scenario: Mixed resolver excludes papers
 
@@ -53,14 +53,15 @@ artifact note markers.
 
 #### Scenario: Reference payload exists
 
-- **WHEN** a registry row records an available `references` artifact
+- **WHEN** a Reference Sidecar row records an available `references` artifact
 - **THEN** `readPaperArtifacts()` SHALL return the decoded payload, note key,
   artifact hash, and diagnostics.
 
-### Requirement: Citation graph projection is derived from registry inputs
+### Requirement: Citation graph cache is derived from sidecar inputs
 
-Unified Citation Graph SHALL be built from Zotero paper metadata and
-reference/citation-analysis payloads using deterministic plugin code.
+Unified Citation Graph SHALL be built from active raw references, effective
+canonical references, explicit bindings, and bounded direct Zotero checks using
+deterministic plugin code.
 
 #### Scenario: Reference matches a library paper
 

@@ -55,7 +55,7 @@ and optimistic base-hash checks.
 
 ### Requirement: Foundation scope excludes later Synthesis Layer phases
 
-The foundation change SHALL NOT implement Paper Registry, Unified Citation Graph,
+The foundation change SHALL NOT implement Reference Sidecar Index, Unified Citation Graph,
 Synthesis MCP tools, ACP Skills synthesis workflow, or Synthesis UI.
 
 #### Scenario: Foundation is reviewed
@@ -203,4 +203,3 @@ persistence.
   source
 - **AND** the plugin runtime SHALL NOT expose mirror rebuild/recovery as the
   primary sync mechanism.
-

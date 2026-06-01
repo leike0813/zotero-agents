@@ -17,7 +17,6 @@ import {
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
 } from "./synthesis/uiModel";
-import type { LiteratureRegistryCleanupAction } from "./synthesis/literatureRegistry";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -69,6 +68,8 @@ type SynthesisWorkbenchRuntime = {
   frameWindow: Window | null;
   removeMessageListener?: () => void;
   handshakeTimer?: ReturnType<typeof setInterval>;
+  commandProgressTimer?: ReturnType<typeof setInterval>;
+  commandProgressSnapshotRunning?: boolean;
   handshakeAttemptCount: number;
   handshakeSuccessCount: number;
   handshakeComplete: boolean;
@@ -87,6 +88,7 @@ const SYNTHESIS_WORKBENCH_EMBEDDED_ID =
 const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
+const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
 let prewarmedSynthesisSnapshotInput: SynthesisUiSnapshotInput | undefined;
@@ -115,20 +117,6 @@ function resolveSynthesisPageUrl() {
     return "about:blank";
   }
   return `chrome://${addonRef}/content/synthesis/index.html?ui=20260520-controls-v5`;
-}
-
-function isLiteratureCleanupAction(
-  action: string,
-): action is LiteratureRegistryCleanupAction {
-  return (
-    action === "confirm_literature_item" ||
-    action === "match_existing_literature_item" ||
-    action === "ignore_reference_instance" ||
-    action === "defer_reference_resolution" ||
-    action === "confirm_delete_item" ||
-    action === "mark_as_dedupe_merge" ||
-    action === "keep_for_now"
-  );
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -319,6 +307,48 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
   };
 }
 
+function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
+  const fallback = buildDefaultSnapshotInput();
+  const message =
+    error instanceof Error ? error.message : String(error || "unknown error");
+  return {
+    ...fallback,
+    sync: {
+      status: "check_skipped",
+      diagnostics: [
+        {
+          code: "synthesis_snapshot_failed",
+          severity: "error",
+          message,
+        },
+      ],
+      allowedActions: [],
+      requiresConfirmation: false,
+    },
+    maintenance: {
+      summary: {
+        status: "failed",
+        pendingDirtyCount: 0,
+        activeWorkerCount: 0,
+        canonicalSyncPending: false,
+        canonicalEpoch: 0,
+        stale: [],
+        missing: ["reference-sidecar:library", "citation-graph:library"],
+        partial: [],
+        recommendedCommands: [],
+        diagnostics: [
+          {
+            code: "synthesis_snapshot_failed",
+            severity: "error",
+            message,
+          },
+        ],
+      },
+      backgroundJobs: [],
+    },
+  };
+}
+
 function findCreateTopicSynthesisWorkflow() {
   return (
     getLoadedWorkflowEntries().find(
@@ -460,12 +490,74 @@ function recordDuplicateActionWarning(
   runtime.actionWarnings = runtime.actionWarnings.slice(-6);
 }
 
+function ensureCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
+  if (runtime.commandProgressTimer) {
+    return;
+  }
+  runtime.commandProgressTimer = globalThis.setInterval(() => {
+    if (!runtime.inFlightCommands.size) {
+      clearCommandProgressPolling(runtime);
+      return;
+    }
+    void refreshWorkbenchCommandProgress(runtime);
+  }, SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS);
+}
+
+function clearCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
+  if (!runtime.commandProgressTimer) {
+    return;
+  }
+  globalThis.clearInterval(runtime.commandProgressTimer);
+  runtime.commandProgressTimer = undefined;
+}
+
+async function notifyWorkbenchCommandProgress(
+  runtime: SynthesisWorkbenchRuntime,
+) {
+  await refreshWorkbenchCommandProgress(runtime);
+}
+
+async function refreshWorkbenchCommandProgress(
+  runtime: SynthesisWorkbenchRuntime,
+) {
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  if (runtime.commandProgressSnapshotRunning) {
+    return;
+  }
+  runtime.commandProgressSnapshotRunning = true;
+  try {
+    if (!runtime.snapshotInputLocked) {
+      const base = runtime.snapshotInput || buildDefaultSnapshotInput();
+      runtime.snapshotInput = {
+        ...base,
+        maintenance: {
+          ...(base.maintenance || {}),
+          backgroundJobs:
+            getDefaultSynthesisService().getSynthesisBackgroundJobRows(),
+        },
+      };
+      prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
+    }
+    await sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
+    });
+  } catch {
+    await sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
+    });
+  } finally {
+    runtime.commandProgressSnapshotRunning = false;
+  }
+}
+
 function runWorkbenchCommandOnce(
   runtime: SynthesisWorkbenchRuntime,
   command: SynthesisUiActionOperation["command"],
   args: Record<string, unknown>,
   run: () => Promise<unknown>,
-  options: { refreshFromService?: boolean } = {},
+  options: { refreshFromService?: boolean; deferStart?: boolean } = {},
 ) {
   const operation = operationForHostCommand(command, args, "running");
   if (runtime.inFlightCommands.has(operation.key)) {
@@ -479,34 +571,44 @@ function runWorkbenchCommandOnce(
   void sendSnapshot(runtime, "synthesis:snapshot", {
     refreshFromService: false,
   });
-  void run()
-    .then(() => {
-      runtime.lastCompletedCommand = {
-        ...operation,
-        status: "completed",
-        completed_at: new Date().toISOString(),
-      };
-      runtime.lastFailedCommand = undefined;
-    })
-    .catch((error) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : String(error || "unknown error");
-      runtime.lastFailedCommand = {
-        ...operation,
-        status: "failed",
-        completed_at: new Date().toISOString(),
-        message,
-      };
-      reportWorkbenchError(error, runtime.window);
-    })
-    .finally(() => {
-      runtime.inFlightCommands.delete(operation.key);
-      void sendSnapshot(runtime, "synthesis:snapshot", {
-        refreshFromService: options.refreshFromService !== false,
+  ensureCommandProgressPolling(runtime);
+  const start = () =>
+    run()
+      .then(() => {
+        runtime.lastCompletedCommand = {
+          ...operation,
+          status: "completed",
+          completed_at: new Date().toISOString(),
+        };
+        runtime.lastFailedCommand = undefined;
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : String(error || "unknown error");
+        runtime.lastFailedCommand = {
+          ...operation,
+          status: "failed",
+          completed_at: new Date().toISOString(),
+          message,
+        };
+        reportWorkbenchError(error, runtime.window);
+      })
+      .finally(() => {
+        runtime.inFlightCommands.delete(operation.key);
+        if (!runtime.inFlightCommands.size) {
+          clearCommandProgressPolling(runtime);
+        }
+        void sendSnapshot(runtime, "synthesis:snapshot", {
+          refreshFromService: options.refreshFromService !== false,
+        });
       });
-    });
+  if (options.deferStart) {
+    globalThis.setTimeout(() => void start(), 0);
+    return;
+  }
+  void start();
 }
 
 function failOnDiagnostic<T>(result: T): T {
@@ -539,7 +641,7 @@ async function sendSnapshot(
   if (shouldRefresh && !runtime.snapshotInputLocked) {
     runtime.snapshotInput = await getDefaultSynthesisService()
       .getSynthesisSnapshotInput(runtime.state)
-      .catch(() => buildDefaultSnapshotInput());
+      .catch((error) => buildSnapshotErrorInput(error));
     prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
   }
   const snapshot = buildSynthesisUiSnapshot(
@@ -667,6 +769,29 @@ function confirmWorkbenchAction(
   return typeof globalConfirm === "function" ? globalConfirm(message) : true;
 }
 
+function isProtectedRebuildCommand(
+  command: SynthesisUiActionOperation["command"] | undefined,
+) {
+  return (
+    command === "refreshReferenceSidecarNow" ||
+    command === "rebuildCitationGraphCacheNow" ||
+    command === "rebuildTagVocabularyIndex" ||
+    command === "rebuildConceptKbIndex" ||
+    command === "rebuildTopicGraphIndex"
+  );
+}
+
+function confirmProtectedRebuildCommand(
+  command: SynthesisUiActionOperation["command"],
+  win?: _ZoteroTypes.MainWindow,
+) {
+  const label = getSynthesisUiOperationLabel(command);
+  return confirmWorkbenchAction(
+    `${label} will rebuild local Synthesis indexes. Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted. Continue?`,
+    win,
+  );
+}
+
 function handleAction(
   runtime: SynthesisWorkbenchRuntime,
   envelope: SynthesisWorkbenchActionEnvelope,
@@ -688,6 +813,16 @@ function handleAction(
   if (envelope.action === "ready" || envelope.action === "refresh") {
     void sendSnapshot(runtime, "synthesis:snapshot", {
       refreshFromService: true,
+    });
+    return;
+  }
+  if (
+    result.hostCommand &&
+    isProtectedRebuildCommand(result.hostCommand.command) &&
+    !confirmProtectedRebuildCommand(result.hostCommand.command, runtime.window)
+  ) {
+    void sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
     });
     return;
   }
@@ -727,10 +862,36 @@ function handleAction(
       String(commandArgs.preset || runtime.state.graph.layoutPreset).trim() ||
       runtime.state.graph.layoutPreset;
     runWorkbenchCommandOnce(runtime, "manualRecomputeLayout", { preset }, () =>
-      getDefaultSynthesisService().runCitationGraphLayoutWorker({
+      getDefaultSynthesisService().recomputeCitationGraphLayout({
         preset: preset as SynthesisUiLayoutPreset,
         force: true,
       }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "rebuildCitationGraphCacheNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "rebuildCitationGraphCacheNow",
+      {},
+      () =>
+        getDefaultSynthesisService().rebuildCitationGraphCacheNow({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryCitationGraphCacheRebuild") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "retryCitationGraphCacheRebuild",
+      {},
+      () =>
+        getDefaultSynthesisService().retryCitationGraphCacheRebuild({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
     );
     return;
   }
@@ -741,14 +902,41 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "rebuildTagVocabularyIndex") {
-    runWorkbenchCommandOnce(runtime, "rebuildTagVocabularyIndex", {}, () =>
-      getDefaultSynthesisService().rebuildTagVocabularyIndex(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "rebuildTagVocabularyIndex",
+      {},
+      () =>
+        getDefaultSynthesisService().rebuildTagVocabularyIndex({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "rebuildConceptKbIndex") {
-    runWorkbenchCommandOnce(runtime, "rebuildConceptKbIndex", {}, () =>
-      getDefaultSynthesisService().rebuildConceptKbIndex(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "rebuildConceptKbIndex",
+      {},
+      () =>
+        getDefaultSynthesisService().rebuildConceptKbIndex({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "rebuildTopicGraphIndex") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "rebuildTopicGraphIndex",
+      {},
+      () =>
+        getDefaultSynthesisService().rebuildTopicGraphIndex({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
     );
     return;
   }
@@ -791,6 +979,26 @@ function handleAction(
           })
           .then(failOnDiagnostic),
     );
+    return;
+  }
+  if (
+    result.hostCommand?.command === "rejectTopicDiscoveryHint" ||
+    result.hostCommand?.command === "restoreTopicDiscoveryHint"
+  ) {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const hintId = String(commandArgs.hintId || "").trim();
+    if (hintId) {
+      const service = getDefaultSynthesisService();
+      const command = result.hostCommand.command;
+      runWorkbenchCommandOnce(runtime, command, { hintId }, () =>
+        (command === "rejectTopicDiscoveryHint"
+          ? service.rejectTopicDiscoveryHint({ hintId })
+          : service.restoreTopicDiscoveryHint({ hintId })
+        ).then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
     return;
   }
   if (result.hostCommand?.command === "updateConceptDisplayText") {
@@ -845,41 +1053,22 @@ function handleAction(
     void sendSnapshot(runtime, "synthesis:snapshot");
     return;
   }
-  if (result.hostCommand?.command === "applyLiteratureCleanupAction") {
-    const commandArgs = commandArgsFromPayload(envelope.payload);
-    const proposalId = String(commandArgs.proposalId || "").trim();
-    const action = String(commandArgs.action || "").trim();
-    const targetPaperRef = String(commandArgs.targetPaperRef || "").trim();
-    const targetLiteratureItemId = String(
-      commandArgs.targetLiteratureItemId || "",
-    ).trim();
-    if (proposalId && isLiteratureCleanupAction(action)) {
-      runWorkbenchCommandOnce(
-        runtime,
-        "applyLiteratureCleanupAction",
-        { proposalId, action, targetPaperRef, targetLiteratureItemId },
-        () =>
-          getDefaultSynthesisService().applyCleanupProposalAction({
-            proposalId,
-            action,
-            targetPaperRef: targetPaperRef || undefined,
-            targetLiteratureItemId: targetLiteratureItemId || undefined,
-          }),
-      );
-      return;
-    }
-    void sendSnapshot(runtime, "synthesis:snapshot");
-    return;
-  }
-  if (result.hostCommand?.command === "runLiteratureRegistryJobNow") {
-    runWorkbenchCommandOnce(runtime, "runLiteratureRegistryJobNow", {}, () =>
-      getDefaultSynthesisService().runLiteratureRegistryJobNow(),
+  if (result.hostCommand?.command === "refreshReferenceSidecarNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "refreshReferenceSidecarNow",
+      {},
+      () =>
+        getDefaultSynthesisService().refreshReferenceSidecarNow({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
     );
     return;
   }
-  if (result.hostCommand?.command === "retryLiteratureRegistryJob") {
-    runWorkbenchCommandOnce(runtime, "retryLiteratureRegistryJob", {}, () =>
-      getDefaultSynthesisService().retryLiteratureRegistryJob(),
+  if (result.hostCommand?.command === "retryReferenceSidecarRefresh") {
+    runWorkbenchCommandOnce(runtime, "retryReferenceSidecarRefresh", {}, () =>
+      getDefaultSynthesisService().retryReferenceSidecarRefresh(),
     );
     return;
   }
@@ -1080,7 +1269,7 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   if (status === "ready" || !input.graph?.graph_hash) {
     return;
   }
-  await service.runCitationGraphLayoutWorker({
+  await service.recomputeCitationGraphLayout({
     preset: runtime.state.graph.layoutPreset,
   });
   await sendSnapshot(runtime, "synthesis:snapshot", {
@@ -1093,6 +1282,7 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
     clearInterval(runtime.handshakeTimer);
     runtime.handshakeTimer = undefined;
   }
+  clearCommandProgressPolling(runtime);
   clearSynthesisWorkbenchBridge(runtime);
   runtime.removeMessageListener?.();
 }

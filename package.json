@@ -61,6 +61,7 @@
     "test:node:raw:ui": "tsx node_modules/mocha/bin/mocha \"test/ui/**/*.test.ts\" --require test/setup/zotero-mock.ts",
     "test:node:raw:workflow": "tsx node_modules/mocha/bin/mocha \"test/workflow-*/**/*.test.ts\" --require test/setup/zotero-mock.ts",
     "test:node:raw": "tsx node_modules/mocha/bin/mocha \"test/**/*.test.ts\" --require test/setup/zotero-mock.ts",
+    "test:synthesis:invariants": "tsx node_modules/mocha/bin/mocha \"test/core/121-synthesis-paper-registry.test.ts\" \"test/core/125-synthesis-tab-ui.test.ts\" \"test/core/129-synthesis-layer-integration.test.ts\" \"test/core/132-topic-synthesis-structured-artifact-contract.test.ts\" \"test/core/143-synthesis-literature-registry-citation-graph.test.ts\" \"test/core/146-synthesis-repository-foundation.test.ts\" \"test/core/151-synthesis-reference-resolution-matcher.test.ts\" \"test/core/152-synthesis-invariant-guards.test.ts\" --require test/setup/zotero-mock.ts --grep \"Synthesis invariant guards|\\[inv\\.\" --exit",
     "mock:skillrunner": "tsx scripts/mock-skillrunner-serve.ts",
     "update-deps": "npm update --save"
   },

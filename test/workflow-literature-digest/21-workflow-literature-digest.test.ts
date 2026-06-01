@@ -503,7 +503,6 @@ describe("workflow: literature-digest", function () {
     });
     const workflow = await getLiteratureDigestWorkflow();
     const baseHostApi = createWorkflowHostApi();
-    const recordedEvents: Array<{ eventType?: string }> = [];
     const matchingMetadata = {
       schema: "literature_matching_metadata.v1",
       key_terms: ["set prediction", "object query"],
@@ -553,11 +552,6 @@ describe("workflow: literature-digest", function () {
       runtime: {
         hostApi: {
           ...baseHostApi,
-          synthesis: {
-            async recordSynthesisUpdateEvent(event: { eventType?: string }) {
-              recordedEvents.push(event);
-            },
-          },
         } as any,
       },
     })) as {
@@ -573,14 +567,6 @@ describe("workflow: literature-digest", function () {
       matchingMetadata,
     );
     assert.equal(String(parent.getField("extra") || ""), "");
-    assert.includeMembers(
-      recordedEvents.map((entry) => entry.eventType),
-      [
-        "digest_applied",
-        "paper_artifact_changed",
-        "literature_matching_metadata_changed",
-      ],
-    );
   });
 
   itNodeOnly(

@@ -2,6 +2,8 @@
 
 This document defines target budgets for Synthesis runtime design. Budgets are engineering guardrails, not a promise that every current implementation already meets them.
 
+The target model treats Synthesis persistence as a sidecar cache. Performance work should protect Zotero UI responsiveness and direct-read correctness rather than trying to keep a full index continuously synchronized.
+
 ## Scale Tiers
 
 | Tier | Zotero-bound literature | Reference instances | External literature | Topics | Behavior |
@@ -18,11 +20,11 @@ Contract key: `p95_ms`.
 | Read Path | p95 Target | Required Strategy |
 | --- | ---: | --- |
 | Workbench snapshot | 500 ms | Delay heavy diagnostics; paginate large lists. |
-| Registry table page | 250 ms | Max page size 100. |
+| Reference/cache table page | 250 ms | Max page size 100; stale cache badge when basis is unknown or old. |
 | Cleanup/review rows | 250 ms | Default limit 100. |
-| Topic list/options | 250 ms | Read DB summaries, not files. |
-| Graph default read model | tiered | Semantic slice: all library nodes, shared external nodes, hover-only external leaves. Normal tier target p95 <= 1000 ms; target tier p95 <= 2500 ms with progressive render allowed; stress tier may return degraded summary/slice first. |
-| Job popover | 150 ms | Active job limit 50. |
+| Topic list/options | 250 ms | Read topic summaries and direct source-check summaries; do not trigger cache refresh. |
+| Graph default read model | tiered | Read existing graph cache and expose missing/stale/failed status. Normal tier target p95 <= 1000 ms; target tier p95 <= 2500 ms with progressive render allowed; stress tier may return degraded summary/slice first. Missing/stale graph data recommends graph cache rebuild, not layout rebuild. |
+| Operation popover | 150 ms | Active explicit operation limit 50. |
 | Debug list | 1000 ms | Default limit 100, max 1000, `truncated` flag required. |
 
 ## SQLite Policy
@@ -33,51 +35,50 @@ Write transactions should be short:
 - diagnostic warning: > 250 ms;
 - forbidden inside write transaction: Zotero IO, file IO, network IO, LLM/skill calls, long layout compute, long metrics compute.
 
-Required index groups:
+Required lookup groups:
 
 | Group | Required Lookup Shape |
 | --- | --- |
-| Zotero binding | unique `(library_id, item_key)`, by `literature_item_id`. |
-| Literature identifier | `(kind, normalized_value)`, by `literature_item_id`. |
-| Artifact state | `(literature_item_id, artifact_type)`. |
-| Reference instance | source literature item, raw reference hash, parsed title key. |
-| Reference resolution | reference instance, target literature item, status. |
-| Citation edge | source, target, status, graph epoch/input hash. |
+| Artifact sidecar | unique `source_ref`, by `(library_id, item_key)`, by `references_hash`, and by scan status. |
+| Raw reference | `(source_ref, references_artifact_hash)`, `raw_hash`, `canonical_reference_id`, status, parsed title key, and strong identifiers. |
+| Canonical reference | `identity_key`, normalized identifier/title keys, status, and redirect target/effective id lookup. |
+| Reference binding | `canonical_reference_id`, unique active `(library_id, item_key)` where policy requires it, status, method, confidence. |
+| Citation edge | source `source_ref`, effective canonical reference, bound Zotero target, status, graph input hash. |
 | Citation layout | preset + graph hash. |
-| Topic discovery hint | `(topic_id, literature_item_id)`, status. |
+| Topic discovery hint | `(topic_id, source_ref)`, status. |
 | Review item | domain/status/severity and `(scope_kind, scope_ref)`. |
-| Dirty event | status/event/scope, optional basis epoch/source hash, `next_retry_at`. |
-| Job state | status/source/updated_at, `run_id`. |
+| Cache basis state | `synt_cache_basis` status/scope/source hash or basis, `updated_at`, operation id; this is data readiness. |
+| Operation progress state | `synt_operation` explicit command status, phase, counts, diagnostics; this is not data readiness. |
+| Removed sync state | dirty/job/work queue rows must not be read by active UI or debug paths. |
 
-## Worker Budgets
+## Explicit Operation Budgets
 
-| Worker | Batch / Scope | Time Budget | Progress Total |
+| Operation | Batch / Scope | Time Budget | Progress Total |
 | --- | --- | ---: | --- |
-| Registry/graph cache rebuild | 1000 rows | 3000 ms | Zotero items, artifact notes, references, or fixed phases. |
-| Paper registry incremental | 25 paper events | 2000 ms | Started paper events. |
-| Startup reconcile fingerprint scan | 500 Zotero items | 2000 ms | Scanned Zotero items. |
-| Citation graph structure | 1000 reference instances | 2000 ms | Started reference instances or source papers. |
+| Digest apply sidecar sync | one Zotero item / artifact bundle | 1000 ms soft | Artifact hashes, changed references, raw references, canonical matches. |
+| Reference sidecar refresh stage 1 | selected source scope | 2000 ms per slice | Scanned source items/artifacts. |
+| Reference sidecar refresh stage 2 | changed references artifacts | 3000 ms per slice | Changed artifacts, extracted raw references, canonical matches, binding candidates. |
+| Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
+| Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
 | Citation graph complex metrics | phase bounded | 3000 ms | Fixed phases or metric rows. |
-| Citation graph layout | cached read fast path; compute in batches | 3000 ms per worker tick | Layout nodes or fixed phases. Target/stress tiers may use stale or partial coordinates while async layout continues. |
-| Zotero related-items sync | 100 matched library edges | 2000 ms | Matched library edges. |
+| Citation graph layout rebuild | cached read fast path; compute in bounded slices | 3000 ms per explicit operation tick | Layout nodes or fixed phases for an existing graph hash. Target/stress tiers may use stale or partial coordinates while rebuild continues. |
+| Zotero related-items sync | explicit 100 accepted library edges | 2000 ms | Accepted library-to-library citation edges. |
 | Topic discovery apply-time match | active topics for one literature | 2000 ms | Active topic count. |
 | Topic discovery repair | 500 topic-literature pairs | 2000 ms | Bounded pairs. |
 | Topic source check | one topic | 2000 ms | Saved source count. |
 | Import preview/apply | 1000 rows/files | 3000 ms | Input rows or files. |
 
-Default worker tick budget is 2000 ms. Workers should stop at budget boundaries, commit bounded progress, and leave retryable work instead of blocking the Zotero UI.
+Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-## External Source Drift Thresholds
+## External Source Drift Policy
 
-Startup reconcile classifies drift before enqueueing work:
-
-Contract keys: `changed_items_max`, `changed_ratio_max`, `decode_failure_ratio_lt`, `changed_items_gt`, `changed_ratio_gt`.
+The target model does not run automatic startup reconcile. Drift is discovered by direct reads, explicit inspect, or explicit repair. No legacy drift detector should remain enabled.
 
 | Severity | Threshold | Action |
 | --- | --- | --- |
-| `small` | changed items <= 50 and <= 5% active library; decode failure ratio < 2%; scan within budget | Emit bounded Registry dirty events. |
-| `bulk` | changed items > 50 or > 5%; suspicious bulk merge/delete/update; scan over soft budget without structural anomaly | Record drift incident and recommend explicit Registry/Graph rebuild; fan-out forbidden. |
-| `structural` | binding collision, impossible parent note structure, decode failure ratio >= 2%, hard fingerprint timeout, inconsistent Zotero API/DB result | Fail closed and require inspect/repair/reset/rebuild; fan-out forbidden. |
+| `small` | selected-scope direct read finds changed artifacts/items | Show cache stale/missing and offer scoped repair. |
+| `bulk` | broad library drift suspected or selected inspect exceeds budget | Record bounded diagnostic and recommend explicit cache refresh; fan-out forbidden. |
+| `structural` | binding collision, impossible parent note structure, decode failure ratio >= 2%, hard fingerprint timeout, inconsistent Zotero API/DB result | Fail closed for cache writes and require inspect/repair/reset; fan-out forbidden. |
 
 ## Pagination and Diagnostics
 

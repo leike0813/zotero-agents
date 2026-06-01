@@ -1,5 +1,3 @@
-import type { SynthesisUpdateQueueStatus } from "./updateEvents";
-
 export type SynthesisUiTab =
   | "overview"
   | "artifacts"
@@ -10,6 +8,12 @@ export type SynthesisUiTab =
   | "reader";
 
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
+export type SynthesisUiCacheReadiness =
+  | "missing"
+  | "refreshing"
+  | "ready"
+  | "stale"
+  | "failed";
 
 export type SynthesisUiFreshness =
   | "fresh"
@@ -20,19 +24,20 @@ export type SynthesisUiFreshness =
   | "failed"
   | "unknown";
 
-export type SynthesisUiReadiness = "ready" | "partial";
-
 export type SynthesisUiLayoutPreset = "compact" | "balanced" | "expanded";
 
-export type SynthesisUiLiteratureFilter =
+export type SynthesisUiRegistryScopeFilter = "all" | "library" | "referenced";
+
+export type SynthesisUiBindingStatus =
+  | "candidate"
+  | "accepted"
+  | "rejected"
+  | "stale_target";
+
+export type SynthesisUiBindingStatusFilter =
   | "all"
-  | "library"
-  | "reference-only"
-  | "matched"
-  | "ambiguous"
-  | "unresolved"
-  | "needs-cleanup"
-  | "stale";
+  | "unbound"
+  | SynthesisUiBindingStatus;
 
 export type SynthesisUiGraphElement =
   | { kind: "node"; id: string }
@@ -74,16 +79,12 @@ export type SynthesisUiRegistryRow = {
   paper_ref: string;
   title: string;
   year?: string;
-  readiness: SynthesisUiReadiness;
-  coverage: SynthesisUiCoverage;
+  artifactCoverage: SynthesisUiCoverage;
   missing_artifacts: string[];
-  literature_status?: SynthesisUiLiteratureFilter;
-  stale?: boolean;
-  cleanup_count?: number;
   index_scope?: "library" | "referenced";
   literature_item_id?: string;
   reference_count?: number;
-  unresolved_reference_count?: number;
+  unbound_reference_count?: number;
   referenced_by_count?: number;
   references?: SynthesisUiRegistryReferenceRow[];
 };
@@ -94,12 +95,12 @@ export type SynthesisUiRegistryReferenceRow = {
   title: string;
   year?: string;
   raw_reference?: string;
-  resolution_status: string;
   confidence?: string;
   target_literature_item_id?: string;
   target_title?: string;
   target_paper_ref?: string;
   target_binding: "library" | "external" | "none";
+  binding_status?: SynthesisUiBindingStatus;
 };
 
 export type SynthesisUiCleanupProposalRow = {
@@ -309,7 +310,7 @@ export type SynthesisUiConceptReviewItem = {
 export type SynthesisUiGraphNode = {
   id: string;
   label: string;
-  kind: "library_paper" | "external_reference" | "unresolved_reference";
+  kind: "library_paper" | "external_reference";
   year?: string;
   tags?: string[];
   collections?: string[];
@@ -379,22 +380,13 @@ export type SynthesisUiGitSyncStatus = {
   allowedActions: string[];
 };
 
-export type SynthesisUiLiteratureJobStatus = {
-  queue_state:
-    | "ready"
-    | "queued"
-    | "running"
-    | "stale"
-    | "missing"
-    | "failed_retryable"
-    | "failed_permanent";
+export type SynthesisUiCacheStatus = {
+  cache_key: string;
+  status: SynthesisUiCacheReadiness;
   source_hash?: string;
-  canonical_manifest_hash?: string;
-  projection_manifest_hash?: string;
-  retry_attempt?: number;
-  next_retry_at?: string;
-  last_run_status?: string;
-  last_run_at?: string;
+  basis_hash?: string;
+  refreshed_at?: string;
+  updated_at?: string;
   diagnostics: SynthesisUiSyncDiagnostic[];
   allowedActions: string[];
 };
@@ -409,7 +401,7 @@ export type SynthesisUiMaintenanceSummary = {
     | "running"
     | "failed";
   latestUsable: {
-    literatureRegistry?: {
+    referenceSidecar?: {
       updated_at?: string;
       age_ms?: number;
     };
@@ -456,10 +448,9 @@ export type SynthesisUiBackgroundJobRow = {
   job_id: string;
   source:
     | "workbench"
-    | "update_queue"
-    | "dirty_event"
-    | "startup_reconcile"
-    | "literature_registry"
+    | "operation"
+    | "reference_sidecar_refresh"
+    | "citation_graph_cache_rebuild"
     | "citation_graph_layout"
     | "git_sync"
     | "canonical_maintenance";
@@ -522,9 +513,9 @@ export type SynthesisUiState = {
   };
   registry: {
     search: string;
-    readiness: "all" | SynthesisUiReadiness;
-    missingArtifact: "all" | string;
-    literature: SynthesisUiLiteratureFilter;
+    scope: SynthesisUiRegistryScopeFilter;
+    artifactCoverage: "all" | SynthesisUiCoverage;
+    bindingStatus: SynthesisUiBindingStatusFilter;
   };
   tags: {
     search: string;
@@ -553,7 +544,7 @@ export type SynthesisUiState = {
     layoutPreset: SynthesisUiLayoutPreset;
     neighborhoodDepth: number;
     nodeKinds: SynthesisUiGraphNode["kind"][];
-    showLowSignalUnresolved: boolean;
+    showLowSignalReferences: boolean;
     selectedElement?: SynthesisUiGraphElement;
   };
   reader: {
@@ -566,7 +557,6 @@ export type SynthesisUiSnapshotInput = {
   libraryId: number;
   actions?: Partial<SynthesisUiActionStatus>;
   maintenance?: {
-    updateQueue?: Partial<SynthesisUpdateQueueStatus>;
     summary?: Partial<SynthesisUiMaintenanceSummary>;
     backgroundJobs?: Array<Partial<SynthesisUiBackgroundJobRow>>;
   };
@@ -581,13 +571,7 @@ export type SynthesisUiSnapshotInput = {
   registry?: {
     rows?: SynthesisUiRegistryRow[];
     cleanupProposals?: SynthesisUiCleanupProposalRow[];
-    literatureJob?: Partial<SynthesisUiLiteratureJobStatus>;
-    projection?: {
-      target?: string;
-      stale?: boolean;
-      last_rebuild_at?: string;
-      diagnostics?: unknown[];
-    };
+    cacheStatus?: Partial<SynthesisUiCacheStatus>;
   };
   tags?: {
     entries?: Array<Partial<SynthesisUiTagRow> & { tag?: string }>;
@@ -644,7 +628,7 @@ export type SynthesisUiSnapshotInput = {
   };
   graph?: {
     graph_hash?: string;
-    layoutStatus?: "missing" | "ready" | "dirty" | "running" | "failed";
+    layoutStatus?: SynthesisUiCacheReadiness;
     diagnostics?: Record<string, unknown>;
     nodes?: SynthesisUiGraphNode[];
     edges?: SynthesisUiGraphEdge[];
@@ -658,7 +642,6 @@ export type SynthesisUiSnapshot = {
   selectedTab: SynthesisUiTab;
   actions: SynthesisUiActionStatus;
   maintenance: {
-    updateQueue: SynthesisUpdateQueueStatus;
     summary: SynthesisUiMaintenanceSummary;
     backgroundJobs: SynthesisUiBackgroundJobSummary;
   };
@@ -682,13 +665,7 @@ export type SynthesisUiSnapshot = {
     rows: SynthesisUiRegistryRow[];
     visibleRows: SynthesisUiRegistryRow[];
     cleanupProposals: SynthesisUiCleanupProposalRow[];
-    literatureJob?: SynthesisUiLiteratureJobStatus;
-    projection: {
-      target: string;
-      stale: boolean;
-      last_rebuild_at?: string;
-      diagnostics: unknown[];
-    };
+    cacheStatus: SynthesisUiCacheStatus;
   };
   tags: {
     filters: SynthesisUiState["tags"];
@@ -747,10 +724,10 @@ export type SynthesisUiSnapshot = {
   graph: {
     filters: Omit<SynthesisUiState["graph"], "selectedElement">;
     graph_hash: string;
-    layoutStatus: "missing" | "ready" | "dirty" | "running" | "failed";
+    layoutStatus: SynthesisUiCacheReadiness;
     layoutPreset: SynthesisUiLayoutPreset;
     nodeKinds: SynthesisUiGraphNode["kind"][];
-    showLowSignalUnresolved: boolean;
+    showLowSignalReferences: boolean;
     selectedElement?: SynthesisUiGraphElement;
     nodes: SynthesisUiGraphNode[];
     edges: SynthesisUiGraphEdge[];
@@ -792,9 +769,12 @@ export type SynthesisUiHostCommandName =
   | "acceptTopicGraphRelation"
   | "rejectTopicGraphRelation"
   | "applyTopicGraphReviewAction"
-  | "applyLiteratureCleanupAction"
-  | "runLiteratureRegistryJobNow"
-  | "retryLiteratureRegistryJob"
+  | "rejectTopicDiscoveryHint"
+  | "restoreTopicDiscoveryHint"
+  | "refreshReferenceSidecarNow"
+  | "retryReferenceSidecarRefresh"
+  | "rebuildCitationGraphCacheNow"
+  | "retryCitationGraphCacheRebuild"
   | "deleteTopicArtifact"
   | "purgeDeletedTopicArtifacts"
   | "submitTopicSynthesisUpdate"
@@ -864,9 +844,12 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "acceptTopicGraphRelation",
   "rejectTopicGraphRelation",
   "applyTopicGraphReviewAction",
-  "applyLiteratureCleanupAction",
-  "runLiteratureRegistryJobNow",
-  "retryLiteratureRegistryJob",
+  "rejectTopicDiscoveryHint",
+  "restoreTopicDiscoveryHint",
+  "refreshReferenceSidecarNow",
+  "retryReferenceSidecarRefresh",
+  "rebuildCitationGraphCacheNow",
+  "retryCitationGraphCacheRebuild",
   "deleteTopicArtifact",
   "purgeDeletedTopicArtifacts",
   "submitTopicSynthesisUpdate",
@@ -901,9 +884,12 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   acceptTopicGraphRelation: "Accept topic relation",
   rejectTopicGraphRelation: "Reject topic relation",
   applyTopicGraphReviewAction: "Apply topic graph review",
-  applyLiteratureCleanupAction: "Apply reference decision",
-  runLiteratureRegistryJobNow: "Rebuild literature registry",
-  retryLiteratureRegistryJob: "Retry literature registry job",
+  rejectTopicDiscoveryHint: "Reject discovery hint",
+  restoreTopicDiscoveryHint: "Restore discovery hint",
+  refreshReferenceSidecarNow: "Refresh reference sidecar",
+  retryReferenceSidecarRefresh: "Retry reference sidecar refresh",
+  rebuildCitationGraphCacheNow: "Rebuild citation graph cache",
+  retryCitationGraphCacheRebuild: "Retry citation graph cache rebuild",
   deleteTopicArtifact: "Delete topic artifact",
   purgeDeletedTopicArtifacts: "Purge deleted artifacts",
   submitTopicSynthesisUpdate: "Update topic synthesis",
@@ -942,8 +928,9 @@ export function getSynthesisUiOperationKey(
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
-    case "applyLiteratureCleanupAction":
-      return `${command}:${keyPart(args.proposalId)}`;
+    case "rejectTopicDiscoveryHint":
+    case "restoreTopicDiscoveryHint":
+      return `topicDiscoveryHint:${keyPart(args.hintId)}`;
     case "applyTagVocabularyImport":
       return `${command}:${keyPart(args.action)}`;
     case "submitTopicSynthesisUpdate":
@@ -1026,26 +1013,71 @@ function normalizeFreshness(value: unknown): SynthesisUiFreshness {
   return "unknown";
 }
 
-function normalizeReadiness(value: unknown): SynthesisUiReadiness {
-  return cleanString(value) === "ready" ? "ready" : "partial";
-}
-
-function normalizeLiteratureFilter(
-  value: unknown,
-): SynthesisUiLiteratureFilter {
+function normalizeCacheReadiness(value: unknown): SynthesisUiCacheReadiness {
   const normalized = cleanString(value);
   if (
-    normalized === "library" ||
-    normalized === "reference-only" ||
-    normalized === "matched" ||
-    normalized === "ambiguous" ||
-    normalized === "unresolved" ||
-    normalized === "needs-cleanup" ||
-    normalized === "stale"
+    normalized === "missing" ||
+    normalized === "refreshing" ||
+    normalized === "ready" ||
+    normalized === "stale" ||
+    normalized === "failed"
+  ) {
+    return normalized;
+  }
+  if (normalized === "running") {
+    return "refreshing";
+  }
+  if (normalized === "dirty" || normalized === "unknown") {
+    return "stale";
+  }
+  return "missing";
+}
+
+function normalizeRegistryScopeFilter(
+  value: unknown,
+): SynthesisUiRegistryScopeFilter {
+  const normalized = cleanString(value);
+  if (normalized === "all" || normalized === "library" || normalized === "referenced") {
+    return normalized;
+  }
+  if (normalized === "reference-only") {
+    return "referenced";
+  }
+  return "library";
+}
+
+function normalizeBindingStatusFilter(
+  value: unknown,
+): SynthesisUiBindingStatusFilter {
+  const normalized = cleanString(value);
+  if (normalized === "auto" || normalized === "confirmed" || normalized === "matched") {
+    return "accepted";
+  }
+  if (normalized === "unresolved" || normalized === "suggested") {
+    return "candidate";
+  }
+  if (normalized === "needs_attention") {
+    return "stale_target";
+  }
+  if (
+    normalized === "unbound" ||
+    normalized === "candidate" ||
+    normalized === "accepted" ||
+    normalized === "rejected" ||
+    normalized === "stale_target"
   ) {
     return normalized;
   }
   return "all";
+}
+
+function normalizeReferenceBindingStatus(
+  value: unknown,
+): SynthesisUiBindingStatus | undefined {
+  const normalized = normalizeBindingStatusFilter(value);
+  return normalized === "all" || normalized === "unbound"
+    ? undefined
+    : normalized;
 }
 
 function normalizePreset(value: unknown): SynthesisUiLayoutPreset {
@@ -1163,45 +1195,32 @@ function normalizeGitSyncStatus(value: unknown): SynthesisUiGitSyncStatus {
       )
       .sort((left, right) => left.asset_path.localeCompare(right.asset_path)),
     diagnostics: normalizeSyncDiagnostics(input.diagnostics),
-    allowedActions: normalizeStringList(input.allowed_actions),
+    allowedActions: normalizeStringList(
+      input.allowedActions || input.allowed_actions,
+    ),
   };
 }
 
-function normalizeLiteratureJobStatus(
+function normalizeCacheStatus(
   value: unknown,
-): SynthesisUiLiteratureJobStatus | undefined {
+  fallbackCacheKey: string,
+): SynthesisUiCacheStatus {
   if (!value || typeof value !== "object") {
-    return undefined;
+    return {
+      cache_key: fallbackCacheKey,
+      status: "missing",
+      diagnostics: [],
+      allowedActions: [],
+    };
   }
   const input = value as Record<string, unknown>;
-  const state = cleanString(input.queue_state);
-  const allowedStates: SynthesisUiLiteratureJobStatus["queue_state"][] = [
-    "ready",
-    "queued",
-    "running",
-    "stale",
-    "missing",
-    "failed_retryable",
-    "failed_permanent",
-  ];
-  const queueState = allowedStates.includes(
-    state as SynthesisUiLiteratureJobStatus["queue_state"],
-  )
-    ? (state as SynthesisUiLiteratureJobStatus["queue_state"])
-    : "missing";
   return {
-    queue_state: queueState,
+    cache_key: cleanString(input.cache_key) || fallbackCacheKey,
+    status: normalizeCacheReadiness(input.status),
     source_hash: cleanString(input.source_hash) || undefined,
-    canonical_manifest_hash:
-      cleanString(input.canonical_manifest_hash) || undefined,
-    projection_manifest_hash:
-      cleanString(input.projection_manifest_hash) || undefined,
-    retry_attempt: Number.isFinite(Number(input.retry_attempt))
-      ? Math.max(0, Math.floor(Number(input.retry_attempt)))
-      : undefined,
-    next_retry_at: cleanString(input.next_retry_at) || undefined,
-    last_run_status: cleanString(input.last_run_status) || undefined,
-    last_run_at: cleanString(input.last_run_at) || undefined,
+    basis_hash: cleanString(input.basis_hash) || undefined,
+    refreshed_at: cleanString(input.refreshed_at) || undefined,
+    updated_at: cleanString(input.updated_at) || undefined,
     diagnostics: normalizeSyncDiagnostics(input.diagnostics),
     allowedActions: normalizeStringList(input.allowed_actions),
   };
@@ -1398,13 +1417,13 @@ function normalizeRegistryReferences(
           cleanString(row.reference_instance_id),
         year: cleanString(row.year) || undefined,
         raw_reference: cleanString(row.raw_reference) || undefined,
-        resolution_status: cleanString(row.resolution_status) || "unresolved",
         confidence: cleanString(row.confidence) || undefined,
         target_literature_item_id:
           cleanString(row.target_literature_item_id) || undefined,
         target_title: cleanString(row.target_title) || undefined,
         target_paper_ref: cleanString(row.target_paper_ref) || undefined,
         target_binding: targetBinding as "library" | "external" | "none",
+        binding_status: normalizeReferenceBindingStatus(row.binding_status),
       };
     })
     .filter((row) => row.reference_instance_id)
@@ -1419,42 +1438,23 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
   return [...(rows || [])]
     .map((row) => {
       const missing = normalizeStringList(row.missing_artifacts);
-      const stale = Boolean(row.stale);
-      const cleanupCount = Math.max(
-        0,
-        Math.floor(cleanNumber(row.cleanup_count, 0)),
-      );
-      const status = normalizeLiteratureFilter(row.literature_status);
       const indexScope =
         row.index_scope === "referenced" ? "referenced" : "library";
       return {
         paper_ref: cleanString(row.paper_ref),
         title: cleanString(row.title) || cleanString(row.paper_ref),
         year: cleanString(row.year) || undefined,
-        readiness: normalizeReadiness(row.readiness),
-        coverage: normalizeCoverage(row.coverage),
+        artifactCoverage: normalizeCoverage(row.artifactCoverage),
         missing_artifacts: missing,
-        literature_status:
-          status === "all"
-            ? cleanupCount > 0
-              ? "needs-cleanup"
-              : stale
-                ? "stale"
-                : indexScope === "referenced"
-                  ? "reference-only"
-                  : "library"
-            : status,
-        stale,
-        cleanup_count: cleanupCount,
         index_scope: indexScope as "library" | "referenced",
         literature_item_id: cleanString(row.literature_item_id) || undefined,
         reference_count: Math.max(
           0,
           Math.floor(cleanNumber(row.reference_count, 0)),
         ),
-        unresolved_reference_count: Math.max(
+        unbound_reference_count: Math.max(
           0,
-          Math.floor(cleanNumber(row.unresolved_reference_count, 0)),
+          Math.floor(cleanNumber(row.unbound_reference_count, 0)),
         ),
         referenced_by_count: Math.max(
           0,
@@ -2155,36 +2155,39 @@ function filterConcepts(
 
 function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
   return [...(nodes || [])]
-    .map((node) => ({
-      id: cleanString(node.id),
-      label: cleanString(node.label) || cleanString(node.id),
-      kind:
-        node.kind === "external_reference" ||
-        node.kind === "unresolved_reference"
-          ? node.kind
-          : ("library_paper" as const),
-      year: cleanString(node.year) || undefined,
-      tags: normalizeStringList(node.tags),
-      collections: normalizeStringList(node.collections),
-      x: typeof node.x === "number" ? node.x : undefined,
-      y: typeof node.y === "number" ? node.y : undefined,
-      low_signal: Boolean(node.low_signal),
-      external_degree:
-        typeof node.external_degree === "number"
-          ? Math.max(0, Math.floor(node.external_degree))
-          : undefined,
-      visibility:
-        node.visibility === "hover_only"
-          ? ("hover_only" as const)
-          : ("default" as const),
-      display_tier:
-        node.display_tier === "shared_external" ||
-        node.display_tier === "single_external"
-          ? node.display_tier
-          : node.kind === "library_paper"
-            ? ("library" as const)
-            : ("shared_external" as const),
-    }))
+    .map((node) => {
+      const rawKind = cleanString((node as Record<string, unknown>).kind);
+      const kind =
+        rawKind === "external_reference"
+          ? ("external_reference" as const)
+          : ("library_paper" as const);
+      return {
+        id: cleanString(node.id),
+        label: cleanString(node.label) || cleanString(node.id),
+        kind,
+        year: cleanString(node.year) || undefined,
+        tags: normalizeStringList(node.tags),
+        collections: normalizeStringList(node.collections),
+        x: typeof node.x === "number" ? node.x : undefined,
+        y: typeof node.y === "number" ? node.y : undefined,
+        low_signal: Boolean(node.low_signal),
+        external_degree:
+          typeof node.external_degree === "number"
+            ? Math.max(0, Math.floor(node.external_degree))
+            : undefined,
+        visibility:
+          node.visibility === "hover_only"
+            ? ("hover_only" as const)
+            : ("default" as const),
+        display_tier:
+          node.display_tier === "shared_external" ||
+          node.display_tier === "single_external"
+            ? node.display_tier
+            : kind === "library_paper"
+              ? ("library" as const)
+              : ("shared_external" as const),
+      };
+    })
     .filter((node) => node.id)
     .sort(
       (left, right) =>
@@ -2240,9 +2243,9 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
     },
     registry: {
       search: "",
-      readiness: "all",
-      missingArtifact: "all",
-      literature: "all",
+      scope: "library",
+      artifactCoverage: "all",
+      bindingStatus: "all",
     },
     tags: {
       search: "",
@@ -2270,9 +2273,8 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       nodeKinds: [
         "library_paper",
         "external_reference",
-        "unresolved_reference",
       ],
-      showLowSignalUnresolved: false,
+      showLowSignalReferences: false,
     },
     reader: {
       topicId: "",
@@ -2324,6 +2326,7 @@ function filterRegistry(
   rows: SynthesisUiRegistryRow[],
   filters: SynthesisUiState["registry"],
 ) {
+  const scopeFilter = normalizeRegistryScopeFilter(filters.scope);
   return rows.filter((row) => {
     if (
       !includesText(
@@ -2342,28 +2345,31 @@ function filterRegistry(
     ) {
       return false;
     }
-    if (filters.readiness !== "all" && row.readiness !== filters.readiness) {
-      return false;
-    }
     if (
-      filters.missingArtifact !== "all" &&
-      !row.missing_artifacts.includes(filters.missingArtifact)
+      scopeFilter !== "referenced" &&
+      filters.artifactCoverage !== "all" &&
+      row.artifactCoverage !== filters.artifactCoverage
     ) {
       return false;
     }
-    if (filters.literature !== "all") {
-      if (filters.literature === "reference-only") {
-        return row.index_scope === "referenced";
-      }
-      if (filters.literature === "stale") {
-        return Boolean(row.stale);
-      }
-      if (filters.literature === "needs-cleanup") {
-        return Boolean(row.cleanup_count);
-      }
-      return row.literature_status === filters.literature;
+    if (scopeFilter === "library" && row.index_scope === "referenced") {
+      return false;
     }
-    return row.index_scope !== "referenced";
+    if (scopeFilter === "referenced") {
+      const references = row.references || [];
+      if (!references.length) {
+        return false;
+      }
+      if (filters.bindingStatus !== "all") {
+        if (filters.bindingStatus === "unbound") {
+          return references.some((reference) => !reference.binding_status);
+        }
+        return references.some(
+          (reference) => reference.binding_status === filters.bindingStatus,
+        );
+      }
+    }
+    return true;
   });
 }
 
@@ -2405,7 +2411,7 @@ function filterGraph(
     `${node.label} ${node.id} ${node.year || ""} ${(node.tags || []).join(" ")} ${(node.collections || []).join(" ")}`;
   const matchesNodeBaseFilters = (node: SynthesisUiGraphNode) =>
     filters.nodeKinds.includes(node.kind) &&
-    (filters.showLowSignalUnresolved || !node.low_signal);
+    (filters.showLowSignalReferences || !node.low_signal);
   const visibleNodes = nodes.filter((node) => {
     if (!matchesNodeBaseFilters(node)) {
       return false;
@@ -2429,68 +2435,6 @@ function filterGraph(
     return true;
   });
   return { visibleNodes, visibleEdges };
-}
-
-function normalizeUpdateQueueStatus(
-  input: Partial<SynthesisUpdateQueueStatus> | undefined,
-): SynthesisUpdateQueueStatus {
-  const queueState = cleanString(input?.queue_state);
-  const startupState = cleanString(input?.startup_reconcile?.state);
-  const normalizedQueueState = [
-    "queued",
-    "running",
-    "paused",
-    "failed_retryable",
-    "failed_permanent",
-  ].includes(queueState)
-    ? (queueState as SynthesisUpdateQueueStatus["queue_state"])
-    : "idle";
-  const normalizedStartupState = [
-    "checking",
-    "queued",
-    "ready",
-    "failed_retryable",
-    "failed_permanent",
-  ].includes(startupState)
-    ? (startupState as SynthesisUpdateQueueStatus["startup_reconcile"]["state"])
-    : "unknown";
-  return {
-    schema_id: "synthesis.update_queue_state",
-    schema_version: "1.0.0",
-    library_id: Math.max(0, Math.floor(cleanNumber(input?.library_id, 0))),
-    queue_state: normalizedQueueState,
-    paused: Boolean(input?.paused),
-    pending_count: Math.max(
-      0,
-      Math.floor(cleanNumber(input?.pending_count, 0)),
-    ),
-    running_count: Math.max(
-      0,
-      Math.floor(cleanNumber(input?.running_count, 0)),
-    ),
-    failed_count: Math.max(0, Math.floor(cleanNumber(input?.failed_count, 0))),
-    retry_attempt: Math.max(
-      0,
-      Math.floor(cleanNumber(input?.retry_attempt, 0)),
-    ),
-    next_retry_at: cleanString(input?.next_retry_at) || undefined,
-    last_retry_at: cleanString(input?.last_retry_at) || undefined,
-    last_failure: input?.last_failure,
-    startup_reconcile: {
-      state: normalizedStartupState,
-      dirty_count: Math.max(
-        0,
-        Math.floor(cleanNumber(input?.startup_reconcile?.dirty_count, 0)),
-      ),
-      last_checked_at:
-        cleanString(input?.startup_reconcile?.last_checked_at) || undefined,
-      diagnostics: Array.isArray(input?.startup_reconcile?.diagnostics)
-        ? input?.startup_reconcile?.diagnostics || []
-        : [],
-    },
-    updated_at: cleanString(input?.updated_at),
-    allowed_actions: normalizeStringList(input?.allowed_actions),
-  };
 }
 
 function normalizeLatestUsableEntry(value: unknown) {
@@ -2524,8 +2468,8 @@ function normalizeMaintenanceSummary(
   return {
     status: normalizedStatus,
     latestUsable: {
-      literatureRegistry: normalizeLatestUsableEntry(
-        input?.latestUsable?.literatureRegistry,
+      referenceSidecar: normalizeLatestUsableEntry(
+        input?.latestUsable?.referenceSidecar,
       ),
       citationGraph: normalizeLatestUsableEntry(
         input?.latestUsable?.citationGraph,
@@ -2556,7 +2500,7 @@ function normalizeMaintenanceSummary(
 
 function normalizeBackgroundJobStatus(
   value: unknown,
-): SynthesisUiBackgroundJobStatus {
+): SynthesisUiBackgroundJobStatus | undefined {
   const status = cleanString(value);
   if (
     status === "submitted" ||
@@ -2567,7 +2511,7 @@ function normalizeBackgroundJobStatus(
   ) {
     return status;
   }
-  return "queued";
+  return undefined;
 }
 
 function normalizeBackgroundJobSource(
@@ -2576,10 +2520,9 @@ function normalizeBackgroundJobSource(
   const source = cleanString(value);
   if (
     source === "workbench" ||
-    source === "update_queue" ||
-    source === "dirty_event" ||
-    source === "startup_reconcile" ||
-    source === "literature_registry" ||
+    source === "operation" ||
+    source === "reference_sidecar_refresh" ||
+    source === "citation_graph_cache_rebuild" ||
     source === "citation_graph_layout" ||
     source === "git_sync" ||
     source === "canonical_maintenance"
@@ -2640,6 +2583,10 @@ function normalizeBackgroundJobRows(
     if (!jobId || !label) {
       continue;
     }
+    const status = normalizeBackgroundJobStatus(input.status);
+    if (!status) {
+      continue;
+    }
     const command = cleanString(input.command) as SynthesisUiHostCommandName;
     const targetTab = cleanString(input.targetTab)
       ? normalizeTab(input.targetTab)
@@ -2647,7 +2594,7 @@ function normalizeBackgroundJobRows(
     const row: SynthesisUiBackgroundJobRow = {
       job_id: jobId,
       source: normalizeBackgroundJobSource(input.source),
-      status: normalizeBackgroundJobStatus(input.status),
+      status,
       label,
       detail: cleanString(input.detail) || undefined,
       updated_at: cleanString(input.updated_at) || undefined,
@@ -2828,7 +2775,6 @@ export function buildSynthesisUiSnapshot(
     selectedTab: normalizeTab(state.selectedTab),
     actions: normalizeActionStatus(input.actions),
     maintenance: {
-      updateQueue: normalizeUpdateQueueStatus(input.maintenance?.updateQueue),
       summary: normalizeMaintenanceSummary(input.maintenance?.summary),
       backgroundJobs: summarizeBackgroundJobs(backgroundJobRows),
     },
@@ -2889,20 +2835,10 @@ export function buildSynthesisUiSnapshot(
       rows: registryRows,
       visibleRows: filterRegistry(registryRows, state.registry),
       cleanupProposals,
-      literatureJob: normalizeLiteratureJobStatus(
-        input.registry?.literatureJob,
+      cacheStatus: normalizeCacheStatus(
+        input.registry?.cacheStatus,
+        "reference-sidecar:library",
       ),
-      projection: {
-        target:
-          cleanString(input.registry?.projection?.target) ||
-          "literature-registry-index",
-        stale: Boolean(input.registry?.projection?.stale),
-        last_rebuild_at:
-          cleanString(input.registry?.projection?.last_rebuild_at) || undefined,
-        diagnostics: Array.isArray(input.registry?.projection?.diagnostics)
-          ? input.registry?.projection?.diagnostics || []
-          : [],
-      },
     },
     tags: {
       filters: { ...state.tags },
@@ -3000,19 +2936,19 @@ export function buildSynthesisUiSnapshot(
         layoutPreset: normalizePreset(state.graph.layoutPreset),
         neighborhoodDepth: state.graph.neighborhoodDepth,
         nodeKinds: [...state.graph.nodeKinds],
-        showLowSignalUnresolved: state.graph.showLowSignalUnresolved,
+        showLowSignalReferences: state.graph.showLowSignalReferences,
       },
       graph_hash: cleanString(input.graph?.graph_hash),
       layoutStatus:
         input.graph?.layoutStatus === "ready" ||
-        input.graph?.layoutStatus === "dirty" ||
-        input.graph?.layoutStatus === "running" ||
+        input.graph?.layoutStatus === "refreshing" ||
+        input.graph?.layoutStatus === "stale" ||
         input.graph?.layoutStatus === "failed"
           ? input.graph.layoutStatus
           : "missing",
       layoutPreset: normalizePreset(state.graph.layoutPreset),
       nodeKinds: [...state.graph.nodeKinds],
-      showLowSignalUnresolved: state.graph.showLowSignalUnresolved,
+      showLowSignalReferences: state.graph.showLowSignalReferences,
       selectedElement: state.graph.selectedElement,
       nodes: normalizedGraphNodes,
       edges: normalizedGraphEdges,
@@ -3045,10 +2981,6 @@ function normalizeAllOrCoverage(value: unknown) {
 
 function normalizeAllOrFreshness(value: unknown) {
   return cleanString(value) === "all" ? "all" : normalizeFreshness(value);
-}
-
-function normalizeAllOrReadiness(value: unknown) {
-  return cleanString(value) === "all" ? "all" : normalizeReadiness(value);
 }
 
 function normalizeArtifactSort(
@@ -3146,17 +3078,29 @@ export function applySynthesisUiAction(
       if ("search" in filters) {
         next.registry.search = cleanString(filters.search);
       }
-      if ("readiness" in filters) {
-        next.registry.readiness = normalizeAllOrReadiness(filters.readiness);
+      if ("scope" in filters) {
+        next.registry.scope = normalizeRegistryScopeFilter(filters.scope);
+        if (next.registry.scope === "referenced") {
+          next.registry.artifactCoverage = "all";
+        } else {
+          next.registry.bindingStatus = "all";
+        }
       }
-      if ("missingArtifact" in filters) {
-        next.registry.missingArtifact =
-          cleanString(filters.missingArtifact) || "all";
-      }
-      if ("literature" in filters) {
-        next.registry.literature = normalizeLiteratureFilter(
-          filters.literature,
+      if ("artifactCoverage" in filters) {
+        next.registry.artifactCoverage = normalizeAllOrCoverage(
+          filters.artifactCoverage,
         );
+        if (next.registry.scope === "referenced") {
+          next.registry.artifactCoverage = "all";
+        }
+      }
+      if ("bindingStatus" in filters) {
+        next.registry.bindingStatus = normalizeBindingStatusFilter(
+          filters.bindingStatus,
+        );
+        if (next.registry.scope !== "referenced") {
+          next.registry.bindingStatus = "all";
+        }
       }
     }
     if (payload.tags && typeof payload.tags === "object") {
@@ -3286,7 +3230,6 @@ export function applySynthesisUiAction(
       const allowed: SynthesisUiGraphNode["kind"][] = [
         "library_paper",
         "external_reference",
-        "unresolved_reference",
       ];
       const normalized = Array.from(
         new Set(
@@ -3299,9 +3242,9 @@ export function applySynthesisUiAction(
       ).sort((left, right) => left.localeCompare(right));
       next.graph.nodeKinds = normalized.length ? normalized : allowed;
     }
-    if ("showLowSignalUnresolved" in payload) {
-      next.graph.showLowSignalUnresolved = Boolean(
-        payload.showLowSignalUnresolved,
+    if ("showLowSignalReferences" in payload) {
+      next.graph.showLowSignalReferences = Boolean(
+        payload.showLowSignalReferences,
       );
     }
     if ("selectedElement" in payload) {

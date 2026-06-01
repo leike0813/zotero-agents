@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { buildPaperRegistryRows } from "../../src/modules/synthesis/registry";
+import { buildReferenceSidecarIndexRows } from "../../src/modules/synthesis/registry";
 import {
   createSyntheticSynthesisBenchmarkDataset,
   createSyntheticSynthesisBenchmarkRegistryInputs,
@@ -27,12 +27,11 @@ describe("Synthesis benchmark datasets", function () {
       paperCount: 1000,
       referenceFanout: 3,
     });
-    const rows = buildPaperRegistryRows(registryInputs);
+    const rows = buildReferenceSidecarIndexRows(registryInputs);
     const firstPayloads = registryInputs[0].notes?.[0].payloadBlocks || [];
 
     assert.lengthOf(rows, 1000);
-    assert.equal(rows[0].coverage, "complete");
-    assert.equal(rows[0].readiness, "ready");
+    assert.equal(rows[0].artifactCoverage, "complete");
     assert.lengthOf(
       (
         firstPayloads.find((block) => block.payloadType === "references-json")

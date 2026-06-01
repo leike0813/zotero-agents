@@ -197,55 +197,22 @@ async function writeDbGraphState(root: string) {
     runtimeRoot: root,
     now: () => "2026-05-12T00:00:00.000Z",
   });
-  for (const item of [
-    { literatureItemId: "lit:a", itemKey: "A", title: "Alpha" },
-    { literatureItemId: "lit:b", itemKey: "B", title: "Beta" },
-    { literatureItemId: "lit:c", itemKey: "C", title: "Gamma" },
-  ]) {
-    repository.upsertLiteratureItem({
-      literatureItemId: item.literatureItemId,
-      displayTitle: item.title,
-      normalizedTitle: item.title.toLowerCase(),
-      titleNormalizerVersion: "test",
-      status: "active",
-    });
-    repository.upsertZoteroBinding({
-      libraryId: 1,
-      itemKey: item.itemKey,
-      literatureItemId: item.literatureItemId,
-      bindingStatus: "active",
-    });
-  }
-  repository.upsertLiteratureItem({
-    literatureItemId: "ref:external:x",
-    displayTitle: "External",
-    normalizedTitle: "external",
-    titleNormalizerVersion: "test",
-    status: "active",
-  });
-  repository.upsertLiteratureItem({
-    literatureItemId: "ref:raw:low",
-    displayTitle: "Low signal",
-    normalizedTitle: "low signal",
-    titleNormalizerVersion: "test",
-    status: "active",
-  });
   repository.replaceCitationGraphState({
     nodes: [
       {
-        literatureItemId: "lit:a",
+        literatureItemId: "1:A",
         nodeStatus: "active",
         hasZoteroBinding: true,
         title: "Alpha",
       },
       {
-        literatureItemId: "lit:b",
+        literatureItemId: "1:B",
         nodeStatus: "active",
         hasZoteroBinding: true,
         title: "Beta",
       },
       {
-        literatureItemId: "lit:c",
+        literatureItemId: "1:C",
         nodeStatus: "active",
         hasZoteroBinding: true,
         title: "Gamma",
@@ -266,53 +233,53 @@ async function writeDbGraphState(root: string) {
     edges: [
       {
         edgeId: "edge-a-b",
-        sourceLiteratureItemId: "lit:a",
-        targetLiteratureItemId: "lit:b",
-        edgeStatus: "matched",
+        sourceLiteratureItemId: "1:A",
+        targetLiteratureItemId: "1:B",
+        edgeStatus: "accepted",
         rolesJson: JSON.stringify(["background"]),
       },
       {
         edgeId: "edge-b-c",
-        sourceLiteratureItemId: "lit:b",
-        targetLiteratureItemId: "lit:c",
-        edgeStatus: "matched",
+        sourceLiteratureItemId: "1:B",
+        targetLiteratureItemId: "1:C",
+        edgeStatus: "accepted",
         rolesJson: JSON.stringify(["method"]),
       },
       {
         edgeId: "edge-c-a",
-        sourceLiteratureItemId: "lit:c",
-        targetLiteratureItemId: "lit:a",
-        edgeStatus: "matched",
+        sourceLiteratureItemId: "1:C",
+        targetLiteratureItemId: "1:A",
+        edgeStatus: "accepted",
         rolesJson: JSON.stringify(["contrast"]),
       },
       {
         edgeId: "edge-a-external",
-        sourceLiteratureItemId: "lit:a",
+        sourceLiteratureItemId: "1:A",
         targetLiteratureItemId: "ref:external:x",
-        edgeStatus: "matched",
+        edgeStatus: "unbound",
         rolesJson: JSON.stringify(["background"]),
       },
       {
         edgeId: "edge-a-low",
-        sourceLiteratureItemId: "lit:a",
+        sourceLiteratureItemId: "1:A",
         targetLiteratureItemId: "ref:raw:low",
-        edgeStatus: "matched",
+        edgeStatus: "unbound",
         rolesJson: JSON.stringify(["background"]),
       },
     ],
     lightweightMetrics: [
       {
-        literatureItemId: "lit:a",
+        literatureItemId: "1:A",
         outgoingCount: 3,
         incomingCount: 1,
-        matchedOutgoingCount: 3,
-        unresolvedOutgoingCount: 0,
+        matchedOutgoingCount: 1,
+        unresolvedOutgoingCount: 2,
         ambiguousOutgoingCount: 0,
         localDegree: 4,
         sourceStructureVersion: 1,
       },
       {
-        literatureItemId: "lit:b",
+        literatureItemId: "1:B",
         outgoingCount: 1,
         incomingCount: 1,
         matchedOutgoingCount: 1,
@@ -322,7 +289,7 @@ async function writeDbGraphState(root: string) {
         sourceStructureVersion: 1,
       },
       {
-        literatureItemId: "lit:c",
+        literatureItemId: "1:C",
         outgoingCount: 1,
         incomingCount: 1,
         matchedOutgoingCount: 1,
@@ -414,7 +381,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.lengthOf(mirror.upserts, 0);
   });
 
-  it("refreshes topic freshness from paper registry dirty events without rewriting topic artifacts", async function () {
+  it("keeps topic freshness unchanged when the reference sidecar is explicitly refreshed", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
@@ -425,7 +392,7 @@ describe("Synthesis Layer v1 integration service", function () {
         registryInput({ itemKey: "B" }),
       ],
     });
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
     await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
     const beforeMarkdown = await fs.readFile(
@@ -442,34 +409,13 @@ describe("Synthesis Layer v1 integration service", function () {
         registryInput({ itemKey: "B" }),
       ],
     });
-    await updated.recordSynthesisUpdateEvent({
-      eventType: "zotero_item_updated",
-      source: "test",
-      scope: { kind: "zotero_item", ref: "A" },
-    });
-    await updated.runPaperRegistryIncrementalWorker({
-      batchLimit: 1,
-      timeBudgetMs: 1000,
-    });
-    const queued = await topicFreshnessState(root);
-    const events = await updated.listSynthesisUpdateEvents();
-
-    assert.equal(queued.freshness, "queued");
-    assert.include(
-      events.map((event) => event.event_type),
-      "topic_freshness_dirty",
-    );
-
-    const result = await updated.runTopicFreshnessWorker({
-      batchLimit: 1,
-      timeBudgetMs: 1000,
-    });
+    const result = await updated.refreshReferenceSidecarNow();
     const refreshed = await topicFreshnessState(root);
     const snapshot = await updated.getSynthesisSnapshot();
 
-    assert.equal(result.completed, 1);
-    assert.equal(refreshed.freshness, "stale");
-    assert.include(await topicReasonCodes(root), "artifact_changed");
+    assert.equal(result.status, "ready");
+    assert.equal(refreshed.freshness, "fresh");
+    assert.notInclude(await topicReasonCodes(root), "artifact_changed");
     assert.equal(snapshot.artifacts.rows[0]?.freshness, "unknown");
     assert.equal(
       await fs.readFile(paths.currentExportMarkdown, "utf8"),
@@ -559,25 +505,6 @@ describe("Synthesis Layer v1 integration service", function () {
           },
           now: "2026-05-10T00:00:00.000Z",
         }),
-        null,
-        2,
-      ),
-      "utf8",
-    );
-    await fs.writeFile(
-      path.join(kgPaths.stateRoot, "literature-registry-index.json"),
-      JSON.stringify(
-        {
-          rows: [],
-          cleanup_proposals: [
-            {
-              proposal_id: "legacy-cleanup",
-              status: "open",
-              source_paper_ref: "1:A",
-              reason: "legacy projection residue",
-            },
-          ],
-        },
         null,
         2,
       ),
@@ -759,7 +686,8 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.applyTopicSynthesisResult(validBundle());
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     const snapshot = await service.getSynthesisSnapshot();
     const reviewInput = await service.getReviewInput({
       topicId: "topic-alpha",
@@ -801,7 +729,7 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
-  it("keeps topic context reads from scanning or refreshing freshness state", async function () {
+  it("keeps topic context reads from scanning or refreshing freshness state [inv.topics.workflow_uses_source_facade]", async function () {
     const root = await makeRoot();
     const first = createSynthesisService({
       root,
@@ -1186,7 +1114,8 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     await service.runCitationGraphLayoutWorker({
       force: true,
       timeBudgetMs: 1000,
@@ -1249,7 +1178,8 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     const graph = (await service.queryCitationGraph()) as any;
     const snapshot = await service.getSynthesisSnapshot();
 
@@ -1318,7 +1248,8 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
     });
 
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
     const metrics = await service.getCitationGraphMetrics({ limit: 2 });
     const byPaper = await service.getCitationGraphMetrics({
       paperRefs: ["1:B"],
@@ -1329,7 +1260,9 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     assert.equal(metrics.ok, true);
-    assert.equal(metrics.items[0].node_id, "zotero:item:B");
+    assert.isTrue(
+      metrics.items.some((item) => item.node_id === "zotero:item:B"),
+    );
     assert.equal(byPaper.items[0].paper_ref, "1:B");
     assert.isAtLeast(byPaper.items[0].internal_in_degree, 1);
     assert.equal(
@@ -1345,23 +1278,10 @@ describe("Synthesis Layer v1 integration service", function () {
       runtimeRoot: root,
       now: () => "2026-05-12T00:00:00.000Z",
     });
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:a",
-      displayTitle: "Alpha",
-      normalizedTitle: "alpha",
-      titleNormalizerVersion: "test",
-      status: "active",
-    });
-    repository.upsertZoteroBinding({
-      libraryId: 1,
-      itemKey: "A",
-      literatureItemId: "lit:a",
-      bindingStatus: "active",
-    });
     repository.replaceCitationGraphState({
       nodes: [
         {
-          literatureItemId: "lit:a",
+          literatureItemId: "1:A",
           nodeStatus: "active",
           hasZoteroBinding: true,
           title: "Alpha",
@@ -1370,7 +1290,7 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
       lightweightMetrics: [
         {
-          literatureItemId: "lit:a",
+          literatureItemId: "1:A",
           outgoingCount: 1,
           incomingCount: 0,
           matchedOutgoingCount: 1,
@@ -1382,7 +1302,7 @@ describe("Synthesis Layer v1 integration service", function () {
       ],
       complexMetrics: [
         {
-          literatureItemId: "lit:a",
+          literatureItemId: "1:A",
           nodeId: "zotero:item:A",
           paperRef: "1:A",
           itemKey: "A",
@@ -1916,12 +1836,13 @@ async function importOptional(modulePath: string) {
 describe("Synthesis Layer v2 structured persistence red tests", function () {
   it("uses explicit current/ canonical paths instead of current.md/current.json", async function () {
     const root = await makeRoot();
+    const runtimeRoot = path.join(root, "runtime");
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
 
     assert.equal(
       paths.currentManifest,
       path.join(
-        root,
+        runtimeRoot,
         "synthesis",
         "topics",
         "object-detection",
@@ -1932,7 +1853,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentArtifact,
       path.join(
-        root,
+        runtimeRoot,
         "synthesis",
         "topics",
         "object-detection",
@@ -1943,7 +1864,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentMetadata,
       path.join(
-        root,
+        runtimeRoot,
         "synthesis",
         "topics",
         "object-detection",
@@ -1954,7 +1875,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentExportMarkdown,
       path.join(
-        root,
+        runtimeRoot,
         "synthesis",
         "topics",
         "object-detection",
@@ -1965,7 +1886,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentSectionsRoot,
       path.join(
-        root,
+        runtimeRoot,
         "synthesis",
         "topics",
         "object-detection",
@@ -2097,7 +2018,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(materialized?.paper_count, 1);
   });
 
-  it("persists topic interest metadata sidecar after structured apply", async function () {
+  it("persists topic interest metadata sidecar after structured apply [inv.topic.registry_rebuild_not_changed]", async function () {
     const root = await makeRoot();
     const repository = createSynthesisRepository({
       runtimeRoot: root,
@@ -2170,9 +2091,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ["lit:candidate"],
     );
 
-    const dirtyEventsBefore = (
-      await service.listSynthesisUpdateEvents()
-    ).filter((event) => event.event_type === "topic_freshness_dirty").length;
     repository.upsertLiteratureItem({
       literatureItemId: "lit:new-candidate",
       displayTitle: "New DETR Candidate",
@@ -2186,20 +2104,20 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       methodsJson: JSON.stringify(["DETR"]),
       problemsJson: JSON.stringify(["detection"]),
     });
-    const discovery = await service.runTopicDiscoveryWorker({
-      literatureItemIds: ["lit:new-candidate"],
-    });
     const refreshedState = await topicFreshnessState(root, "object-detection");
-    const dirtyEventsAfter = (await service.listSynthesisUpdateEvents()).filter(
-      (event) => event.event_type === "topic_freshness_dirty",
-    ).length;
+    const refreshedHints = repository.listTopicDiscoveryHints({
+      topicIds: ["object-detection"],
+      statuses: ["open"],
+    });
 
-    assert.equal(discovery.failed, 0);
     assert.equal(refreshedState.freshness, "fresh");
     assert.equal(refreshedState.known_dependency_status, "fresh");
     assert.equal(refreshedState.discovery_status, "candidates");
-    assert.equal(refreshedState.candidate_count, 2);
-    assert.equal(dirtyEventsAfter, dirtyEventsBefore);
+    assert.equal(refreshedState.candidate_count, 1);
+    assert.deepEqual(
+      refreshedHints.map((hint) => hint.literatureItemId),
+      ["lit:candidate"],
+    );
   });
 
   it("accepts structured paper evidence when digest_ref hash matches current Zotero artifact", async function () {

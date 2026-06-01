@@ -69,7 +69,7 @@
 - [x] workspace activity 有时会打断完整信息（当流式输出未结束时）
 - [x] synthesis页面中的run synthesis按钮语义应该改为create topic
 - [x] 四个UI问题：unified workspace打开时，如果侧栏是已打开状态，那么打开workspace后也应该自动打开侧栏；conversation window的流式输出每次刷新都会导致其他区域的动画重置，这不太对；acp skills任务结束或取消后手动重连后，再次进入agent is working状态时，用户输入框不会被正确禁用，发送按钮也不会正确变为取消按钮；活动中的acp skills任务如果有新动作，会话抽屉中的任务卡片的更新时间会刷新，在刷新时会导致抽屉无法交互
-- [p] **Topic graph 和知识库**
+- [x] **Topic graph 和知识库**
 - [x] **进一步优化synthesis skills**，每一步的细节指令要结合payload schema来说，明确各字段的语义及写作建议、示例，进一步约束agent行为，降低错误率，提高质量
 - [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
@@ -80,7 +80,7 @@
 - [x] 常见 ACP backend 的快捷添加
 - [x] acp skills执行过程中点取消会显示“File Closed”，意义不明。继续发指令后提示区一直卡在这个状态
 - [ ] **初次启动时的使用指导demo**
-- [p] **文献搜索入库 workflow**
+- [x] **文献搜索入库 workflow**
 - [p] **文献综述撰写 workflow**
 - [x] Dashboard 的正在运行任务列表，点击无法直接打开侧栏并跳转至任务页面
 - [x] Dashboard 的正在运行的任务列表会显示很多会话抽屉中已不存在的任务，疑似是有某些残留

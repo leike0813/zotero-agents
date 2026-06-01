@@ -219,8 +219,6 @@ const PROJECTION_TARGETS = [
   "tag-index",
   "topic-graph-index",
   "concept-kb-index",
-  "literature-registry-index",
-  "citation-graph-index",
 ];
 
 const MAX_IMPORT_ASSETS = 5000;

@@ -75,13 +75,18 @@ async function createBudgetedService(args: {
     paperCount: args.paperCount,
     graphFanout: args.graphFanout,
   });
-  repository.replaceIndexState(state.indexState);
   repository.replaceCitationGraphState(state.citationGraphState);
+  const registryInputs =
+    args.registryInputs ||
+    createSyntheticSynthesisBenchmarkRegistryInputs({
+      paperCount: args.paperCount,
+      referenceFanout: args.graphFanout,
+    });
   const service = createSynthesisService({
     root,
     libraryId: 1,
     synthesisRepository: repository,
-    registryInputs: args.registryInputs,
+    registryInputs,
     now: () => "2026-05-27T00:00:00.000Z",
   });
   return { root, repository, service, state };
@@ -127,7 +132,7 @@ describe("Synthesis performance budgets", function () {
 
   it("keeps 10k-paper read and review paths inside bounded budgets", async function () {
     const measurements: BudgetMeasurement[] = [];
-    const { service, state } = await createBudgetedService({
+    const { service } = await createBudgetedService({
       paperCount: 10000,
       graphFanout: 2,
     });
@@ -142,7 +147,10 @@ describe("Synthesis performance budgets", function () {
       measurements,
       "index exact paper filter",
       1500,
-      () => service.getPaperRegistry({ paperRefs: ["1:SYN0009999"] }),
+      () =>
+        service.getReferenceSidecarIndex({
+          sourceRefs: ["1:SYN0009999"],
+        }),
     );
     const filteredUiState = applySynthesisUiAction(
       createDefaultSynthesisUiState(),
@@ -175,17 +183,6 @@ describe("Synthesis performance budgets", function () {
       1500,
       () => service.getCitationGraphMetrics({ limit: 50 }),
     );
-    const reviewResult = await measureBudget(
-      measurements,
-      "index review action",
-      2000,
-      () =>
-        service.applyCleanupProposalAction({
-          proposalId: state.reviewItemId,
-          action: "confirm_delete_item",
-        }),
-    );
-
     assert.isAtMost(snapshotInput.registry.rows.length, 250);
     assert.equal(exactRegistryPage.total, 1);
     assert.equal(exactRegistryPage.rows[0]?.paper_ref, "1:SYN0009999");
@@ -198,52 +195,63 @@ describe("Synthesis performance budgets", function () {
     assert.isAtMost(graphSlice.edges.length, 80);
     assert.isTrue(metrics.ok);
     assert.lengthOf(metrics.items, 50);
-    assert.include(
-      reviewResult.diagnostics.map((diagnostic) => diagnostic.code),
-      "index_summary_updated",
-    );
   });
 
-  it("keeps incremental worker batches bounded and reports timing", async function () {
+  it("keeps explicit reference sidecar refresh bounded and reports progress", async function () {
     const measurements: BudgetMeasurement[] = [];
     const registryInputs = createSyntheticSynthesisBenchmarkRegistryInputs({
-      paperCount: 1000,
+      paperCount: 50,
       referenceFanout: 1,
     });
     const { service } = await createBudgetedService({
-      paperCount: 1000,
+      paperCount: 50,
       graphFanout: 1,
       registryInputs,
     });
-
-    for (let index = 0; index < 20; index += 1) {
-      await service.recordSynthesisUpdateEvent({
-        eventType: "zotero_item_updated",
-        source: "budget-test",
-        scope: {
-          kind: "zotero_item",
-          ref: `SYN${String(index + 1).padStart(7, "0")}`,
-        },
-      });
-    }
+    let progressUpdates = 0;
 
     const result = await measureBudget(
       measurements,
-      "paper registry worker batch",
+      "reference sidecar refresh",
       2500,
       () =>
-        service.runPaperRegistryIncrementalWorker({
-          batchLimit: 5,
-          timeBudgetMs: 1000,
+        service.refreshReferenceSidecarNow({
+          onProgress: async () => {
+            progressUpdates += 1;
+          },
         }),
     );
 
-    assert.equal(result.processed, 5);
-    assert.equal(result.completed, 5);
-    assert.equal(result.failed, 0);
-    assert.equal(result.time_budget_ms, 1000);
-    assert.equal(result.budget_exhausted, false);
-    assert.equal(typeof result.elapsed_ms, "number");
-    assert.isAtLeast(result.elapsed_ms, 0);
+    assert.equal(result.status, "ready");
+    assert.isAtLeast(progressUpdates, 3);
+  });
+
+  it("does not run startup drift fanout during service construction", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    let scans = 0;
+
+    createSynthesisService({
+      root,
+      runtimeRoot: root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      libraryAdapter: {
+        getLibraryIndex: async () => {
+          scans += 1;
+          return {
+            libraryId: 1,
+            papers: [],
+            tags: [],
+            collections: [],
+            diagnostics: [],
+          };
+        },
+      } as any,
+    });
+
+    assert.equal(scans, 0);
+    assert.equal(repository.listOperations({ includeCompleted: true }).length, 0);
+    assert.equal(repository.listCacheBasis().length, 0);
   });
 });

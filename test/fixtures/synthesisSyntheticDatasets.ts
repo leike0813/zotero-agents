@@ -1,16 +1,10 @@
-import type { PaperRegistryInput } from "../../src/modules/synthesis/registry";
+import type { ReferenceSidecarInput } from "../../src/modules/synthesis/registry";
 import type {
-  SynthesisArtifactStateRecord,
   SynthesisCitationComplexMetricsRecord,
   SynthesisCitationEdgeRecord,
   SynthesisCitationGraphStateReplacement,
   SynthesisCitationLightMetricsRecord,
   SynthesisCitationNodeRecord,
-  SynthesisIndexStateReplacement,
-  SynthesisLiteratureIdentifierRecord,
-  SynthesisLiteratureItemRecord,
-  SynthesisReviewItemRecord,
-  SynthesisZoteroBindingRecord,
 } from "../../src/modules/synthesis/repository";
 
 export type SyntheticSynthesisBenchmarkDatasetName = "1k" | "10k";
@@ -19,13 +13,11 @@ export type SyntheticSynthesisBenchmarkDataset = {
   name: SyntheticSynthesisBenchmarkDatasetName;
   paperCount: number;
   referenceFanout: number;
-  registryInputs: PaperRegistryInput[];
+  registryInputs: ReferenceSidecarInput[];
 };
 
 export type SyntheticSynthesisBenchmarkRepositoryState = {
-  indexState: SynthesisIndexStateReplacement;
   citationGraphState: SynthesisCitationGraphStateReplacement;
-  reviewItemId: string;
 };
 
 const DATASET_SIZES: Record<SyntheticSynthesisBenchmarkDatasetName, number> = {
@@ -62,12 +54,12 @@ function paperDoi(index: number) {
   return `10.7777/zs.synthetic.${padded(index + 1, 6)}`;
 }
 
-function literatureItemId(index: number) {
-  return `lit:synthetic:${padded(index + 1, 7)}`;
-}
-
 function itemKey(index: number) {
   return `SYN${padded(index + 1, 7)}`;
+}
+
+function sourceRef(index: number, libraryId: number) {
+  return `${libraryId}:${itemKey(index)}`;
 }
 
 function targetIndexForReference(args: {
@@ -149,7 +141,7 @@ export function createSyntheticSynthesisBenchmarkRegistryInputs(args: {
   paperCount: number;
   referenceFanout?: number;
   libraryId?: number;
-}): PaperRegistryInput[] {
+}): ReferenceSidecarInput[] {
   const paperCount = Math.max(1, Math.floor(Number(args.paperCount) || 1));
   const fanout = Math.max(0, Math.floor(Number(args.referenceFanout) || 3));
   const libraryId = Math.max(1, Math.floor(Number(args.libraryId) || 1));
@@ -195,83 +187,16 @@ export function createSyntheticSynthesisBenchmarkRepositoryState(args: {
   const graphFanout = Math.max(0, Math.floor(Number(args.graphFanout) || 2));
   const libraryId = Math.max(1, Math.floor(Number(args.libraryId) || 1));
   const timestamp = "2026-05-27T00:00:00.000Z";
-  const literatureItems: SynthesisLiteratureItemRecord[] = [];
-  const identifiers: SynthesisLiteratureIdentifierRecord[] = [];
-  const zoteroBindings: SynthesisZoteroBindingRecord[] = [];
-  const artifactStates: SynthesisArtifactStateRecord[] = [];
   const nodes: SynthesisCitationNodeRecord[] = [];
   const edges: SynthesisCitationEdgeRecord[] = [];
   const incomingCounts = new Map<string, number>();
   const outgoingCounts = new Map<string, number>();
 
   for (let index = 0; index < paperCount; index += 1) {
-    const litId = literatureItemId(index);
+    const source = sourceRef(index, libraryId);
     const key = itemKey(index);
-    literatureItems.push({
-      literatureItemId: litId,
-      displayTitle: paperTitle(index),
-      normalizedTitle: paperTitle(index).toLowerCase(),
-      titleNormalizerVersion: "synthetic-benchmark.v1",
-      year: paperYear(index),
-      authorsJson: JSON.stringify([`Synthetic Author ${index % 97}`]),
-      status: "active",
-      createdFrom: "synthetic-benchmark",
-      confidence: "1.0",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    identifiers.push(
-      {
-        literatureItemId: litId,
-        kind: "doi",
-        normalizedValue: paperDoi(index),
-        displayValue: paperDoi(index),
-        source: "synthetic-benchmark",
-        confidence: "1.0",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-      {
-        literatureItemId: litId,
-        kind: "citekey",
-        normalizedValue: `synthetic${padded(index + 1, 5)}`,
-        displayValue: `synthetic${padded(index + 1, 5)}`,
-        source: "synthetic-benchmark",
-        confidence: "1.0",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-    );
-    zoteroBindings.push({
-      libraryId,
-      itemKey: key,
-      literatureItemId: litId,
-      itemType: "journalArticle",
-      bindingStatus: "active",
-      dateAdded: timestamp,
-      tagsJson: JSON.stringify([
-        TOPIC_TAGS[index % TOPIC_TAGS.length],
-        TOPIC_TAGS[(index + 3) % TOPIC_TAGS.length],
-      ]),
-      collectionsJson: JSON.stringify([
-        `collection:${padded((index % 20) + 1, 2)}`,
-      ]),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    for (const artifactType of ["digest", "references", "citation_analysis"]) {
-      artifactStates.push({
-        literatureItemId: litId,
-        artifactType,
-        status: "available",
-        payloadHash: `sha256:synthetic-${artifactType}-${padded(index + 1, 7)}`,
-        noteKey: `SYN-NOTE-${padded(index + 1, 7)}`,
-        diagnosticsJson: "[]",
-        updatedAt: timestamp,
-      });
-    }
     nodes.push({
-      literatureItemId: litId,
+      literatureItemId: source,
       nodeStatus: "active",
       hasZoteroBinding: true,
       title: paperTitle(index),
@@ -279,8 +204,8 @@ export function createSyntheticSynthesisBenchmarkRepositoryState(args: {
       summaryJson: "{}",
       updatedAt: timestamp,
     });
-    outgoingCounts.set(litId, graphFanout);
-    incomingCounts.set(litId, 0);
+    outgoingCounts.set(source, graphFanout);
+    incomingCounts.set(source, 0);
   }
 
   for (let sourceIndex = 0; sourceIndex < paperCount; sourceIndex += 1) {
@@ -290,15 +215,15 @@ export function createSyntheticSynthesisBenchmarkRepositoryState(args: {
         offset,
         count: paperCount,
       });
-      const targetLitId = literatureItemId(targetIndex);
+      const target = sourceRef(targetIndex, libraryId);
       incomingCounts.set(
-        targetLitId,
-        (incomingCounts.get(targetLitId) || 0) + 1,
+        target,
+        (incomingCounts.get(target) || 0) + 1,
       );
       edges.push({
         edgeId: `edge:${padded(sourceIndex + 1, 7)}:${offset}`,
-        sourceLiteratureItemId: literatureItemId(sourceIndex),
-        targetLiteratureItemId: targetLitId,
+        sourceLiteratureItemId: sourceRef(sourceIndex, libraryId),
+        targetLiteratureItemId: target,
         referenceInstanceId: `ref:${padded(sourceIndex + 1, 7)}:${offset}`,
         resolutionId: `res:${padded(sourceIndex + 1, 7)}:${offset}`,
         edgeStatus: "matched",
@@ -313,11 +238,11 @@ export function createSyntheticSynthesisBenchmarkRepositoryState(args: {
   }
 
   const lightweightMetrics: SynthesisCitationLightMetricsRecord[] =
-    literatureItems.map((item) => {
-      const incomingCount = incomingCounts.get(item.literatureItemId) || 0;
-      const outgoingCount = outgoingCounts.get(item.literatureItemId) || 0;
+    nodes.map((node) => {
+      const incomingCount = incomingCounts.get(node.literatureItemId) || 0;
+      const outgoingCount = outgoingCounts.get(node.literatureItemId) || 0;
       return {
-        literatureItemId: item.literatureItemId,
+        literatureItemId: node.literatureItemId,
         outgoingCount,
         incomingCount,
         matchedOutgoingCount: outgoingCount,
@@ -358,40 +283,13 @@ export function createSyntheticSynthesisBenchmarkRepositoryState(args: {
       status: "ready",
       updatedAt: timestamp,
     }));
-  const reviewItemId = "review:synthetic-delete:SYN0000001";
-  const reviewItems: SynthesisReviewItemRecord[] = [
-    {
-      reviewItemId,
-      reviewKind: "zotero_item_delete",
-      priority: 0,
-      status: "open",
-      scopeKind: "paper",
-      scopeRef: `${libraryId}:${itemKey(0)}`,
-      payloadJson: JSON.stringify({
-        literature_item_id: literatureItemId(0),
-        paper_ref: `${libraryId}:${itemKey(0)}`,
-      }),
-      diagnosticsJson: "[]",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  ];
-
   return {
-    indexState: {
-      literatureItems,
-      identifiers,
-      zoteroBindings,
-      artifactStates,
-      reviewItems,
-    },
     citationGraphState: {
       nodes,
       edges,
       lightweightMetrics,
       complexMetrics,
     },
-    reviewItemId,
   };
 }
 

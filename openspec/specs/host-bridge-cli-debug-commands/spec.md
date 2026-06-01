@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Define CLI routing for debug-only Host Bridge capabilities.
+
+## Requirements
 
 ### Requirement: CLI exposes a debug namespace
 
@@ -84,36 +88,17 @@ inspect, and topic inspect diagnostics.
   is invoked
 - **THEN** the CLI SHALL call `debug.synthesis.topic.inspect`.
 
-### Requirement: CLI provides Synthesis queue, jobs, and worker debug commands
+### Requirement: CLI provides Synthesis work debug commands
 
-The CLI SHALL provide semantic commands for Synthesis queue control, job
-control, and worker execution.
+The CLI SHALL provide semantic commands for Synthesis work list, control, and
+drain execution.
 
-#### Scenario: Synthesis queue command is requested
+#### Scenario: Synthesis work command is requested
 
-- **WHEN** `zotero-bridge debug synthesis queue list|enqueue|retry|pause|resume|clear --input <JSON_OR_FILE>`
+- **WHEN** `zotero-bridge debug synthesis work list|run|enqueue|retry|pause|resume|clear --input <JSON_OR_FILE>`
   is invoked
 - **THEN** the CLI SHALL call the corresponding
-  `debug.synthesis.queue.*` capability.
-
-#### Scenario: Synthesis jobs command is requested
-
-- **WHEN** `zotero-bridge debug synthesis jobs list|clear-stale --input <JSON_OR_FILE>`
-  is invoked
-- **THEN** the CLI SHALL call the corresponding
-  `debug.synthesis.jobs.*` capability.
-
-#### Scenario: Synthesis worker run is requested
-
-- **WHEN** `zotero-bridge debug synthesis worker run --input <JSON_OR_FILE>` is
-  invoked
-- **THEN** the CLI SHALL call `debug.synthesis.worker.run`.
-
-#### Scenario: Synthesis maintenance run is requested
-
-- **WHEN** `zotero-bridge debug synthesis maintenance run --input <JSON_OR_FILE>`
-  is invoked
-- **THEN** the CLI SHALL call `debug.synthesis.maintenance.run`.
+  `debug.synthesis.work.*` capability.
 
 ### Requirement: CLI debug input and output reuse existing JSON contracts
 
@@ -145,10 +130,10 @@ The CLI SHALL NOT treat dangerous debug confirmation phrases as authority. It
 MAY pass dangerous debug inputs through, but the Host Bridge capability SHALL
 remain the authority for approval and confirmation validation.
 
-#### Scenario: Dangerous queue clear is invoked
+#### Scenario: Dangerous work clear is invoked
 
-- **WHEN** `zotero-bridge debug synthesis queue clear --input <JSON_OR_FILE>` is
+- **WHEN** `zotero-bridge debug synthesis work clear --input <JSON_OR_FILE>` is
   invoked
-- **THEN** the CLI SHALL call `debug.synthesis.queue.clear` only if the manifest
+- **THEN** the CLI SHALL call `debug.synthesis.work.clear` only if the manifest
   exposes it
 - **AND** the CLI SHALL NOT treat a local phrase match as sufficient approval.

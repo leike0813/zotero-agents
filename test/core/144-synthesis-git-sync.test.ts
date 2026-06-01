@@ -347,7 +347,6 @@ describe("Synthesis git sync", function () {
       "sync/sync-manifest.json",
     ]);
     assert.isTrue(projections.projections["tag-index"].stale);
-    assert.isTrue(projections.projections["citation-graph-index"].stale);
     assert.includeMembers(
       progressReports.map((report) => report.phase),
       [
@@ -737,15 +736,15 @@ describe("Synthesis git sync", function () {
       },
     });
 
-    await service.runLiteratureRegistryJobNow();
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
+    await service.refreshReferenceSidecarNow();
     await waitFor(async () => mergeCount === 1);
     await delay(70);
 
     assert.equal(mergeCount, 1);
   });
 
-  it("does not sync Git from projection, metrics, layout, or freshness-only writes", async function () {
+  it("does not sync Git from projection-only cache refreshes", async function () {
     const root = await makeRuntimeRoot();
     let mergeCount = 0;
     const service = createSynthesisService({
@@ -760,64 +759,37 @@ describe("Synthesis git sync", function () {
         },
       },
     });
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
     await waitFor(async () => mergeCount === 1);
 
-    await service.rebuildCitationGraphProjection();
-    await service.runCitationGraphComplexMetricsWorker({ timeBudgetMs: 1000 });
-    await service.runCitationGraphLayoutWorker({
-      preset: "default",
-      force: true,
-      timeBudgetMs: 1000,
-    });
-    await service.runTopicFreshnessWorker({
-      batchLimit: 5,
-      timeBudgetMs: 1000,
-    });
+    await service.rebuildCitationGraphCacheNow();
+    await service.rebuildTagVocabularyIndex();
+    await service.rebuildConceptKbIndex();
+    await service.rebuildTopicGraphIndex();
     await delay(80);
 
     assert.equal(mergeCount, 1);
   });
 
-  it("keeps manual sync available while reporting active canonical maintenance", async function () {
+  it("keeps manual sync available while reporting pending canonical maintenance", async function () {
     const root = await makeRuntimeRoot();
-    let resolveInput!: (value: ReturnType<typeof registryInput>) => void;
-    const pendingInput = new Promise<ReturnType<typeof registryInput>>(
-      (resolve) => {
-        resolveInput = resolve;
-      },
-    );
     const service = createSynthesisService({
       root,
       libraryId: 1,
       gitSyncDebounceMs: 50,
+      registryInputs: [registryInput("A")],
       gitSyncAdapter: {
         merge: () => ({ status: "clean" }),
       },
-      libraryAdapter: {
-        getRegistryInputForItem: async () => pendingInput,
-      } as any,
-    });
-    await service.recordSynthesisUpdateEvent({
-      eventType: "zotero_item_updated",
-      source: "test",
-      scope: { kind: "zotero_item", ref: "A" },
     });
 
-    const worker = service.runPaperRegistryIncrementalWorker({
-      batchLimit: 1,
-      timeBudgetMs: 1000,
-    });
-    await delay(20);
+    await service.refreshReferenceSidecarNow();
     const state = await service.syncNow();
 
     assert.include(
       state.diagnostics.map((entry) => entry.code),
-      "canonical_maintenance_active",
+      "canonical_maintenance_sync_pending",
     );
-
-    resolveInput(registryInput("A"));
-    await worker;
   });
 
   it("creates a prefs-configured Git command adapter without leaking token state", async function () {

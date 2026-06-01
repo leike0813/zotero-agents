@@ -2,7 +2,7 @@
 
 Historical documentation capability superseded by `synthesis-layer-doc-system`.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Governance split SHALL be treated as historical
 

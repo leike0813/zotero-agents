@@ -128,7 +128,7 @@ async function reconcileSkillRunnerBackendsOnStartup() {
       });
     }
   } catch {
-    // keep startup reconcile fully background/non-blocking
+    // Keep external SkillRunner ledger reconciliation background/non-blocking.
   }
 }
 
@@ -290,9 +290,6 @@ async function onStartup() {
   }
   startManagedLocalRuntimeAutoEnsureLoop();
   startHostBridgeSupervisor();
-  void getDefaultSynthesisService()
-    .runSynthesisStartupReconcile({ batchLimit: 500 })
-    .catch(() => undefined);
 
   registerPrefsPane();
 

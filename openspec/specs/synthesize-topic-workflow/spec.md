@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Topic synthesis workflows produce validated result bundles that the plugin can apply through controlled persistence paths.
+
+## Requirements
 
 ### Requirement: Topic synthesis workflow result bundles are validated
 

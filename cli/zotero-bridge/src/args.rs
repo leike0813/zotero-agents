@@ -260,10 +260,10 @@ pub enum SynthesisCommand {
     ResolveResolver(SynthesisInputArgs),
 
     #[command(
-        about = "Read the Synthesis paper registry",
-        long_about = "Map to Host Bridge capability synthesis.get_paper_registry."
+        about = "Read the Synthesis Reference Sidecar Index",
+        long_about = "Map to Host Bridge capability synthesis.get_reference_sidecar_index."
     )]
-    GetPaperRegistry(SynthesisInputArgs),
+    GetReferenceSidecarIndex(SynthesisInputArgs),
 
     #[command(
         about = "Query the Synthesis citation graph",
@@ -668,7 +668,7 @@ mod tests {
             "get-schemas",
             "get-library-index",
             "resolve-resolver",
-            "get-paper-registry",
+            "get-reference-sidecar-index",
             "query-citation-graph",
             "get-citation-graph-slice",
             "get-citation-graph-metrics",

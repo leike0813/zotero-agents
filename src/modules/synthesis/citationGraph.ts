@@ -12,6 +12,7 @@ export type CitationGraphReferenceInput = {
   citekey?: string;
   doi?: string;
   arxiv?: string;
+  isbn?: string;
   url?: string;
   title?: string;
   year?: string;
@@ -28,6 +29,7 @@ export type CitationGraphPaperInput = {
   authors?: string[];
   doi?: string;
   arxiv?: string;
+  isbn?: string;
   url?: string;
   citekey?: string;
   hasAttachment?: boolean;

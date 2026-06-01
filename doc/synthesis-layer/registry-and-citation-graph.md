@@ -1,105 +1,191 @@
-# Registry Cache and Citation Graph
+# Reference Sidecar and Citation Graph
 
-The Paper Registry Cache and Citation Graph form the core deterministic infrastructure of the Synthesis Layer. They are valuable because they are rebuildable caches, not because they own user-authored topic content.
+The Reference Sidecar and Citation Graph form the fast lookup layer for graph and inspection workflows. They are valuable because they are rebuildable sidecar projections over workflow artifacts, not because they own Zotero Library facts or user-authored topic content.
 
-## Registry Cache
+The SSOT boundary is defined in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md). Historical Registry terminology is retained only to identify old implementation surfaces that must be removed or renamed during the hard cut. The active product model is artifact sidecar plus raw references, canonical references, reference bindings, and explicit review.
 
-The Registry Cache stores current facts about Zotero-bound literature:
+## Data Model
 
-- Zotero bindings and recognized `literature_item_id` records.
-- Bibliographic identity facts such as title, authors, year, DOI, arXiv, URL, and cite key when available.
-- Source artifact coverage from derived artifact notes.
-- Reference instances extracted from source artifacts.
-- Cleanup/review surfaces for missing artifacts, duplicate candidates, and binding issues.
+The reference layer has four active table families.
 
-Registry rebuild should be precision-first. It may be slow, but it must be explainable and recoverable.
+### Artifact Sidecar
 
-## Identity Resolution
+Artifact sidecar rows are keyed by `source_ref`, where `source_ref = <libraryId>:<itemKey>`.
 
-`literature_item_id` is deterministic and opaque. It is not a human-readable DOI/title/citeKey and it is not a Zotero binding key. It is derived from the selected identity anchor so rebuild can preserve graph edges, redirects, topic source dependencies, review items, and user overrides when Zotero bindings change.
+Minimum fields:
 
-Canonical identity anchors:
+| Field | Meaning |
+| --- | --- |
+| `source_ref` | Primary key for one Zotero source item. |
+| `library_id`, `item_key` | Parsed Zotero binding for direct host lookup. |
+| `digest_exists`, `digest_hash`, `digest_locator_json` | Digest artifact presence, hash, and locator. |
+| `references_exists`, `references_hash`, `references_locator_json` | References artifact presence, hash, and locator. |
+| `citation_analysis_exists`, `citation_analysis_hash`, `citation_analysis_locator_json` | Citation-analysis artifact presence, hash, and locator. |
+| `scanned_at`, `updated_at` | Cache timing metadata. |
 
-- Accepted merge/redirect facts are canonical durable decisions and must be applied before deriving or allocating IDs.
-- Strong work identity anchors use kind-specific refs such as canonical DOI, arXiv ID, ISBN, or stable canonical URL. They should produce the same `literature_item_id` whether the work is currently Zotero-bound or external-only.
-- Current Zotero binding anchors use `paper_ref` format v1, `<libraryId>:<itemKey>`, only as a local fallback when no stronger work identity or accepted redirect is available.
-- External work without strong identity uses a provisional reference key derived from the same normalization primitives as reference resolution. These IDs are lower-confidence and may later redirect to a stronger identity.
-- Fallback and provisional identity classes must be exposed in diagnostics so users can understand why a node did not converge to a work-level strong identity.
+This table must not store Zotero item title, creators, year, tags, collections, item type, or deletion state as library facts. The Workbench Index should join direct Zotero reads with artifact/reference sidecar rows when it needs current library facts.
 
-Resolution order:
+### Raw References
 
-1. Apply accepted merge/redirect/tombstone facts created by user actions or validated import.
-2. Resolve unique non-conflicting strong identifiers such as normalized DOI, arXiv ID, ISBN, or stable canonical URL to an existing or deterministic strong work `literature_item_id`.
-3. Reuse an existing active Zotero binding (`libraryId:itemKey`) when that binding still exists and no stronger identity retargets it.
-4. Reuse an existing provisional/fallback row when its normalized evidence and redirect history match the incoming work.
-5. Use title/author/year identity only as matcher evidence and, for weak provisional keys, as part of a reviewable provisional identity.
-6. Allocate a new binding-fallback or provisional external `literature_item_id` only when no accepted redirect, strong identity, current binding, or compatible provisional identity can be recognized.
+Raw reference rows are extracted from references artifacts.
 
-The deterministic ID is still an implementation key, not a claim that two works are intellectually identical. Merge, split, retarget, and tombstone decisions remain domain facts expressed through redirects and review/override state. When a binding-fallback item later gains a unique strong identity, the safe materialization is a redirect/retarget to the strong work identity, not silently changing the original row ID in place.
+Minimum fields:
 
-## Reference Resolution
+| Field | Meaning |
+| --- | --- |
+| `raw_reference_id` | Stable row id for one extracted reference occurrence. |
+| `source_ref` | Source Zotero item whose artifact contained the reference. |
+| `references_artifact_hash` | Hash of the references artifact used during extraction. |
+| `reference_index` | Index inside the extracted reference list. |
+| `raw_hash` | Hash of normalized raw/parsed reference content. |
+| `parsed_json` | Bounded parsed fields and raw text needed for diagnostics. |
+| `normalized_title`, `doi`, `arxiv`, `isbn`, `url`, `citekey`, `year` | Indexed matcher evidence. |
+| `canonical_reference_id` | Current canonical representative initially assigned at extraction. |
+| `status` | `active` or `stale`. |
+| `extracted_at`, `extractor_version` | Basis and version metadata. |
 
-Reference resolution links a source paper’s reference instance to either:
+When a source item's `references_hash` changes, old active raw references for the previous `source_ref + references_artifact_hash` become `stale`; the newly extracted references are inserted as new rows. Refresh must not rewrite historical raw rows in place except for status/provenance fields.
 
-- a current library `literature_item_id`;
-- an external work node;
-- an unresolved node;
-- a review/suggestion state when confidence is insufficient.
+### Canonical References
 
-`literature_matching_metadata` is not used for literature-to-literature reference matching. It is topic-discovery metadata and should not influence citation graph edges.
+Canonical references represent deduped referenced works, not Zotero Library items.
 
-The full algorithm contract lives in [Reference Resolution](./reference-resolution.md). This document only records ownership and graph materialization boundaries.
+Minimum fields:
 
-## External Work Dedupe
+| Field | Meaning |
+| --- | --- |
+| `canonical_reference_id` | Synthesis-owned reference identity. |
+| `representative_json` | Selected display/evidence fields from one or more raw references. |
+| `normalized_title`, `identity_key` | Indexed dedupe evidence. |
+| `status` | `active`, `merged`, or `deprecated`. |
+| `created_from_raw_reference_id` | Provenance for the first materialized raw reference. |
+| `created_at`, `updated_at` | Lifecycle timestamps. |
 
-External work dedupe should use the same normalization principles as library matching, but it has a different risk profile:
+Every newly extracted raw reference may initially create or point to a canonical reference. Dedupe writes redirects rather than relying on destructive row rewriting.
 
-- External work nodes must have rebuild-stable identity when strong identifiers exist. DOI, arXiv, ISBN, and stable canonical URL should resolve to the same external work across rebuilds.
-- External references without strong identifiers may use a provisional work key based on normalized title/authors/year/container evidence. Raw reference text belongs to the reference instance and diagnostics by default; it must not fragment provisional work identity.
-- References with evidence too weak for a work-level provisional key remain unresolved or become reference-scoped placeholders. They must not participate in external dedupe as canonical targets.
-- Dedupe may merge multiple unresolved/external references into one external work node.
-- Dedupe must not override a stronger library match.
-- When a library match and external dedupe candidate both exist, the library match wins if it passes automatic-match thresholds.
-- Ambiguous external clusters remain separate or become review candidates; they must not be aggressively merged.
+### Canonical Reference Redirects
 
-Before formal implementation, extract a fixture from the current library, build human-reviewed golden labels with the review harness, run policy experiments, and only then finalize thresholds.
+Redirects record dedupe, merge, and retarget decisions:
 
-## Review Queue Boundaries
+| Field | Meaning |
+| --- | --- |
+| `from_canonical_reference_id` | Superseded canonical reference. |
+| `to_canonical_reference_id` | Effective canonical reference. |
+| `reason`, `method`, `confidence` | Why the redirect exists. |
+| `created_at` | Decision timestamp. |
 
-Review is a scarce user resource. Matching and dedupe must not convert every weak pair into a review item.
+Reads must resolve the effective canonical reference before graph materialization and binding lookup. Ambiguous redirects require explicit review.
 
-- Candidate generation must use indexed blocking keys such as normalized identifier, strong compact title, title fingerprint, and bounded author/year buckets. O(N²) all-pairs review generation is forbidden.
-- Strong identifier equality without contradictory bibliographic facts should auto-resolve and should not create a review item.
-- Contradictory strong identifiers, duplicate strong identifiers with materially different titles, and ambiguous high-score clusters may create review items.
-- Each source item should emit only a bounded number of review candidates per category. Overflow becomes an aggregate diagnostic with filters, not thousands of individual review cards.
-- Workbench should support bulk accept/reject for repeated duplicate or external-dedupe decisions.
-- Low-confidence suggestions that are useful for diagnostics may stay in debug/diagnostic output without becoming user-facing review items.
+### Reference Bindings
+
+Reference bindings map canonical references to current Zotero Library items.
+
+| Field | Meaning |
+| --- | --- |
+| `binding_id` | Stable binding row id. |
+| `canonical_reference_id` | Effective canonical reference being bound. |
+| `library_id`, `item_key` | Zotero target item. |
+| `status` | `accepted`, `candidate`, `rejected`, or `stale_target`. |
+| `method`, `confidence`, `evidence_json` | Matching provenance. |
+| `created_at`, `updated_at` | Lifecycle timestamps. |
+
+`accepted` decisions are durable user sidecar facts. Automatic and user-confirmed provenance is recorded as evidence, not as separate lifecycle states. Refresh may preserve accepted bindings or mark them `stale_target` after direct Zotero checks, but it must not silently overwrite or delete them.
+
+## Two-Stage Reference Refresh
+
+The target reference refresh is a two-stage operation.
+
+Stage 1: artifact sidecar scan and diff.
+
+1. Enumerate the selected Zotero source scope and locate Synthesis artifacts.
+2. Update only artifact sidecar existence, locator, fingerprint/hash, and diagnostics.
+3. Compute the changed set from `references_hash` changes, newly discovered references artifacts, and disappeared references artifacts.
+4. Do not materialize Zotero item metadata into sidecar tables.
+5. Do not rebuild graph metrics/layout or run binding review inside this stage.
+
+Stage 2: changed-reference processing.
+
+1. For each changed `source_ref`, process a bounded slice or small transaction.
+2. If the references artifact disappeared, mark old active raw references for that source as `stale`.
+3. If the references artifact hash changed, mark old active raw references for the previous hash as `stale`.
+4. Read and parse only the changed references artifact.
+5. Insert new raw references for the new `source_ref + references_hash`.
+6. Assign canonical references and run incremental dedupe against the active canonical reference index.
+7. Run best-effort automatic binding only for new or affected canonical references when the required Zotero metadata can be read within budget.
+8. Leave ambiguous binding, broad library metadata scans, and user approval to explicit binding repair/review.
+
+This refresh must expose progress from real counts: scanned artifact sources, changed artifacts, extracted references, canonical matches, and affected binding candidates. A failed source should write bounded diagnostics for that source without making the entire refresh appear permanently running.
+
+On success, reference refresh marks only `reference-sidecar:library` ready in `synt_cache_basis`. It marks `citation-graph:library` stale because graph data is derived from the refreshed sidecar, but it does not rebuild graph nodes, edges, metrics, or layout. Refresh progress and terminal failure are recorded in `synt_operation`; that operation row is not a data-readiness source.
+
+## Workflow Apply
+
+`literature-digest` apply is an explicit workflow action and may run the same single-source pipeline:
+
+1. Write or update the digest/references/citation-analysis artifacts through Zotero APIs.
+2. Update the artifact sidecar row for that `source_ref`.
+3. If `references_hash` changed, stale old raw references for that source/hash and extract new raw references.
+4. Run incremental canonical dedupe for the new raw references.
+5. Run lightweight best-effort binding where safe.
+
+This is not an implicit Zotero Library trigger. It is scoped to the applied item and must not start graph cache rebuild, topic source check, or a library-wide backscan.
+
+## Binding Repair and Review
+
+Binding repair is separate from ordinary refresh because it may need current Zotero metadata and user judgment.
+
+- Candidate generation uses indexed blocking keys such as DOI/arXiv/ISBN, compact title keys, bounded author/year buckets, and existing rejected/accepted decisions.
+- Strong identifier equality without contradictory bibliographic evidence may create an `accepted` binding with automatic provenance.
+- Ambiguous candidates create review items or `candidate` bindings.
+- User actions can confirm, reject, merge, retarget, or remove bindings.
+- Binding repair may scan Zotero metadata for the selected scope, but it must not persist Zotero metadata as a library fact source.
+
+## Citation Graph Cache Rebuild
+
+Citation graph structure is derived from:
+
+1. active raw references;
+2. effective canonical references after redirects;
+3. accepted reference bindings;
+4. direct Zotero checks for currently bound source/target item existence when graph correctness requires it.
+
+Graph cache rebuild is a separate explicit operation, exposed as `rebuildCitationGraphCacheNow` in the service/host layer. It must not scan artifacts, extract references, or repair bindings. It reads active raw references, resolves effective canonical references, applies accepted bindings, writes graph nodes/edges/light metrics, and marks `citation-graph:library` ready in `synt_cache_basis`.
+
+Graph cache rebuild must not read old Registry/literature-index tables as truth. It may produce nodes, edges, and metrics for speed, but those outputs remain stale-tolerant projections. Layout rebuild is a separate operation that computes coordinates for an existing graph hash and must not rebuild graph data.
+
+Graph display rules:
+
+- Library source nodes use current Zotero reads for display facts when available.
+- Bound reference nodes point to current Zotero `libraryId:itemKey`.
+- Unbound canonical references become external nodes.
+- External nodes with incoming degree greater than 1 should be shown by default as shared external references.
+- External nodes with incoming degree 1 are hover-only by default.
+- If graph structure exists but layout is missing or stale, the UI should draw using available coordinates when possible and offer explicit layout refresh.
+- If graph cache is missing or stale, the UI should offer explicit graph cache rebuild, not layout rebuild.
 
 ## Related Items Sync
 
-The old reference matching workflow added Zotero built-in related-item relations during apply. In the new architecture this should be a Graph-owned optional after-commit effect:
+The old reference matching workflow added Zotero built-in related-item relations during apply. In the target architecture this is optional and explicit. Zotero Library remains the SSOT for native related-item relations; Synthesis can only propose or perform bounded side effects with provenance:
 
 - Source is accepted library-to-library citation edges from the Citation Graph.
-- Target is Zotero related-item relations between the source Zotero item and matched target Zotero item.
+- Target is Zotero related-item relations between the source Zotero item and accepted target Zotero item.
 - The sync should be idempotent and bounded, with Synthesis-owned provenance for every attempted effect.
-- It should never run from unresolved, external-only, rejected, or suggestion-only references.
-- It should expose progress and diagnostics but should not block Registry rebuild completion.
+- Explicit graph/cache refresh or approved binding review may recommend related-items sync when accepted library-to-library edges exist or stale Synthesis-created effects need revocation.
+- It should never run from unbound, external-only, rejected, or candidate-only references.
+- It should expose progress and diagnostics but should not block graph/reference cache refresh completion unless the user explicitly chose an all-or-nothing sync.
 - It must never delete a Zotero related-item relation that lacks Synthesis provenance.
 - If a relation already existed before sync, record it as `already_existed` and never remove it automatically.
 - If Synthesis created a relation and the backing citation edge is later rejected, retargeted, superseded, or loses an active binding, the worker may revoke only that proven Synthesis-created relation after rechecking the current Zotero relation still matches the recorded source/target effect.
+- Cache validation must not treat pending external writes as successfully synchronized. Already `applied` Synthesis-created effects may become stale so an explicit sync/review flow can drive revoke.
 - If ownership cannot be proven or the current Zotero state diverged from the recorded effect, mark the sync effect `needs_attention` and leave the Zotero relation untouched.
-- Zotero write or revoke failures update sync diagnostics only; they must not roll back Registry or Citation Graph facts.
+- Zotero write or revoke failures update sync diagnostics only; they must not roll back Reference Sidecar or Citation Graph facts.
 
-## Graph Display
+## Removed Model
 
-The Workbench Graph is a semantic view, not a raw reference dump.
+Startup reconcile, dirty queues, WorkItems, WorkRuns, full Registry rebuild, source-item ID allocation outside Zotero, and old Synthesis-owned Zotero library fact tables are not active design targets. Active code must not depend on them for correctness or compatibility.
 
-- All current library nodes must be shown by default.
-- External nodes with incoming degree greater than 1 should be shown by default as shared external references.
-- External nodes with incoming degree 1 are hover-only by default.
-- Layout is computed for default visible nodes. Hover-only nodes use local deterministic placement.
-- If graph structure exists but layout is missing or stale, the UI should draw using available coordinates when possible and trigger async layout refresh.
+## Cache Basis and Graph Freshness
 
-## Registry and Graph Epochs
+Reference sidecar refresh records artifact hashes, extractor version, matcher policy version, binding decision version where relevant, scope, and refresh time in `synt_cache_basis`. Citation graph structure/metrics and graph layout record separate cache basis over active references, binding decisions, graph hash, and layout preset.
 
-Registry rebuild advances `registry_epoch`. Graph structure, metrics, and layout record their `graph_basis_registry_epoch`. If the basis is stale, the graph can still be displayed with a refreshing diagnostic while workers recompute derived data.
+Runtime readiness must come from `synt_cache_basis`, not terminal `synt_operation` rows and not legacy sidecar state files, sidecar index files, graph index files, or graph manifests. Terminal operation rows are progress/history diagnostics only. If a graph basis is missing, stale, or failed, the Graph page should show a cache diagnostic and an explicit graph cache rebuild action.

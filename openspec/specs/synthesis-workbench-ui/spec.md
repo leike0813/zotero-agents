@@ -1,54 +1,57 @@
-## MODIFIED Requirements
+## Purpose
 
-### Requirement: Workbench UI reads live Synthesis state from SQLite
+Synthesis Workbench presents sidecar cache state, explicit operations, and review queues.
+## Requirements
+### Requirement: Workbench presents cache state and explicit operations
+Synthesis Workbench SHALL present sidecar cache status, explicit operation rows, and bounded review queues instead of background synchronization queues.
 
-The Synthesis Workbench SHALL build its normal UI read model from
-SQLite-backed repository/runtime state only.
+#### Scenario: Cache is stale
+- **WHEN** reference or graph cache status is stale
+- **THEN** Workbench SHALL label it as stale cache
+- **AND** it SHALL offer an explicit refresh action without implying Zotero Library is stale.
 
-#### Scenario: Legacy files exist with empty DB
+### Requirement: Workbench reads do not start maintenance
+Workbench snapshot reads SHALL NOT start cache refresh, startup reconcile, worker drain, or sidecar mutation.
 
-- **WHEN** legacy `data/synthesis` JSON, canonical projection files, or old
-  task rows exist
-- **AND** the SQLite Synthesis repository has no corresponding live rows
-- **THEN** Workbench Home, Topics, Cleanup, Deleted Artifacts, Graph, topic
-  options, and background jobs SHALL render the DB-empty state
-- **AND** those legacy files SHALL NOT inject UI rows or task status.
+#### Scenario: User opens Workbench
+- **WHEN** Workbench builds the initial snapshot
+- **THEN** it SHALL read current sidecar rows and direct source-check summaries only
+- **AND** it SHALL NOT enqueue or start maintenance work.
 
-#### Scenario: DB rows conflict with legacy files
+### Requirement: Reference refresh progress uses real stage counts
+Workbench SHALL present reference sidecar refresh progress from real stage counts or as indeterminate when totals are not known.
 
-- **WHEN** SQLite state and legacy files contain different Synthesis data
-- **THEN** the Workbench UI SHALL display only the SQLite-backed rows
-- **AND** legacy rows SHALL be ignored for normal UI rendering.
+#### Scenario: Reference sidecar refresh runs
+- **WHEN** refresh has discovered artifact scan or changed-reference totals
+- **THEN** Workbench SHALL show determinate progress for scanned sources, changed artifacts, extracted raw references, canonical matches, or binding candidates
+- **AND** it SHALL NOT display an invented percent for a long stage with unknown total.
 
-### Requirement: Graph tab renders DB graph structure while layout refreshes
+### Requirement: Workbench separates graph data rebuild from layout rebuild
+Workbench SHALL present Citation Graph cache rebuild and Citation Graph layout rebuild as separate operations.
 
-The Graph tab SHALL treat DB citation graph structure as the source of graph
-availability and layout state as a presentation cache.
+#### Scenario: Graph cache is missing or stale
+- **WHEN** Graph tab has no ready graph cache basis
+- **THEN** the primary action SHALL run `rebuildCitationGraphCacheNow`
+- **AND** it SHALL NOT run `manualRecomputeLayout`.
 
-#### Scenario: DB graph structure is missing
+#### Scenario: Graph cache is ready but layout is missing
+- **WHEN** graph data exists but layout coordinates are missing or dirty
+- **THEN** the primary action MAY run `manualRecomputeLayout`
+- **AND** it SHALL NOT imply graph data refresh.
 
-- **WHEN** the SQLite citation graph has no nodes and no edges
-- **THEN** the Graph tab SHALL show an empty graph state
-- **AND** it MAY offer a build/rebuild action.
+### Requirement: Workbench background jobs come from explicit operations
+Workbench SHALL show Reference Sidecar and Citation Graph cache jobs from active or recent failed operation rows only.
 
-#### Scenario: DB graph exists but layout is missing
+#### Scenario: Sidecar cache is ready after previous failure
+- **WHEN** a previous failed operation row or legacy state file exists
+- **AND** the cache basis is ready after a later successful refresh
+- **THEN** Workbench SHALL NOT show a failed `Reference sidecar refresh` background job.
 
-- **WHEN** the SQLite citation graph has visible graph rows
-- **AND** no current layout is available
-- **THEN** the Graph tab SHALL show a drawing or refreshing state
-- **AND** the Workbench host SHALL trigger citation graph layout refresh.
+### Requirement: Index exposes only minimal sidecar states
+Workbench Index SHALL expose artifact coverage and reference binding state without legacy Registry readiness or reference-resolution filters.
 
-#### Scenario: DB graph exists with stale layout
+#### Scenario: Index filters are rendered
+- **WHEN** the Index page is rendered
+- **THEN** filters SHALL include scope, artifact coverage, missing artifact, and binding status
+- **AND** filters SHALL NOT include legacy `literature_status`, `readiness`, or `resolution_status` states.
 
-- **WHEN** the SQLite citation graph has visible graph rows
-- **AND** an older DB layout is available but does not match the current graph
-  hash
-- **THEN** the Graph tab SHALL render available coordinates when possible
-- **AND** it SHALL show a refreshing/stale layout state until a current layout
-  is ready.
-
-#### Scenario: DB layout is ready
-
-- **WHEN** the DB layout state is ready for the current graph view, preset, and
-  graph hash
-- **THEN** the Graph tab SHALL render the graph with layout coordinates.

@@ -51,7 +51,7 @@ describe("Synthesis MCP tools", function () {
       "synthesis.get_schemas",
       "synthesis.get_library_index",
       "synthesis.resolve_resolver",
-      "synthesis.get_paper_registry",
+      "synthesis.get_reference_sidecar_index",
       "synthesis.get_citation_graph_slice",
       "synthesis.get_citation_graph_metrics",
       "synthesis.get_paper_artifact_manifest",
@@ -178,9 +178,9 @@ describe("Synthesis MCP tools", function () {
     );
   });
 
-  it("routes registry and graph slice reads through the injected service", async function () {
+  it("routes reference sidecar index and graph slice reads through the injected service", async function () {
     const service: SynthesisMcpService = {
-      getPaperRegistry() {
+      getReferenceSidecarIndex() {
         return { rows: [{ paper_ref: "1:ABCD1234" }], total: 1 };
       },
       getCitationGraphSlice() {
@@ -233,7 +233,11 @@ describe("Synthesis MCP tools", function () {
     };
 
     for (const [id, name, args] of [
-      [1, "synthesis.get_paper_registry", { paperRefs: ["1:ABCD1234"] }],
+      [
+        1,
+        "synthesis.get_reference_sidecar_index",
+        { sourceRefs: ["1:ABCD1234"] },
+      ],
       [2, "synthesis.get_citation_graph_slice", { paperRef: "1:ABCD1234" }],
       [
         3,
@@ -670,7 +674,7 @@ describe("Synthesis MCP tools", function () {
     assert.isTrue(response.result.structuredContent.result.source_changed);
   });
 
-  it("returns paged paper registry rows from the default synthesis service", async function () {
+  it("returns paged reference sidecar index rows from the default synthesis service", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
@@ -681,11 +685,11 @@ describe("Synthesis MCP tools", function () {
         { libraryId: 1, itemKey: "CCCC3333", title: "Gamma", tags: ["c"] },
       ],
     });
-    await service.runLiteratureRegistryJobNow();
+    await service.refreshReferenceSidecarNow();
 
     const response: any = await handleZoteroMcpRequestForTests(
-      request(20, "synthesis.get_paper_registry", {
-        paperRefs: ["1:BBBB2222", "1:CCCC3333"],
+      request(20, "synthesis.get_reference_sidecar_index", {
+        sourceRefs: ["1:BBBB2222", "1:CCCC3333"],
         cursor: "1",
         limit: 1,
       }),
@@ -720,9 +724,9 @@ describe("Synthesis MCP tools", function () {
     assert.isFalse(result.ok);
     assert.include(
       result.diagnostics.recommended_commands,
-      "runLiteratureRegistryJobNow",
+      "rebuildCitationGraphCacheNow",
     );
-    assert.equal(result.diagnostics.maintenance.queue_state, "idle");
+    assert.equal(result.diagnostics.maintenance.queue_state, "removed");
   });
 
   it("returns paged resolver matches from the default synthesis service", async function () {

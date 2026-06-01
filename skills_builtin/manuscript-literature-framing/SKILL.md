@@ -96,7 +96,7 @@ Actions：
 
 - `synthesis.list_topics`：列出已有 Topic Synthesis 候选。
 - `synthesis.get_review_input`：读取已确认 Topic Synthesis 的写作上下文。
-- `synthesis.get_paper_registry`：检查论文 readiness 与 citekey 相关元数据。
+- `synthesis.get_reference_sidecar_index`：检查论文 artifact/reference cache readiness 与 citekey 相关元数据。
 - `synthesis.get_citation_graph_metrics`：识别 core / foundation / frontier papers。
 - `synthesis.get_citation_graph_slice`：检查局部引用邻域。
 - `synthesis.resolve_topic_paper_digest`：核验特定 topic evidence digest。

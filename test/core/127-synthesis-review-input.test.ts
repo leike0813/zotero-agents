@@ -115,15 +115,13 @@ describe("Synthesis review input workflow DTO", function () {
         {
           paper_ref: "1:A",
           title: "Alpha",
-          readiness: "ready",
-          coverage: "complete",
+          artifactCoverage: "complete",
           missing_artifacts: [],
         },
         {
           paper_ref: "1:B",
           title: "Beta",
-          readiness: "partial",
-          coverage: "partial",
+          artifactCoverage: "partial",
           missing_artifacts: ["citation_analysis"],
         },
       ],
@@ -137,7 +135,7 @@ describe("Synthesis review input workflow DTO", function () {
       ["1:A", "1:B"],
     );
     assert.deepEqual(
-      input.registry_readiness.rows.map((row) => row.paper_ref),
+      input.registry_artifact_coverage.rows.map((row) => row.paper_ref),
       ["1:A", "1:B"],
     );
     assert.deepEqual(
@@ -184,8 +182,7 @@ describe("Synthesis review input workflow DTO", function () {
         {
           paper_ref: "1:B",
           title: "Beta",
-          readiness: "partial",
-          coverage: "partial",
+          artifactCoverage: "partial",
           missing_artifacts: ["digest", "citation_analysis"],
         },
       ],

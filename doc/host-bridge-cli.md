@@ -221,8 +221,10 @@ zotero-bridge file download <fileId> --output <path> [--force]
 - `synthesis list-topics` -> `synthesis.list_topics`
 - `synthesis get-topic-context` -> `synthesis.get_topic_context`
 - `synthesis get-library-index` -> `synthesis.get_library_index`
+  sidecar cache view, not synchronized Zotero Library truth
 - `synthesis resolve-resolver` -> `synthesis.resolve_resolver`
 - `synthesis get-citation-graph-metrics` -> `synthesis.get_citation_graph_metrics`
+  sidecar cache view, not synchronized Zotero Library truth
 - `synthesis export-filtered-paper-artifacts` -> `synthesis.export_filtered_paper_artifacts`
 - `literature ingest` -> `mutation.execute` with operation `literature.ingest`
 - raw `call mutation.execute` with operation `note.upsertPayload` -> upsert one
@@ -231,6 +233,11 @@ zotero-bridge file download <fileId> --output <path> [--force]
 这些命令不会直接读取 Zotero SQLite、storage 目录或本地文件路径。读命令只通过
 Host Bridge capability 返回 JSON-safe DTO；`literature ingest` 只通过审批后的
 Host Bridge mutation 写入 Zotero。
+
+Synthesis registry、library-index、citation-graph 相关读命令只暴露插件
+sidecar cache 视图，可能滞后或为空。需要当前 Zotero 条目、笔记、附件、标签、
+集合、related item 等事实时，应使用 `item` / `note` 命令直读 Zotero Library；
+需要当前 digest/topic 生成物时，应使用 artifact-oriented synthesis 读命令。
 
 ### 5.3 Raw capability call
 
@@ -918,12 +925,12 @@ zotero-bridge synthesis <subcommand> [--input <JSON_OR_FILE>]
 | `list-topics` | `synthesis.list_topics` |
 | `get-topic-context` | `synthesis.get_topic_context` |
 | `get-schemas` | `synthesis.get_schemas` |
-| `get-library-index` | `synthesis.get_library_index` |
+| `get-library-index` | `synthesis.get_library_index` sidecar cache view |
 | `resolve-resolver` | `synthesis.resolve_resolver` |
-| `get-paper-registry` | `synthesis.get_paper_registry` |
-| `query-citation-graph` | `synthesis.query_citation_graph` |
-| `get-citation-graph-slice` | `synthesis.get_citation_graph_slice` |
-| `get-citation-graph-metrics` | `synthesis.get_citation_graph_metrics` |
+| `get-reference-sidecar-index` | `synthesis.get_reference_sidecar_index` sidecar cache view |
+| `query-citation-graph` | `synthesis.query_citation_graph` sidecar cache view |
+| `get-citation-graph-slice` | `synthesis.get_citation_graph_slice` sidecar cache view |
+| `get-citation-graph-metrics` | `synthesis.get_citation_graph_metrics` sidecar cache view |
 | `get-paper-artifact-manifest` | `synthesis.get_paper_artifact_manifest` |
 | `read-paper-artifacts` | `synthesis.read_paper_artifacts` |
 | `export-filtered-paper-artifacts` | `synthesis.export_filtered_paper_artifacts` |
@@ -940,6 +947,11 @@ zotero-bridge synthesis resolve-resolver --input @runtime/payloads/resolver-inpu
 zotero-bridge synthesis get-citation-graph-metrics --input @runtime/payloads/metrics-input.json
 zotero-bridge synthesis export-filtered-paper-artifacts --input @runtime/payloads/export-input.json
 ```
+
+`get-library-index`、`get-reference-sidecar-index` 和 citation-graph 子命令返回
+Synthesis sidecar cache 视图。它们不保证已经与 Zotero Library 同步，也不会为了
+读取而启动 refresh。Agent 需要当前 Zotero 事实时必须走 `item` / `note`
+命令；需要生成物事实时走 manifest/artifact/topic context 读命令。
 
 成功 `data` 仍是 Host Bridge capability envelope：
 

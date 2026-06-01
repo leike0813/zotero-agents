@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Citation Graph stores graph structure, metrics, and Workbench layout as stale-tolerant sidecar cache projections built from active references and bindings.
+
+## Requirements
 
 ### Requirement: Citation graph Workbench layout is stored in DB
 
@@ -7,7 +11,7 @@ SQLite as runtime state separate from graph structure and metrics.
 
 #### Scenario: Layout state is created
 
-- **WHEN** a citation graph layout worker computes a layout for a bounded
+- **WHEN** an explicit citation graph layout operation computes a layout for a bounded
   Workbench graph view and preset
 - **THEN** the repository SHALL persist the layout coordinates, graph hash,
   status, diagnostics, and update timestamp
@@ -19,21 +23,21 @@ SQLite as runtime state separate from graph structure and metrics.
 - **THEN** the snapshot SHALL report layout status `dirty`
 - **AND** it MAY include the old coordinates for optimistic rendering.
 
-#### Scenario: Layout worker runs without legacy projection
+#### Scenario: Layout operation runs without legacy projection
 
 - **WHEN** SQLite citation graph rows exist
 - **AND** legacy citation graph projection files are missing
-- **THEN** the layout worker SHALL compute layout from SQLite graph rows
-- **AND** it SHALL NOT require `citation-graph-index.json`.
+- **THEN** the layout operation SHALL compute layout from SQLite graph rows
+- **AND** it SHALL NOT require legacy graph index files.
 
-### Requirement: Debug worker can run citation graph layout
+### Requirement: Debug operation can run citation graph layout
 
-The debug worker runner SHALL support running citation graph layout refresh.
+The debug operation runner SHALL support running citation graph layout refresh.
 
-#### Scenario: Debug citation graph layout worker is requested
+#### Scenario: Debug citation graph layout operation is requested
 
 - **WHEN** `debug.synthesis.worker.run` is called with
   `worker: "citationGraphLayout"`
-- **THEN** the service SHALL run the DB-backed citation graph layout worker
+- **THEN** the service SHALL run the DB-backed citation graph layout operation
 - **AND** the result SHALL include before and after diagnostics showing layout
   state changes.

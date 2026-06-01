@@ -4,7 +4,9 @@ export type SynthesisMcpService = {
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getLibraryIndex?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   resolveResolver?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  getPaperRegistry?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getReferenceSidecarIndex?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   queryCitationGraph?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getCitationGraphSlice?: (
     args: Record<string, unknown>,

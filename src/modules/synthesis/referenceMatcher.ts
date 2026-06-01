@@ -19,6 +19,7 @@ export type ReferenceMatcherPaperInput = {
   authors?: string[];
   doi?: string;
   arxiv?: string;
+  isbn?: string;
   url?: string;
   citekey?: string;
   identifiers?: ReferenceMatcherIdentifier[];
@@ -38,6 +39,7 @@ export type ReferenceMatcherReferenceInput = {
   raw_reference?: string;
   doi?: string;
   arxiv?: string;
+  isbn?: string;
   url?: string;
   citekey?: string;
 };
@@ -62,9 +64,9 @@ export type ReferenceMatcherCandidate = {
 };
 
 export type ReferenceMatcherResult = {
-  status: "matched" | "unmatched" | "ambiguous";
+  status: "matched" | "suggested" | "unmatched" | "ambiguous";
   targetPaperRef?: string;
-  confidence: "deterministic" | "low" | "review";
+  confidence: "deterministic" | "high" | "low" | "review";
   diagnostics: unknown[];
   suggestedCandidates: ReferenceMatcherCandidate[];
 };
@@ -279,6 +281,7 @@ function paperIdentifiers(
   const identifiers: ReferenceMatcherIdentifier[] = [];
   addIdentity(identifiers, "doi", paper.doi);
   addIdentity(identifiers, "arxiv", paper.arxiv);
+  addIdentity(identifiers, "isbn", paper.isbn);
   addIdentity(identifiers, "url", paper.url);
   addIdentity(identifiers, "citekey", paper.citekey);
   for (const identifier of paper.identifiers || []) {
@@ -294,6 +297,7 @@ function referenceIdentifiers(
   const identifiers: ReferenceMatcherIdentifier[] = [];
   addIdentity(identifiers, "doi", reference.doi);
   addIdentity(identifiers, "arxiv", reference.arxiv);
+  addIdentity(identifiers, "isbn", reference.isbn);
   addIdentity(identifiers, "url", reference.url);
   addIdentity(identifiers, "citekey", reference.citekey);
   if (includeRaw) {
@@ -801,13 +805,6 @@ export function resolveReferenceWithPolicy(
   const autoCandidates = candidates.filter((candidate) =>
     candidate.reasons.some((reason) =>
       [
-        "exact_title_author_same_year",
-        "exact_title_author_year_delta",
-        "compact_title_author_year_delta",
-        "exact_title_author",
-        "stripped_exact_title_author",
-        "compact_title_author",
-        "stripped_compact_title_author",
         "strong_compact_title_exact",
         "stripped_strong_compact_title_exact",
         "guarded_fuzzy_title",
@@ -832,7 +829,7 @@ export function resolveReferenceWithPolicy(
     return {
       status: "matched",
       targetPaperRef: uniqueAuto.paperRef,
-      confidence: deterministicTitleMatch ? "deterministic" : "low",
+      confidence: deterministicTitleMatch ? "deterministic" : "high",
       diagnostics: [
         {
           code: "reference_title_match",
@@ -844,9 +841,14 @@ export function resolveReferenceWithPolicy(
     };
   }
 
+  const suggestionOnly = candidates.length === 1;
   return {
-    status: candidates.length > 1 ? "ambiguous" : "unmatched",
-    confidence: "review",
+    status: suggestionOnly
+      ? "suggested"
+      : candidates.length > 1
+        ? "ambiguous"
+        : "unmatched",
+    confidence: suggestionOnly ? "low" : "review",
     diagnostics: [
       {
         code: candidates.length

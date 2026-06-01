@@ -160,7 +160,7 @@ describe("host bridge capability calls", function () {
 
     const parsed = await callBridgeCapability({
       token,
-      capability: "synthesis.get_paper_registry",
+      capability: "synthesis.get_reference_sidecar_index",
       input: { limit: 1 },
     });
 
@@ -168,7 +168,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(
       parsed.json.result.capability,
-      "synthesis.get_paper_registry",
+      "synthesis.get_reference_sidecar_index",
     );
     assert.strictEqual(parsed.json.result.approval, "none");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
@@ -234,8 +234,22 @@ describe("host bridge capability calls", function () {
       snapshot.json.result.data.schema,
       "host_bridge.debug.synthesis.snapshot.v1",
     );
-    assert.isObject(snapshot.json.result.data.queue);
+    assert.isArray(snapshot.json.result.data.cacheBasis);
+    assert.isObject(snapshot.json.result.data.maintenance);
     assert.isObject(snapshot.json.result.data.tableCounts);
+
+    const profiler = await callBridgeCapability({
+      token,
+      capability: "debug.synthesis.profiler.list",
+      input: { limit: 5 },
+    });
+    assert.strictEqual(profiler.status, 200);
+    assert.strictEqual(
+      profiler.json.result.data.schema,
+      "host_bridge.debug.synthesis.profiler.v1",
+    );
+    assert.isArray(profiler.json.result.data.runs);
+    assert.isArray(profiler.json.result.data.phases);
   });
 
   it("keeps dangerous debug operations behind Host Bridge approval", async function () {
@@ -255,7 +269,7 @@ describe("host bridge capability calls", function () {
 
     const parsed = await callBridgeCapability({
       token,
-      capability: "debug.synthesis.queue.clear",
+      capability: "debug.synthesis.cleanInstallReset",
       input: { dryRun: true },
     });
 
@@ -263,7 +277,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
     assert.strictEqual(
       parsed.json.result.data.schema,
-      "host_bridge.debug.synthesis.queue.clear.v1",
+      "host_bridge.debug.synthesis.clean_install_reset.v1",
     );
     assert.strictEqual(approvalCount, 1);
   });

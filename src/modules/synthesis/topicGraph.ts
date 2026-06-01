@@ -130,6 +130,17 @@ export type SynthesisTopicGraphIndexProjection = {
   diagnostics: SynthesisTopicGraphDiagnostic[];
 };
 
+type IndexRebuildOptions = {
+  yieldControl?: () => Promise<void>;
+  reportProgress?: (progress: {
+    phase: string;
+    phaseLabel: string;
+    processedCount: number;
+    totalCount: number;
+    message?: string;
+  }) => void | Promise<void>;
+};
+
 export type SynthesisTopicRelationProposalType =
   | "broader_topic_candidate"
   | "related_topic_candidate"
@@ -822,19 +833,24 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     return { transactionId: receipt.transaction_id, receipt, manifest };
   }
 
-  async function loadTopicGraph(): Promise<SynthesisTopicGraphSnapshot> {
+  async function loadTopicGraph(
+    options: IndexRebuildOptions = {},
+  ): Promise<SynthesisTopicGraphSnapshot> {
     await ensureTopicGraphStore();
     const nodes = sortNodes(
       repository.listTopicGraphNodes().map(topicGraphNodeFromRecord),
     );
+    await options.yieldControl?.();
     const edges = sortEdges(
       repository.listTopicGraphEdges().map(topicGraphEdgeFromRecord),
     );
     const reviewItems = sortReviewItems(
       repository.listTopicGraphReviewItems().map(topicGraphReviewFromRecord),
     );
+    await options.yieldControl?.();
     const manifest = await readManifest(nodes, edges, reviewItems);
     const registryState = await readProjectionRegistryState(root);
+    await options.yieldControl?.();
     return {
       nodes,
       edges,
@@ -1423,8 +1439,31 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     };
   }
 
-  async function rebuildTopicGraphIndexProjection() {
-    const snapshot = await loadTopicGraph();
+  async function rebuildTopicGraphIndexProjection(
+    options: IndexRebuildOptions = {},
+  ) {
+    const totalCount = 5;
+    const reportProgress = async (
+      phase: string,
+      phaseLabel: string,
+      processedCount: number,
+      message?: string,
+    ) =>
+      options.reportProgress?.({
+        phase,
+        phaseLabel,
+        processedCount,
+        totalCount,
+        message,
+      });
+    await reportProgress("load_source", "Load source", 0);
+    const snapshot = await loadTopicGraph(options);
+    await reportProgress(
+      "scan_relations",
+      "Scan relations",
+      1,
+      `${snapshot.nodes.length} nodes loaded`,
+    );
     const rebuiltAt = now();
     const parented = new Set(
       snapshot.edges
@@ -1434,6 +1473,8 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
         )
         .map((edge) => edge.target_topic_id),
     );
+    await options.yieldControl?.();
+    await reportProgress("build_projection", "Build projection", 2);
     const projection: SynthesisTopicGraphIndexProjection = {
       schema_id: "synthesis.topic_graph_index_projection",
       schema_version: SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
@@ -1458,11 +1499,15 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
         .sort((left, right) => left.localeCompare(right)),
       diagnostics: snapshot.diagnostics,
     };
+    await options.yieldControl?.();
+    await reportProgress("write_projection", "Write projection", 3);
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
     await writeRuntimeTextFile(
       joinPath(paths.stateRoot, "topic-graph-index.json"),
       `${JSON.stringify(projection, null, 2)}\n`,
     );
+    await options.yieldControl?.();
+    await reportProgress("record_projection", "Record projection", 4);
     return recordProjectionRebuild({
       root,
       target: SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET,

@@ -29,8 +29,7 @@ type SynthesisWorkbenchBridge = {
 
 type GraphNodeKind =
   | "library_paper"
-  | "external_reference"
-  | "unresolved_reference";
+  | "external_reference";
 
 type GraphNode = {
   id: string;
@@ -75,13 +74,6 @@ type Snapshot = {
   maintenance?: {
     backgroundJobs?: {
       rows?: BackgroundJobRow[];
-      activeCount?: number;
-      submittedCount?: number;
-      queuedCount?: number;
-      runningCount?: number;
-      waitingCount?: number;
-      failedCount?: number;
-      primaryJob?: BackgroundJobRow;
     };
   };
   storage: Record<string, string>;
@@ -118,19 +110,12 @@ type Snapshot = {
     rows: Array<Record<string, unknown>>;
     visibleRows: Array<Record<string, unknown>>;
     cleanupProposals?: Array<Record<string, unknown>>;
-    literatureJob?: {
-      queue_state?: string;
-      retry_attempt?: number;
-      next_retry_at?: string;
-      last_run_status?: string;
+    cacheStatus?: {
+      cache_key?: string;
+      status?: string;
+      refreshed_at?: string;
       diagnostics?: Array<Record<string, unknown>>;
       allowedActions?: string[];
-    };
-    projection?: {
-      target?: string;
-      stale?: boolean;
-      last_rebuild_at?: string;
-      diagnostics?: unknown[];
     };
   };
   tags: {
@@ -232,10 +217,10 @@ type Snapshot = {
       role: string;
       layoutPreset: string;
       nodeKinds: GraphNodeKind[];
-      showLowSignalUnresolved: boolean;
+      showLowSignalReferences: boolean;
     };
     graph_hash: string;
-    layoutStatus: "missing" | "ready" | "dirty" | "running" | "failed";
+    layoutStatus: "missing" | "refreshing" | "ready" | "stale" | "failed";
     layoutPreset: string;
     selectedElement?: { kind: "node" | "edge"; id: string };
     nodes: GraphNode[];
@@ -416,7 +401,6 @@ const state: {
 const colors: Record<GraphNodeKind, string> = {
   library_paper: "#1967b3",
   external_reference: "#7a861f",
-  unresolved_reference: "#657385",
 };
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
@@ -471,8 +455,6 @@ function reviewDecisionKey(
   args: Record<string, unknown> = {},
 ) {
   switch (command) {
-    case "applyLiteratureCleanupAction":
-      return `cleanup:${keyPart(args.proposalId)}`;
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `topic-edge:${keyPart(args.edgeId)}`;
@@ -510,8 +492,6 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
-    case "applyLiteratureCleanupAction":
-      return `${command}:${keyPart(args.proposalId)}`;
     case "applyTagVocabularyImport":
       return `${command}:${keyPart(args.action)}`;
     case "submitTopicSynthesisUpdate":
@@ -541,9 +521,10 @@ function operationLabel(command: string) {
     acceptTopicGraphRelation: "Accepting topic relation",
     rejectTopicGraphRelation: "Rejecting topic relation",
     applyTopicGraphReviewAction: "Applying topic graph review",
-    applyLiteratureCleanupAction: "Applying reference decision",
-    runLiteratureRegistryJobNow: "Rebuilding literature registry",
-    retryLiteratureRegistryJob: "Retrying literature registry job",
+    refreshReferenceSidecarNow: "Refreshing reference sidecar",
+    retryReferenceSidecarRefresh: "Retrying reference sidecar refresh",
+    rebuildCitationGraphCacheNow: "Rebuilding citation graph cache",
+    retryCitationGraphCacheRebuild: "Retrying citation graph cache rebuild",
     runSynthesizeTopic: "Starting topic synthesis",
     submitTopicSynthesisUpdate: "Starting topic update",
     syncNow: "Running sync",
@@ -697,9 +678,6 @@ function iconSvg(
       "M9 18h6",
       "M10 21h4",
       "M8.5 14.5c-1.7-1.2-2.5-2.9-2.5-5a6 6 0 1 1 12 0c0 2.1-.9 3.8-2.5 5l-1.2.9c-.5.4-.8 1-.8 1.6H10c0-.7-.3-1.2-.8-1.6z",
-      "M12 4.5v2",
-      "M8.8 6.1 7.4 4.7",
-      "M15.2 6.1l1.4-1.4",
     ],
     controls: [
       "M4 7h4",
@@ -780,8 +758,11 @@ function toneFor(value: unknown) {
   if (value === "ready" || value === "fresh" || value === "complete") {
     return "ok";
   }
-  if (value === "missing" || value === "stale" || value === "dirty") {
+  if (value === "missing" || value === "failed") {
     return "danger";
+  }
+  if (value === "stale" || value === "refreshing") {
+    return "warn";
   }
   return "warn";
 }
@@ -904,77 +885,6 @@ function statusbarMessage(entry: ActionOperation) {
   return message ? `${label} - ${message}` : label;
 }
 
-function normalizeJobStatus(value: unknown): BackgroundJobStatus {
-  const status = textValue(value);
-  if (
-    status === "submitted" ||
-    status === "queued" ||
-    status === "running" ||
-    status === "waiting" ||
-    status === "failed"
-  ) {
-    return status;
-  }
-  return "queued";
-}
-
-function actionStatusToJobStatus(
-  status: ActionOperation["status"],
-): BackgroundJobStatus | undefined {
-  if (status === "pending") return "submitted";
-  if (status === "queued") return "queued";
-  if (status === "running") return "running";
-  if (status === "failed") return "failed";
-  return undefined;
-}
-
-function actionToBackgroundJob(
-  entry: ActionOperation,
-): BackgroundJobRow | null {
-  const status = actionStatusToJobStatus(entry.status);
-  if (!status || !entry.key) {
-    return null;
-  }
-  return {
-    job_id: `synthesis:workbench:${entry.key}`,
-    source: "workbench",
-    status,
-    label: textValue(entry.label, entry.command || "Workbench action"),
-    detail: textValue(entry.message, entry.command),
-    updated_at: entry.completed_at || entry.started_at,
-    progress: status === "failed" ? undefined : { mode: "indeterminate" },
-  };
-}
-
-function normalizeSnapshotBackgroundJob(
-  entry: unknown,
-): BackgroundJobRow | null {
-  if (!entry || typeof entry !== "object") {
-    return null;
-  }
-  const row = entry as Partial<BackgroundJobRow>;
-  const jobId = textValue(row.job_id);
-  const label = textValue(row.label);
-  if (!jobId || !label) {
-    return null;
-  }
-  const progress =
-    row.progress && typeof row.progress === "object"
-      ? (row.progress as BackgroundJobProgress)
-      : undefined;
-  return {
-    job_id: jobId,
-    source: textValue(row.source, "workbench"),
-    status: normalizeJobStatus(row.status),
-    label,
-    detail: textValue(row.detail) || undefined,
-    updated_at: textValue(row.updated_at) || undefined,
-    command: textValue(row.command) || undefined,
-    targetTab: textValue(row.targetTab) as SynthesisTab | undefined,
-    progress,
-  };
-}
-
 function backgroundJobPriority(status: BackgroundJobStatus) {
   if (status === "running") return 0;
   if (status === "waiting") return 1;
@@ -996,14 +906,8 @@ function listBackgroundJobs(snapshot: Snapshot) {
       rows.set(row.job_id, row);
     }
   };
-  for (const entry of state.localPendingActions.values()) {
-    accept(actionToBackgroundJob(entry));
-  }
-  for (const entry of snapshot.actions?.inFlight || []) {
-    accept(actionToBackgroundJob(entry));
-  }
   for (const entry of snapshot.maintenance?.backgroundJobs?.rows || []) {
-    accept(normalizeSnapshotBackgroundJob(entry));
+    accept(entry);
   }
   return Array.from(rows.values()).sort(
     (left, right) =>
@@ -1024,10 +928,7 @@ function statusLabelForJob(status: BackgroundJobStatus) {
 function sourceLabelForJob(source: string) {
   const labels: Record<string, string> = {
     workbench: "Workbench",
-    update_queue: "Update queue",
-    dirty_event: "Dirty event",
-    startup_reconcile: "Startup reconcile",
-    literature_registry: "Literature",
+    operation: "Operation",
     citation_graph_layout: "Graph layout",
     git_sync: "Git Sync",
     canonical_maintenance: "Canonical",
@@ -1104,6 +1005,7 @@ function renderBackgroundJobPopover(jobs: BackgroundJobRow[]) {
 
   const list = el("div", "action-statusbar-job-list");
   jobs.slice(0, 10).forEach((job) => {
+    const isRunning = job.status === "running";
     const row = el("button", `action-statusbar-job-row is-${job.status}`);
     row.type = "button";
     row.addEventListener("click", () => handleBackgroundJobOpen(job));
@@ -1122,14 +1024,16 @@ function renderBackgroundJobPopover(jobs: BackgroundJobRow[]) {
     const detail = el(
       "span",
       "action-statusbar-job-detail",
-      [job.detail, progressLabel(job.progress)].filter(Boolean).join(" - "),
+      [job.detail, isRunning ? progressLabel(job.progress) : ""]
+        .filter(Boolean)
+        .join(" - "),
     );
     row.appendChild(meta);
     row.appendChild(title);
     if (detail.textContent) {
       row.appendChild(detail);
     }
-    if (job.progress) {
+    if (isRunning && job.progress) {
       row.appendChild(renderStatusbarProgress(job.progress));
     }
     list.appendChild(row);
@@ -4740,14 +4644,17 @@ function registryReferenceDisplayId(reference: Record<string, unknown>) {
 
 function registryStatusTone(value: unknown) {
   const status = textValue(value);
-  if (status === "matched") {
+  if (status === "accepted") {
     return "blue";
   }
-  if (status === "resolved" || status === "confirmed") {
-    return "ok";
-  }
-  if (status === "unresolved" || status === "ambiguous") {
+  if (
+    status === "candidate" ||
+    status === "stale_target"
+  ) {
     return "warn";
+  }
+  if (status === "unbound" || status === "rejected") {
+    return "danger";
   }
   return toneFor(status);
 }
@@ -4759,7 +4666,7 @@ const registryArtifactBadges = [
 ] as const;
 
 function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
-  const coverage = textValue(row.coverage);
+  const coverage = textValue(row.artifactCoverage);
   const missing = Array.isArray(row.missing_artifacts)
     ? row.missing_artifacts.map((entry) => textValue(entry))
     : [];
@@ -4797,6 +4704,17 @@ function renderRegistryHeader(
     );
   }
   return th;
+}
+
+function appendRegistryColgroup(
+  table: HTMLTableElement,
+  columns: string[],
+) {
+  const colgroup = document.createElement("colgroup");
+  columns.forEach((column) => {
+    colgroup.appendChild(el("col", `registry-col-${column}`));
+  });
+  table.appendChild(colgroup);
 }
 
 function renderRegistryTitle(row: Record<string, unknown>) {
@@ -4842,15 +4760,15 @@ function renderRegistryTitle(row: Record<string, unknown>) {
 
 function renderRegistryReferenceSummary(row: Record<string, unknown>) {
   const count = Number(row.reference_count || 0);
-  const unresolved = Number(row.unresolved_reference_count || 0);
+  const unbound = Number(row.unbound_reference_count || 0);
   const safeTotal = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
-  const safeUnresolved = Number.isFinite(unresolved)
-    ? Math.max(0, Math.floor(unresolved))
+  const safeUnbound = Number.isFinite(unbound)
+    ? Math.max(0, Math.floor(unbound))
     : 0;
   return el(
     "span",
     "registry-reference-count",
-    `${safeTotal}/${safeUnresolved}`,
+    `${safeTotal}/${safeUnbound}`,
   );
 }
 
@@ -4880,6 +4798,63 @@ function renderRegistryReferenceTitle(reference: Record<string, unknown>) {
   return title;
 }
 
+function renderRegistryReferenceStatus(reference: Record<string, unknown>) {
+  const wrap = el("span", "tag-row");
+  const bindingStatus = textValue(reference.binding_status, "unbound");
+  wrap.appendChild(badge(bindingStatus, registryStatusTone(bindingStatus)));
+  return wrap;
+}
+
+function registryReferencedEntries(snapshot: Snapshot) {
+  const query = textValue(snapshot.registry.filters.search).toLowerCase();
+  const bindingFilter = textValue(
+    snapshot.registry.filters.bindingStatus,
+    "all",
+  );
+  return (snapshot.registry.visibleRows || [])
+    .flatMap((source) =>
+      registryReferences(source).map((reference) => ({ source, reference })),
+    )
+    .filter(({ source, reference }) => {
+      const bindingStatus = textValue(reference.binding_status, "unbound");
+      if (bindingFilter !== "all" && bindingStatus !== bindingFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        source.title,
+        source.paper_ref,
+        reference.title,
+        reference.raw_reference,
+        reference.target_title,
+        reference.target_paper_ref,
+        reference.reference_instance_id,
+      ]
+        .map((value) => textValue(value).toLowerCase())
+        .join(" ");
+      return haystack.includes(query);
+    })
+    .sort((left, right) =>
+      registryReferencePrimaryTitle(left.reference).localeCompare(
+        registryReferencePrimaryTitle(right.reference),
+      ) ||
+      textValue(left.source.title).localeCompare(textValue(right.source.title)),
+    );
+}
+
+function renderReferencedSourceCell(source: Record<string, unknown>) {
+  const wrap = el("div", "registry-reference-title-cell");
+  wrap.appendChild(
+    el("span", "registry-reference-primary", textValue(source.title)),
+  );
+  wrap.appendChild(
+    el("span", "registry-reference-muted", registryRowDisplayId(source)),
+  );
+  return wrap;
+}
+
 function renderRegistryReferenceRow(reference: Record<string, unknown>) {
   const rowNode = el("tr", "registry-reference-row");
   const cells: Array<[unknown, string?]> = [
@@ -4887,12 +4862,7 @@ function renderRegistryReferenceRow(reference: Record<string, unknown>) {
     [reference.year || "-"],
     ["-"],
     ["-", "registry-artifacts-cell"],
-    [
-      badge(
-        textValue(reference.resolution_status, "unresolved"),
-        registryStatusTone(reference.resolution_status),
-      ),
-    ],
+    [renderRegistryReferenceStatus(reference)],
     ["", "registry-references-cell"],
     [registryReferenceDisplayId(reference)],
   ];
@@ -4902,18 +4872,85 @@ function renderRegistryReferenceRow(reference: Record<string, unknown>) {
   return rowNode;
 }
 
+function renderReferencedOnlyTable(snapshot: Snapshot) {
+  const entries = registryReferencedEntries(snapshot);
+  if (!entries.length) {
+    return renderEmptyState({
+      title: snapshot.registry.rows.length
+        ? "No referenced entries match the current filters"
+        : "No extracted references yet",
+      message: snapshot.registry.rows.length
+        ? "Adjust the search or Binding filter to show more extracted references."
+        : "Refresh the reference sidecar after generating literature-digest references.",
+      action: makeButton(
+        "Refresh",
+        "hostCommand",
+        {
+          command: "refreshReferenceSidecarNow",
+        },
+        false,
+        isOperationPending("refreshReferenceSidecarNow"),
+      ),
+      tone: snapshot.registry.rows.length ? "default" : "info",
+    });
+  }
+  const wrap = el("div", "table-wrap registry-table-wrap");
+  const table = el("table", "registry-table");
+  appendRegistryColgroup(table, [
+    "reference",
+    "source",
+    "year",
+    "binding",
+    "target",
+    "id",
+  ]);
+  const thead = el("thead");
+  const header = el("tr");
+  [
+    renderRegistryHeader("Reference"),
+    renderRegistryHeader("Source"),
+    renderRegistryHeader("Year"),
+    renderRegistryHeader("Binding"),
+    renderRegistryHeader("Target"),
+    renderRegistryHeader("ID"),
+  ].forEach((node) => header.appendChild(node));
+  thead.appendChild(header);
+  table.appendChild(thead);
+
+  const tbody = el("tbody");
+  entries.forEach(({ source, reference }) => {
+    const rowNode = el("tr", "registry-reference-row");
+    const cells: Array<[unknown, string?]> = [
+      [renderRegistryReferenceTitle(reference), "registry-reference-main-cell"],
+      [renderReferencedSourceCell(source), "registry-reference-source-cell"],
+      [reference.year || "-"],
+      [renderRegistryReferenceStatus(reference)],
+      [
+        textValue(reference.target_title) ||
+          textValue(reference.target_paper_ref) ||
+          "-",
+        "registry-reference-target-cell",
+      ],
+      [registryReferenceDisplayId(reference)],
+    ];
+    cells.forEach(([cell, className]) =>
+      appendRegistryCell(rowNode, cell, className),
+    );
+    tbody.appendChild(rowNode);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
 function renderRegistryParentRow(row: Record<string, unknown>) {
   const rowNode = el("tr", "registry-parent-row");
   const cells: Array<[unknown, string?]> = [
     [renderRegistryTitle(row)],
     [row.year || "-"],
-    [badge(row.readiness, toneFor(row.readiness))],
+    [badge(row.artifactCoverage, toneFor(row.artifactCoverage))],
     [renderRegistryArtifacts(row), "registry-artifacts-cell"],
-    [
-      row.cleanup_count
-        ? badge("needs cleanup", "warn")
-        : badge(row.literature_status || "library", "ok"),
-    ],
+    [badge(textValue(row.index_scope, "library"), "ok")],
     [renderRegistryReferenceSummary(row), "registry-references-cell"],
     [registryRowDisplayId(row)],
   ];
@@ -4929,38 +4966,45 @@ function renderRegistryTable(snapshot: Snapshot) {
     return renderEmptyState({
       title: snapshot.registry.rows.length
         ? "No index rows match the current filters"
-        : "No literature index records yet",
+        : "No reference sidecar records yet",
       message: snapshot.registry.rows.length
-        ? "Adjust the search or literature filter to show more records."
-        : "Rebuild the literature index after adding papers or references.",
+        ? "Adjust the search or Index filters to show more records."
+        : "Refresh the reference sidecar after adding papers or references.",
       action: makeButton(
-        "Rebuild",
+        "Refresh",
         "hostCommand",
         {
-          command: "runLiteratureRegistryJobNow",
+          command: "refreshReferenceSidecarNow",
         },
         false,
-        ["queued", "running"].includes(
-          textValue(snapshot.registry.literatureJob?.queue_state),
-        ),
+        isOperationPending("refreshReferenceSidecarNow"),
       ),
       tone: snapshot.registry.rows.length ? "default" : "info",
     });
   }
   const wrap = el("div", "table-wrap registry-table-wrap");
   const table = el("table", "registry-table");
+  appendRegistryColgroup(table, [
+    "title",
+    "year",
+    "coverage",
+    "artifacts",
+    "status",
+    "references",
+    "id",
+  ]);
   const thead = el("thead");
   const header = el("tr");
   [
     renderRegistryHeader("Title"),
     renderRegistryHeader("Year"),
-    renderRegistryHeader("Readiness"),
+    renderRegistryHeader("Coverage"),
     renderRegistryHeader("Artifacts", {
       className: "registry-artifacts-header",
     }),
     renderRegistryHeader("Status"),
     renderRegistryHeader("References", {
-      subtitle: "(Total/Unresolved)",
+      subtitle: "(Total/Unbound)",
       className: "registry-references-header",
     }),
     renderRegistryHeader("ID"),
@@ -4999,74 +5043,77 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   );
   filters.appendChild(search);
   filters.appendChild(
-    selectControl(
+    selectControlWithLabels(
       [
-        "all",
-        "library",
-        "reference-only",
-        "matched",
-        "ambiguous",
-        "unresolved",
-        "needs-cleanup",
-        "stale",
+        ["library", "Scope: Library items"],
+        ["referenced", "Scope: Referenced only"],
+        ["all", "Scope: All"],
       ],
-      snapshot.registry.filters.literature || "all",
-      (literature) => sendAction("setFilters", { registry: { literature } }),
+      snapshot.registry.filters.scope || "library",
+      (scope) => sendAction("setFilters", { registry: { scope } }),
     ),
   );
-  filters.appendChild(
-    makeButton(
-      "Only referenced literature",
-      "setFilters",
-      {
-        registry: {
-          literature:
-            snapshot.registry.filters.literature === "reference-only"
-              ? "all"
-              : "reference-only",
-        },
-      },
-      snapshot.registry.filters.literature === "reference-only",
-    ),
-  );
+  if (snapshot.registry.filters.scope !== "referenced") {
+    filters.appendChild(
+      selectControlWithLabels(
+        [
+          ["all", "Coverage: All"],
+          ["complete", "Coverage: Complete"],
+          ["partial", "Coverage: Partial"],
+          ["missing", "Coverage: Missing"],
+        ],
+        snapshot.registry.filters.artifactCoverage || "all",
+        (artifactCoverage) =>
+          sendAction("setFilters", { registry: { artifactCoverage } }),
+      ),
+    );
+  }
+  if (snapshot.registry.filters.scope === "referenced") {
+    filters.appendChild(
+      selectControlWithLabels(
+        [
+          ["all", "Binding: All"],
+          ["unbound", "Binding: Unbound"],
+          ["candidate", "Binding: Candidate"],
+          ["accepted", "Binding: Accepted"],
+          ["rejected", "Binding: Rejected"],
+          ["stale_target", "Binding: Stale target"],
+        ],
+        snapshot.registry.filters.bindingStatus || "all",
+        (bindingStatus) =>
+          sendAction("setFilters", { registry: { bindingStatus } }),
+      ),
+    );
+  }
   filters.appendChild(
     badge(
-      snapshot.registry.literatureJob?.queue_state
-        ? `literature ${snapshot.registry.literatureJob.queue_state}`
-        : snapshot.registry.projection?.stale
-          ? "literature index stale"
-          : "literature index ready",
-      snapshot.registry.literatureJob?.queue_state === "ready" &&
-        !snapshot.registry.projection?.stale
-        ? "ok"
-        : snapshot.registry.projection?.stale ||
-            snapshot.registry.literatureJob?.queue_state !== "ready"
-          ? "warn"
-          : "ok",
+      `Reference sidecar: ${textValue(snapshot.registry.cacheStatus?.status, "missing")}`,
+      toneFor(snapshot.registry.cacheStatus?.status),
     ),
   );
   filters.appendChild(
     makeButton(
-      "Rebuild",
+      "Refresh",
       "hostCommand",
       {
-        command: "runLiteratureRegistryJobNow",
+        command: "refreshReferenceSidecarNow",
       },
       false,
-      ["queued", "running"].includes(
-        textValue(snapshot.registry.literatureJob?.queue_state),
-      ),
+      isOperationPending("refreshReferenceSidecarNow"),
     ),
   );
-  if (snapshot.registry.literatureJob?.queue_state === "failed_retryable") {
+  if (snapshot.registry.cacheStatus?.status === "failed") {
     filters.appendChild(
       makeButton("Retry", "hostCommand", {
-        command: "retryLiteratureRegistryJob",
+        command: "retryReferenceSidecarRefresh",
       }),
     );
   }
   panel.appendChild(renderPanelToolbar(filters));
-  const registryTable = renderRegistryTable(snapshot);
+  const registryTable =
+    snapshot.registry.filters.scope === "referenced"
+      ? renderReferencedOnlyTable(snapshot)
+      : renderRegistryTable(snapshot);
   registryTable.dataset.synthesisScrollKey = "registry.table";
   panel.appendChild(registryTable);
   const cleanup = (snapshot.registry.cleanupProposals || []).filter(
@@ -5108,7 +5155,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
                   : "Open cleanup proposal",
           body:
             textValue(proposal.decision_summary) ||
-            "Decide how this unresolved reference should be handled in the literature registry.",
+            "Decide how this unresolved reference should be handled in the reference sidecar.",
           details: [
             ["source paper", sourceTitle],
             ["reference", referenceTitle],
@@ -5118,89 +5165,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
             ["blocked by", proposal.blocked_by_review_item_id],
             ["diagnostics", proposal.diagnostics],
           ],
-          actions:
-            isDeleteReview || isDedupeReview
-              ? [
-                  ...(isDeleteReview
-                    ? [
-                        makeButton("Confirm removed", "hostCommand", {
-                          command: "applyLiteratureCleanupAction",
-                          args: {
-                            proposalId: proposal.proposal_id,
-                            action: "confirm_delete_item",
-                          },
-                        }),
-                      ]
-                    : []),
-                  ...(isDedupeReview
-                    ? [
-                        makeButton(
-                          "Merge into target",
-                          "hostCommand",
-                          {
-                            command: "applyLiteratureCleanupAction",
-                            args: {
-                              proposalId: proposal.proposal_id,
-                              action: "mark_as_dedupe_merge",
-                              targetPaperRef: proposal.target_paper_ref,
-                              targetLiteratureItemId:
-                                proposal.target_literature_item_id,
-                            },
-                          },
-                          false,
-                          !textValue(proposal.target_paper_ref) &&
-                            !textValue(proposal.target_literature_item_id),
-                        ),
-                      ]
-                    : []),
-                  makeButton("Keep for now", "hostCommand", {
-                    command: "applyLiteratureCleanupAction",
-                    args: {
-                      proposalId: proposal.proposal_id,
-                      action: "keep_for_now",
-                    },
-                  }),
-                ]
-              : [
-                  makeButton("Create index item", "hostCommand", {
-                    command: "applyLiteratureCleanupAction",
-                    args: {
-                      proposalId: proposal.proposal_id,
-                      action: "confirm_literature_item",
-                    },
-                  }),
-                  makeButton(
-                    "Match target",
-                    "hostCommand",
-                    {
-                      command: "applyLiteratureCleanupAction",
-                      args: {
-                        proposalId: proposal.proposal_id,
-                        action: "match_existing_literature_item",
-                        targetPaperRef: proposal.target_paper_ref,
-                        targetLiteratureItemId:
-                          proposal.target_literature_item_id,
-                      },
-                    },
-                    false,
-                    !textValue(proposal.target_paper_ref) &&
-                      !textValue(proposal.target_literature_item_id),
-                  ),
-                  makeButton("Ignore reference", "hostCommand", {
-                    command: "applyLiteratureCleanupAction",
-                    args: {
-                      proposalId: proposal.proposal_id,
-                      action: "ignore_reference_instance",
-                    },
-                  }),
-                  makeButton("Defer", "hostCommand", {
-                    command: "applyLiteratureCleanupAction",
-                    args: {
-                      proposalId: proposal.proposal_id,
-                      action: "defer_reference_resolution",
-                    },
-                  }),
-                ],
+          actions: [],
         }),
         "cleanup-review-panel",
       ),
@@ -5772,13 +5737,13 @@ function graphDiagnosticSummary(
 ) {
   const entries = objectEntries(diagnostics);
   if (!entries.length) {
-    if (layoutStatus === "running") {
+    if (layoutStatus === "refreshing") {
       return "The citation graph layout is still being computed.";
     }
     if (layoutStatus === "missing") {
-      return "No graph layout has been generated for the current registry.";
+      return "No graph layout has been generated for the current graph cache.";
     }
-    if (layoutStatus === "dirty") {
+    if (layoutStatus === "stale") {
       return "The graph layout is stale and should be rebuilt.";
     }
     if (layoutStatus === "failed") {
@@ -5864,10 +5829,14 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(shell);
 
   const hasGraphData = snapshot.graph.nodes.length > 0;
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
   const hasVisibleCoordinates = snapshot.graph.visibleNodes.some(
     (node) => typeof node.x === "number" && typeof node.y === "number",
   );
-  if (!snapshot.graph.graph_hash || !hasGraphData) {
+  if (graphCacheStatus !== "ready" || !snapshot.graph.graph_hash || !hasGraphData) {
     const empty = el("div", "graph-empty");
     empty.appendChild(
       renderEmptyState({
@@ -5876,11 +5845,10 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
           snapshot.graph.diagnostics || {},
           snapshot.graph.layoutStatus,
         ),
-        action: makeButton("Rebuild graph", "hostCommand", {
-          command: "manualRecomputeLayout",
+        action: makeButton("Rebuild graph cache", "hostCommand", {
+          command: "rebuildCitationGraphCacheNow",
           args: {
             reason: "graph_tab",
-            preset: snapshot.graph.filters.layoutPreset,
           },
         }),
         tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
@@ -5895,7 +5863,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
       el(
         "strong",
         "",
-        snapshot.graph.layoutStatus === "running"
+        snapshot.graph.layoutStatus === "refreshing"
           ? "Drawing graph"
           : "Refreshing graph layout",
       ),
@@ -5946,54 +5914,70 @@ function renderGraphControls(snapshot: Snapshot) {
     (value) => sendAction("setFilters", { graph: { role: value } }),
   );
   filters.appendChild(role);
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
   filters.appendChild(
     makeButton(
-      "Rebuild graph",
+      "Rebuild graph cache",
+      "hostCommand",
+      {
+        command: "rebuildCitationGraphCacheNow",
+        args: { reason: "user" },
+      },
+      false,
+      graphCacheStatus === "refreshing",
+    ),
+  );
+  filters.appendChild(
+    makeButton(
+      "Redraw layout",
       "hostCommand",
       {
         command: "manualRecomputeLayout",
         args: { reason: "user", preset: snapshot.graph.filters.layoutPreset },
       },
       false,
-      snapshot.graph.layoutStatus === "running",
+      graphCacheStatus !== "ready" ||
+        !snapshot.graph.graph_hash ||
+        snapshot.graph.layoutStatus === "refreshing",
     ),
   );
   wrap.appendChild(filters);
 
   const kinds = el("div", "filters");
-  (
-    [
-      "library_paper",
-      "external_reference",
-      "unresolved_reference",
-    ] as GraphNodeKind[]
-  ).forEach((kind) => {
-    const label = el("label", "checkbox-label");
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
-    input.addEventListener("change", () => {
-      const next = new Set(snapshot.graph.filters.nodeKinds);
-      if (input.checked) next.add(kind);
-      else next.delete(kind);
-      sendAction("setGraphView", { nodeKinds: Array.from(next) });
-    });
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(kind.replace("_reference", "")));
-    kinds.appendChild(label);
-  });
-  const unresolved = el("label", "checkbox-label");
-  const unresolvedInput = document.createElement("input");
-  unresolvedInput.type = "checkbox";
-  unresolvedInput.checked = snapshot.graph.filters.showLowSignalUnresolved;
-  unresolvedInput.addEventListener("change", () =>
+  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
+    (kind) => {
+      const label = el("label", "checkbox-label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+      input.addEventListener("change", () => {
+        const next = new Set(snapshot.graph.filters.nodeKinds);
+        if (input.checked) next.add(kind);
+        else next.delete(kind);
+        sendAction("setGraphView", { nodeKinds: Array.from(next) });
+      });
+      label.appendChild(input);
+      label.appendChild(
+        document.createTextNode(kind.replace("_reference", "")),
+      );
+      kinds.appendChild(label);
+    },
+  );
+  const lowSignal = el("label", "checkbox-label");
+  const lowSignalInput = document.createElement("input");
+  lowSignalInput.type = "checkbox";
+  lowSignalInput.checked = snapshot.graph.filters.showLowSignalReferences;
+  lowSignalInput.addEventListener("change", () =>
     sendAction("setGraphView", {
-      showLowSignalUnresolved: unresolvedInput.checked,
+      showLowSignalReferences: lowSignalInput.checked,
     }),
   );
-  unresolved.appendChild(unresolvedInput);
-  unresolved.appendChild(document.createTextNode("low-signal unresolved"));
-  kinds.appendChild(unresolved);
+  lowSignal.appendChild(lowSignalInput);
+  lowSignal.appendChild(document.createTextNode("low-signal external"));
+  kinds.appendChild(lowSignal);
   wrap.appendChild(kinds);
 
   const presets = el("div", "filters");
@@ -6495,7 +6479,7 @@ function snapshotChromeSignature(snapshot: Snapshot | null) {
   }
   return JSON.stringify({
     actions: snapshot.actions || {},
-    maintenance: snapshot.maintenance?.backgroundJobs || {},
+    backgroundJobs: snapshot.maintenance?.backgroundJobs || {},
     sync: snapshot.sync?.status,
     jobPopoverOpen: state.jobPopoverOpen,
   });
@@ -6512,7 +6496,7 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       filters: snapshot.registry.filters,
       rows: snapshot.registry.visibleRows,
       cleanup: snapshot.registry.cleanupProposals || [],
-      projection: snapshot.registry.projection || {},
+      cacheStatus: snapshot.registry.cacheStatus || {},
     });
   }
   if (selectedTab === "graph") {
@@ -6725,6 +6709,22 @@ function selectControl(
   return select;
 }
 
+function selectControlWithLabels(
+  options: Array<[string, string]>,
+  value: string,
+  onChange: (value: string) => void,
+) {
+  const select = el("select");
+  options.forEach(([optionValue, label]) => {
+    const node = el("option", "", label);
+    node.value = optionValue;
+    node.selected = optionValue === value;
+    select.appendChild(node);
+  });
+  select.addEventListener("change", () => onChange(select.value));
+  return select;
+}
+
 function render() {
   const root = document.getElementById("app");
   if (!root) return;
@@ -6763,7 +6763,7 @@ function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
     !snapshot.graph.graph_hash ||
     snapshot.graph.nodes.length === 0 ||
     (snapshot.graph.layoutStatus !== "missing" &&
-      snapshot.graph.layoutStatus !== "dirty")
+      snapshot.graph.layoutStatus !== "stale")
   ) {
     return;
   }

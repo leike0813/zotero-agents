@@ -423,6 +423,62 @@ describe("host bridge workflow control", function () {
     assert.notProperty(task, "inputUnitIdentity");
   });
 
+  it("treats active-only task filters as task state filters", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    const now = new Date().toISOString();
+    const baseJob: JobRecord = {
+      id: "job-active",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-active",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Active Task",
+        providerId: "skillrunner",
+        backendId: "backend-1",
+        backendType: "skillrunner",
+      },
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+    };
+    recordWorkflowTaskUpdate(baseJob);
+    recordWorkflowTaskUpdate({
+      ...baseJob,
+      id: "job-terminal",
+      meta: {
+        ...baseJob.meta,
+        runId: "run-terminal",
+        taskName: "Terminal Task",
+      },
+      state: "failed",
+    });
+
+    for (const query of [
+      "activeOnly=true",
+      "active-only=true",
+      "includeHistory=false",
+    ]) {
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v1/tasks?${query}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.deepEqual(
+        parsed.json.result.tasks.map((task: { jobId: string }) => task.jobId),
+        ["job-active"],
+      );
+      assert.deepEqual(
+        parsed.json.result.tasks.map((task: { state: string }) => task.state),
+        ["running"],
+      );
+    }
+  });
+
   it("routes ACP scoped approval requests through the ACP skill run UI model", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({

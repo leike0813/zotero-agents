@@ -473,18 +473,18 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   debugCapability(
     "debug.synthesis.snapshot",
-    "Return a debug-only Synthesis queue, job, table-count, and UI snapshot.",
+    "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
     (input) => callSynthesisDebugService("debugSynthesisSnapshot", input),
   ),
   debugCapability(
-    "debug.synthesis.queue.list",
-    "List debug-only Synthesis dirty queue events.",
-    (input) => callSynthesisDebugService("debugSynthesisQueueList", input),
+    "debug.synthesis.operations.list",
+    "List debug-only Synthesis explicit operations and background job rows.",
+    (input) => callSynthesisDebugService("debugSynthesisOperationsList", input),
   ),
   debugCapability(
-    "debug.synthesis.jobs.list",
-    "List debug-only Synthesis job progress rows.",
-    (input) => callSynthesisDebugService("debugSynthesisJobsList", input),
+    "debug.synthesis.profiler.list",
+    "List debug-only Synthesis profiler runs and phase timings.",
+    (input) => callSynthesisDebugService("debugSynthesisProfilerList", input),
   ),
   debugCapability(
     "debug.synthesis.paper.inspect",
@@ -502,60 +502,9 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     (input) => callSynthesisDebugService("debugSynthesisDiff", input),
   ),
   debugCapability(
-    "debug.synthesis.worker.run",
-    "Run one debug Synthesis worker and return before/after diagnostics.",
-    (input) => callSynthesisDebugService("debugSynthesisWorkerRun", input),
-  ),
-  debugCapability(
-    "debug.synthesis.maintenance.run",
-    "Run one debug Synthesis maintenance pass and return before/after diagnostics.",
-    (input) => callSynthesisDebugService("debugSynthesisMaintenanceRun", input),
-  ),
-  debugCapability(
-    "debug.synthesis.queue.enqueue",
-    "Enqueue one debug Synthesis dirty event.",
-    (input) =>
-      callSynthesisDebugService("debugSynthesisQueueControl", {
-        ...asObject(input),
-        action: "enqueue",
-      }),
-  ),
-  debugCapability(
-    "debug.synthesis.queue.retry",
-    "Retry retryable Synthesis debug queue failures now.",
-    (input) =>
-      callSynthesisDebugService("debugSynthesisQueueControl", {
-        ...asObject(input),
-        action: "retry",
-      }),
-  ),
-  debugCapability(
-    "debug.synthesis.queue.pause",
-    "Pause the Synthesis debug update queue.",
-    (input) =>
-      callSynthesisDebugService("debugSynthesisQueueControl", {
-        ...asObject(input),
-        action: "pause",
-      }),
-  ),
-  debugCapability(
-    "debug.synthesis.queue.resume",
-    "Resume the Synthesis debug update queue.",
-    (input) =>
-      callSynthesisDebugService("debugSynthesisQueueControl", {
-        ...asObject(input),
-        action: "resume",
-      }),
-  ),
-  debugCapability(
-    "debug.synthesis.jobs.clearStale",
-    "Mark stale running Synthesis job progress rows as retryable failures.",
-    (input) => callSynthesisDebugService("debugSynthesisJobsClearStale", input),
-  ),
-  debugCapability(
-    "debug.synthesis.queue.clear",
-    "Dangerous debug operation: clear Synthesis dirty queue state.",
-    (input) => callSynthesisDebugService("debugSynthesisQueueClear", input),
+    "debug.synthesis.cache.list",
+    "List debug-only Synthesis sidecar cache basis rows.",
+    (input) => callSynthesisDebugService("debugSynthesisCacheList", input),
   ),
   debugCapability(
     "debug.synthesis.cleanInstallReset",
@@ -580,7 +529,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   ),
   synthesisCapability(
     "synthesis.get_library_index",
-    "Return paginated compact library index pages for Synthesis workflows.",
+    "Return paginated compact Synthesis sidecar cache pages derived from Zotero library facts.",
     "getLibraryIndex",
   ),
   synthesisCapability(
@@ -589,9 +538,9 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "resolveResolver",
   ),
   synthesisCapability(
-    "synthesis.get_paper_registry",
-    "Return bounded read-only Synthesis paper registry metadata, freshness diagnostics, and recommended maintenance commands for selected paper references.",
-    "getPaperRegistry",
+    "synthesis.get_reference_sidecar_index",
+    "Return bounded read-only Synthesis reference sidecar index metadata and diagnostics for selected source references.",
+    "getReferenceSidecarIndex",
   ),
   synthesisCapability(
     "synthesis.query_citation_graph",

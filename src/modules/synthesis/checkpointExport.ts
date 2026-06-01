@@ -3,7 +3,6 @@ import {
   buildSynthesisKnowledgeGraphPaths,
   hashCanonicalJson,
 } from "./foundation";
-import { createSynthesisLiteratureRegistryService } from "./literatureRegistry";
 import {
   createSynthesisRepository,
   type SynthesisRepository,
@@ -126,24 +125,6 @@ function verifyDomain(args: {
   };
 }
 
-function literatureRecords(input: {
-  papers: unknown[];
-  works: unknown[];
-  reference_instances: unknown[];
-  reference_resolutions: unknown[];
-  citation_contexts: unknown[];
-  cleanup_proposals: unknown[];
-}) {
-  return {
-    papers: input.papers,
-    works: input.works,
-    reference_instances: input.reference_instances,
-    reference_resolutions: input.reference_resolutions,
-    citation_contexts: input.citation_contexts,
-    cleanup_proposals: input.cleanup_proposals,
-  };
-}
-
 function topicRecords(input: {
   nodes: unknown[];
   edges: unknown[];
@@ -247,11 +228,6 @@ export function createSynthesisCheckpointExportService(
       runtimeRoot: root,
       now,
     });
-  const literatureRegistry = createSynthesisLiteratureRegistryService({
-    root,
-    now,
-    repository,
-  });
   const topicGraph = createSynthesisTopicGraphService({
     root,
     now,
@@ -274,10 +250,6 @@ export function createSynthesisCheckpointExportService(
     const transactionId =
       cleanString(args.transactionId) ||
       `synthesis-checkpoint-${timestampSegment(now())}`;
-    const literature =
-      await literatureRegistry.exportLiteratureRegistryCheckpoint({
-        transactionId: `${transactionId}-literature`,
-      });
     const topicGraphCheckpoint = await topicGraph.exportTopicGraphCheckpoint({
       transactionId: `${transactionId}-topic-graph`,
     });
@@ -291,7 +263,6 @@ export function createSynthesisCheckpointExportService(
     return {
       transactionId,
       domains: {
-        literature,
         topicGraph: topicGraphCheckpoint,
         conceptKb: conceptKbCheckpoint,
         tagVocabulary: tagVocabularyCheckpoint,
@@ -302,27 +273,6 @@ export function createSynthesisCheckpointExportService(
 
   async function verifySynthesisCheckpoint() {
     const paths = buildSynthesisKnowledgeGraphPaths(root);
-
-    const literatureDb =
-      await literatureRegistry.readLiteratureRegistryCheckpointState();
-    const literatureCheckpoint =
-      await literatureRegistry.loadLiteratureRegistry();
-    const literatureDbRecords = literatureRecords({
-      papers: literatureDb.papers,
-      works: literatureDb.works,
-      reference_instances: literatureDb.reference_instances,
-      reference_resolutions: literatureDb.reference_resolutions,
-      citation_contexts: literatureDb.citation_contexts,
-      cleanup_proposals: literatureDb.cleanup_proposals,
-    });
-    const literatureCheckpointRecords = literatureRecords({
-      papers: literatureCheckpoint.papers,
-      works: literatureCheckpoint.works,
-      reference_instances: literatureCheckpoint.reference_instances,
-      reference_resolutions: literatureCheckpoint.reference_resolutions,
-      citation_contexts: literatureCheckpoint.citation_contexts,
-      cleanup_proposals: literatureCheckpoint.cleanup_proposals,
-    });
 
     const topicDb = await topicGraph.loadTopicGraph();
     const topicCheckpointRecords = topicRecords({
@@ -432,36 +382,6 @@ export function createSynthesisCheckpointExportService(
     });
 
     const domains = {
-      literature: verifyDomain({
-        domain: "literature",
-        db: signature(
-          {
-            papers: literatureDbRecords.papers.length,
-            works: literatureDbRecords.works.length,
-            reference_instances: literatureDbRecords.reference_instances.length,
-            reference_resolutions:
-              literatureDbRecords.reference_resolutions.length,
-            citation_contexts: literatureDbRecords.citation_contexts.length,
-            cleanup_proposals: literatureDbRecords.cleanup_proposals.length,
-          },
-          literatureDbRecords,
-        ),
-        checkpoint: signature(
-          {
-            papers: literatureCheckpointRecords.papers.length,
-            works: literatureCheckpointRecords.works.length,
-            reference_instances:
-              literatureCheckpointRecords.reference_instances.length,
-            reference_resolutions:
-              literatureCheckpointRecords.reference_resolutions.length,
-            citation_contexts:
-              literatureCheckpointRecords.citation_contexts.length,
-            cleanup_proposals:
-              literatureCheckpointRecords.cleanup_proposals.length,
-          },
-          literatureCheckpointRecords,
-        ),
-      }),
       topicGraph: verifyDomain({
         domain: "topicGraph",
         db: signature(

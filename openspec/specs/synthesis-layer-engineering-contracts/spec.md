@@ -1,8 +1,10 @@
+# synthesis-layer-engineering-contracts Specification
+
 ## Purpose
 
 Historical engineering contract capability superseded by `synthesis-layer-doc-system`.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Engineering contract split SHALL be treated as historical
 

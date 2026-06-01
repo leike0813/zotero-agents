@@ -10,11 +10,11 @@ import type {
 } from "./citationGraph";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 import type {
-  PaperRegistryInput,
-  PaperRegistryInputNote,
-  RegistryArtifactType,
+  ReferenceSidecarArtifactType,
+  ReferenceSidecarInput,
+  ReferenceSidecarInputNote,
 } from "./registry";
-import { buildPaperRegistryMetadataFingerprintPayload } from "./registry";
+import { buildReferenceSidecarMetadataFingerprintPayload } from "./registry";
 
 export type SynthesisLibraryIndexPaper = {
   paper_ref: string;
@@ -63,13 +63,13 @@ export type PaperArtifactReadRequest = {
   paperRefs?: string[];
   paper_ref?: string;
   paperRef?: string;
-  artifact_types?: RegistryArtifactType[];
-  artifactTypes?: RegistryArtifactType[];
+  artifact_types?: ReferenceSidecarArtifactType[];
+  artifactTypes?: ReferenceSidecarArtifactType[];
 };
 
 export type PaperArtifactReadResult = {
   paper_ref: string;
-  artifact_type: RegistryArtifactType;
+  artifact_type: ReferenceSidecarArtifactType;
   status: "available" | "missing" | "decode_error" | "unsupported";
   payload_type: string;
   probe_source?: string;
@@ -88,30 +88,40 @@ export type PaperArtifactReadResult = {
   diagnostics: string[];
 };
 
+export type ReferenceSidecarArtifactScanResult = {
+  artifacts: PaperArtifactReadResult[];
+  diagnostics: string[];
+  sourceItems?: ReferenceSidecarInput[];
+};
+
 export type SynthesisLibraryAdapter = {
-  getRegistryInputs: () => Promise<PaperRegistryInput[]>;
+  getRegistryInputs: () => Promise<ReferenceSidecarInput[]>;
   getRegistryInputForItem?: (args: {
     libraryId?: number;
     itemKey: string;
-  }) => Promise<PaperRegistryInput | null>;
+  }) => Promise<ReferenceSidecarInput | null>;
   getRegistryMetadataFingerprints?: (args?: {
     libraryId?: number;
     limit?: number;
   }) => Promise<SynthesisRegistryMetadataFingerprint[]>;
   getLibraryIndex: () => Promise<SynthesisLibraryIndex>;
   getCitationGraphInputs: () => Promise<CitationGraphPaperInput[]>;
+  scanArtifactSidecars?: (args?: {
+    sourceRefs?: string[];
+    artifactTypes?: ReferenceSidecarArtifactType[];
+  }) => Promise<ReferenceSidecarArtifactScanResult>;
   readPaperArtifacts: (
     args: PaperArtifactReadRequest,
   ) => Promise<{ artifacts: PaperArtifactReadResult[]; diagnostics: string[] }>;
 };
 
-const PAYLOAD_TYPES: Record<RegistryArtifactType, string> = {
+const PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
   digest: "digest-markdown",
   references: "references-json",
   citation_analysis: "citation-analysis-json",
 };
 
-const ARTIFACT_TYPE_ALIASES: Record<string, RegistryArtifactType> = {
+const ARTIFACT_TYPE_ALIASES: Record<string, ReferenceSidecarArtifactType> = {
   digest: "digest",
   "digest-markdown": "digest",
   references: "references",
@@ -123,7 +133,7 @@ const ARTIFACT_TYPE_ALIASES: Record<string, RegistryArtifactType> = {
   "citation-analysis-json": "citation_analysis",
 };
 
-const DEFAULT_ARTIFACT_TYPES: RegistryArtifactType[] = [
+const DEFAULT_ARTIFACT_TYPES: ReferenceSidecarArtifactType[] = [
   "digest",
   "references",
   "citation_analysis",
@@ -233,7 +243,7 @@ function zoteroRuntime() {
   return zotero;
 }
 
-async function childNotes(item: any): Promise<PaperRegistryInputNote[]> {
+async function childNotes(item: any): Promise<ReferenceSidecarInputNote[]> {
   const zotero = zoteroRuntime();
   let ids: unknown[] = [];
   try {
@@ -260,7 +270,7 @@ async function childNotes(item: any): Promise<PaperRegistryInputNote[]> {
 async function paperInputFromItem(
   item: any,
   fallbackLibraryId: number,
-): Promise<PaperRegistryInput> {
+): Promise<ReferenceSidecarInput> {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
   const date = readField(item, "date");
   return {
@@ -274,6 +284,7 @@ async function paperInputFromItem(
     notes: await childNotes(item),
     creators: getCreators(item),
     doi: readField(item, "DOI"),
+    isbn: readField(item, "ISBN"),
     url: readField(item, "url"),
     citekey: getCitekey(item),
     dateAdded: cleanString(item?.dateAdded),
@@ -291,7 +302,7 @@ function metadataFingerprintFromItem(
     typeof item?.isDeleted === "function"
       ? item.isDeleted()
       : Boolean(item?.deleted);
-  const metadata = buildPaperRegistryMetadataFingerprintPayload({
+  const metadata = buildReferenceSidecarMetadataFingerprintPayload({
     title: getTitle(item),
     year: getYear(date),
     itemType: cleanString(item?.itemType),
@@ -299,6 +310,7 @@ function metadataFingerprintFromItem(
     tags: getTags(item),
     collections: collectionRefs(item),
     doi: readField(item, "DOI"),
+    isbn: readField(item, "ISBN"),
     url: readField(item, "url"),
     arxiv: "",
   });
@@ -361,7 +373,7 @@ function resolveCollection(ref: string, libraryId: number) {
   return zotero.Collections?.getByLibraryAndKey?.(libraryId, ref) || null;
 }
 
-function collectionIndex(inputs: PaperRegistryInput[], libraryId: number) {
+function collectionIndex(inputs: ReferenceSidecarInput[], libraryId: number) {
   const counts = new Map<string, number>();
   for (const input of inputs) {
     for (const ref of input.collections || []) {
@@ -390,7 +402,7 @@ function collectionIndex(inputs: PaperRegistryInput[], libraryId: number) {
 
 export function buildLibraryIndexFromRegistryInputs(
   libraryId: number,
-  inputs: PaperRegistryInput[],
+  inputs: ReferenceSidecarInput[],
 ): SynthesisLibraryIndex {
   const tagCounts = new Map<string, number>();
   const papers = inputs.map((input) => {
@@ -420,26 +432,28 @@ export function buildLibraryIndexFromRegistryInputs(
   };
 }
 
-function normalizeArtifactType(value: unknown): RegistryArtifactType | null {
+function normalizeArtifactType(
+  value: unknown,
+): ReferenceSidecarArtifactType | null {
   const text = cleanString(value);
   return ARTIFACT_TYPE_ALIASES[text] || null;
 }
 
-function normalizeArtifactTypes(values: unknown): RegistryArtifactType[] {
+function normalizeArtifactTypes(values: unknown): ReferenceSidecarArtifactType[] {
   const rawValues = Array.isArray(values) ? values : [];
   const normalized = rawValues
     .map(normalizeArtifactType)
-    .filter((entry): entry is RegistryArtifactType => !!entry);
+    .filter((entry): entry is ReferenceSidecarArtifactType => !!entry);
   const source = normalized.length ? normalized : DEFAULT_ARTIFACT_TYPES;
   return Array.from(new Set(source));
 }
 
-function payloadBlocksForInput(input: PaperRegistryInput) {
+function payloadBlocksForInput(input: ReferenceSidecarInput) {
   const noteRows = [...(input.notes || [])].sort((left, right) =>
     cleanString(left.key).localeCompare(cleanString(right.key)),
   );
   const rows: Array<{
-    note: PaperRegistryInputNote;
+    note: ReferenceSidecarInputNote;
     block: ZoteroNotePayloadBlock;
   }> = [];
   const payloadTypesSeen: string[] = [];
@@ -486,13 +500,13 @@ function payloadProbeFields(args: {
 }
 
 function firstPayloadBlock(args: {
-  input: PaperRegistryInput;
+  input: ReferenceSidecarInput;
   scan: ReturnType<typeof payloadBlocksForInput>;
-  artifactType: RegistryArtifactType;
+  artifactType: ReferenceSidecarArtifactType;
 }) {
   const payloadType = PAYLOAD_TYPES[args.artifactType];
   let decodeError: {
-    note: PaperRegistryInputNote;
+    note: ReferenceSidecarInputNote;
     block: ZoteroNotePayloadBlock;
   } | null = null;
   for (const row of args.scan.rows) {
@@ -558,7 +572,7 @@ function rolesByReference(payload: unknown) {
 }
 
 function extractReferences(
-  input: PaperRegistryInput,
+  input: ReferenceSidecarInput,
 ): CitationGraphReferenceInput[] {
   const scan = payloadBlocksForInput(input);
   const referencesBlock = firstPayloadBlock({
@@ -596,6 +610,7 @@ function extractReferences(
       ),
       doi: cleanString(source.doi || source.DOI),
       arxiv: cleanString(source.arxiv || source.arXiv),
+      isbn: cleanString(source.isbn || source.ISBN),
       url: cleanString(source.url),
       title,
       year: cleanString(source.year || source.date),
@@ -617,7 +632,7 @@ function extractReferences(
 }
 
 export function buildCitationGraphInputsFromRegistryInputs(
-  inputs: PaperRegistryInput[],
+  inputs: ReferenceSidecarInput[],
 ): CitationGraphPaperInput[] {
   return inputs.map((input) => ({
     libraryId: input.libraryId,
@@ -627,6 +642,7 @@ export function buildCitationGraphInputsFromRegistryInputs(
     authors: [...(input.creators || [])],
     doi: cleanString(input.doi),
     arxiv: cleanString(input.arxiv),
+    isbn: cleanString(input.isbn),
     url: cleanString(input.url),
     citekey: cleanString(input.citekey),
     dateAdded: cleanString(input.dateAdded),
@@ -642,7 +658,7 @@ function artifactHash(block: ZoteroNotePayloadBlock) {
 }
 
 export function readArtifactsFromRegistryInputs(
-  inputs: PaperRegistryInput[],
+  inputs: ReferenceSidecarInput[],
   args: PaperArtifactReadRequest,
 ) {
   const refs = new Set(
@@ -753,7 +769,7 @@ export function readArtifactsFromRegistryInputs(
       });
     }
   }
-  return { artifacts, diagnostics };
+  return { artifacts, diagnostics, sourceItems: inputs };
 }
 
 export function createZoteroSynthesisLibraryAdapter(
@@ -820,6 +836,12 @@ export function createZoteroSynthesisLibraryAdapter(
     },
     async getCitationGraphInputs() {
       return buildCitationGraphInputsFromRegistryInputs(await inputs());
+    },
+    async scanArtifactSidecars(args = {}) {
+      return readArtifactsFromRegistryInputs(await inputs(), {
+        paper_refs: args.sourceRefs,
+        artifact_types: args.artifactTypes || DEFAULT_ARTIFACT_TYPES,
+      });
     },
     async readPaperArtifacts(args) {
       return readArtifactsFromRegistryInputs(await inputs(), args);

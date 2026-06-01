@@ -52,7 +52,7 @@ diagnostics.
 
 #### Scenario: A resolved paper lacks citation analysis
 
-- **WHEN** registry readiness rows show `citation_analysis` is missing
+- **WHEN** registry artifact coverage rows show `citation_analysis` is missing
 - **THEN** the DTO SHALL include a missing artifact diagnostic for that paper.
 
 ### Requirement: Topic Detail Consumes Current Structured Review Sections
@@ -79,4 +79,3 @@ review workflows.
 - **THEN** it SHALL include positioning, taxonomy, comparison matrix, debates,
   review outline, and evidence map
 - **AND** it SHALL mark the input incomplete when these structures are missing.
-

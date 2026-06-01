@@ -138,6 +138,42 @@ function findDigestNote(notes) {
   return findGeneratedNote(notes, "digest");
 }
 
+function findCitationAnalysisNote(notes) {
+  return findGeneratedNote(notes, "citation-analysis");
+}
+
+async function applyLiteratureDigestSidecar(args) {
+  const synthesis = requireHostApi(args.runtime)?.synthesis;
+  if (
+    !synthesis ||
+    typeof synthesis.applyLiteratureDigestSidecar !== "function"
+  ) {
+    return null;
+  }
+  return synthesis.applyLiteratureDigestSidecar({
+    parentItem: args.parentItem,
+    digest: {
+      noteKey: String(args.digestNote?.key || "").trim(),
+      content: args.digestText,
+    },
+    references: {
+      noteKey: String(args.referencesNote?.key || "").trim(),
+      references: args.referencesPayload?.references || [],
+    },
+    citationAnalysis: {
+      noteKey: String(args.citationAnalysisNote?.key || "").trim(),
+      payloadHash: "",
+    },
+    literatureMatchingMetadata: args.literatureMatchingMetadata || null,
+    source: {
+      workflow: "literature-digest",
+      digest_entry: args.digestEntryPath,
+      references_entry: args.referencesEntryPath,
+      citation_analysis_entry: args.citationAnalysisEntryPath,
+    },
+  });
+}
+
 const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
 const LITERATURE_MATCHING_METADATA_ARRAY_LIMITS = {
   key_terms: 12,
@@ -297,28 +333,6 @@ function appendRepresentativeImageApplyLog(args) {
     });
   } catch {
     // Runtime logging is diagnostic-only and must not affect apply-result.
-  }
-}
-
-async function recordSynthesisDirtyEvent(args) {
-  try {
-    const service = requireHostApi(args.runtime)?.synthesis;
-    const record = service?.recordSynthesisUpdateEvent;
-    if (typeof record !== "function") {
-      return;
-    }
-    const itemKey = String(args.parentItem?.key || "").trim();
-    if (!itemKey) {
-      return;
-    }
-    await record({
-      eventType: args.eventType,
-      source: args.source,
-      scope: { kind: "zotero_item", ref: itemKey },
-      sourceHash: args.sourceHash,
-    });
-  } catch {
-    // Synthesis maintenance hints must not affect apply-result.
   }
 }
 
@@ -592,6 +606,26 @@ async function applyResultImpl({
       }),
   );
   const digestNote = findDigestNote(applied?.notes);
+  const referencesNote = findReferencesNote(applied?.notes);
+  const citationAnalysisNote = findCitationAnalysisNote(applied?.notes);
+  const sidecarApply = await measureWorkflowTestSpan(
+    "executeApplyResult:literatureDigest:applySidecar",
+    {},
+    () =>
+      applyLiteratureDigestSidecar({
+        runtime,
+        parentItem,
+        digestNote,
+        referencesNote,
+        citationAnalysisNote,
+        digestText: digestResolved.text,
+        digestEntryPath: digestResolved.entryPath,
+        referencesEntryPath: referencesResolved.entryPath,
+        citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
+        referencesPayload,
+        literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
+      }),
+  );
   const representativeImage = applied?.representative_image || {
     status: "none",
   };
@@ -606,43 +640,6 @@ async function applyResultImpl({
     ...applied,
     representative_image: representativeImage,
   };
-  const artifactSourceHash = [
-    digestResolved.entryPath,
-    digestResolved.text.length,
-    referencesResolved.entryPath,
-    referencesResolved.text.length,
-    citationAnalysisResolved.entryPath,
-    citationAnalysisResolved.text.length,
-    literatureMatchingMetadataResolved.entryPath,
-    literatureMatchingMetadataResolved.payload
-      ? JSON.stringify(literatureMatchingMetadataResolved.payload).length
-      : "",
-  ]
-    .filter(Boolean)
-    .join(":");
-  await recordSynthesisDirtyEvent({
-    runtime,
-    parentItem,
-    eventType: "digest_applied",
-    source: "literature-digest.applyResult",
-    sourceHash: artifactSourceHash,
-  });
-  await recordSynthesisDirtyEvent({
-    runtime,
-    parentItem,
-    eventType: "paper_artifact_changed",
-    source: "literature-digest.applyResult",
-    sourceHash: artifactSourceHash,
-  });
-  if (literatureMatchingMetadataResolved.payload) {
-    await recordSynthesisDirtyEvent({
-      runtime,
-      parentItem,
-      eventType: "literature_matching_metadata_changed",
-      source: "literature-digest.applyResult",
-      sourceHash: artifactSourceHash,
-    });
-  }
   const autoReferenceMatching = {
     enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
     attempted: false,
@@ -650,6 +647,7 @@ async function applyResultImpl({
   if (!autoReferenceMatching.enabled) {
     return {
       ...appliedWithRepresentativeImage,
+      sidecar_apply: sidecarApply,
       literature_matching_metadata: literatureMatchingMetadataResolved.payload
         ? {
             status: "attached",
@@ -663,12 +661,10 @@ async function applyResultImpl({
     };
   }
 
-  const referencesNote = findReferencesNote(
-    appliedWithRepresentativeImage?.notes,
-  );
   if (!referencesNote) {
     return {
       ...appliedWithRepresentativeImage,
+      sidecar_apply: sidecarApply,
       literature_matching_metadata: literatureMatchingMetadataResolved.payload
         ? {
             status: "attached",
@@ -699,15 +695,9 @@ async function applyResultImpl({
           manifest: { version: "0.1.0" },
         }),
     );
-    await recordSynthesisDirtyEvent({
-      runtime,
-      parentItem,
-      eventType: "reference_matching_applied",
-      source: "literature-digest.autoReferenceMatching",
-      sourceHash: `${matchingResult?.matched || 0}:${matchingResult?.total || 0}`,
-    });
     return {
       ...appliedWithRepresentativeImage,
+      sidecar_apply: sidecarApply,
       literature_matching_metadata: literatureMatchingMetadataResolved.payload
         ? {
             status: "attached",
@@ -729,6 +719,7 @@ async function applyResultImpl({
   } catch (error) {
     return {
       ...appliedWithRepresentativeImage,
+      sidecar_apply: sidecarApply,
       literature_matching_metadata: literatureMatchingMetadataResolved.payload
         ? {
             status: "attached",

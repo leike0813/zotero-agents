@@ -77,13 +77,13 @@ describe("Synthesis tab UI model", function () {
           status: "queued",
           pendingDirtyCount: 2,
           activeWorkerCount: 1,
-          activeWorkerKind: "paper-registry-incremental-worker",
+          activeWorkerKind: "reference-sidecar-operation",
           canonicalSyncPending: true,
           canonicalEpoch: 3,
-          stale: ["citation-graph-index"],
+          stale: ["citation-graph:library"],
           missing: [],
           partial: [],
-          recommendedCommands: ["runPaperRegistryIncrementalWorker"],
+          recommendedCommands: ["rebuildCitationGraphCacheNow"],
           diagnostics: [
             {
               code: "canonical_maintenance_active",
@@ -172,11 +172,11 @@ describe("Synthesis tab UI model", function () {
     assert.deepEqual(snapshot.maintenance.backgroundJobs.rows, []);
     assert.equal(
       snapshot.maintenance.summary.activeWorkerKind,
-      "paper-registry-incremental-worker",
+      "reference-sidecar-operation",
     );
     assert.include(
       snapshot.maintenance.summary.recommendedCommands,
-      "runPaperRegistryIncrementalWorker",
+      "rebuildCitationGraphCacheNow",
     );
     assert.equal(snapshot.deletedArtifacts.count, 0);
     assert.deepEqual(
@@ -193,7 +193,7 @@ describe("Synthesis tab UI model", function () {
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "function renderEmptyState");
-    assert.include(source, "No literature index records yet");
+    assert.include(source, "No reference sidecar records yet");
     assert.include(source, "No tag vocabulary indexed yet");
     assert.include(source, "No concepts indexed yet");
     assert.include(source, "No citation graph data");
@@ -220,29 +220,29 @@ describe("Synthesis tab UI model", function () {
       actions: {
         inFlight: [
           {
-            key: "runLiteratureRegistryJobNow",
-            command: "runLiteratureRegistryJobNow",
+            key: "refreshReferenceSidecarNow",
+            command: "refreshReferenceSidecarNow",
             status: "running",
-            label: "Rebuild literature registry",
+            label: "Refresh reference sidecar",
           },
         ],
       },
       maintenance: {
         backgroundJobs: [
           {
-            job_id: "synthesis:update-queue",
-            source: "update_queue",
+            job_id: "synthesis:reference-sidecar:queued",
+            source: "operation",
             status: "queued",
-            label: "Synthesis update queue",
-            detail: "2 queued - 0 running - 0 failed",
+            label: "Reference sidecar refresh",
+            detail: "2 pending - 0 running - 0 failed",
             updated_at: "2026-05-25T00:00:00.000Z",
             progress: { mode: "indeterminate" },
           },
           {
-            job_id: "synthesis:literature-registry",
-            source: "literature_registry",
+            job_id: "synthesis:reference-sidecar",
+            source: "operation",
             status: "running",
-            label: "Literature registry rebuild",
+            label: "Reference sidecar refresh",
             updated_at: "2026-05-25T00:01:00.000Z",
             progress: {
               mode: "determinate",
@@ -266,7 +266,7 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.maintenance.backgroundJobs.queuedCount, 1);
     assert.equal(
       snapshot.maintenance.backgroundJobs.primaryJob?.job_id,
-      "synthesis:literature-registry",
+      "synthesis:reference-sidecar",
     );
     assert.deepEqual(snapshot.maintenance.backgroundJobs.rows[1]?.progress, {
       mode: "indeterminate",
@@ -376,8 +376,7 @@ describe("Synthesis tab UI model", function () {
           freshness: "dirty",
         },
         registry: {
-          readiness: "partial",
-          missingArtifact: "citation_analysis",
+          artifactCoverage: "partial",
         },
       },
     }).state;
@@ -407,16 +406,14 @@ describe("Synthesis tab UI model", function () {
               paper_ref: "1:A",
               title: "Ready Paper",
               year: "2024",
-              readiness: "ready",
-              coverage: "complete",
+              artifactCoverage: "complete",
               missing_artifacts: [],
             },
             {
               paper_ref: "1:B",
               title: "Partial Paper",
               year: "2025",
-              readiness: "partial",
-              coverage: "partial",
+              artifactCoverage: "partial",
               missing_artifacts: ["citation_analysis"],
             },
           ],
@@ -438,6 +435,89 @@ describe("Synthesis tab UI model", function () {
     assert.deepEqual(
       snapshot.registry.visibleRows.map((row) => row.paper_ref),
       ["1:B"],
+    );
+  });
+
+  it("filters Index rows by scope, artifact coverage, and binding status", function () {
+    const input = {
+      libraryId: 1,
+      registry: {
+        rows: [
+          {
+            paper_ref: "1:BOUND",
+            title: "Bound Source",
+            artifactCoverage: "complete" as const,
+            missing_artifacts: [],
+            index_scope: "library" as const,
+            references: [
+              {
+                reference_instance_id: "raw:1",
+                reference_index: 0,
+                title: "Candidate Reference",
+                target_binding: "library" as const,
+                binding_status: "candidate" as const,
+              },
+            ],
+          },
+          {
+            paper_ref: "1:UNBOUND",
+            title: "Unbound Source",
+            artifactCoverage: "complete" as const,
+            missing_artifacts: [],
+            index_scope: "library" as const,
+            references: [
+              {
+                reference_instance_id: "raw:2",
+                reference_index: 0,
+                title: "Unbound Reference",
+                target_binding: "none" as const,
+              },
+            ],
+          },
+          {
+            paper_ref: "ref:external",
+            title: "Referenced Only",
+            artifactCoverage: "missing" as const,
+            missing_artifacts: [],
+            index_scope: "referenced" as const,
+          },
+        ],
+      },
+    };
+
+    const libraryState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: {
+          registry: {
+            scope: "library",
+            artifactCoverage: "complete",
+            bindingStatus: "candidate",
+          },
+        },
+      },
+    ).state;
+    const referencedCandidateState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: { registry: { scope: "referenced", bindingStatus: "candidate" } },
+      },
+    ).state;
+
+    assert.deepEqual(
+      buildSynthesisUiSnapshot(input, libraryState).registry.visibleRows.map(
+        (row) => row.paper_ref,
+      ),
+      ["1:BOUND", "1:UNBOUND"],
+    );
+    assert.deepEqual(
+      buildSynthesisUiSnapshot(
+        input,
+        referencedCandidateState,
+      ).registry.visibleRows.map((row) => row.paper_ref),
+      ["1:BOUND"],
     );
   });
 
@@ -538,7 +618,7 @@ describe("Synthesis tab UI model", function () {
       payload: {
         layoutPreset: "expanded",
         nodeKinds: ["library_paper", "external_reference"],
-        showLowSignalUnresolved: true,
+        showLowSignalReferences: true,
         role: "method",
         selectedElement: { kind: "node", id: "n1" },
         neighborhoodDepth: 2,
@@ -556,7 +636,7 @@ describe("Synthesis tab UI model", function () {
       "external_reference",
       "library_paper",
     ]);
-    assert.equal(next.state.graph.showLowSignalUnresolved, true);
+    assert.equal(next.state.graph.showLowSignalReferences, true);
     assert.equal(next.state.graph.role, "method");
     assert.isUndefined(next.hostCommand);
 
@@ -588,12 +668,12 @@ describe("Synthesis tab UI model", function () {
     assert.equal(closed.state.reader.topicId, "");
   });
 
-  it("filters graph nodes by kind, low-signal unresolved visibility, and role", function () {
+  it("filters graph nodes by kind, low-signal external visibility, and role", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setGraphView",
       payload: {
         nodeKinds: ["library_paper", "external_reference"],
-        showLowSignalUnresolved: false,
+        showLowSignalReferences: false,
       },
     }).state;
     const filteredState = applySynthesisUiAction(state, {
@@ -612,8 +692,7 @@ describe("Synthesis tab UI model", function () {
           diagnostics: {
             node_counts: {
               library_paper: 1,
-              external_reference: 1,
-              unresolved_reference: 1,
+              external_reference: 2,
             },
             reference_stats: {
               dropped_empty: 0,
@@ -625,7 +704,7 @@ describe("Synthesis tab UI model", function () {
             {
               id: "ref:raw:y",
               label: "Y",
-              kind: "unresolved_reference",
+              kind: "external_reference",
               low_signal: true,
             },
           ],
@@ -749,30 +828,47 @@ describe("Synthesis tab UI model", function () {
   });
 
   it("routes the Workbench rebuild graph host command", function () {
-    const result = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+    const layoutResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "hostCommand",
       payload: {
         command: "manualRecomputeLayout",
         args: { reason: "user" },
       },
     });
+    const cacheResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "hostCommand",
+      payload: {
+        command: "rebuildCitationGraphCacheNow",
+        args: { reason: "user" },
+      },
+    });
 
-    assert.isTrue(result.handled);
-    assert.deepEqual(result.hostCommand, {
+    assert.isTrue(layoutResult.handled);
+    assert.deepEqual(layoutResult.hostCommand, {
       command: "manualRecomputeLayout",
+      args: { reason: "user" },
+    });
+    assert.isTrue(cacheResult.handled);
+    assert.deepEqual(cacheResult.hostCommand, {
+      command: "rebuildCitationGraphCacheNow",
       args: { reason: "user" },
     });
   });
 
-  it("wires graph layout recompute to the layout-only worker", async function () {
+  it("wires graph layout recompute to the explicit layout operation", async function () {
     const tabSource = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
     const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
 
-    assert.include(tabSource, "runCitationGraphLayoutWorker");
+    assert.include(tabSource, "recomputeCitationGraphLayout");
+    assert.notInclude(tabSource, "runCitationGraphLayoutWorker");
     assert.include(tabSource, "refreshGraphLayoutIfNeeded");
+    assert.include(appSource, '"Rebuild graph cache"');
+    assert.include(appSource, 'command: "rebuildCitationGraphCacheNow"');
+    assert.include(appSource, '"Redraw layout"');
+    assert.include(appSource, 'command: "manualRecomputeLayout"');
     assert.notInclude(
       tabSource,
       ".rebuildCitationGraphProjection()\n      .finally",
@@ -1054,6 +1150,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, '["tags", "Tags", "tags"]');
     assert.include(source, '["concepts", "Concepts", "concepts"]');
     assert.include(source, "concepts: [");
+    assert.notInclude(source, "M12 4.5v2");
+    assert.notInclude(source, "M8.8 6.1 7.4 4.7");
+    assert.notInclude(source, "M15.2 6.1l1.4-1.4");
     assert.include(source, "nav-icon-${iconName}");
     assert.include(
       source,
@@ -1357,8 +1456,22 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".graph-control-drawer:hover");
     assert.include(css, ".graph-control-drawer:focus-within");
     assert.include(css, ".graph-control-icon svg");
+    assert.include(css, "display: block;");
     assert.include(css, ".graph-control-title");
     assert.include(css, "display: none;");
+    assert.include(css, "width: 42px;");
+    assert.include(css, "height: 42px;");
+    assert.include(css, ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within)");
+    assert.include(css, "grid-template-rows: 42px;");
+    assert.include(css, "place-items: center;");
+    assert.include(css, "position: absolute;");
+    assert.include(css, "inset: 0;");
+    assert.include(css, "position: static;");
+    assert.include(css, "transform: translateY(-1px);");
+    assert.include(css, ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .details");
+    assert.include(css, "display: none;");
+    assert.include(css, "overflow: hidden;");
+    assert.include(css, "overflow: auto;");
     assert.notInclude(css, "writing-mode: vertical-rl;");
     assert.include(css, ".graph-selection-drawer");
     assert.include(css, ".graph-selection-content");
@@ -1681,7 +1794,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(snapshot.hostCommands, "applyTopicGraphReviewAction");
   });
 
-  it("renders Concepts tab state with filters, detail, display-text edit, and overlay entries", function () {
+  it("renders Concepts tab state with filters, detail, display-text edit, and overlay entries [inv.concepts.overlay_optional]", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setFilters",
       payload: {
@@ -1827,10 +1940,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "updateConceptDisplayText");
   });
 
-  it("filters Literature registry rows and exposes cleanup host actions", async function () {
+  it("shows reference sidecar cache status without exposing legacy cleanup host actions", async function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setFilters",
-      payload: { registry: { literature: "needs-cleanup" } },
+      payload: { registry: { artifactCoverage: "partial" } },
     }).state;
     const snapshot = buildSynthesisUiSnapshot(
       {
@@ -1840,16 +1953,13 @@ describe("Synthesis tab UI model", function () {
             {
               paper_ref: "1:AAA",
               title: "Needs Review",
-              readiness: "partial",
-              coverage: "partial",
+              artifactCoverage: "partial",
               missing_artifacts: ["references"],
-              cleanup_count: 1,
             },
             {
               paper_ref: "1:BBB",
               title: "Ready",
-              readiness: "ready",
-              coverage: "complete",
+              artifactCoverage: "complete",
               missing_artifacts: [],
             },
           ],
@@ -1866,37 +1976,25 @@ describe("Synthesis tab UI model", function () {
                 "Review how to handle this unresolved reference.",
             },
           ],
-          literatureJob: {
-            queue_state: "failed_retryable",
-            retry_attempt: 1,
-            next_retry_at: "2026-05-25T00:01:00.000Z",
+          cacheStatus: {
+            cache_key: "reference-sidecar:library",
+            status: "failed",
             diagnostics: [
               {
-                code: "literature_registry_rebuild_failed",
+                code: "reference_sidecar_refresh_failed",
                 severity: "error",
                 message: "temporary failure",
               },
             ],
             allowed_actions: [
-              "retryLiteratureRegistryJob",
-              "runLiteratureRegistryJobNow",
+              "retryReferenceSidecarRefresh",
+              "refreshReferenceSidecarNow",
             ],
           },
-          projection: { target: "literature-registry-index", stale: true },
         },
       },
       state,
     );
-    const command = applySynthesisUiAction(state, {
-      action: "hostCommand",
-      payload: {
-        command: "applyLiteratureCleanupAction",
-        args: {
-          proposalId: "cleanup:1",
-          action: "ignore_reference_instance",
-        },
-      },
-    });
 
     assert.deepEqual(
       snapshot.registry.visibleRows.map((row) => row.paper_ref),
@@ -1906,24 +2004,27 @@ describe("Synthesis tab UI model", function () {
       snapshot.registry.cleanupProposals[0]?.proposal_id,
       "cleanup:1",
     );
-    assert.isTrue(snapshot.registry.projection.stale);
-    assert.equal(
-      snapshot.registry.literatureJob?.queue_state,
-      "failed_retryable",
+    assert.equal(snapshot.registry.cacheStatus.status, "failed");
+    assert.notInclude(snapshot.hostCommands, "applyLiteratureCleanupAction");
+    assert.include(snapshot.hostCommands, "refreshReferenceSidecarNow");
+    assert.include(snapshot.hostCommands, "retryReferenceSidecarRefresh");
+    assert.include(snapshot.hostCommands, "rebuildCitationGraphCacheNow");
+    assert.include(snapshot.hostCommands, "retryCitationGraphCacheRebuild");
+    assert.isFalse(
+      applySynthesisUiAction(state, {
+        action: "hostCommand",
+        payload: {
+          command: "applyLiteratureCleanupAction",
+          args: {
+            proposalId: "cleanup:1",
+            action: "ignore_reference_instance",
+          },
+        },
+      }).handled,
     );
-    assert.include(snapshot.hostCommands, "applyLiteratureCleanupAction");
-    assert.include(snapshot.hostCommands, "runLiteratureRegistryJobNow");
-    assert.include(snapshot.hostCommands, "retryLiteratureRegistryJob");
-    assert.deepEqual(command.hostCommand, {
-      command: "applyLiteratureCleanupAction",
-      args: {
-        proposalId: "cleanup:1",
-        action: "ignore_reference_instance",
-      },
-    });
   });
 
-  it("keeps Index default rows Zotero-bound and exposes referenced literature mode", function () {
+  it("keeps Index default rows Zotero-bound and exposes referenced scope", function () {
     const input = {
       libraryId: 1,
       registry: {
@@ -1931,8 +2032,7 @@ describe("Synthesis tab UI model", function () {
           {
             paper_ref: "1:AAA",
             title: "Library Paper",
-            readiness: "ready" as const,
-            coverage: "complete" as const,
+            artifactCoverage: "complete" as const,
             missing_artifacts: [],
             index_scope: "library" as const,
             reference_count: 1,
@@ -1941,20 +2041,18 @@ describe("Synthesis tab UI model", function () {
                 reference_instance_id: "ref:1",
                 reference_index: 0,
                 title: "External Method",
-                resolution_status: "matched",
                 target_title: "External Method",
                 target_binding: "external" as const,
+                binding_status: "accepted" as const,
               },
             ],
           },
           {
             paper_ref: "lit:external",
             title: "External Method",
-            readiness: "partial" as const,
-            coverage: "missing" as const,
+            artifactCoverage: "missing" as const,
             missing_artifacts: [],
             index_scope: "referenced" as const,
-            literature_status: "reference-only" as const,
             referenced_by_count: 1,
           },
         ],
@@ -1966,7 +2064,7 @@ describe("Synthesis tab UI model", function () {
       createDefaultSynthesisUiState(),
       {
         action: "setFilters",
-        payload: { registry: { literature: "reference-only" } },
+        payload: { registry: { scope: "referenced" } },
       },
     ).state;
     const referencedSnapshot = buildSynthesisUiSnapshot(input, referencedState);
@@ -1982,17 +2080,29 @@ describe("Synthesis tab UI model", function () {
     );
     assert.deepEqual(
       referencedSnapshot.registry.visibleRows.map((row) => row.paper_ref),
-      ["lit:external"],
+      ["1:AAA"],
     );
   });
 
-  it("wires Literature filters and cleanup review card in the Workbench", async function () {
+  it("wires Index filters and cleanup review card in the Workbench [inv.review.user_manageable]", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const model = await fs.readFile("src/modules/synthesis/uiModel.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
-    assert.include(source, "needs-cleanup");
-    assert.include(source, "Only referenced literature");
+    assert.include(source, "Scope: Referenced only");
+    assert.include(source, "Coverage: Complete");
+    assert.include(source, "Binding: Stale target");
+    assert.notInclude(source, "Missing: References");
+    assert.notInclude(model, "needs-cleanup");
+    assert.notInclude(model, "referenceStatus");
+    assert.include(model, "bindingStatus");
+    assert.notInclude(source, "Only referenced literature");
     assert.include(source, "renderRegistryTable");
+    assert.include(source, "appendRegistryColgroup");
+    assert.include(source, "`registry-col-${column}`");
+    assert.include(source, '"reference",');
+    assert.include(source, '"source",');
+    assert.include(source, '"target",');
     assert.include(source, "registry-parent-row");
     assert.include(source, "registry-reference-row");
     assert.include(source, "state.registryExpandedRows");
@@ -2004,7 +2114,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, '"ID"');
     assert.include(source, '"Artifacts"');
     assert.include(source, '"References"');
-    assert.include(source, '"(Total/Unresolved)"');
+    assert.include(source, '"(Total/Unbound)"');
     assert.include(source, "registryArtifactBadges");
     assert.include(source, "renderRegistryArtifacts");
     assert.include(source, '"Digest artifact"');
@@ -2013,7 +2123,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "registry-artifacts-header");
     assert.include(source, "registry-references-header");
     assert.include(source, "registry-reference-count");
-    assert.include(source, 'status === "matched"');
+    assert.include(source, 'status === "accepted"');
     assert.notInclude(source, "renderRegistryReferenceField");
     assert.notInclude(source, "registryReferenceSecondaryText");
     assert.notInclude(source, "registryReferenceTargetSummary");
@@ -2028,18 +2138,20 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
     assert.notInclude(source, '["proposal id", proposal.proposal_id]');
-    assert.include(source, "applyLiteratureCleanupAction");
-    assert.include(source, "confirm_literature_item");
-    assert.include(source, "match_existing_literature_item");
-    assert.include(source, "ignore_reference_instance");
-    assert.include(source, "defer_reference_resolution");
-    assert.include(source, "confirm_delete_item");
-    assert.include(source, "mark_as_dedupe_merge");
-    assert.include(source, "keep_for_now");
+    assert.notInclude(source, "applyLiteratureCleanupAction");
+    assert.notInclude(source, "confirm_literature_item");
+    assert.notInclude(source, "match_existing_literature_item");
+    assert.notInclude(source, "ignore_reference_instance");
+    assert.notInclude(source, "defer_reference_resolution");
+    assert.notInclude(source, "confirm_delete_item");
+    assert.notInclude(source, "mark_as_dedupe_merge");
+    assert.notInclude(source, "keep_for_now");
     assert.include(source, "Zotero deletion review");
     assert.include(source, "Zotero dedupe review");
-    assert.include(source, "runLiteratureRegistryJobNow");
-    assert.include(source, "retryLiteratureRegistryJob");
+    assert.include(source, "refreshReferenceSidecarNow");
+    assert.include(source, "retryReferenceSidecarRefresh");
+    assert.include(source, "rebuildCitationGraphCacheNow");
+    assert.include(source, "retryCitationGraphCacheRebuild");
     assert.include(css, ".registry-table");
     assert.include(css, ".registry-parent-row td");
     assert.include(css, ".registry-reference-row td");
@@ -2049,18 +2161,27 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".registry-artifact-badges");
     assert.include(css, ".registry-artifacts-cell");
     assert.include(css, ".registry-references-cell");
+    assert.include(css, ".registry-col-source");
+    assert.include(css, ".registry-col-target");
+    assert.include(css, ".registry-reference-source-cell");
+    assert.include(css, ".registry-reference-target-cell");
     assert.include(css, ".registry-column-header-subtitle");
     assert.include(css, ".registry-reference-count");
     assert.include(css, "grid-template-columns: repeat(3, max-content);");
-    assert.include(css, "table-layout: auto;");
+    assert.include(css, "table-layout: fixed;");
     assert.include(css, ".badge.blue");
     assert.include(css, "overflow-wrap: anywhere;");
     assert.include(css, "padding-block: 4px;");
     assert.include(css, "white-space: nowrap;");
     assert.include(css, "text-overflow: ellipsis;");
+    assert.include(css, ".registry-reference-row td:first-child");
+    assert.include(
+      css,
+      "grid-template-columns: 12px minmax(0, 1fr) max-content;",
+    );
     assert.notInclude(css, ".registry-reference-form");
     assert.notInclude(css, ".registry-reference-field");
-    assert.notInclude(css, "table-layout: fixed;");
+    assert.notInclude(css, "table-layout: auto;");
   });
 
   it("renders domain-local single review cards for Synthesis review workflows", async function () {
@@ -2099,7 +2220,11 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "aria-busy");
     assert.include(app, "renderActionStatusbar");
     assert.include(app, "listBackgroundJobs");
+    assert.include(app, "snapshot.maintenance?.backgroundJobs?.rows");
     assert.include(app, "renderBackgroundJobPopover");
+    assert.include(app, 'const isRunning = job.status === "running";');
+    assert.include(app, "isRunning ? progressLabel(job.progress) : \"\"");
+    assert.include(app, "if (isRunning && job.progress)");
     assert.include(app, "action-statusbar-job-button");
     assert.include(app, "action-statusbar");
     assert.include(app, "STATUSBAR_COMPLETED_TIMEOUT_MS");
@@ -2109,6 +2234,20 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(app, "content.appendChild(actionNotice)");
     assert.include(host, "inFlightCommands");
     assert.include(host, "runWorkbenchCommandOnce");
+    assert.include(host, "commandProgressTimer");
+    assert.include(host, "ensureCommandProgressPolling");
+    assert.include(host, "notifyWorkbenchCommandProgress");
+    assert.include(host, "refreshWorkbenchCommandProgress");
+    assert.include(host, "getSynthesisBackgroundJobRows");
+    assert.include(host, "refreshFromService: false");
+    assert.notMatch(
+      host,
+      /notifyWorkbenchCommandProgress[\s\S]{0,240}refreshFromService: true/,
+    );
+    assert.notMatch(
+      host,
+      /ensureCommandProgressPolling[\s\S]{0,360}refreshFromService: true/,
+    );
     assert.include(host, "This action is already running.");
     assert.include(css, ".action-statusbar");
     assert.include(
@@ -2120,5 +2259,56 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".action-statusbar-progress");
     assert.include(css, ".action-statusbar-job-popover");
     assert.include(css, "@media (prefers-reduced-motion: reduce)");
+  });
+
+  it("guards Workbench index rebuild commands and defers heavy rebuild start", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const runtime = await fs.readFile(
+      "src/utils/runtimeCompatibility.ts",
+      "utf8",
+    );
+    const service = await fs.readFile(
+      "src/modules/synthesis/service.ts",
+      "utf8",
+    );
+    const protectedCommands = [
+      "refreshReferenceSidecarNow",
+      "rebuildCitationGraphCacheNow",
+      "rebuildTagVocabularyIndex",
+      "rebuildConceptKbIndex",
+      "rebuildTopicGraphIndex",
+    ];
+
+    assert.include(host, "isProtectedRebuildCommand");
+    assert.include(host, "confirmProtectedRebuildCommand");
+    assert.include(host, "confirmWorkbenchAction");
+    assert.include(host, "deferStart?: boolean");
+    assert.include(host, "globalThis.setTimeout(() => void start(), 0)");
+    assert.include(host, "SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS");
+    assert.include(
+      host,
+      "getDefaultSynthesisService().rebuildTopicGraphIndex({",
+    );
+    assert.notInclude(
+      host,
+      'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',
+    );
+    for (const command of protectedCommands) {
+      assert.include(host, `command === "${command}"`);
+      assert.match(
+        host,
+        new RegExp(`${command}[\\s\\S]{0,260}deferStart: true`),
+      );
+    }
+    assert.include(runtime, "export async function yieldToEventLoop");
+    assert.include(runtime, "globalThis.setTimeout");
+    assert.include(service, "yieldToEventLoop");
+    assert.include(service, "yieldControl: yieldToEventLoop");
+    assert.include(service, "runProjectionIndexRebuildWithProgress");
+    assert.include(service, "reportProgress");
+    assert.include(service, "onProgress");
   });
 });

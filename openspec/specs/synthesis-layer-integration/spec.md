@@ -142,7 +142,7 @@ persisted service state.
 
 - **WHEN** a topic synthesis bundle has been persisted
 - **THEN** review input SHALL include the persisted topic Markdown, resolver,
-  resolved paper set, registry readiness, and citation graph slice.
+  resolved paper set, registry artifact coverage, and citation graph slice.
 
 ### Requirement: Zotero mirror runtime smoke is covered
 
@@ -302,4 +302,3 @@ active topic synthesis artifacts when the local canonical root is missing.
 - **THEN** the mirror SHALL include a manifest shard listing all data shards,
   asset identities, sequence metadata, payload hashes, encoded hashes, and note
   keys.
-

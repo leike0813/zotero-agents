@@ -234,7 +234,9 @@ fn synthesis_capability(command: &SynthesisCommand) -> &'static str {
         SynthesisCommand::GetSchemas(_) => "synthesis.get_schemas",
         SynthesisCommand::GetLibraryIndex(_) => "synthesis.get_library_index",
         SynthesisCommand::ResolveResolver(_) => "synthesis.resolve_resolver",
-        SynthesisCommand::GetPaperRegistry(_) => "synthesis.get_paper_registry",
+        SynthesisCommand::GetReferenceSidecarIndex(_) => {
+            "synthesis.get_reference_sidecar_index"
+        }
         SynthesisCommand::QueryCitationGraph(_) => "synthesis.query_citation_graph",
         SynthesisCommand::GetCitationGraphSlice(_) => "synthesis.get_citation_graph_slice",
         SynthesisCommand::GetCitationGraphMetrics(_) => "synthesis.get_citation_graph_metrics",
@@ -255,7 +257,7 @@ fn synthesis_input(command: SynthesisCommand) -> Result<Value, CliError> {
         | SynthesisCommand::GetSchemas(args)
         | SynthesisCommand::GetLibraryIndex(args)
         | SynthesisCommand::ResolveResolver(args)
-        | SynthesisCommand::GetPaperRegistry(args)
+        | SynthesisCommand::GetReferenceSidecarIndex(args)
         | SynthesisCommand::QueryCitationGraph(args)
         | SynthesisCommand::GetCitationGraphSlice(args)
         | SynthesisCommand::GetCitationGraphMetrics(args)
@@ -705,8 +707,8 @@ mod tests {
                 "synthesis.resolve_resolver",
             ),
             (
-                SynthesisCommand::GetPaperRegistry(SynthesisInputArgs { input: None }),
-                "synthesis.get_paper_registry",
+                SynthesisCommand::GetReferenceSidecarIndex(SynthesisInputArgs { input: None }),
+                "synthesis.get_reference_sidecar_index",
             ),
             (
                 SynthesisCommand::QueryCitationGraph(SynthesisInputArgs { input: None }),

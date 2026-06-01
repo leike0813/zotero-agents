@@ -2,35 +2,38 @@ import { listNotePayloadBlocks } from "../notePayloadCodec";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { hashCanonicalJson, hashMarkdown } from "./foundation";
 
-export type RegistryArtifactType =
+export type ReferenceSidecarArtifactType =
   | "digest"
   | "references"
   | "citation_analysis";
 
-export type RegistryArtifactStatus = "available" | "missing" | "invalid";
+export type ReferenceSidecarArtifactStatus =
+  | "available"
+  | "missing"
+  | "error";
 
-export type PaperRegistryDiagnostic = {
+export type ReferenceSidecarDiagnostic = {
   code:
     | "payload_missing"
     | "payload_decode_failed"
     | "unsupported_payload_version"
     | "duplicate_payload_candidates";
-  artifact_type: RegistryArtifactType;
+  artifact_type: ReferenceSidecarArtifactType;
   message: string;
 };
 
-export type PaperRegistryArtifact = {
-  type: RegistryArtifactType;
+export type ReferenceSidecarArtifact = {
+  type: ReferenceSidecarArtifactType;
   payload_type: string;
-  status: RegistryArtifactStatus;
+  status: ReferenceSidecarArtifactStatus;
   note_key?: string;
   note_title?: string;
   hash?: string;
   updated_at?: string;
-  diagnostics: PaperRegistryDiagnostic[];
+  diagnostics: ReferenceSidecarDiagnostic[];
 };
 
-export type PaperRegistryFacetStatus =
+export type ReferenceSidecarFacetStatus =
   | "ready"
   | "partial"
   | "missing"
@@ -38,22 +41,21 @@ export type PaperRegistryFacetStatus =
   | "deleted"
   | "unknown";
 
-export type PaperRegistryFacet = {
+export type ReferenceSidecarFacet = {
   hash: string;
-  status: PaperRegistryFacetStatus;
+  status: ReferenceSidecarFacetStatus;
   updated_at?: string;
 };
 
-export type PaperRegistryFacets = {
-  identity: PaperRegistryFacet;
-  metadata: PaperRegistryFacet;
-  artifact: PaperRegistryFacet;
-  reference: PaperRegistryFacet;
-  readiness: PaperRegistryFacet;
-  topic_usage: PaperRegistryFacet;
+export type ReferenceSidecarFacets = {
+  identity: ReferenceSidecarFacet;
+  metadata: ReferenceSidecarFacet;
+  artifact: ReferenceSidecarFacet;
+  reference: ReferenceSidecarFacet;
+  topic_usage: ReferenceSidecarFacet;
 };
 
-export type PaperRegistryMetadataFingerprintPayload = {
+export type ReferenceSidecarMetadataFingerprintPayload = {
   title: string;
   year: string;
   item_type: string;
@@ -62,10 +64,11 @@ export type PaperRegistryMetadataFingerprintPayload = {
   collections: string[];
   doi: string;
   arxiv: string;
+  isbn: string;
   url: string;
 };
 
-export type PaperRegistryInputNote = {
+export type ReferenceSidecarInputNote = {
   key: string;
   title?: string;
   html: string;
@@ -73,7 +76,7 @@ export type PaperRegistryInputNote = {
   payloadBlocks?: ReturnType<typeof listNotePayloadBlocks>;
 };
 
-export type PaperRegistryInput = {
+export type ReferenceSidecarInput = {
   libraryId: number;
   itemKey: string;
   title: string;
@@ -81,16 +84,17 @@ export type PaperRegistryInput = {
   itemType?: string;
   tags?: string[];
   collections?: string[];
-  notes?: PaperRegistryInputNote[];
+  notes?: ReferenceSidecarInputNote[];
   creators?: string[];
   doi?: string;
   arxiv?: string;
+  isbn?: string;
   url?: string;
   citekey?: string;
   dateAdded?: string;
 };
 
-export type PaperRegistryRow = {
+export type ReferenceSidecarIndexRow = {
   paper_ref: string;
   library_id: number;
   item_key: string;
@@ -99,17 +103,16 @@ export type PaperRegistryRow = {
   item_type: string;
   tags: string[];
   collections: string[];
-  artifacts: Record<RegistryArtifactType, PaperRegistryArtifact> & {
-    citation_analysis: PaperRegistryArtifact;
+  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact> & {
+    citation_analysis: ReferenceSidecarArtifact;
   };
-  readiness: "ready" | "partial";
-  coverage: "complete" | "partial" | "missing";
-  diagnostics: PaperRegistryDiagnostic[];
-  facets: PaperRegistryFacets;
+  artifactCoverage: "complete" | "partial" | "missing";
+  diagnostics: ReferenceSidecarDiagnostic[];
+  facets: ReferenceSidecarFacets;
   row_hash: string;
 };
 
-const ARTIFACT_PAYLOAD_TYPES: Record<RegistryArtifactType, string> = {
+const ARTIFACT_PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
   digest: "digest-markdown",
   references: "references-json",
   citation_analysis: "citation-analysis-json",
@@ -127,12 +130,57 @@ function normalizeStringList(values: unknown[] | undefined) {
   ).sort((left, right) => left.localeCompare(right));
 }
 
+function pushNormalizedIsbn(
+  values: string[],
+  seen: Set<string>,
+  candidate: unknown,
+) {
+  const normalized = normalizeString(candidate)
+    .toLocaleUpperCase("en-US")
+    .replace(/^ISBN(?:-1[03])?:/i, "")
+    .replace(/[^0-9X]/g, "");
+  if (
+    (normalized.length === 10 || normalized.length === 13) &&
+    !seen.has(normalized)
+  ) {
+    seen.add(normalized);
+    values.push(normalized);
+  }
+}
+
+export function normalizeIsbnValues(value: unknown) {
+  const text = normalizeString(value).toLocaleUpperCase("en-US");
+  const values: string[] = [];
+  const seen = new Set<string>();
+  if (!text) {
+    return values;
+  }
+  const isbn13Pattern = /97[89](?:[-\s]?\d){10}/g;
+  const remaining = text.replace(isbn13Pattern, (match) => {
+    pushNormalizedIsbn(values, seen, match);
+    return " ".repeat(match.length);
+  });
+  const isbn10Pattern = /(?:\d[-\s]?){9}[\dX]/g;
+  remaining.replace(isbn10Pattern, (match) => {
+    pushNormalizedIsbn(values, seen, match);
+    return match;
+  });
+  if (!values.length) {
+    pushNormalizedIsbn(values, seen, text);
+  }
+  return values.sort((left, right) => left.localeCompare(right));
+}
+
+export function normalizeIsbnValue(value: unknown) {
+  return normalizeIsbnValues(value).join(" ");
+}
+
 function normalizeLibraryId(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
-export function buildPaperRegistryMetadataFingerprintPayload(input: {
+export function buildReferenceSidecarMetadataFingerprintPayload(input: {
   title?: unknown;
   year?: unknown;
   itemType?: unknown;
@@ -142,8 +190,9 @@ export function buildPaperRegistryMetadataFingerprintPayload(input: {
   collections?: unknown[];
   doi?: unknown;
   arxiv?: unknown;
+  isbn?: unknown;
   url?: unknown;
-}): PaperRegistryMetadataFingerprintPayload {
+}): ReferenceSidecarMetadataFingerprintPayload {
   return {
     title: normalizeString(input.title),
     year: normalizeString(input.year),
@@ -153,11 +202,12 @@ export function buildPaperRegistryMetadataFingerprintPayload(input: {
     collections: normalizeStringList(input.collections),
     doi: normalizeString(input.doi),
     arxiv: normalizeString(input.arxiv),
+    isbn: normalizeIsbnValue(input.isbn),
     url: normalizeString(input.url),
   };
 }
 
-function artifactLabel(type: RegistryArtifactType) {
+function artifactLabel(type: ReferenceSidecarArtifactType) {
   if (type === "citation_analysis") {
     return "citation analysis";
   }
@@ -165,8 +215,8 @@ function artifactLabel(type: RegistryArtifactType) {
 }
 
 function missingDiagnostic(
-  type: RegistryArtifactType,
-): PaperRegistryDiagnostic {
+  type: ReferenceSidecarArtifactType,
+): ReferenceSidecarDiagnostic {
   return {
     code: "payload_missing",
     artifact_type: type,
@@ -175,9 +225,9 @@ function missingDiagnostic(
 }
 
 function decodeFailedDiagnostic(
-  type: RegistryArtifactType,
+  type: ReferenceSidecarArtifactType,
   message: string,
-): PaperRegistryDiagnostic {
+): ReferenceSidecarDiagnostic {
   return {
     code: "payload_decode_failed",
     artifact_type: type,
@@ -186,9 +236,9 @@ function decodeFailedDiagnostic(
 }
 
 function unsupportedVersionDiagnostic(
-  type: RegistryArtifactType,
+  type: ReferenceSidecarArtifactType,
   version: string,
-): PaperRegistryDiagnostic {
+): ReferenceSidecarDiagnostic {
   return {
     code: "unsupported_payload_version",
     artifact_type: type,
@@ -197,9 +247,9 @@ function unsupportedVersionDiagnostic(
 }
 
 function duplicateDiagnostic(
-  type: RegistryArtifactType,
+  type: ReferenceSidecarArtifactType,
   count: number,
-): PaperRegistryDiagnostic {
+): ReferenceSidecarDiagnostic {
   return {
     code: "duplicate_payload_candidates",
     artifact_type: type,
@@ -218,8 +268,8 @@ function hashPayload(block: ReturnType<typeof listNotePayloadBlocks>[number]) {
 }
 
 function buildMissingArtifact(
-  type: RegistryArtifactType,
-): PaperRegistryArtifact {
+  type: ReferenceSidecarArtifactType,
+): ReferenceSidecarArtifact {
   const diagnostic = missingDiagnostic(type);
   return {
     type,
@@ -230,18 +280,18 @@ function buildMissingArtifact(
 }
 
 function discoverArtifact(
-  type: RegistryArtifactType,
-  notes: PaperRegistryInputNote[],
-): PaperRegistryArtifact {
+  type: ReferenceSidecarArtifactType,
+  notes: ReferenceSidecarInputNote[],
+): ReferenceSidecarArtifact {
   const payloadType = ARTIFACT_PAYLOAD_TYPES[type];
   const sortedNotes = [...notes].sort((left, right) =>
     normalizeString(left.key).localeCompare(normalizeString(right.key)),
   );
   const validCandidates: Array<{
-    note: PaperRegistryInputNote;
+    note: ReferenceSidecarInputNote;
     block: ReturnType<typeof listNotePayloadBlocks>[number];
   }> = [];
-  const diagnostics: PaperRegistryDiagnostic[] = [];
+  const diagnostics: ReferenceSidecarDiagnostic[] = [];
 
   for (const note of sortedNotes) {
     const blocks = (
@@ -285,21 +335,16 @@ function discoverArtifact(
   };
 }
 
-function readinessForArtifacts(
-  artifacts: Record<RegistryArtifactType, PaperRegistryArtifact>,
+function artifactCoverageForArtifacts(
+  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact>,
 ) {
   const statuses = Object.values(artifacts).map((entry) => entry.status);
   const available = statuses.filter((entry) => entry === "available").length;
-  return {
-    readiness:
-      available === statuses.length ? ("ready" as const) : ("partial" as const),
-    coverage:
-      available === statuses.length
-        ? ("complete" as const)
-        : available === 0
-          ? ("missing" as const)
-          : ("partial" as const),
-  };
+  return available === statuses.length
+    ? ("complete" as const)
+    : available === 0
+      ? ("missing" as const)
+      : ("partial" as const);
 }
 
 function latestUpdatedAt(values: Array<string | undefined>) {
@@ -311,9 +356,9 @@ function latestUpdatedAt(values: Array<string | undefined>) {
 
 function buildFacet(
   value: unknown,
-  status: PaperRegistryFacetStatus,
+  status: ReferenceSidecarFacetStatus,
   updatedAt?: string,
-): PaperRegistryFacet {
+): ReferenceSidecarFacet {
   return {
     hash: hashCanonicalJson(value),
     status,
@@ -322,8 +367,8 @@ function buildFacet(
 }
 
 function facetStatusFromCoverage(
-  coverage: PaperRegistryRow["coverage"],
-): PaperRegistryFacetStatus {
+  coverage: ReferenceSidecarIndexRow["artifactCoverage"],
+): ReferenceSidecarFacetStatus {
   if (coverage === "complete") {
     return "ready";
   }
@@ -331,10 +376,9 @@ function facetStatusFromCoverage(
 }
 
 function buildRegistryFacets(args: {
-  input: PaperRegistryInput;
-  artifacts: Record<RegistryArtifactType, PaperRegistryArtifact>;
-  readiness: PaperRegistryRow["readiness"];
-  coverage: PaperRegistryRow["coverage"];
+  input: ReferenceSidecarInput;
+  artifacts: Record<ReferenceSidecarArtifactType, ReferenceSidecarArtifact>;
+  artifactCoverage: ReferenceSidecarIndexRow["artifactCoverage"];
 }) {
   const identity = {
     library_id: normalizeLibraryId(args.input.libraryId),
@@ -343,7 +387,7 @@ function buildRegistryFacets(args: {
     citekey: normalizeString(args.input.citekey),
     date_added: normalizeString(args.input.dateAdded),
   };
-  const metadata = buildPaperRegistryMetadataFingerprintPayload(args.input);
+  const metadata = buildReferenceSidecarMetadataFingerprintPayload(args.input);
   const artifact = Object.fromEntries(
     Object.entries(args.artifacts).map(([type, row]) => [
       type,
@@ -363,14 +407,6 @@ function buildRegistryFacets(args: {
       args.artifacts.citation_analysis.hash,
     ),
   };
-  const readiness = {
-    readiness: args.readiness,
-    coverage: args.coverage,
-    missing_artifacts: Object.entries(args.artifacts)
-      .filter(([, row]) => row.status !== "available")
-      .map(([type]) => type)
-      .sort(),
-  };
   const artifactUpdatedAt = latestUpdatedAt(
     Object.values(args.artifacts).map((row) => row.updated_at),
   );
@@ -379,7 +415,7 @@ function buildRegistryFacets(args: {
     metadata: buildFacet(metadata, "ready"),
     artifact: buildFacet(
       artifact,
-      facetStatusFromCoverage(args.coverage),
+      facetStatusFromCoverage(args.artifactCoverage),
       artifactUpdatedAt,
     ),
     reference: buildFacet(
@@ -390,14 +426,13 @@ function buildRegistryFacets(args: {
         args.artifacts.citation_analysis.updated_at,
       ]),
     ),
-    readiness: buildFacet(readiness, args.readiness),
     topic_usage: buildFacet({ topic_ids: [] }, "unknown"),
-  } satisfies PaperRegistryFacets;
+  } satisfies ReferenceSidecarFacets;
 }
 
-export function buildPaperRegistryRow(
-  input: PaperRegistryInput,
-): PaperRegistryRow {
+export function buildReferenceSidecarIndexRow(
+  input: ReferenceSidecarInput,
+): ReferenceSidecarIndexRow {
   const libraryId = normalizeLibraryId(input.libraryId);
   const itemKey = normalizeString(input.itemKey);
   if (!libraryId) {
@@ -415,12 +450,11 @@ export function buildPaperRegistryRow(
   const diagnostics = Object.values(artifacts).flatMap(
     (artifact) => artifact.diagnostics,
   );
-  const state = readinessForArtifacts(artifacts);
+  const artifactCoverage = artifactCoverageForArtifacts(artifacts);
   const facets = buildRegistryFacets({
     input,
     artifacts,
-    readiness: state.readiness,
-    coverage: state.coverage,
+    artifactCoverage,
   });
   const rowWithoutHash = {
     paper_ref: `${libraryId}:${itemKey}`,
@@ -432,8 +466,7 @@ export function buildPaperRegistryRow(
     tags: normalizeStringList(input.tags),
     collections: normalizeStringList(input.collections),
     artifacts,
-    readiness: state.readiness,
-    coverage: state.coverage,
+    artifactCoverage,
     diagnostics,
     facets,
   };
@@ -443,7 +476,9 @@ export function buildPaperRegistryRow(
   };
 }
 
-export function buildPaperRegistryRows(inputs: PaperRegistryInput[]) {
+export function buildReferenceSidecarIndexRows(
+  inputs: ReferenceSidecarInput[],
+) {
   return [...inputs]
     .sort((left, right) => {
       const library =
@@ -456,7 +491,7 @@ export function buildPaperRegistryRows(inputs: PaperRegistryInput[]) {
         normalizeString(right.itemKey),
       );
     })
-    .map(buildPaperRegistryRow);
+    .map(buildReferenceSidecarIndexRow);
 }
 
 export function buildSynthesisLayerDbPath(runtimeRoot?: string) {

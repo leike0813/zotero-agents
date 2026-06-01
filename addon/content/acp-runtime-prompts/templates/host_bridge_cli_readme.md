@@ -141,12 +141,12 @@ zotero-bridge note payload (--key <key> | --id <id>) [--library-id <id>] [--payl
 zotero-bridge synthesis list-topics [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-topic-context [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-schemas [--input <JSON_OR_FILE>]
-zotero-bridge synthesis get-library-index [--input <JSON_OR_FILE>]
+zotero-bridge synthesis get-library-index [--input <JSON_OR_FILE>]  # sidecar cache view
 zotero-bridge synthesis resolve-resolver [--input <JSON_OR_FILE>]
-zotero-bridge synthesis get-paper-registry [--input <JSON_OR_FILE>]
-zotero-bridge synthesis query-citation-graph [--input <JSON_OR_FILE>]
-zotero-bridge synthesis get-citation-graph-slice [--input <JSON_OR_FILE>]
-zotero-bridge synthesis get-citation-graph-metrics [--input <JSON_OR_FILE>]
+zotero-bridge synthesis get-reference-sidecar-index [--input <JSON_OR_FILE>]  # sidecar cache view
+zotero-bridge synthesis query-citation-graph [--input <JSON_OR_FILE>]  # sidecar cache view
+zotero-bridge synthesis get-citation-graph-slice [--input <JSON_OR_FILE>]  # sidecar cache view
+zotero-bridge synthesis get-citation-graph-metrics [--input <JSON_OR_FILE>]  # sidecar cache view
 zotero-bridge synthesis get-paper-artifact-manifest [--input <JSON_OR_FILE>]
 zotero-bridge synthesis read-paper-artifacts [--input <JSON_OR_FILE>]
 zotero-bridge synthesis export-filtered-paper-artifacts [--input <JSON_OR_FILE>]
@@ -190,6 +190,14 @@ Common input errors:
 Use `synthesis` subcommands for normal topic synthesis work. Raw capability
 calls are reserved for advanced diagnostics.
 
+Reference sidecar, library-index, and citation-graph synthesis commands are sidecar cache
+views. They may be stale or empty and must not be treated as current Zotero
+Library truth. For current item metadata, notes, attachments, tags,
+collections, or native related-item state, use `item` and `note` commands. For
+current generated digest/topic content, use artifact-oriented synthesis reads
+such as `get-paper-artifact-manifest`, `read-paper-artifacts`,
+`resolve-topic-paper-digest`, and `get-topic-context`.
+
 Common topic synthesis commands:
 
 ```text
@@ -210,7 +218,7 @@ Capability mapping:
 | `synthesis get-schemas`                     | `synthesis.get_schemas`                     |
 | `synthesis get-library-index`               | `synthesis.get_library_index`               |
 | `synthesis resolve-resolver`                | `synthesis.resolve_resolver`                |
-| `synthesis get-paper-registry`              | `synthesis.get_paper_registry`              |
+| `synthesis get-reference-sidecar-index`     | `synthesis.get_reference_sidecar_index`     |
 | `synthesis query-citation-graph`            | `synthesis.query_citation_graph`            |
 | `synthesis get-citation-graph-slice`        | `synthesis.get_citation_graph_slice`        |
 | `synthesis get-citation-graph-metrics`      | `synthesis.get_citation_graph_metrics`      |

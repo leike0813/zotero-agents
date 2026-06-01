@@ -122,7 +122,7 @@ describe("Synthesis reference resolution matcher", function () {
     assert.deepInclude(extracted, { kind: "arxiv", value: "2201.12345" });
   });
 
-  it("uses layered policies for strong identifiers, title evidence, compact titles, and review suggestions", function () {
+  it("uses layered policies for strong identifiers, title evidence, compact titles, and review suggestions [inv.review.queue_bounded]", function () {
     const index = buildReferenceMatcherIndex([
       {
         paperRef: "1:ARXIV",
@@ -212,7 +212,9 @@ describe("Synthesis reference resolution matcher", function () {
       index,
       "policy-d",
     );
-    assert.notEqual(nearNeighbor.status, "matched");
+    assert.equal(nearNeighbor.status, "suggested");
+    assert.equal(nearNeighbor.confidence, "low");
+    assert.isUndefined(nearNeighbor.targetPaperRef);
     assert.isTrue(
       nearNeighbor.suggestedCandidates.some(
         (candidate) =>
@@ -414,7 +416,7 @@ describe("Synthesis reference resolution matcher", function () {
     );
   });
 
-  it("evaluates reviewed gold labels with high recall and no false positives", function () {
+  it("evaluates reviewed gold labels with high recall and no false positives [inv.reference.precision_first]", function () {
     const result = evaluateReferenceResolutionFixture(
       loadReviewedFixture(),
       "production",

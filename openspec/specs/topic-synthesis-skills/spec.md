@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Topic synthesis skills expose a schema-first executable contract for create and update workflows.
+
+## Requirements
 
 ### Requirement: Topic synthesis skills expose a minimum executable contract
 

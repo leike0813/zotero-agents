@@ -92,6 +92,35 @@ describe("workspace toolbar running tasks popover", function () {
     assert.notInclude(popover, "Open Dashboard");
   });
 
+  it("keeps the empty task popover free of the running title chrome", async function () {
+    const popover = await readProjectFile(
+      "src/modules/workspaceToolbarTaskPopover.ts",
+    );
+    const renderStart = popover.indexOf(
+      'const content = xulElement(doc, "vbox", "zs-workspace-running-popover")',
+    );
+    const listStart = popover.indexOf(
+      'const list = xulElement(doc, "vbox", "zs-workspace-running-popover-list")',
+      renderStart,
+    );
+    const renderSetup = popover.slice(renderStart, listStart);
+    const emptyBranch = renderSetup.indexOf("if (rows.length === 0)");
+    const runningTitle = renderSetup.indexOf(
+      '"zs-workspace-running-popover-title"',
+    );
+    const separator = renderSetup.indexOf(
+      '"zs-workspace-running-popover-separator"',
+    );
+
+    assert.isAtLeast(renderStart, 0);
+    assert.isAbove(listStart, renderStart);
+    assert.isAtLeast(emptyBranch, 0);
+    assert.isAtLeast(runningTitle, 0);
+    assert.isAtLeast(separator, 0);
+    assert.isBelow(emptyBranch, runningTitle);
+    assert.isBelow(emptyBranch, separator);
+  });
+
   it("routes popover task clicks through the existing Assistant workspace entrypoints", async function () {
     const popover = await readProjectFile(
       "src/modules/workspaceToolbarTaskPopover.ts",

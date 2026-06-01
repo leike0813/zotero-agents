@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Runtime persistence governance defines where indexed operational state is stored and how cold-path JSON assets are treated.
+
+## Requirements
 
 ### Requirement: SQLite state stores indexed operational state
 

@@ -1287,13 +1287,46 @@ th {
 }
 
 .registry-table {
-  table-layout: auto;
+  table-layout: fixed;
+}
+
+.registry-col-title {
+  width: 38%;
+}
+
+.registry-col-reference {
+  width: 32%;
+}
+
+.registry-col-source {
+  width: 26%;
+}
+
+.registry-col-target {
+  width: 22%;
+}
+
+.registry-col-year {
+  width: 72px;
+}
+
+.registry-col-coverage,
+.registry-col-status,
+.registry-col-binding,
+.registry-col-references {
+  width: 96px;
+}
+
+.registry-col-artifacts {
+  width: 112px;
+}
+
+.registry-col-id {
+  width: 132px;
 }
 
 .registry-table th:last-child,
 .registry-table td:last-child {
-  width: 132px;
-  max-width: 132px;
   color: var(--zs-muted);
   font-size: 12px;
   overflow: hidden;
@@ -1338,18 +1371,28 @@ th {
   white-space: nowrap;
 }
 
+.registry-reference-row td:first-child {
+  min-width: 0;
+}
+
 .registry-reference-title-cell {
   display: flex;
+  width: 100%;
   min-width: 0;
   gap: 7px;
   align-items: center;
 }
 
 .registry-reference-title-cell.is-child {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) max-content;
+  width: 100%;
+  overflow: hidden;
   padding-left: 24px;
 }
 
 .registry-reference-title-cell.is-child .registry-reference-primary {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1384,6 +1427,14 @@ th {
   color: var(--zs-text);
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.registry-reference-source-cell .registry-reference-primary,
+.registry-reference-main-cell .registry-reference-primary,
+.registry-reference-target-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .registry-reference-child-marker {
@@ -1590,6 +1641,13 @@ th {
     box-shadow 180ms ease;
 }
 
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) {
+  display: grid;
+  grid-template-rows: 42px;
+  place-items: center;
+  overflow: hidden;
+}
+
 .graph-control-drawer:hover,
 .graph-control-drawer:focus,
 .graph-control-drawer:focus-within {
@@ -1603,17 +1661,34 @@ th {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 42px;
+  height: 42px;
   min-height: 38px;
   padding: 0;
+  border-bottom: 0;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .panel-header {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: auto;
+  height: auto;
+  min-height: 0;
 }
 
 .graph-control-drawer:hover .panel-header,
 .graph-control-drawer:focus .panel-header,
 .graph-control-drawer:focus-within .panel-header {
+  position: static;
   justify-content: flex-start;
+  width: auto;
+  height: auto;
   padding: 9px 12px;
+  border-bottom: 1px solid var(--zs-border);
 }
 
 .graph-control-icon {
@@ -1625,7 +1700,15 @@ th {
   color: var(--zs-text);
 }
 
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .graph-control-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
 .graph-control-icon svg {
+  display: block;
   width: 22px;
   height: 22px;
   fill: none;
@@ -1633,6 +1716,10 @@ th {
   stroke-width: 1.85;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .graph-control-icon svg {
+  transform: translateY(-1px);
 }
 
 .graph-control-title {
@@ -1646,16 +1733,23 @@ th {
 }
 
 .graph-control-drawer .details {
+  display: none;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .details {
+  display: none;
+}
+
 .graph-control-drawer:hover .details,
 .graph-control-drawer:focus .details,
 .graph-control-drawer:focus-within .details {
+  display: block;
+  overflow: auto;
   opacity: 1;
   pointer-events: auto;
 }

@@ -966,6 +966,15 @@ function parseWorkflowTaskFilters(query: Record<string, string>) {
       .toLowerCase() === "false"
   ) {
     filters.includeHistory = false;
+    filters.activeOnly = true;
+  }
+  const activeOnly = String(
+    query.activeOnly || query["active-only"] || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (activeOnly === "true" || activeOnly === "1" || activeOnly === "yes") {
+    filters.activeOnly = true;
   }
   return filters;
 }

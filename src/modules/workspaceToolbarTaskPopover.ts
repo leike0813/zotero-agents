@@ -359,6 +359,23 @@ async function renderPopover(runtime: PopoverRuntime) {
   popover.textContent = "";
   const content = xulElement(doc, "vbox", "zs-workspace-running-popover");
   content.setAttribute("width", String(POPOVER_WIDTH));
+  if (rows.length === 0) {
+    content.appendChild(
+      xulLabel(
+        doc,
+        "zs-workspace-running-popover-empty",
+        localize(
+          "task-dashboard-toolbar-running-popover-empty",
+          "No active tasks.",
+        ),
+        POPOVER_WIDTH - 18,
+        64,
+      ),
+    );
+    popover.appendChild(content);
+    syncPopoverSize(popover, 0);
+    return;
+  }
   const title = xulLabel(
     doc,
     "zs-workspace-running-popover-title",
@@ -392,23 +409,6 @@ async function renderPopover(runtime: PopoverRuntime) {
     ].join("; "),
   );
   content.appendChild(separator);
-  if (rows.length === 0) {
-    content.appendChild(
-      xulLabel(
-        doc,
-        "zs-workspace-running-popover-empty",
-        localize(
-          "task-dashboard-toolbar-running-popover-empty",
-          "No active tasks.",
-        ),
-        POPOVER_WIDTH - 18,
-        64,
-      ),
-    );
-    popover.appendChild(content);
-    syncPopoverSize(popover, 0);
-    return;
-  }
   const list = xulElement(doc, "vbox", "zs-workspace-running-popover-list");
   rows.forEach((row) => {
     const item = xulElement(doc, "hbox", "zs-workspace-running-popover-task");

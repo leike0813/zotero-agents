@@ -13,7 +13,7 @@ A topic artifact owns:
 - source check result;
 - user review and override state relevant to the topic.
 
-Topic create/update reads Zotero Library and derived artifacts directly through the workflow/Host Bridge path. Citation graph metrics may be included as optional context, but graph availability must not be required for topic generation.
+Topic create/update reads Zotero Library and derived artifacts directly through the workflow/Host Bridge path. Citation graph metrics may be included as optional context, but graph availability and cache freshness must not be required for topic generation.
 
 ## Workflow Manifest and Sidecars
 
@@ -29,14 +29,14 @@ Legacy top-level sidecar path fields may be tolerated for old runs, but new cont
 
 ## Source Check and Freshness
 
-Source check compares a topic artifact’s recorded source dependencies with current source artifact hashes and availability.
+Source check compares a topic artifact’s recorded source dependencies with current Zotero Library / source artifact hashes and availability. It must use direct reads or a source facade that reads current Zotero/artifact state, not a sidecar index row as truth.
 
 - Fresh means the recorded sources still match.
 - Changed means at least one recorded source changed, disappeared, or became unreadable.
-- Registry rebuild alone does not mark a topic changed if library and artifacts did not change.
+- Reference sidecar refresh or graph cache refresh alone does not mark a topic changed if library and artifacts did not change.
 - Deleted or merged papers do not silently rewrite topic content. They may produce diagnostics or review items.
 - The comparison boundary is the saved source manifest / dependency baseline versus the current Host Library / Artifact Facade output.
-- Source check is explicit user, maintenance, or debug work. Registry dirty events and startup reconcile must not silently run it.
+- Source check is explicit user, maintenance, or debug work. Cache refresh and graph refresh must not silently run it.
 
 ## Coverage
 
@@ -52,9 +52,9 @@ Examples:
 
 Discovery is best effort. It helps users notice possibly relevant new or changed literature, but it is not a correctness guarantee.
 
-The default direction is apply-time token overlap:
+The default direction is apply-time token overlap. Discovery does not require a fully synchronized library index:
 
-- When a literature digest artifact is applied, the plugin computes lightweight topic-discovery hints against existing topics.
+- When a literature digest artifact is applied, the plugin computes lightweight topic-discovery hints for that literature against existing topics.
 - Matching uses topic interest metadata and literature matching metadata as unbounded LLM-generated semantic descriptors.
 - The v1 matcher is `discovery.apply_time_token_overlap.v1`: lightweight, permissive, explainable token/phrase overlap over the existing metadata fields.
 - Embeddings, BM25, semantic search providers, and LLM pairwise judges are not part of the default path.
@@ -71,6 +71,8 @@ Discovery reads committed metadata snapshots:
 - Topic metadata version/hash should be recorded on each discovery hint so the UI/debug view can explain which topic profile produced the hint.
 
 Topic update does not backscan old literature. If users want old literature rechecked after a topic profile change, they must run explicit bounded discovery repair.
+
+Sidecar/cache freshness does not change discovery semantics. A stale graph or reference cache may hide optional graph metrics, but it must not open, reject, or reopen discovery hints by itself.
 
 ## Apply-Time Token Overlap
 
@@ -96,7 +98,7 @@ Topic metadata:
 - `T_include = include_terms`
 - `T_methods = methods`
 - `T_exclude = exclude_terms`
-- `T_seed = seed_literature_item_ids`
+- `T_seed = seed_source_refs`
 
 Literature metadata:
 
@@ -179,7 +181,7 @@ Discovery hints may be:
 - `rejected`: user explicitly rejected it and does not want it resurfaced casually;
 - `superseded`: the target identity disappeared, was redirected, or the hint basis is no longer meaningful.
 
-Rejected hints are durable suppressions. Digest rerun, metadata hash drift, Registry rebuild, or adding a minor key term must not automatically reopen the same topic-literature pair.
+Rejected hints are durable suppressions. Digest rerun, metadata hash drift, cache refresh, or adding a minor key term must not automatically reopen the same topic-literature pair.
 
 Discovery hints do not model topic update consumption. Topic update has its own source-selection and workflow apply mechanism. If an update later uses literature that also had an open hint, the hint may remain open until the hint basis is repaired or superseded; it must not be treated as proof that the topic artifact consumed that source.
 

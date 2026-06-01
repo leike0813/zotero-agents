@@ -1,4 +1,8 @@
-## MODIFIED Requirements
+## Purpose
+
+Synthesis Workbench snapshots should read current indexed runtime state instead of legacy projection files.
+
+## Requirements
 
 ### Requirement: Workbench snapshots use DB-first state
 

@@ -66,8 +66,8 @@ export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX =
   "synthesis.get_library_index";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER =
   "synthesis.resolve_resolver";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_REGISTRY =
-  "synthesis.get_paper_registry";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REFERENCE_SIDECAR_INDEX =
+  "synthesis.get_reference_sidecar_index";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH =
   "synthesis.query_citation_graph";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE =
@@ -2578,16 +2578,16 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     required: ["resolver"],
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_REGISTRY,
-    title: "Get Synthesis Paper Registry",
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_REFERENCE_SIDECAR_INDEX,
+    title: "Get Synthesis Reference Sidecar Index",
     description:
-      "Return bounded read-only Paper Registry rows or summaries with readiness, freshness diagnostics, and recommended maintenance commands.",
-    method: "getPaperRegistry",
+      "Return bounded read-only Reference Sidecar Index rows with artifact coverage, binding diagnostics, and recommended maintenance commands.",
+    method: "getReferenceSidecarIndex",
     properties: {
-      paperRefs: { type: "array", maxItems: 250 },
+      sourceRefs: { type: "array", maxItems: 250 },
       cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
-      readiness: { type: "string" },
+      artifactCoverage: { type: "string" },
     },
   }),
   synthesisTool({

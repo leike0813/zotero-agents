@@ -1337,7 +1337,7 @@ describe("gui: preference scripts", function () {
           status: "reset",
           resetAt: "2026-05-28T00:00:00.000Z",
           deletedRowsByTable: {
-            synt_literature_item: 1,
+            synt_artifact_sidecar: 1,
             synt_review_item: 2,
           },
         };

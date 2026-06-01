@@ -2,44 +2,171 @@
 
 This document defines the active cross-domain Synthesis sequences. It is the human-readable companion to the `sequences` section in `contracts/states-and-events.yaml`.
 
-Sequence IDs use current domain names. Historical `index` wording remains deprecated; use Registry Cache for new docs and code.
+Historical index sync, dirty-event drain, startup reconcile, WorkItem/WorkRun worker execution, and full Registry rebuild sequences are removed implementation targets. New behavior uses direct Zotero/artifact reads, workflow apply sidecar sync, and explicit operations.
 
-## `seq.registry.incremental_item_update`
+## `seq.sidecar.digest_apply_sync`
 
-Incremental Registry update handles Zotero item or artifact-note changes. It must not trigger topic source checks, and it triggers discovery only when the mutation includes literature-digest matching metadata.
+Digest apply is the normal automatic sidecar update path for one literature item.
 
 ```mermaid
 sequenceDiagram
-  participant Z as Zotero or Artifact Source
-  participant Q as Dirty Event Queue
-  participant W as Registry Worker
-  participant R as Synthesis Repository
-  participant G as Citation Graph Worker
+  participant W as Literature Digest Workflow
+  participant Z as Zotero Library
+  participant A as Artifact Note / Attachment
+  participant S as Sidecar Repository
   participant M as Discovery Matcher
   participant UI as Workbench
 
-  Z->>Q: registry_item_reindex
-  Q->>W: start bounded event
-  W->>R: upsert literature identity, binding, artifact facts
-  W->>R: upsert reference instances and resolutions
-  W->>Q: enqueue citation_graph_structure
-  alt digest matching metadata present
-    W->>R: upsert literature matching metadata
-    W->>M: run discovery for this literature only
-    M->>R: read committed topic interest metadata snapshot
-    M->>R: upsert bounded hints with metadata version and preserve rejected pairs
-  else no digest matching metadata
-    W-->>M: no discovery work
+  W->>Z: read current item, attachment, note state
+  W->>A: write digest/reference artifacts
+  W->>S: upsert artifact projection for this item
+  W->>S: if references hash changed, stale old raw references
+  W->>S: insert new raw references and canonical matches
+  W->>S: upsert literature matching metadata when present
+  alt matching metadata present
+    M->>S: read committed topic interest metadata
+    M->>S: write bounded discovery hints for this literature
+  else no metadata
+    M-->>S: no discovery work
   end
-  W->>Q: complete event
-  UI->>R: read committed DB snapshot
+  UI->>S: read cache status and hints
 ```
 
-Key constraints:
+Constraints:
 
-- New Zotero item without digest metadata does not create discovery hints.
-- Registry dirty work does not enqueue topic source check.
-- Citation graph is downstream of Registry facts.
+- Scope is one applied item/artifact bundle.
+- No library-wide backscan is started.
+- No dirty event or WorkItem is created.
+- Topic source-check state is not written.
+
+## `seq.reference.sidecar_refresh`
+
+Reference sidecar refresh is an explicit two-stage operation over selected source scope.
+
+```mermaid
+sequenceDiagram
+  participant U as User or Debug Command
+  participant O as Operation Row
+  participant Z as Zotero Library
+  participant A as Artifact Notes
+  participant S as Sidecar Repository
+  participant R as Reference Extractor / Matcher
+  participant UI as Workbench
+
+  U->>O: create explicit reference sidecar refresh
+  O->>Z: enumerate selected source items
+  O->>A: scan artifact existence and hashes
+  O->>S: upsert artifact sidecar rows
+  O->>S: compute changed references artifact set
+  loop each changed source_ref
+    O->>S: mark old raw references stale
+    O->>A: read changed references artifact
+    R->>S: insert raw references
+    R->>S: assign canonical references and redirects
+    R->>S: write safe auto/candidate bindings where bounded
+    O->>S: report source-scoped diagnostics
+  end
+  O->>S: mark reference cache basis and recommendations
+  UI->>S: read reference cache status and diagnostics
+```
+
+Constraints:
+
+- Stage 1 scans artifact sidecar state only; it does not persist Zotero item metadata.
+- Stage 2 reads only changed references artifacts.
+- Ambiguous binding review is recommended, not silently applied.
+- Graph refresh is not started automatically.
+
+## `seq.topic.source_check`
+
+Topic source check is explicit diagnostic work over current sources.
+
+```mermaid
+sequenceDiagram
+  participant U as User or Debug Command
+  participant Z as Zotero Library
+  participant A as Artifact Notes
+  participant T as Topic Service
+  participant S as Sidecar Repository
+  participant UI as Topics UI
+
+  U->>T: request source check for topic
+  T->>S: read saved topic source manifest
+  T->>Z: read current Zotero item state for saved sources
+  T->>A: read current artifact state for saved sources
+  T->>S: write source-check diagnostic
+  UI->>S: read freshness, coverage, and discovery separately
+```
+
+Constraints:
+
+- Cache freshness is not topic freshness.
+- Missing graph cache does not make a topic changed.
+- Discovery hints do not mark source check changed.
+
+## `seq.reference.binding_review`
+
+Reference binding review is explicit because incorrect matches can create wrong graph edges.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant S as Sidecar Repository
+  participant Z as Zotero Library
+  participant R as Reference Matcher
+  participant UI as Review UI
+
+  U->>UI: start binding review for selected scope
+  UI->>S: load reference entries and previous decisions
+  UI->>Z: load current Zotero candidates for selected scope
+  UI->>R: generate blocked candidates
+  R->>UI: deterministic matches and review candidates
+  U->>UI: approve, reject, merge, or retarget
+  UI->>S: write durable binding/dedupe decision with provenance
+  UI->>S: mark graph cache stale
+```
+
+Constraints:
+
+- Ambiguous candidates require user review.
+- User decisions are durable sidecar facts.
+- Zotero Library metadata is not rewritten by binding review.
+
+## `seq.graph.cache_refresh`
+
+Graph cache refresh is an explicit operation over current sidecar inputs and Zotero bindings.
+
+```mermaid
+sequenceDiagram
+  participant U as User or Debug Command
+  participant O as Operation Row
+  participant S as Sidecar Repository
+  participant Z as Zotero Library
+  participant G as Graph Builder
+  participant UI as Graph UI
+
+  U->>O: create explicit graph refresh operation
+  G->>S: read active raw references, canonical redirects, and binding decisions
+  G->>Z: verify current bound Zotero items for selected scope
+  G->>S: write graph output to staging
+  G->>O: report bounded progress
+  G->>S: validate counts, references, and provenance
+  alt validation passes
+    G->>S: promote graph cache projection
+    G->>O: completed
+  else validation fails
+    G->>S: keep previous projection
+    G->>O: failed with diagnostics
+  end
+  UI->>S: read graph cache and cache-basis status
+```
+
+Constraints:
+
+- Failed refresh keeps the previous graph projection.
+- Graph cache refresh does not scan artifacts or extract references.
+- Graph cache refresh does not mark topic source-check state changed.
+- Graph metrics are optional enrichment for topic workflows.
 
 ## `seq.discovery.digest_apply_match`
 
@@ -48,269 +175,72 @@ Discovery is a single-literature apply-time best-effort matcher.
 ```mermaid
 sequenceDiagram
   participant A as Literature Digest Apply
-  participant R as Synthesis Repository
+  participant S as Sidecar Repository
   participant M as Discovery Matcher
   participant UI as Topics UI
 
-  A->>R: upsert literature matching metadata
+  A->>S: upsert literature matching metadata
   A->>M: match this literature against active topics
-  M->>R: read committed topic interest metadata snapshot
-  M->>R: score token and phrase overlap
-  M->>R: upsert bounded open hints with topic metadata version
-  M->>R: preserve rejected pairs
-  UI->>R: read discovery hints separately from freshness
+  M->>S: read committed topic interest metadata snapshot
+  M->>S: score token and phrase overlap
+  M->>S: upsert bounded open hints with topic metadata version
+  M->>S: preserve rejected pairs
+  UI->>S: read discovery hints separately from freshness
 ```
-
-Key constraints:
-
-- Normal path complexity is `O(T)` for one applied literature item.
-- Explicit repair may be `O(T * N)`, but it is debug/maintenance work.
-- Discovery hints do not route to topic update by themselves. Topic update uses its own source-selection and workflow apply mechanism.
-
-## `seq.registry.staged_full_rebuild`
-
-Registry full rebuild is a protected staged operation. Workbench reads the previous committed Registry until candidate validation and promotion succeed.
-
-```mermaid
-sequenceDiagram
-  participant UI as UI or Host Bridge
-  participant S as Synthesis Service
-  participant Q as Dirty Event Queue
-  participant R as Repository
-  participant G as Graph Workers
-
-  UI->>S: request full Registry rebuild with approval
-  S->>S: validate confirmation and capability approval
-  S->>Q: supersede old Registry and Graph work
-  S->>R: create candidate registry_epoch
-  S->>R: write candidate Registry facts in staging
-  S->>R: validate identity, counts, references, diagnostics
-  alt validation passes
-    S->>R: short transaction promotes candidate epoch
-    S->>Q: enqueue graph rebuild on new basis
-  else validation fails
-    S->>R: keep previous active epoch
-    S->>R: write failed rebuild diagnostics
-  end
-  UI->>R: refresh Workbench snapshot
-```
-
-Key constraints:
-
-- Failed candidate state never replaces last-known-good Registry facts.
-- Graph work records `graph_basis_registry_epoch`.
-- Topics are not marked source-check changed by Registry rebuild alone.
-- Downstream graph workers must write run-scoped staging output and promote it only through a transaction that rereads the current Registry basis.
-
-## `seq.startup.external_source_reconcile`
-
-Startup reconcile is a bounded detector. It classifies source drift before deciding whether work can be safely enqueued.
-
-```mermaid
-sequenceDiagram
-  participant Z as Zotero Library and Artifact Notes
-  participant S as Startup Reconcile
-  participant R as Repository
-  participant Q as Dirty Event Queue
-  participant UI as Workbench
-
-  S->>Z: scan fingerprints within budget
-  S->>R: compare committed bindings and fingerprints
-  alt small safe drift
-    S->>Q: enqueue bounded Registry dirty events
-    S->>R: record reconcile summary
-  else bulk drift
-    S->>R: record bounded drift incident
-    S->>R: recommend Registry and Graph rebuild
-  else structural drift
-    S->>R: record structural drift incident
-    S->>Q: suppress incremental fan-out
-    S->>R: require inspect or repair
-  end
-  S-->>R: do not write topic source-check state
-  S-->>Q: do not enqueue topic work or discovery backscan
-  UI->>R: read bounded drift summary
-```
-
-Key constraints:
-
-- Bulk and structural drift do not expand into per-item review cards, graph jobs, or topic work.
-- Structural drift fails closed until explicit inspect/repair.
-
-## `seq.review.apply_action`
-
-Review action commits core durable facts first and schedules expensive cascade work after commit.
-
-```mermaid
-sequenceDiagram
-  participant UI as Workbench Review UI
-  participant S as Domain Service
-  participant R as Repository
-  participant Q as Dirty Event Queue
-
-  UI->>S: apply review action
-  S->>R: load review item and current target state
-  S->>R: run stale guard
-  alt guard passes
-    S->>R: short transaction writes decision and core domain facts
-    S->>Q: enqueue review_cascade_maintenance
-    S-->>UI: applied with affected domains
-  else target changed
-    S->>R: leave domain facts unchanged
-    S->>R: supersede or create needs-attention review
-    S-->>UI: conflict requires attention
-  end
-```
-
-Key constraints:
-
-- Expensive dependent review refresh, graph rebuild, related-items sync, and broad diagnostics run later in bounded batches.
-- Failed cascade does not roll back the applied decision.
 
 ## `seq.graph.related_items_sync`
 
-Zotero related-items sync is a one-way external side effect from accepted library-to-library citation edges.
-
-```mermaid
-sequenceDiagram
-  participant G as Citation Graph
-  participant Q as Dirty Event Queue
-  participant W as Related Items Sync Worker
-  participant R as Repository
-  participant Z as Zotero Library
-  participant UI as Workbench or Debug
-
-  G->>Q: citation_related_items_sync
-  Q->>W: start bounded sync event
-  W->>R: read matched library-to-library edges
-  W->>R: filter active source and target bindings
-  loop each missing native related link
-    W->>R: create durable sync attempt/effect before Zotero IO
-    W->>Z: add related item link if absent
-    Z-->>W: added, existing, or failed
-    W->>R: mark effect added, already_existed, or failed
-  end
-  loop each stale Synthesis-created sync effect
-    W->>R: verify effect provenance and current graph state
-    W->>R: create durable revoke attempt before Zotero IO
-    W->>Z: remove related item link only if provenance and Zotero state match
-    Z-->>W: revoked, already absent, or failed
-    W->>R: mark effect revoked, already_absent, failed, or needs_attention
-  end
-  Z-->>Q: Zotero item change event
-  Q->>R: classify event as echo by durable sync attempt/effect
-  Q-->>Q: suppress Registry reindex and repeat sync for echo
-  W->>R: write sync summary and diagnostics
-  W->>Q: complete event
-  UI->>R: read added, existing, skipped, failed counts
-```
-
-Key constraints:
-
-- Worker never reads Zotero related items as reference-resolution input.
-- Worker never deletes user-created Zotero related links or links that merely pre-existed before sync.
-- Worker may revoke only Synthesis-created links with recorded provenance when the backing citation edge is rejected, retargeted, superseded, or no longer has active source/target bindings.
-- If provenance is missing or current Zotero related-item state diverged, the effect becomes `needs_attention` and Zotero state is left untouched.
-- The durable sync attempt/effect row must be written before Zotero IO. Recent write markers may speed up echo classification, but they are not a correctness mechanism.
-- Startup recovery must inspect pending external write attempts. If Zotero state already reflects the intended effect, mark it observed after restart; otherwise retry or fail according to the attempt policy.
-- Zotero write failures affect sync diagnostics only.
-- Zotero change events caused by this worker are sync echoes only when they match durable sync attempt/effect state. They must be filtered before Registry reindex routing.
-
-## `seq.worker.interrupted_run_recovery`
-
-Previous-session running rows must be cleaned before they reach the UI as active jobs.
-
-```mermaid
-sequenceDiagram
-  participant W as Worker
-  participant R as Repository
-  participant M as Startup Maintenance
-
-  W->>R: mark dirty event and job running
-  W--xR: Zotero exits before final commit
-  M->>R: scan previous-session running rows
-  M->>R: requeue, mark retryable, fail, or supersede
-  W-->>R: late final commit
-  R-->>W: stale run marker or basis is rejected
-```
-
-Key constraints:
-
-- Old running jobs cannot remain in statusbar/popover.
-- Late final commit must be no-op or rejected by a transaction-local run marker/basis check.
-- Derived worker output must remain invisible unless the final promotion transaction succeeds against the current basis.
-
-## `seq.topic.source_check`
-
-Topic source check is explicit diagnostic work.
+Zotero related-items sync is an optional explicit external side effect from accepted library-to-library citation edges.
 
 ```mermaid
 sequenceDiagram
   participant U as User or Debug Command
-  participant R as Repository
-  participant F as Source Check Worker
-  participant UI as Topics UI
+  participant O as Operation Row
+  participant S as Sidecar Repository
+  participant Z as Zotero Library
 
-  U->>F: request source check for topic
-  F->>R: read saved topic source manifest
-  F->>R: read current Host Library / Artifact Facade snapshot
-  F->>R: compare saved sources and artifact availability
-  F->>R: write source-check diagnostic
-  UI->>R: read coverage, freshness, discovery separately
+  U->>O: create explicit related-items sync operation
+  O->>S: read accepted library-to-library graph cache edges
+  O->>Z: verify current source and target Zotero bindings
+  loop each selected edge
+    O->>Z: read current related-item state
+    alt missing and approved
+      O->>S: record pending effect
+      O->>Z: add relation
+      O->>S: record applied or failed effect
+    else already exists
+      O->>S: record already_existed
+    end
+  end
 ```
 
-Key constraints:
+Constraints:
 
-- Registry dirty events do not trigger source check.
-- Discovery hints do not mark source check changed.
-
-## `seq.reset.clean_install`
-
-Clean-install reset is dangerous and must be explicit.
-
-```mermaid
-sequenceDiagram
-  participant UI as Prefs or Debug UI
-  participant S as Synthesis Service
-  participant R as Repository
-  participant FS as Runtime Files
-  participant WB as Workbench
-
-  UI->>S: clean-install reset with fixed phrase
-  S->>S: validate confirmation
-  S->>R: clear Synthesis runtime tables by scope
-  S->>FS: delete Synthesis file residue by explicit policy
-  S->>R: keep DB file and schema meta
-  S-->>UI: deleted rows and files summary
-  WB->>R: next snapshot reads empty DB state
-```
-
-Key constraints:
-
-- Reset scope must state whether saved overrides and file residue are cleared.
-- Reset must not silently import legacy JSON.
+- Related-items sync never starts from graph refresh automatically.
+- It never deletes user-created Zotero related links.
+- Current Zotero relation state is authoritative.
 
 ## `seq.import.preview_apply`
 
-Import is preview-first and DB-first.
+Import is preview-first and sidecar-scoped.
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant S as Import Service
+  participant I as Import Service
   participant B as File Bundle
-  participant R as Repository
+  participant S as Sidecar Repository
 
-  U->>S: import preview
-  S->>B: read explicit bundle
-  S->>R: compare with DB state
-  S-->>U: dry-run diff
-  U->>S: apply confirmed import
-  S->>R: validate bundle and write via repository APIs
-  S-->>U: import result summary
+  U->>I: import preview
+  I->>B: read explicit bundle
+  I->>S: compare with sidecar state
+  I-->>U: dry-run diff
+  U->>I: apply confirmed import
+  I->>S: validate bundle and write via repository APIs
+  I-->>U: import result summary
 ```
 
-Key constraints:
+Constraints:
 
-- Import cannot make a file bundle a Workbench hot path.
 - Apply requires preview plus explicit confirmation.
+- Import scope must state whether user-approved binding/dedupe decisions are overwritten.
