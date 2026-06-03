@@ -263,16 +263,26 @@ describe("Synthesis invariant guards", () => {
     const graphRebuildStart = serviceSource.indexOf(
       "async function rebuildCitationGraphCacheNow",
     );
+    const advancedMatchingStart = serviceSource.indexOf(
+      "async function runAdvancedReferenceMatchingNow",
+    );
     const graphRetryStart = serviceSource.indexOf(
       "async function retryCitationGraphCacheRebuild",
     );
     assert.isAtLeast(refreshStart, 0);
     assert.isAbove(graphRebuildStart, refreshStart);
+    assert.isAbove(advancedMatchingStart, refreshStart);
+    assert.isAbove(graphRebuildStart, advancedMatchingStart);
     assert.isAbove(graphRetryStart, graphRebuildStart);
-    const refreshBlock = serviceSource.slice(refreshStart, graphRebuildStart);
+    const refreshEnd = Math.min(graphRebuildStart, advancedMatchingStart);
+    const refreshBlock = serviceSource.slice(refreshStart, refreshEnd);
     const graphRebuildBlock = serviceSource.slice(
       graphRebuildStart,
       graphRetryStart,
+    );
+    const advancedMatchingBlock = serviceSource.slice(
+      advancedMatchingStart,
+      graphRebuildStart,
     );
     const debugSnapshotStart = serviceSource.indexOf(
       "async function debugSynthesisSnapshot",
@@ -318,6 +328,10 @@ describe("Synthesis invariant guards", () => {
       ["replace", "IndexState"].join(""),
       ["refreshReference", "SidecarProjection"].join(""),
       ["list", "Paper", "RegistryFacts"].join(""),
+      "buildReferenceMatcherIndex",
+      "resolveReferenceWithPolicy",
+      "dedupeCanonicalReferences",
+      "upsertReferenceMatchProposal",
       ["reference-sidecar", "state.json"].join("-"),
       legacyProjectionFile,
       legacyGraphManifest,
@@ -337,7 +351,21 @@ describe("Synthesis invariant guards", () => {
     assert.include(refreshBlock, 'cacheKey: "reference-sidecar:library"');
     assert.include(refreshBlock, 'cacheKey: "citation-graph:library"');
     assert.include(refreshBlock, 'status: "stale"');
+    assert.include(advancedMatchingBlock, "buildReferenceMatcherIndex");
+    assert.include(advancedMatchingBlock, "resolveReferenceWithPolicy");
+    assert.match(
+      advancedMatchingBlock,
+      /\bdedupeCanonicalReferencesClustered\s*\(/,
+    );
+    assert.notMatch(advancedMatchingBlock, /\bdedupeCanonicalReferences\s*\(/);
+    assert.include(advancedMatchingBlock, "upsertReferenceMatchProposal");
+    assert.notMatch(
+      readRepoText("src/modules/synthesis/referenceMatcher.ts"),
+      /export function dedupeCanonicalReferences\s*\(/,
+    );
+    assert.notMatch(refreshBlock, /\bdedupeCanonicalReferencesClustered\s*\(/);
     assert.include(graphRebuildBlock, "rebuildCitationGraphCacheFromSidecar");
+    assert.notInclude(graphRebuildBlock, "listReferenceMatchProposals");
     assert.include(workbenchSource, "rebuildCitationGraphCacheNow");
     assert.include(workbenchSource, "manualRecomputeLayout");
     assert.include(appSource, 'command: "rebuildCitationGraphCacheNow"');
@@ -370,6 +398,9 @@ describe("Synthesis invariant guards", () => {
       matcherSource,
       "suggested_candidates: candidates.slice(0, 3)",
     );
+    assert.include(matcherSource, "maxCandidatePairs");
+    assert.include(matcherSource, "maxBlockSize");
+    assert.include(matcherSource, "cluster_dedupe_pair_budget_exceeded");
     assert.isFalse(
       fs.existsSync(
         repoPath(`src/modules/synthesis/${["literature", "Registry"].join("")}.ts`),

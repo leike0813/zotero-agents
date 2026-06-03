@@ -47,6 +47,27 @@ Required lookup groups:
 | Citation layout | preset + graph hash. |
 | Topic discovery hint | `(topic_id, source_ref)`, status. |
 | Review item | domain/status/severity and `(scope_kind, scope_ref)`. |
+
+Advanced external dedupe must stay outside refresh/apply hot paths. The
+production cluster-first pass uses bounded blocking keys and an operation-level
+pair budget; it must not compare every canonical reference against every other
+canonical reference. When a block or operation exceeds budget, the operation
+records diagnostics and skips excess comparisons rather than broadening scope.
+
+The realtime Synthesis Index harness uses the same cluster algorithm and budget
+principle as production Advanced Reference Matching. It may read current
+Zotero/plugin SQLite state, but its algorithm output is written only to an
+isolated debug SQLite database and it must not update production sidecar,
+proposal, binding, redirect, or graph cache tables. Representative selection is
+quality/stability first:
+raw support is capped evidence, not an unbounded score multiplier, so large
+noisy extraction clusters do not dominate clean canonical representatives.
+The harness performs an eligibility/filter pass before blocking: excluded
+records such as bare DOI/URL rows, pure publication metadata, or titles with too
+few content tokens do not create candidate blocks or pair comparisons. The
+contained-title classifier must use structured suffix evidence; expanding a long
+list of concrete venue tokens is not an acceptable performance or precision
+strategy.
 | Cache basis state | `synt_cache_basis` status/scope/source hash or basis, `updated_at`, operation id; this is data readiness. |
 | Operation progress state | `synt_operation` explicit command status, phase, counts, diagnostics; this is not data readiness. |
 | Removed sync state | dirty/job/work queue rows must not be read by active UI or debug paths. |
@@ -58,6 +79,7 @@ Required lookup groups:
 | Digest apply sidecar sync | one Zotero item / artifact bundle | 1000 ms soft | Artifact hashes, changed references, raw references, canonical matches. |
 | Reference sidecar refresh stage 1 | selected source scope | 2000 ms per slice | Scanned source items/artifacts. |
 | Reference sidecar refresh stage 2 | changed references artifacts | 3000 ms per slice | Changed artifacts, extracted raw references, canonical matches, binding candidates. |
+| Advanced reference matching | unbound active references by default | 3000 ms per slice | Indexed papers, processed references, auto-accepted matches, proposals created, rejected proposals preserved. |
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
 | Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
 | Citation graph complex metrics | phase bounded | 3000 ms | Fixed phases or metric rows. |

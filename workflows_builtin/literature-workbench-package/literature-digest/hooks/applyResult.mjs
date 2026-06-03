@@ -2,6 +2,7 @@ import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigest
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { applyReferenceMatchingToNote } from "../../lib/referenceMatchingApply.mjs";
+import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
 import {
   measureWorkflowTestSpan,
   requireHostApi,
@@ -541,14 +542,21 @@ async function applyResultImpl({
   const referencesPayload = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:normalizeReferencesPayload",
     {},
-    async () => ({
-      version: 1,
-      entry: referencesResolved.entryPath,
-      format: "json",
-      references: runtime.helpers.normalizeReferencesPayload(
+    async () => {
+      const normalizedReferences = runtime.helpers.normalizeReferencesPayload(
         JSON.parse(referencesResolved.text),
-      ),
-    }),
+      );
+      const referenceQuality = filterReferencesForDigestApply(normalizedReferences);
+      return {
+        payload: {
+          version: 1,
+          entry: referencesResolved.entryPath,
+          format: "json",
+          references: referenceQuality.accepted,
+        },
+        quality: referenceQuality.summary,
+      };
+    },
   );
   const citationPayload = await measureWorkflowTestSpan(
     "executeApplyResult:literatureDigest:normalizeCitationPayload",
@@ -598,7 +606,7 @@ async function applyResultImpl({
             : {}),
         },
         references: {
-          payload: referencesPayload,
+          payload: referencesPayload.payload,
         },
         citationAnalysis: {
           payload: citationPayload,
@@ -622,7 +630,7 @@ async function applyResultImpl({
         digestEntryPath: digestResolved.entryPath,
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
-        referencesPayload,
+        referencesPayload: referencesPayload.payload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),
   );
@@ -639,6 +647,7 @@ async function applyResultImpl({
   const appliedWithRepresentativeImage = {
     ...applied,
     representative_image: representativeImage,
+    reference_quality: referencesPayload.quality,
   };
   const autoReferenceMatching = {
     enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),

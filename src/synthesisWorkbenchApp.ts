@@ -57,6 +57,7 @@ type SynthesisTab =
   | "overview"
   | "artifacts"
   | "registry"
+  | "reviews"
   | "tags"
   | "concepts"
   | "graph"
@@ -106,10 +107,11 @@ type Snapshot = {
     visibleRows: Array<Record<string, unknown>>;
   };
   registry: {
-    filters: Record<string, string>;
+    filters: Record<string, unknown>;
     rows: Array<Record<string, unknown>>;
     visibleRows: Array<Record<string, unknown>>;
     cleanupProposals?: Array<Record<string, unknown>>;
+    matchProposals?: Array<Record<string, unknown>>;
     cacheStatus?: {
       cache_key?: string;
       status?: string;
@@ -117,6 +119,9 @@ type Snapshot = {
       diagnostics?: Array<Record<string, unknown>>;
       allowedActions?: string[];
     };
+  };
+  reviews?: {
+    filters: Record<string, unknown>;
   };
   tags: {
     filters: Record<string, string>;
@@ -347,6 +352,19 @@ type OptimisticReviewDecision = {
   createdAt: number;
 };
 
+type ReferenceProposalAction = "accept" | "reject" | "reopen" | "delete";
+
+type PendingReferenceProposalDecision = {
+  proposalId: string;
+  action: ReferenceProposalAction;
+  createdAt: number;
+};
+
+type ReferenceProposalSubmission = {
+  operationKey: string;
+  proposalIds: string[];
+};
+
 const STATUSBAR_COMPLETED_TIMEOUT_MS = 4000;
 const STATUSBAR_FAILED_TIMEOUT_MS = 8000;
 const STATUSBAR_WARNING_TIMEOUT_MS = 8000;
@@ -373,6 +391,12 @@ const state: {
   dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
   optimisticReviewDecisions: Map<string, OptimisticReviewDecision>;
+  pendingReferenceProposalDecisions: Map<
+    string,
+    PendingReferenceProposalDecision
+  >;
+  selectedReferenceProposalIds: Set<string>;
+  referenceProposalSubmission?: ReferenceProposalSubmission;
   lastLocalAction?: ActionOperation;
   statusbarExpirations: Map<string, number>;
   statusbarTimer?: number;
@@ -389,6 +413,8 @@ const state: {
   explorerWidth: 360,
   localPendingActions: new Map(),
   optimisticReviewDecisions: new Map(),
+  pendingReferenceProposalDecisions: new Map(),
+  selectedReferenceProposalIds: new Set(),
   statusbarExpirations: new Map(),
   jobPopoverOpen: false,
   tagImportOpen: false,
@@ -416,6 +442,17 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
           operationKey: key,
           createdAt: Date.now(),
         });
+      }
+      if (command === "applyReferenceMatchProposalActions") {
+        const proposalIds = referenceProposalDecisionArray(args.decisions).map(
+          (decision) => decision.proposalId,
+        );
+        if (proposalIds.length) {
+          state.referenceProposalSubmission = {
+            operationKey: key,
+            proposalIds,
+          };
+        }
       }
       state.localPendingActions.set(key, {
         key,
@@ -462,6 +499,8 @@ function reviewDecisionKey(
       return `topic-review:${keyPart(args.reviewId)}`;
     case "applyConceptReviewAction":
       return `concept-review:${keyPart(args.reviewId)}`;
+    case "applyReferenceMatchProposalAction":
+      return `reference-match:${keyPart(args.proposalId)}`;
     case "applyTagVocabularyImport":
       return `tag-import:${keyPart(args.action)}`;
     case "resolveGitSyncConflict":
@@ -489,6 +528,8 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyTopicGraphReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
+    case "applyReferenceMatchProposalActions":
+      return command;
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
@@ -523,6 +564,10 @@ function operationLabel(command: string) {
     applyTopicGraphReviewAction: "Applying topic graph review",
     refreshReferenceSidecarNow: "Refreshing reference sidecar",
     retryReferenceSidecarRefresh: "Retrying reference sidecar refresh",
+    runAdvancedReferenceMatchingNow: "Running advanced reference matching",
+    retryAdvancedReferenceMatching: "Retrying advanced reference matching",
+    applyReferenceMatchProposalAction: "Applying reference match proposal",
+    applyReferenceMatchProposalActions: "Applying reference match proposals",
     rebuildCitationGraphCacheNow: "Rebuilding citation graph cache",
     retryCitationGraphCacheRebuild: "Retrying citation graph cache rebuild",
     runSynthesizeTopic: "Starting topic synthesis",
@@ -558,10 +603,26 @@ function clearResolvedLocalPending(snapshot: Snapshot | null) {
   const serverKeys = snapshotInFlightKeys(snapshot);
   const completedKey = snapshot.actions?.lastCompleted?.key;
   const failedKey = snapshot.actions?.lastFailed?.key;
+  const submittedReferenceDecisions = state.referenceProposalSubmission;
   for (const key of Array.from(state.localPendingActions.keys())) {
     if (!serverKeys.has(key) || key === completedKey || key === failedKey) {
       state.localPendingActions.delete(key);
     }
+  }
+  if (
+    submittedReferenceDecisions &&
+    submittedReferenceDecisions.operationKey === completedKey
+  ) {
+    submittedReferenceDecisions.proposalIds.forEach((proposalId) => {
+      state.pendingReferenceProposalDecisions.delete(proposalId);
+      state.selectedReferenceProposalIds.delete(proposalId);
+    });
+    state.referenceProposalSubmission = undefined;
+  } else if (
+    submittedReferenceDecisions &&
+    submittedReferenceDecisions.operationKey === failedKey
+  ) {
+    state.referenceProposalSubmission = undefined;
   }
   if (failedKey) {
     for (const [key, decision] of state.optimisticReviewDecisions) {
@@ -571,6 +632,7 @@ function clearResolvedLocalPending(snapshot: Snapshot | null) {
     }
   }
   pruneOptimisticReviewDecisions(snapshot);
+  pruneReferenceProposalUiState(snapshot);
   state.lastLocalAction =
     snapshot.actions?.lastFailed ||
     snapshot.actions?.lastCompleted ||
@@ -585,6 +647,12 @@ function snapshotHasReviewItem(snapshot: Snapshot, key: string) {
   if (!id) return false;
   if (kind === "cleanup") {
     return (snapshot.registry.cleanupProposals || []).some(
+      (proposal) =>
+        proposal.status === "open" && keyPart(proposal.proposal_id) === id,
+    );
+  }
+  if (kind === "reference-match") {
+    return (snapshot.registry.matchProposals || []).some(
       (proposal) =>
         proposal.status === "open" && keyPart(proposal.proposal_id) === id,
     );
@@ -636,6 +704,7 @@ function iconSvg(
     | "topics"
     | "graph"
     | "index"
+    | "review"
     | "tags"
     | "concepts"
     | "controls"
@@ -672,6 +741,12 @@ function iconSvg(
       "M4 6h.01",
       "M4 12h.01",
       "M4 18h.01",
+    ],
+    review: [
+      "M6 4.5h12v15H6z",
+      "M9 8h6",
+      "M9 12h4",
+      "M8.5 16l1.5 1.5 3-3",
     ],
     tags: ["M20 12.5 12.5 20 4 11.5V4h7.5z", "M8.5 8.5h.01", "M14 7l3 3"],
     concepts: [
@@ -819,6 +894,7 @@ function titleForTab(tab: Snapshot["selectedTab"]) {
   if (tab === "tags") return "Tags";
   if (tab === "concepts") return "Concepts";
   if (tab === "graph") return "Citation Graph";
+  if (tab === "reviews") return "Review";
   return "Home";
 }
 
@@ -883,6 +959,45 @@ function statusbarMessage(entry: ActionOperation) {
   const label = textValue(entry.label, entry.command || "Action");
   const message = textValue(entry.message);
   return message ? `${label} - ${message}` : label;
+}
+
+function activeActionPriority(status: ActionOperation["status"]) {
+  if (status === "running") return 0;
+  if (status === "pending") return 1;
+  if (status === "queued") return 2;
+  return 3;
+}
+
+function listActiveActionOperations(snapshot: Snapshot) {
+  const rows = new Map<string, ActionOperation>();
+  const accept = (entry: ActionOperation | null | undefined) => {
+    if (!entry || entry.status === "completed" || entry.status === "failed") {
+      return;
+    }
+    const key = entry.key || operationKey(entry.command);
+    if (!key) {
+      return;
+    }
+    const existing = rows.get(key);
+    if (
+      !existing ||
+      textValue(entry.started_at).localeCompare(textValue(existing.started_at)) >=
+        0
+    ) {
+      rows.set(key, { ...entry, key });
+    }
+  };
+  for (const entry of snapshot.actions?.inFlight || []) {
+    accept(entry);
+  }
+  for (const entry of state.localPendingActions.values()) {
+    accept(entry);
+  }
+  return Array.from(rows.values()).sort(
+    (left, right) =>
+      activeActionPriority(left.status) - activeActionPriority(right.status) ||
+      textValue(right.started_at).localeCompare(textValue(left.started_at)),
+  );
 }
 
 function backgroundJobPriority(status: BackgroundJobStatus) {
@@ -1045,6 +1160,7 @@ function renderBackgroundJobPopover(jobs: BackgroundJobRow[]) {
 function renderActionStatusbar(snapshot: Snapshot) {
   const jobs = listBackgroundJobs(snapshot);
   const activeJobs = jobs.filter((job) => job.status !== "failed");
+  const activeActions = listActiveActionOperations(snapshot);
   const failedJob = jobs.find((job) => job.status === "failed");
   const latestWarning = (snapshot.actions?.warnings || []).slice(-1)[0];
   const failed =
@@ -1110,6 +1226,34 @@ function renderActionStatusbar(snapshot: Snapshot) {
       );
     }
     appendJobButton();
+    return statusbar;
+  }
+
+  if (activeActions.length) {
+    const latest = activeActions[0];
+    statusbar.className = "action-statusbar is-busy";
+    statusbar.appendChild(
+      renderStatusbarProgress({
+        mode: "indeterminate",
+        label: statusbarMessage(latest),
+      }),
+    );
+    statusbar.appendChild(
+      el(
+        "span",
+        "action-statusbar-state",
+        latest.status === "running" ? "Running" : "Pending",
+      ),
+    );
+    statusbar.appendChild(
+      el("span", "action-statusbar-message", statusbarMessage(latest)),
+    );
+    if (activeActions.length > 1) {
+      statusbar.appendChild(
+        el("span", "action-statusbar-count", `+${activeActions.length - 1}`),
+      );
+    }
+    if (jobs.length || state.jobPopoverOpen) appendJobButton();
     return statusbar;
   }
 
@@ -1222,6 +1366,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
     ["concepts", "Concepts", "concepts"],
     ["graph", "Graph", "graph"],
     ["registry", "Index", "index"],
+    ["reviews", "Review", "review"],
   ].forEach(([tab, label, iconName]) => {
     const button = makeButton(
       "",
@@ -1234,7 +1379,14 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
     const icon = el("span", `nav-icon nav-icon-${iconName}`);
     icon.appendChild(
       iconSvg(
-        iconName as "home" | "topics" | "graph" | "index" | "tags" | "concepts",
+        iconName as
+          | "home"
+          | "topics"
+          | "graph"
+          | "index"
+          | "review"
+          | "tags"
+          | "concepts",
       ),
     );
     button.appendChild(icon);
@@ -1318,6 +1470,8 @@ function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
     renderConcepts(main, snapshot);
   } else if (snapshot.selectedTab === "graph") {
     renderGraph(main, snapshot);
+  } else if (snapshot.selectedTab === "reviews") {
+    renderReviewCenter(main, snapshot);
   } else {
     renderHome(main, snapshot);
   }
@@ -2352,8 +2506,10 @@ type ReviewCardOptions = {
   body?: string;
   details?: Array<[string, unknown]>;
   badges?: Array<[string, string?]>;
+  primaryChildren?: HTMLElement[];
   children?: HTMLElement[];
   actions?: HTMLElement[];
+  showKindBadge?: boolean;
 };
 
 function renderReviewPanel(card: HTMLElement, className = "") {
@@ -2369,7 +2525,9 @@ function renderReviewCard(options: ReviewCardOptions) {
   const card = el("article", "review-card");
   const header = el("div", "review-card-header");
   const title = el("div", "review-card-title");
-  title.appendChild(badge(options.kind, options.tone || "warn"));
+  if (options.showKindBadge !== false) {
+    title.appendChild(badge(options.kind, options.tone || "warn"));
+  }
   title.appendChild(el("strong", "", options.title));
   header.appendChild(title);
   if (options.meta) {
@@ -2385,6 +2543,7 @@ function renderReviewCard(options: ReviewCardOptions) {
   if (options.body) {
     card.appendChild(el("p", "review-card-body", options.body));
   }
+  (options.primaryChildren || []).forEach((child) => card.appendChild(child));
   const details =
     options.details?.filter(([, value]) => hasStructuredContent(value)) || [];
   if (details.length) {
@@ -4642,6 +4801,115 @@ function registryReferenceDisplayId(reference: Record<string, unknown>) {
   );
 }
 
+function registryReferenceReadableTitle(reference: Record<string, unknown>) {
+  return (
+    textValue(reference.title) ||
+    textValue(reference.raw_reference) ||
+    textValue(reference.reference_instance_id) ||
+    "Untitled reference"
+  );
+}
+
+function targetPaperRefForProposal(proposal: Record<string, unknown>) {
+  const itemKey = textValue(proposal.target_item_key);
+  if (!itemKey) {
+    return "";
+  }
+  const libraryId = Number(proposal.target_library_id || 0);
+  return `${Number.isFinite(libraryId) && libraryId > 0 ? Math.floor(libraryId) : ""}:${itemKey}`.replace(
+    /^:/,
+    "",
+  );
+}
+
+function buildRegistryReviewLookup(snapshot: Snapshot) {
+  const sourceByRawReferenceId = new Map<
+    string,
+    { source: Record<string, unknown>; reference: Record<string, unknown> }
+  >();
+  const rowByPaperRef = new Map<string, Record<string, unknown>>();
+  const rowByItemKey = new Map<string, Record<string, unknown>>();
+  for (const row of snapshot.registry.rows || []) {
+    const paperRef = textValue(row.paper_ref);
+    if (paperRef) {
+      rowByPaperRef.set(paperRef, row);
+      const itemKey = paperRef.split(":").pop() || "";
+      if (itemKey) {
+        rowByItemKey.set(itemKey, row);
+      }
+    }
+    for (const reference of registryReferences(row)) {
+      const referenceId = textValue(reference.reference_instance_id);
+      if (referenceId) {
+        sourceByRawReferenceId.set(referenceId, { source: row, reference });
+      }
+    }
+  }
+  return { sourceByRawReferenceId, rowByPaperRef, rowByItemKey };
+}
+
+function referenceMatchProposalContext(
+  snapshot: Snapshot,
+  proposal: Record<string, unknown>,
+) {
+  const lookup = buildRegistryReviewLookup(snapshot);
+  const evidence =
+    proposal.evidence && typeof proposal.evidence === "object"
+      ? (proposal.evidence as Record<string, unknown>)
+      : {};
+  const sourceEvidence =
+    evidence.source && typeof evidence.source === "object"
+      ? (evidence.source as Record<string, unknown>)
+      : {};
+  const targetEvidence =
+    evidence.target && typeof evidence.target === "object"
+      ? (evidence.target as Record<string, unknown>)
+      : {};
+  const rawIds = Array.isArray(proposal.source_raw_reference_ids)
+    ? proposal.source_raw_reference_ids
+        .map((value) => textValue(value))
+        .filter(Boolean)
+    : [];
+  const sourceMatch = rawIds
+    .map((id) => lookup.sourceByRawReferenceId.get(id))
+    .find(Boolean);
+  const targetRef = targetPaperRefForProposal(proposal);
+  const targetRow =
+    (targetRef ? lookup.rowByPaperRef.get(targetRef) : undefined) ||
+    lookup.rowByItemKey.get(textValue(proposal.target_item_key));
+  const targetFallback =
+    targetRef ||
+    textValue(proposal.target_item_key) ||
+    textValue(targetEvidence.title) ||
+    textValue(targetEvidence.normalized_title) ||
+    textValue(proposal.target_canonical_reference_id) ||
+    "Unknown target";
+  const targetEvidenceTitle =
+    textValue(targetEvidence.title) ||
+    textValue(targetEvidence.normalized_title);
+  const parentItemTitle = sourceMatch?.source
+    ? textValue(sourceMatch.source.title, "Unknown parent item")
+    : "Unknown parent item";
+  return {
+    proposal,
+    sourceReference: sourceMatch?.reference,
+    sourcePaper: sourceMatch?.source,
+    targetPaper: targetRow,
+    sourceReferenceTitle: sourceMatch?.reference
+      ? registryReferenceReadableTitle(sourceMatch.reference)
+      : textValue(sourceEvidence.title) ||
+        textValue(sourceEvidence.normalized_title) ||
+        textValue(proposal.source_canonical_reference_id, "Unknown reference"),
+    parentItemTitle,
+    sourcePaperTitle: parentItemTitle,
+    targetPaperTitle: targetRow
+      ? textValue(targetRow.title, targetFallback)
+      : targetEvidenceTitle || `${targetFallback} (fallback id)`,
+    targetPaperRef: targetRow ? registryRowDisplayId(targetRow) : targetFallback,
+    rawReferenceIds: rawIds,
+  };
+}
+
 function registryStatusTone(value: unknown) {
   const status = textValue(value);
   if (status === "accepted") {
@@ -4657,6 +4925,221 @@ function registryStatusTone(value: unknown) {
     return "danger";
   }
   return toneFor(status);
+}
+
+function normalizeReferenceProposalAction(
+  value: unknown,
+): ReferenceProposalAction {
+  const action = textValue(value);
+  if (
+    action === "reject" ||
+    action === "reopen" ||
+    action === "delete"
+  ) {
+    return action;
+  }
+  return "accept";
+}
+
+function referenceProposalDecisionArray(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .filter(isRecord)
+        .map((entry) => ({
+          proposalId: textValue(entry.proposalId || entry.proposal_id),
+          action: normalizeReferenceProposalAction(entry.action),
+        }))
+        .filter((entry) => entry.proposalId)
+    : [];
+}
+
+function referenceProposalId(proposal: Record<string, unknown>) {
+  return textValue(proposal.proposal_id);
+}
+
+function pendingReferenceProposalDecision(proposalId: string) {
+  return state.pendingReferenceProposalDecisions.get(proposalId);
+}
+
+function isReferenceProposalDecisionSubmitting(proposalId?: string) {
+  const submission = state.referenceProposalSubmission;
+  if (!submission) {
+    return false;
+  }
+  if (!proposalId) {
+    return true;
+  }
+  return submission.proposalIds.includes(proposalId);
+}
+
+function queueReferenceProposalDecision(
+  proposalId: string,
+  action: ReferenceProposalAction,
+) {
+  if (!proposalId || isReferenceProposalDecisionSubmitting(proposalId)) {
+    return;
+  }
+  state.pendingReferenceProposalDecisions.set(proposalId, {
+    proposalId,
+    action,
+    createdAt: Date.now(),
+  });
+  refreshReferenceReviewSurfaces();
+}
+
+function renderReferenceMatchDecisionSummary(args: {
+  source: string;
+  target: string;
+}) {
+  const summary = el("div", "reference-review-summary");
+  const source = el("div", "reference-review-summary-row");
+  source.appendChild(el("span", "reference-review-summary-label", "Source:"));
+  source.appendChild(el("strong", "", args.source));
+  summary.appendChild(source);
+  const target = el("div", "reference-review-summary-row");
+  target.appendChild(el("span", "reference-review-summary-label", "Target:"));
+  target.appendChild(el("strong", "", args.target));
+  summary.appendChild(target);
+  return summary;
+}
+
+function queueReferenceProposalDecisions(
+  proposals: Array<Record<string, unknown>>,
+  action: ReferenceProposalAction,
+) {
+  if (isReferenceProposalDecisionSubmitting()) {
+    return;
+  }
+  proposals.forEach((proposal) => {
+    const proposalId = referenceProposalId(proposal);
+    if (proposalId) {
+      state.pendingReferenceProposalDecisions.set(proposalId, {
+        proposalId,
+        action,
+        createdAt: Date.now(),
+      });
+    }
+  });
+  refreshReferenceReviewSurfaces();
+}
+
+function cancelReferenceProposalDecision(proposalId: string) {
+  state.pendingReferenceProposalDecisions.delete(proposalId);
+  refreshReferenceReviewSurfaces();
+}
+
+function clearReferenceProposalSelections() {
+  state.selectedReferenceProposalIds.clear();
+  refreshReferenceReviewSurfaces();
+}
+
+function toggleReferenceProposalSelection(proposalId: string, selected: boolean) {
+  if (!proposalId) {
+    return;
+  }
+  if (selected) {
+    state.selectedReferenceProposalIds.add(proposalId);
+  } else {
+    state.selectedReferenceProposalIds.delete(proposalId);
+  }
+  refreshReferenceReviewSurfaces();
+}
+
+function toggleReferenceProposalRowsSelection(
+  proposals: Array<Record<string, unknown>>,
+  selected: boolean,
+) {
+  proposals.forEach((proposal) => {
+    const proposalId = referenceProposalId(proposal);
+    if (!proposalId) {
+      return;
+    }
+    if (selected) {
+      state.selectedReferenceProposalIds.add(proposalId);
+    } else {
+      state.selectedReferenceProposalIds.delete(proposalId);
+    }
+  });
+  refreshReferenceReviewSurfaces();
+}
+
+function applyPendingReferenceProposalDecisions() {
+  if (
+    isReferenceProposalDecisionSubmitting() ||
+    !state.pendingReferenceProposalDecisions.size
+  ) {
+    return;
+  }
+  const decisions = Array.from(
+    state.pendingReferenceProposalDecisions.values(),
+  ).map((decision) => ({
+    proposalId: decision.proposalId,
+    action: decision.action,
+  }));
+  sendAction("hostCommand", {
+    command: "applyReferenceMatchProposalActions",
+    args: { decisions },
+  });
+  refreshReferenceReviewSurfaces();
+}
+
+function pruneReferenceProposalUiState(snapshot: Snapshot) {
+  const knownProposalIds = new Set(
+    (snapshot.registry.matchProposals || [])
+      .map((proposal) => referenceProposalId(proposal))
+      .filter(Boolean),
+  );
+  state.pendingReferenceProposalDecisions.forEach((_, proposalId) => {
+    if (!knownProposalIds.has(proposalId)) {
+      state.pendingReferenceProposalDecisions.delete(proposalId);
+    }
+  });
+  state.selectedReferenceProposalIds.forEach((proposalId) => {
+    if (!knownProposalIds.has(proposalId)) {
+      state.selectedReferenceProposalIds.delete(proposalId);
+    }
+  });
+}
+
+function referenceProposalActionLabel(action: ReferenceProposalAction) {
+  return action === "accept"
+    ? "Accept"
+    : action === "reject"
+      ? "Reject"
+      : action === "reopen"
+        ? "Reopen"
+        : "Delete";
+}
+
+function renderReferenceProposalPendingControls() {
+  const pendingCount = state.pendingReferenceProposalDecisions.size;
+  const submitting = isReferenceProposalDecisionSubmitting();
+  const controls = el("div", "reference-review-pending-controls");
+  const apply = makeLocalButton(submitting ? "Applying pending" : "Apply pending", () =>
+    applyPendingReferenceProposalDecisions(),
+  );
+  apply.disabled = pendingCount === 0 || submitting;
+  if (submitting) {
+    apply.classList.add("is-busy");
+    apply.setAttribute("aria-busy", "true");
+    apply.title = "Applying pending reference review decisions";
+    const spinner = el("span", "button-spinner");
+    spinner.setAttribute("aria-hidden", "true");
+    apply.prepend(spinner);
+  }
+  const count = badge(pendingCount, pendingCount ? "warn" : "");
+  count.classList.add("reference-review-pending-badge");
+  apply.appendChild(count);
+  controls.appendChild(apply);
+  if (pendingCount) {
+    controls.appendChild(
+      makeLocalButton("Clear pending", () => {
+        state.pendingReferenceProposalDecisions.clear();
+        refreshReferenceReviewSurfaces();
+      }),
+    );
+  }
+  return controls;
 }
 
 const registryArtifactBadges = [
@@ -4842,6 +5325,57 @@ function registryReferencedEntries(snapshot: Snapshot) {
       ) ||
       textValue(left.source.title).localeCompare(textValue(right.source.title)),
     );
+}
+
+function reviewFilters(snapshot: Snapshot) {
+  return snapshot.reviews?.filters || {};
+}
+
+function referenceMatchProposalsForReviewCenter(snapshot: Snapshot) {
+  const filters = reviewFilters(snapshot);
+  const kindFilter = textValue(filters.kind, "all");
+  const statusFilter = textValue(filters.status, "open");
+  const confidenceFilter = textValue(filters.confidence, "all");
+  const query = textValue(filters.search).toLowerCase();
+  return (snapshot.registry.matchProposals || []).filter((proposal) => {
+    const context = referenceMatchProposalContext(snapshot, proposal);
+    if (kindFilter !== "all" && textValue(proposal.kind) !== kindFilter) {
+      return false;
+    }
+    if (statusFilter !== "all" && textValue(proposal.status) !== statusFilter) {
+      return false;
+    }
+    if (
+      confidenceFilter !== "all" &&
+      textValue(proposal.confidence) !== confidenceFilter
+    ) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    const haystack = [
+      context.sourceReferenceTitle,
+      context.parentItemTitle,
+      context.targetPaperTitle,
+      context.targetPaperRef,
+      proposal.kind,
+      proposal.confidence,
+      proposal.reasons,
+    ]
+      .map((value) => textValue(value).toLowerCase())
+      .join(" ");
+    return haystack.includes(query);
+  });
+}
+
+function openReferenceMatchProposals(snapshot: Snapshot) {
+  return (snapshot.registry.matchProposals || []).filter(
+    (proposal) =>
+      textValue(proposal.status) === "open" &&
+      !pendingReferenceProposalDecision(referenceProposalId(proposal)) &&
+      !isReviewOptimisticallyResolved("reference-match", proposal.proposal_id),
+  );
 }
 
 function renderReferencedSourceCell(source: Record<string, unknown>) {
@@ -5032,12 +5566,214 @@ function renderRegistryTable(snapshot: Snapshot) {
   return wrap;
 }
 
+function openIndexCleanupProposals(snapshot: Snapshot) {
+  return (snapshot.registry.cleanupProposals || []).filter(
+    (proposal) =>
+      proposal.status === "open" &&
+      !isReviewOptimisticallyResolved("cleanup", proposal.proposal_id),
+  );
+}
+
+function indexReviewItems(snapshot: Snapshot) {
+  return [
+    ...openReferenceMatchProposals(snapshot).map((proposal) => ({
+      type: "reference_match" as const,
+      id: textValue(proposal.proposal_id),
+      proposal,
+    })),
+    ...openIndexCleanupProposals(snapshot).map((proposal) => ({
+      type: "cleanup" as const,
+      id: textValue(proposal.proposal_id),
+      proposal,
+    })),
+  ].filter((item) => item.id);
+}
+
+function renderReferenceMatchReviewCard(
+  snapshot: Snapshot,
+  proposal: Record<string, unknown>,
+) {
+  const proposalId = textValue(proposal.proposal_id);
+  const context = referenceMatchProposalContext(snapshot, proposal);
+  const pending = pendingReferenceProposalDecision(proposalId);
+  const submitting = isReferenceProposalDecisionSubmitting(proposalId);
+  const actions = [
+    makeLocalButton("Accept", () =>
+      queueReferenceProposalDecision(proposalId, "accept"),
+    ),
+    makeLocalButton("Reject", () =>
+      queueReferenceProposalDecision(proposalId, "reject"),
+    ),
+  ];
+  actions.forEach((button) => {
+    button.disabled = submitting;
+  });
+  if (pending) {
+    actions.push(
+      makeLocalButton("Cancel pending", () =>
+        cancelReferenceProposalDecision(proposalId),
+      ),
+    );
+  }
+  return renderReviewCard({
+    kind: "Reference match",
+    title: "Review proposal",
+    showKindBadge: false,
+    body: pending
+      ? `Pending: ${referenceProposalActionLabel(pending.action)}`
+      : undefined,
+    details: [
+      ["parent item", context.parentItemTitle],
+      ["kind", proposal.kind],
+      ["reasons", proposal.reasons],
+      ["diagnostics", proposal.diagnostics],
+    ],
+    primaryChildren: [
+      renderReferenceMatchDecisionSummary({
+        source: context.sourceReferenceTitle,
+        target: context.targetPaperTitle,
+      }),
+    ],
+    badges: pending
+      ? [[`Pending ${referenceProposalActionLabel(pending.action)}`, "warn"]]
+      : undefined,
+    actions,
+  });
+}
+
+function renderCleanupReviewCard(proposal: Record<string, unknown>) {
+  const reviewKind = textValue(proposal.review_kind || proposal.kind);
+  const isDeleteReview = reviewKind === "zotero_item_delete";
+  const isDedupeReview = reviewKind === "zotero_dedupe_candidate";
+  const sourceTitle =
+    textValue(proposal.source_paper_title) ||
+    textValue(proposal.source_paper_ref, "Parent item");
+  const referenceTitle =
+    textValue(proposal.reference_title) ||
+    textValue(proposal.reference_raw) ||
+    textValue(proposal.provisional_key) ||
+    "Unresolved reference";
+  const targetTitle =
+    textValue(proposal.target_paper_title) ||
+    textValue(proposal.target_work_title);
+  return renderReviewCard({
+    kind: isDeleteReview || isDedupeReview ? "Index review" : "Cleanup",
+    title:
+      isDeleteReview || isDedupeReview
+        ? sourceTitle
+        : `${sourceTitle} -> ${referenceTitle}`,
+    meta: isDeleteReview
+      ? "Zotero deletion review"
+      : isDedupeReview
+        ? "Zotero dedupe review"
+        : "Open cleanup proposal",
+    body:
+      textValue(proposal.decision_summary) ||
+      "Decide how this unresolved reference should be handled in the reference sidecar.",
+    details: [
+      ["parent item", sourceTitle],
+      ["reference", referenceTitle],
+      ["target", targetTitle],
+      ["kind", proposal.kind],
+      ["reason", proposal.reason],
+      ["blocked by", proposal.blocked_by_review_item_id],
+      ["diagnostics", proposal.diagnostics],
+      ["proposal id", proposal.proposal_id],
+    ],
+    actions: [],
+  });
+}
+
+function renderIndexReviewDrawer(snapshot: Snapshot) {
+  const items = indexReviewItems(snapshot);
+  const pendingCount = state.pendingReferenceProposalDecisions.size;
+  if (!items.length && !pendingCount) {
+    return null;
+  }
+  const safeIndex = Math.min(
+    Math.max(0, items.length - 1),
+    Math.max(0, Math.floor(Number(snapshot.registry.filters.reviewDrawerIndex) || 0)),
+  );
+  const isOpen = snapshot.registry.filters.reviewDrawerOpen !== false;
+  const drawer = el(
+    "section",
+    `review-panel index-review-drawer ${isOpen ? "is-open" : "is-collapsed"}`,
+  );
+  drawer.dataset.synthesisSurface = "index-review-drawer";
+  const header = el("div", "review-drawer-header");
+  header.appendChild(el("strong", "", "Index Review"));
+  header.appendChild(
+    el(
+      "span",
+      "muted",
+      items.length ? `${safeIndex + 1} / ${items.length}` : "0 open",
+    ),
+  );
+  const controls = el("div", "review-drawer-controls");
+  controls.appendChild(
+    makeButton(
+      "↑",
+      "setFilters",
+      {
+        registry: {
+          reviewDrawerIndex:
+            safeIndex <= 0 ? items.length - 1 : safeIndex - 1,
+        },
+      },
+      false,
+      items.length <= 1,
+    ),
+  );
+  controls.appendChild(
+    makeButton(
+      "↓",
+      "setFilters",
+      {
+        registry: {
+          reviewDrawerIndex:
+            safeIndex >= items.length - 1 ? 0 : safeIndex + 1,
+        },
+      },
+      false,
+      items.length <= 1,
+    ),
+  );
+  controls.appendChild(renderReferenceProposalPendingControls());
+  controls.appendChild(
+    makeButton(isOpen ? "Collapse" : "Expand", "setFilters", {
+      registry: { reviewDrawerOpen: !isOpen },
+    }),
+  );
+  header.appendChild(controls);
+  drawer.appendChild(header);
+  if (!isOpen) {
+    return drawer;
+  }
+  if (!items.length) {
+    drawer.appendChild(
+      renderEmptyState({
+        title: "No open review proposals",
+        message: `${pendingCount} pending decision(s) are ready to apply.`,
+        tone: "info",
+      }),
+    );
+    return drawer;
+  }
+  const item = items[safeIndex] || items[0];
+  drawer.appendChild(
+    item.type === "reference_match"
+      ? renderReferenceMatchReviewCard(snapshot, item.proposal)
+      : renderCleanupReviewCard(item.proposal),
+  );
+  return drawer;
+}
+
 function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
   const filters = el("div", "filters");
   const search = el("input");
   search.placeholder = "Search";
-  search.value = snapshot.registry.filters.search || "";
+  search.value = textValue(snapshot.registry.filters.search);
   search.addEventListener("input", () =>
     sendAction("setFilters", { registry: { search: search.value } }),
   );
@@ -5049,11 +5785,11 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
         ["referenced", "Scope: Referenced only"],
         ["all", "Scope: All"],
       ],
-      snapshot.registry.filters.scope || "library",
+      textValue(snapshot.registry.filters.scope, "library"),
       (scope) => sendAction("setFilters", { registry: { scope } }),
     ),
   );
-  if (snapshot.registry.filters.scope !== "referenced") {
+  if (textValue(snapshot.registry.filters.scope) !== "referenced") {
     filters.appendChild(
       selectControlWithLabels(
         [
@@ -5062,13 +5798,13 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
           ["partial", "Coverage: Partial"],
           ["missing", "Coverage: Missing"],
         ],
-        snapshot.registry.filters.artifactCoverage || "all",
+        textValue(snapshot.registry.filters.artifactCoverage, "all"),
         (artifactCoverage) =>
           sendAction("setFilters", { registry: { artifactCoverage } }),
       ),
     );
   }
-  if (snapshot.registry.filters.scope === "referenced") {
+  if (textValue(snapshot.registry.filters.scope) === "referenced") {
     filters.appendChild(
       selectControlWithLabels(
         [
@@ -5079,7 +5815,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
           ["rejected", "Binding: Rejected"],
           ["stale_target", "Binding: Stale target"],
         ],
-        snapshot.registry.filters.bindingStatus || "all",
+        textValue(snapshot.registry.filters.bindingStatus, "all"),
         (bindingStatus) =>
           sendAction("setFilters", { registry: { bindingStatus } }),
       ),
@@ -5102,6 +5838,17 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
       isOperationPending("refreshReferenceSidecarNow"),
     ),
   );
+  filters.appendChild(
+    makeButton(
+      "Advanced Matching",
+      "hostCommand",
+      {
+        command: "runAdvancedReferenceMatchingNow",
+      },
+      false,
+      isOperationPending("runAdvancedReferenceMatchingNow"),
+    ),
+  );
   if (snapshot.registry.cacheStatus?.status === "failed") {
     filters.appendChild(
       makeButton("Retry", "hostCommand", {
@@ -5116,58 +5863,462 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
       : renderRegistryTable(snapshot);
   registryTable.dataset.synthesisScrollKey = "registry.table";
   panel.appendChild(registryTable);
-  const cleanup = (snapshot.registry.cleanupProposals || []).filter(
-    (proposal) =>
-      proposal.status === "open" &&
-      !isReviewOptimisticallyResolved("cleanup", proposal.proposal_id),
+  const indexReviewDrawer = renderIndexReviewDrawer(snapshot);
+  if (indexReviewDrawer) {
+    panel.appendChild(indexReviewDrawer);
+  }
+  main.appendChild(panel);
+}
+
+function reviewStatusMatches(status: unknown, filter: unknown) {
+  const normalizedFilter = textValue(filter, "open");
+  if (normalizedFilter === "all") {
+    return true;
+  }
+  return textValue(status, "open") === normalizedFilter;
+}
+
+function reviewSearchMatches(values: unknown[], query: unknown) {
+  const normalized = textValue(query).toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return values
+    .map((value) => textValue(value).toLowerCase())
+    .join(" ")
+    .includes(normalized);
+}
+
+function renderReviewCenterToolbar(snapshot: Snapshot) {
+  const filters = reviewFilters(snapshot);
+  const activeTab = textValue(filters.activeTab, "reference_matching");
+  const toolbar = el("div", "filters review-center-toolbar");
+  const tabs = el("div", "segmented");
+  [
+    ["reference_matching", "Reference Matching"],
+    ["index_cleanup", "Index Cleanup"],
+    ["concepts", "Concepts"],
+    ["topic_graph", "Topic Graph"],
+  ].forEach(([tab, label]) => {
+    tabs.appendChild(
+      makeButton(
+        label,
+        "setFilters",
+        { reviews: { activeTab: tab } },
+        activeTab === tab,
+      ),
+    );
+  });
+  toolbar.appendChild(tabs);
+  const search = el("input");
+  search.placeholder = "Search reviews";
+  search.value = textValue(filters.search);
+  search.addEventListener("input", () =>
+    sendAction("setFilters", { reviews: { search: search.value } }),
   );
-  if (cleanup.length) {
-    const proposal = cleanup[0];
-    const reviewKind = textValue(proposal.review_kind || proposal.kind);
-    const isDeleteReview = reviewKind === "zotero_item_delete";
-    const isDedupeReview = reviewKind === "zotero_dedupe_candidate";
-    const sourceTitle =
-      textValue(proposal.source_paper_title) ||
-      textValue(proposal.source_paper_ref, "Source paper");
-    const referenceTitle =
-      textValue(proposal.reference_title) ||
-      textValue(proposal.reference_raw) ||
-      textValue(proposal.provisional_key) ||
-      "Unresolved reference";
-    const targetTitle =
-      textValue(proposal.target_paper_title) ||
-      textValue(proposal.target_work_title);
-    panel.appendChild(
-      renderReviewPanel(
-        renderReviewCard({
-          kind: isDeleteReview || isDedupeReview ? "Index review" : "Cleanup",
-          title:
-            isDeleteReview || isDedupeReview
-              ? sourceTitle
-              : `${sourceTitle} -> ${referenceTitle}`,
-          meta:
-            cleanup.length > 1
-              ? `${cleanup.length - 1} more proposal(s)`
-              : isDeleteReview
-                ? "Zotero deletion review"
-                : isDedupeReview
-                  ? "Zotero dedupe review"
-                  : "Open cleanup proposal",
-          body:
-            textValue(proposal.decision_summary) ||
-            "Decide how this unresolved reference should be handled in the reference sidecar.",
-          details: [
-            ["source paper", sourceTitle],
-            ["reference", referenceTitle],
-            ["target", targetTitle],
-            ["kind", proposal.kind],
-            ["reason", proposal.reason],
-            ["blocked by", proposal.blocked_by_review_item_id],
-            ["diagnostics", proposal.diagnostics],
+  toolbar.appendChild(search);
+  toolbar.appendChild(
+    selectControlWithLabels(
+      [
+        ["open", "Status: Open"],
+        ["all", "Status: All"],
+        ["accepted", "Status: Accepted"],
+        ["rejected", "Status: Rejected"],
+        ["superseded", "Status: Superseded"],
+      ],
+      textValue(filters.status, "open"),
+      (status) => sendAction("setFilters", { reviews: { status } }),
+    ),
+  );
+  if (activeTab === "reference_matching") {
+    toolbar.appendChild(
+      selectControlWithLabels(
+        [
+          ["all", "Kind: All"],
+          ["zotero_binding", "Kind: Zotero binding"],
+          ["canonical_merge", "Kind: Canonical merge"],
+        ],
+        textValue(filters.kind, "all"),
+        (kind) => sendAction("setFilters", { reviews: { kind } }),
+      ),
+    );
+    toolbar.appendChild(
+      selectControlWithLabels(
+        [
+          ["all", "Confidence: All"],
+          ["deterministic", "Confidence: Deterministic"],
+          ["high", "Confidence: High"],
+          ["medium", "Confidence: Medium"],
+          ["low", "Confidence: Low"],
+          ["review", "Confidence: Review"],
+        ],
+        textValue(filters.confidence, "all"),
+        (confidence) =>
+          sendAction("setFilters", { reviews: { confidence } }),
+      ),
+    );
+  }
+  return toolbar;
+}
+
+function appendReviewTableCell(row: HTMLTableRowElement, value: unknown) {
+  const cell = el("td");
+  if (value instanceof Node) {
+    cell.appendChild(value);
+  } else {
+    cell.textContent = textValue(value, "-");
+  }
+  row.appendChild(cell);
+}
+
+function appendReferenceProposalActionButton(
+  actions: HTMLElement,
+  label: string,
+  proposalId: string,
+  action: ReferenceProposalAction,
+) {
+  const pending = pendingReferenceProposalDecision(proposalId);
+  const button = makeLocalButton(label, () =>
+    queueReferenceProposalDecision(proposalId, action),
+    pending?.action === action,
+  );
+  button.disabled = isReferenceProposalDecisionSubmitting(proposalId);
+  actions.appendChild(button);
+}
+
+function appendReferenceProposalCancelButton(
+  actions: HTMLElement,
+  proposalId: string,
+) {
+  if (!pendingReferenceProposalDecision(proposalId)) {
+    return;
+  }
+  actions.appendChild(
+    makeLocalButton("Cancel pending", () =>
+      cancelReferenceProposalDecision(proposalId),
+    ),
+  );
+}
+
+function selectedReferenceProposalRows(rows: Array<Record<string, unknown>>) {
+  return rows.filter((proposal) =>
+    state.selectedReferenceProposalIds.has(referenceProposalId(proposal)),
+  );
+}
+
+function actionableReferenceProposalRows(rows: Array<Record<string, unknown>>) {
+  return rows.filter((proposal) => textValue(proposal.status) !== "superseded");
+}
+
+function renderReferenceProposalBulkActions(
+  rows: Array<Record<string, unknown>>,
+) {
+  const filters = reviewFilters(state.snapshot as Snapshot);
+  const status = textValue(filters.status, "open");
+  const selectedRows = selectedReferenceProposalRows(rows);
+  const visibleRows = actionableReferenceProposalRows(rows);
+  const controls = el("div", "reference-review-bulk-actions");
+  controls.appendChild(renderReferenceProposalPendingControls());
+  if (status !== "all" && status !== "superseded") {
+    if (status !== "accepted") {
+      const acceptAll = makeLocalButton("Accept all", () =>
+        queueReferenceProposalDecisions(visibleRows, "accept"),
+      );
+      acceptAll.disabled = !visibleRows.length || isReferenceProposalDecisionSubmitting();
+      controls.appendChild(acceptAll);
+    }
+    if (status !== "rejected") {
+      const rejectAll = makeLocalButton("Reject all", () =>
+        queueReferenceProposalDecisions(visibleRows, "reject"),
+      );
+      rejectAll.disabled = !visibleRows.length || isReferenceProposalDecisionSubmitting();
+      controls.appendChild(rejectAll);
+    }
+    if (status !== "accepted") {
+      const acceptSelected = makeLocalButton("Accept selected", () =>
+        queueReferenceProposalDecisions(selectedRows, "accept"),
+      );
+      acceptSelected.disabled =
+        !selectedRows.length || isReferenceProposalDecisionSubmitting();
+      controls.appendChild(acceptSelected);
+    }
+    if (status !== "rejected") {
+      const rejectSelected = makeLocalButton("Reject selected", () =>
+        queueReferenceProposalDecisions(selectedRows, "reject"),
+      );
+      rejectSelected.disabled =
+        !selectedRows.length || isReferenceProposalDecisionSubmitting();
+      controls.appendChild(rejectSelected);
+    }
+  }
+  if (selectedRows.length) {
+    controls.appendChild(
+      makeLocalButton("Clear selection", () => clearReferenceProposalSelections()),
+    );
+  }
+  controls.appendChild(
+    el(
+      "span",
+      "muted",
+      `${selectedRows.length} selected / ${state.pendingReferenceProposalDecisions.size} pending`,
+    ),
+  );
+  return controls;
+}
+
+function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
+  const rows = referenceMatchProposalsForReviewCenter(snapshot);
+  if (!rows.length) {
+    const empty = renderEmptyState({
+      title: "No reference matching reviews",
+      message: "Adjust the Review filters or run Advanced Matching.",
+      tone: "info",
+    });
+    empty.dataset.synthesisSurface = "reference-review-table";
+    return empty;
+  }
+  const wrap = el("div", "table-wrap review-center-table-wrap");
+  wrap.dataset.synthesisSurface = "reference-review-table";
+  wrap.appendChild(renderReferenceProposalBulkActions(rows));
+  const table = el("table", "registry-table review-center-table");
+  const thead = el("thead");
+  const header = el("tr");
+  const allRowsSelected = rows.every((proposal) =>
+    state.selectedReferenceProposalIds.has(referenceProposalId(proposal)),
+  );
+  const selectionHeader = el("th", "review-selection-cell");
+  const selectAll = el("input");
+  selectAll.type = "checkbox";
+  selectAll.checked = rows.length > 0 && allRowsSelected;
+  selectAll.addEventListener("change", () =>
+    toggleReferenceProposalRowsSelection(rows, selectAll.checked),
+  );
+  selectionHeader.appendChild(selectAll);
+  header.appendChild(selectionHeader);
+  [
+    "Source",
+    "Target",
+    "Parent item",
+    "Kind",
+    "Reasons",
+    "Status",
+    "Updated",
+    "Actions",
+  ].forEach((label) => header.appendChild(renderRegistryHeader(label)));
+  thead.appendChild(header);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  rows.forEach((proposal) => {
+    const context = referenceMatchProposalContext(snapshot, proposal);
+    const row = el("tr");
+    const proposalId = textValue(proposal.proposal_id);
+    const selectionCell = el("td", "review-selection-cell");
+    const checkbox = el("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = state.selectedReferenceProposalIds.has(proposalId);
+    checkbox.addEventListener("change", () =>
+      toggleReferenceProposalSelection(proposalId, checkbox.checked),
+    );
+    selectionCell.appendChild(checkbox);
+    row.appendChild(selectionCell);
+    appendReviewTableCell(row, context.sourceReferenceTitle);
+    appendReviewTableCell(row, context.targetPaperTitle);
+    appendReviewTableCell(row, context.parentItemTitle);
+    appendReviewTableCell(row, proposal.kind);
+    appendReviewTableCell(row, proposal.reasons);
+    const statusCell = el("div", "review-status-stack");
+    statusCell.appendChild(badge(proposal.status, registryStatusTone(proposal.status)));
+    const pending = pendingReferenceProposalDecision(proposalId);
+    if (pending) {
+      statusCell.appendChild(
+        badge(`Pending ${referenceProposalActionLabel(pending.action)}`, "warn"),
+      );
+    }
+    appendReviewTableCell(row, statusCell);
+    appendReviewTableCell(row, proposal.updated_at);
+    const actions = el("div", "review-table-actions");
+    const status = textValue(proposal.status, "open");
+    const isOptimisticallyResolved = isReviewOptimisticallyResolved(
+      "reference-match",
+      proposalId,
+    );
+    if (status === "open" && !isOptimisticallyResolved) {
+      appendReferenceProposalActionButton(actions, "Accept", proposalId, "accept");
+      appendReferenceProposalActionButton(actions, "Reject", proposalId, "reject");
+    } else if (status === "accepted") {
+      appendReferenceProposalActionButton(actions, "Reopen", proposalId, "reopen");
+      appendReferenceProposalActionButton(actions, "Reject", proposalId, "reject");
+      appendReferenceProposalActionButton(actions, "Delete", proposalId, "delete");
+    } else if (status === "rejected") {
+      appendReferenceProposalActionButton(actions, "Reopen", proposalId, "reopen");
+      appendReferenceProposalActionButton(actions, "Accept", proposalId, "accept");
+      appendReferenceProposalActionButton(actions, "Delete", proposalId, "delete");
+    } else {
+      actions.appendChild(el("span", "muted", "-"));
+    }
+    appendReferenceProposalCancelButton(actions, proposalId);
+    appendReviewTableCell(row, actions);
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function replaceSynthesisSurface(name: string, next: HTMLElement | null) {
+  const current = document.querySelector(
+    `[data-synthesis-surface="${name}"]`,
+  );
+  if (current && next) {
+    current.replaceWith(next);
+    return true;
+  }
+  if (current && !next) {
+    current.remove();
+    return true;
+  }
+  return false;
+}
+
+function refreshReferenceReviewSurfaces() {
+  const snapshot = state.snapshot;
+  if (!snapshot) {
+    render();
+    return;
+  }
+  let handled = false;
+  if (snapshot.selectedTab === "registry") {
+    const drawer = renderIndexReviewDrawer(snapshot);
+    handled = replaceSynthesisSurface("index-review-drawer", drawer);
+  }
+  if (snapshot.selectedTab === "reviews") {
+    handled = replaceSynthesisSurface(
+      "reference-review-table",
+      renderReferenceMatchingReviewTable(snapshot),
+    );
+  }
+  if (!handled) {
+    render();
+  }
+}
+
+function renderGenericReviewTable(
+  rows: Array<Record<string, unknown>>,
+  columns: Array<[string, (row: Record<string, unknown>) => unknown]>,
+  emptyTitle: string,
+) {
+  if (!rows.length) {
+    return renderEmptyState({
+      title: emptyTitle,
+      message: "Adjust the Review filters to show more records.",
+      tone: "info",
+    });
+  }
+  const wrap = el("div", "table-wrap review-center-table-wrap");
+  const table = el("table", "registry-table review-center-table");
+  const thead = el("thead");
+  const header = el("tr");
+  columns.forEach(([label]) => header.appendChild(renderRegistryHeader(label)));
+  thead.appendChild(header);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  rows.forEach((entry) => {
+    const row = el("tr");
+    columns.forEach(([, getter]) => appendReviewTableCell(row, getter(entry)));
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function renderReviewCenter(main: HTMLElement, snapshot: Snapshot) {
+  const panel = el("div", "panel review-center");
+  panel.appendChild(renderReviewCenterToolbar(snapshot));
+  const filters = reviewFilters(snapshot);
+  const activeTab = textValue(filters.activeTab, "reference_matching");
+  const status = textValue(filters.status, "open");
+  const query = textValue(filters.search);
+  if (activeTab === "reference_matching") {
+    panel.appendChild(renderReferenceMatchingReviewTable(snapshot));
+  } else if (activeTab === "index_cleanup") {
+    const rows = (snapshot.registry.cleanupProposals || []).filter(
+      (row) =>
+        reviewStatusMatches(row.status, status) &&
+        reviewSearchMatches(
+          [
+            row.source_paper_title,
+            row.source_paper_ref,
+            row.reference_title,
+            row.reference_raw,
+            row.target_paper_title,
+            row.reason,
+            row.kind,
           ],
-          actions: [],
-        }),
-        "cleanup-review-panel",
+          query,
+        ),
+    );
+    panel.appendChild(
+      renderGenericReviewTable(
+        rows,
+        [
+          ["Parent item", (row) => row.source_paper_title || row.source_paper_ref],
+          ["Reference", (row) => row.reference_title || row.reference_raw],
+          ["Target", (row) => row.target_paper_title || row.target_work_title],
+          ["Kind", (row) => row.review_kind || row.kind],
+          ["Status", (row) => badge(row.status, registryStatusTone(row.status))],
+          ["Updated", (row) => row.updated_at],
+        ],
+        "No index cleanup reviews",
+      ),
+    );
+  } else if (activeTab === "concepts") {
+    const rows = (snapshot.concepts.reviewItems || []).filter(
+      (row) =>
+        reviewStatusMatches(row.status, status) &&
+        reviewSearchMatches(
+          [row.label, row.reason, row.topic_id, row.review_id],
+          query,
+        ),
+    );
+    panel.appendChild(
+      renderGenericReviewTable(
+        rows,
+        [
+          ["Label", (row) => row.label],
+          ["Reason", (row) => row.reason],
+          ["Confidence", (row) => row.confidence],
+          ["Status", (row) => badge(row.status, registryStatusTone(row.status))],
+          ["Topic", (row) => row.topic_id],
+          ["ID", (row) => row.review_id],
+        ],
+        "No concept reviews",
+      ),
+    );
+  } else {
+    const topicGraphReviewRows = [
+      ...(snapshot.topicGraph.reviewItems || []),
+      ...(snapshot.topicGraph.inspector?.relationReviewItems || []),
+    ];
+    const rows = topicGraphReviewRows.filter(
+      (row) =>
+        reviewStatusMatches(row.status, status) &&
+        reviewSearchMatches(
+          [row.source_title, row.target_title, row.reason, row.review_id],
+          query,
+        ),
+    );
+    panel.appendChild(
+      renderGenericReviewTable(
+        rows,
+        [
+          ["Source", (row) => row.source_title || row.source_topic_id],
+          ["Target", (row) => row.target_title || row.target_topic_id],
+          ["Reason", (row) => row.reason],
+          ["Status", (row) => badge(row.status, registryStatusTone(row.status))],
+          ["ID", (row) => row.review_id],
+        ],
+        "No topic graph reviews",
       ),
     );
   }
@@ -6479,10 +7630,153 @@ function snapshotChromeSignature(snapshot: Snapshot | null) {
   }
   return JSON.stringify({
     actions: snapshot.actions || {},
+    localPendingActions: Array.from(state.localPendingActions.values()).map(
+      (entry) => [entry.key, entry.command, entry.status, entry.started_at],
+    ),
     backgroundJobs: snapshot.maintenance?.backgroundJobs || {},
     sync: snapshot.sync?.status,
     jobPopoverOpen: state.jobPopoverOpen,
   });
+}
+
+function compactRegistryRowSignature(row: Record<string, unknown>) {
+  return [
+    row.paper_ref,
+    row.title,
+    row.year,
+    row.artifactCoverage,
+    row.index_scope,
+    row.reference_count,
+    row.unbound_reference_count,
+  ];
+}
+
+function compactReferenceProposalSignature(row: Record<string, unknown>) {
+  return [
+    row.proposal_id,
+    row.status,
+    row.kind,
+    row.updated_at,
+    row.source_canonical_reference_id,
+    row.target_canonical_reference_id,
+    row.target_library_id,
+    row.target_item_key,
+  ];
+}
+
+function compactCleanupProposalSignature(row: Record<string, unknown>) {
+  return [
+    row.proposal_id,
+    row.status,
+    row.kind,
+    row.review_kind,
+    row.updated_at,
+    row.source_paper_ref,
+    row.target_paper_ref,
+  ];
+}
+
+function compactReviewItemSignature(row: Record<string, unknown>) {
+  return [
+    row.review_id,
+    row.edge_id,
+    row.status,
+    row.kind,
+    row.review_kind,
+    row.updated_at,
+    row.source_topic_id,
+    row.target_topic_id,
+  ];
+}
+
+function compactGraphNodeSignature(row: Record<string, unknown>) {
+  return [
+    row.id,
+    row.kind,
+    row.label,
+    row.year,
+    row.x,
+    row.y,
+    row.low_signal,
+    row.visibility,
+    row.display_tier,
+  ];
+}
+
+function compactGraphEdgeSignature(row: Record<string, unknown>) {
+  return [
+    row.id,
+    row.source,
+    row.target,
+    row.relation,
+    row.status,
+    row.weight,
+  ];
+}
+
+function compactTagRowSignature(row: Record<string, unknown>) {
+  return [row.tag, row.status, row.paper_count, row.updated_at];
+}
+
+function compactConceptRowSignature(row: Record<string, unknown>) {
+  return [
+    row.concept_id,
+    row.label,
+    row.status,
+    row.concept_type,
+    row.updated_at,
+  ];
+}
+
+function compactArtifactRowSignature(row: Record<string, unknown>) {
+  return [
+    row.id,
+    row.title,
+    row.freshness,
+    row.coverage,
+    row.updated_at,
+    row.paper_count,
+  ];
+}
+
+function registryContentSignature(snapshot: Snapshot) {
+  return {
+    selectedTab: snapshot.selectedTab,
+    filters: snapshot.registry.filters,
+    rows: snapshot.registry.visibleRows.map(compactRegistryRowSignature),
+    cleanup: (snapshot.registry.cleanupProposals || []).map(
+      compactCleanupProposalSignature,
+    ),
+    proposals: (snapshot.registry.matchProposals || []).map(
+      compactReferenceProposalSignature,
+    ),
+    cacheStatus: [
+      snapshot.registry.cacheStatus?.status,
+      snapshot.registry.cacheStatus?.refreshed_at,
+    ],
+  };
+}
+
+function reviewContentSignature(snapshot: Snapshot) {
+  return {
+    selectedTab: snapshot.selectedTab,
+    filters: reviewFilters(snapshot),
+    proposals: (snapshot.registry.matchProposals || []).map(
+      compactReferenceProposalSignature,
+    ),
+    cleanup: (snapshot.registry.cleanupProposals || []).map(
+      compactCleanupProposalSignature,
+    ),
+    concepts: (snapshot.concepts.reviewItems || []).map(
+      compactReviewItemSignature,
+    ),
+    graph: (snapshot.topicGraph.reviewItems || []).map(
+      compactReviewItemSignature,
+    ),
+    graphInspector: (
+      snapshot.topicGraph.inspector?.relationReviewItems || []
+    ).map(compactReviewItemSignature),
+  };
 }
 
 function snapshotContentSignature(snapshot: Snapshot | null) {
@@ -6491,13 +7785,10 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
   }
   const selectedTab = snapshot.selectedTab;
   if (selectedTab === "registry") {
-    return JSON.stringify({
-      selectedTab,
-      filters: snapshot.registry.filters,
-      rows: snapshot.registry.visibleRows,
-      cleanup: snapshot.registry.cleanupProposals || [],
-      cacheStatus: snapshot.registry.cacheStatus || {},
-    });
+    return JSON.stringify(registryContentSignature(snapshot));
+  }
+  if (selectedTab === "reviews") {
+    return JSON.stringify(reviewContentSignature(snapshot));
   }
   if (selectedTab === "graph") {
     return JSON.stringify({
@@ -6506,18 +7797,8 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       graph_hash: snapshot.graph.graph_hash,
       layoutPreset: snapshot.graph.layoutPreset,
       selectedElement: snapshot.graph.selectedElement,
-      nodes: snapshot.graph.nodes.map((node) => ({
-        id: node.id,
-        kind: node.kind,
-        label: node.label,
-        year: node.year,
-        x: node.x,
-        y: node.y,
-        low_signal: node.low_signal,
-        visibility: node.visibility,
-        display_tier: node.display_tier,
-      })),
-      edges: snapshot.graph.edges,
+      nodes: snapshot.graph.nodes.map(compactGraphNodeSignature),
+      edges: snapshot.graph.edges.map(compactGraphEdgeSignature),
       visibleNodeIds: snapshot.graph.visibleNodes.map((node) => node.id),
       visibleEdgeIds: snapshot.graph.visibleEdges.map((edge) => edge.id),
       hoverOnlyNodeIds: snapshot.graph.hoverOnlyNodes.map((node) => node.id),
@@ -6528,30 +7809,47 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
     return JSON.stringify({
       selectedTab,
       filters: snapshot.tags.filters,
-      rows: snapshot.tags.visibleRows,
+      rows: snapshot.tags.visibleRows.map(compactTagRowSignature),
       selected: snapshot.tags.selected,
-      importPreview: snapshot.tags.importPreview,
+      importPreview: [
+        snapshot.tags.importPreview?.additions?.length || 0,
+        snapshot.tags.importPreview?.unchanged?.length || 0,
+        snapshot.tags.importPreview?.conflicts?.length || 0,
+        snapshot.tags.importPreview?.warnings?.length || 0,
+      ],
       importDraft: snapshot.tags.importDraft,
-      projection: snapshot.tags.projection,
+      projection: [
+        snapshot.tags.projection?.stale,
+        snapshot.tags.projection?.last_rebuild_at,
+      ],
     });
   }
   if (selectedTab === "concepts") {
     return JSON.stringify({
       selectedTab,
       filters: snapshot.concepts.filters,
-      rows: snapshot.concepts.visibleRows,
+      rows: snapshot.concepts.visibleRows.map(compactConceptRowSignature),
       selected: snapshot.concepts.selected,
-      reviewItems: snapshot.concepts.reviewItems,
-      projection: snapshot.concepts.projection,
+      reviewItems: snapshot.concepts.reviewItems.map(compactReviewItemSignature),
+      projection: [
+        snapshot.concepts.projection?.stale,
+        snapshot.concepts.projection?.last_rebuild_at,
+      ],
     });
   }
   if (selectedTab === "artifacts") {
     return JSON.stringify({
       selectedTab,
       filters: snapshot.artifacts.filters,
-      rows: snapshot.artifacts.visibleRows,
-      topicGraph: snapshot.topicGraph,
-      deletedArtifacts: snapshot.deletedArtifacts,
+      rows: snapshot.artifacts.visibleRows.map(compactArtifactRowSignature),
+      graphProjection: [
+        snapshot.topicGraph.projection?.stale,
+        snapshot.topicGraph.projection?.last_rebuild_at,
+      ],
+      deletedArtifacts: [
+        snapshot.deletedArtifacts.count,
+        snapshot.deletedArtifacts.rows.length,
+      ],
     });
   }
   if (selectedTab === "reader") {
@@ -6567,10 +7865,10 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
   }
   return JSON.stringify({
     selectedTab,
-    artifacts: snapshot.artifacts.rows,
+    artifactCount: snapshot.artifacts.rows.length,
     registryCount: snapshot.registry.rows.length,
     graphCount: snapshot.graph.visibleNodes.length,
-    sync: snapshot.sync,
+    sync: snapshot.sync?.status,
     conflicts: snapshot.conflicts,
   });
 }
@@ -6950,14 +8248,14 @@ window.addEventListener("message", (event: MessageEvent) => {
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {
     const nextSnapshot = (data.payload || null) as Snapshot | null;
     const nextContentSignature = snapshotContentSignature(nextSnapshot);
-    const nextChromeSignature = snapshotChromeSignature(nextSnapshot);
     const contentChanged = nextContentSignature !== state.lastContentSignature;
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    const nextChromeSignature = snapshotChromeSignature(state.snapshot);
     const chromeChanged = nextChromeSignature !== state.lastChromeSignature;
     if (!contentChanged && !chromeChanged) {
       return;
     }
-    state.snapshot = nextSnapshot;
-    clearResolvedLocalPending(state.snapshot);
     if (!contentChanged) {
       state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
       renderWorkbenchChrome();

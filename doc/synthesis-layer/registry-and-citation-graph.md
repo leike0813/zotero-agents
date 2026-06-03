@@ -2,7 +2,7 @@
 
 The Reference Sidecar and Citation Graph form the fast lookup layer for graph and inspection workflows. They are valuable because they are rebuildable sidecar projections over workflow artifacts, not because they own Zotero Library facts or user-authored topic content.
 
-The SSOT boundary is defined in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md). Historical Registry terminology is retained only to identify old implementation surfaces that must be removed or renamed during the hard cut. The active product model is artifact sidecar plus raw references, canonical references, reference bindings, and explicit review.
+The SSOT boundary is defined in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md). Historical Registry terminology is retained only to identify old implementation surfaces that must be removed or renamed during the hard cut. The active product model is artifact sidecar plus raw references, canonical references, accepted reference binding facts, canonical redirects, and explicit advanced-matching proposals.
 
 ## Data Model
 
@@ -78,18 +78,35 @@ Reads must resolve the effective canonical reference before graph materializatio
 
 ### Reference Bindings
 
-Reference bindings map canonical references to current Zotero Library items.
+Reference bindings map canonical references to current Zotero Library items. They are accepted facts, not candidate storage.
 
 | Field | Meaning |
 | --- | --- |
 | `binding_id` | Stable binding row id. |
 | `canonical_reference_id` | Effective canonical reference being bound. |
 | `library_id`, `item_key` | Zotero target item. |
-| `status` | `accepted`, `candidate`, `rejected`, or `stale_target`. |
+| `status` | New writes use `accepted`; legacy values normalize into the read model. |
 | `method`, `confidence`, `evidence_json` | Matching provenance. |
 | `created_at`, `updated_at` | Lifecycle timestamps. |
 
-`accepted` decisions are durable user sidecar facts. Automatic and user-confirmed provenance is recorded as evidence, not as separate lifecycle states. Refresh may preserve accepted bindings or mark them `stale_target` after direct Zotero checks, but it must not silently overwrite or delete them.
+Automatic and user-confirmed provenance is recorded as evidence, not as separate lifecycle states. Refresh preserves accepted bindings and the read model may derive `stale_target` when the Zotero target is gone, but refresh must not silently overwrite or delete accepted facts.
+
+### Reference Match Proposals
+
+Advanced Reference Matching stores uncertain matcher output in `synt_reference_match_proposal`.
+
+| Field | Meaning |
+| --- | --- |
+| `proposal_id` | Stable proposal id for one source/target/basis. |
+| `kind` | `zotero_binding` or `canonical_merge`. |
+| `status` | `open`, `accepted`, `rejected`, or `superseded`. |
+| `source_canonical_reference_id` | Candidate source canonical reference. |
+| `target_library_id`, `target_item_key` | Zotero target for binding proposals. |
+| `target_canonical_reference_id` | Canonical target for merge proposals. |
+| `confidence`, `score`, `reasons_json`, `evidence_json` | Matcher evidence. |
+| `basis_hash`, `source_hash` | Reopen suppression and provenance basis. |
+
+Accepted proposals write facts to `synt_reference_binding` or `synt_canonical_reference_redirect`. Rejected proposals suppress reopening for the same basis. Open proposals never create graph edges.
 
 ## Two-Stage Reference Refresh
 
@@ -111,8 +128,8 @@ Stage 2: changed-reference processing.
 4. Read and parse only the changed references artifact.
 5. Insert new raw references for the new `source_ref + references_hash`.
 6. Assign canonical references and run incremental dedupe against the active canonical reference index.
-7. Run best-effort automatic binding only for new or affected canonical references when the required Zotero metadata can be read within budget.
-8. Leave ambiguous binding, broad library metadata scans, and user approval to explicit binding repair/review.
+7. Run only lightweight best-effort binding for new or affected canonical references when citekey or exact title-year keys can be checked within budget.
+8. Leave heavy reference matching, ambiguous binding, broad library metadata scans, and user approval to explicit Advanced Reference Matching.
 
 This refresh must expose progress from real counts: scanned artifact sources, changed artifacts, extracted references, canonical matches, and affected binding candidates. A failed source should write bounded diagnostics for that source without making the entire refresh appear permanently running.
 
@@ -130,15 +147,31 @@ On success, reference refresh marks only `reference-sidecar:library` ready in `s
 
 This is not an implicit Zotero Library trigger. It is scoped to the applied item and must not start graph cache rebuild, topic source check, or a library-wide backscan.
 
-## Binding Repair and Review
+## Advanced Reference Matching and Review
 
-Binding repair is separate from ordinary refresh because it may need current Zotero metadata and user judgment.
+Advanced Reference Matching is separate from ordinary refresh because it may need current Zotero metadata, heavier title matching, and user judgment.
 
-- Candidate generation uses indexed blocking keys such as DOI/arXiv/ISBN, compact title keys, bounded author/year buckets, and existing rejected/accepted decisions.
-- Strong identifier equality without contradictory bibliographic evidence may create an `accepted` binding with automatic provenance.
-- Ambiguous candidates create review items or `candidate` bindings.
-- User actions can confirm, reject, merge, retarget, or remove bindings.
-- Binding repair may scan Zotero metadata for the selected scope, but it must not persist Zotero metadata as a library fact source.
+- It is started only by `runAdvancedReferenceMatchingNow` or scoped debug/test harnesses.
+- It has two passes: Zotero reference binding and external canonical-reference dedupe.
+- The binding pass uses `referenceMatcher.ts` and builds a Zotero matcher index once per operation.
+- The dedupe pass runs the cluster-first canonical dedupe algorithm over active
+  unbound effective canonical references, using identifier evidence,
+  title-candidate provenance, structured containment classification, sticky
+  representatives, exact title/year subclusters, and bounded fuzzy review
+  candidates.
+- `matched` binding results with deterministic or high confidence may automatically write accepted binding facts.
+- Deterministic external duplicates may write canonical redirects; fuzzy dedupe candidates only create `canonical_merge` proposals.
+- Suggested or ambiguous binding/dedupe results create `synt_reference_match_proposal` rows.
+- User actions accept or reject proposals; accepted proposals write binding or canonical redirect facts.
+- Any accepted fact changes mark citation graph cache stale but do not rebuild graph cache automatically.
+
+The Synthesis Index harness runs the same cluster-first dedupe algorithm as a
+debug tool for current index state. Harness runs write only the isolated debug
+database; production Advanced Matching writes accepted redirects or
+`canonical_merge` proposals. Representative selection uses effective-canonical
+raw aggregation, title-candidate provenance, sticky existing representatives,
+and capped raw support as documented in
+`.codex/artifacts/advanced-reference-dedupe-cluster-algorithm.md`.
 
 ## Citation Graph Cache Rebuild
 

@@ -46,6 +46,10 @@ Do not invent percentages.
 
 Queue aggregates and debug work listings are not part of the active UI contract. Debug views may inspect explicit operations and cache diagnostics only.
 
+Advanced Reference Matching appears under Index and Review as an explicit review workflow. The Index fact tables continue to show accepted binding facts and unbound derived state; open proposals are displayed in the review drawer and Review Center with Accept/Reject actions. The Review Center also lets users manage prior decisions: accepted proposals can be reopened, rejected, or deleted, and rejected proposals can be reopened, accepted, or deleted. Changing an accepted proposal must revoke the binding or redirect fact created from that proposal. Running advanced matching must require confirmation because it may run heavier binding and canonical dedupe logic than refresh.
+
+Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
+
 ## Graph UI
 
 - Show all library nodes by default.
@@ -70,6 +74,7 @@ Examples of manageable decisions:
 
 - rejected discovery hint;
 - accepted reference-binding decision;
+- accepted or rejected advanced reference match proposal;
 - ignored cleanup proposal;
 - user-confirmed merge/delete override.
 

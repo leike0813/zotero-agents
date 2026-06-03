@@ -82,6 +82,11 @@ invariants:
     statement: Graph-affecting reference matches require deterministic safe apply or explicit user-approved binding decisions; suggestions do not create graph edges.
     evidence: Reference matcher tests and graph cache tests.
 
+  - id: inv.reference.quality_gate_before_identity
+    severity: high
+    statement: Deterministic invalid literature-digest reference extraction rows must be filtered before generated references notes are written, and Synthesis sidecar ingestion must not materialize them as raw or canonical reference identities.
+    evidence: Literature digest apply tests and sidecar ingestion tests.
+
   - id: inv.reference.no_matching_metadata_for_citations
     severity: fatal
     statement: literature_matching_metadata is topic-discovery metadata and is not used for literature-to-literature reference resolution.

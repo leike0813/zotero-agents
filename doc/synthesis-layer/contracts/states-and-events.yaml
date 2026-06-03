@@ -23,27 +23,24 @@ state_machines:
         to: active
         reason: explicit_split_retarget_or_import_policy_required
 
-  - id: sm.reference.binding
-    owner: reference_binding_review
-    object: reference_binding
-    states: [candidate, accepted, rejected, stale_target]
+  - id: sm.reference.match_proposal
+    owner: reference_matching_review
+    object: reference_match_proposal
+    states: [open, accepted, rejected, superseded]
     transitions:
-      - { from: candidate, to: accepted }
-      - { from: candidate, to: rejected }
+      - { from: open, to: accepted }
+      - { from: open, to: rejected }
+      - { from: open, to: superseded }
+      - { from: rejected, to: open }
+      - { from: rejected, to: accepted }
+      - { from: rejected, to: superseded }
+      - { from: accepted, to: open }
       - { from: accepted, to: rejected }
-      - { from: accepted, to: stale_target }
-      - { from: stale_target, to: accepted }
-      - { from: rejected, to: candidate }
+      - { from: accepted, to: superseded }
     forbidden_transitions:
-      - from: accepted
-        to: deleted_by_refresh
-        reason: refresh_must_not_delete_accepted_binding
-      - from: candidate
-        to: accepted
-        reason: weak_candidates_require_review_or_deterministic_policy
-      - from: accepted
-        to: topic_source_changed
-        reason: binding_cache_is_not_topic_freshness
+      - from: any
+        to: any
+        reason: refresh_or_rebuild_must_not_change_proposal_decisions_without_explicit_user_action
 
   - id: sm.topic.discovery_hint
     owner: topic_discovery_service

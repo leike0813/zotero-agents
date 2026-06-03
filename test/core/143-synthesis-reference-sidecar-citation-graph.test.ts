@@ -108,6 +108,69 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(registry.rows[0]?.artifactCoverage, "complete");
   });
 
+  it("skips deterministic invalid references during sidecar ingestion [inv.reference.quality_gate_before_identity]", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({ root });
+
+    const result = await service.applyLiteratureDigestSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      citekey: "attention2020",
+      digest: { noteKey: "NDIGEST", content: "# Digest\n\nBody" },
+      references: {
+        noteKey: "NREFS",
+        references: [
+          {
+            title: "https://doi.org/10.1007/978-3-319-10602-1_48",
+            raw: "https://doi.org/10.1007/978-3-319-10602-1_48",
+          },
+          {
+            title: "Sensors 18(10), 3337",
+            raw: "Sensors 18(10), 3337",
+          },
+          {
+            title:
+              "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+            year: "2021",
+            raw:
+              "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+          },
+          {
+            title: "Layer normalization",
+            year: "2016",
+            raw:
+              "Lei Jimmy Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016.",
+          },
+        ],
+      },
+      citationAnalysis: { noteKey: "NCITE", payloadHash: "sha256:cite" },
+    });
+
+    const rawReferences = repository.listRawReferences();
+    assert.equal(result.reference_count, 2);
+    assert.equal(rawReferences.length, 2);
+    assert.sameMembers(
+      rawReferences.map((row) => row.parsedTitle),
+      [
+        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+        "Layer normalization",
+      ],
+    );
+    assert.equal(repository.listCanonicalReferences().length, 2);
+    assert.include(
+      JSON.parse(rawReferences[0]?.diagnosticsJson || "[]")
+        .map((entry: { code?: string }) => entry.code)
+        .concat(
+          JSON.parse(rawReferences[1]?.diagnosticsJson || "[]").map(
+            (entry: { code?: string }) => entry.code,
+          ),
+        ),
+      "bibliographic_suffix_in_title",
+    );
+  });
+
   it("persists explicit reference matching decisions as graph-affecting state", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({

@@ -15,10 +15,7 @@ import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
-import {
-  openSynthesisWorkbenchTab,
-  prewarmSynthesisWorkbenchSnapshot,
-} from "./modules/synthesisWorkbenchTab";
+import { openSynthesisWorkbenchTab } from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
@@ -93,7 +90,6 @@ import { recordSynthesisZoteroItemNotifications } from "./modules/synthesis/item
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
-const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 
 function registerPrefsPane() {
   const runtimeRootURI =
@@ -144,35 +140,6 @@ export function setSkillRunnerStartupBackendReconcileRunnerForTests(
 
 async function delayMs(ms: number) {
   await delay(ms);
-}
-
-function prewarmSynthesisWorkbenchAfterStartup() {
-  void (async () => {
-    await delay(SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS);
-    const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
-    const popupWin = ProgressWindow
-      ? new ProgressWindow(addon.data.config.addonName, {
-          closeOnClick: true,
-          closeTime: -1,
-        })
-          .createLine({
-            text: "Preloading Synthesis Workbench...",
-            type: "default",
-            progress: 15,
-          })
-          .show()
-      : null;
-    const snapshot = await prewarmSynthesisWorkbenchSnapshot();
-    if (popupWin) {
-      popupWin.changeLine({
-        progress: 100,
-        text: snapshot
-          ? "Synthesis Workbench is ready."
-          : "Synthesis Workbench will load on first open.",
-      });
-      popupWin.startCloseTimer(3000);
-    }
-  })().catch(() => undefined);
 }
 
 function getRuntimeToolkit() {
@@ -300,7 +267,6 @@ async function onStartup() {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
-  prewarmSynthesisWorkbenchAfterStartup();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {

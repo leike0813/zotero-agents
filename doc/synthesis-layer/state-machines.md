@@ -55,35 +55,40 @@ Forbidden transitions:
 - Refresh silently deleting a canonical reference that still has active raw references or durable binding decisions.
 - `merged -> active` without explicit split, retarget, or import policy.
 
-## `sm.reference.binding`
+## `sm.reference.match_proposal`
 
-Owner: Reference binding review.
+Owner: Reference matching review.
 
-Object: Canonical-reference-to-Zotero binding decision.
+Object: Advanced matcher proposal for a Zotero binding or canonical merge.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> candidate: generated suggestion
-  [*] --> accepted: deterministic safe match
-  candidate --> accepted: user approves
-  candidate --> rejected: user rejects
-  accepted --> rejected: user rejects
-  accepted --> stale_target: target missing or conflicts
-  stale_target --> accepted: explicit retarget or restore
-  rejected --> candidate: explicit reopen
+  [*] --> open: generated suggestion
+  open --> accepted: user approves
+  open --> rejected: user rejects
+  open --> superseded: source or target basis changed
+  rejected --> open: explicit reopen
+  rejected --> accepted: explicit accept after review
+  rejected --> superseded: explicit delete
+  accepted --> open: explicit reopen and revoke fact
+  accepted --> rejected: explicit reject and revoke fact
+  accepted --> superseded: explicit delete or accepted fact replaced by newer basis
 ```
 
 Allowed transitions:
 
-- `candidate -> accepted/rejected` requires explicit review or deterministic policy.
-- `accepted -> rejected/stale_target` is allowed as user correction or target validation.
-- `stale_target -> accepted` requires explicit retarget, restore, or import policy.
+- `open -> accepted/rejected` requires explicit review.
+- `open -> superseded` is allowed when source or target basis changed.
+- `rejected -> open/accepted/superseded` requires explicit user action or a new basis.
+- `accepted -> open/rejected/superseded` requires explicit user action and revokes
+  the accepted binding/redirect fact when that fact was created from the proposal.
 
 Forbidden transitions:
 
-- Cache refresh silently deleting an accepted binding.
-- `candidate -> accepted` merely because refresh reran without review or deterministic evidence.
-- Binding state changing topic artifact freshness by itself.
+- Cache refresh silently accepting or deleting a proposal.
+- Refresh/rebuild changing accepted or rejected proposal decisions without an
+  explicit user action.
+- Proposal state changing topic artifact freshness by itself.
 
 ## `sm.topic.discovery_hint`
 

@@ -149,14 +149,105 @@ The matcher returns a layered result:
 
 | Field | Meaning |
 | --- | --- |
-| `status` | Matcher-local evidence outcome. It is not an Index/UI state. Materialized sidecar state is expressed as reference binding `accepted`, `candidate`, `rejected`, or `stale_target`. |
+| `status` | Matcher-local evidence outcome. It is not an Index/UI state. Materialized sidecar state is expressed as accepted binding facts or reference match proposals. |
 | `targetCanonicalReferenceId` | Effective canonical reference selected by dedupe or binding policy. |
 | `targetSourceRef` | Optional Zotero-bound target `source_ref` when the target has an active binding. |
 | `confidence` | `deterministic`, `high`, `low`, or `review`. |
 | `diagnostics` | Structured evidence, tier, policy version, and reason codes. |
 | `suggestedCandidates` | Bounded ranked candidates with target, score, evidence fields, and reasons. |
 
-Only deterministic or high-confidence automatic outcomes may create or update `accepted` bindings. Low-confidence and review-confidence outcomes are candidates or review payloads until an explicit review action writes an accepted binding. Candidates alone never create library-to-library graph edges.
+Only deterministic or high-confidence outcomes from explicit advanced matching may create or update accepted binding facts automatically. Low-confidence and review-confidence outcomes become `synt_reference_match_proposal` rows until an explicit review action writes an accepted binding or canonical redirect. Open proposals never create library-to-library graph edges.
+
+## Lightweight vs Advanced Matching
+
+Two matching routes intentionally coexist:
+
+| Route | Trigger | Algorithm | Output |
+| --- | --- | --- | --- |
+| Lightweight Sidecar Binding | Reference Sidecar refresh and workflow apply | citeKey and exact normalized title-year map lookups | accepted binding fact or unbound derived state |
+| Advanced Reference Binding | `runAdvancedReferenceMatchingNow` binding pass | `referenceMatcher.ts` layered identifier/title/fuzzy policy against Zotero items | accepted binding facts for deterministic/high matches; proposals for suggested/ambiguous Zotero targets |
+| Advanced External Dedupe | `runAdvancedReferenceMatchingNow` dedupe pass | cluster-first canonical dedupe by identifiers, title/year subclusters, structured containment classification, sticky representatives, and bounded fuzzy review candidates | accepted canonical redirects for deterministic duplicates; `canonical_merge` proposals for fuzzy, ambiguous, retarget, or semantic-risk candidates |
+
+Refresh and workflow apply must not call `buildReferenceMatcherIndex`, `resolveReferenceWithPolicy`, or the advanced external dedupe pass. Advanced matching must be explicit, progress-reporting, and stale-tolerant; accepted binding or redirect fact changes mark citation graph cache stale but do not rebuild graph data.
+
+The external dedupe pass is precision-first and cluster-first. It builds an
+effective canonical graph from active raw references, existing redirects, title
+candidates, identifiers, year/author evidence, and sticky representative
+signals. DOI/arXiv exact duplicates and safe exact title/year subclusters may
+write redirects automatically. Fuzzy, ambiguous, retarget, and semantic-risk
+edges become `canonical_merge` review proposals. Fuzzy output is review-only and
+must not auto-write redirects.
+
+Before a canonical enters cluster blocking, the production clustered dedupe pass classifies
+it as `eligible`, `weak`, or `excluded`. Bare DOI/URL rows, titles with too few
+content tokens, pure venue/page text, and other non-work-title records are
+`excluded` and do not generate cluster edges. Mostly-author strings or heavily
+bibliographic titles are `weak`: they remain visible as diagnostics/review
+context but are not automatic redirect sources.
+
+Contained-title classification uses structured bibliographic suffix evidence
+rather than a growing venue-name table. Core markers and patterns include
+DOI/arXiv fragments, `preprint`, `proceedings`, `conference`, `journal`,
+`pp/pages`, `vol/no`, volume/issue/page forms, and editor/publisher-like
+suffixes. Concrete venues such as CVPR, ICCV, NeurIPS, Sensors, or publisher
+names are weak evidence only; by themselves they must not classify a containment
+edge as bibliographic noise. If extra tokens remain unexplained and carry
+semantic title content, the edge is `contained_extension_risk` and remains
+review-only.
+
+## Cluster Dedupe Harness
+
+The realtime Synthesis Index harness lives in `tools/synthesis-index-harness`.
+It reads Zotero SQLite and Synthesis plugin SQLite directly, constructs current
+canonical dedupe inputs, runs the same cluster-first dedupe algorithm used by
+production Advanced Matching, and writes results only to an isolated debug
+SQLite database. Harness decisions are debug annotations, not production
+proposal/redirect decisions.
+
+The clustered algorithm exposes connected components, evidence edges,
+deterministic subclusters, stable representative choices, and review/redirect
+actions for inspection. Title containment is classified into bibliographic
+noise, author noise, or semantic extension risk; semantic extension risk is
+review-only and must not become an automatic redirect.
+
+The cluster harness follows the design artifact at
+`.codex/artifacts/advanced-reference-dedupe-cluster-algorithm.md`. It aggregates
+active raw references through effective canonical redirects, preserves title
+candidates from effective canonical rows, physical canonical rows, and raw
+parsed references, and selects representatives by stability and title quality
+before capped raw support. Existing redirect targets are sticky representatives;
+retargeting them automatically requires strong deterministic DOI/arXiv or safe
+exact-title evidence. Harness projected canonical lists are debug previews only
+and never write to production sidecar tables.
+
+The harness exposes eligibility and filter reasons in the Canonicals and
+Cluster Results views. This is the primary debugging surface for bad extraction
+inputs such as bare DOI rows, truncated author strings, and publication metadata
+that should be filtered before ordinary dedupe.
+
+The fixture/gold-label harness under
+`.agents/skills/synthesis-reference-resolution-harness` remains the benchmark
+workflow. Use the tools harness when debugging the current library/index state.
+
+## Upstream Reference Quality Gate
+
+Reference extraction quality belongs upstream of Synthesis identity matching.
+The external `literature-digest` skill should hard-block deterministic bad Stage
+4 reference rows and soft-warn low-quality rows for LLM review before
+`persist_references` commits them.
+
+The builtin `literature-digest` workflow apply step provides a fallback gate
+before it writes the generated references note. This fallback removes only
+deterministic invalid rows: empty titles, bare DOI/URL titles, publication
+metadata-only titles, author-only strings, and titles with no usable content
+tokens. Warning-only rows such as bibliographic suffixes, possible author-prefix
+noise, missing year/authors, or short-but-plausible titles remain in the
+references artifact and are reported through apply diagnostics.
+
+Synthesis sidecar ingestion repeats the deterministic skip as a legacy/import
+fallback. It must not treat quality warnings as matching evidence, must not
+generate review proposals from the quality gate, and must not call Advanced
+Reference Matching or clustered dedupe from refresh/workflow apply.
 
 ## Evaluation Metrics
 
@@ -177,7 +268,8 @@ Reference resolution must avoid unbounded `references * registry` fuzzy scans.
 
 - Identifier lookup uses normalized DOI/arXiv/URL/citeKey indexes.
 - Exact and strong compact title lookup uses title-key indexes.
-- Fuzzy title comparison runs only inside a bounded candidate pool from identifiers, title keys, year bands, author tokens, or other cheap indexes.
+- Fuzzy title comparison runs only inside a bounded candidate pool from title keys, year bands, rare/content tokens, contained strong-title checks, or other cheap indexes.
+- External dedupe fuzzy comparison must not run a global all-canonical N² scan; it uses block and pair budgets and records diagnostics when budget is exceeded.
 - Diagnostics/review candidates are normally top 3 to top 5 per reference instance.
 - Batch rebuilds report timing by phase: identifier extraction, candidate generation, scoring, materialization, graph invalidation.
 

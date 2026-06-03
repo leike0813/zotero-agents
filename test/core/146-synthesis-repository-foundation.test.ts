@@ -111,6 +111,7 @@ describe("Synthesis repository foundation", function () {
       "synt_canonical_reference",
       "synt_canonical_reference_redirect",
       "synt_reference_binding",
+      "synt_reference_match_proposal",
       "synt_citation_node",
       "synt_citation_edge",
       "synt_citation_source_ownership",
@@ -145,6 +146,9 @@ describe("Synthesis repository foundation", function () {
       "idx_synt_canonical_reference_title",
       "idx_synt_reference_binding_target",
       "idx_synt_reference_binding_canonical",
+      "idx_synt_reference_match_proposal_status",
+      "idx_synt_reference_match_proposal_source",
+      "idx_synt_reference_match_proposal_basis",
       "idx_synt_citation_edge_source_status",
       "idx_synt_citation_edge_target_status",
       "idx_synt_citation_source_owner_source",
@@ -220,6 +224,53 @@ describe("Synthesis repository foundation", function () {
     );
 
     assert.equal(repository.countRows("synt_artifact_sidecar"), 0);
+  });
+
+  it("stores advanced reference match proposals separately from accepted binding facts", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-06-02T00:00:00.000Z",
+    });
+
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:1",
+      kind: "zotero_binding",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:source",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:1"]),
+      targetLibraryId: 1,
+      targetItemKey: "TARGET",
+      confidence: "low",
+      score: 0.91,
+      reasonsJson: JSON.stringify(["suggested_fuzzy_title"]),
+      evidenceJson: JSON.stringify({ title_similarity: 0.91 }),
+      diagnosticsJson: "[]",
+      basisHash: "sha256:basis",
+      sourceHash: "sha256:source",
+    });
+
+    assert.lengthOf(repository.listReferenceBindings(), 0);
+    assert.lengthOf(
+      repository.listReferenceMatchProposals({ statuses: ["open"] }),
+      1,
+    );
+
+    repository.updateReferenceMatchProposalStatus({
+      proposalId: "proposal:1",
+      status: "rejected",
+    });
+
+    assert.isTrue(
+      repository.hasRejectedReferenceMatchProposal({
+        kind: "zotero_binding",
+        basisHash: "sha256:basis",
+        sourceHash: "sha256:source",
+      }),
+    );
+    assert.equal(
+      repository.listReferenceMatchProposals({ statuses: ["rejected"] })[0]
+        ?.status,
+      "rejected",
+    );
   });
 
   it("resets Synthesis runtime tables while preserving schema metadata and non-Synthesis state", function () {

@@ -126,9 +126,12 @@ The flow is:
 
 1. Generate candidates using indexed blocking keys such as normalized identifiers, compact title keys, and bounded author/year buckets.
 2. Auto-accept only precision-first deterministic matches.
-3. Present ambiguous dedupe, merge, and binding candidates for user review.
-4. Store accepted/rejected decisions with provenance, confidence, evidence summary, and affected Zotero binding refs.
-5. Mark graph cache stale or recommend graph cache rebuild; do not rebuild graph inside the review action unless the user explicitly requested that operation.
+3. Run external canonical dedupe only inside the explicit advanced matching operation, never during refresh/apply.
+4. Present ambiguous dedupe, merge, fuzzy, and binding candidates for user review.
+5. Store accepted/rejected decisions with provenance, confidence, evidence summary, and affected Zotero binding or canonical redirect refs.
+6. Mark graph cache stale or recommend graph cache rebuild; do not rebuild graph inside the review action unless the user explicitly requested that operation.
+
+Fuzzy external dedupe is review-only in this version. It runs after deterministic dedupe clusters are formed and compares unresolved singleton canonical references against deterministic cluster representatives and remaining singleton targets under block and pair budgets.
 
 Rejected or accepted decisions are durable sidecar facts, not ordinary cache rows.
 

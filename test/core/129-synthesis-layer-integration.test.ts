@@ -1138,6 +1138,267 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(snapshot.graph.layoutStatus, "ready");
   });
 
+  it("runs advanced reference matching as an explicit proposal/fact operation", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Source Paper",
+          notes: [
+            artifactNote({
+              payloadType: "references-json",
+              value: JSON.stringify({
+                references: [
+                  { title: "Accepted Target Paper" },
+                  { title: "Duplicated Candidate Paper" },
+                ],
+              }),
+              format: "json",
+            }),
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Accepted Target Paper",
+        },
+        {
+          libraryId: 1,
+          itemKey: "C",
+          title: "Duplicated Candidate Paper",
+        },
+        {
+          libraryId: 1,
+          itemKey: "D",
+          title: "Duplicated Candidate Paper",
+        },
+      ],
+    });
+
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-12T00:00:00.000Z",
+    });
+    assert.equal(
+      repository.listCacheBasis({ cacheKinds: ["citation_graph"] })[0]?.status,
+      "ready",
+    );
+
+    const result = await service.runAdvancedReferenceMatchingNow();
+    const acceptedBindings = repository.listReferenceBindings({
+      statuses: ["accepted"],
+    });
+    const openProposals = repository.listReferenceMatchProposals({
+      statuses: ["open"],
+    });
+    const graphBasis = repository
+      .listCacheBasis({ cacheKinds: ["citation_graph"] })
+      .find((basis) => basis.cacheKey === "citation-graph:library");
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      acceptedBindings.some((binding) => binding.itemKey === "B"),
+      true,
+    );
+    assert.includeMembers(
+      openProposals.map((proposal) => proposal.targetItemKey),
+      ["C", "D"],
+    );
+    assert.equal(graphBasis?.status, "stale");
+    assert.equal(
+      repository.listCitationEdges({ statuses: ["accepted"] }).length,
+      0,
+    );
+
+    const rejectedProposalId = openProposals[0]?.proposalId;
+    assert.isString(rejectedProposalId);
+    const rejectBatch = await service.applyReferenceMatchProposalActions({
+      decisions: [{ proposalId: rejectedProposalId!, action: "reject" }],
+    });
+    assert.equal(rejectBatch.applied_count, 1);
+    assert.equal(rejectBatch.failed_count, 0);
+    await service.runAdvancedReferenceMatchingNow();
+    const proposalsAfterRerun = repository.listReferenceMatchProposals();
+    assert.lengthOf(proposalsAfterRerun, openProposals.length);
+    assert.equal(
+      proposalsAfterRerun.find(
+        (proposal) => proposal.proposalId === rejectedProposalId,
+      )?.status,
+      "rejected",
+    );
+
+    const reopenBatch = await service.applyReferenceMatchProposalActions({
+      decisions: [{ proposalId: rejectedProposalId!, action: "reopen" }],
+    });
+    assert.equal(reopenBatch.applied_count, 1);
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: [rejectedProposalId!],
+      })[0]?.status,
+      "open",
+    );
+
+    const acceptBatch = await service.applyReferenceMatchProposalActions({
+      decisions: [{ proposalId: rejectedProposalId!, action: "accept" }],
+    });
+    assert.equal(acceptBatch.applied_count, 1);
+    const acceptedProposal = repository.listReferenceMatchProposals({
+      proposalIds: [rejectedProposalId!],
+    })[0];
+    assert.equal(acceptedProposal?.status, "accepted");
+    assert.isTrue(
+      repository
+        .listReferenceBindings({ statuses: ["accepted"] })
+        .some((binding) => binding.itemKey === acceptedProposal?.targetItemKey),
+    );
+
+    await service.applyReferenceMatchProposalAction({
+      proposalId: rejectedProposalId!,
+      action: "reject",
+    });
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: [rejectedProposalId!],
+      })[0]?.status,
+      "rejected",
+    );
+    assert.isFalse(
+      repository
+        .listReferenceBindings({ statuses: ["accepted"] })
+        .some((binding) => binding.itemKey === acceptedProposal?.targetItemKey),
+    );
+
+    const deleteProposalId = openProposals.find(
+      (proposal) => proposal.proposalId !== rejectedProposalId,
+    )?.proposalId;
+    assert.isString(deleteProposalId);
+    await service.applyReferenceMatchProposalAction({
+      proposalId: deleteProposalId!,
+      action: "accept",
+    });
+    const deleteProposal = repository.listReferenceMatchProposals({
+      proposalIds: [deleteProposalId!],
+    })[0];
+    assert.equal(deleteProposal?.status, "accepted");
+    await service.applyReferenceMatchProposalAction({
+      proposalId: deleteProposalId!,
+      action: "delete",
+    });
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: [deleteProposalId!],
+      })[0]?.status,
+      "superseded",
+    );
+    assert.isFalse(
+      repository
+        .listReferenceBindings({ statuses: ["accepted"] })
+        .some((binding) => binding.itemKey === deleteProposal?.targetItemKey),
+    );
+  });
+
+  it("runs advanced canonical dedupe as an explicit proposal/fact operation", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Source A",
+          notes: [
+            artifactNote({
+              payloadType: "references-json",
+              value: JSON.stringify({
+                references: [
+                  {
+                    title: "Attention is all you need",
+                    year: "2017",
+                    authors: ["Ashish Vaswani", "Noam Shazeer"],
+                  },
+                  {
+                    title:
+                      "CondConv: Conditionally Parameterized Convolutions for Efficient Inference",
+                    year: "2019",
+                    authors: ["Brandon Yang"],
+                  },
+                ],
+              }),
+              format: "json",
+            }),
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Source B",
+          notes: [
+            artifactNote({
+              payloadType: "references-json",
+              value: JSON.stringify({
+                references: [
+                  {
+                    title: "Attention is all you need",
+                    year: "2017",
+                    authors: ["Vaswani, A.", "Shazeer, N."],
+                  },
+                  {
+                    title:
+                      "CondConv: Conditionally Parameterized Convolutions for Effcient Inference",
+                    year: "2019",
+                    authors: ["Brandon Yang"],
+                  },
+                ],
+              }),
+              format: "json",
+            }),
+          ],
+        },
+      ],
+    });
+
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-12T00:00:00.000Z",
+    });
+    assert.equal(
+      repository.listCacheBasis({ cacheKinds: ["citation_graph"] })[0]?.status,
+      "ready",
+    );
+
+    const result = await service.runAdvancedReferenceMatchingNow();
+    const redirects = repository.listCanonicalReferenceRedirects();
+    const proposals = repository.listReferenceMatchProposals({
+      kinds: ["canonical_merge"],
+    });
+    const graphBasis = repository
+      .listCacheBasis({ cacheKinds: ["citation_graph"] })
+      .find((basis) => basis.cacheKey === "citation-graph:library");
+
+    assert.equal(result.ok, true);
+    assert.isAtLeast(redirects.length, 1);
+    assert.isTrue(
+      proposals.some((proposal) => {
+        const reasonsJson = proposal.reasonsJson || "";
+        const evidenceJson = proposal.evidenceJson || "";
+        return (
+          reasonsJson.includes("cluster_typo_equivalent_title") ||
+          evidenceJson.includes('"edge_type":"typo_equivalent_title"')
+        );
+      }),
+    );
+    assert.equal(graphBasis?.status, "stale");
+  });
+
   it("builds graph overview as all library papers plus shared external references", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({

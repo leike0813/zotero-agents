@@ -92,9 +92,6 @@ const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
 let prewarmedSynthesisSnapshotInput: SynthesisUiSnapshotInput | undefined;
-let prewarmSynthesisSnapshotPromise:
-  | Promise<SynthesisUiSnapshotInput | undefined>
-  | undefined;
 
 export type MountedSynthesisWorkbenchRuntime = {
   refresh: () => Promise<void>;
@@ -774,6 +771,7 @@ function isProtectedRebuildCommand(
 ) {
   return (
     command === "refreshReferenceSidecarNow" ||
+    command === "runAdvancedReferenceMatchingNow" ||
     command === "rebuildCitationGraphCacheNow" ||
     command === "rebuildTagVocabularyIndex" ||
     command === "rebuildConceptKbIndex" ||
@@ -786,6 +784,12 @@ function confirmProtectedRebuildCommand(
   win?: _ZoteroTypes.MainWindow,
 ) {
   const label = getSynthesisUiOperationLabel(command);
+  if (command === "runAdvancedReferenceMatchingNow") {
+    return confirmWorkbenchAction(
+      `${label} will run a heavier reference matching pass over unbound references. Zotero may respond more slowly while this runs. Existing accepted facts will not be deleted. Continue?`,
+      win,
+    );
+  }
   return confirmWorkbenchAction(
     `${label} will rebuild local Synthesis indexes. Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted. Continue?`,
     win,
@@ -1072,6 +1076,95 @@ function handleAction(
     );
     return;
   }
+  if (result.hostCommand?.command === "runAdvancedReferenceMatchingNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "runAdvancedReferenceMatchingNow",
+      {},
+      () =>
+        getDefaultSynthesisService().runAdvancedReferenceMatchingNow({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryAdvancedReferenceMatching") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "retryAdvancedReferenceMatching",
+      {},
+      () =>
+        getDefaultSynthesisService().retryAdvancedReferenceMatching({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "applyReferenceMatchProposalActions") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const decisions = Array.isArray(commandArgs.decisions)
+      ? commandArgs.decisions
+          .filter(
+            (entry): entry is Record<string, unknown> =>
+              !!entry && typeof entry === "object" && !Array.isArray(entry),
+          )
+          .map((entry) => {
+            const proposalId = String(
+              entry.proposalId || entry.proposal_id || "",
+            ).trim();
+            const requestedAction = String(entry.action || "").trim();
+            const action: "accept" | "reject" | "reopen" | "delete" =
+              requestedAction === "reject" ||
+              requestedAction === "reopen" ||
+              requestedAction === "delete"
+                ? requestedAction
+                : "accept";
+            return { proposalId, action };
+          })
+          .filter((entry) => entry.proposalId)
+      : [];
+    if (decisions.length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyReferenceMatchProposalActions",
+        {},
+        () =>
+          getDefaultSynthesisService()
+            .applyReferenceMatchProposalActions({ decisions })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
+  if (result.hostCommand?.command === "applyReferenceMatchProposalAction") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const proposalId = String(commandArgs.proposalId || "").trim();
+    const requestedAction = String(commandArgs.action || "").trim();
+    const action =
+      requestedAction === "reject" ||
+      requestedAction === "reopen" ||
+      requestedAction === "delete"
+        ? requestedAction
+        : "accept";
+    if (proposalId) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyReferenceMatchProposalAction",
+        { proposalId, action },
+        () =>
+          getDefaultSynthesisService()
+            .applyReferenceMatchProposalAction({ proposalId, action })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendSnapshot(runtime, "synthesis:snapshot");
+    return;
+  }
   if (result.hostCommand?.command === "syncNow") {
     runWorkbenchCommandOnce(runtime, "syncNow", {}, () =>
       getDefaultSynthesisService().syncNow(),
@@ -1334,12 +1427,20 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.handshakeComplete = true;
   stopWorkbenchHandshake(runtime);
-  if (runtime.snapshotInput && !runtime.snapshotInputLocked) {
+  if (runtime.snapshotInput) {
     void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendSnapshot(runtime, "synthesis:snapshot", {
+      refreshFromService: false,
+    });
     return;
   }
-  void sendSnapshot(runtime, "synthesis:init");
+  if (!runtime.snapshotInput) {
+    runtime.snapshotInput = buildDefaultSnapshotInput();
+  }
+  void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
+  void sendSnapshot(runtime, "synthesis:snapshot", {
+    refreshFromService: false,
+  });
 }
 
 function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
@@ -1476,28 +1577,6 @@ export async function openSynthesisWorkbenchTab(
   setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
   scheduleWorkbenchHandshake(runtime);
   Zotero_Tabs.select(SYNTHESIS_WORKBENCH_TAB_ID);
-}
-
-export function prewarmSynthesisWorkbenchSnapshot(): Promise<
-  SynthesisUiSnapshotInput | undefined
-> {
-  if (prewarmedSynthesisSnapshotInput) {
-    return Promise.resolve(prewarmedSynthesisSnapshotInput);
-  }
-  if (prewarmSynthesisSnapshotPromise) {
-    return prewarmSynthesisSnapshotPromise;
-  }
-  prewarmSynthesisSnapshotPromise = getDefaultSynthesisService()
-    .getSynthesisSnapshotInput(createDefaultSynthesisUiState())
-    .then((input) => {
-      prewarmedSynthesisSnapshotInput = input;
-      return input;
-    })
-    .catch(() => undefined)
-    .finally(() => {
-      prewarmSynthesisSnapshotPromise = undefined;
-    });
-  return prewarmSynthesisSnapshotPromise;
 }
 
 export async function resetSynthesisWorkbenchTabRuntimeForTests() {

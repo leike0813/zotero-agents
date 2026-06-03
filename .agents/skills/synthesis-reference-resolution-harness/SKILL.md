@@ -16,6 +16,17 @@ Use this project-local development skill to repeat the full matcher workflow:
 
 Do not place this skill under `skills_builtin/` or user-facing `skills/`. It is a repository development tool under `.agents/skills/`.
 
+For realtime Synthesis Index inspection against current Zotero SQLite and plugin
+SQLite state, use the long-lived tools harness instead:
+
+```powershell
+npx tsx tools/synthesis-index-harness/cli.ts serve --zotero-db "<zotero.sqlite>" --plugin-db "<zotero-agents.db>" --debug-db "artifact/synthesis-index-harness/debug.sqlite"
+```
+
+The tools harness runs the cluster-first canonical dedupe experiment and writes
+only to its debug SQLite database. This skill remains focused on sanitized
+fixture extraction, gold-label review, and benchmark evaluation.
+
 ## Boundaries
 
 - Treat `src/modules/synthesis/referenceMatcher.ts` as the algorithm SSOT. Do not copy matcher logic into this skill.

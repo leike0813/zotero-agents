@@ -63,7 +63,7 @@ sequenceDiagram
     O->>A: read changed references artifact
     R->>S: insert raw references
     R->>S: assign canonical references and redirects
-    R->>S: write safe auto/candidate bindings where bounded
+    R->>S: write lightweight accepted bindings where deterministic
     O->>S: report source-scoped diagnostics
   end
   O->>S: mark reference cache basis and recommendations

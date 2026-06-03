@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synthesis Index Harness</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        background: #f7f7f4;
+        color: #202124;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid #d8d8d2;
+        background: #ffffff;
+        position: sticky;
+        top: 0;
+        z-index: 3;
+      }
+      h1 {
+        font-size: 17px;
+        margin: 0;
+        font-weight: 650;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      button {
+        border: 1px solid #b9bab3;
+        background: #222;
+        color: #fff;
+        border-radius: 6px;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      nav {
+        display: flex;
+        gap: 6px;
+        padding: 10px 16px 0;
+      }
+      nav button {
+        background: #fff;
+        color: #222;
+      }
+      nav button.active {
+        background: #2f5d50;
+        color: #fff;
+      }
+      main {
+        padding: 12px 16px 28px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+      input,
+      select {
+        border: 1px solid #c9cac3;
+        border-radius: 6px;
+        padding: 7px 9px;
+        background: #fff;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        background: #fff;
+        border: 1px solid #deded8;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #ecece7;
+        padding: 7px 8px;
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+      }
+      th {
+        background: #f1f1ec;
+        font-weight: 650;
+      }
+      .muted {
+        color: #6b6d66;
+      }
+      .pill {
+        display: inline-block;
+        border: 1px solid #c9cac3;
+        border-radius: 999px;
+        padding: 2px 7px;
+        background: #f8f8f5;
+        margin: 1px 3px 1px 0;
+        font-size: 12px;
+      }
+      .risk {
+        border-color: #c27662;
+        color: #8b2f20;
+      }
+      .hidden {
+        display: none;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #deded8;
+        border-radius: 7px;
+        padding: 10px;
+      }
+      .panel h2,
+      .panel h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .cluster-list {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.5fr);
+        gap: 12px;
+        align-items: start;
+      }
+      .cluster-card {
+        border: 1px solid #deded8;
+        border-radius: 7px;
+        padding: 9px;
+        margin-bottom: 8px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .cluster-card.active {
+        border-color: #2f5d50;
+        box-shadow: 0 0 0 2px rgba(47, 93, 80, 0.12);
+      }
+      .member {
+        border-bottom: 1px solid #ecece7;
+        padding: 7px 0;
+      }
+      .member:last-child {
+        border-bottom: 0;
+      }
+      .projection-note {
+        margin: 8px 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Synthesis Index Harness</h1>
+        <div id="summary" class="muted">Loading snapshot...</div>
+      </div>
+      <button id="run">Run Cluster Dedupe</button>
+    </header>
+    <nav id="tabs"></nav>
+    <main>
+      <div class="toolbar">
+        <input id="search" placeholder="Search titles, refs, reasons" />
+        <select id="edgeFilter">
+          <option value="">All edge types</option>
+        </select>
+        <select id="projectionMode">
+          <option value="all">Projection: all actions</option>
+          <option value="redirect">Projection: redirect only</option>
+        </select>
+      </div>
+      <section id="view"></section>
+    </main>
+    <script>
+      const state = {
+        tab: "Library",
+        snapshot: null,
+        results: { clusters: [], edges: [], actions: [] },
+        search: "",
+        edgeType: "",
+        projectionMode: "all",
+        selectedClusterKey: "",
+      };
+      const tabs = ["Library", "References", "Canonicals", "Cluster Runs", "Cluster Results"];
+      const $ = (id) => document.getElementById(id);
+      function text(value) {
+        return String(value || "");
+      }
+      function parsePayload(row) {
+        try {
+          return JSON.parse(row.payload_json || "{}");
+        } catch {
+          return {};
+        }
+      }
+      function matchSearch(row) {
+        const needle = state.search.toLowerCase();
+        return !needle || JSON.stringify(row).toLowerCase().includes(needle);
+      }
+      function table(headers, rows) {
+        return `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="${headers.length}" class="muted">No rows</td></tr>`}</tbody></table>`;
+      }
+      function row(cells) {
+        return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
+      }
+      function canonicalMap() {
+        return new Map((state.snapshot.canonicalReferences || []).map((canonical) => [canonical.canonical_reference_id, canonical]));
+      }
+      function canonicalInputMap() {
+        const map = new Map((state.snapshot.canonicalInputs || []).map((input) => [input.canonicalReferenceId, input]));
+        for (const { payload } of clusterPayloads()) {
+          for (const member of payload.members || []) {
+            map.set(member.canonicalReferenceId, {
+              ...(map.get(member.canonicalReferenceId) || {}),
+              ...member,
+            });
+          }
+        }
+        return map;
+      }
+      function rawCountMap() {
+        const rawCount = new Map();
+        for (const ref of state.snapshot.rawReferences || []) {
+          if (ref.status === "active") {
+            const effective = state.snapshot.effectiveCanonicalById?.[ref.canonical_reference_id] || ref.canonical_reference_id;
+            rawCount.set(effective, (rawCount.get(effective) || 0) + 1);
+          }
+        }
+        return rawCount;
+      }
+      function canonicalTitle(id) {
+        const input = canonicalInputMap().get(id);
+        if (input?.title) return text(input.title);
+        const canonical = canonicalMap().get(id);
+        return text(canonical?.title || id);
+      }
+      function titleCandidateList(member) {
+        const candidates = member?.titleCandidates || canonicalInputMap().get(member?.canonicalReferenceId)?.titleCandidates || [];
+        return candidates.slice(0, 8).map((candidate) =>
+          `<div class="muted">${text(candidate.source)}${candidate.sourceCanonicalReferenceId ? ` · ${text(candidate.sourceCanonicalReferenceId)}` : ""}${candidate.frequency ? ` · x${text(candidate.frequency)}` : ""}<br><strong>${text(candidate.title)}</strong></div>`,
+        ).join("") || `<div class="muted">No title candidates captured.</div>`;
+      }
+      function actionPayloads() {
+        return (state.results.actions || []).map((row) => ({ row, payload: parsePayload(row) }));
+      }
+      function clusterPayloads() {
+        return (state.results.clusters || []).map((row) => ({ row, payload: parsePayload(row) }));
+      }
+      function clusterKey(entry) {
+        return `${entry.row?.run_id || state.results.runId || ""}::${entry.payload?.clusterId || entry.row?.cluster_id || ""}`;
+      }
+      function selectedCluster(clusters) {
+        if (!clusters.length) return null;
+        if (!state.selectedClusterKey || !clusters.some((entry) => clusterKey(entry) === state.selectedClusterKey)) {
+          state.selectedClusterKey = clusterKey(clusters[0]);
+        }
+        return clusters.find((entry) => clusterKey(entry) === state.selectedClusterKey) || clusters[0];
+      }
+      function projectedCanonicalGroups() {
+        const parent = new Map((state.snapshot.canonicalReferences || []).map((canonical) => [canonical.canonical_reference_id, canonical.canonical_reference_id]));
+        function find(id) {
+          let current = parent.get(id) || id;
+          const seen = new Set();
+          while ((parent.get(current) || current) !== current && !seen.has(current)) {
+            seen.add(current);
+            current = parent.get(current) || current;
+          }
+          return current;
+        }
+        function union(source, target) {
+          const a = find(source);
+          const b = find(target);
+          if (a !== b) parent.set(a, b);
+        }
+        for (const { row } of actionPayloads()) {
+          if (state.projectionMode === "redirect" && row.action !== "redirect") continue;
+          union(row.source_canonical_reference_id, row.target_canonical_reference_id);
+        }
+        const groups = new Map();
+        for (const canonical of state.snapshot.canonicalReferences || []) {
+          const id = canonical.canonical_reference_id;
+          const rep = find(id);
+          groups.set(rep, [...(groups.get(rep) || []), id]);
+        }
+        return Array.from(groups.entries())
+          .map(([representative, members]) => ({ representative, members: members.sort(), title: canonicalTitle(representative) }))
+          .sort((left, right) => left.title.localeCompare(right.title));
+      }
+      function setTab(tab) {
+        state.tab = tab;
+        render();
+      }
+      async function load() {
+        state.snapshot = await fetch("/api/snapshot").then((r) => r.json());
+        state.results = await fetch("/api/results").then((r) => r.json());
+        render();
+      }
+      async function run() {
+        $("run").disabled = true;
+        $("run").textContent = "Running...";
+        try {
+          await fetch("/api/run", { method: "POST" }).then((r) => r.json());
+          state.results = await fetch("/api/results").then((r) => r.json());
+        } finally {
+          $("run").disabled = false;
+          $("run").textContent = "Run Cluster Dedupe";
+          render();
+        }
+      }
+      function renderTabs() {
+        $("tabs").innerHTML = tabs
+          .map((tab) => `<button class="${tab === state.tab ? "active" : ""}" data-tab="${tab}">${tab}</button>`)
+          .join("");
+        for (const button of $("tabs").querySelectorAll("button")) {
+          button.addEventListener("click", () => setTab(button.dataset.tab));
+        }
+      }
+      function renderSummary() {
+        const s = state.snapshot?.summary || {};
+        $("summary").textContent = `Items ${s.zotero_item_count || 0} | Raw ${s.active_raw_reference_count || 0}/${s.raw_reference_count || 0} | Canonicals ${s.canonical_reference_count || 0} | Inputs ${s.canonical_dedupe_input_count || 0}`;
+      }
+      function renderLibrary() {
+        const artifacts = new Map();
+        for (const row of state.snapshot.artifactSidecars || []) {
+          const key = row.source_ref;
+          artifacts.set(key, [...(artifacts.get(key) || []), row]);
+        }
+        const rows = (state.snapshot.zoteroItems || [])
+          .filter(matchSearch)
+          .map((item) =>
+            row([
+              `<strong>${text(item.title)}</strong><div class="muted">${item.sourceRef}</div>`,
+              text(item.year),
+              text(item.creators?.slice(0, 3).join("; ")),
+              (artifacts.get(item.sourceRef) || []).map((a) => `<span class="pill">${a.artifact_type}:${a.status}</span>`).join(""),
+            ]),
+          );
+        return table(["Paper", "Year", "Creators", "Artifacts"], rows);
+      }
+      function renderReferences() {
+        const items = new Map((state.snapshot.zoteroItems || []).map((item) => [item.sourceRef, item]));
+        const rows = (state.snapshot.rawReferences || [])
+          .filter((ref) => text(ref.status) === "active")
+          .filter(matchSearch)
+          .slice(0, 1000)
+          .map((ref) =>
+            row([
+              `<strong>${text(items.get(ref.source_ref)?.title || ref.source_ref)}</strong><div class="muted">${ref.source_ref}</div>`,
+              `<strong>${text(ref.parsed_title)}</strong><div class="muted">${text(ref.raw_reference).slice(0, 240)}</div>`,
+              text(ref.year),
+              `<span class="pill">${text(ref.canonical_reference_id)}</span><div class="muted">effective ${text(state.snapshot.effectiveCanonicalById?.[ref.canonical_reference_id] || ref.canonical_reference_id)}</div>`,
+            ]),
+          );
+        return table(["Source Paper", "Raw Reference", "Year", "Canonical"], rows);
+      }
+      function renderCanonicals() {
+        const rawCount = new Map();
+        const inputs = canonicalInputMap();
+        for (const ref of state.snapshot.rawReferences || []) {
+          if (ref.status === "active") {
+            rawCount.set(ref.canonical_reference_id, (rawCount.get(ref.canonical_reference_id) || 0) + 1);
+          }
+        }
+        const rows = (state.snapshot.canonicalReferences || [])
+          .filter(matchSearch)
+          .map((canonical) =>
+            {
+              const input = inputs.get(canonical.canonical_reference_id) || {};
+              return row([
+                `<strong>${text(canonical.title)}</strong><div class="muted">${canonical.canonical_reference_id}</div>`,
+                text(canonical.year),
+                String(rawCount.get(canonical.canonical_reference_id) || 0),
+                `<span class="pill">${text(input.eligibility || "n/a")}</span><div class="muted">${text((input.eligibilityReasons || []).join(", "))}</div>`,
+                text(state.snapshot.effectiveCanonicalById?.[canonical.canonical_reference_id] || canonical.canonical_reference_id),
+              ]);
+            },
+          );
+        return table(["Canonical", "Year", "Active Raw", "Eligibility", "Effective"], rows);
+      }
+      async function renderRuns() {
+        const runs = await fetch("/api/runs").then((r) => r.json());
+        return table(
+          ["Run", "Created", "Counters"],
+          runs.map((run) => row([text(run.run_id), text(run.created_at), `<pre>${text(run.counters_json)}</pre>`])),
+        );
+      }
+      function renderResults() {
+        const edgeTypes = new Set();
+        for (const actionRow of state.results.actions || []) {
+          edgeTypes.add(actionRow.edge_type);
+        }
+        $("edgeFilter").innerHTML =
+          `<option value="">All edge types</option>` +
+          Array.from(edgeTypes)
+            .sort()
+            .map((type) => `<option value="${type}" ${state.edgeType === type ? "selected" : ""}>${type}</option>`)
+            .join("");
+        const clusters = clusterPayloads().filter(({ payload }) => matchSearch(payload));
+        const actions = actionPayloads().filter(
+          ({ row, payload }) => (!state.edgeType || row.edge_type === state.edgeType) && matchSearch({ row, payload }),
+        );
+        const projection = projectedCanonicalGroups();
+        const mergedGroups = projection.filter((group) => group.members.length > 1);
+        const selected = selectedCluster(clusters);
+        const rawCounts = rawCountMap();
+        const actionByCluster = new Map();
+        for (const action of actions) {
+          const key = `${action.row.run_id || state.results.runId || ""}::${action.payload.clusterId || action.row.cluster_id}`;
+          actionByCluster.set(key, [...(actionByCluster.get(key) || []), action]);
+        }
+        const clusterCards = clusters
+          .map((entry) => {
+            const { row, payload } = entry;
+            const key = clusterKey(entry);
+            const active = key === state.selectedClusterKey ? "active" : "";
+            const clusterActions = actionByCluster.get(key) || [];
+            const edgeLabels = Array.from(new Set(clusterActions.map(({ row }) => row.edge_type))).sort();
+            return `<div class="cluster-card ${active}" data-cluster="${key}">
+              <strong>${text(canonicalTitle(payload.representativeCanonicalReferenceId))}</strong>
+              <div class="muted">${text(payload.clusterId)}${row.run_id ? ` · ${text(row.run_id)}` : ""}</div>
+              <div><span class="pill">${(payload.canonicalReferenceIds || []).length} members</span>${edgeLabels.map((label) => `<span class="pill ${label.includes("risk") ? "risk" : ""}">${label}</span>`).join("")}</div>
+            </div>`;
+          })
+          .join("") || `<div class="panel muted">No clusters in the selected result set.</div>`;
+        let detail = `<div class="panel muted">Select a cluster.</div>`;
+        if (selected) {
+          const payload = selected.payload;
+          const clusterActions = actionByCluster.get(clusterKey(selected)) || [];
+          const membersById = new Map((payload.members || []).map((member) => [member.canonicalReferenceId, member]));
+          const members = (payload.canonicalReferenceIds || [])
+            .map((id) => {
+              const member = membersById.get(id) || { canonicalReferenceId: id };
+              return `<div class="member">
+              <strong>${text(member.title || canonicalTitle(id))}</strong>
+              <div class="muted">${text(id)} · ${rawCounts.get(id) || member.rawCount || 0} active raw refs${member.stickyRepresentative ? " · sticky" : ""}${id === payload.representativeCanonicalReferenceId ? " · cluster representative" : ""}</div>
+              <div><span class="pill">${text(member.eligibility || "eligible")}</span> <span class="muted">${text((member.eligibilityReasons || []).join(", "))}</span></div>
+              <div>${(member.representativeRationale || []).map((reason) => `<span class="pill">${text(reason)}</span>`).join("")}</div>
+              <details><summary>Title candidates</summary>${titleCandidateList(member)}</details>
+            </div>`;
+            })
+            .join("");
+          const subclusters = (payload.subclusters || [])
+            .map((sub) => `<div class="member">
+              <strong>${text(canonicalTitle(sub.representativeCanonicalReferenceId))}</strong>
+              <div>${(sub.edgeTypes || []).map((type) => `<span class="pill ${type.includes("risk") ? "risk" : ""}">${type}</span>`).join("")}</div>
+              <div class="muted">${(sub.canonicalReferenceIds || []).join(", ")}</div>
+            </div>`)
+            .join("");
+          const actionRows = clusterActions.map(({ row: action, payload }) =>
+            row([
+              `<span class="pill">${text(action.action)}</span> <span class="pill ${text(action.edge_type).includes("risk") ? "risk" : ""}">${text(action.edge_type)}</span>`,
+              `<strong>${text(canonicalTitle(action.source_canonical_reference_id))}</strong><div class="muted">${text(action.source_canonical_reference_id)}</div>`,
+              `<strong>${text(canonicalTitle(action.target_canonical_reference_id))}</strong><div class="muted">${text(action.target_canonical_reference_id)}</div>`,
+              `${text(action.score)}<div>${(payload.riskSignals || payload.risk_signals || []).map((s) => `<span class="pill risk">${text(s)}</span>`).join("")}</div>`,
+            ]),
+          );
+          detail = `<div class="panel">
+            <h2>${text(canonicalTitle(payload.representativeCanonicalReferenceId))}</h2>
+            <div class="muted">${text(payload.clusterId)} · ${(payload.canonicalReferenceIds || []).length} members</div>
+            <h3>Representative rationale</h3>
+            <div>${(payload.representativeRationale || []).map((reason) => `<span class="pill">${text(reason)}</span>`).join("") || `<span class="muted">Stable id tiebreaker</span>`}</div>
+            <h3>Cluster members</h3>
+            ${members || `<div class="muted">No members</div>`}
+            <h3>Subclusters</h3>
+            ${subclusters || `<div class="muted">No subclusters</div>`}
+            <h3>Actions</h3>
+            ${table(["Action", "Source", "Target", "Score/Risk"], actionRows)}
+          </div>`;
+        }
+        const projectionRows = mergedGroups
+          .filter(matchSearch)
+          .map((group) =>
+            row([
+              `<strong>${text(group.title)}</strong><div class="muted">${text(group.representative)}</div>`,
+              String(group.members.length),
+              group.members.map((id) => `<div>${text(canonicalTitle(id))}<div class="muted">${id}</div></div>`).join(""),
+            ]),
+          );
+        const summary = `<div class="summary-grid">
+          <div class="panel"><h3>Analyzed clusters</h3><strong>${clusters.length}</strong><div class="muted">Connected components with candidate evidence</div></div>
+          <div class="panel"><h3>Actions</h3><strong>${actions.length}</strong><div class="muted">${state.edgeType || "all edge types"}</div></div>
+          <div class="panel"><h3>Projected merged canonicals</h3><strong>${mergedGroups.length}</strong><div class="muted">${state.projectionMode === "redirect" ? "safe redirects only" : "all actions accepted"}</div></div>
+        </div>`;
+        return `${summary}
+          <div class="cluster-list">
+            <section>${clusterCards}</section>
+            <section>${detail}</section>
+          </div>
+          <div class="panel projection-note">
+            <h2>Projected canonical list after merge</h2>
+            <div class="muted">${state.projectionMode === "redirect" ? "This projection applies only redirect actions." : "This projection assumes every review action is accepted for debugging."}</div>
+            ${table(["Projected Canonical", "Merged Count", "Members"], projectionRows)}
+          </div>`;
+      }
+      async function render() {
+        renderTabs();
+        renderSummary();
+        if (!state.snapshot) return;
+        let html = "";
+        if (state.tab === "Library") html = renderLibrary();
+        if (state.tab === "References") html = renderReferences();
+        if (state.tab === "Canonicals") html = renderCanonicals();
+        if (state.tab === "Cluster Runs") html = await renderRuns();
+        if (state.tab === "Cluster Results") html = renderResults();
+        $("view").innerHTML = html;
+        for (const card of $("view").querySelectorAll("[data-cluster]")) {
+          card.addEventListener("click", () => {
+            state.selectedClusterKey = card.dataset.cluster;
+            render();
+          });
+        }
+      }
+      $("search").addEventListener("input", (event) => {
+        state.search = event.target.value;
+        render();
+      });
+      $("edgeFilter").addEventListener("change", (event) => {
+        state.edgeType = event.target.value;
+        render();
+      });
+      $("projectionMode").addEventListener("change", (event) => {
+        state.projectionMode = event.target.value;
+        render();
+      });
+      $("run").addEventListener("click", run);
+      load().catch((error) => {
+        $("summary").textContent = error.message;
+        $("view").innerHTML = `<section class="panel"><h2>Snapshot failed</h2><pre>${text(error.message)}</pre></section>`;
+      });
+    </script>
+  </body>
+</html>

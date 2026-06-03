@@ -17,6 +17,26 @@ describe("Synthesis tab UI model", function () {
     };
   }
 
+  function extractFunctionBlock(source: string, functionName: string) {
+    const start = source.indexOf(`function ${functionName}`);
+    assert.isAtLeast(start, 0, `${functionName} should exist`);
+    let depth = 0;
+    let sawBody = false;
+    for (let index = start; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === "{") {
+        depth += 1;
+        sawBody = true;
+      } else if (char === "}") {
+        depth -= 1;
+        if (sawBody && depth === 0) {
+          return source.slice(start, index + 1);
+        }
+      }
+    }
+    assert.fail(`Could not extract ${functionName}`);
+  }
+
   it("normalizes a DTO-only snapshot with stable defaults", function () {
     const snapshot = normalizeSynthesisUiSnapshot({
       libraryId: 1,
@@ -186,6 +206,9 @@ describe("Synthesis tab UI model", function () {
     assert.isArray(snapshot.hostCommands);
     assert.include(snapshot.hostCommands, "syncNow");
     assert.include(snapshot.hostCommands, "resolveGitSyncConflict");
+    assert.include(snapshot.hostCommands, "runAdvancedReferenceMatchingNow");
+    assert.include(snapshot.hostCommands, "applyReferenceMatchProposalAction");
+    assert.include(snapshot.hostCommands, "applyReferenceMatchProposalActions");
   });
 
   it("uses polished empty states for synthesis workbench sparse data", async function () {
@@ -203,6 +226,27 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "display_tier");
     assert.include(source, "Tag index ready");
     assert.include(source, "Concept index ready");
+    assert.include(source, "Advanced Matching");
+    assert.include(source, "applyReferenceMatchProposalAction");
+    assert.include(source, "applyReferenceMatchProposalActions");
+    assert.include(source, "renderIndexReviewDrawer");
+    assert.include(source, "renderReviewCenter");
+    assert.include(source, "referenceMatchProposalContext");
+    assert.include(source, "review-center-table");
+    assert.include(source, "Accept all");
+    assert.include(source, "Reject all");
+    assert.include(source, "Accept selected");
+    assert.include(source, "Reject selected");
+    assert.include(source, 'selectedTab === "reviews"');
+    assert.include(source, "filters: reviewFilters(snapshot)");
+    assert.include(source, "compactReferenceProposalSignature");
+    assert.include(source, "Source:");
+    assert.include(source, "Target:");
+    assert.include(source, "Parent item");
+    assert.include(source, "Apply pending");
+    assert.include(source, "Applying pending");
+    assert.include(source, "Applying pending reference review decisions");
+    assert.include(source, "pendingReferenceProposalDecisions");
     assert.notInclude(source, "tag-index ready");
     assert.notInclude(source, "concept-kb-index ready");
     assert.notInclude(source, "JSON.stringify(snapshot.graph.diagnostics");
@@ -519,6 +563,41 @@ describe("Synthesis tab UI model", function () {
       ).registry.visibleRows.map((row) => row.paper_ref),
       ["1:BOUND"],
     );
+  });
+
+  it("tracks Review center filters and Index review drawer state", function () {
+    const selected = applySynthesisUiAction(createDefaultSynthesisUiState(), {
+      action: "selectTab",
+      payload: { tab: "reviews" },
+    }).state;
+    const filtered = applySynthesisUiAction(selected, {
+      action: "setFilters",
+      payload: {
+        reviews: {
+          activeTab: "reference_matching",
+          search: "method",
+          status: "rejected",
+          kind: "zotero_binding",
+          confidence: "review",
+        },
+        registry: {
+          reviewDrawerOpen: false,
+          reviewDrawerIndex: 2,
+        },
+      },
+    }).state;
+    const snapshot = buildSynthesisUiSnapshot({ libraryId: 1 }, filtered);
+
+    assert.equal(snapshot.selectedTab, "reviews");
+    assert.deepEqual(snapshot.reviews.filters, {
+      activeTab: "reference_matching",
+      search: "method",
+      status: "rejected",
+      kind: "zotero_binding",
+      confidence: "review",
+    });
+    assert.equal(snapshot.registry.filters.reviewDrawerOpen, false);
+    assert.equal(snapshot.registry.filters.reviewDrawerIndex, 2);
   });
 
   it("renders Tags tab state with filters, inspector, actions, and import preview", function () {
@@ -950,7 +1029,7 @@ describe("Synthesis tab UI model", function () {
       "SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5",
     );
     assert.include(source, "finalizeWorkbenchHandshake");
-    assert.include(source, 'sendSnapshot(runtime, "synthesis:init")');
+    assert.include(source, 'sendSnapshot(runtime, "synthesis:init", { refreshFromService: false })');
     assert.include(source, "contentDocument");
     assert.include(source, "Zotero_Tabs.select");
     assert.include(source, "cleanupSynthesisWorkbenchTab");
@@ -1351,14 +1430,18 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(host, "snapshotInputLocked");
     assert.include(host, ".getSynthesisSnapshotInput(runtime.state)");
-    assert.include(host, "prewarmSynthesisWorkbenchSnapshot");
+    assert.notInclude(host, "prewarmSynthesisWorkbenchSnapshot");
     assert.include(host, "prewarmedSynthesisSnapshotInput");
     assert.include(host, "refreshFromService: false");
+    assert.notInclude(host, "SYNTHESIS_WORKBENCH_INITIAL_REFRESH_DELAY_MS");
     assert.include(host, 'envelope.action === "ready"');
     assert.include(host, 'envelope.action === "refresh"');
     assert.notInclude(host, 'messageType === "synthesis:init"');
-    assert.include(hooks, "prewarmSynthesisWorkbenchAfterStartup");
-    assert.include(hooks, "Synthesis Workbench is ready.");
+    assert.notInclude(hooks, "prewarmSynthesisWorkbenchAfterStartup();");
+    const handshakeBlock = extractFunctionBlock(host, "finalizeWorkbenchHandshake");
+    assert.include(handshakeBlock, "if (runtime.snapshotInput)");
+    assert.notInclude(handshakeBlock, 'void sendSnapshot(runtime, "synthesis:snapshot");');
+    assert.notInclude(handshakeBlock, "refreshFromService: true");
   });
 
   it("uses 32px runtime icons for chrome UI surfaces", async function () {
@@ -2134,10 +2217,14 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "registry-reference-details");
     assert.notInclude(source, "registry-reference-form");
     assert.notInclude(source, 'item.appendChild(el("span", "muted", target));');
-    assert.include(source, "cleanup-review-panel");
+    assert.include(source, "index-review-drawer");
+    assert.include(source, "renderCleanupReviewCard");
+    assert.include(source, "renderReferenceProposalBulkActions");
+    assert.include(source, "renderReferenceProposalPendingControls");
+    assert.include(source, "queueReferenceProposalDecision");
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
-    assert.notInclude(source, '["proposal id", proposal.proposal_id]');
+    assert.include(source, '["proposal id", proposal.proposal_id]');
     assert.notInclude(source, "applyLiteratureCleanupAction");
     assert.notInclude(source, "confirm_literature_item");
     assert.notInclude(source, "match_existing_literature_item");
@@ -2208,6 +2295,41 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".review-panel {\n    animation: none;");
   });
 
+  it("guards Workbench review performance against heavy signatures and full rerenders", async function () {
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const signatureBlock = extractFunctionBlock(app, "snapshotContentSignature");
+    [
+      "snapshot.registry.visibleRows",
+      "snapshot.registry.matchProposals",
+      "snapshot.registry.cleanupProposals",
+      "topicGraph: snapshot.topicGraph",
+    ].forEach((forbidden) => {
+      assert.notInclude(signatureBlock, forbidden);
+    });
+    [/\.references\b/, /\.diagnostics\b/, /\.evidence\b/].forEach(
+      (forbidden) => {
+        assert.notMatch(signatureBlock, forbidden);
+      },
+    );
+    [
+      "queueReferenceProposalDecision",
+      "queueReferenceProposalDecisions",
+      "cancelReferenceProposalDecision",
+      "clearReferenceProposalSelections",
+      "toggleReferenceProposalSelection",
+      "toggleReferenceProposalRowsSelection",
+    ].forEach((functionName) => {
+      const block = extractFunctionBlock(app, functionName);
+      assert.notInclude(block, "render();", `${functionName} must stay local`);
+      assert.include(block, "refreshReferenceReviewSurfaces");
+    });
+    assert.include(app, "function refreshReferenceReviewSurfaces");
+    assert.include(app, 'dataset.synthesisSurface = "index-review-drawer"');
+    assert.include(app, 'dataset.synthesisSurface = "reference-review-table"');
+    assert.include(app, "compactRegistryRowSignature");
+    assert.include(app, "compactReferenceProposalSignature");
+  });
+
   it("wires asynchronous Workbench action feedback and host single-flight", async function () {
     const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const host = await fs.readFile(
@@ -2217,6 +2339,8 @@ describe("Synthesis tab UI model", function () {
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(app, "localPendingActions");
+    assert.include(app, "listActiveActionOperations");
+    assert.include(app, "state.localPendingActions.values()");
     assert.include(app, "aria-busy");
     assert.include(app, "renderActionStatusbar");
     assert.include(app, "listBackgroundJobs");

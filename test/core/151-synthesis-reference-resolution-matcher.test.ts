@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import {
   buildReferenceMatcherIndex,
+  dedupeCanonicalReferencesClustered,
   evaluateReferenceResolutionFixture,
   extractReferenceIdentifiersFromText,
   normalizeReferenceIdentifier,
@@ -345,6 +346,632 @@ describe("Synthesis reference resolution matcher", function () {
     );
     assert.equal(result.status, "ambiguous");
     assert.isUndefined(result.targetPaperRef);
+  });
+
+  it("dedupes canonical references through cluster actions and keeps risky output review-only", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:attention-a",
+        title: "Attention is all you need",
+        year: "2017",
+        authors: ["Ashish Vaswani", "Noam Shazeer"],
+        rawReferenceIds: ["raw:a"],
+        rawHashes: ["hash:a"],
+      },
+      {
+        canonicalReferenceId: "cref:attention-b",
+        title: "Attention is all you need",
+        year: "2017",
+        authors: ["Vaswani, A.", "Shazeer, N."],
+        rawReferenceIds: ["raw:b"],
+        rawHashes: ["hash:b"],
+      },
+      {
+        canonicalReferenceId: "cref:attention-noisy",
+        title:
+          "Gomez Lukasz Kaiser and Illia Polosukhin Attention is all you need",
+        year: "2017",
+        authors: ["Ashish Vaswani"],
+        rawReferenceIds: ["raw:c"],
+        rawHashes: ["hash:c"],
+      },
+      {
+        canonicalReferenceId: "cref:condconv-a",
+        title:
+          "CondConv: Conditionally Parameterized Convolutions for Efficient Inference",
+        year: "2019",
+        authors: ["Brandon Yang"],
+        rawReferenceIds: ["raw:d"],
+        rawHashes: ["hash:d"],
+      },
+      {
+        canonicalReferenceId: "cref:condconv-b",
+        title:
+          "CondConv: Conditionally Parameterized Convolutions for Effcient Inference",
+        year: "2019",
+        authors: ["Brandon Yang"],
+        rawReferenceIds: ["raw:e"],
+        rawHashes: ["hash:e"],
+      },
+      {
+        canonicalReferenceId: "cref:arxiv-a",
+        title: "Identifier Matched Work",
+        rawReferenceIds: ["raw:f"],
+        rawHashes: ["hash:f"],
+        identifiers: [{ kind: "arxiv", value: "2201.12345" }],
+      },
+      {
+        canonicalReferenceId: "cref:arxiv-b",
+        title: "Identifier Matched Work Extended",
+        rawReferenceIds: ["raw:g"],
+        rawHashes: ["hash:g"],
+        identifiers: [{ kind: "arxiv", value: "2201.12345v2" }],
+      },
+      {
+        canonicalReferenceId: "cref:panoptic-a",
+        title: "Fully convolutional networks for panoptic segmentation",
+        year: "2021",
+        authors: ["Yanwei Li"],
+        rawReferenceIds: ["raw:h"],
+        rawHashes: ["hash:h"],
+      },
+      {
+        canonicalReferenceId: "cref:panoptic-b",
+        title:
+          "Fully convolutional networks for panoptic segmentation with point-based supervision",
+        year: "2021",
+        authors: ["Yanwei Li"],
+        rawReferenceIds: ["raw:i"],
+        rawHashes: ["hash:i"],
+      },
+    ]);
+
+    const redirects = result.actions.filter((action) => action.action === "redirect");
+    const reviews = result.actions.filter((action) => action.action === "review");
+
+    assert.isTrue(
+      redirects.some((action) =>
+        ["exact_normalized_title_year", "exact_compact_title_year"].includes(
+          action.edgeType,
+        ),
+      ),
+    );
+    assert.isTrue(
+      redirects.some((action) => action.edgeType === "identifier_exact"),
+    );
+    assert.isTrue(
+      reviews.some((action) => action.edgeType === "contained_author_noise"),
+    );
+    assert.isTrue(
+      reviews.some((action) => action.edgeType === "typo_equivalent_title"),
+    );
+    assert.isTrue(
+      reviews.some((action) => action.edgeType === "contained_extension_risk"),
+    );
+    assert.isFalse(
+      redirects.some((action) => action.edgeType === "contained_extension_risk"),
+    );
+    assert.isAtMost(result.counters.candidate_pair_count, 2000);
+  });
+
+  it("builds cluster-aware canonical dedupe actions with classified containment risks", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:doi-a",
+        title: "Identifier Matched Work",
+        rawReferenceIds: ["raw:a"],
+        rawHashes: ["hash:a"],
+        identifiers: [{ kind: "doi", value: "10.1000/example" }],
+      },
+      {
+        canonicalReferenceId: "cref:doi-b",
+        title: "Identifier Matched Work Extended",
+        rawReferenceIds: ["raw:b"],
+        rawHashes: ["hash:b"],
+        identifiers: [{ kind: "doi", value: "https://doi.org/10.1000/example" }],
+      },
+      {
+        canonicalReferenceId: "cref:typo-a",
+        title: "CondConv: Conditionally Parameterized Convolutions for Efficient Inference",
+        year: "2019",
+        authors: ["Brandon Yang"],
+        rawReferenceIds: ["raw:c"],
+        rawHashes: ["hash:c"],
+      },
+      {
+        canonicalReferenceId: "cref:typo-b",
+        title: "CondConv: Conditionally Parameterized Convolutions for Effcient Inference",
+        year: "2019",
+        authors: ["Brandon Yang"],
+        rawReferenceIds: ["raw:d"],
+        rawHashes: ["hash:d"],
+      },
+      {
+        canonicalReferenceId: "cref:biblio-a",
+        title:
+          "An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929",
+        year: "2021",
+        authors: ["Alexey Dosovitskiy"],
+        rawReferenceIds: ["raw:e"],
+        rawHashes: ["hash:e"],
+      },
+      {
+        canonicalReferenceId: "cref:biblio-b",
+        title: "An image is worth 16x16 words: Transformers for image recognition at scale",
+        year: "2021",
+        authors: ["Alexey Dosovitskiy"],
+        rawReferenceIds: ["raw:f"],
+        rawHashes: ["hash:f"],
+      },
+      {
+        canonicalReferenceId: "cref:author-a",
+        title:
+          "James Hays Pietro Perona Deva Ramanan Microsoft COCO: common objects in context",
+        year: "2014",
+        authors: ["James Hays", "Pietro Perona", "Deva Ramanan"],
+        rawReferenceIds: ["raw:g"],
+        rawHashes: ["hash:g"],
+      },
+      {
+        canonicalReferenceId: "cref:author-b",
+        title: "Microsoft COCO: common objects in context",
+        year: "2014",
+        authors: ["James Hays", "Pietro Perona", "Deva Ramanan"],
+        rawReferenceIds: ["raw:h"],
+        rawHashes: ["hash:h"],
+      },
+      {
+        canonicalReferenceId: "cref:panoptic-a",
+        title: "Fully convolutional networks for panoptic segmentation",
+        year: "2021",
+        authors: ["Yanwei Li"],
+        rawReferenceIds: ["raw:i"],
+        rawHashes: ["hash:i"],
+      },
+      {
+        canonicalReferenceId: "cref:panoptic-b",
+        title:
+          "Fully convolutional networks for panoptic segmentation with point-based supervision",
+        year: "2021",
+        authors: ["Yanwei Li"],
+        rawReferenceIds: ["raw:j"],
+        rawHashes: ["hash:j"],
+      },
+    ]);
+
+    assert.isTrue(
+      result.actions.some(
+        (action) =>
+          action.action === "redirect" &&
+          action.edgeType === "identifier_exact",
+      ),
+    );
+    assert.isTrue(
+      result.actions.some(
+        (action) =>
+          action.action === "review" &&
+          action.edgeType === "typo_equivalent_title",
+      ),
+    );
+    assert.isTrue(
+      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+    );
+    assert.isTrue(
+      result.edges.some((edge) => edge.edgeType === "contained_author_noise"),
+    );
+    const extensionRisk = result.actions.find(
+      (action) => action.edgeType === "contained_extension_risk",
+    );
+    assert.equal(extensionRisk?.action, "review");
+    assert.include(extensionRisk?.riskSignals || [], "semantic_title_extension");
+    assert.isFalse(
+      result.actions.some(
+        (action) =>
+          action.action === "redirect" &&
+          action.edgeType === "contained_extension_risk",
+      ),
+    );
+    assert.isAtLeast(result.counters.cluster_count, 1);
+    assert.isAtLeast(result.counters.extension_risk_edge_count, 1);
+    for (const cluster of result.clusters) {
+      for (const action of result.actions.filter(
+        (entry) => entry.clusterId === cluster.clusterId,
+      )) {
+        assert.equal(
+          action.targetCanonicalReferenceId,
+          cluster.representativeCanonicalReferenceId,
+        );
+      }
+    }
+  });
+
+  it("classifies real-world cluster edge cases and chooses clean representatives", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:perpixel-noisy",
+        title:
+          "Schwing, and Alexander Kirillov. Per-pixel classification is not all you need for semantic segmentation",
+        year: "2021",
+        rawReferenceIds: ["raw:perpixel-a"],
+        rawHashes: ["hash:perpixel-a"],
+      },
+      {
+        canonicalReferenceId: "cref:perpixel-clean",
+        title:
+          "Per-pixel classification is not all you need for semantic segmentation",
+        year: "2021",
+        rawReferenceIds: ["raw:perpixel-b"],
+        rawHashes: ["hash:perpixel-b"],
+      },
+      {
+        canonicalReferenceId: "cref:faster-a",
+        title:
+          "Faster R-CNN: Towards real-time object detection with region proposal networks",
+        year: "2015",
+        rawReferenceIds: ["raw:faster-a"],
+        rawHashes: ["hash:faster-a"],
+      },
+      {
+        canonicalReferenceId: "cref:faster-b",
+        title:
+          "Faster r-cnn: Towards real-time object detection with region proposal networks",
+        year: "2017",
+        rawReferenceIds: ["raw:faster-b"],
+        rawHashes: ["hash:faster-b"],
+      },
+      {
+        canonicalReferenceId: "cref:conditional-noisy",
+        title:
+          "Conditional detr for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+        year: "2021",
+        rawReferenceIds: ["raw:conditional-a"],
+        rawHashes: ["hash:conditional-a"],
+      },
+      {
+        canonicalReferenceId: "cref:conditional-clean",
+        title: "Conditional detr for fast training convergence",
+        year: "2021",
+        rawReferenceIds: ["raw:conditional-b"],
+        rawHashes: ["hash:conditional-b"],
+      },
+    ]);
+
+    const perpixelCluster = result.clusters.find((cluster) =>
+      cluster.canonicalReferenceIds.includes("cref:perpixel-noisy"),
+    );
+    assert.equal(
+      perpixelCluster?.representativeCanonicalReferenceId,
+      "cref:perpixel-clean",
+    );
+    assert.isTrue(
+      result.edges.some(
+        (edge) =>
+          edge.sourceCanonicalReferenceId === "cref:perpixel-clean" &&
+          edge.targetCanonicalReferenceId === "cref:perpixel-noisy" &&
+          edge.edgeType === "contained_author_noise",
+      ),
+    );
+
+    const fasterCluster = result.clusters.find((cluster) =>
+      cluster.canonicalReferenceIds.includes("cref:faster-a"),
+    );
+    assert.deepEqual(
+      fasterCluster?.canonicalReferenceIds.sort(),
+      ["cref:faster-a", "cref:faster-b"],
+    );
+
+    assert.isTrue(
+      result.edges.some(
+        (edge) =>
+          edge.edgeType === "contained_bibliographic_noise" &&
+          edge.sourceCanonicalReferenceId === "cref:conditional-clean" &&
+          edge.targetCanonicalReferenceId === "cref:conditional-noisy",
+      ),
+    );
+  });
+
+  it("keeps representative selection quality-first instead of raw-count-first", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:noisy-heavy",
+        title:
+          "Attention is all you need. In Advances in neural information processing systems, pp",
+        year: "2017",
+        rawReferenceIds: Array.from({ length: 25 }, (_, index) => `raw:noisy:${index}`),
+        rawHashes: Array.from({ length: 25 }, (_, index) => `hash:noisy:${index}`),
+      },
+      {
+        canonicalReferenceId: "cref:clean",
+        title: "Attention is all you need",
+        year: "2017",
+        rawReferenceIds: ["raw:clean"],
+        rawHashes: ["hash:clean"],
+      },
+    ]);
+
+    const cluster = result.clusters.find((entry) =>
+      entry.canonicalReferenceIds.includes("cref:noisy-heavy"),
+    );
+    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:clean");
+    assert.include(cluster?.representativeRationale || [], "clean_title");
+    for (const action of result.actions.filter(
+      (entry) => entry.clusterId === cluster?.clusterId,
+    )) {
+      assert.equal(action.targetCanonicalReferenceId, "cref:clean");
+    }
+  });
+
+  it("keeps existing redirect targets sticky unless strong retarget evidence exists", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:sticky",
+        title: "Masked autoencoders are scalable vision learners",
+        year: "2023",
+        stickyRepresentative: true,
+        rawReferenceIds: ["raw:sticky"],
+        rawHashes: ["hash:sticky"],
+      },
+      {
+        canonicalReferenceId: "cref:new-heavy",
+        title:
+          "Masked autoencoders are scalable vision learners. In Proceedings of the IEEE conference, pp",
+        year: "2023",
+        rawReferenceIds: Array.from({ length: 20 }, (_, index) => `raw:new:${index}`),
+        rawHashes: Array.from({ length: 20 }, (_, index) => `hash:new:${index}`),
+      },
+    ]);
+
+    const cluster = result.clusters.find((entry) =>
+      entry.canonicalReferenceIds.includes("cref:sticky"),
+    );
+    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:sticky");
+    assert.include(cluster?.representativeRationale || [], "sticky_representative");
+    assert.isFalse(
+      result.actions.some((action) =>
+        action.reasons.includes("representative_retarget_review"),
+      ),
+    );
+  });
+
+  it("prefers clean hyphenated titles over fused-token title variants", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:fused",
+        title:
+          "YOLOv7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors",
+        year: "2023",
+        authors: ["Wang"],
+        identifiers: [{ kind: "citekey", value: "wang_yolov7-trainable_2023" }],
+        rawReferenceIds: ["raw:fused"],
+        rawHashes: ["hash:fused"],
+      },
+      {
+        canonicalReferenceId: "cref:hyphenated",
+        title:
+          "YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
+        year: "2023",
+        authors: ["Wang"],
+        identifiers: [{ kind: "citekey", value: "wang_yolov7-trainable_2023" }],
+        rawReferenceIds: ["raw:hyphenated"],
+        rawHashes: ["hash:hyphenated"],
+      },
+      {
+        canonicalReferenceId: "cref:biblio",
+        title:
+          "YOLOv7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp",
+        year: "2023",
+        authors: ["Wang"],
+        identifiers: [{ kind: "citekey", value: "wang_yolov7-trainable_2023" }],
+        rawReferenceIds: ["raw:biblio"],
+        rawHashes: ["hash:biblio"],
+      },
+    ]);
+
+    const cluster = result.clusters.find((entry) =>
+      entry.canonicalReferenceIds.includes("cref:fused"),
+    );
+    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:hyphenated");
+    assert.equal(
+      result.actions.filter(
+        (action) =>
+          action.clusterId === cluster?.clusterId &&
+          action.edgeType === "contained_bibliographic_noise" &&
+          action.sourceCanonicalReferenceId === "cref:biblio",
+      ).length,
+      1,
+    );
+    assert.isFalse(
+      result.actions.some(
+        (action) =>
+          action.edgeType === "contained_bibliographic_noise" &&
+          action.sourceCanonicalReferenceId === "cref:fused",
+      ),
+    );
+  });
+
+  it("classifies numeric venue suffixes as bibliographic noise and keeps the clean title representative", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:second-clean",
+        title: "Second: Sparsely embedded convolutional detection",
+        year: "2018",
+        authors: ["Yan Yan"],
+        rawReferenceIds: ["raw:second-a", "raw:second-b"],
+        rawHashes: ["hash:second-a", "hash:second-b"],
+      },
+      {
+        canonicalReferenceId: "cref:second-sensors",
+        title: "Second: Sparsely embedded convolutional detection. Sensors 18(10), 3337",
+        year: "2018",
+        authors: ["Yan Yan"],
+        rawReferenceIds: ["raw:second-c"],
+        rawHashes: ["hash:second-c"],
+      },
+    ]);
+
+    const cluster = result.clusters.find((entry) =>
+      entry.canonicalReferenceIds.includes("cref:second-clean"),
+    );
+    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:second-clean");
+    assert.isTrue(
+      result.edges.some(
+        (edge) =>
+          edge.edgeType === "contained_bibliographic_noise" &&
+          edge.sourceCanonicalReferenceId === "cref:second-clean" &&
+          edge.targetCanonicalReferenceId === "cref:second-sensors",
+      ),
+    );
+  });
+
+  it("does not let arXiv suffix identifiers outrank a clean duplicate representative", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:gold-clean",
+        title: "Gold-yolo: Efficient object detector via gather-and-distribute mechanism",
+        year: "2023",
+        authors: ["Wang"],
+        rawReferenceIds: ["raw:gold-a", "raw:gold-b"],
+        rawHashes: ["hash:gold-a", "hash:gold-b"],
+      },
+      {
+        canonicalReferenceId: "cref:gold-arxiv",
+        title:
+          "Gold-yolo: Efficient object detector via gather-and-distribute mechanism. arXiv preprint arXiv:2309.11331",
+        year: "2023",
+        authors: ["Wang"],
+        rawReferenceIds: ["raw:gold-c"],
+        rawHashes: ["hash:gold-c"],
+      },
+    ]);
+
+    const cluster = result.clusters.find((entry) =>
+      entry.canonicalReferenceIds.includes("cref:gold-clean"),
+    );
+    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:gold-clean");
+    assert.isTrue(
+      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+    );
+  });
+
+  it("filters bare DOI-like canonical records before cluster matching", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:bare-doi",
+        title: "//doi.org/10.1007/978-3-319-10602-1 48",
+        identifiers: [{ kind: "doi", value: "10.1007/978-3-319-10602-1_48" }],
+        rawReferenceIds: ["raw:doi"],
+        rawHashes: ["hash:doi"],
+      },
+      {
+        canonicalReferenceId: "cref:paper",
+        title: "A clean title that should not absorb a bare DOI row",
+        year: "2014",
+        identifiers: [{ kind: "doi", value: "10.1007/978-3-319-10602-1_48" }],
+        rawReferenceIds: ["raw:paper"],
+        rawHashes: ["hash:paper"],
+      },
+    ]);
+
+    assert.equal(result.counters.excluded_record_count, 1);
+    assert.equal(result.edges.length, 0);
+    assert.equal(result.actions.length, 0);
+    assert.isTrue(
+      result.diagnostics.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { code?: string }).code === "cluster_dedupe_record_excluded" &&
+          (entry as { canonical_reference_id?: string }).canonical_reference_id ===
+            "cref:bare-doi",
+      ),
+    );
+  });
+
+  it("does not classify unknown venue-only containment as bibliographic noise", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:clean",
+        title: "Robust object detection for small targets",
+        year: "2024",
+        rawReferenceIds: ["raw:clean"],
+        rawHashes: ["hash:clean"],
+      },
+      {
+        canonicalReferenceId: "cref:unknown-venue",
+        title: "Robust object detection for small targets NeurIPS",
+        year: "2024",
+        rawReferenceIds: ["raw:venue"],
+        rawHashes: ["hash:venue"],
+      },
+    ]);
+
+    assert.isFalse(
+      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+    );
+    assert.isTrue(
+      result.edges.some((edge) => edge.edgeType === "contained_extension_risk"),
+    );
+    assert.isFalse(
+      result.actions.some(
+        (action) =>
+          action.action === "redirect" &&
+          action.edgeType === "contained_extension_risk",
+      ),
+    );
+  });
+
+  it("keeps truncated author-like canonical records weak instead of redirecting them", function () {
+    const result = dedupeCanonicalReferencesClustered([
+      {
+        canonicalReferenceId: "cref:authors",
+        title: "Wang Li Zhang Chen",
+        authors: ["Wang", "Li", "Zhang", "Chen"],
+        rawReferenceIds: ["raw:authors"],
+        rawHashes: ["hash:authors"],
+      },
+    ]);
+
+    assert.equal(result.counters.weak_record_count, 1);
+    assert.equal(result.actions.length, 0);
+  });
+
+  it("records clustered dedupe budget diagnostics without widening blocks", function () {
+    const result = dedupeCanonicalReferencesClustered(
+      [
+        {
+          canonicalReferenceId: "cref:a",
+          title: "Shared Cluster Title",
+          year: "2024",
+          rawReferenceIds: ["raw:a"],
+          rawHashes: ["hash:a"],
+        },
+        {
+          canonicalReferenceId: "cref:b",
+          title: "Shared Cluster Title",
+          year: "2024",
+          rawReferenceIds: ["raw:b"],
+          rawHashes: ["hash:b"],
+        },
+        {
+          canonicalReferenceId: "cref:c",
+          title: "Shared Cluster Title",
+          year: "2024",
+          rawReferenceIds: ["raw:c"],
+          rawHashes: ["hash:c"],
+        },
+      ],
+      { maxBlockSize: 2, maxCandidatePairs: 10 },
+    );
+
+    assert.equal(result.counters.block_skipped_count, result.diagnostics.length);
+    assert.isTrue(
+      result.diagnostics.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { code?: string }).code === "cluster_dedupe_block_skipped",
+      ),
+    );
   });
 
   it("does not auto-match known dangerous near-neighbor titles", function () {

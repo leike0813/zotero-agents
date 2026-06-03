@@ -24,6 +24,10 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { parseEmbeddedNotePayloadBlock } from "../../src/modules/notePayloadCodec";
+import {
+  classifyReferenceExtractionQuality,
+  filterReferencesForDigestApply,
+} from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
 
 function parseNoteKind(noteContent: string) {
   const text = String(noteContent || "");
@@ -239,6 +243,36 @@ describe("workflow: literature-digest", function () {
       );
     },
   );
+
+  it("classifies deterministic invalid references without rejecting warning-only rows", function () {
+    const invalid = classifyReferenceExtractionQuality({
+      title: "https://doi.org/10.1007/978-3-319-10602-1_48",
+      raw: "https://doi.org/10.1007/978-3-319-10602-1_48",
+    });
+    assert.equal(invalid.disposition, "reject");
+    assert.include(invalid.rejectReasons, "bare_identifier_or_url_title");
+
+    const warning = classifyReferenceExtractionQuality({
+      title:
+        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+      raw:
+        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+      year: "2021",
+    });
+    assert.equal(warning.disposition, "accept");
+    assert.include(warning.warningReasons, "bibliographic_suffix_in_title");
+
+    const filtered = filterReferencesForDigestApply([
+      { title: "Layer normalization", year: "2016" },
+      { title: "Sensors 18(10), 3337" },
+    ]);
+    assert.equal(filtered.accepted.length, 1);
+    assert.equal(filtered.rejected.length, 1);
+    assert.include(
+      filtered.summary.rejected[0]?.reasons || [],
+      "publication_metadata_only_title",
+    );
+  });
 
   it("builds request from selected markdown attachment", async function () {
     const parent = await handlers.item.create({
@@ -493,6 +527,177 @@ describe("workflow: literature-digest", function () {
     assert.include(parentNotes, firstNote.id);
     assert.include(parentNotes, secondNote.id);
     assert.include(parentNotes, thirdNote.id);
+  });
+
+  it("filters deterministic invalid references before writing the references note", async function () {
+    this.timeout(5000);
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Reference Quality Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nBody";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return JSON.stringify([
+              {
+                title: "Attention is all you need",
+                year: "2017",
+                raw:
+                  "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
+              },
+              {
+                title: "https://doi.org/10.1007/978-3-319-10602-1_48",
+                raw: "https://doi.org/10.1007/978-3-319-10602-1_48",
+              },
+              {
+                title: "Sensors 18(10), 3337",
+                raw: "Sensors 18(10), 3337",
+              },
+              {
+                title: "Ashish Vaswani, Noam Shazeer",
+                raw: "Ashish Vaswani, Noam Shazeer",
+              },
+              {
+                title:
+                  "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+                year: "2021",
+                raw:
+                  "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+              },
+            ]);
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+      request: {
+        parameter: {
+          auto_reference_matching: false,
+        },
+      },
+    })) as {
+      notes: Zotero.Item[];
+      reference_quality?: {
+        accepted_count?: number;
+        rejected_count?: number;
+        warning_count?: number;
+        rejected?: Array<{ reasons?: string[] }>;
+        warnings?: Array<{ reasons?: string[] }>;
+      };
+    };
+
+    const referencesNote = applied.notes.find(
+      (note) =>
+        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const payload = (await parseStoredPayload(
+      Zotero.Items.get(referencesNote!.id)!,
+      "references-json",
+    )) as { references?: Array<{ title?: string }>; reference_quality?: unknown };
+    assert.deepEqual(
+      (payload.references || []).map((entry) => entry.title),
+      [
+        "Attention is all you need",
+        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
+      ],
+    );
+    assert.isUndefined(payload.reference_quality);
+    assert.equal(applied.reference_quality?.accepted_count, 2);
+    assert.equal(applied.reference_quality?.rejected_count, 3);
+    assert.isAtLeast(applied.reference_quality?.warning_count || 0, 1);
+    assert.include(
+      applied.reference_quality?.rejected?.flatMap((row) => row.reasons || []) ||
+        [],
+      "bare_identifier_or_url_title",
+    );
+    assert.include(
+      applied.reference_quality?.warnings?.flatMap((row) => row.reasons || []) ||
+        [],
+      "bibliographic_suffix_in_title",
+    );
+  });
+
+  it("writes an empty references array when all references are deterministic invalid", async function () {
+    this.timeout(5000);
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Empty Reference Quality Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nBody";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return JSON.stringify([
+              { title: "" },
+              { title: "//doi.org/10.1007/978-3-319-10602-1_48" },
+            ]);
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+      request: {
+        parameter: {
+          auto_reference_matching: false,
+        },
+      },
+    })) as {
+      notes: Zotero.Item[];
+      reference_quality?: { accepted_count?: number; rejected_count?: number };
+    };
+
+    const referencesNote = applied.notes.find(
+      (note) =>
+        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const payload = (await parseStoredPayload(
+      Zotero.Items.get(referencesNote!.id)!,
+      "references-json",
+    )) as { references?: unknown[] };
+    assert.deepEqual(payload.references, []);
+    assert.equal(applied.reference_quality?.accepted_count, 0);
+    assert.equal(applied.reference_quality?.rejected_count, 2);
   });
 
   it("stores literature matching metadata as a hidden digest note payload", async function () {

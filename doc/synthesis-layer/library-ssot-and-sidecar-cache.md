@@ -48,7 +48,7 @@ Synthesis sidecar state changes only through bounded, explicit paths:
 
 | Path | Trigger | Effect |
 | --- | --- | --- |
-| Digest apply sync | `literature-digest` apply succeeds | Update artifact sidecar row for the applied `source_ref`; if the references artifact hash changed, stale old raw references for that source/hash and extract new raw references. |
+| Digest apply sync | `literature-digest` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact sidecar row for the applied `source_ref`; if the references artifact hash changed, stale old raw references for that source/hash and extract new raw references. |
 | Topic apply sync | topic create/update apply succeeds | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries. |
 | Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding. |
 | Explicit reference binding review | user starts review/repair workflow | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions. |

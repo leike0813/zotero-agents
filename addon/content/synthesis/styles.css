@@ -1180,6 +1180,109 @@ button.is-busy {
   animation: review-panel-enter 180ms ease-out;
 }
 
+.index-review-drawer {
+  display: grid;
+  gap: 8px;
+  margin: 0 12px 12px;
+  padding: 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel);
+}
+
+.index-review-drawer.is-collapsed {
+  padding-bottom: 10px;
+}
+
+.review-drawer-header,
+.review-drawer-controls,
+.review-table-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.review-drawer-header {
+  justify-content: space-between;
+}
+
+.review-drawer-controls {
+  justify-content: flex-end;
+}
+
+.index-review-drawer .reference-review-pending-controls {
+  margin-left: 4px;
+}
+
+.index-review-drawer .reference-review-pending-controls button {
+  min-height: 28px;
+  padding-block: 3px;
+}
+
+.review-center {
+  gap: 10px;
+  padding: 12px;
+}
+
+.review-center-toolbar {
+  align-items: center;
+}
+
+.review-center-toolbar input {
+  min-width: 220px;
+}
+
+.reference-review-pending-controls,
+.reference-review-bulk-actions,
+.review-status-stack {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.reference-review-pending-controls button {
+  position: relative;
+}
+
+.reference-review-pending-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  padding-inline: 5px;
+  border: 0;
+  box-shadow: none;
+  text-align: center;
+}
+
+.reference-review-bulk-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px;
+  border-bottom: 1px solid var(--zs-border);
+  background: var(--zs-panel);
+}
+
+.review-center-table-wrap {
+  min-height: 0;
+}
+
+.review-center-table td {
+  vertical-align: top;
+}
+
+.review-selection-cell {
+  width: 42px;
+  text-align: center;
+}
+
+.review-selection-cell input {
+  width: 16px;
+  height: 16px;
+}
+
 .review-card {
   display: grid;
   gap: 10px;
@@ -1227,6 +1330,35 @@ button.is-busy {
   margin: 0;
   color: var(--zs-text);
   line-height: 1.45;
+}
+
+.reference-review-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.reference-review-summary-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-panel);
+}
+
+.reference-review-summary-label {
+  color: var(--zs-muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.reference-review-summary-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .review-card-details {

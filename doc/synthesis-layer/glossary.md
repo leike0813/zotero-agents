@@ -13,7 +13,8 @@ This file is the terminology SSOT. If another document needs a term, link here i
 | Raw reference | One reference entry extracted from a references artifact for a specific `source_ref` and `references_artifact_hash`. It is regenerable and becomes `stale` when that source artifact hash is replaced or disappears. |
 | Canonical reference | Synthesis-owned dedupe representative for one or more raw references. It stores normalized identity evidence and redirects, but it is not a copy of a Zotero library item. |
 | Canonical reference redirect | Durable sidecar fact that maps one canonical reference to another after dedupe, merge, or retarget review. Reads must resolve effective canonical references through redirects. |
-| Reference binding | Sidecar relation from a canonical reference to a current Zotero `libraryId:itemKey`, with minimal status `accepted`, `candidate`, `rejected`, or `stale_target`. Automatic versus reviewed origin is provenance, not binding state. |
+| Reference binding | Accepted sidecar fact from a canonical reference to a current Zotero `libraryId:itemKey`. Automatic versus reviewed origin is provenance, not binding state. |
+| Reference match proposal | Reviewable advanced-matcher candidate for a Zotero binding or canonical merge, with status `open`, `accepted`, `rejected`, or `superseded`. |
 | `literature_item_id` | Legacy Registry identity term from the old library-index model. New sidecar documents should not allocate or depend on it for source items or reference cache refresh. |
 | Registry binding | Legacy relationship between `literature_item_id` and Zotero item bindings. New design uses `reference_binding` for canonical-reference-to-Zotero binding and direct Zotero reads for source item facts. |
 | Source artifact | A derived note/artifact produced by workflows such as `literature-digest`; Synthesis consumes it but does not own its generation contract. |

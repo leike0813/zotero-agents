@@ -2,6 +2,7 @@ export type SynthesisUiTab =
   | "overview"
   | "artifacts"
   | "registry"
+  | "reviews"
   | "tags"
   | "concepts"
   | "graph"
@@ -38,6 +39,32 @@ export type SynthesisUiBindingStatusFilter =
   | "all"
   | "unbound"
   | SynthesisUiBindingStatus;
+
+export type SynthesisUiReviewTab =
+  | "reference_matching"
+  | "index_cleanup"
+  | "concepts"
+  | "topic_graph";
+
+export type SynthesisUiReviewStatusFilter =
+  | "open"
+  | "all"
+  | "accepted"
+  | "rejected"
+  | "superseded";
+
+export type SynthesisUiReviewKindFilter =
+  | "all"
+  | "zotero_binding"
+  | "canonical_merge";
+
+export type SynthesisUiReviewConfidenceFilter =
+  | "all"
+  | "deterministic"
+  | "high"
+  | "medium"
+  | "low"
+  | "review";
 
 export type SynthesisUiGraphElement =
   | { kind: "node"; id: string }
@@ -101,6 +128,23 @@ export type SynthesisUiRegistryReferenceRow = {
   target_paper_ref?: string;
   target_binding: "library" | "external" | "none";
   binding_status?: SynthesisUiBindingStatus;
+};
+
+export type SynthesisUiReferenceMatchProposalRow = {
+  proposal_id: string;
+  kind: "zotero_binding" | "canonical_merge";
+  status: "open" | "accepted" | "rejected" | "superseded";
+  source_canonical_reference_id: string;
+  source_raw_reference_ids: string[];
+  target_canonical_reference_id?: string;
+  target_library_id?: number;
+  target_item_key?: string;
+  confidence?: string;
+  score?: number;
+  reasons?: string[];
+  evidence?: Record<string, unknown>;
+  diagnostics?: unknown[];
+  updated_at?: string;
 };
 
 export type SynthesisUiCleanupProposalRow = {
@@ -516,6 +560,15 @@ export type SynthesisUiState = {
     scope: SynthesisUiRegistryScopeFilter;
     artifactCoverage: "all" | SynthesisUiCoverage;
     bindingStatus: SynthesisUiBindingStatusFilter;
+    reviewDrawerOpen: boolean;
+    reviewDrawerIndex: number;
+  };
+  reviews: {
+    activeTab: SynthesisUiReviewTab;
+    search: string;
+    status: SynthesisUiReviewStatusFilter;
+    kind: SynthesisUiReviewKindFilter;
+    confidence: SynthesisUiReviewConfidenceFilter;
   };
   tags: {
     search: string;
@@ -571,6 +624,7 @@ export type SynthesisUiSnapshotInput = {
   registry?: {
     rows?: SynthesisUiRegistryRow[];
     cleanupProposals?: SynthesisUiCleanupProposalRow[];
+    matchProposals?: SynthesisUiReferenceMatchProposalRow[];
     cacheStatus?: Partial<SynthesisUiCacheStatus>;
   };
   tags?: {
@@ -665,7 +719,11 @@ export type SynthesisUiSnapshot = {
     rows: SynthesisUiRegistryRow[];
     visibleRows: SynthesisUiRegistryRow[];
     cleanupProposals: SynthesisUiCleanupProposalRow[];
+    matchProposals: SynthesisUiReferenceMatchProposalRow[];
     cacheStatus: SynthesisUiCacheStatus;
+  };
+  reviews: {
+    filters: SynthesisUiState["reviews"];
   };
   tags: {
     filters: SynthesisUiState["tags"];
@@ -773,6 +831,10 @@ export type SynthesisUiHostCommandName =
   | "restoreTopicDiscoveryHint"
   | "refreshReferenceSidecarNow"
   | "retryReferenceSidecarRefresh"
+  | "runAdvancedReferenceMatchingNow"
+  | "retryAdvancedReferenceMatching"
+  | "applyReferenceMatchProposalAction"
+  | "applyReferenceMatchProposalActions"
   | "rebuildCitationGraphCacheNow"
   | "retryCitationGraphCacheRebuild"
   | "deleteTopicArtifact"
@@ -848,6 +910,10 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "restoreTopicDiscoveryHint",
   "refreshReferenceSidecarNow",
   "retryReferenceSidecarRefresh",
+  "runAdvancedReferenceMatchingNow",
+  "retryAdvancedReferenceMatching",
+  "applyReferenceMatchProposalAction",
+  "applyReferenceMatchProposalActions",
   "rebuildCitationGraphCacheNow",
   "retryCitationGraphCacheRebuild",
   "deleteTopicArtifact",
@@ -888,6 +954,10 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   restoreTopicDiscoveryHint: "Restore discovery hint",
   refreshReferenceSidecarNow: "Refresh reference sidecar",
   retryReferenceSidecarRefresh: "Retry reference sidecar refresh",
+  runAdvancedReferenceMatchingNow: "Run advanced reference matching",
+  retryAdvancedReferenceMatching: "Retry advanced reference matching",
+  applyReferenceMatchProposalAction: "Apply reference match proposal",
+  applyReferenceMatchProposalActions: "Apply reference match proposals",
   rebuildCitationGraphCacheNow: "Rebuild citation graph cache",
   retryCitationGraphCacheRebuild: "Retry citation graph cache rebuild",
   deleteTopicArtifact: "Delete topic artifact",
@@ -925,6 +995,10 @@ export function getSynthesisUiOperationKey(
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyTopicGraphReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
+    case "applyReferenceMatchProposalAction":
+      return `${command}:${keyPart(args.proposalId)}`;
+    case "applyReferenceMatchProposalActions":
+      return command;
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
@@ -968,6 +1042,7 @@ function normalizeTab(value: unknown): SynthesisUiTab {
     tab === "overview" ||
     tab === "artifacts" ||
     tab === "registry" ||
+    tab === "reviews" ||
     tab === "tags" ||
     tab === "concepts" ||
     tab === "graph" ||
@@ -1356,6 +1431,57 @@ function deriveUpdateIntent(row: {
   return undefined;
 }
 
+function normalizeReviewTab(value: unknown): SynthesisUiReviewTab {
+  const normalized = cleanString(value);
+  if (
+    normalized === "index_cleanup" ||
+    normalized === "concepts" ||
+    normalized === "topic_graph"
+  ) {
+    return normalized;
+  }
+  return "reference_matching";
+}
+
+function normalizeReviewStatusFilter(
+  value: unknown,
+): SynthesisUiReviewStatusFilter {
+  const normalized = cleanString(value);
+  if (
+    normalized === "all" ||
+    normalized === "accepted" ||
+    normalized === "rejected" ||
+    normalized === "superseded"
+  ) {
+    return normalized;
+  }
+  return "open";
+}
+
+function normalizeReviewKindFilter(value: unknown): SynthesisUiReviewKindFilter {
+  const normalized = cleanString(value);
+  if (normalized === "zotero_binding" || normalized === "canonical_merge") {
+    return normalized;
+  }
+  return "all";
+}
+
+function normalizeReviewConfidenceFilter(
+  value: unknown,
+): SynthesisUiReviewConfidenceFilter {
+  const normalized = cleanString(value);
+  if (
+    normalized === "deterministic" ||
+    normalized === "high" ||
+    normalized === "medium" ||
+    normalized === "low" ||
+    normalized === "review"
+  ) {
+    return normalized;
+  }
+  return "all";
+}
+
 function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
   return [...(rows || [])]
     .map((row) => {
@@ -1513,6 +1639,62 @@ function normalizeCleanupProposals(
     }))
     .filter((row) => row.proposal_id)
     .sort((left, right) => left.proposal_id.localeCompare(right.proposal_id));
+}
+
+function normalizeReferenceMatchProposals(
+  rows: SynthesisUiReferenceMatchProposalRow[] | undefined,
+) {
+  const statusRank = (status: string) =>
+    status === "open"
+      ? 0
+      : status === "accepted"
+        ? 1
+        : status === "rejected"
+          ? 2
+          : 3;
+  return [...(rows || [])]
+    .map((row) => ({
+      proposal_id: cleanString(row.proposal_id),
+      kind:
+        row.kind === "canonical_merge"
+          ? ("canonical_merge" as const)
+          : ("zotero_binding" as const),
+      status:
+        row.status === "accepted" ||
+        row.status === "rejected" ||
+        row.status === "superseded"
+          ? row.status
+          : ("open" as const),
+      source_canonical_reference_id: cleanString(
+        row.source_canonical_reference_id,
+      ),
+      source_raw_reference_ids: normalizeStringList(
+        row.source_raw_reference_ids,
+      ),
+      target_canonical_reference_id:
+        cleanString(row.target_canonical_reference_id) || undefined,
+      target_library_id: Math.max(
+        0,
+        Math.floor(Number(row.target_library_id) || 0),
+      ),
+      target_item_key: cleanString(row.target_item_key) || undefined,
+      confidence: cleanString(row.confidence) || undefined,
+      score: cleanNumber(row.score, 0),
+      reasons: normalizeStringList(row.reasons),
+      evidence:
+        row.evidence && typeof row.evidence === "object"
+          ? (row.evidence as Record<string, unknown>)
+          : {},
+      diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+      updated_at: cleanString(row.updated_at) || undefined,
+    }))
+    .filter((row) => row.proposal_id && row.source_canonical_reference_id)
+    .sort(
+      (left, right) =>
+        statusRank(left.status) - statusRank(right.status) ||
+        (right.updated_at || "").localeCompare(left.updated_at || "") ||
+        left.proposal_id.localeCompare(right.proposal_id),
+    );
 }
 
 function normalizeTagWarnings(
@@ -2246,6 +2428,15 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       scope: "library",
       artifactCoverage: "all",
       bindingStatus: "all",
+      reviewDrawerOpen: true,
+      reviewDrawerIndex: 0,
+    },
+    reviews: {
+      activeTab: "reference_matching",
+      search: "",
+      status: "open",
+      kind: "all",
+      confidence: "all",
     },
     tags: {
       search: "",
@@ -2699,6 +2890,9 @@ export function buildSynthesisUiSnapshot(
   const cleanupProposals = normalizeCleanupProposals(
     input.registry?.cleanupProposals,
   );
+  const matchProposals = normalizeReferenceMatchProposals(
+    input.registry?.matchProposals,
+  );
   const tagWarnings = normalizeTagWarnings(input.tags?.validationWarnings);
   const tagRows = normalizeTagRows(input.tags?.entries, tagWarnings);
   const tagFacets = normalizeStringList(
@@ -2835,10 +3029,14 @@ export function buildSynthesisUiSnapshot(
       rows: registryRows,
       visibleRows: filterRegistry(registryRows, state.registry),
       cleanupProposals,
+      matchProposals,
       cacheStatus: normalizeCacheStatus(
         input.registry?.cacheStatus,
         "reference-sidecar:library",
       ),
+    },
+    reviews: {
+      filters: { ...state.reviews },
     },
     tags: {
       filters: { ...state.tags },
@@ -3013,6 +3211,7 @@ export function applySynthesisUiAction(
     selectedTab: state.selectedTab,
     artifacts: { ...state.artifacts },
     registry: { ...state.registry },
+    reviews: { ...state.reviews },
     tags: { ...state.tags },
     topicGraph: { ...state.topicGraph },
     concepts: { ...state.concepts },
@@ -3101,6 +3300,35 @@ export function applySynthesisUiAction(
         if (next.registry.scope !== "referenced") {
           next.registry.bindingStatus = "all";
         }
+      }
+      if ("reviewDrawerOpen" in filters) {
+        next.registry.reviewDrawerOpen = Boolean(filters.reviewDrawerOpen);
+      }
+      if ("reviewDrawerIndex" in filters) {
+        next.registry.reviewDrawerIndex = Math.max(
+          0,
+          Math.floor(cleanNumber(filters.reviewDrawerIndex, 0)),
+        );
+      }
+    }
+    if (payload.reviews && typeof payload.reviews === "object") {
+      const filters = payload.reviews as Record<string, unknown>;
+      if ("activeTab" in filters) {
+        next.reviews.activeTab = normalizeReviewTab(filters.activeTab);
+      }
+      if ("search" in filters) {
+        next.reviews.search = cleanString(filters.search);
+      }
+      if ("status" in filters) {
+        next.reviews.status = normalizeReviewStatusFilter(filters.status);
+      }
+      if ("kind" in filters) {
+        next.reviews.kind = normalizeReviewKindFilter(filters.kind);
+      }
+      if ("confidence" in filters) {
+        next.reviews.confidence = normalizeReviewConfidenceFilter(
+          filters.confidence,
+        );
       }
     }
     if (payload.tags && typeof payload.tags === "object") {
