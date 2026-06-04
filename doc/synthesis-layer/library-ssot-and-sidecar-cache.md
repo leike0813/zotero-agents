@@ -26,7 +26,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 | Data | SSOT | Synthesis Sidecar Role |
 | --- | --- | --- |
 | Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through Host Library APIs. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
-| Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only artifact existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. |
+| Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability. |
 | Topic artifacts and source manifests | Topic artifact notes / workflow output | Store summaries, source-check diagnostics, and UI projection. |
 | Raw reference entries extracted by digest/apply | Source references artifact payload | Store rows keyed by `source_ref`, `references_artifact_hash`, and reference index/hash for graph/query speed. Old rows become `stale` when their artifact hash is replaced. |
 | Canonical reference dedupe and redirects | Synthesis sidecar facts plus user-approved decisions | Store canonical representatives and redirects between canonical references. Ambiguous merges require review. |
@@ -52,7 +52,8 @@ Synthesis sidecar state changes only through bounded, explicit paths:
 | Topic apply sync | topic create/update apply succeeds | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries. |
 | Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding. |
 | Explicit reference binding review | user starts review/repair workflow | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions. |
-| Explicit graph cache refresh | user opens graph refresh or debug command | Recompute graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
+| Graph cache incremental refresh | workflow apply, Reference Sidecar refresh, or Advanced Matching changes graph-affecting sidecar facts | Recompute affected source-slice graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
+| Explicit graph cache rebuild | user opens graph refresh or debug command, or allowed bootstrap after heavy reference operations | Recompute full graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
 | Explicit cache repair | user/debug command | Re-scan selected source items or artifacts; report a bounded diff before broad changes. |
 | Reset/import/export | protected user command | Reset or move sidecar state according to documented scope. |
 

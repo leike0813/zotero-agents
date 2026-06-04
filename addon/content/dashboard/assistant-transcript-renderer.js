@@ -210,6 +210,44 @@
     return "";
   }
 
+  function assistantTooltipText(value) {
+    return String(value || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map(function (line) {
+        return line.replace(/[ \t]+/g, " ").trim();
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  function assistantToolCommandTooltip(tool) {
+    const name = compactAssistantToolName(tool);
+    const candidates = [
+      tool && tool.inputSummary,
+      tool && tool.summary,
+      tool && tool.resultSummary,
+      tool && tool.title,
+      tool && tool.toolName,
+      tool && tool.toolKind,
+    ];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const value = assistantTooltipText(candidates[index]);
+      if (!isGenericToolText(value)) {
+        return value === name ? value : name + ": " + value;
+      }
+    }
+    return name;
+  }
+
+  function setAssistantTooltip(node, text) {
+    const value = assistantTooltipText(text);
+    if (!node || !value) return;
+    node.title = value;
+    node.setAttribute("aria-label", value);
+  }
+
   function toolToneClass(status) {
     switch (normalizeStatusToken(status)) {
       case "completed":
@@ -452,9 +490,16 @@
   }
 
   function appendToolDisplay(parent, tool) {
-    parent.appendChild(el("span", "assistant-transcript-tool-badge", compactAssistantToolName(tool)));
+    const tooltip = assistantToolCommandTooltip(tool);
+    const badge = el("span", "assistant-transcript-tool-badge", compactAssistantToolName(tool));
+    setAssistantTooltip(badge, tooltip);
+    parent.appendChild(badge);
     const summary = compactAssistantToolSummary(tool);
-    if (summary) parent.appendChild(el("span", "assistant-transcript-tool-summary", summary));
+    if (summary) {
+      const summaryNode = el("span", "assistant-transcript-tool-summary", summary);
+      setAssistantTooltip(summaryNode, tooltip);
+      parent.appendChild(summaryNode);
+    }
   }
 
   function permissionToneClass(status) {
@@ -583,7 +628,11 @@
       );
       summary.appendChild(chevron);
       summary.appendChild(led);
-      summary.appendChild(el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items, options)));
+      const activityTooltip = toolActivityTooltipText(item.items);
+      setAssistantTooltip(summary, activityTooltip);
+      const summaryText = el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items, options));
+      setAssistantTooltip(summaryText, activityTooltip);
+      summary.appendChild(summaryText);
       if (typeof options.onToggleExpanded === "function") {
         summary.addEventListener("click", function (event) {
           event.stopPropagation();
@@ -595,6 +644,7 @@
         const list = el("div", "assistant-transcript-tool-activity-list");
         item.items.forEach(function (tool) {
           const entry = el("div", "assistant-transcript-tool-activity-item " + toolToneClass(tool.state));
+          setAssistantTooltip(entry, assistantToolCommandTooltip(tool));
           const toolLed = el("span", "assistant-transcript-tool-led " + toolToneClass(tool.state));
           toolLed.setAttribute("aria-hidden", "true");
           entry.appendChild(toolLed);
@@ -648,6 +698,13 @@
       runningCount ? String(runningCount) + " " + transcriptLabel(options, "running", "running") : "",
       pendingCount ? String(pendingCount) + " " + transcriptLabel(options, "pending", "pending") : "",
     ].filter(Boolean).join(" • ");
+  }
+
+  function toolActivityTooltipText(items) {
+    return (Array.isArray(items) ? items : [])
+      .map(assistantToolCommandTooltip)
+      .filter(Boolean)
+      .join("\n");
   }
 
   function renderAssistantTranscriptItem(row, item, options) {

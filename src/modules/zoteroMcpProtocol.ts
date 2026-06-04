@@ -2395,7 +2395,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
     title: "List Zotero note payloads",
     description:
-      "List hidden workflow payload blocks in one Zotero note. Use this before get_note_payload when a note may contain markdown or workflow JSON payloads.",
+      "List workflow note payloads from embedded attachments and legacy payload blocks. Use this before get_note_payload when a note may contain markdown or workflow JSON payloads.",
     inputSchema: objectSchema(itemRefProperties),
     handler: async (args, context) => {
       const ref = resolveItemRef(args);
@@ -2414,7 +2414,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
     title: "Get Zotero note payload",
     description:
-      "Decode one hidden workflow payload from a Zotero note. Markdown payloads return canonical markdown; JSON payloads return decoded JSON plus bounded text chunks.",
+      "Decode one workflow payload from a Zotero note. Markdown payloads return canonical markdown; JSON payloads return decoded JSON plus bounded text chunks.",
     inputSchema: objectSchema({
       ...itemRefProperties,
       payloadType: {
@@ -2568,7 +2568,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
     title: "Resolve Synthesis resolver",
     description:
-      "Validate and execute a canonical Topic Resolver, returning resolved papers, match reasons, coverage, and diagnostics.",
+      "Validate and execute a canonical Topic Resolver. Input must include a top-level resolver object; do not pass topic_resolver or root-level queries.",
     method: "resolveResolver",
     properties: {
       resolver: { type: "object" },

@@ -65,10 +65,6 @@ Moved/kept as full-only:
 
 Case-level full-only (kept in same file, gated via `itFullOnly`):
 
-- `test/workflow-reference-matching/24-workflow-reference-matching.test.ts`
-  - BBT-lite template failure/ambiguity edges
-  - BBT JSON-RPC connectivity and failure-path checks
-  - title-major fuzzy/ambiguous ranking edge matrix
 - `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
   - legacy note-shape compatibility matrix
   - upsert/partial-fallback and all-skipped edge accounting
@@ -175,7 +171,6 @@ Retained `workflow` lite files:
 - `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
 - `test/workflow-literature-explainer/21-workflow-literature-explainer.test.ts`
 - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
-- `test/workflow-reference-matching/24-workflow-reference-matching.test.ts`
 - `test/workflow-mineru/39-workflow-mineru.test.ts`
 - `test/workflow-tag-regulator/64a-workflow-tag-regulator-request-building.test.ts`
 - `test/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts` (host-safe subset)
@@ -199,7 +194,6 @@ Zotero `full` extra parity ring:
   - `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
   - `test/workflow-literature-explainer/21-workflow-literature-explainer.test.ts`
   - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
-  - `test/workflow-reference-matching/24-workflow-reference-matching.test.ts`
   - `test/workflow-mineru/39-workflow-mineru.test.ts`
   - `test/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts`
 

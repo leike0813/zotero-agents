@@ -15,6 +15,8 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
+  configureZoteroMcpServerForTests,
+  handleZoteroMcpHttpRequestForTests,
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
@@ -30,6 +32,28 @@ function parseRawHttpResponse(raw: string) {
     body,
     json: JSON.parse(body),
   };
+}
+
+function rawHttpRequestBytes(args: {
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  bodyBytes?: Uint8Array;
+}) {
+  const bodyBytes = args.bodyBytes || new Uint8Array();
+  const headers = {
+    "Content-Length": String(bodyBytes.byteLength),
+    ...(args.headers || {}),
+  };
+  const head = [
+    `${args.method} ${args.path} HTTP/1.1`,
+    ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+    "",
+    "",
+  ].join("\r\n");
+  return new Uint8Array(
+    Buffer.concat([Buffer.from(head, "latin1"), Buffer.from(bodyBytes)]),
+  );
 }
 
 async function callBridgeCapability(args: {
@@ -53,6 +77,32 @@ async function callBridgeCapability(args: {
       body: JSON.stringify({
         capability: args.capability,
         input: args.input,
+      }),
+    }),
+  );
+}
+
+async function callBridgeCapabilityRaw(args: {
+  token: string;
+  capability: string;
+  input?: unknown;
+}) {
+  const body = JSON.stringify({
+    capability: args.capability,
+    input: args.input,
+  });
+  return parseRawHttpResponse(
+    await handleHostBridgeHttpRequestForTests({
+      method: "POST",
+      path: "/bridge/v1/call",
+      rawRequestBytes: rawHttpRequestBytes({
+        method: "POST",
+        path: "/bridge/v1/call",
+        headers: {
+          Authorization: `Bearer ${args.token}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        bodyBytes: Buffer.from(body, "utf8"),
       }),
     }),
   );
@@ -153,6 +203,28 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
   });
 
+  it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
+    const token = configureHostBridgeServerForTests({ token: "utf8-call-token" });
+    await createParentItem("桥接中文🚀 Paper");
+
+    const parsed = await callBridgeCapabilityRaw({
+      token,
+      capability: "library.search_items",
+      input: {
+        libraryId: Zotero.Libraries.userLibraryID,
+        query: "桥接中文🚀",
+        limit: 3,
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    const titles = parsed.json.result.data.map(
+      (entry: { title?: string }) => entry.title,
+    );
+    assert.include(titles, "桥接中文🚀 Paper");
+  });
+
   it("exposes Synthesis host capabilities through Host Bridge CLI-compatible calls", async function () {
     const token = configureHostBridgeServerForTests({
       token: "synthesis-token",
@@ -174,6 +246,45 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
     assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
+  });
+
+  it("reports canonical resolve-resolver input contract errors", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "resolver-contract-token",
+    });
+
+    const missing = await callBridgeCapability({
+      token,
+      capability: "synthesis.resolve_resolver",
+      input: {},
+    });
+    assert.strictEqual(missing.status, 200);
+    assert.isFalse(missing.json.result.data.ok);
+    assert.include(
+      missing.json.result.data.errors,
+      "$.resolver is required and must be an object",
+    );
+
+    const legacy = await callBridgeCapability({
+      token,
+      capability: "synthesis.resolve_resolver",
+      input: {
+        topic_resolver: {
+          mode: "tag_query",
+          query: "vision",
+        },
+      },
+    });
+    assert.strictEqual(legacy.status, 200);
+    assert.isFalse(legacy.json.result.data.ok);
+    assert.include(
+      legacy.json.result.data.errors,
+      "$.resolver is required and must be an object",
+    );
+    assert.include(
+      legacy.json.result.data.errors.join("\n"),
+      "$.topic_resolver is not accepted",
+    );
   });
 
   it("hides debug capabilities when debug mode is disabled", async function () {
@@ -624,5 +735,63 @@ describe("host bridge capability calls", function () {
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }
+  });
+
+  it("decodes Zotero MCP JSON-RPC bodies as UTF-8 bytes", async function () {
+    const token = configureZoteroMcpServerForTests({
+      token: "mcp-utf8-token",
+    });
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "请求🚀",
+      method: "tools/list",
+      params: {},
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleZoteroMcpHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/mcp",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          bodyBytes: Buffer.from(body, "utf8"),
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.id, "请求🚀");
+    assert.isArray(parsed.json.result.tools);
+  });
+
+  it("rejects malformed UTF-8 Zotero MCP JSON-RPC bodies", async function () {
+    const token = configureZoteroMcpServerForTests({
+      token: "mcp-invalid-utf8-token",
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleZoteroMcpHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/mcp",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          bodyBytes: new Uint8Array([0x7b, 0xff, 0x7d]),
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error, "bad_request");
+    assert.strictEqual(parsed.json.reason, "invalid_utf8_body");
   });
 });

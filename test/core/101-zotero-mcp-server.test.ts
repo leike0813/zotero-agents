@@ -416,7 +416,7 @@ describe("embedded Zotero MCP server protocol", function () {
     const notePayload = (response as any).result.tools.find(
       (tool: { name: string }) => tool.name === ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD,
     );
-    assert.include(notePayload.description, "Decode one hidden workflow payload");
+    assert.include(notePayload.description, "Decode one workflow payload");
     const createMarkdownNote = (response as any).result.tools.find(
       (tool: { name: string }) =>
         tool.name === ZOTERO_MCP_TOOL_CREATE_MARKDOWN_NOTE,

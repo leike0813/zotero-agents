@@ -11,6 +11,31 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Debug file inspection belongs in debug tools, not normal Workbench UI.
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
 
+## Surface-Scoped Refresh Architecture
+
+Workbench UI uses three read-model layers:
+
+- Shell: selected tab, navigation, and persistent surface containers.
+- Chrome: statusbar, operation progress, job popover, and local pending action state.
+- Surface: one named content area, one of `home`, `topics`, `index`, `review`, `graph`, `tags`, `concepts`, or `reader`.
+
+Active Workbench hot paths must use surface-scoped messages:
+
+- `ready` initializes shell/chrome and requests the active surface only.
+- `selectTab` switches the shell state and requests only the selected surface when it is missing or dirty; switching back to an already loaded clean surface must serve the cached read model.
+- operation progress updates chrome only.
+- local review pending, selection, and drawer state updates only the review/index surface and chrome.
+- Review Center filter changes may reload only the Review surface, using the active review tab and filters as query bounds.
+- explicit refresh or completed operations invalidate only declared surfaces; hidden invalidated surfaces are marked dirty and are not reloaded until viewed or explicitly refreshed.
+
+The monolithic full Workbench snapshot is debug-only. It must not be used by `ready`, `selectTab`, `setFilters`, operation progress polling, local review actions, or graph layout checks. Startup warmup may prefill only lightweight chrome by default. Content surfaces must be loaded when visible, explicitly requested, or scheduled through a bounded surface list; they must yield before phase work starts and must not show a Zotero ProgressWindow or block the first Workbench paint.
+
+Chrome is not a content surface. It may read operation rows, cache-basis rows, storage status, and local pending command state, but it must not read Citation Graph nodes/edges, Index rows, Review proposal evidence, Tag/Concept projections, or Topic Graph data.
+
+Zotero Library item notifications are UI read-model invalidations, not sidecar synchronization events. Parent item add/modify/delete/trash/refresh notifications mark the Index surface dirty because the Zotero title/year/creator rows shown there are direct-read SSOT data. If Index is visible, Workbench may debounce and reload only the Index surface; if it is hidden, it must remain dirty until selected. This invalidation must not start `refreshReferenceSidecarNow`, must not rebuild graph/tag/concept caches, and must not change `synt_cache_basis`.
+
+Index and Review are separate hot paths. Index may load a bounded current-library page and a small open-review drawer slice. In normal library scope, Index rows carry artifact coverage and reference counts only; they must not carry every raw reference for collapsed rows. Referenced-only mode may load a bounded raw-reference page and the matching source rows. Index must not load the Review Center proposal page. Review Center must use its active tab/status/kind/confidence state to load a bounded page of review data and the minimal readable context for those rows only. Review proposal context must use summary Zotero item reads and bounded raw-reference ids; it must not route through the Index sidecar row builder or read child note payloads.
+
 ## Cache Status and Operations
 
 Workbench should expose sidecar projections as cache:
@@ -55,9 +80,13 @@ Canonical merge proposals must show readable source and target reference titles 
 - Show all library nodes by default.
 - Show shared external nodes with incoming degree greater than 1.
 - Keep single-degree external nodes hover-only by default.
-- If graph cache is missing/stale, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary rebuild action.
+- If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; full rebuild remains the fallback when no delta is recorded.
+- If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
+- If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Source-slice graph refresh may happen as a separate visible operation after sidecar-changing actions.
 - If graph structure exists but layout is missing/stale, draw what is available and offer `manualRecomputeLayout`.
 - If graph cache is stale, failed, or missing, show a visible cache badge and keep topic workflows available.
+- Graph search is explicit: typing in the control does not refresh the surface until `Search` is pressed; `Clear` resets search immediately.
+- Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Hovering a visible neighbor of a selected node should show that neighbor title, including external reference nodes.
 
 Graph data rebuild and layout rebuild must remain different UI actions. Layout rebuild never repairs missing graph data.
 

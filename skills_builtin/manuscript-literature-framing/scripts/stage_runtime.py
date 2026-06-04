@@ -19,6 +19,8 @@ from runtime_state import (
     write_text,
 )
 
+FALLBACK_RESULT_FILENAME = "manuscript-literature-framing.result.json"
+
 
 def payload_file_required(action: str, payload_file: str | None) -> str:
     if not payload_file:
@@ -64,6 +66,107 @@ def normalize_topics(value: Any) -> list[dict[str, Any]]:
 
 def render_value(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def first_present(mapping: dict[str, Any], names: list[str]) -> Any:
+    for name in names:
+        if name in mapping:
+            return mapping.get(name)
+    return None
+
+
+def is_non_empty_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return value is not None
+
+
+def require_field_group(mapping: dict[str, Any], label: str, names: list[str]) -> None:
+    value = first_present(mapping, names)
+    if not is_non_empty_value(value):
+        joined = ", ".join(names)
+        raise ValueError(f"{label} requires one of: {joined}")
+
+
+def validate_analysis_payload(key: str, analysis: dict[str, Any]) -> None:
+    requirements = {
+        "domain_route_analysis": [
+            (
+                "domain_route_analysis.taxonomy",
+                ["taxonomy", "taxonomies", "domain_taxonomy", "route_taxonomy"],
+            ),
+            (
+                "domain_route_analysis.method_lines",
+                ["method_lines", "method_routes", "routes", "approach_families"],
+            ),
+            (
+                "domain_route_analysis.citation_candidates",
+                ["citation_candidates", "representative_citations", "representative_papers"],
+            ),
+        ],
+        "timeline_analysis": [
+            (
+                "timeline_analysis.temporal_rationale",
+                ["temporal_rationale", "timeline_rationale", "timeliness", "timeline_decision"],
+            ),
+            (
+                "timeline_analysis.events",
+                ["events", "milestones", "foundations", "turning_points", "frontier"],
+            ),
+        ],
+        "gap_alignment_analysis": [
+            ("gap_alignment_analysis.gaps", ["gaps", "gap_candidates", "evidence_backed_gaps"]),
+            (
+                "gap_alignment_analysis.contribution_alignment",
+                ["contribution_alignment", "contribution_map", "alignment"],
+            ),
+        ],
+        "framing_synthesis": [
+            (
+                "framing_synthesis.introduction_chain",
+                ["introduction_chain", "intro_chain", "introduction_functional_chain"],
+            ),
+            (
+                "framing_synthesis.related_work_organization",
+                ["related_work_organization", "related_work_axis", "organization_axis"],
+            ),
+            (
+                "framing_synthesis.citation_risks",
+                ["citation_risks", "citation_balance_risks", "diagnostics"],
+            ),
+        ],
+    }
+    for label, names in requirements.get(key, []):
+        require_field_group(analysis, label, names)
+
+
+def paragraph_value(paragraph: dict[str, Any], names: list[str]) -> Any:
+    return first_present(paragraph, names)
+
+
+def validate_plan_paragraphs(paragraphs: list[Any], label: str) -> None:
+    field_groups = [
+        ("function", ["function", "paragraph_function", "role", "purpose"]),
+        ("claim", ["claim", "core_claim", "argument", "core_argument"]),
+        ("evidence", ["evidence", "evidence_sources", "source_evidence"]),
+        (
+            "citation candidates",
+            ["citation_candidates", "candidate_citations", "citations", "references"],
+        ),
+        ("topic provenance", ["topic_provenance", "topic_sources", "provenance"]),
+        (
+            "contribution alignment",
+            ["contribution_alignment", "contribution_map", "manuscript_alignment"],
+        ),
+    ]
+    for index, entry in enumerate(paragraphs, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{label}[{index}] must be an object")
+        for field_label, names in field_groups:
+            if not is_non_empty_value(paragraph_value(entry, names)):
+                raise ValueError(f"{label}[{index}] requires {field_label}")
 
 
 def render_runtime_views(state_path: str, state: dict[str, Any]) -> None:
@@ -164,14 +267,21 @@ def action_persist_evidence_inventory(state: dict[str, Any], payload: dict[str, 
 
 def action_persist_named_analysis(state: dict[str, Any], payload: dict[str, Any], key: str) -> None:
     analysis = payload_object(payload, key, key)
+    validate_analysis_payload(key, analysis)
     state[key] = analysis
     state[f"{key}_hash"] = stable_hash(analysis)
 
 
 def action_persist_writing_plan(state: dict[str, Any], payload: dict[str, Any]) -> None:
     plan = payload_object(payload, "writing_plan", "writing_plan")
-    ensure_list(plan.get("introduction_plan"), "introduction_plan")
-    ensure_list(plan.get("related_work_plan"), "related_work_plan")
+    introduction_plan = ensure_list(plan.get("introduction_plan"), "introduction_plan")
+    related_work_plan = ensure_list(plan.get("related_work_plan"), "related_work_plan")
+    if not introduction_plan:
+        raise ValueError("introduction_plan must not be empty")
+    if not related_work_plan:
+        raise ValueError("related_work_plan must not be empty")
+    validate_plan_paragraphs(introduction_plan, "introduction_plan")
+    validate_plan_paragraphs(related_work_plan, "related_work_plan")
     if not plan.get("framing_strategy"):
         plan["framing_strategy"] = state.get("framing_synthesis", {})
     state["writing_plan"] = plan
@@ -271,7 +381,7 @@ def action_persist_final_draft(state_path: str, state: dict[str, Any], payload: 
     write_json(result_dir / "writing-plan.json", writing_plan if isinstance(writing_plan, dict) else {})
     write_json(result_dir / "citation-map.json", citation_map if isinstance(citation_map, dict) else {})
     write_json(result_dir / "diagnostics.json", diagnostics if isinstance(diagnostics, dict) else {})
-    write_json(result_dir / "result.json", result_json)
+    write_json(root / FALLBACK_RESULT_FILENAME, result_json)
     state["status"] = "completed"
     state["result"] = result_json
 
@@ -287,7 +397,7 @@ def action_cancel(state_path: str, state: dict[str, Any], payload: dict[str, Any
         "message": message,
         "paperTitle": str(payload.get("paperTitle") or state.get("paperTitle") or ""),
     }
-    write_json(root / "result" / "result.json", result_json)
+    write_json(root / FALLBACK_RESULT_FILENAME, result_json)
     state["status"] = "canceled"
     state["result"] = result_json
 

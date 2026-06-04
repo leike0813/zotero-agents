@@ -61,7 +61,7 @@
 
 - **类型**: `data-zs-note-kind="references"`
 - **内容**:
-  - 参考文献 HTML 表格（列：#、Citekey、Year、Title、Authors、Source、Locator）
+  - 参考文献 HTML 表格（列：#、Year、Title、Authors、Source、Locator）
   - Payload: JSON 格式参考文献列表 (`references-json`)
 - **更新策略**: 每次执行会更新同名 note
 
@@ -94,5 +94,4 @@
 ## 相关工作流
 
 - [literature-explainer](../literature-explainer/README.md): 交互式文献解读对话
-- [reference-note-editor](../reference-note-editor/README.md): 编辑结构化参考文献
-- [reference-matching](../reference-matching/README.md): 参考文献匹配 citekey
+- note-level `reference-note-editor` 和 `reference-matching` 已归档到 `deprecated/workflows_builtin`

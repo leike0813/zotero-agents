@@ -1,15 +1,36 @@
 import { assert } from "chai";
 import {
   buildMarkdownBackedNoteContent,
+  buildWorkbenchPayloadEnvelope,
+  buildWorkbenchPayloadPngBytes,
   getNotePayloadDetail,
   listNotePayloadBlocks,
   parseEmbeddedNotePayloadBlock,
   renderPayloadBlock,
+  WORKBENCH_EMBEDDED_PAYLOAD_CHUNK,
   WORKBENCH_EMBEDDED_PAYLOAD_MARKER,
 } from "../../src/modules/notePayloadCodec";
 
 function encodeBase64Utf8(value: string) {
   return Buffer.from(value, "utf8").toString("base64");
+}
+
+const basePngBytes = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
+
+function findPngChunkDataOffset(bytes: Buffer, type: string) {
+  let cursor = 8;
+  while (cursor + 12 <= bytes.length) {
+    const length = bytes.readUInt32BE(cursor);
+    const chunkType = bytes.subarray(cursor + 4, cursor + 8).toString("ascii");
+    if (chunkType === type) {
+      return cursor + 8;
+    }
+    cursor += 12 + length;
+  }
+  return -1;
 }
 
 describe("Zotero note payload codec", function () {
@@ -101,7 +122,35 @@ describe("Zotero note payload codec", function () {
     );
   });
 
-  it("decodes attachment-backed workbench payloads", function () {
+  it("decodes v2 attachment-backed workbench payloads", function () {
+    const envelope = buildWorkbenchPayloadEnvelope({
+      noteKind: "digest",
+      payloadType: "digest-markdown",
+      payload: {
+        version: 1,
+        entry: "artifacts/digest.md",
+        format: "markdown",
+        content: "# Digest\n\nBody",
+      },
+    });
+    const bytes = buildWorkbenchPayloadPngBytes(basePngBytes, envelope);
+
+    const block = parseEmbeddedNotePayloadBlock(bytes, {
+      key: "PAYLOAD2",
+      id: 43,
+    });
+
+    assert.equal(block?.source, "embedded-image-attachment");
+    assert.equal(block?.sourceStorage, "embedded-image-attachment-v2");
+    assert.equal(block?.payloadStorageVersion, 2);
+    assert.equal(block?.payloadType, "digest-markdown");
+    assert.equal(block?.noteKind, "digest");
+    assert.equal(block?.attachmentKey, "PAYLOAD2");
+    assert.equal(block?.markdown, "# Digest\n\nBody");
+    assert.equal((block?.payload as any)?.entry, "artifacts/digest.md");
+  });
+
+  it("decodes legacy v1 attachment-backed workbench payloads", function () {
     const envelope = {
       schemaVersion: 1,
       kind: "zotero-skills-workbench-note-payload",
@@ -127,10 +176,36 @@ describe("Zotero note payload codec", function () {
     });
 
     assert.equal(block?.source, "embedded-image-attachment");
+    assert.equal(block?.sourceStorage, "embedded-image-attachment-v1");
+    assert.equal(block?.payloadStorageVersion, 1);
     assert.equal(block?.payloadType, "digest-markdown");
     assert.equal(block?.noteKind, "digest");
     assert.equal(block?.attachmentKey, "PAYLOAD1");
     assert.equal(block?.markdown, "# Digest\n\nBody");
     assert.equal((block?.payload as any)?.entry, "artifacts/digest.md");
+  });
+
+  it("reports malformed embedded payload attachments as errors", function () {
+    const envelope = buildWorkbenchPayloadEnvelope({
+      noteKind: "digest",
+      payloadType: "digest-markdown",
+      payload: { format: "markdown", content: "# Digest" },
+    });
+    const bytes = Buffer.from(buildWorkbenchPayloadPngBytes(basePngBytes, envelope));
+    const dataOffset = findPngChunkDataOffset(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK);
+    assert.isAtLeast(dataOffset, 0);
+    bytes[dataOffset] = "{".charCodeAt(0);
+    bytes[dataOffset + 1] = "{".charCodeAt(0);
+
+    const block = parseEmbeddedNotePayloadBlock(bytes, {
+      key: "BROKEN",
+      id: 44,
+    });
+
+    assert.equal(block?.source, "embedded-image-attachment");
+    assert.equal(block?.sourceStorage, "embedded-image-attachment-v2");
+    assert.equal(block?.payloadStorageVersion, 2);
+    assert.equal(block?.attachmentKey, "BROKEN");
+    assert.isArray(block?.errors);
   });
 });

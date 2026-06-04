@@ -7,6 +7,7 @@ import { createSynthesisRepository } from "../../src/modules/synthesis/repositor
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import {
   applySynthesisUiAction,
+  buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
 import {
@@ -112,7 +113,7 @@ describe("Synthesis performance budgets", function () {
       },
       [
         {
-          name: "workbench snapshot input",
+          name: "workbench index surface input",
           durationMs: 200,
           budgetMs: 2500,
         },
@@ -126,7 +127,7 @@ describe("Synthesis performance budgets", function () {
 
     assert.include(message, "citation graph metrics read exceeded");
     assert.include(message, "Synthesis budget timing breakdown");
-    assert.include(message, "workbench snapshot input: 200ms / 2500ms");
+    assert.include(message, "workbench index surface input: 200ms / 2500ms");
     assert.include(message, "citation graph metrics read: 1600ms / 1500ms");
   });
 
@@ -137,11 +138,17 @@ describe("Synthesis performance budgets", function () {
       graphFanout: 2,
     });
 
-    const snapshotInput = await measureBudget(
+    const chromeInput = await measureBudget(
       measurements,
-      "workbench snapshot input",
+      "workbench chrome input",
+      1000,
+      () => service.getSynthesisWorkbenchChromeInput(),
+    );
+    const indexSurfaceInput = await measureBudget(
+      measurements,
+      "workbench index surface input",
       2500,
-      () => service.getSynthesisSnapshotInput(),
+      () => service.getSynthesisWorkbenchSurfaceInput("index"),
     );
     const exactRegistryPage = await measureBudget(
       measurements,
@@ -159,11 +166,15 @@ describe("Synthesis performance budgets", function () {
         payload: { registry: { search: "Synthetic Synthesis Paper 00010" } },
       },
     ).state;
-    const filteredSnapshot = await measureBudget(
+    const filteredIndexSurfaceInput = await measureBudget(
       measurements,
       "index visible filter",
       2500,
-      () => service.getSynthesisSnapshot(filteredUiState),
+      () => service.getSynthesisWorkbenchSurfaceInput("index", filteredUiState),
+    );
+    const filteredSnapshot = buildSynthesisUiSnapshot(
+      filteredIndexSurfaceInput,
+      filteredUiState,
     );
     const graphSlice = await measureBudget(
       measurements,
@@ -183,7 +194,8 @@ describe("Synthesis performance budgets", function () {
       1500,
       () => service.getCitationGraphMetrics({ limit: 50 }),
     );
-    assert.isAtMost(snapshotInput.registry.rows.length, 250);
+    assert.equal(chromeInput.libraryId, 1);
+    assert.isAtMost(indexSurfaceInput.registry?.rows?.length || 0, 250);
     assert.equal(exactRegistryPage.total, 1);
     assert.equal(exactRegistryPage.rows[0]?.paper_ref, "1:SYN0009999");
     assert.include(
@@ -195,6 +207,139 @@ describe("Synthesis performance budgets", function () {
     assert.isAtMost(graphSlice.edges.length, 80);
     assert.isTrue(metrics.ok);
     assert.lengthOf(metrics.items, 50);
+  });
+
+  it("does not use the full Zotero registry scan for chrome, index, or review surfaces", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+    const pageInputs = createSyntheticSynthesisBenchmarkRegistryInputs({
+      paperCount: 20,
+      referenceFanout: 0,
+    });
+    let fullScanCalls = 0;
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      libraryAdapter: {
+        async getRegistryInputs() {
+          fullScanCalls += 1;
+          throw new Error("full registry scan must not be used by UI hot paths");
+        },
+        async getRegistryInputsPage(request = {}) {
+          const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
+          return limit > 0 ? pageInputs.slice(0, limit) : pageInputs;
+        },
+        async getRegistryInputForItem(request) {
+          return (
+            pageInputs.find((input) => input.itemKey === request.itemKey) ||
+            null
+          );
+        },
+        async getRegistryMetadataFingerprints() {
+          return [];
+        },
+        async getLibraryIndex() {
+          return {
+            libraryId: 1,
+            papers: [],
+            tags: [],
+            collections: [],
+            diagnostics: [],
+          };
+        },
+        async getCitationGraphInputs() {
+          return [];
+        },
+        async readPaperArtifacts() {
+          return { artifacts: [], diagnostics: [] };
+        },
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+
+    const chrome = await service.getSynthesisWorkbenchChromeInput();
+    const index = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const review = await service.getSynthesisWorkbenchSurfaceInput("review");
+
+    assert.equal(fullScanCalls, 0);
+    assert.equal(chrome.libraryId, 1);
+    assert.isAtMost(index.registry?.rows?.length || 0, 20);
+    assert.deepEqual(review.registry?.rows || [], []);
+  });
+
+  it("keeps Index reference details out of the default surface read", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+    const pageInputs = createSyntheticSynthesisBenchmarkRegistryInputs({
+      paperCount: 2,
+      referenceFanout: 0,
+    });
+    repository.upsertCanonicalReference({
+      canonicalReferenceId: "cref:test-reference",
+      title: "Bounded Reference",
+      normalizedTitle: "bounded reference",
+      year: "2026",
+      authorsJson: "[]",
+      identifiersJson: "{}",
+      metadataHash: "hash:bounded-reference",
+      status: "active",
+      createdAt: "2026-05-27T00:00:00.000Z",
+      updatedAt: "2026-05-27T00:00:00.000Z",
+    });
+    repository.upsertRawReference({
+      rawReferenceId: "rawref:test-reference",
+      sourceRef: "1:SYN0000001",
+      referencesArtifactHash: "hash:references",
+      referenceIndex: 0,
+      rawHash: "hash:raw-reference",
+      parsedTitle: "Bounded Reference",
+      normalizedTitle: "bounded reference",
+      year: "2026",
+      authorsJson: "[]",
+      rawReference: "Bounded Reference. 2026.",
+      canonicalReferenceId: "cref:test-reference",
+      status: "active",
+      diagnosticsJson: "[]",
+      createdAt: "2026-05-27T00:00:00.000Z",
+      updatedAt: "2026-05-27T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: pageInputs,
+      now: () => "2026-05-27T00:00:00.000Z",
+    });
+
+    const index = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const defaultRow = index.registry?.rows?.find(
+      (row) => row.paper_ref === "1:SYN0000001",
+    );
+    assert.equal(defaultRow?.reference_count, 1);
+    assert.deepEqual(defaultRow?.references || [], []);
+
+    const referencedState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: { registry: { scope: "referenced" } },
+      },
+    ).state;
+    const referenced = await service.getSynthesisWorkbenchSurfaceInput(
+      "index",
+      referencedState,
+    );
+    const referencedRow = referenced.registry?.rows?.find(
+      (row) => row.paper_ref === "1:SYN0000001",
+    );
+    assert.lengthOf(referencedRow?.references || [], 1);
   });
 
   it("keeps explicit reference sidecar refresh bounded and reports progress", async function () {

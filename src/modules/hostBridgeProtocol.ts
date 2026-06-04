@@ -75,6 +75,9 @@ export type HostBridgeStatusSnapshot = {
   host: string;
   port: number;
   endpoint: string;
+  remoteEndpoint: string;
+  advertisedHost: string;
+  remoteEndpointUsesPlaceholder: boolean;
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;
   portMode: HostBridgePortMode;
@@ -85,6 +88,9 @@ export type HostBridgeStatusSnapshot = {
   lastRecoveryReason: string;
   authRequired: true;
   tokenMasked: string;
+  masterTokenConfigured: boolean;
+  masterTokenMasked: string;
+  masterTokenUpdatedAt: string;
   lastRequestMethod: string;
   lastResponseStatus: number;
   lastError: string;
@@ -136,12 +142,16 @@ export type HostBridgeManifest = {
   protocol: typeof HOST_BRIDGE_PROTOCOL_VERSION;
   endpoint: {
     url: string;
+    remoteUrl?: string;
+    advertisedHost?: string;
     bindMode: HostBridgeBindMode;
     lanEnabled: boolean;
   };
   auth: {
     type: "bearer";
     tokenMasked: string;
+    masterTokenConfigured?: boolean;
+    masterTokenMasked?: string;
   };
   capabilities: HostBridgeCapabilityManifestEntry[];
   workflowControl: {
@@ -153,6 +163,9 @@ export type HostBridgeManifest = {
   fileDownloads: {
     supported: boolean;
     endpoint?: string;
+    urlTemplate?: string;
+    auth?: "bearer";
+    supportsRemoteClients?: boolean;
     arbitraryPathAllowed?: boolean;
     approvalRequired?: boolean;
   };

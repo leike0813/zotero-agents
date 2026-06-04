@@ -4,26 +4,12 @@
 TBD - created by archiving change custom-note-import-export. Update Purpose after archive.
 ## Requirements
 ### Requirement: export-notes MUST support custom note export
+Custom and conversation markdown notes SHALL support v2 embedded payload storage while retaining legacy read compatibility.
 
-export-notes workflow MUST handle notes that are not created by literature-digest.
-
-#### Scenario: exporting a custom note with base64 payload
-
-- **WHEN** a note contains `data-zs-payload` with a markdown type (ends with `-markdown`, e.g. `custom-markdown` or `conversation-note-markdown`)
-- **THEN** export MUST decode the payload and write to a `.md` file
-- **AND** the file name MUST be the note title (with `.md` extension)
-
-#### Scenario: exporting a custom note without payload
-
-- **WHEN** a note has no `data-zs-payload` block
-- **THEN** export MUST write the raw note content to a `.html` file
-- **AND** the file name MUST be the note title (with `.html` extension)
-
-#### Scenario: mixed selection with special and custom notes
-
-- **WHEN** selection contains both literature-digest notes and custom notes
-- **THEN** each note type MUST be handled according to its own rules
-- **AND** all exports MUST go to the same parent-specific directory
+#### Scenario: markdown note payload is v2-backed
+- **WHEN** a package-managed custom or conversation markdown note is created or migrated
+- **THEN** its markdown payload SHALL be stored as a v2 anchored embedded payload attachment
+- **AND** export SHALL read that payload without requiring hidden HTML payload blocks.
 
 ### Requirement: import-notes MUST support custom note import via UI button
 
@@ -61,7 +47,8 @@ Custom notes imported via import-notes MUST have a predictable structure for fut
   - `<div data-zs-note-kind="custom">` wrapper
   - `<h1>` header with the note title
   - `<div data-zs-view="custom-html">` with rendered HTML
-  - `<span data-zs-payload="custom-markdown">` with base64-encoded original markdown
+- **AND** the note MUST have a v2 embedded `custom-markdown` payload attachment with a matching note HTML payload anchor
+- **AND** the note MUST NOT create a new hidden `data-zs-payload` block
 
 #### Scenario: custom note round-trip
 

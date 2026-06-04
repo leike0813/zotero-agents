@@ -155,7 +155,7 @@ mirror adapter against Zotero item/note APIs or the project Zotero mock.
   Zotero mirror adapter
 - **THEN** canonical topic assets SHALL be written
 - **AND** a personal-library anchor document SHALL be created or reused
-- **AND** child note shards SHALL contain decodable hidden payloads.
+- **AND** child note shards SHALL contain decodable workflow payloads.
 
 #### Scenario: Host API exposes synthesis service
 

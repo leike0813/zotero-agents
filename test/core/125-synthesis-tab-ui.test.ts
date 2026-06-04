@@ -7,6 +7,7 @@ import {
   getSynthesisUiOperationKey,
   normalizeSynthesisUiSnapshot,
 } from "../../src/modules/synthesis/uiModel";
+import { isSynthesisLibraryReadModelInvalidationEvent } from "../../src/modules/synthesis/itemObserver";
 
 describe("Synthesis tab UI model", function () {
   async function readPngSize(filePath: string) {
@@ -20,21 +21,58 @@ describe("Synthesis tab UI model", function () {
   function extractFunctionBlock(source: string, functionName: string) {
     const start = source.indexOf(`function ${functionName}`);
     assert.isAtLeast(start, 0, `${functionName} should exist`);
+    const paramsStart = source.indexOf("(", start);
+    assert.isAtLeast(paramsStart, start, `${functionName} should have params`);
+    let paramDepth = 0;
+    let paramsEnd = -1;
+    for (let index = paramsStart; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === "(") {
+        paramDepth += 1;
+      } else if (char === ")") {
+        paramDepth -= 1;
+        if (paramDepth === 0) {
+          paramsEnd = index;
+          break;
+        }
+      }
+    }
+    assert.isAtLeast(paramsEnd, paramsStart, `${functionName} params should end`);
+    const bodyStart = source.indexOf("{", paramsEnd);
+    assert.isAtLeast(bodyStart, paramsEnd, `${functionName} should have a body`);
     let depth = 0;
-    let sawBody = false;
-    for (let index = start; index < source.length; index += 1) {
+    for (let index = bodyStart; index < source.length; index += 1) {
       const char = source[index];
       if (char === "{") {
         depth += 1;
-        sawBody = true;
       } else if (char === "}") {
         depth -= 1;
-        if (sawBody && depth === 0) {
+        if (depth === 0) {
           return source.slice(start, index + 1);
         }
       }
     }
     assert.fail(`Could not extract ${functionName}`);
+  }
+
+  function extractIfBlock(source: string, condition: string) {
+    const start = source.indexOf(`if (${condition})`);
+    assert.isAtLeast(start, 0, `${condition} block should exist`);
+    const bodyStart = source.indexOf("{", start);
+    assert.isAtLeast(bodyStart, start, `${condition} should have a body`);
+    let depth = 0;
+    for (let index = bodyStart; index < source.length; index += 1) {
+      const char = source[index];
+      if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return source.slice(start, index + 1);
+        }
+      }
+    }
+    assert.fail(`Could not extract if (${condition})`);
   }
 
   it("normalizes a DTO-only snapshot with stable defaults", function () {
@@ -224,8 +262,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "function addHoverNeighborhood");
     assert.include(source, "hover-only external hidden");
     assert.include(source, "display_tier");
-    assert.include(source, "Tag index ready");
-    assert.include(source, "Concept index ready");
+    assert.include(source, "Tag cache ready");
+    assert.include(source, "Concept cache ready");
     assert.include(source, "Advanced Matching");
     assert.include(source, "applyReferenceMatchProposalAction");
     assert.include(source, "applyReferenceMatchProposalActions");
@@ -256,6 +294,128 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".empty-state-actions");
     assert.include(css, ".details .empty-state");
     assert.include(css, ".graph-empty .empty-state");
+  });
+
+  it("keeps stale citation graph cache data visible instead of forcing no-data", async function () {
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const block = extractFunctionBlock(source, "renderGraph");
+
+    assert.include(block, "Graph cache stale");
+    assert.include(block, "Showing latest available graph data");
+    assert.include(block, "makeGraphIncrementalRefreshButton(snapshot)");
+    assert.include(block, 'reason: "graph_tab_failed"');
+    assert.include(block, "if (!snapshot.graph.graph_hash || !hasGraphData)");
+    assert.notInclude(
+      block,
+      'graphCacheStatus !== "ready" || !snapshot.graph.graph_hash || !hasGraphData',
+    );
+  });
+
+  it("wires stale-only incremental graph refresh and explicit graph search controls", async function () {
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const uiModel = await fs.readFile(
+      "src/modules/synthesis/uiModel.ts",
+      "utf8",
+    );
+    const controlsBlock = extractFunctionBlock(app, "renderGraphControls");
+    const searchInputStart = controlsBlock.indexOf(
+      'search.addEventListener("input"',
+    );
+    const searchInputEnd = controlsBlock.indexOf(
+      'search.addEventListener("keydown"',
+      searchInputStart,
+    );
+    assert.isAtLeast(searchInputStart, 0, "Graph search input handler exists");
+    assert.isAbove(
+      searchInputEnd,
+      searchInputStart,
+      "Graph search input block ends",
+    );
+    const searchInputBlock = controlsBlock.slice(
+      searchInputStart,
+      searchInputEnd,
+    );
+
+    assert.include(controlsBlock, '"Search"');
+    assert.include(controlsBlock, '"Clear"');
+    assert.include(controlsBlock, "submitGraphSearch(search.value)");
+    assert.include(
+      controlsBlock,
+      'sendAction("setFilters", { graph: { search: "" } })',
+    );
+    assert.include(controlsBlock, "refreshGraphSearchHighlight()");
+    assert.notInclude(searchInputBlock, 'sendAction("setFilters"');
+    assert.notInclude(searchInputBlock, "focusSearch");
+    assert.include(app, "function refreshGraphSearchHighlight");
+    assert.include(app, "state.sigma?.refresh()");
+    const focusSearchBlock = extractFunctionBlock(app, "focusSearch");
+    assert.notInclude(focusSearchBlock, ".animate(");
+    assert.include(focusSearchBlock, "state.hoverLabelNode = match.id");
+    assert.include(app, "function currentGraphSearchQuery");
+    assert.include(app, "function graphNodeMatchesSearchText");
+    assert.include(app, 'searchMatch ? "#0ea5e9"');
+    assert.include(app, "GRAPH_MIN_ZOOM_RATIO");
+    assert.include(app, "GRAPH_MAX_ZOOM_RATIO");
+    assert.include(app, "renderGraphZoomOverlay");
+    assert.include(app, "clampGraphCameraZoom");
+    assert.include(app, "setGraphZoomFromSlider");
+    assert.include(app, "function makeGraphIncrementalRefreshButton");
+    assert.include(app, '"Refresh stale graph"');
+    assert.include(app, 'graphCacheStatus !== "stale" || !hasDelta');
+    assert.include(app, 'command: "refreshCitationGraphCacheIncrementalNow"');
+    assert.include(host, "refreshCitationGraphCacheIncrementalNow");
+    assert.include(uiModel, "refreshCitationGraphCacheIncrementalNow");
+    const filterGraphBlock = extractFunctionBlock(uiModel, "filterGraph");
+    assert.notInclude(
+      filterGraphBlock,
+      "includesText(searchable(node), filters.search)",
+    );
+  });
+
+  it("renders citation graph direction and hover labels for pinned external neighbors", async function () {
+    const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+    const block = extractFunctionBlock(source, "renderSigmaGraph");
+
+    assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
+    assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
+    assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
+    assert.include(source, "renderCitationGraphLegend");
+    assert.include(source, "graphNodeSearchText(node)");
+    assert.include(source, "searchable: graphNodeSearchText(node)");
+    assert.include(source, "currentGraphSearchQuery(snapshot)");
+    assert.include(
+      source,
+      "graphNodeMatchesSearchText(data.searchable, query)",
+    );
+    assert.include(block, 'type: "arrow"');
+    assert.include(block, "hidden: true");
+    assert.include(block, "size: CITATION_GRAPH_EDGE_SIZE");
+    assert.include(block, "hidden: !visible");
+    assert.include(block, "target === activeNode");
+    assert.include(block, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
+    assert.include(block, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
+    assert.include(block, "hoverLabelNode");
+    assert.include(block, "graph.areNeighbors(node, pinnedNode)");
+    assert.include(block, "node === state.hoverLabelNode");
+    assert.include(css, ".citation-graph-legend");
+    assert.include(css, ".citation-graph-legend-edge::after");
+    assert.include(css, ".graph-zoom-overlay");
+    assert.include(css, ".graph-zoom-slider");
+  });
+
+  it("does not classify stale citation graph cache basis as missing only because rows are unavailable", async function () {
+    const source = await fs.readFile("src/modules/synthesis/service.ts", "utf8");
+    const block = extractFunctionBlock(source, "buildMaintenanceSummary");
+
+    assert.include(block, 'citationCacheStatus === "stale"');
+    assert.include(block, "citation_graph_cache_rows_missing");
+    assert.notInclude(block, "||\n      !args.citationGraphFound");
+    assert.notInclude(block, "citationCacheStatus === \"missing\" ||\n      !args.citationGraphFound");
   });
 
   it("normalizes Synthesis background jobs without inventing progress", function () {
@@ -690,6 +850,29 @@ describe("Synthesis tab UI model", function () {
     assert.equal(command.hostCommand?.command, "validateTagVocabulary");
   });
 
+  it("refreshes the Tags surface after tag import preview and apply commands", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const invalidationBlock = extractFunctionBlock(
+      host,
+      "surfacesInvalidatedByCommand",
+    );
+    const previewImportBranch = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+
+    assert.include(previewImportBranch, 'command === "previewTagVocabularyImport"');
+    assert.include(previewImportBranch, 'command === "applyTagVocabularyImport"');
+    assert.include(previewImportBranch, 'return ["tags"]');
+    assert.include(app, "Review tag import preview");
+    assert.include(app, "Merge Non-conflicting");
+    assert.include(app, "Use Imported");
+  });
+
   it("updates graph layout preset and selected element without recomputing layout", function () {
     const state = createDefaultSynthesisUiState();
     const next = applySynthesisUiAction(state, {
@@ -747,7 +930,7 @@ describe("Synthesis tab UI model", function () {
     assert.equal(closed.state.reader.topicId, "");
   });
 
-  it("filters graph nodes by kind, low-signal external visibility, and role", function () {
+  it("filters graph nodes by kind, low-signal external visibility, and role while search stays visual", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setGraphView",
       payload: {
@@ -760,6 +943,7 @@ describe("Synthesis tab UI model", function () {
       payload: {
         graph: {
           role: "method",
+          search: "X",
         },
       },
     }).state;
@@ -870,7 +1054,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.deepEqual(
       searchedSnapshot.graph.visibleNodes.map((node) => node.id),
-      [],
+      ["paper:a"],
     );
     assert.deepEqual(searchedSnapshot.graph.visibleEdges, []);
     assert.deepEqual(
@@ -921,6 +1105,16 @@ describe("Synthesis tab UI model", function () {
         args: { reason: "user" },
       },
     });
+    const incrementalResult = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "refreshCitationGraphCacheIncrementalNow",
+          args: { reason: "user" },
+        },
+      },
+    );
 
     assert.isTrue(layoutResult.handled);
     assert.deepEqual(layoutResult.hostCommand, {
@@ -930,6 +1124,11 @@ describe("Synthesis tab UI model", function () {
     assert.isTrue(cacheResult.handled);
     assert.deepEqual(cacheResult.hostCommand, {
       command: "rebuildCitationGraphCacheNow",
+      args: { reason: "user" },
+    });
+    assert.isTrue(incrementalResult.handled);
+    assert.deepEqual(incrementalResult.hostCommand, {
+      command: "refreshCitationGraphCacheIncrementalNow",
       args: { reason: "user" },
     });
   });
@@ -1429,19 +1628,195 @@ describe("Synthesis tab UI model", function () {
     const hooks = await fs.readFile("src/hooks.ts", "utf8");
 
     assert.include(host, "snapshotInputLocked");
-    assert.include(host, ".getSynthesisSnapshotInput(runtime.state)");
-    assert.notInclude(host, "prewarmSynthesisWorkbenchSnapshot");
+    assert.include(host, "getSynthesisWorkbenchChromeInput");
+    assert.include(host, "getSynthesisWorkbenchSurfaceInput");
+    assert.include(host, "warmSynthesisWorkbenchSurfaces");
+    const chromeBlock = extractFunctionBlock(host, "sendChrome");
+    assert.include(chromeBlock, "getSynthesisWorkbenchChromeInput");
+    assert.include(host, '"synthesis:chrome"');
+    assert.include(host, '"synthesis:surface"');
+    assert.notInclude(host, ".getSynthesisSnapshotInput(runtime.state)");
     assert.include(host, "prewarmedSynthesisSnapshotInput");
+    assert.include(host, "loadedSurfaces");
+    assert.include(host, "dirtySurfaces");
+    assert.include(host, "surfaceNeedsServiceRefresh");
     assert.include(host, "refreshFromService: false");
     assert.notInclude(host, "SYNTHESIS_WORKBENCH_INITIAL_REFRESH_DELAY_MS");
     assert.include(host, 'envelope.action === "ready"');
     assert.include(host, 'envelope.action === "refresh"');
     assert.notInclude(host, 'messageType === "synthesis:init"');
-    assert.notInclude(hooks, "prewarmSynthesisWorkbenchAfterStartup();");
+    assert.include(hooks, "prewarmSynthesisWorkbenchAfterStartup();");
+    assert.include(hooks, "prewarmSynthesisWorkbenchSurfaces");
+    const actionBlock = extractFunctionBlock(host, "handleAction");
+    [
+      'envelope.action === "ready"',
+      'envelope.action === "selectTab"',
+      'envelope.action === "setFilters"',
+    ].forEach((needle) => assert.include(actionBlock, needle));
+    assert.notInclude(actionBlock, "getDebugSynthesisSnapshotInput");
+    assert.notInclude(actionBlock, ".getSynthesisSnapshotInput");
+    assert.include(actionBlock, "scheduleActiveSurfaceRefresh");
+    assert.include(actionBlock, "registryScopeChanged");
+    assert.include(actionBlock, "registryExpandedChanged");
+    assert.include(actionBlock, "expandedSourceRefs");
+    const selectTabStart = actionBlock.indexOf(
+      'if (envelope.action === "selectTab")',
+    );
+    const selectTabEnd = actionBlock.indexOf(
+      'if (envelope.action === "setFilters")',
+      selectTabStart,
+    );
+    assert.isAtLeast(selectTabStart, 0, "selectTab branch should exist");
+    assert.isAbove(selectTabEnd, selectTabStart, "selectTab branch should end");
+    const selectTabBlock = actionBlock.slice(selectTabStart, selectTabEnd);
+    assert.notInclude(
+      selectTabBlock,
+      "refreshFromService: true",
+      "selectTab must not force surface reload",
+    );
+    assert.include(actionBlock, "reviewsFilterChanged");
     const handshakeBlock = extractFunctionBlock(host, "finalizeWorkbenchHandshake");
-    assert.include(handshakeBlock, "if (runtime.snapshotInput)");
     assert.notInclude(handshakeBlock, 'void sendSnapshot(runtime, "synthesis:snapshot");');
     assert.notInclude(handshakeBlock, "refreshFromService: true");
+    assert.include(hooks, "prewarmSynthesisWorkbenchSurfaces({ surfaces: [] })");
+  });
+
+  it("invalidates Index surface cache on Zotero library item changes without sidecar refresh", async function () {
+    const hooks = await fs.readFile("src/hooks.ts", "utf8");
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const observer = await fs.readFile(
+      "src/modules/synthesis/itemObserver.ts",
+      "utf8",
+    );
+
+    const notifyBlock = extractFunctionBlock(hooks, "onNotify");
+    assert.include(notifyBlock, "isSynthesisLibraryReadModelInvalidationEvent");
+    assert.include(notifyBlock, "notifySynthesisWorkbenchLibraryItemsChanged");
+    assert.include(notifyBlock, "recordSynthesisZoteroItemNotifications");
+    assert.notInclude(notifyBlock, "refreshReferenceSidecarNow");
+    assert.notInclude(notifyBlock, "getSynthesisWorkbenchSurfaceInput");
+
+    const invalidationBlock = extractFunctionBlock(
+      host,
+      "notifySynthesisWorkbenchLibraryItemsChanged",
+    );
+    assert.include(
+      invalidationBlock,
+      'invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"]',
+    );
+    assert.include(invalidationBlock, "markSurfaceDirty(runtime, surface)");
+    assert.include(invalidationBlock, "scheduleLibraryReadModelSurfaceRefresh");
+    assert.notInclude(invalidationBlock, "refreshReferenceSidecarNow");
+    assert.notInclude(invalidationBlock, "synt_cache_basis");
+
+    const scheduleBlock = extractFunctionBlock(
+      host,
+      "scheduleLibraryReadModelSurfaceRefresh",
+    );
+    assert.include(scheduleBlock, "globalThis.setTimeout");
+    assert.include(scheduleBlock, "surfaceNeedsServiceRefresh");
+    assert.include(scheduleBlock, "sendSurface(runtime, activeSurface");
+    assert.include(host, "SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS");
+    assert.include(host, "synthesisWorkbenchRuntimes");
+    assert.include(host, "synthesisWorkbenchRuntimes.delete(runtime)");
+
+    const filterBlock = extractFunctionBlock(
+      observer,
+      "isSynthesisLibraryReadModelInvalidationEvent",
+    );
+    assert.include(filterBlock, 'cleanString(args.type) !== "item"');
+    assert.include(filterBlock, "shouldInvalidateLibraryReadModel");
+    assert.include(filterBlock, "isChildItemType");
+    assert.notInclude(filterBlock, "getDefaultSynthesisService");
+  });
+
+  it("invalidates Index and Graph after workflow sidecar apply without marking Review dirty", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const workflowHostApi = await fs.readFile(
+      "src/workflows/hostApi.ts",
+      "utf8",
+    );
+    const invalidationEvents = await fs.readFile(
+      "src/modules/synthesisWorkbenchInvalidation.ts",
+      "utf8",
+    );
+
+    const invalidationBlock = extractFunctionBlock(
+      host,
+      "handleSynthesisWorkbenchSidecarChanged",
+    );
+    assert.include(invalidationBlock, '"index", "graph"');
+    assert.notInclude(invalidationBlock, '"review"');
+    assert.include(invalidationBlock, "markSurfaceDirty(runtime, surface)");
+    assert.include(invalidationBlock, "scheduleLibraryReadModelSurfaceRefresh");
+    assert.include(
+      invalidationBlock,
+      "sendChrome(runtime, { refreshFromService: true })",
+    );
+    assert.include(
+      host,
+      "registerSynthesisWorkbenchSidecarChangeListener",
+    );
+
+    const hostApiBlock = extractFunctionBlock(
+      workflowHostApi,
+      "createWorkflowSynthesisHostApi",
+    );
+    assert.include(hostApiBlock, "applyLiteratureDigestSidecar");
+    assert.include(hostApiBlock, "notifySynthesisWorkbenchSidecarChanged");
+    assert.include(hostApiBlock, 'reason: "literature_digest_apply"');
+    assert.include(hostApiBlock, "graphMayHaveChanged: true");
+    assert.include(invalidationEvents, "sidecarChangeListeners");
+    assert.include(invalidationEvents, '["index", "graph"]');
+  });
+
+  it("classifies Zotero item notifications for library read-model invalidation", function () {
+    assert.isTrue(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "modify",
+        type: "item",
+        ids: [1],
+        extraData: { "1": { itemType: "journalArticle" } },
+      }),
+    );
+    assert.isTrue(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "delete",
+        type: "item",
+        ids: [2],
+      }),
+    );
+    assert.isFalse(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "modify",
+        type: "collection",
+        ids: [1],
+      }),
+    );
+    assert.isFalse(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "select",
+        type: "item",
+        ids: [1],
+      }),
+    );
+    assert.isFalse(
+      isSynthesisLibraryReadModelInvalidationEvent({
+        event: "modify",
+        type: "item",
+        ids: [3, 4],
+        extraData: {
+          "3": { itemType: "note" },
+          "4": { itemType: "attachment" },
+        },
+      }),
+    );
   });
 
   it("uses 32px runtime icons for chrome UI surfaces", async function () {
@@ -1501,7 +1876,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
     assert.include(source, "function graphNodeSize");
-    assert.include(source, 'targetTier === "shared_external"');
+    assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
+    assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
+    assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
+    assert.include(source, "renderCitationGraphLegend");
     assert.include(source, "addHoverNeighborhood");
     assert.include(source, "scheduleHoverClear");
     assert.include(source, "cancelScheduledHoverClear");
@@ -2091,6 +2469,7 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(snapshot.hostCommands, "applyLiteratureCleanupAction");
     assert.include(snapshot.hostCommands, "refreshReferenceSidecarNow");
     assert.include(snapshot.hostCommands, "retryReferenceSidecarRefresh");
+    assert.include(snapshot.hostCommands, "refreshCitationGraphCacheIncrementalNow");
     assert.include(snapshot.hostCommands, "rebuildCitationGraphCacheNow");
     assert.include(snapshot.hostCommands, "retryCitationGraphCacheRebuild");
     assert.isFalse(
@@ -2150,6 +2529,17 @@ describe("Synthesis tab UI model", function () {
         payload: { registry: { scope: "referenced" } },
       },
     ).state;
+    const expandedState = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "setFilters",
+        payload: {
+          registry: {
+            expandedSourceRefs: ["1:AAA", "1:AAA", "", "1:BBB"],
+          },
+        },
+      },
+    ).state;
     const referencedSnapshot = buildSynthesisUiSnapshot(input, referencedState);
 
     assert.deepEqual(
@@ -2165,6 +2555,10 @@ describe("Synthesis tab UI model", function () {
       referencedSnapshot.registry.visibleRows.map((row) => row.paper_ref),
       ["1:AAA"],
     );
+    assert.deepEqual(expandedState.registry.expandedSourceRefs, [
+      "1:AAA",
+      "1:BBB",
+    ]);
   });
 
   it("wires Index filters and cleanup review card in the Workbench [inv.review.user_manageable]", async function () {
@@ -2183,12 +2577,20 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderRegistryTable");
     assert.include(source, "appendRegistryColgroup");
     assert.include(source, "`registry-col-${column}`");
+    assert.include(source, "surfaceRuntimeKey");
+    assert.include(source, "scope === \"referenced\"");
+    assert.include(source, "scope === \"all\"");
+    assert.include(source, "surfaceRuntime(surface)");
     assert.include(source, '"reference",');
     assert.include(source, '"source",');
     assert.include(source, '"target",');
     assert.include(source, "registry-parent-row");
     assert.include(source, "registry-reference-row");
     assert.include(source, "state.registryExpandedRows");
+    assert.include(source, "state.registryLoadingReferenceRows");
+    assert.include(source, "reference_count");
+    assert.include(source, "expandedSourceRefs");
+    assert.include(source, "Loading refs...");
     assert.include(source, "registryReferencePrimaryTitle");
     assert.include(source, "renderRegistryReferenceRow");
     assert.include(source, "registryReferenceDisplayId");
@@ -2222,6 +2624,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderReferenceProposalBulkActions");
     assert.include(source, "renderReferenceProposalPendingControls");
     assert.include(source, "queueReferenceProposalDecision");
+    assert.include(source, "Reverse & accept");
+    assert.include(source, 'textValue(proposal.kind) === "canonical_merge"');
+    assert.include(source, '"reverse_accept"');
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
     assert.include(source, '["proposal id", proposal.proposal_id]');
@@ -2312,6 +2717,16 @@ describe("Synthesis tab UI model", function () {
       },
     );
     [
+      "snapshot.graph.nodes.map",
+      "snapshot.graph.edges.map",
+      "snapshot.graph.visibleNodes.map",
+      "snapshot.graph.visibleEdges.map",
+      "snapshot.graph.hoverOnlyNodes.map",
+      "snapshot.graph.hoverOnlyEdges.map",
+    ].forEach((forbidden) => {
+      assert.notInclude(signatureBlock, forbidden);
+    });
+    [
       "queueReferenceProposalDecision",
       "queueReferenceProposalDecisions",
       "cancelReferenceProposalDecision",
@@ -2324,10 +2739,161 @@ describe("Synthesis tab UI model", function () {
       assert.include(block, "refreshReferenceReviewSurfaces");
     });
     assert.include(app, "function refreshReferenceReviewSurfaces");
+    assert.include(app, "function renderSurface");
+    assert.include(app, "surfaces: Record<string, WorkbenchSurfaceRuntime>");
+    assert.include(app, "markSurfaceRuntime");
+    assert.include(app, 'data.type === "synthesis:chrome"');
+    assert.include(app, 'data.type === "synthesis:surface"');
+    assert.include(app, 'main.dataset.synthesisSurface = surface');
     assert.include(app, 'dataset.synthesisSurface = "index-review-drawer"');
     assert.include(app, 'dataset.synthesisSurface = "reference-review-table"');
     assert.include(app, "compactRegistryRowSignature");
     assert.include(app, "compactReferenceProposalSignature");
+    const renderSurfaceBlock = extractFunctionBlock(app, "renderSurface");
+    assert.notInclude(renderSurfaceBlock, "clear(root)");
+    assert.notInclude(renderSurfaceBlock, "lastChromeSignature");
+    const sendActionBlock = extractFunctionBlock(app, "sendAction");
+    assert.notInclude(sendActionBlock, "render();");
+    assert.include(sendActionBlock, "renderSelectedTabShell");
+    assert.include(sendActionBlock, "restoreCachedSurfaceSnapshot");
+    assert.include(app, "function renderSelectedTabShell");
+    assert.include(app, "function restoreCachedSurfaceSnapshot");
+    assert.include(app, "snapshot?: Snapshot");
+    const tabShellBlock = extractFunctionBlock(app, "renderSelectedTabShell");
+    assert.include(tabShellBlock, "renderSurfaceLoading");
+    assert.include(tabShellBlock, "renderCurrentView(main, state.snapshot)");
+    assert.notInclude(tabShellBlock, "snapshotContentSignature");
+    const surfaceMessageBlock = extractIfBlock(
+      app,
+      'data.type === "synthesis:surface"',
+    );
+    assert.include(
+      surfaceMessageBlock,
+      'markSurfaceRuntime(surface, "ready", undefined, state.snapshot)',
+    );
+    assert.include(surfaceMessageBlock, "const chromeChanged");
+    assert.include(surfaceMessageBlock, "renderWorkbenchChrome()");
+    assert.include(app, "function renderSurfaceLoading");
+    [
+      ["renderTopicsGraph", "rebuildTopicGraphIndex"],
+      ["renderTags", "rebuildTagVocabularyIndex"],
+      ["renderConcepts", "rebuildConceptKbIndex"],
+    ].forEach(([functionName, command]) => {
+      const block = extractFunctionBlock(app, functionName);
+      assert.notInclude(block, "Rebuild Index");
+      assert.notInclude(block, command);
+    });
+    const proposalContextBlock = extractFunctionBlock(
+      app,
+      "referenceMatchProposalContext",
+    );
+    assert.notInclude(proposalContextBlock, "buildRegistryReviewLookup");
+    const reviewTableBlock = extractFunctionBlock(
+      app,
+      "renderReferenceMatchingReviewTable",
+    );
+    assert.include(reviewTableBlock, "const lookup = buildRegistryReviewLookup");
+    assert.include(reviewTableBlock, "referenceMatchProposalEntriesForReviewCenter");
+  });
+
+  it("guards Workbench service hot paths against heavy surface reads", async function () {
+    const service = await fs.readFile(
+      "src/modules/synthesis/service.ts",
+      "utf8",
+    );
+    const chromeBlock = extractFunctionBlock(
+      service,
+      "getSynthesisWorkbenchChromeInput",
+    );
+    [
+      "readDbCitationGraphOverview",
+      "registryRowsFromCurrentLibraryAndSidecar",
+      "loadTagVocabulary",
+      "loadConceptKb",
+      "loadTopicGraph",
+    ].forEach((forbidden) => {
+      assert.notInclude(chromeBlock, forbidden);
+    });
+    const warmupBlock = extractFunctionBlock(
+      service,
+      "warmSynthesisWorkbenchSurfaces",
+    );
+    assert.include(warmupBlock, "args.surfaces !== undefined");
+    const surfaceBlock = extractFunctionBlock(
+      service,
+      "getSynthesisWorkbenchSurfaceInput",
+    );
+    assert.include(surfaceBlock, "activeReviewTab");
+    assert.include(surfaceBlock, "proposalQueryForReviewState");
+    assert.notInclude(surfaceBlock, "listReferenceMatchProposals({ limit: 100 })");
+    assert.notInclude(surfaceBlock, "synthesisRepository.listReviewItems()");
+    const reviewContextBlock = extractFunctionBlock(
+      service,
+      "registryRowsForReferenceMatchProposalContext",
+    );
+    assert.include(reviewContextBlock, "registryInputsForSourceRefs");
+    assert.notInclude(
+      reviewContextBlock,
+      "registryRowsFromCurrentLibraryAndSidecar",
+      "Review context must not load Index sidecar rows",
+    );
+    const registryRowsToUiBlock = extractFunctionBlock(
+      service,
+      "registryRowsWithReferenceFactsToUi",
+    );
+    assert.include(registryRowsToUiBlock, "includeReferences");
+    assert.include(registryRowsToUiBlock, "referenceSourceRefs");
+    assert.include(registryRowsToUiBlock, "loadedReferenceSourceRefs");
+    assert.include(registryRowsToUiBlock, "listReferenceFactSummariesBySource");
+    assert.include(registryRowsToUiBlock, "rawReferenceIds");
+    const liveMetadataBlock = extractFunctionBlock(
+      service,
+      "enrichRegistryRowsWithLiveMetadata",
+    );
+    assert.include(liveMetadataBlock, "getRegistryInputSummaryForItem");
+    assert.notInclude(liveMetadataBlock, "getRegistryInputForItem");
+    assert.notInclude(liveMetadataBlock, "childNotes");
+    const indexSurfaceBlock = extractIfBlock(service, 'surface === "index"');
+    assert.include(indexSurfaceBlock, "state.registry.expandedSourceRefs");
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const prewarmBlock = extractFunctionBlock(
+      host,
+      "prewarmSynthesisWorkbenchSurfaces",
+    );
+    assert.include(prewarmBlock, "surfaces: args.surfaces");
+    const libraryAdapter = await fs.readFile(
+      "src/modules/synthesis/libraryAdapter.ts",
+      "utf8",
+    );
+    const pageStart = libraryAdapter.indexOf("async getRegistryInputsPage");
+    const pageEnd = libraryAdapter.indexOf("async getRegistryInputForItem");
+    assert.isAtLeast(pageStart, 0, "getRegistryInputsPage should exist");
+    assert.isAbove(pageEnd, pageStart, "getRegistryInputsPage should be bounded");
+    const pageBlock = libraryAdapter.slice(pageStart, pageEnd);
+    assert.include(pageBlock, "visibleTopLevelRegularItemsPage");
+    assert.notInclude(pageBlock, "getAllRegularZoteroItems");
+    assert.include(libraryAdapter, "getRegistryInputSummaryForItem");
+    const repository = await fs.readFile(
+      "src/modules/synthesis/repository.ts",
+      "utf8",
+    );
+    const factsStart = repository.indexOf("listReferenceFacts(");
+    const factsEnd = repository.indexOf(
+      "listReferenceFactSummariesBySource",
+      factsStart,
+    );
+    assert.isAtLeast(factsStart, 0, "listReferenceFacts should exist");
+    assert.isAbove(factsEnd, factsStart, "listReferenceFacts should be bounded");
+    const factsBlock = repository.slice(factsStart, factsEnd);
+    assert.include(factsBlock, "sourceRefs: Array.from(sourceIds)");
+    assert.include(factsBlock, "rawReferenceIds: args.rawReferenceIds");
+    assert.include(factsBlock, "resolveEffectiveCanonicalReferenceIds");
+    assert.notInclude(factsBlock, "this.listCanonicalReferences().map");
+    assert.notInclude(factsBlock, "for (const binding of this.listReferenceBindings())");
+    assert.notInclude(factsBlock, 'this.listRawReferences({ statuses: ["active"] })');
   });
 
   it("wires asynchronous Workbench action feedback and host single-flight", async function () {

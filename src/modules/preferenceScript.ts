@@ -58,6 +58,9 @@ function bindPrefEvents() {
   const hostBridgePinnedPortInput = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-pinned-port`,
   ) as HTMLInputElement | null;
+  const hostBridgeAdvertisedHostInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-advertised-host`,
+  ) as HTMLInputElement | null;
   const hostBridgeEndpointText = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-endpoint`,
   ) as HTMLElement | null;
@@ -69,6 +72,15 @@ function bindPrefEvents() {
   ) as XUL.Button | null;
   const hostBridgeRotateTokenButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-rotate-token`,
+  ) as XUL.Button | null;
+  const hostBridgeRotateMasterTokenButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-rotate-master-token`,
+  ) as XUL.Button | null;
+  const hostBridgeCopyMasterTokenButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-copy-master-token`,
+  ) as XUL.Button | null;
+  const hostBridgeCopyRemoteProfileButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-copy-remote-profile`,
   ) as XUL.Button | null;
   const hostBridgeInstallCliButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-install-cli`,
@@ -1508,13 +1520,18 @@ function bindPrefEvents() {
     const details = (result.details || {}) as Record<string, unknown>;
     const server = (details.server || details || {}) as Record<string, unknown>;
     const endpoint = String(server.endpoint || "").trim();
+    const remoteEndpoint = String(server.remoteEndpoint || "").trim();
     const hasServerSnapshot =
       Boolean(details.server) ||
       Object.prototype.hasOwnProperty.call(server, "status") ||
       Object.prototype.hasOwnProperty.call(server, "endpoint");
     if (hasServerSnapshot && hostBridgeEndpointText) {
-      hostBridgeEndpointText.textContent =
-        endpoint || getString("pref-host-bridge-endpoint-empty" as any);
+      hostBridgeEndpointText.textContent = [
+        endpoint || getString("pref-host-bridge-endpoint-empty" as any),
+        remoteEndpoint ? `remote=${remoteEndpoint}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
     }
     if (hostBridgeStatusText) {
       hostBridgeStatusText.textContent = formatHostBridgeStatus(response);
@@ -1524,9 +1541,13 @@ function bindPrefEvents() {
         server.lanEnabled === true || getPref("hostBridgeLanEnabled") === true;
     }
     if (hasServerSnapshot && hostBridgePinPortCheckbox) {
+      const lanEnabled =
+        server.lanEnabled === true || getPref("hostBridgeLanEnabled") === true;
       hostBridgePinPortCheckbox.checked =
+        lanEnabled ||
         server.pinPortEnabled === true ||
         getPref("hostBridgePinPortEnabled") === true;
+      hostBridgePinPortCheckbox.disabled = lanEnabled;
     }
     if (hasServerSnapshot && hostBridgePinnedPortInput) {
       hostBridgePinnedPortInput.value = String(
@@ -1535,10 +1556,27 @@ function bindPrefEvents() {
       hostBridgePinnedPortInput.disabled =
         hostBridgePinPortCheckbox?.checked !== true;
     }
+    if (hasServerSnapshot && hostBridgeAdvertisedHostInput) {
+      hostBridgeAdvertisedHostInput.value = String(
+        server.advertisedHost || getPref("hostBridgeAdvertisedHost") || "",
+      ).replace(/^<zotero-host-ip>$/, "");
+    }
     if (hasServerSnapshot && hostBridgeShowEndpointButton) {
       hostBridgeShowEndpointButton.disabled =
         String(server.status || "").trim() === "running" && Boolean(endpoint);
     }
+  };
+
+  const copyTextToClipboard = (text: string) => {
+    const nav = (addon.data.prefs?.window.navigator ||
+      globalThis.navigator) as
+      | { clipboard?: { writeText?: (text: string) => Promise<void> } }
+      | undefined;
+    if (text && typeof nav?.clipboard?.writeText === "function") {
+      void nav.clipboard.writeText(text);
+      return true;
+    }
+    return false;
   };
 
   const refreshHostBridgeState = async () => {
@@ -1733,6 +1771,10 @@ function bindPrefEvents() {
             enabled: hostBridgeLanCheckbox.checked === true,
           },
         );
+        if (hostBridgePinPortCheckbox && hostBridgeLanCheckbox.checked) {
+          hostBridgePinPortCheckbox.checked = true;
+          hostBridgePinPortCheckbox.disabled = true;
+        }
         renderHostBridgeState(response);
       })();
     });
@@ -1757,6 +1799,10 @@ function bindPrefEvents() {
     hostBridgePinPortCheckbox.checked =
       getPref("hostBridgePinPortEnabled") === true;
     hostBridgePinPortCheckbox.addEventListener("change", () => {
+      if (hostBridgeLanCheckbox?.checked === true) {
+        hostBridgePinPortCheckbox.checked = true;
+        hostBridgePinPortCheckbox.disabled = true;
+      }
       if (hostBridgePinnedPortInput) {
         hostBridgePinnedPortInput.disabled =
           hostBridgePinPortCheckbox.checked !== true;
@@ -1773,6 +1819,24 @@ function bindPrefEvents() {
       hostBridgePinPortCheckbox?.checked !== true;
     hostBridgePinnedPortInput.addEventListener("change", () => {
       persistHostBridgePinPort();
+    });
+  }
+
+  if (hostBridgeAdvertisedHostInput) {
+    hostBridgeAdvertisedHostInput.value = String(
+      getPref("hostBridgeAdvertisedHost") || "",
+    ).trim();
+    hostBridgeAdvertisedHostInput.addEventListener("change", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "setHostBridgeAdvertisedHost",
+          {
+            window: addon.data.prefs?.window,
+            host: hostBridgeAdvertisedHostInput.value,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
     });
   }
 
@@ -1804,6 +1868,60 @@ function bindPrefEvents() {
     });
   }
 
+  if (hostBridgeRotateMasterTokenButton) {
+    hostBridgeRotateMasterTokenButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "rotateHostBridgeMasterToken",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        renderHostBridgeState(response);
+      })();
+    });
+  }
+
+  const handleHostBridgeCopyResponse = (response: unknown) => {
+    const result = (response || {}) as {
+      details?: Record<string, unknown>;
+    };
+    const details = (result.details || {}) as Record<string, unknown>;
+    const clipboardText = String(details.clipboardText || "");
+    if (clipboardText) {
+      copyTextToClipboard(clipboardText);
+    }
+    renderHostBridgeState(response);
+  };
+
+  if (hostBridgeCopyMasterTokenButton) {
+    hostBridgeCopyMasterTokenButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "copyHostBridgeMasterToken",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        handleHostBridgeCopyResponse(response);
+      })();
+    });
+  }
+
+  if (hostBridgeCopyRemoteProfileButton) {
+    hostBridgeCopyRemoteProfileButton.addEventListener("command", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent(
+          "copyHostBridgeRemoteProfile",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        handleHostBridgeCopyResponse(response);
+      })();
+    });
+  }
+
   if (hostBridgeInstallCliButton) {
     hostBridgeInstallCliButton.addEventListener("command", () => {
       void (async () => {
@@ -1823,7 +1941,8 @@ function bindPrefEvents() {
     hostBridgeStatusText ||
     hostBridgeLanCheckbox ||
     hostBridgePinPortCheckbox ||
-    hostBridgePinnedPortInput
+    hostBridgePinnedPortInput ||
+    hostBridgeAdvertisedHostInput
   ) {
     void refreshHostBridgeState();
   }

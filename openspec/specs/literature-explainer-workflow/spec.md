@@ -49,10 +49,11 @@ TBD - created by archiving change add-literature-explainer-workflow. Update Purp
 - **AND** workflow MUST NOT 将该分支视为 apply 失败
 
 ### Requirement: literature-explainer workflow MUST 为非幂等 note 写入
-系统 MUST 将每次有效 `note_path` 结果视为一次新的 note 产出，不进行同类 note 的更新、覆盖或去重。
+`literature-explainer` 仍然为每次成功 apply 创建新的 conversation note，但该 note 的 machine-readable markdown payload MUST use v2 anchored embedded payload storage.
 
-#### Scenario: 重复执行同一输入
-- **WHEN** 用户对同一父条目重复成功执行 workflow 且每次都有有效 `note_path`
-- **THEN** workflow MUST 每次新增一条 note
-- **AND** MUST NOT 复用或删除既有 note
+#### Scenario: explainer apply creates v2 payload-backed conversation note
+- **WHEN** `literature-explainer` applies a successful interactive bundle result
+- **THEN** it SHALL create a conversation note with visible rendered markdown
+- **AND** it SHALL store `conversation-note-markdown` in a v2 embedded payload attachment
+- **AND** the note HTML SHALL NOT contain a hidden `data-zs-payload="conversation-note-markdown"` block.
 

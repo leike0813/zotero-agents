@@ -16,7 +16,11 @@ import {
 } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
 import { copyRuntimeFile } from "../modules/runtimePersistence";
-import { getDefaultSynthesisService } from "../modules/synthesis/service";
+import {
+  getDefaultSynthesisService,
+  type SynthesisService,
+} from "../modules/synthesis/service";
+import { notifySynthesisWorkbenchSidecarChanged } from "../modules/synthesisWorkbenchInvalidation";
 import {
   resolveRuntimeAddon,
   resolveRuntimeToolkit,
@@ -45,6 +49,33 @@ const DEFAULT_NOTE_IMAGE_OPTIONS = {
   minQuality: 0.7,
   background: "#ffffff",
 };
+
+function createWorkflowSynthesisHostApi(): SynthesisService {
+  const service = getDefaultSynthesisService();
+  const applyLiteratureDigestSidecar = service.applyLiteratureDigestSidecar;
+  if (typeof applyLiteratureDigestSidecar !== "function") {
+    return service;
+  }
+  return {
+    ...service,
+    async applyLiteratureDigestSidecar(
+      args?: Parameters<SynthesisService["applyLiteratureDigestSidecar"]>[0],
+    ) {
+      const result = await applyLiteratureDigestSidecar.call(service, args);
+      const output = (result || {}) as {
+        sourceRef?: unknown;
+        source_ref?: unknown;
+      };
+      const sourceRef = String(output.sourceRef || output.source_ref || "").trim();
+      notifySynthesisWorkbenchSidecarChanged({
+        sourceRefs: sourceRef ? [sourceRef] : [],
+        reason: "literature_digest_apply",
+        graphMayHaveChanged: true,
+      });
+      return result;
+    },
+  };
+}
 
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
@@ -870,7 +901,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }) as Promise<string[] | null>;
       },
     },
-    synthesis: getDefaultSynthesisService(),
+    synthesis: createWorkflowSynthesisHostApi(),
   };
   return cachedHostApi;
 }

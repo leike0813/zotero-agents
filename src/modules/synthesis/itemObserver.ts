@@ -46,6 +46,56 @@ function shouldInspectNotifierEcho(event: string) {
   return normalized === "modify" || normalized === "refresh";
 }
 
+function shouldInvalidateLibraryReadModel(event: string) {
+  const normalized = cleanString(event).toLowerCase();
+  return (
+    normalized === "add" ||
+    normalized === "modify" ||
+    normalized === "delete" ||
+    normalized === "trash" ||
+    normalized === "refresh" ||
+    normalized === "remove" ||
+    normalized === "erase"
+  );
+}
+
+function extraRowForId(
+  extraData: Record<string, unknown> | undefined,
+  id: string | number,
+) {
+  const extra = extraData?.[String(id)];
+  return isObject(extra) ? extra : {};
+}
+
+function isChildItemType(value: unknown) {
+  const normalized = cleanString(value).toLowerCase();
+  return normalized === "attachment" || normalized === "note";
+}
+
+export function isSynthesisLibraryReadModelInvalidationEvent(args: {
+  event: string;
+  type: string;
+  ids?: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  if (cleanString(args.type) !== "item") {
+    return false;
+  }
+  if (!shouldInvalidateLibraryReadModel(args.event)) {
+    return false;
+  }
+  const ids = args.ids || [];
+  if (!ids.length) {
+    return true;
+  }
+  return ids.some((id) => {
+    const extraRow = extraRowForId(args.extraData, id);
+    const itemType =
+      extraRow.itemType || extraRow.item_type || extraRow.type || "";
+    return !isChildItemType(itemType);
+  });
+}
+
 export async function recordSynthesisZoteroItemNotifications(args: {
   event: string;
   type: string;
@@ -63,8 +113,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   let recorded = 0;
   for (const id of args.ids || []) {
     const item = resolveItem(id);
-    const extra = args.extraData?.[String(id)];
-    const extraRow = isObject(extra) ? extra : {};
+    const extraRow = extraRowForId(args.extraData, id);
     const itemKey =
       cleanString(item?.key) || cleanString(extraRow.key) || cleanString(id);
     if (!itemKey) {

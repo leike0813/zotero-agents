@@ -237,9 +237,9 @@ describe("workflow: literature-digest", function () {
         "literature-digest",
       );
       assert.equal(workflow?.manifest.parameters?.language?.default, "zh-CN");
-      assert.equal(
-        workflow?.manifest.parameters?.auto_reference_matching?.default,
-        true,
+      assert.notProperty(
+        workflow?.manifest.parameters || {},
+        "auto_reference_matching",
       );
     },
   );
@@ -700,6 +700,64 @@ describe("workflow: literature-digest", function () {
     assert.equal(applied.reference_quality?.rejected_count, 2);
   });
 
+  it("keeps citekey in references payload while hiding the Citekey table column", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow References Citekey Hidden Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "success",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nBody";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return JSON.stringify([
+              {
+                title: "Reference With Citekey",
+                year: "2026",
+                author: ["Cite Key"],
+                citekey: "citekey_hidden_2026",
+              },
+            ]);
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+    })) as { notes: Zotero.Item[] };
+
+    const referencesNote = applied.notes.find(
+      (note) =>
+        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+    );
+    assert.isOk(referencesNote);
+    const noteContent = Zotero.Items.get(referencesNote!.id)!.getNote();
+    assert.notInclude(noteContent, "<th>Citekey</th>");
+    assert.notInclude(noteContent, "citekey_hidden_2026");
+
+    const payload = (await parseStoredPayload(
+      Zotero.Items.get(referencesNote!.id)!,
+      "references-json",
+    )) as { references?: Array<{ citekey?: string }> };
+    assert.equal(payload.references?.[0]?.citekey, "citekey_hidden_2026");
+  });
+
   it("stores literature matching metadata as a hidden digest note payload", async function () {
     this.timeout(5000);
     const parent = await handlers.item.create({
@@ -810,12 +868,7 @@ describe("workflow: literature-digest", function () {
         ),
       })) as {
         notes: Zotero.Item[];
-        auto_reference_matching?: {
-          enabled?: boolean;
-          attempted?: boolean;
-          matched?: number;
-          total?: number;
-        };
+        auto_reference_matching?: unknown;
       };
 
       const referencesNote = applied.notes.find(
@@ -830,16 +883,13 @@ describe("workflow: literature-digest", function () {
         references?: Array<{ citekey?: string }>;
         reference_matching?: unknown;
       };
-      assert.equal(payload.references?.[0]?.citekey, "AlRfou2019Character");
-      assert.isObject(payload.reference_matching);
-      assert.equal(applied.auto_reference_matching?.enabled, true);
-      assert.equal(applied.auto_reference_matching?.attempted, true);
-      assert.isAtLeast(applied.auto_reference_matching?.matched || 0, 1);
-      assert.isAtLeast(applied.auto_reference_matching?.total || 0, 1);
+      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.reference_matching);
+      assert.isUndefined(applied.auto_reference_matching);
     },
   );
 
-  itNodeOnly("skips auto reference matching when disabled", async function () {
+  itNodeOnly("ignores removed auto reference matching parameter", async function () {
     this.timeout(5000);
     await handlers.item.create({
       itemType: "journalArticle",
@@ -868,7 +918,7 @@ describe("workflow: literature-digest", function () {
       },
     })) as {
       notes: Zotero.Item[];
-      auto_reference_matching?: { enabled?: boolean; attempted?: boolean };
+      auto_reference_matching?: unknown;
     };
 
     const referencesNote = applied.notes.find(
@@ -885,12 +935,11 @@ describe("workflow: literature-digest", function () {
     };
     assert.isUndefined(payload.references?.[0]?.citekey);
     assert.isUndefined(payload.reference_matching);
-    assert.equal(applied.auto_reference_matching?.enabled, false);
-    assert.equal(applied.auto_reference_matching?.attempted, false);
+    assert.isUndefined(applied.auto_reference_matching);
   });
 
   itNodeOnly(
-    "runs auto reference matching again after digest updates an existing references note",
+    "updates an existing references note without automatic reference matching",
     async function () {
       this.timeout(7000);
       const matched = await handlers.item.create({
@@ -932,7 +981,7 @@ describe("workflow: literature-digest", function () {
         ),
       })) as {
         notes: Zotero.Item[];
-        auto_reference_matching?: { attempted?: boolean; matched?: number };
+        auto_reference_matching?: unknown;
       };
 
       const referencesNote = second.notes.find(
@@ -947,56 +996,9 @@ describe("workflow: literature-digest", function () {
         references?: Array<{ citekey?: string }>;
         reference_matching?: unknown;
       };
-      assert.equal(payload.references?.[0]?.citekey, "ReapplyAutoMatching2019");
-      assert.isObject(payload.reference_matching);
-      assert.equal(second.auto_reference_matching?.attempted, true);
-    },
-  );
-
-  itNodeOnly(
-    "keeps digest apply successful when auto reference matching fails",
-    async function () {
-      this.timeout(5000);
-      const parent = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Workflow Auto Matching Warning Parent" },
-      });
-      const workflow = await getLiteratureDigestWorkflow();
-      const hostApi = createWorkflowHostApi();
-
-      const applied = (await executeApplyResult({
-        workflow,
-        parent,
-        bundleReader: new ZipBundleReader(
-          fixturePath("literature-digest", "run_bundle.zip"),
-        ),
-        runtime: {
-          hostApi: {
-            ...hostApi,
-            notes: {
-              ...hostApi.notes,
-              update: async () => {
-                throw new Error("auto matching update failed");
-              },
-            },
-          },
-        },
-      })) as {
-        notes: Zotero.Item[];
-        auto_reference_matching?: {
-          enabled?: boolean;
-          attempted?: boolean;
-          warning?: string;
-        };
-      };
-
-      assert.lengthOf(applied.notes, 3);
-      assert.equal(applied.auto_reference_matching?.enabled, true);
-      assert.equal(applied.auto_reference_matching?.attempted, true);
-      assert.match(
-        applied.auto_reference_matching?.warning || "",
-        /auto matching update failed/,
-      );
+      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.reference_matching);
+      assert.isUndefined(second.auto_reference_matching);
     },
   );
 

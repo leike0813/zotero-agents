@@ -369,11 +369,56 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.equal(result.notes?.[0]?.status, "migrated");
     assert.equal(result.notes?.[0]?.payloadType, "digest-markdown");
     assert.include(migratedNote.getNote(), 'data-schema-version="9"');
-    assert.notInclude(migratedNote.getNote(), "data-zs-payload");
+    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
     assert.notInclude(migratedNote.getNote(), "data-zs-note-kind");
     assert.equal(
       (await parseStoredPayload(migratedNote, "digest-markdown")).content,
       "## TL;DR\n\nLegacy visible body.",
+    );
+  });
+
+  it("debug migrator converts legacy conversation note payload blocks to v2 anchored attachments", async function () {
+    const workflow = await getWorkflow("debug-migrate-note-payloads");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Migrator Conversation Parent" },
+    });
+    const conversationNote = await handlers.parent.addNote(parent, {
+      content: [
+        '<div data-zs-note-kind="conversation-note">',
+        "<h1>Conversation Note</h1>",
+        '<div data-zs-view="conversation-note-html"><p>Visible chat.</p></div>',
+        renderPayloadBlock("conversation-note-markdown", {
+          version: 1,
+          path: "artifacts/conversation-note.md",
+          format: "markdown",
+          content: "# Conversation\n\nVisible chat.",
+        }),
+        "</div>",
+      ].join("\n"),
+    });
+
+    const result = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+    })) as {
+      summary?: { migratedCount?: number };
+      notes?: Array<{ status?: string; payloadType?: string; anchorStatus?: string }>;
+    };
+
+    const migratedNote = Zotero.Items.get(conversationNote.id)!;
+    assert.equal(result.summary?.migratedCount, 1);
+    assert.equal(result.notes?.[0]?.status, "migrated");
+    assert.equal(result.notes?.[0]?.payloadType, "conversation-note-markdown");
+    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
+    assert.include(
+      migratedNote.getNote(),
+      'data-zs-payload-anchor="conversation-note-markdown"',
+    );
+    assert.equal(
+      (await parseStoredPayload(migratedNote, "conversation-note-markdown")).content,
+      "# Conversation\n\nVisible chat.",
     );
   });
 
@@ -645,12 +690,82 @@ describe("workflow: literature-workbench import/export notes", function () {
     assert.equal(result.summary?.recoveredDigestCount, 1);
     assert.equal(result.notes?.[0]?.source, "rebuilt-digest-html");
     assert.include(migratedNote.getNote(), 'data-attachment-key="IMGDEBUG1"');
-    assert.notInclude(migratedNote.getNote(), "data-zs-payload");
+    assert.notMatch(migratedNote.getNote(), /\bdata-zs-payload\s*=/);
     assert.notInclude(payload.content, "# Digest");
     assert.include(payload.content, "## TL;DR");
     assert.include(payload.content, "Recovered body.");
     assert.match(payload.content, /^## TL;DR\s*\n\s*Recovered body\./);
     assert.equal(payload.recovery?.source, "note_html");
+  });
+
+  it("debug migrator does not mistake a payload carrier for a representative image", async function () {
+    const workflow = await getWorkflow("debug-migrate-note-payloads");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Migrator Payload Carrier Parent" },
+    });
+    const digestNote = await handlers.parent.addNote(parent, {
+      content: [
+        '<div data-schema-version="9">',
+        "<h1>Digest</h1>",
+        '<p><img data-attachment-key="PAYLOADIMG1" alt="Zotero Skills artifact payload" width="1" height="1"></p>',
+        '<div data-zs-block="representative-image" data-zs-version="1" data-zs-representative_image_status="embedded" data-zs-representative_image_attachment_key="IMGREAL1">',
+        '<figure data-zs-block="representative-image-figure">',
+        '<img data-attachment-key="IMGREAL1" alt="Figure Real" width="720" height="360">',
+        "<figcaption>Figure Real caption.</figcaption>",
+        "</figure>",
+        "</div>",
+        "<h2>TL;DR</h2>",
+        "<p>Recovered body.</p>",
+        "</div>",
+      ].join("\n"),
+    });
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+    });
+
+    const migratedNote = Zotero.Items.get(digestNote.id)!;
+    const html = migratedNote.getNote();
+    assert.include(html, 'data-attachment-key="IMGREAL1"');
+    assert.include(html, "Figure Real caption.");
+    assert.notInclude(html, 'data-attachment-key="PAYLOADIMG1"');
+    assert.notInclude(html, "Zotero Skills artifact payload");
+  });
+
+  it("debug migrator drops payload-only digest images instead of preserving them as representative images", async function () {
+    const workflow = await getWorkflow("debug-migrate-note-payloads");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Migrator Payload Only Parent" },
+    });
+    const digestNote = await handlers.parent.addNote(parent, {
+      content: [
+        '<div data-schema-version="9">',
+        "<h1>Digest</h1>",
+        '<p><img data-attachment-key="PAYLOADIMG2" alt="Zotero Skills artifact payload" width="1" height="1"></p>',
+        "<h2>TL;DR</h2>",
+        "<p>Recovered body.</p>",
+        "</div>",
+      ].join("\n"),
+    });
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+    });
+
+    const migratedNote = Zotero.Items.get(digestNote.id)!;
+    const html = migratedNote.getNote();
+    assert.notInclude(html, 'data-attachment-key="PAYLOADIMG2"');
+    assert.notInclude(html, "Zotero Skills artifact payload");
+    assert.include(
+      (await parseStoredPayload(migratedNote, "digest-markdown")).content,
+      "Recovered body.",
+    );
   });
 
   it("debug migrator rebuilds digest payload attachments from current visible HTML", async function () {

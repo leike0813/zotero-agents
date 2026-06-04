@@ -404,7 +404,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability(
     "library.list_note_payloads",
     "library",
-    "List hidden workflow payload blocks in one Zotero note.",
+    "List workflow note payloads from embedded attachments and legacy payload blocks.",
     { type: "item-ref", required: true },
     (input) =>
       createZoteroHostCapabilityBrokerApis().library.listNotePayloads(
@@ -414,7 +414,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability(
     "library.get_note_payload",
     "library",
-    "Decode one hidden workflow payload from one Zotero note.",
+    "Decode one workflow payload from one Zotero note.",
     { type: "object", required: true },
     (input) =>
       createZoteroHostCapabilityBrokerApis().library.getNotePayload(

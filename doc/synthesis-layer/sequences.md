@@ -123,7 +123,7 @@ sequenceDiagram
   R->>UI: deterministic matches and review candidates
   U->>UI: approve, reject, merge, or retarget
   UI->>S: write durable binding/dedupe decision with provenance
-  UI->>S: mark graph cache stale
+  UI->>S: trigger visible graph incremental refresh when accepted facts changed
 ```
 
 Constraints:
@@ -134,7 +134,7 @@ Constraints:
 
 ## `seq.graph.cache_refresh`
 
-Graph cache refresh is an explicit operation over current sidecar inputs and Zotero bindings.
+Graph cache refresh is a visible operation over current sidecar inputs and Zotero bindings. It may refresh affected source slices or run a full rebuild when explicitly requested or when heavy reference operations are allowed to bootstrap a missing graph cache.
 
 ```mermaid
 sequenceDiagram
@@ -145,14 +145,14 @@ sequenceDiagram
   participant G as Graph Builder
   participant UI as Graph UI
 
-  U->>O: create explicit graph refresh operation
-  G->>S: read active raw references, canonical redirects, and binding decisions
+  U->>O: create graph refresh operation with source-slice or full scope
+  G->>S: read active raw references, canonical redirects, and binding decisions for scope
   G->>Z: verify current bound Zotero items for selected scope
   G->>S: write graph output to staging
   G->>O: report bounded progress
   G->>S: validate counts, references, and provenance
   alt validation passes
-    G->>S: promote graph cache projection
+    G->>S: promote graph cache projection or affected source slices
     G->>O: completed
   else validation fails
     G->>S: keep previous projection
@@ -190,18 +190,23 @@ sequenceDiagram
 
 ## `seq.graph.related_items_sync`
 
-Zotero related-items sync is an optional explicit external side effect from accepted library-to-library citation edges.
+Zotero related-items sync is a visible external side effect from accepted library-to-library citation edges. It may follow digest apply, Reference Sidecar refresh, Advanced Matching fact changes, or an explicit/debug command. Graph cache is a fast path only; sidecar facts provide the fallback edge source.
 
 ```mermaid
 sequenceDiagram
-  participant U as User or Debug Command
+  participant U as Synthesis Update or Debug Command
   participant O as Operation Row
   participant S as Sidecar Repository
+  participant G as Graph Cache
   participant Z as Zotero Library
 
-  U->>O: create explicit related-items sync operation
-  O->>S: read accepted library-to-library graph cache edges
-  O->>Z: verify current source and target Zotero bindings
+  U->>O: create visible related-items sync operation
+  alt ready graph cache has rows
+    O->>G: read accepted library-to-library graph cache edges
+  else graph cache unavailable
+    O->>S: resolve accepted edges from active raw refs, redirects, and bindings
+  end
+  O->>Z: verify current related-item state
   loop each selected edge
     O->>Z: read current related-item state
     alt missing and approved

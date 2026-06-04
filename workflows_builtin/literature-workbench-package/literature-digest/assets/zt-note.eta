@@ -286,11 +286,6 @@ function mdCell(v) {
     .trim();
 }
 
-function citeKeyWiki(ref) {
-  const ck = String(ref?.citekey ?? ref?.citeKey ?? "").trim();
-  return ck ? "[[" + mdCell(ck) + "]]" : "";
-}
-
 function resolveSource(ref) {
   const candidates = [
     ref?.publicationTitle,
@@ -328,13 +323,13 @@ const refs = Array.isArray(refsPayload?.references) ? refsPayload.references : [
 let referencesTable = "";
 if (refs.length) {
   const lines = [
-    "| # | CiteKey | Year | Title | Authors | Source | Locator |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| # | Year | Title | Authors | Source | Locator |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...refs.map(function (r, i) {
       const authors = Array.isArray(r?.author) ? r.author.join("; ") : (r?.author ?? "");
       const source = resolveSource(r);
       const locator = renderLocator(r);
-      return "| " + (i + 1) + " | " + citeKeyWiki(r) + " | " + mdCell(r?.year ?? "") + " | " + mdCell(r?.title ?? "") + " | " + mdCell(authors) + " | " + mdCell(source) + " | " + mdCell(locator) + " |";
+      return "| " + (i + 1) + " | " + mdCell(r?.year ?? "") + " | " + mdCell(r?.title ?? "") + " | " + mdCell(authors) + " | " + mdCell(source) + " | " + mdCell(locator) + " |";
     }),
   ];
   referencesTable = lines.join("\n");

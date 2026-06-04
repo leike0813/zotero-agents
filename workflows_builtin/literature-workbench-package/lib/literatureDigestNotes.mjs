@@ -60,6 +60,21 @@ export function parseCitationAnalysisPayload(noteContent, runtime) {
 
 async function resolveGeneratedPayloadForNote(args) {
   let legacyError = null;
+  const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
+    runtime: args.runtime,
+    noteItem: args.noteItem,
+    payloadType: args.payloadType,
+  });
+  if (embedded && !embedded.errors?.length) {
+    return {
+      payload: embedded.payload,
+      payloadTag: "",
+      source: "embedded-image-attachment",
+      sourceStorage: embedded.sourceStorage,
+      payloadStorageVersion: embedded.payloadStorageVersion,
+      anchorStatus: embedded.anchorStatus,
+    };
+  }
   try {
     return {
       ...args.parseLegacy(),
@@ -67,18 +82,6 @@ async function resolveGeneratedPayloadForNote(args) {
     };
   } catch (error) {
     legacyError = error;
-    const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime: args.runtime,
-      noteItem: args.noteItem,
-      payloadType: args.payloadType,
-    });
-    if (embedded && !embedded.errors?.length) {
-      return {
-        payload: embedded.payload,
-        payloadTag: "",
-        source: "embedded-image-attachment",
-      };
-    }
     throw legacyError;
   }
 }
@@ -784,7 +787,7 @@ export async function exportGeneratedNoteCandidate(args) {
     return exportCustomNote({ noteItem, noteContent, runtime: args.runtime });
   }
   if (kind === "conversation-note") {
-    return exportConversationNote({
+    return await exportConversationNote({
       noteItem,
       noteContent,
       runtime: args.runtime,
@@ -916,21 +919,31 @@ export function exportCustomNote(args) {
   };
 }
 
-export function exportConversationNote(args) {
+export async function exportConversationNote(args) {
   const noteTitle = resolveExportNoteTitle(args.noteItem, args.noteContent);
-  const parsed = parsePayloadBlock(
-    args.noteContent,
-    "conversation-note-markdown",
-    args.runtime,
-    { payloadFormat: "json" },
-  );
+  let payload = null;
+  const embedded = await resolveWorkbenchEmbeddedPayloadBlock({
+    runtime: args.runtime,
+    noteItem: args.noteItem,
+    payloadType: "conversation-note-markdown",
+  });
+  if (embedded && !embedded.errors?.length) {
+    payload = embedded.payload;
+  } else {
+    payload = parsePayloadBlock(
+      args.noteContent,
+      "conversation-note-markdown",
+      args.runtime,
+      { payloadFormat: "json" },
+    ).payload;
+  }
   return {
     kind: "conversation-note",
-    payload: parsed.payload,
+    payload,
     files: [
       {
         fileName: buildSafeExportFileName(noteTitle, "md"),
-        content: String(parsed.payload?.content || ""),
+        content: String(payload?.content || ""),
       },
     ],
   };

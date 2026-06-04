@@ -202,7 +202,6 @@ function replacePayloadReferences(payload: unknown, references: Record<string, u
 function renderReferencesTable(references: unknown) {
   const normalized = normalizeReferencesArray(references);
   const rows = normalized.map((entry, index) => {
-    const citekey = normalizeReferenceText(entry.citekey);
     const year = normalizeReferenceText(entry.year);
     const title = normalizeReferenceText(entry.title);
     const authors = normalizeReferenceAuthors(entry.author).join("; ");
@@ -211,7 +210,6 @@ function renderReferencesTable(references: unknown) {
     return [
       "<tr>",
       `<td>${index + 1}</td>`,
-      `<td>${escapeHtml(citekey)}</td>`,
       `<td>${escapeHtml(year)}</td>`,
       `<td>${escapeHtml(title)}</td>`,
       `<td>${escapeHtml(authors)}</td>`,
@@ -222,7 +220,7 @@ function renderReferencesTable(references: unknown) {
   });
   return [
     '<table data-zs-view="references-table">',
-    "<thead><tr><th>#</th><th>Citekey</th><th>Year</th><th>Title</th><th>Authors</th><th>Source</th><th>Locator</th></tr></thead>",
+    "<thead><tr><th>#</th><th>Year</th><th>Title</th><th>Authors</th><th>Source</th><th>Locator</th></tr></thead>",
     `<tbody>${rows.join("")}</tbody>`,
     "</table>",
   ].join("");

@@ -52,6 +52,7 @@ import {
 } from "./libraryAdapter";
 import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
 import {
+  buildReferenceSidecarIndexRow,
   buildReferenceSidecarIndexRows,
   buildReferenceSidecarMetadataFingerprintPayload,
   type ReferenceSidecarArtifactType,
@@ -72,6 +73,7 @@ import {
 import {
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
+  mergeSynthesisUiSnapshotInput,
   type SynthesisUiCleanupProposalRow,
   type SynthesisUiSnapshot,
   type SynthesisUiSnapshotInput,
@@ -79,6 +81,7 @@ import {
   type SynthesisUiArtifactRow,
   type SynthesisUiBackgroundJobRow,
   type SynthesisUiTopicUpdateIntent,
+  type SynthesisWorkbenchSurfaceName,
 } from "./uiModel";
 import { createSynthesisTagVocabularyService } from "./tagVocabulary";
 import { createSynthesisConceptKbService } from "./conceptKb";
@@ -111,9 +114,11 @@ import {
   type SynthesisCacheBasisRecord,
   type SynthesisCitationComplexMetricsRecord,
   type SynthesisCitationEdgeRecord,
+  type SynthesisCitationIncomingGroupRecord,
   type SynthesisCitationLayoutRecord,
   type SynthesisCitationLightMetricsRecord,
   type SynthesisCitationNodeRecord,
+  type SynthesisCitationSourceOwnershipRecord,
   type SynthesisOperationRecord,
   type SynthesisRawReferenceRecord,
   type SynthesisReferenceBindingRecord,
@@ -530,6 +535,16 @@ type RelatedItemsSyncHost = {
   }): void | Promise<void>;
 };
 
+type RelatedItemsAcceptedCitationEdge = {
+  edgeId: string;
+  sourceLiteratureItemId: string;
+  targetLiteratureItemId: string;
+  sourceLibraryId: number;
+  sourceItemKey: string;
+  targetLibraryId: number;
+  targetItemKey: string;
+};
+
 type TopicArtifactDependency = {
   status: string;
   hash: string;
@@ -619,6 +634,8 @@ const LIBRARY_INDEX_PAGE_LIMIT_DEFAULT = 100;
 const LIBRARY_INDEX_PAGE_LIMIT_MAX = 250;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT = 100;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX = 250;
+const SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT = 20;
+const SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT = 50;
 const SYNTHESIS_RUNNING_OPERATION_STALE_MS = 30 * 60 * 1000;
 const ACP_SKILL_RUN_ID_RE = /^acp-skill-[A-Za-z0-9._-]+$/;
 export const SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT =
@@ -5066,7 +5083,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (operationType === "reference_sidecar_refresh") {
       return synthesisRepository.getCacheBasis("reference-sidecar:library");
     }
-    if (operationType === "citation_graph_cache_rebuild") {
+    if (
+      operationType === "citation_graph_cache_rebuild" ||
+      operationType === "citation_graph_cache_incremental_refresh"
+    ) {
       return synthesisRepository.getCacheBasis("citation-graph:library");
     }
     return null;
@@ -5412,12 +5432,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (!args.referenceSidecarCache || referenceCacheStatus === "missing") {
       missing.push("reference-sidecar:library");
     }
-    if (
-      !args.citationGraphCache ||
-      citationCacheStatus === "missing" ||
-      !args.citationGraphFound
-    ) {
+    if (!args.citationGraphCache || citationCacheStatus === "missing") {
       missing.push("citation-graph:library");
+    }
+    if (args.citationGraphCache && !args.citationGraphFound) {
+      diagnostics.push({
+        code: "citation_graph_cache_rows_missing",
+        severity: citationCacheStatus === "ready" ? "warning" : "info",
+        message:
+          "Citation graph cache basis exists, but graph rows are not currently available.",
+      });
     }
     if (referenceCacheStatus === "stale") {
       stale.push("reference-sidecar:library");
@@ -6288,7 +6312,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         rowsByRef.set(ref, input);
       }
     }
-    if (typeof options.libraryAdapter?.getRegistryInputForItem === "function") {
+    const itemReader =
+      options.libraryAdapter?.getRegistryInputForItem ||
+      options.libraryAdapter?.getRegistryInputSummaryForItem;
+    if (typeof itemReader === "function") {
       for (const sourceRef of sourceRefs) {
         if (rowsByRef.has(sourceRef)) {
           continue;
@@ -6297,7 +6324,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         if (!parsed?.itemKey) {
           continue;
         }
-        const input = await options.libraryAdapter.getRegistryInputForItem({
+        const input = await itemReader({
           libraryId: parsed.libraryId,
           itemKey: parsed.itemKey,
         });
@@ -6307,6 +6334,173 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       }
     }
     return Array.from(rowsByRef.values());
+  }
+
+  async function registryInputsForWorkbenchPage(limit: number) {
+    const requestedLimit = Math.max(0, Math.floor(Number(limit) || 0));
+    if (options.libraryAdapter?.getRegistryInputsPage) {
+      return options.libraryAdapter.getRegistryInputsPage({
+        libraryId,
+        limit: requestedLimit,
+      });
+    }
+    if (options.registryInputs) {
+      return requestedLimit > 0
+        ? options.registryInputs.slice(0, requestedLimit)
+        : options.registryInputs;
+    }
+    return registryInputsForService(options);
+  }
+
+  function refreshArtifactDerivedFields(row: ReferenceSidecarIndexRow) {
+    const statuses = Object.values(row.artifacts).map(
+      (artifact) => artifact.status,
+    );
+    row.artifactCoverage = statuses.every((status) => status === "available")
+      ? "complete"
+      : statuses.some((status) => status === "available")
+        ? "partial"
+        : "missing";
+    row.facets.artifact = {
+      hash: hashCanonicalJson(row.artifacts),
+      status:
+        row.artifactCoverage === "complete" ? "ready" : row.artifactCoverage,
+    };
+    row.facets.reference = {
+      hash: hashCanonicalJson(row.artifacts.references || {}),
+      status:
+        row.artifacts.references?.status === "available" ? "ready" : "missing",
+    };
+    row.diagnostics = Object.values(row.artifacts).flatMap(
+      (artifact) => artifact.diagnostics,
+    );
+    row.row_hash = hashCanonicalJson({
+      paper_ref: row.paper_ref,
+      title: row.title,
+      year: row.year,
+      artifacts: row.artifacts,
+      artifactCoverage: row.artifactCoverage,
+      diagnostics: row.diagnostics,
+    });
+  }
+
+  function artifactPayloadType(type: ReferenceSidecarArtifactType) {
+    return type === "digest"
+      ? "digest-markdown"
+      : type === "references"
+        ? "references-json"
+        : "citation-analysis-json";
+  }
+
+  function artifactMissingMessage(type: ReferenceSidecarArtifactType) {
+    return type === "citation_analysis"
+      ? "citation analysis payload is missing"
+      : `${type} payload is missing`;
+  }
+
+  function artifactDiagnosticsForOverlay(args: {
+    artifactType: ReferenceSidecarArtifactType;
+    status: "available" | "missing" | "error";
+    previousDiagnostics?: ReferenceSidecarIndexRow["diagnostics"];
+  }): ReferenceSidecarIndexRow["diagnostics"] {
+    if (args.status === "available") {
+      return [];
+    }
+    const previous = (args.previousDiagnostics || []).filter(
+      (entry) => entry.artifact_type === args.artifactType,
+    );
+    if (previous.length) {
+      return previous;
+    }
+    return [
+      {
+        code:
+          args.status === "error" ? "payload_decode_failed" : "payload_missing",
+        artifact_type: args.artifactType,
+        message:
+          args.status === "error"
+            ? `${artifactPayloadType(args.artifactType)} artifact has an unreadable cached state`
+            : artifactMissingMessage(args.artifactType),
+      },
+    ];
+  }
+
+  async function verifyIncompleteArtifactRowsFromCurrentLibrary(
+    rowsByRef: Map<string, ReferenceSidecarIndexRow>,
+  ) {
+    const itemReader = options.libraryAdapter?.getRegistryInputForItem;
+    if (typeof itemReader !== "function") {
+      return;
+    }
+    const candidates = Array.from(rowsByRef.values()).filter((row) =>
+      Object.values(row.artifacts).some(
+        (artifact) => artifact.status !== "available",
+      ),
+    );
+    for (const row of candidates) {
+      const parsed = parsePaperRef(row.paper_ref);
+      if (!parsed?.itemKey) {
+        continue;
+      }
+      const liveInput = await itemReader({
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
+      if (!liveInput) {
+        continue;
+      }
+      const liveRow = buildReferenceSidecarIndexRow(liveInput);
+      row.title = zoteroTitleForSourceRef(row.paper_ref) || liveRow.title;
+      row.year = liveRow.year || row.year;
+      for (const artifactType of [
+        "digest",
+        "references",
+        "citation_analysis",
+      ] as const) {
+        const liveArtifact = liveRow.artifacts[artifactType];
+        const currentArtifact = row.artifacts[artifactType];
+        if (
+          liveArtifact.status === "available" ||
+          currentArtifact.status !== "available"
+        ) {
+          row.artifacts[artifactType] = liveArtifact;
+        }
+      }
+      refreshArtifactDerivedFields(row);
+    }
+  }
+
+  async function enrichRegistryRowsWithLiveMetadata(
+    rowsByRef: Map<string, ReferenceSidecarIndexRow>,
+  ) {
+    const itemReader = options.libraryAdapter?.getRegistryInputSummaryForItem;
+    if (typeof itemReader !== "function") {
+      return;
+    }
+    for (const row of rowsByRef.values()) {
+      const parsed = parsePaperRef(row.paper_ref);
+      if (!parsed?.itemKey) {
+        continue;
+      }
+      const liveInput = await itemReader({
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
+      if (!liveInput) {
+        continue;
+      }
+      row.title =
+        zoteroTitleForSourceRef(row.paper_ref) ||
+        cleanString(liveInput.title) ||
+        row.title;
+      row.year = cleanString(liveInput.year) || row.year;
+      row.item_type = cleanString(liveInput.itemType) || row.item_type;
+      row.tags = Array.isArray(liveInput.tags) ? liveInput.tags : row.tags;
+      row.collections = Array.isArray(liveInput.collections)
+        ? liveInput.collections
+        : row.collections;
+      refreshArtifactDerivedFields(row);
+    }
   }
 
   function artifactSourceParts(artifact: Pick<PaperArtifactReadResult, "paper_ref">) {
@@ -6469,10 +6663,200 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  function rawReferenceIdsForMatchProposals(
+    proposals: SynthesisReferenceMatchProposalRecord[],
+  ) {
+    return Array.from(
+      new Set(
+        proposals.flatMap((proposal) =>
+          parseJsonArray(proposal.sourceRawReferenceIdsJson)
+            .map(cleanString)
+            .filter(Boolean),
+        ),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+  }
+
+  async function registryRowsForReferenceMatchProposalContext(
+    proposals: SynthesisReferenceMatchProposalRecord[],
+  ) {
+    const sourceRefs = new Set<string>();
+    const rawReferenceIds = rawReferenceIdsForMatchProposals(proposals);
+    if (rawReferenceIds.length) {
+      for (const raw of synthesisRepository.listRawReferences({
+        rawReferenceIds,
+        statuses: ["active"],
+      })) {
+        const sourceRef = cleanString(raw.sourceRef);
+        if (sourceRef) {
+          sourceRefs.add(sourceRef);
+        }
+      }
+    }
+    for (const proposal of proposals) {
+      const targetItemKey = cleanString(proposal.targetItemKey);
+      if (!targetItemKey) {
+        continue;
+      }
+      const targetLibraryId =
+        normalizeLibraryId(proposal.targetLibraryId) || libraryId;
+      sourceRefs.add(
+        sourceRefFromParts({
+          libraryId: targetLibraryId,
+          itemKey: targetItemKey,
+        }),
+      );
+    }
+    if (!sourceRefs.size) {
+      return [];
+    }
+    const inputs = await registryInputsForSourceRefs(sourceRefs);
+    const rows = registryRowsForInputs(inputs);
+    for (const row of rows) {
+      const zoteroTitle = zoteroTitleForSourceRef(row.paper_ref);
+      if (zoteroTitle) {
+        row.title = zoteroTitle;
+      }
+    }
+    return rows;
+  }
+
+  function proposalQueryForReviewState(state: SynthesisUiState) {
+    const statuses =
+      cleanString(state.reviews.status) === "all"
+        ? undefined
+        : [cleanString(state.reviews.status) || "open"];
+    const kinds =
+      cleanString(state.reviews.kind) === "all"
+        ? undefined
+        : [cleanString(state.reviews.kind)];
+    const confidences =
+      cleanString(state.reviews.confidence) === "all"
+        ? undefined
+        : [cleanString(state.reviews.confidence)];
+    return {
+      statuses,
+      kinds,
+      confidences,
+      limit: SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT,
+    };
+  }
+
+  function reviewItemQueryForReviewState(state: SynthesisUiState) {
+    const statuses =
+      cleanString(state.reviews.status) === "all"
+        ? undefined
+        : [cleanString(state.reviews.status) || "open"];
+    return {
+      statuses,
+      limit: SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT,
+    };
+  }
+
+  function citationGraphDeltaStrings(values: unknown) {
+    return Array.from(
+      new Set(normalizeArray(values).map(cleanString).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }
+
+  function citationGraphStaleDeltaDiagnostic(args: {
+    source?: string;
+    sourceRefs?: unknown;
+    changedCanonicalIds?: unknown;
+    changedBindingCanonicalIds?: unknown;
+    changedRedirectCanonicalIds?: unknown;
+  }) {
+    const sourceRefs = citationGraphDeltaStrings(args.sourceRefs);
+    const changedCanonicalIds = citationGraphDeltaStrings(
+      args.changedCanonicalIds,
+    );
+    const changedBindingCanonicalIds = citationGraphDeltaStrings(
+      args.changedBindingCanonicalIds,
+    );
+    const changedRedirectCanonicalIds = citationGraphDeltaStrings(
+      args.changedRedirectCanonicalIds,
+    );
+    const hasDelta =
+      sourceRefs.length > 0 ||
+      changedCanonicalIds.length > 0 ||
+      changedBindingCanonicalIds.length > 0 ||
+      changedRedirectCanonicalIds.length > 0;
+    if (!hasDelta) {
+      return undefined;
+    }
+    return {
+      code: "citation_graph_cache_stale_delta",
+      severity: "info",
+      reason: cleanString(args.source) || "citation_graph_changed",
+      source_refs: sourceRefs,
+      changed_canonical_ids: changedCanonicalIds,
+      changed_binding_canonical_ids: changedBindingCanonicalIds,
+      changed_redirect_canonical_ids: changedRedirectCanonicalIds,
+    };
+  }
+
+  function citationGraphStaleDiagnostics(args: {
+    source?: string;
+    diagnostics?: unknown[];
+    sourceRefs?: unknown;
+    changedCanonicalIds?: unknown;
+    changedBindingCanonicalIds?: unknown;
+    changedRedirectCanonicalIds?: unknown;
+  }) {
+    const diagnostics = [...(args.diagnostics || [])];
+    const delta = citationGraphStaleDeltaDiagnostic(args);
+    if (delta) {
+      diagnostics.push(delta);
+    }
+    return diagnostics;
+  }
+
+  function citationGraphIncrementalDeltaFromBasis(
+    basis: SynthesisCacheBasisRecord | null | undefined,
+  ) {
+    const delta = parseJsonArray(basis?.diagnosticsJson).find(
+      (entry) =>
+        isRecord(entry) &&
+        cleanString(entry.code) === "citation_graph_cache_stale_delta",
+    );
+    if (!isRecord(delta)) {
+      return undefined;
+    }
+    const sourceRefs = citationGraphDeltaStrings(delta.source_refs);
+    const changedCanonicalIds = citationGraphDeltaStrings(
+      delta.changed_canonical_ids,
+    );
+    const changedBindingCanonicalIds = citationGraphDeltaStrings(
+      delta.changed_binding_canonical_ids,
+    );
+    const changedRedirectCanonicalIds = citationGraphDeltaStrings(
+      delta.changed_redirect_canonical_ids,
+    );
+    if (
+      !sourceRefs.length &&
+      !changedCanonicalIds.length &&
+      !changedBindingCanonicalIds.length &&
+      !changedRedirectCanonicalIds.length
+    ) {
+      return undefined;
+    }
+    return {
+      sourceRefs,
+      changedCanonicalIds,
+      changedBindingCanonicalIds,
+      changedRedirectCanonicalIds,
+      reason: cleanString(delta.reason) || "citation_graph_stale_delta",
+    };
+  }
+
   function markCitationGraphLibraryCacheStale(args: {
     source: string;
     timestamp: string;
     diagnostics?: unknown[];
+    sourceRefs?: unknown;
+    changedCanonicalIds?: unknown;
+    changedBindingCanonicalIds?: unknown;
+    changedRedirectCanonicalIds?: unknown;
   }) {
     synthesisRepository.upsertCacheBasis({
       cacheKey: "citation-graph:library",
@@ -6485,9 +6869,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       sourceHash: hashCanonicalJson({
         source: cleanString(args.source),
         timestamp: args.timestamp,
+        source_refs: citationGraphDeltaStrings(args.sourceRefs),
+        changed_canonical_ids: citationGraphDeltaStrings(
+          args.changedCanonicalIds,
+        ),
+        changed_binding_canonical_ids: citationGraphDeltaStrings(
+          args.changedBindingCanonicalIds,
+        ),
+        changed_redirect_canonical_ids: citationGraphDeltaStrings(
+          args.changedRedirectCanonicalIds,
+        ),
       }),
       staleReason: cleanString(args.source) || "reference_sidecar_changed",
-      diagnosticsJson: JSON.stringify(args.diagnostics || []),
+      diagnosticsJson: JSON.stringify(citationGraphStaleDiagnostics(args)),
       updatedAt: args.timestamp,
     });
   }
@@ -6628,11 +7022,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function registryRowsFromCurrentLibraryAndSidecar(args: {
     sourceRefs?: string[];
+    limit?: number;
   } = {}) {
     const requestedSourceRefs = new Set(
       (args.sourceRefs || []).map(cleanString).filter(Boolean),
     );
-    const inputs = await registryInputsForSourceRefs(requestedSourceRefs);
+    const requestedLimit = Math.max(0, Math.floor(Number(args.limit) || 0));
+    const inputs =
+      requestedSourceRefs.size === 0
+        ? await registryInputsForWorkbenchPage(requestedLimit)
+        : await registryInputsForSourceRefs(requestedSourceRefs);
     const rowsByRef = new Map(
       registryRowsForInputs(inputs).map((row) => [row.paper_ref, row] as const),
     );
@@ -6642,8 +7041,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         row.title = zoteroTitle;
       }
     }
+    const sidecarSourceRefs = requestedSourceRefs.size
+      ? [...requestedSourceRefs]
+      : [...rowsByRef.keys()];
     const sidecars = synthesisRepository.listArtifactSidecars({
-      sourceRefs: [...requestedSourceRefs],
+      sourceRefs: sidecarSourceRefs,
     });
     for (const sidecar of sidecars) {
       if (!rowsByRef.has(sidecar.sourceRef)) {
@@ -6675,58 +7077,140 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ) {
         continue;
       }
+      const locator = parseJsonObject(sidecar.locatorJson);
+      const status =
+        sidecar.status === "available"
+          ? "available"
+          : sidecar.status === "missing"
+            ? "missing"
+            : "error";
+      const previousDiagnostics =
+        row.artifacts[artifactType]?.diagnostics || [];
       row.artifacts[artifactType] = {
         type: artifactType,
         payload_type:
-          artifactType === "digest"
-            ? "digest-markdown"
-            : artifactType === "references"
-              ? "references-json"
-              : "citation-analysis-json",
-        status:
-          sidecar.status === "available"
-            ? "available"
-            : sidecar.status === "missing"
-              ? "missing"
-              : "error",
+          cleanString(locator.payload_type) || artifactPayloadType(artifactType),
+        status,
+        note_key: cleanString(locator.note_key) || undefined,
+        note_title: cleanString(locator.note_title) || undefined,
         hash: sidecar.artifactHash,
         updated_at: sidecar.updatedAt,
-        diagnostics: [],
+        diagnostics: artifactDiagnosticsForOverlay({
+          artifactType,
+          status,
+          previousDiagnostics,
+        }),
       };
     }
     for (const row of rowsByRef.values()) {
-      const statuses = Object.values(row.artifacts).map(
-        (artifact) => artifact.status,
-      );
-      row.artifactCoverage = statuses.every((status) => status === "available")
-        ? "complete"
-        : statuses.some((status) => status === "available")
-          ? "partial"
-          : "missing";
-      row.facets.artifact = {
-        hash: hashCanonicalJson(row.artifacts),
-        status:
-          row.artifactCoverage === "complete" ? "ready" : row.artifactCoverage,
-      };
-      row.facets.reference = {
-        hash: hashCanonicalJson(row.artifacts.references || {}),
-        status:
-          row.artifacts.references?.status === "available"
-            ? "ready"
-            : "missing",
-      };
-      row.row_hash = hashCanonicalJson({
-        paper_ref: row.paper_ref,
-        title: row.title,
-        artifacts: row.artifacts,
-        artifactCoverage: row.artifactCoverage,
-      });
+      refreshArtifactDerivedFields(row);
     }
+    await enrichRegistryRowsWithLiveMetadata(rowsByRef);
+    await verifyIncompleteArtifactRowsFromCurrentLibrary(rowsByRef);
+    await enrichRegistryRowsWithLiveMetadata(rowsByRef);
     return Array.from(rowsByRef.values()).sort(
       (left, right) =>
         left.library_id - right.library_id ||
         left.item_key.localeCompare(right.item_key),
     );
+  }
+
+  function registryRowsWithReferenceFactsToUi(
+    registryRows: ReferenceSidecarIndexRow[],
+    options: {
+      includeReferences?: boolean;
+      rawReferenceIds?: string[];
+      referenceSourceRefs?: string[];
+    } = {},
+  ) {
+    const sourceLiteratureItemIds = registryRows.map((row) => row.paper_ref);
+    const referenceSourceRefSet = new Set(
+      (options.referenceSourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    const includeAllReferences =
+      options.includeReferences === true && referenceSourceRefSet.size === 0;
+    const loadedReferenceSourceRefs = includeAllReferences
+      ? new Set(sourceLiteratureItemIds)
+      : new Set(
+          sourceLiteratureItemIds.filter((sourceRef) =>
+            referenceSourceRefSet.has(sourceRef),
+          ),
+        );
+    const shouldLoadReferenceFacts =
+      includeAllReferences ||
+      loadedReferenceSourceRefs.size > 0 ||
+      Boolean(options.rawReferenceIds?.length);
+    const referenceFactSourceRefs = includeAllReferences
+      ? sourceLiteratureItemIds
+      : Array.from(loadedReferenceSourceRefs);
+    const registryReferenceFacts = shouldLoadReferenceFacts
+      ? synthesisRepository.listReferenceFacts({
+          sourceLiteratureItemIds: referenceFactSourceRefs.length
+            ? referenceFactSourceRefs
+            : sourceLiteratureItemIds,
+          rawReferenceIds: options.rawReferenceIds,
+        })
+      : [];
+    const referenceSummaries = synthesisRepository.listReferenceFactSummariesBySource({
+      sourceLiteratureItemIds,
+    });
+    const referenceSummaryBySource = new Map(
+      referenceSummaries.map(
+        (summary) => [summary.sourceLiteratureItemId, summary] as const,
+      ),
+    );
+    const referenceFactsBySource = new Map<
+      string,
+      typeof registryReferenceFacts
+    >();
+    registryReferenceFacts.forEach((reference) => {
+      const key = reference.sourceLiteratureItemId;
+      const rows = referenceFactsBySource.get(key) || [];
+      rows.push(reference);
+      referenceFactsBySource.set(key, rows);
+    });
+    return registryRowsToUi(registryRows).map((row) => {
+      const references = referenceFactsBySource.get(row.paper_ref) || [];
+      const summary = referenceSummaryBySource.get(row.paper_ref);
+      const referencesLoaded =
+        includeAllReferences || loadedReferenceSourceRefs.has(row.paper_ref);
+      const unbound = references.filter(
+        (reference) => !reference.bindingStatus,
+      ).length;
+      return {
+        ...row,
+        literature_item_id: row.paper_ref,
+        reference_count: referencesLoaded
+          ? references.length
+          : summary?.referenceCount || 0,
+        unbound_reference_count: referencesLoaded
+          ? unbound
+          : summary?.unboundReferenceCount || 0,
+        references: referencesLoaded
+          ? references.map(referenceSidecarReferenceToUiRow)
+          : [],
+      };
+    });
+  }
+
+  async function registryRowsForReferencedScope(limit: number) {
+    const rawReferences = synthesisRepository.listRawReferences({
+      statuses: ["active"],
+      limit,
+    });
+    const sourceRefs = Array.from(
+      new Set(rawReferences.map((row) => cleanString(row.sourceRef)).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+    const rawReferenceIds = rawReferences
+      .map((row) => cleanString(row.rawReferenceId))
+      .filter(Boolean);
+    if (!sourceRefs.length) {
+      return { rows: [], rawReferenceIds };
+    }
+    return {
+      rows: await registryRowsFromCurrentLibraryAndSidecar({ sourceRefs }),
+      rawReferenceIds,
+    };
   }
 
   function upsertArtifactSidecarsFromScan(args: {
@@ -6778,17 +7262,72 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return changedReferenceArtifacts;
   }
 
-  async function rebuildCitationGraphCacheFromSidecar(args: {
+  function citationGraphLightMetricsForRecords(args: {
+    nodes: Map<string, SynthesisCitationNodeRecord>;
+    edges: SynthesisCitationEdgeRecord[];
     timestamp: string;
-    operationId?: string;
+  }): SynthesisCitationLightMetricsRecord[] {
+    const outgoingCounts = new Map<string, number>();
+    const incomingCounts = new Map<string, number>();
+    const matchedOutgoingCounts = new Map<string, number>();
+    const unresolvedOutgoingCounts = new Map<string, number>();
+    for (const edge of args.edges) {
+      outgoingCounts.set(
+        edge.sourceLiteratureItemId,
+        (outgoingCounts.get(edge.sourceLiteratureItemId) || 0) + 1,
+      );
+      if (edge.targetLiteratureItemId) {
+        incomingCounts.set(
+          edge.targetLiteratureItemId,
+          (incomingCounts.get(edge.targetLiteratureItemId) || 0) + 1,
+        );
+      }
+      if (edge.edgeStatus === "accepted") {
+        matchedOutgoingCounts.set(
+          edge.sourceLiteratureItemId,
+          (matchedOutgoingCounts.get(edge.sourceLiteratureItemId) || 0) + 1,
+        );
+      } else {
+        unresolvedOutgoingCounts.set(
+          edge.sourceLiteratureItemId,
+          (unresolvedOutgoingCounts.get(edge.sourceLiteratureItemId) || 0) + 1,
+        );
+      }
+    }
+    return Array.from(args.nodes.keys()).map((literatureItemId) => {
+      const outgoingCount = outgoingCounts.get(literatureItemId) || 0;
+      const incomingCount = incomingCounts.get(literatureItemId) || 0;
+      return {
+        literatureItemId,
+        outgoingCount,
+        incomingCount,
+        localDegree: outgoingCount + incomingCount,
+        matchedOutgoingCount: matchedOutgoingCounts.get(literatureItemId) || 0,
+        unresolvedOutgoingCount:
+          unresolvedOutgoingCounts.get(literatureItemId) || 0,
+        ambiguousOutgoingCount: 0,
+        sourceStructureVersion: Date.parse(args.timestamp) || 0,
+        updatedAt: args.timestamp,
+      };
+    });
+  }
+
+  async function buildCitationGraphCacheRecordsFromSidecar(args: {
+    timestamp: string;
+    sourceRefs?: string[];
     profileRun?: SynthesisJobProfileRun;
   }) {
     const timestamp = args.timestamp;
+    const requestedSourceRefs = Array.from(
+      new Set((args.sourceRefs || []).map(cleanString).filter(Boolean)),
+    );
     const loaded = await runProfiledSynthesisPhase({
       profileRun: args.profileRun,
       phaseName: "load_sidecar_inputs",
       run: () => ({
-        artifactSidecars: synthesisRepository.listArtifactSidecars(),
+        artifactSidecars: synthesisRepository.listArtifactSidecars(
+          requestedSourceRefs.length ? { sourceRefs: requestedSourceRefs } : {},
+        ),
         canonicalReferences: synthesisRepository.listCanonicalReferences({
           statuses: ["active"],
         }),
@@ -6797,6 +7336,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }),
         rawReferences: synthesisRepository.listRawReferences({
           statuses: ["active"],
+          ...(requestedSourceRefs.length
+            ? { sourceRefs: requestedSourceRefs }
+            : {}),
         }),
       }),
       counters: (result) => ({
@@ -6807,10 +7349,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       }),
     });
     const sourceRefs = new Set(
-      loaded.artifactSidecars
-        .map((artifact) => artifact.sourceRef)
-        .filter(Boolean),
+      requestedSourceRefs.length
+        ? requestedSourceRefs
+        : loaded.artifactSidecars
+            .map((artifact) => artifact.sourceRef)
+            .filter(Boolean),
     );
+    for (const reference of loaded.rawReferences) {
+      if (reference.sourceRef) {
+        sourceRefs.add(reference.sourceRef);
+      }
+    }
     const canonicalById = new Map(
       loaded.canonicalReferences.map(
         (entry) => [entry.canonicalReferenceId, entry] as const,
@@ -6818,14 +7367,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
     const bindingsByCanonical = new Map<string, SynthesisReferenceBindingRecord>();
     for (const binding of loaded.acceptedBindings) {
-      if (binding.itemKey) {
-        sourceRefs.add(
-          sourceRefFromParts({
-            libraryId: binding.libraryId,
-            itemKey: binding.itemKey,
-          }),
-        );
-      }
       bindingsByCanonical.set(
         synthesisRepository.resolveEffectiveCanonicalReferenceId(
           binding.canonicalReferenceId,
@@ -6833,17 +7374,35 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         binding,
       );
     }
+    const metadataRefs = new Set(sourceRefs);
+    for (const reference of loaded.rawReferences) {
+      const effectiveCanonicalId =
+        synthesisRepository.resolveEffectiveCanonicalReferenceId(
+          reference.canonicalReferenceId || "",
+        ) || reference.canonicalReferenceId || reference.rawReferenceId;
+      const binding = effectiveCanonicalId
+        ? bindingsByCanonical.get(effectiveCanonicalId)
+        : undefined;
+      if (binding?.itemKey) {
+        metadataRefs.add(
+          sourceRefFromParts({
+            libraryId: binding.libraryId,
+            itemKey: binding.itemKey,
+          }),
+        );
+      }
+    }
     const sourceMetadataByRef = await runProfiledSynthesisPhase({
       profileRun: args.profileRun,
       phaseName: "load_source_metadata",
       run: async () =>
         new Map(
-          (await registryInputsForSourceRefs(sourceRefs)).map(
+          (await registryInputsForSourceRefs(metadataRefs)).map(
             (input) => [paperRefForRegistryInput(input), input] as const,
           ),
         ),
       counters: (result) => ({
-        requested_source_ref_count: sourceRefs.size,
+        requested_source_ref_count: metadataRefs.size,
         metadata_count: result.size,
       }),
     });
@@ -6932,53 +7491,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             updatedAt: timestamp,
           });
         }
-        const outgoingCounts = new Map<string, number>();
-        const incomingCounts = new Map<string, number>();
-        const matchedOutgoingCounts = new Map<string, number>();
-        const unresolvedOutgoingCounts = new Map<string, number>();
-        for (const edge of edges) {
-          outgoingCounts.set(
-            edge.sourceLiteratureItemId,
-            (outgoingCounts.get(edge.sourceLiteratureItemId) || 0) + 1,
-          );
-          if (edge.targetLiteratureItemId) {
-            incomingCounts.set(
-              edge.targetLiteratureItemId,
-              (incomingCounts.get(edge.targetLiteratureItemId) || 0) + 1,
-            );
-          }
-          if (edge.edgeStatus === "accepted") {
-            matchedOutgoingCounts.set(
-              edge.sourceLiteratureItemId,
-              (matchedOutgoingCounts.get(edge.sourceLiteratureItemId) || 0) + 1,
-            );
-          } else {
-            unresolvedOutgoingCounts.set(
-              edge.sourceLiteratureItemId,
-              (unresolvedOutgoingCounts.get(edge.sourceLiteratureItemId) || 0) +
-                1,
-            );
-          }
-        }
-        const lightweightMetrics = Array.from(nodes.keys()).map(
-          (literatureItemId) => {
-            const outgoingCount = outgoingCounts.get(literatureItemId) || 0;
-            const incomingCount = incomingCounts.get(literatureItemId) || 0;
-            return {
-              literatureItemId,
-              outgoingCount,
-              incomingCount,
-              localDegree: outgoingCount + incomingCount,
-              matchedOutgoingCount:
-                matchedOutgoingCounts.get(literatureItemId) || 0,
-              unresolvedOutgoingCount:
-                unresolvedOutgoingCounts.get(literatureItemId) || 0,
-              ambiguousOutgoingCount: 0,
-              sourceStructureVersion: Date.parse(timestamp) || 0,
-              updatedAt: timestamp,
-            };
-          },
-        );
+        const lightweightMetrics = citationGraphLightMetricsForRecords({
+          nodes,
+          edges,
+          timestamp,
+        });
         return {
           nodes,
           edges,
@@ -7008,6 +7525,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         edge_count: result.edges.length,
         metric_count: result.lightweightMetrics.length,
       }),
+    });
+    return { loaded, built, sourceRefs: Array.from(sourceRefs).sort() };
+  }
+
+  async function rebuildCitationGraphCacheFromSidecar(args: {
+    timestamp: string;
+    operationId?: string;
+    profileRun?: SynthesisJobProfileRun;
+  }) {
+    const timestamp = args.timestamp;
+    const { loaded, built } = await buildCitationGraphCacheRecordsFromSidecar({
+      timestamp,
+      profileRun: args.profileRun,
     });
     await runProfiledSynthesisPhase({
       profileRun: args.profileRun,
@@ -7056,6 +7586,305 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       }),
     });
     return { nodes: built.nodes.size, edges: built.edges.length, sourceHash };
+  }
+
+  function sourceRefsForChangedCanonicalFacts(args: {
+    changedCanonicalIds?: string[];
+    changedBindingCanonicalIds?: string[];
+    changedRedirectCanonicalIds?: string[];
+  }) {
+    const changed = new Set(
+      [
+        ...(args.changedCanonicalIds || []),
+        ...(args.changedBindingCanonicalIds || []),
+        ...(args.changedRedirectCanonicalIds || []),
+      ]
+        .map(cleanString)
+        .filter(Boolean),
+    );
+    if (!changed.size) {
+      return [];
+    }
+    const sourceRefs = new Set<string>();
+    for (const raw of synthesisRepository.listRawReferences({
+      statuses: ["active"],
+    })) {
+      const physical = cleanString(raw.canonicalReferenceId);
+      const effective =
+        synthesisRepository.resolveEffectiveCanonicalReferenceId(physical) ||
+        physical;
+      if (changed.has(physical) || changed.has(effective)) {
+        sourceRefs.add(raw.sourceRef);
+      }
+    }
+    return Array.from(sourceRefs).sort();
+  }
+
+  function canIncrementallyRefreshCitationGraph() {
+    const basis = synthesisRepository.getCacheBasis("citation-graph:library");
+    if (!basis || basis.status === "missing" || basis.status === "failed") {
+      return false;
+    }
+    return synthesisRepository.listCitationNodes({ limit: 1 }).length > 0;
+  }
+
+  async function refreshCitationGraphCacheIncremental(
+    args: {
+      sourceRefs?: string[];
+      changedCanonicalIds?: string[];
+      changedBindingCanonicalIds?: string[];
+      changedRedirectCanonicalIds?: string[];
+      reason: string;
+      allowFullBootstrap?: boolean;
+    },
+    progressOptions: WorkbenchProgressOptions = {},
+  ) {
+    const sourceRefs = new Set(
+      (args.sourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    for (const sourceRef of sourceRefsForChangedCanonicalFacts(args)) {
+      sourceRefs.add(sourceRef);
+    }
+    const affectedSourceRefs = Array.from(sourceRefs).sort();
+    const graphReadyForIncremental = canIncrementallyRefreshCitationGraph();
+    if (!affectedSourceRefs.length && graphReadyForIncremental) {
+      return {
+        ok: true,
+        status: "skipped",
+        skipped_reason: "no_affected_sources",
+      };
+    }
+    if (!graphReadyForIncremental && !args.allowFullBootstrap) {
+      return {
+        ok: true,
+        status: "skipped",
+        skipped_reason: "graph_cache_not_bootstrapped",
+      };
+    }
+    const jobName = "synthesis:citation-graph-cache-incremental";
+    const runId = `${jobName}:${now()}`;
+    const label = "Citation graph cache incremental refresh";
+    const source = "citation_graph_cache_incremental_refresh";
+    const previousBasis = synthesisRepository.getCacheBasis(
+      "citation-graph:library",
+    );
+    const phases = graphReadyForIncremental
+      ? ["load_source_slice", "build_source_slice", "commit"]
+      : ["full_bootstrap", "commit"];
+    const reportPhase = async (
+      phase: string,
+      index: number,
+      counts?: {
+        processedCount?: number;
+        totalCount?: number;
+        progressMode?: "determinate" | "indeterminate";
+      },
+    ) => {
+      reportSynthesisJobProgress({
+        jobName,
+        runId,
+        source,
+        label,
+        status: "running",
+        phase,
+        phaseLabel: phase
+          .split("_")
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" "),
+        processedCount: counts?.processedCount ?? index,
+        totalCount: counts?.totalCount ?? phases.length,
+        progressMode: counts?.progressMode ?? "determinate",
+        diagnosticsJson: JSON.stringify([
+          {
+            code: "citation_graph_cache_incremental_refresh_progress",
+            reason: cleanString(args.reason),
+            affected_source_count: affectedSourceRefs.length,
+            full_bootstrap: !graphReadyForIncremental,
+          },
+        ]),
+      });
+      await progressOptions.onProgress?.();
+      await yieldToEventLoop();
+    };
+    let phaseIndex = 0;
+    try {
+      if (!graphReadyForIncremental) {
+        await reportPhase("full_bootstrap", phaseIndex, {
+          processedCount: 0,
+          totalCount: 0,
+          progressMode: "indeterminate",
+        });
+        const result = await lock.runExclusive(libraryId, () =>
+          rebuildCitationGraphCacheFromSidecar({
+            timestamp: now(),
+            operationId: runId,
+          }),
+        );
+        phaseIndex = 1;
+        completeSynthesisJobProgress({
+          jobName,
+          runId,
+          source,
+          label,
+          phase: "commit",
+          phaseLabel: "Commit",
+          processedCount: result.edges,
+          totalCount: result.edges,
+          progressMode: "determinate",
+          message: "Citation graph cache bootstrap completed.",
+        });
+        await progressOptions.onProgress?.();
+        return {
+          ok: true,
+          status: "bootstrapped",
+          node_count: result.nodes,
+          edge_count: result.edges,
+          source_hash: result.sourceHash,
+        };
+      }
+
+      await reportPhase("load_source_slice", phaseIndex, {
+        processedCount: affectedSourceRefs.length,
+        totalCount: affectedSourceRefs.length,
+      });
+      phaseIndex = 1;
+      const built = await lock.runExclusive(libraryId, async () => {
+        const timestamp = now();
+        const records = await buildCitationGraphCacheRecordsFromSidecar({
+          timestamp,
+          sourceRefs: affectedSourceRefs,
+        });
+        await reportPhase("build_source_slice", phaseIndex, {
+          processedCount: records.built.edges.length,
+          totalCount: Math.max(records.built.edges.length, 1),
+        });
+        synthesisRepository.replaceCitationGraphSourceSlice({
+          sourceLiteratureItemIds: affectedSourceRefs,
+          nodes: Array.from(records.built.nodes.values()),
+          edges: records.built.edges,
+          sourceOwnership: records.built.sourceOwnership,
+          incomingGroups: records.built.incomingGroups,
+          updatedAt: timestamp,
+        });
+        const sourceHash = hashCanonicalJson({
+          previous_graph_basis: previousBasis?.sourceHash || "",
+          reason: cleanString(args.reason),
+          affected_source_refs: affectedSourceRefs,
+          changed_canonical_ids: (args.changedCanonicalIds || [])
+            .map(cleanString)
+            .filter(Boolean)
+            .sort(),
+          changed_binding_canonical_ids: (args.changedBindingCanonicalIds || [])
+            .map(cleanString)
+            .filter(Boolean)
+            .sort(),
+          changed_redirect_canonical_ids: (args.changedRedirectCanonicalIds || [])
+            .map(cleanString)
+            .filter(Boolean)
+            .sort(),
+          policy: "citation-graph-incremental-v1",
+        });
+        synthesisRepository.upsertCacheBasis({
+          cacheKey: "citation-graph:library",
+          cacheKind: "citation_graph",
+          scopeKind: "library",
+          scopeRef: String(libraryId),
+          status: "ready",
+          basisKind: "reference_sidecar_incremental",
+          basisValue: runId,
+          sourceHash,
+          policyVersion: "citation-graph-incremental-v1",
+          refreshedAt: timestamp,
+          diagnosticsJson: "[]",
+          updatedAt: timestamp,
+        });
+        return {
+          nodes: records.built.nodes.size,
+          edges: records.built.edges.length,
+          sourceHash,
+        };
+      });
+      phaseIndex = 2;
+      completeSynthesisJobProgress({
+        jobName,
+        runId,
+        source,
+        label,
+        phase: "commit",
+        phaseLabel: "Commit",
+        processedCount: built.edges,
+        totalCount: built.edges,
+        progressMode: "determinate",
+        message: "Citation graph cache incremental refresh completed.",
+        diagnosticsJson: JSON.stringify([
+          {
+            code: "citation_graph_cache_incremental_refresh_completed",
+            affected_source_count: affectedSourceRefs.length,
+            node_count: built.nodes,
+            edge_count: built.edges,
+          },
+        ]),
+      });
+      await progressOptions.onProgress?.();
+      return {
+        ok: true,
+        status: "completed",
+        affected_source_count: affectedSourceRefs.length,
+        node_count: built.nodes,
+        edge_count: built.edges,
+        source_hash: built.sourceHash,
+      };
+    } catch (error) {
+      const diagnostic = referenceSidecarDiagnostic({
+        code: "citation_graph_cache_incremental_refresh_failed",
+        severity: "error",
+        message: errorMessage(error),
+      });
+        failSynthesisJobProgress({
+          jobName,
+          runId,
+          source,
+          label,
+        phase: phases[Math.min(phaseIndex, phases.length - 1)] || "failed",
+        processedCount: phaseIndex,
+        totalCount: phases.length,
+        progressMode: "determinate",
+        diagnosticsJson: JSON.stringify([diagnostic]),
+        message: "Citation graph cache incremental refresh failed.",
+      });
+        const timestamp = now();
+        const hasRows = synthesisRepository.listCitationNodes({ limit: 1 }).length > 0;
+        synthesisRepository.upsertCacheBasis({
+          cacheKey: "citation-graph:library",
+        cacheKind: "citation_graph",
+        scopeKind: "library",
+        scopeRef: String(libraryId),
+        status: hasRows ? "stale" : "failed",
+        basisKind: "reference_sidecar_incremental",
+        basisValue: runId,
+        sourceHash: previousBasis?.sourceHash || "",
+          policyVersion: "citation-graph-incremental-v1",
+          staleReason: hasRows ? "incremental_refresh_failed" : undefined,
+          activeOperationId: runId,
+          diagnosticsJson: JSON.stringify(
+            citationGraphStaleDiagnostics({
+              source: "incremental_refresh_failed",
+              diagnostics: [diagnostic],
+              sourceRefs: affectedSourceRefs,
+              changedCanonicalIds: args.changedCanonicalIds,
+              changedBindingCanonicalIds: args.changedBindingCanonicalIds,
+              changedRedirectCanonicalIds: args.changedRedirectCanonicalIds,
+            }),
+          ),
+          updatedAt: timestamp,
+        });
+      await progressOptions.onProgress?.();
+      return {
+        ok: false,
+        status: "failed",
+        diagnostics: [diagnostic],
+      };
+    }
   }
 
   async function refreshReferenceSidecarNow(
@@ -7288,7 +8117,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             }),
             policyVersion: "reference-sidecar-v1",
             staleReason: "reference_sidecar_refreshed",
-            diagnosticsJson: "[]",
+            diagnosticsJson: JSON.stringify(
+              citationGraphStaleDiagnostics({
+                source: "reference_sidecar_refreshed",
+                sourceRefs: changedReferenceArtifacts
+                  .map((artifact) => artifactSourceParts(artifact).sourceRef)
+                  .filter(Boolean),
+              }),
+            ),
             updatedAt: timestamp,
           });
           return { sourceHash };
@@ -7325,6 +8161,29 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           matched_reference_count: matched,
         },
       });
+      const changedReferenceSourceRefs = changedReferenceArtifacts
+        .map((artifact) => artifactSourceParts(artifact).sourceRef)
+        .filter(Boolean);
+      try {
+        await refreshCitationGraphCacheIncremental(
+          {
+            sourceRefs: changedReferenceSourceRefs,
+            reason: "reference_sidecar_refresh",
+            allowFullBootstrap: true,
+          },
+          progressOptions,
+        );
+      } catch {
+        // The graph refresh operation records its own failure; related-items sync
+        // remains graph-cache optional.
+      }
+      if (changedReferenceSourceRefs.length) {
+        await syncRelatedItemsAfterSynthesisUpdate({
+          sourceRefs: changedReferenceSourceRefs,
+          reason: "reference_sidecar_refresh",
+          onProgress: progressOptions.onProgress,
+        });
+      }
       return peekReferenceSidecarCacheStatus();
     } catch (error) {
       const diagnostic = referenceSidecarDiagnostic({
@@ -7400,6 +8259,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     let dedupeProposalsCreated = 0;
     let rejectedPreserved = 0;
     let graphFactsChanged = false;
+    const changedBindingCanonicalIds = new Set<string>();
+    const changedRedirectCanonicalIds = new Set<string>();
     const report = async (
       phase: string,
       processedCount: number,
@@ -7517,6 +8378,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             );
           autoAccepted += 1;
           acceptedCanonicalIds.add(canonicalReferenceId);
+          changedBindingCanonicalIds.add(canonicalReferenceId);
           graphFactsChanged = true;
         } else if (
           result.status === "suggested" ||
@@ -7666,6 +8528,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             updatedAt: timestamp,
           });
           dedupeRedirectsCreated += 1;
+          changedRedirectCanonicalIds.add(action.sourceCanonicalReferenceId);
+          changedRedirectCanonicalIds.add(action.targetCanonicalReferenceId);
           graphFactsChanged = true;
         } else {
           if (
@@ -7715,26 +8579,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           );
         }
       }
-      if (graphFactsChanged) {
-        markCitationGraphLibraryCacheStale({
-          source: `advanced-reference-matching:${sidecarShortKey({
-            runId,
-            autoAccepted,
-            proposalsCreated,
-            dedupeRedirectsCreated,
-            dedupeProposalsCreated,
-          })}`,
-          diagnostics: [
-            {
-              code: "advanced_reference_matching_changed_facts",
-              severity: "info",
-              message:
-                "Advanced reference matching changed accepted reference facts; citation graph cache requires explicit refresh.",
-            },
-          ],
-          timestamp,
-        });
-      }
       completeSynthesisJobProgress({
         jobName,
         runId,
@@ -7765,6 +8609,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           },
         ]),
       });
+      if (graphFactsChanged) {
+        try {
+          await refreshCitationGraphCacheIncremental(
+            {
+              changedBindingCanonicalIds: Array.from(changedBindingCanonicalIds),
+              changedRedirectCanonicalIds: Array.from(changedRedirectCanonicalIds),
+              reason: `advanced-reference-matching:${sidecarShortKey({
+                runId,
+                autoAccepted,
+                proposalsCreated,
+                dedupeRedirectsCreated,
+                dedupeProposalsCreated,
+              })}`,
+              allowFullBootstrap: true,
+            },
+            progressOptions,
+          );
+        } catch {
+          // Related-items sync can fall back to sidecar facts when graph refresh
+          // fails or graph cache is unavailable.
+        }
+        await syncRelatedItemsAfterSynthesisUpdate({
+          reason: "advanced_reference_matching",
+          onProgress: progressOptions.onProgress,
+        });
+      }
       return {
         ok: true,
         status: "completed",
@@ -7813,7 +8683,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function applyReferenceMatchProposalAction(args: {
     proposalId: string;
-    action: "accept" | "reject" | "reopen" | "delete";
+    action: "accept" | "reverse_accept" | "reject" | "reopen" | "delete";
   }) {
     const proposal = synthesisRepository.listReferenceMatchProposals({
       proposalIds: [args.proposalId],
@@ -7841,19 +8711,45 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       })}`;
     const revokeAcceptedProposalFact = () => {
       if (proposal.kind === "canonical_merge") {
-        return synthesisRepository.deleteCanonicalReferenceRedirect({
-          fromCanonicalReferenceId: proposal.sourceCanonicalReferenceId,
-          toCanonicalReferenceId: cleanString(proposal.targetCanonicalReferenceId),
-        });
+        const sourceCanonicalId = proposal.sourceCanonicalReferenceId;
+        const targetCanonicalId = cleanString(proposal.targetCanonicalReferenceId);
+        const forward =
+          synthesisRepository.deleteCanonicalReferenceRedirect({
+            fromCanonicalReferenceId: sourceCanonicalId,
+            toCanonicalReferenceId: targetCanonicalId,
+          }) || 0;
+        const reverse =
+          synthesisRepository.deleteCanonicalReferenceRedirect({
+            fromCanonicalReferenceId: targetCanonicalId,
+            toCanonicalReferenceId: sourceCanonicalId,
+          }) || 0;
+        return forward + reverse;
       }
       return synthesisRepository.deleteReferenceBinding({
         bindingId: bindingIdForProposal(),
         basisHash: proposal.basisHash,
       });
     };
+    const graphDeltaForProposal = () =>
+      proposal.kind === "canonical_merge"
+        ? {
+            changedCanonicalIds: [
+              proposal.sourceCanonicalReferenceId,
+              cleanString(proposal.targetCanonicalReferenceId),
+            ],
+            changedRedirectCanonicalIds: [
+              proposal.sourceCanonicalReferenceId,
+              cleanString(proposal.targetCanonicalReferenceId),
+            ],
+          }
+        : {
+            changedCanonicalIds: [proposal.sourceCanonicalReferenceId],
+            changedBindingCanonicalIds: [proposal.sourceCanonicalReferenceId],
+          };
     const markGraphStaleForProposalChange = (code: string, message: string) => {
       markCitationGraphLibraryCacheStale({
         source: `reference-match-proposal:${proposal.proposalId}`,
+        ...graphDeltaForProposal(),
         diagnostics: [
           {
             code,
@@ -7924,11 +8820,33 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         revoked_fact_count: revoked,
       };
     }
+    if (args.action === "reverse_accept" && proposal.kind !== "canonical_merge") {
+      return {
+        ok: false,
+        status: "invalid_action",
+        proposal_id: proposal.proposalId,
+        diagnostics: [
+          {
+            code: "reference_match_reverse_accept_requires_canonical_merge",
+            severity: "error",
+            message: "Reverse accept is only valid for canonical merge proposals.",
+          },
+        ],
+      };
+    }
     if (proposal.kind === "canonical_merge") {
+      if (proposal.status === "accepted") {
+        revokeAcceptedProposalFact();
+      }
+      const sourceCanonicalId = proposal.sourceCanonicalReferenceId;
+      const targetCanonicalId = cleanString(proposal.targetCanonicalReferenceId);
+      const reverse = args.action === "reverse_accept";
       synthesisRepository.upsertCanonicalReferenceRedirect({
-        fromCanonicalReferenceId: proposal.sourceCanonicalReferenceId,
-        toCanonicalReferenceId: cleanString(proposal.targetCanonicalReferenceId),
-        reason: "advanced_reference_matching_accept",
+        fromCanonicalReferenceId: reverse ? targetCanonicalId : sourceCanonicalId,
+        toCanonicalReferenceId: reverse ? sourceCanonicalId : targetCanonicalId,
+        reason: reverse
+          ? "advanced_reference_matching_reverse_accept"
+          : "advanced_reference_matching_accept",
         diagnosticsJson: proposal.diagnosticsJson || "[]",
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -7955,6 +8873,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     markCitationGraphLibraryCacheStale({
       source: `reference-match-proposal:${proposal.proposalId}`,
+      ...graphDeltaForProposal(),
       diagnostics: [
         {
           code: "reference_match_proposal_accepted",
@@ -7971,7 +8890,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function applyReferenceMatchProposalActions(args: {
     decisions: Array<{
       proposalId: string;
-      action: "accept" | "reject" | "reopen" | "delete";
+      action: "accept" | "reverse_accept" | "reject" | "reopen" | "delete";
     }>;
   }) {
     const results: Array<Record<string, unknown>> = [];
@@ -8191,6 +9110,38 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     progressOptions: WorkbenchProgressOptions = {},
   ) {
     return rebuildCitationGraphCacheNow(progressOptions);
+  }
+
+  async function refreshCitationGraphCacheIncrementalNow(
+    progressOptions: WorkbenchProgressOptions = {},
+  ) {
+    const basis = synthesisRepository.getCacheBasis("citation-graph:library");
+    if (cleanString(basis?.status) !== "stale") {
+      return {
+        ok: true,
+        status: "skipped",
+        skipped_reason: "citation_graph_cache_not_stale",
+      };
+    }
+    const delta = citationGraphIncrementalDeltaFromBasis(basis);
+    if (!delta) {
+      return {
+        ok: true,
+        status: "skipped",
+        skipped_reason: "missing_stale_delta_metadata",
+      };
+    }
+    return refreshCitationGraphCacheIncremental(
+      {
+        sourceRefs: delta.sourceRefs,
+        changedCanonicalIds: delta.changedCanonicalIds,
+        changedBindingCanonicalIds: delta.changedBindingCanonicalIds,
+        changedRedirectCanonicalIds: delta.changedRedirectCanonicalIds,
+        reason: `manual-stale-refresh:${delta.reason}`,
+        allowFullBootstrap: false,
+      },
+      progressOptions,
+    );
   }
 
   async function saveConflictCandidate(args: {
@@ -9095,7 +10046,276 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function getSynthesisSnapshotInput(
+  async function getSynthesisWorkbenchChromeInput(
+    state: SynthesisUiState = createDefaultSynthesisUiState(),
+  ): Promise<SynthesisUiSnapshotInput> {
+    const paths = buildSynthesisStoragePaths(root);
+    const rootReady = await runtimePathExists(paths.synthesisRoot);
+    const conflicts: SynthesisConflictCandidate[] = [];
+    const gitSyncState = await gitSync
+      .loadGitSyncState()
+      .catch(() => undefined);
+    const referenceSidecarCache = synthesisRepository.getCacheBasis(
+      "reference-sidecar:library",
+    );
+    const citationGraphCache = synthesisRepository.getCacheBasis(
+      "citation-graph:library",
+    );
+    const sync = assessSynthesisSyncRecovery({
+      root: {
+        state: rootReady ? "ready" : "missing",
+      },
+      mirror: {
+        manifest: undefined,
+        shards: [],
+      },
+      localIndexes: {
+        state:
+          referenceSidecarCache?.status === "ready" ||
+          citationGraphCache?.status === "ready"
+            ? "healthy"
+            : "missing",
+      },
+      conflicts,
+    });
+    const maintenanceSummary = buildMaintenanceSummary({
+      referenceSidecarCache,
+      citationGraphCache,
+      citationGraphFound: Boolean(citationGraphCache),
+    });
+    const backgroundJobs = buildMaintenanceBackgroundJobs({
+      jobProgressRows: activeJobProgressRows(),
+      gitSyncState,
+    });
+    return {
+      libraryId,
+      storage: {
+        rootPath: root,
+        rootState: rootReady ? "ready" : "missing",
+        anchorState: "missing",
+        mirrorState: "missing",
+      },
+      sync: {
+        status: sync.status,
+        diagnostics: sync.diagnostics,
+        allowedActions: sync.allowedActions,
+        requiresConfirmation: sync.requiresConfirmation,
+        git: gitSyncState,
+      },
+      conflicts,
+      maintenance: {
+        summary: maintenanceSummary,
+        backgroundJobs,
+      },
+    };
+  }
+
+  async function getSynthesisWorkbenchSurfaceInput(
+    surface: SynthesisWorkbenchSurfaceName,
+    state: SynthesisUiState = createDefaultSynthesisUiState(),
+  ): Promise<SynthesisUiSnapshotInput> {
+    if (surface === "index") {
+      const referencedScope = state.registry.scope === "referenced";
+      const registryPage = referencedScope
+        ? await registryRowsForReferencedScope(SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX)
+        : {
+            rows: (
+              await registryRowsFromCurrentLibraryAndSidecar({
+                limit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
+              })
+            ).slice(0, SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX),
+            rawReferenceIds: [],
+          };
+      const registryReviewItems = synthesisRepository.listReviewItems({
+        statuses: ["open"],
+        limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
+      });
+      const referenceSidecarStatus =
+        await peekReferenceSidecarCacheStatus().catch(() => undefined);
+      const indexReviewProposals =
+        indexReviewProposalsFromDb(registryReviewItems);
+      const referenceMatchProposals = synthesisRepository
+        .listReferenceMatchProposals({
+          statuses: ["open"],
+          limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
+        })
+        .map(referenceMatchProposalToUiRow);
+      return {
+        libraryId,
+        registry: {
+          rows: registryRowsWithReferenceFactsToUi(registryPage.rows, {
+            includeReferences: referencedScope,
+            rawReferenceIds: registryPage.rawReferenceIds,
+            referenceSourceRefs: referencedScope
+              ? []
+              : state.registry.expandedSourceRefs,
+          }),
+          cleanupProposals: indexReviewProposals,
+          matchProposals: referenceMatchProposals,
+          cacheStatus: referenceSidecarStatus,
+        },
+      };
+    }
+    if (surface === "review") {
+      const activeReviewTab =
+        cleanString(state.reviews.activeTab) || "reference_matching";
+      const referenceSidecarStatus =
+        await peekReferenceSidecarCacheStatus().catch(() => undefined);
+      const registryReviewItems =
+        activeReviewTab === "index_cleanup"
+          ? synthesisRepository.listReviewItems(
+              reviewItemQueryForReviewState(state),
+            )
+          : [];
+      const indexReviewProposals =
+        indexReviewProposalsFromDb(registryReviewItems);
+      const referenceMatchProposalRecords =
+        activeReviewTab === "reference_matching"
+          ? synthesisRepository.listReferenceMatchProposals(
+              proposalQueryForReviewState(state),
+            )
+          : [];
+      const proposalRawReferenceIds = rawReferenceIdsForMatchProposals(
+        referenceMatchProposalRecords,
+      );
+      const registryRows =
+        await registryRowsForReferenceMatchProposalContext(
+          referenceMatchProposalRecords,
+        );
+      const referenceMatchProposals = referenceMatchProposalRecords.map(
+        referenceMatchProposalToUiRow,
+      );
+      return {
+        libraryId,
+        registry: {
+          rows: registryRowsWithReferenceFactsToUi(registryRows, {
+            includeReferences: activeReviewTab === "reference_matching",
+            rawReferenceIds: proposalRawReferenceIds,
+          }),
+          cleanupProposals: indexReviewProposals,
+          matchProposals: referenceMatchProposals,
+          cacheStatus: referenceSidecarStatus,
+        },
+      };
+    }
+    if (surface === "graph") {
+      const dbGraph = readDbCitationGraphOverview();
+      const citationGraphCache = synthesisRepository.getCacheBasis(
+        "citation-graph:library",
+      );
+      const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
+        viewKey: "workbench_overview",
+        preset: state.graph.layoutPreset,
+      });
+      const staleDelta =
+        citationGraphIncrementalDeltaFromBasis(citationGraphCache);
+      const graphLayout = parseCitationGraphLayout(graphLayoutRecord);
+      const graphLayoutStatus = citationGraphLayoutStatus({
+        graph: dbGraph,
+        record: graphLayoutRecord,
+        layout: graphLayout,
+      });
+      const graph = dbGraph.nodes.length
+        ? dbGraph
+        : emptyCitationGraph({
+            diagnostics: { status: "graph_sqlite_rows_missing" },
+          });
+      return {
+        libraryId,
+        graph: {
+          ...mapGraphToUi(graph, {
+            layout: graphLayout,
+            layoutStatus: graphLayoutStatus,
+          }),
+          diagnostics: {
+            ...graph.diagnostics,
+            storage: "sqlite",
+            cache_status: cleanString(citationGraphCache?.status) || "missing",
+            cache_key: "citation-graph:library",
+            cache_delta_available: Boolean(staleDelta),
+            cache_delta_source_count: staleDelta?.sourceRefs.length || 0,
+            cache_delta_canonical_count:
+              (staleDelta?.changedCanonicalIds.length || 0) +
+              (staleDelta?.changedBindingCanonicalIds.length || 0) +
+              (staleDelta?.changedRedirectCanonicalIds.length || 0),
+            layout_status: graphLayoutStatus,
+            layout_source: "sqlite",
+          },
+        },
+      };
+    }
+    if (surface === "tags") {
+      const tags = await tagVocabulary.loadTagVocabulary().catch(() => undefined);
+      return {
+        libraryId,
+        tags: tags
+          ? {
+              entries: tags.entries,
+              aliases: tags.aliases,
+              abbrev: tags.abbrev,
+              protocol: tags.protocol,
+              manifest: tags.manifest,
+              validationWarnings: tags.validation_warnings,
+              projection: tags.projection,
+              importPreview: tagImportPreviewState?.preview,
+            }
+          : undefined,
+      };
+    }
+    if (surface === "concepts") {
+      const concepts = await conceptKb.loadConceptKb().catch(() => undefined);
+      return {
+        libraryId,
+        concepts: concepts
+          ? {
+              concepts: concepts.concepts,
+              senses: concepts.senses,
+              aliases: concepts.aliases,
+              relations: concepts.relations,
+              manifest: concepts.manifest,
+              projection: concepts.projection,
+              diagnostics: concepts.diagnostics,
+              overlayEntries: concepts.overlay_entries,
+              reviewItems: concepts.review_items,
+            }
+          : undefined,
+      };
+    }
+    if (surface === "topics" || surface === "home") {
+      const artifactState = {} as Record<string, TopicArtifactStateRow>;
+      const definitions = {} as Record<string, Record<string, unknown>>;
+      const topicGraphSnapshot = await topicGraph
+        .loadTopicGraph()
+        .catch(() => undefined);
+      const artifactRows = topicGraphSnapshot
+        ? topicArtifactRowsFromGraphNodes({
+            nodes: topicGraphSnapshot.nodes,
+            artifactState,
+            definitions,
+          })
+        : [];
+      return {
+        libraryId,
+        deletedArtifacts: {
+          rows: [],
+        },
+        artifacts: artifactRows,
+        topicGraph: topicGraphSnapshot
+          ? {
+              nodes: topicGraphSnapshot.nodes,
+              edges: topicGraphSnapshot.edges,
+              reviewItems: topicGraphSnapshot.review_items,
+              manifest: topicGraphSnapshot.manifest,
+              projection: topicGraphSnapshot.projection,
+              diagnostics: topicGraphSnapshot.diagnostics,
+            }
+          : undefined,
+      };
+    }
+    return { libraryId };
+  }
+
+  async function getDebugSynthesisSnapshotInput(
     state: SynthesisUiState = createDefaultSynthesisUiState(),
   ): Promise<SynthesisUiSnapshotInput> {
     const paths = buildSynthesisStoragePaths(root);
@@ -9105,6 +10325,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     ).slice(0, SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX);
     const registryReferenceFacts = synthesisRepository.listReferenceFacts({
       sourceLiteratureItemIds: registryRows.map((row) => row.paper_ref),
+    });
+    const referenceFactsBySource = new Map<
+      string,
+      typeof registryReferenceFacts
+    >();
+    registryReferenceFacts.forEach((reference) => {
+      const key = reference.sourceLiteratureItemId;
+      const rows = referenceFactsBySource.get(key) || [];
+      rows.push(reference);
+      referenceFactsBySource.set(key, rows);
     });
     const registryReviewItems = synthesisRepository.listReviewItems();
     const artifactState = {} as Record<string, TopicArtifactStateRow>;
@@ -9116,6 +10346,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const citationGraphCache = synthesisRepository.getCacheBasis(
       "citation-graph:library",
     );
+    const staleDelta =
+      citationGraphIncrementalDeltaFromBasis(citationGraphCache);
     const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
       viewKey: "workbench_overview",
       preset: state.graph.layoutPreset,
@@ -9201,9 +10433,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       registry: {
         rows: registryRowsToUi(registryRows).map(
           (row) => {
-            const references = registryReferenceFacts.filter(
-              (reference) => reference.sourceLiteratureItemId === row.paper_ref,
-            );
+            const references = referenceFactsBySource.get(row.paper_ref) || [];
             const unbound = references.filter(
               (reference) => !reference.bindingStatus,
             ).length;
@@ -9230,6 +10460,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           storage: "sqlite",
           cache_status: cleanString(citationGraphCache?.status) || "missing",
           cache_key: "citation-graph:library",
+          cache_delta_available: Boolean(staleDelta),
+          cache_delta_source_count: staleDelta?.sourceRefs.length || 0,
+          cache_delta_canonical_count:
+            (staleDelta?.changedCanonicalIds.length || 0) +
+            (staleDelta?.changedBindingCanonicalIds.length || 0) +
+            (staleDelta?.changedRedirectCanonicalIds.length || 0),
           layout_status: graphLayoutStatus,
           layout_source: "sqlite",
         },
@@ -9276,11 +10512,51 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  async function warmSynthesisWorkbenchSurfaces(args: {
+    state?: SynthesisUiState;
+    surfaces?: SynthesisWorkbenchSurfaceName[];
+    onPhase?: (phase: {
+      surface: "chrome" | SynthesisWorkbenchSurfaceName;
+      status: "ready" | "failed";
+      input?: SynthesisUiSnapshotInput;
+      error?: unknown;
+    }) => void | Promise<void>;
+  } = {}) {
+    const state = args.state || createDefaultSynthesisUiState();
+    const surfaces =
+      args.surfaces !== undefined
+        ? args.surfaces
+        : ([
+            "index",
+            "review",
+            "graph",
+            "tags",
+            "concepts",
+            "topics",
+          ] satisfies SynthesisWorkbenchSurfaceName[]);
+    let input = await getSynthesisWorkbenchChromeInput(state);
+    await args.onPhase?.({ surface: "chrome", status: "ready", input });
+    for (const surface of surfaces) {
+      await yieldToEventLoop();
+      try {
+        const surfaceInput = await getSynthesisWorkbenchSurfaceInput(
+          surface,
+          state,
+        );
+        input = mergeSynthesisUiSnapshotInput(input, surfaceInput);
+        await args.onPhase?.({ surface, status: "ready", input: surfaceInput });
+      } catch (error) {
+        await args.onPhase?.({ surface, status: "failed", error });
+      }
+    }
+    return input;
+  }
+
   async function getSynthesisSnapshot(
     state: SynthesisUiState = createDefaultSynthesisUiState(),
   ): Promise<SynthesisUiSnapshot> {
     return buildSynthesisUiSnapshot(
-      await getSynthesisSnapshotInput(state),
+      await getDebugSynthesisSnapshotInput(state),
       state,
     );
   }
@@ -9356,63 +10632,245 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function syncRelatedItemsNow(
-    args: { host?: RelatedItemsSyncHost | null } = {},
-  ) {
-    const host =
-      args.host || options.relatedItemsSyncHost || createDefaultRelatedItemsSyncHost();
-    if (!host) {
-      throw new Error("Zotero related-items host is unavailable");
+  function relatedItemsEdgesFromGraphRecords(args: {
+    nodes: Iterable<SynthesisCitationNodeRecord>;
+    edges: Iterable<SynthesisCitationEdgeRecord>;
+    sourceRefs?: string[];
+  }) {
+    const sourceRefSet = new Set(
+      (args.sourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    const nodeBindings = new Map<
+      string,
+      { literatureItemId: string; libraryId: number; itemKey: string }
+    >();
+    for (const node of args.nodes) {
+      const parsed = parsePaperRef(node.literatureItemId);
+      if (!parsed?.itemKey) {
+        continue;
+      }
+      nodeBindings.set(node.literatureItemId, {
+        literatureItemId: node.literatureItemId,
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
     }
+    const byEdgeId = new Map<string, RelatedItemsAcceptedCitationEdge>();
+    for (const edge of args.edges) {
+      if (edge.edgeStatus !== "accepted") {
+        continue;
+      }
+      if (sourceRefSet.size && !sourceRefSet.has(edge.sourceLiteratureItemId)) {
+        continue;
+      }
+      const source = nodeBindings.get(edge.sourceLiteratureItemId);
+      const target = nodeBindings.get(cleanString(edge.targetLiteratureItemId));
+      if (!source || !target) {
+        continue;
+      }
+      byEdgeId.set(edge.edgeId, {
+        edgeId: edge.edgeId,
+        sourceLiteratureItemId: source.literatureItemId,
+        targetLiteratureItemId: target.literatureItemId,
+        sourceLibraryId: source.libraryId,
+        sourceItemKey: source.itemKey,
+        targetLibraryId: target.libraryId,
+        targetItemKey: target.itemKey,
+      });
+    }
+    return Array.from(byEdgeId.values()).sort((left, right) =>
+      left.edgeId.localeCompare(right.edgeId),
+    );
+  }
+
+  async function loadAcceptedLibraryCitationEdgesForRelatedItems(args: {
+    timestamp: string;
+    sourceRefs?: string[];
+  }) {
+    const sourceRefs = Array.from(
+      new Set((args.sourceRefs || []).map(cleanString).filter(Boolean)),
+    );
+    const graphBasis = synthesisRepository.getCacheBasis(
+      "citation-graph:library",
+    );
+    const graphNodes = synthesisRepository.listCitationNodes({
+      statuses: ["active"],
+    });
+    const graphEdges = synthesisRepository.listCitationEdges({
+      statuses: ["accepted"],
+      ...(sourceRefs.length ? { sourceLiteratureItemIds: sourceRefs } : {}),
+    });
+    if (
+      graphBasis?.status === "ready" &&
+      (graphNodes.length > 0 || graphEdges.length > 0)
+    ) {
+      return {
+        source: "citation_graph_cache" as const,
+        edges: relatedItemsEdgesFromGraphRecords({
+          nodes: graphNodes,
+          edges: graphEdges,
+          sourceRefs,
+        }),
+      };
+    }
+    const { built } = await buildCitationGraphCacheRecordsFromSidecar({
+      timestamp: args.timestamp,
+      ...(sourceRefs.length ? { sourceRefs } : {}),
+    });
+    return {
+      source: "reference_sidecar_fallback" as const,
+      edges: relatedItemsEdgesFromGraphRecords({
+        nodes: built.nodes.values(),
+        edges: built.edges,
+        sourceRefs,
+      }),
+    };
+  }
+
+  async function syncRelatedItemsFromAcceptedEdges(args: {
+    host?: RelatedItemsSyncHost | null;
+    sourceRefs?: string[];
+    reason?: string;
+    onProgress?: () => void | Promise<void>;
+  }) {
     const timestamp = now();
+    const sourceRefs = Array.from(
+      new Set((args.sourceRefs || []).map(cleanString).filter(Boolean)),
+    );
     const operationId = `related-items-sync:${timestamp}`;
     const diagnostics: SynthesisUpdateDiagnostic[] = [];
-    await rebuildCitationGraphCacheFromSidecar({ timestamp, operationId });
-    const bindings = new Map(
-      synthesisRepository
-        .listCitationNodes({ statuses: ["active"] })
-        .map((node) => {
-          const parsed = parsePaperRef(node.literatureItemId);
-          return parsed?.itemKey
-            ? [
-                node.literatureItemId,
-                {
-                  literatureItemId: node.literatureItemId,
-                  libraryId: parsed.libraryId,
-                  itemKey: parsed.itemKey,
-                },
-              ] as const
-            : null;
-        })
-        .filter(
-          (
-            entry,
-          ): entry is readonly [
-            string,
-            { literatureItemId: string; libraryId: number; itemKey: string },
-          ] => Boolean(entry),
-        ),
-    );
-    const matchedEdges = synthesisRepository
-      .listCitationEdges({ statuses: ["accepted"] })
-      .filter((edge) => cleanString(edge.targetLiteratureItemId));
+    const scopeRef = sourceRefs.length ? sourceRefs.join(",") : "library";
     synthesisRepository.upsertOperation({
       operationId,
       operationType: "related_items_sync",
       libraryId,
-      scopeKind: "library",
-      scopeRef: "library",
+      scopeKind: sourceRefs.length ? "source_ref" : "library",
+      scopeRef,
       status: "running",
       label: "Related items sync",
       phase: "scan",
-      phaseLabel: "Scan accepted citation edges",
-      progressMode: "determinate",
+      phaseLabel: "Resolve accepted citation edges",
+      progressMode: "indeterminate",
       processedCount: 0,
-      totalCount: matchedEdges.length,
+      totalCount: 0,
       diagnosticsJson: "[]",
       createdAt: timestamp,
       startedAt: timestamp,
       updatedAt: timestamp,
+    });
+    const host =
+      args.host ||
+      options.relatedItemsSyncHost ||
+      createDefaultRelatedItemsSyncHost();
+    if (!host) {
+      diagnostics.push({
+        code: "related_items_host_unavailable",
+        severity: "error",
+        message: "Zotero related-items host is unavailable",
+      });
+      synthesisRepository.updateOperationStatus({
+        operationId,
+        status: "failed",
+        phase: "failed",
+        phaseLabel: "Failed",
+        processedCount: 0,
+        failedCount: 1,
+        totalCount: 0,
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
+      return {
+        operationId,
+        processed: 0,
+        added: 0,
+        existing: 0,
+        skipped: 0,
+        revoked: 0,
+        failed: 1,
+        diagnostics,
+      };
+    }
+    let edgeResult: Awaited<
+      ReturnType<typeof loadAcceptedLibraryCitationEdgesForRelatedItems>
+    >;
+    try {
+      edgeResult = await loadAcceptedLibraryCitationEdgesForRelatedItems({
+        timestamp,
+        sourceRefs,
+      });
+    } catch (error) {
+      diagnostics.push({
+        code: "related_items_edge_resolver_failed",
+        severity: "error",
+        message: errorMessage(error),
+      });
+      synthesisRepository.updateOperationStatus({
+        operationId,
+        status: "failed",
+        phase: "failed",
+        phaseLabel: "Failed",
+        processedCount: 0,
+        failedCount: 1,
+        totalCount: 0,
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
+      return {
+        operationId,
+        processed: 0,
+        added: 0,
+        existing: 0,
+        skipped: 0,
+        revoked: 0,
+        failed: 1,
+        diagnostics,
+      };
+    }
+    const matchedEdges = edgeResult.edges;
+    const activeEdgeIds = new Set(matchedEdges.map((edge) => edge.edgeId));
+    const scopedSourceRefSet = new Set(sourceRefs);
+    const staleEffects = synthesisRepository
+      .listRelatedItemsSyncEffects({
+        statuses: ["applied", "pending_external_write"],
+      })
+      .filter((effect) => {
+        if (!effect.createdBySynthesis || !effect.citationEdgeId) {
+          return false;
+        }
+        if (
+          scopedSourceRefSet.size &&
+          !scopedSourceRefSet.has(effect.sourceLiteratureItemId)
+        ) {
+          return false;
+        }
+        return !activeEdgeIds.has(effect.citationEdgeId);
+      });
+    const totalWork = matchedEdges.length + staleEffects.length;
+    const graphHash = hashCanonicalJson({
+      kind: "related-items-sync-input",
+      source: edgeResult.source,
+      reason: cleanString(args.reason),
+      sourceRefs,
+      edges: matchedEdges.map((edge) => [
+        edge.edgeId,
+        edge.sourceLiteratureItemId,
+        edge.targetLiteratureItemId,
+      ]),
+    });
+    synthesisRepository.updateOperationStatus({
+      operationId,
+      status: "running",
+      phase: "apply",
+      phaseLabel: "Apply related-items changes",
+      processedCount: 0,
+      totalCount: totalWork,
+      diagnosticsJson: JSON.stringify([
+        {
+          code: "related_items_edge_resolver",
+          severity: "info",
+          source: edgeResult.source,
+          edge_count: matchedEdges.length,
+          stale_effect_count: staleEffects.length,
+        },
+      ]),
     });
     let processed = 0;
     let added = 0;
@@ -9420,22 +10878,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     let skipped = 0;
     let revoked = 0;
     let failed = 0;
-    const activeEdgeIds = new Set(matchedEdges.map((edge) => edge.edgeId));
     for (const edge of matchedEdges) {
       processed += 1;
-      const source = bindings.get(edge.sourceLiteratureItemId);
-      const target = bindings.get(cleanString(edge.targetLiteratureItemId));
-      if (!source || !target) {
-        skipped += 1;
-        continue;
-      }
       const effectId = `related-items:${safeFileSegment(edge.edgeId, "edge")}`;
       try {
         const exists = await host.hasRelatedItem({
-          sourceLibraryId: source.libraryId,
-          sourceItemKey: source.itemKey,
-          targetLibraryId: target.libraryId,
-          targetItemKey: target.itemKey,
+          sourceLibraryId: edge.sourceLibraryId,
+          sourceItemKey: edge.sourceItemKey,
+          targetLibraryId: edge.targetLibraryId,
+          targetItemKey: edge.targetItemKey,
         });
         if (exists) {
           existing += 1;
@@ -9443,19 +10894,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             effectId,
             operationId,
             citationEdgeId: edge.edgeId,
-            sourceLiteratureItemId: source.literatureItemId,
-            targetLiteratureItemId: target.literatureItemId,
-            sourceLibraryId: source.libraryId,
-            sourceItemKey: source.itemKey,
-            targetLibraryId: target.libraryId,
-            targetItemKey: target.itemKey,
+            sourceLiteratureItemId: edge.sourceLiteratureItemId,
+            targetLiteratureItemId: edge.targetLiteratureItemId,
+            sourceLibraryId: edge.sourceLibraryId,
+            sourceItemKey: edge.sourceItemKey,
+            targetLibraryId: edge.targetLibraryId,
+            targetItemKey: edge.targetItemKey,
             action: "add",
             status: "already_existed",
             createdBySynthesis: false,
-            graphHash: dbCitationGraphHash({
-              nodes: synthesisRepository.listCitationNodes(),
-              edges: matchedEdges,
-            }),
+            graphHash,
             externalWriteAt: "",
             echoState: "observed",
             echoObservedAt: timestamp,
@@ -9465,29 +10913,26 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           });
         } else {
           await host.addRelatedItem({
-            sourceLibraryId: source.libraryId,
-            sourceItemKey: source.itemKey,
-            targetLibraryId: target.libraryId,
-            targetItemKey: target.itemKey,
+            sourceLibraryId: edge.sourceLibraryId,
+            sourceItemKey: edge.sourceItemKey,
+            targetLibraryId: edge.targetLibraryId,
+            targetItemKey: edge.targetItemKey,
           });
           added += 1;
           synthesisRepository.upsertRelatedItemsSyncEffect({
             effectId,
             operationId,
             citationEdgeId: edge.edgeId,
-            sourceLiteratureItemId: source.literatureItemId,
-            targetLiteratureItemId: target.literatureItemId,
-            sourceLibraryId: source.libraryId,
-            sourceItemKey: source.itemKey,
-            targetLibraryId: target.libraryId,
-            targetItemKey: target.itemKey,
+            sourceLiteratureItemId: edge.sourceLiteratureItemId,
+            targetLiteratureItemId: edge.targetLiteratureItemId,
+            sourceLibraryId: edge.sourceLibraryId,
+            sourceItemKey: edge.sourceItemKey,
+            targetLibraryId: edge.targetLibraryId,
+            targetItemKey: edge.targetItemKey,
             action: "add",
             status: "pending_external_write",
             createdBySynthesis: true,
-            graphHash: dbCitationGraphHash({
-              nodes: synthesisRepository.listCitationNodes(),
-              edges: matchedEdges,
-            }),
+            graphHash,
             externalWriteAt: timestamp,
             echoState: "awaiting_echo",
             diagnosticsJson: "[]",
@@ -9510,21 +10955,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           phase: "apply",
           phaseLabel: "Apply related-items changes",
           processedCount: processed,
-          totalCount: matchedEdges.length,
+          totalCount: totalWork,
           diagnosticsJson: JSON.stringify(diagnostics),
         });
+        await args.onProgress?.();
         await yieldToEventLoop();
       }
     }
-    for (const effect of synthesisRepository.listRelatedItemsSyncEffects({
-      statuses: ["applied", "pending_external_write"],
-    })) {
-      if (!effect.createdBySynthesis || !effect.citationEdgeId) {
-        continue;
-      }
-      if (activeEdgeIds.has(effect.citationEdgeId)) {
-        continue;
-      }
+    for (const effect of staleEffects) {
+      processed += 1;
       if (typeof host.removeRelatedItem !== "function") {
         skipped += 1;
         continue;
@@ -9563,16 +11002,29 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           message: errorMessage(error),
         });
       }
+      if (processed % 25 === 0) {
+        synthesisRepository.updateOperationStatus({
+          operationId,
+          status: "running",
+          phase: "apply",
+          phaseLabel: "Apply related-items changes",
+          processedCount: processed,
+          totalCount: totalWork,
+          diagnosticsJson: JSON.stringify(diagnostics),
+        });
+        await args.onProgress?.();
+        await yieldToEventLoop();
+      }
     }
     synthesisRepository.updateOperationStatus({
       operationId,
       status: failed ? "failed" : "completed",
       phase: "complete",
       phaseLabel: "Complete",
-      processedCount: matchedEdges.length,
+      processedCount: processed,
       skippedCount: skipped,
       failedCount: failed,
-      totalCount: matchedEdges.length,
+      totalCount: totalWork,
       diagnosticsJson: JSON.stringify(diagnostics),
     });
     return {
@@ -9585,6 +11037,69 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       failed,
       diagnostics,
     };
+  }
+
+  async function syncRelatedItemsAfterSynthesisUpdate(args: {
+    sourceRefs?: string[];
+    reason: string;
+    onProgress?: () => void | Promise<void>;
+  }) {
+    try {
+      return await syncRelatedItemsFromAcceptedEdges({
+        sourceRefs: args.sourceRefs,
+        reason: args.reason,
+        onProgress: args.onProgress,
+      });
+    } catch (error) {
+      const timestamp = now();
+      const operationId = `related-items-sync:${timestamp}`;
+      const diagnostics: SynthesisUpdateDiagnostic[] = [
+        {
+          code: "related_items_sync_failed",
+          severity: "error",
+          message: errorMessage(error),
+        },
+      ];
+      synthesisRepository.upsertOperation({
+        operationId,
+        operationType: "related_items_sync",
+        libraryId,
+        scopeKind: args.sourceRefs?.length ? "source_ref" : "library",
+        scopeRef: args.sourceRefs?.length ? args.sourceRefs.join(",") : "library",
+        status: "failed",
+        label: "Related items sync",
+        phase: "failed",
+        phaseLabel: "Failed",
+        progressMode: "determinate",
+        processedCount: 0,
+        failedCount: 1,
+        totalCount: 0,
+        diagnosticsJson: JSON.stringify(diagnostics),
+        createdAt: timestamp,
+        startedAt: timestamp,
+        completedAt: timestamp,
+        updatedAt: timestamp,
+      });
+      return {
+        operationId,
+        processed: 0,
+        added: 0,
+        existing: 0,
+        skipped: 0,
+        revoked: 0,
+        failed: 1,
+        diagnostics,
+      };
+    }
+  }
+
+  async function syncRelatedItemsNow(
+    args: { host?: RelatedItemsSyncHost | null } = {},
+  ) {
+    return syncRelatedItemsFromAcceptedEdges({
+      host: args.host,
+      reason: "manual",
+    });
   }
 
   function parsePaperRef(value: unknown) {
@@ -10029,24 +11544,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnosticsJson: "[]",
       updatedAt: timestamp,
     });
-    synthesisRepository.markCitationGraphCacheStale({
-      transactionId: `workflow-reference-sidecar:${sidecarShortKey({
-        sourceRef,
-        timestamp,
-      })}`,
-      sourceRef,
-      rawReferenceIds: synthesisRepository
-        .listRawReferences({ sourceRefs: [sourceRef], statuses: ["active"] })
-        .map((reference) => reference.rawReferenceId),
-      diagnostics: [
-        {
-          code: "workflow_reference_sidecar_changed",
-          severity: "info",
-          message:
-            "Workflow apply updated reference sidecar facts; citation graph cache requires explicit refresh.",
-        },
-      ],
-      timestamp,
+    try {
+      await refreshCitationGraphCacheIncremental({
+        sourceRefs: [sourceRef],
+        reason: "workflow_reference_sidecar_changed",
+        allowFullBootstrap: false,
+      });
+    } catch {
+      // The graph refresh operation records its own failure; related-items sync
+      // can still compute accepted edges directly from sidecar facts.
+    }
+    await syncRelatedItemsAfterSynthesisUpdate({
+      sourceRefs: [sourceRef],
+      reason: "literature_digest_apply",
     });
     return {
       ok: true,
@@ -10111,24 +11621,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnosticsJson: "[]",
       updatedAt: timestamp,
     });
-    synthesisRepository.markCitationGraphCacheStale({
-      transactionId: `reference-matching-sidecar:${sidecarShortKey({
-        sourceRef,
-        timestamp,
-      })}`,
-      sourceRef,
-      rawReferenceIds: synthesisRepository
-        .listRawReferences({ sourceRefs: [sourceRef], statuses: ["active"] })
-        .map((reference) => reference.rawReferenceId),
-      diagnostics: [
-        {
-          code: "reference_matching_sidecar_changed",
-          severity: "info",
-          message:
-            "Reference matching updated binding facts; citation graph cache requires explicit refresh.",
-        },
-      ],
-      timestamp,
+    await refreshCitationGraphCacheIncremental({
+      sourceRefs: [sourceRef],
+      reason: "reference_matching_sidecar_changed",
+      allowFullBootstrap: false,
     });
     return {
       ok: true,
@@ -11798,7 +13294,26 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function resolveResolver(args: Record<string, unknown> = {}) {
     const rows = registryRowsForInputs(await registryInputsForService(options));
     const resolver = args.resolver;
-    const errors = validateCanonicalResolver(resolver);
+    if (!isRecord(resolver)) {
+      const errors = ["$.resolver is required and must be an object"];
+      if ("topic_resolver" in args) {
+        errors.push(
+          "$.topic_resolver is not accepted by synthesis.resolve_resolver; use $.resolver instead",
+        );
+      }
+      return {
+        ok: false,
+        errors,
+        papers: [],
+        normalized_resolver: null,
+        diagnostics: {
+          final_count: 0,
+          total_candidates: rows.length,
+          rejected: true,
+        },
+      };
+    }
+    const errors = validateCanonicalResolver(resolver, "$.resolver");
     if (errors.length) {
       return {
         ok: false,
@@ -11812,7 +13327,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         },
       };
     }
-    const allResolved = [...resolveRowsByResolver(rows, args.resolver).values()]
+    const allResolved = [...resolveRowsByResolver(rows, resolver).values()]
       .sort((left, right) =>
         left.row.paper_ref.localeCompare(right.row.paper_ref),
       )
@@ -12052,7 +13567,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     listDeletedTopicArtifacts,
     purgeDeletedTopicArtifacts,
     getSynthesisBackgroundJobRows,
-    getSynthesisSnapshotInput,
+    getDebugSynthesisSnapshotInput,
+    getSynthesisWorkbenchChromeInput,
+    getSynthesisWorkbenchSurfaceInput,
+    warmSynthesisWorkbenchSurfaces,
     getSynthesisSnapshot,
     consumeRelatedItemsSyncEcho,
     syncRelatedItemsNow,
@@ -12109,6 +13627,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     retryAdvancedReferenceMatching,
     applyReferenceMatchProposalAction,
     applyReferenceMatchProposalActions,
+    refreshCitationGraphCacheIncrementalNow,
     rebuildCitationGraphCacheNow,
     retryCitationGraphCacheRebuild,
     readCitationGraphSnapshot,

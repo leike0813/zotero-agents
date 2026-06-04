@@ -8,6 +8,13 @@ export type ZoteroNotePayloadKind =
 
 export type ZoteroNotePayloadBlock = {
   source?: "html-payload-block" | "embedded-image-attachment";
+  sourceStorage?:
+    | "html-payload-block"
+    | "embedded-image-attachment-v1"
+    | "embedded-image-attachment-v2";
+  payloadStorageVersion?: number;
+  payloadHash?: string;
+  anchorStatus?: "present" | "missing" | "stale" | "not_applicable";
   payloadType: string;
   noteKind: string;
   version: string;
@@ -36,6 +43,9 @@ const DEFAULT_PAYLOAD_CHUNK = 8000;
 const MAX_PAYLOAD_CHUNK = 16000;
 export const WORKBENCH_EMBEDDED_PAYLOAD_MARKER =
   "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
+export const WORKBENCH_EMBEDDED_PAYLOAD_CHUNK = "zsPL";
+const PNG_IEND = "IEND";
+const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function getBuffer() {
   return (globalThis as unknown as { Buffer?: any }).Buffer;
@@ -84,6 +94,17 @@ function toUint8Array(value: unknown) {
   return new Uint8Array();
 }
 
+function concatByteArrays(parts: Uint8Array[]) {
+  const length = parts.reduce((total, part) => total + part.length, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
+}
+
 function encodeAsciiBytes(value: string) {
   const bytes = new Uint8Array(value.length);
   for (let index = 0; index < value.length; index += 1) {
@@ -92,12 +113,203 @@ function encodeAsciiBytes(value: string) {
   return bytes;
 }
 
+function encodeUtf8Bytes(value: string) {
+  return new TextEncoder().encode(String(value || ""));
+}
+
 function decodeAsciiBytes(bytes: Uint8Array) {
   let text = "";
   for (const byte of bytes) {
     text += String.fromCharCode(byte);
   }
   return text;
+}
+
+function readUint32BE(bytes: Uint8Array, offset: number) {
+  return (
+    ((bytes[offset] || 0) << 24) |
+    ((bytes[offset + 1] || 0) << 16) |
+    ((bytes[offset + 2] || 0) << 8) |
+    (bytes[offset + 3] || 0)
+  ) >>> 0;
+}
+
+function writeUint32BE(value: number) {
+  const output = new Uint8Array(4);
+  output[0] = (value >>> 24) & 0xff;
+  output[1] = (value >>> 16) & 0xff;
+  output[2] = (value >>> 8) & 0xff;
+  output[3] = value & 0xff;
+  return output;
+}
+
+let crcTable: Uint32Array | null = null;
+
+function getCrcTable() {
+  if (crcTable) {
+    return crcTable;
+  }
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  crcTable = table;
+  return table;
+}
+
+function crc32(bytes: Uint8Array) {
+  const table = getCrcTable();
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function hashPayloadText(value: string) {
+  return crc32(encodeUtf8Bytes(value)).toString(16).padStart(8, "0");
+}
+
+function buildPngChunk(type: string, data: Uint8Array) {
+  const typeBytes = encodeAsciiBytes(type);
+  const crcInput = concatByteArrays([typeBytes, data]);
+  return concatByteArrays([
+    writeUint32BE(data.length),
+    typeBytes,
+    data,
+    writeUint32BE(crc32(crcInput)),
+  ]);
+}
+
+function isPng(bytes: Uint8Array) {
+  if (bytes.length < PNG_SIGNATURE.length) {
+    return false;
+  }
+  for (let index = 0; index < PNG_SIGNATURE.length; index += 1) {
+    if (bytes[index] !== PNG_SIGNATURE[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function findPngChunk(bytes: Uint8Array, type: string) {
+  if (!isPng(bytes)) {
+    return null;
+  }
+  let cursor = PNG_SIGNATURE.length;
+  while (cursor + 12 <= bytes.length) {
+    const length = readUint32BE(bytes, cursor);
+    const typeStart = cursor + 4;
+    const dataStart = typeStart + 4;
+    const next = dataStart + length + 4;
+    if (next > bytes.length) {
+      return null;
+    }
+    const chunkType = decodeAsciiBytes(bytes.slice(typeStart, dataStart));
+    if (chunkType === type) {
+      return bytes.slice(dataStart, dataStart + length);
+    }
+    if (chunkType === PNG_IEND) {
+      return null;
+    }
+    cursor = next;
+  }
+  return null;
+}
+
+export function buildWorkbenchPayloadEnvelope(args: {
+  noteKind: string;
+  payloadType: string;
+  payload: unknown;
+  noteId?: unknown;
+  noteKey?: unknown;
+  parentId?: unknown;
+}) {
+  const payloadText = JSON.stringify(args.payload ?? null);
+  return {
+    schemaVersion: 1,
+    payloadStorageVersion: 2,
+    kind: "zotero-skills-workbench-note-payload",
+    createdAt: new Date().toISOString(),
+    noteId: args.noteId || null,
+    noteKey: String(args.noteKey || "").trim(),
+    parentId: args.parentId || null,
+    noteKind: String(args.noteKind || "").trim(),
+    payloadType: String(args.payloadType || "").trim(),
+    payloadHash: hashPayloadText(payloadText),
+    payload: args.payload,
+  };
+}
+
+export function buildWorkbenchPayloadPngBytes(
+  imageBytesInput: unknown,
+  envelope: unknown,
+) {
+  const imageBytes = toUint8Array(imageBytesInput);
+  if (!isPng(imageBytes)) {
+    throw new Error("workbench payload base image must be a PNG");
+  }
+  const envelopeBytes = encodeUtf8Bytes(JSON.stringify(envelope));
+  const payloadChunk = buildPngChunk(WORKBENCH_EMBEDDED_PAYLOAD_CHUNK, envelopeBytes);
+  let cursor = PNG_SIGNATURE.length;
+  while (cursor + 12 <= imageBytes.length) {
+    const length = readUint32BE(imageBytes, cursor);
+    const typeStart = cursor + 4;
+    const dataStart = typeStart + 4;
+    const next = dataStart + length + 4;
+    if (next > imageBytes.length) {
+      break;
+    }
+    const chunkType = decodeAsciiBytes(imageBytes.slice(typeStart, dataStart));
+    if (chunkType === PNG_IEND) {
+      return concatByteArrays([
+        imageBytes.slice(0, cursor),
+        payloadChunk,
+        imageBytes.slice(cursor),
+      ]);
+    }
+    cursor = next;
+  }
+  throw new Error("workbench payload base PNG is missing IEND chunk");
+}
+
+function parseV2PayloadEnvelope(bytes: Uint8Array) {
+  const chunk = findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK);
+  if (!chunk) {
+    return null;
+  }
+  return JSON.parse(new TextDecoder("utf-8").decode(chunk));
+}
+
+function parseV1TailPayloadEnvelope(bytes: Uint8Array) {
+  const marker = encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER);
+  const start = indexOfBytes(bytes, marker);
+  if (start < 0) {
+    return null;
+  }
+  let cursor = start + marker.length;
+  while (
+    cursor < bytes.length &&
+    (bytes[cursor] === 0x20 || bytes[cursor] === 0x09)
+  ) {
+    cursor += 1;
+  }
+  let end = cursor;
+  while (
+    end < bytes.length &&
+    bytes[end] !== 0x0a &&
+    bytes[end] !== 0x0d &&
+    bytes[end] !== 0x00
+  ) {
+    end += 1;
+  }
+  const encoded = decodeAsciiBytes(bytes.slice(cursor, end));
+  return JSON.parse(decodeBase64Utf8(encoded));
 }
 
 function indexOfBytes(haystack: Uint8Array, needle: Uint8Array) {
@@ -321,6 +533,8 @@ export function listNotePayloadBlocks(noteHtml: unknown): ZoteroNotePayloadBlock
     const encodedValue = readTagAttribute(tag, "data-zs-value");
     const block: ZoteroNotePayloadBlock = {
       source: "html-payload-block",
+      sourceStorage: "html-payload-block",
+      anchorStatus: "not_applicable",
       payloadType,
       noteKind,
       version,
@@ -355,30 +569,51 @@ export function parseEmbeddedNotePayloadBlock(
   attachment?: { key?: unknown; id?: unknown } | null,
 ): ZoteroNotePayloadBlock | null {
   const bytes = toUint8Array(bytesInput);
-  const marker = encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER);
-  const start = indexOfBytes(bytes, marker);
-  if (start < 0) {
+  const hasV2PayloadChunk = Boolean(
+    findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK),
+  );
+  const hasV1PayloadMarker =
+    indexOfBytes(bytes, encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER)) >= 0;
+  let envelope: any = null;
+  let v2Envelope: any = null;
+  let envelopeError: string | null = null;
+  try {
+    v2Envelope = parseV2PayloadEnvelope(bytes);
+    envelope = v2Envelope || parseV1TailPayloadEnvelope(bytes);
+  } catch (error) {
+    envelopeError = error instanceof Error ? error.message : String(error);
+  }
+  if (!envelope) {
+    if (envelopeError && (hasV2PayloadChunk || hasV1PayloadMarker)) {
+      return {
+        source: "embedded-image-attachment",
+        sourceStorage: hasV2PayloadChunk
+          ? "embedded-image-attachment-v2"
+          : "embedded-image-attachment-v1",
+        payloadStorageVersion: hasV2PayloadChunk ? 2 : 1,
+        anchorStatus: "not_applicable",
+        payloadType: "",
+        noteKind: "",
+        version: "1",
+        encoding: "embedded-image-attachment",
+        encodedValue: "",
+        estimatedSize: bytes.length,
+        format: "text",
+        errors: [envelopeError],
+        attachmentKey: String(attachment?.key || "").trim() || undefined,
+        attachmentId: (attachment?.id as number | string | undefined) || null,
+      };
+    }
     return null;
   }
-  let cursor = start + marker.length;
-  while (
-    cursor < bytes.length &&
-    (bytes[cursor] === 0x20 || bytes[cursor] === 0x09)
-  ) {
-    cursor += 1;
-  }
-  let end = cursor;
-  while (
-    end < bytes.length &&
-    bytes[end] !== 0x0a &&
-    bytes[end] !== 0x0d &&
-    bytes[end] !== 0x00
-  ) {
-    end += 1;
-  }
-  const encoded = decodeAsciiBytes(bytes.slice(cursor, end));
   const block: ZoteroNotePayloadBlock = {
     source: "embedded-image-attachment",
+    sourceStorage: v2Envelope
+      ? "embedded-image-attachment-v2"
+      : "embedded-image-attachment-v1",
+    payloadStorageVersion: Number(envelope?.payloadStorageVersion) || (v2Envelope ? 2 : 1),
+    payloadHash: String(envelope?.payloadHash || "").trim() || undefined,
+    anchorStatus: "not_applicable",
     payloadType: "",
     noteKind: "",
     version: "1",
@@ -390,7 +625,6 @@ export function parseEmbeddedNotePayloadBlock(
     attachmentId: (attachment?.id as number | string | undefined) || null,
   };
   try {
-    const envelope = JSON.parse(decodeBase64Utf8(encoded));
     if (Number(envelope?.schemaVersion) !== 1) {
       throw new Error("unsupported workbench embedded payload schema version");
     }
@@ -427,7 +661,7 @@ export function parseEmbeddedNotePayloadBlock(
     }
   } catch (error) {
     block.errors = [error instanceof Error ? error.message : String(error)];
-    block.estimatedSize = encoded.length;
+    block.estimatedSize = bytes.length;
   }
   return block;
 }

@@ -6,6 +6,7 @@ import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
   resetHostBridgeServerForTests,
+  rotateHostBridgeMasterToken,
 } from "../../src/modules/hostBridgeServer";
 import {
   registerHostBridgeExportFile,
@@ -17,6 +18,7 @@ import {
   configureHostBridgeGlobalApprovalHandlerForTests,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
+import { setPref } from "../../src/utils/prefs";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -64,6 +66,10 @@ describe("host bridge file downloads", function () {
     resetHostBridgeServerForTests();
     resetHostBridgeFileRegistryForTests();
     resetHostBridgePermissionManagerForTests();
+    setPref("hostBridgeMasterTokenEncryptedJson", "");
+    setPref("hostBridgeMasterTokenMasked", "");
+    setPref("hostBridgeMasterTokenUpdatedAt", "");
+    setPref("hostBridgeMasterTokenKeyMaterial", "");
   });
 
   it("downloads only registered file handles without approval", async function () {
@@ -104,6 +110,33 @@ describe("host bridge file downloads", function () {
       });
       assert.strictEqual(artifact.sourceKind, "workflow-artifact");
       assert.strictEqual(artifact.owner?.workflowId, "workflow-1");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads registered file handles with a master token for remote profiles", async function () {
+    configureHostBridgeServerForTests({ token: "local-file-token" });
+    const master = await rotateHostBridgeMasterToken();
+    const { root, filePath } = await writeTempFile(
+      "remote.txt",
+      "remote file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "remote.txt",
+        contentType: "text/plain",
+      });
+
+      const parsed = await bridgeRequest({
+        token: master.token,
+        method: "GET",
+        path: `/bridge/v1/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.strictEqual(parsed.body, "remote file content");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

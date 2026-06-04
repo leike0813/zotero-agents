@@ -1,0 +1,7 @@
+- [x] Create OpenSpec change artifacts for incremental Citation Graph cache refresh.
+- [x] Add repository source-slice graph replacement and affected-node metric recompute APIs.
+- [x] Refactor graph record building so full rebuild and incremental refresh share construction logic.
+- [x] Wire workflow apply, Reference Sidecar refresh, and Advanced Matching triggers with the requested bootstrap policy.
+- [x] Update active synthesis docs and invariants.
+- [x] Extend repository, service, UI/status, and guard tests.
+- [x] Run OpenSpec validation, targeted tests, typecheck, and build.

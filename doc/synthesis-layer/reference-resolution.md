@@ -168,7 +168,7 @@ Two matching routes intentionally coexist:
 | Advanced Reference Binding | `runAdvancedReferenceMatchingNow` binding pass | `referenceMatcher.ts` layered identifier/title/fuzzy policy against Zotero items | accepted binding facts for deterministic/high matches; proposals for suggested/ambiguous Zotero targets |
 | Advanced External Dedupe | `runAdvancedReferenceMatchingNow` dedupe pass | cluster-first canonical dedupe by identifiers, title/year subclusters, structured containment classification, sticky representatives, and bounded fuzzy review candidates | accepted canonical redirects for deterministic duplicates; `canonical_merge` proposals for fuzzy, ambiguous, retarget, or semantic-risk candidates |
 
-Refresh and workflow apply must not call `buildReferenceMatcherIndex`, `resolveReferenceWithPolicy`, or the advanced external dedupe pass. Advanced matching must be explicit, progress-reporting, and stale-tolerant; accepted binding or redirect fact changes mark citation graph cache stale but do not rebuild graph data.
+Refresh and workflow apply must not call `buildReferenceMatcherIndex`, `resolveReferenceWithPolicy`, or the advanced external dedupe pass. Advanced matching must be explicit, progress-reporting, and stale-tolerant; accepted binding or redirect fact changes may trigger a separate visible Citation Graph cache incremental refresh and then related-items sync, but never layout rebuild. Related-items sync must read accepted facts only and must not run matcher logic.
 
 The external dedupe pass is precision-first and cluster-first. It builds an
 effective canonical graph from active raw references, existing redirects, title

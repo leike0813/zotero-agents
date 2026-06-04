@@ -96,7 +96,15 @@ export type ReferenceSidecarArtifactScanResult = {
 
 export type SynthesisLibraryAdapter = {
   getRegistryInputs: () => Promise<ReferenceSidecarInput[]>;
+  getRegistryInputsPage?: (args?: {
+    libraryId?: number;
+    limit?: number;
+  }) => Promise<ReferenceSidecarInput[]>;
   getRegistryInputForItem?: (args: {
+    libraryId?: number;
+    itemKey: string;
+  }) => Promise<ReferenceSidecarInput | null>;
+  getRegistryInputSummaryForItem?: (args: {
     libraryId?: number;
     itemKey: string;
   }) => Promise<ReferenceSidecarInput | null>;
@@ -171,10 +179,30 @@ function getCitekey(item: any) {
   );
 }
 
-function getYear(date: string) {
+function getYearFromValue(value: unknown) {
   return (
-    cleanString(date).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || ""
+    cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] ||
+    ""
   );
+}
+
+function getYear(item: any) {
+  const json =
+    typeof item?.toJSON === "function" ? item.toJSON?.() || {} : {};
+  const candidates = [
+    readField(item, "year"),
+    cleanString(item?.year),
+    cleanString(json?.year),
+    readField(item, "date"),
+    cleanString(json?.date),
+  ];
+  for (const candidate of candidates) {
+    const year = getYearFromValue(candidate);
+    if (year) {
+      return year;
+    }
+  }
+  return "";
 }
 
 function getTitle(item: any) {
@@ -272,16 +300,37 @@ async function paperInputFromItem(
   fallbackLibraryId: number,
 ): Promise<ReferenceSidecarInput> {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
-  const date = readField(item, "date");
   return {
     libraryId,
     itemKey: cleanString(item?.key),
     title: getTitle(item),
-    year: getYear(date),
+    year: getYear(item),
     itemType: cleanString(item?.itemType),
     tags: getTags(item),
     collections: collectionRefs(item),
     notes: await childNotes(item),
+    creators: getCreators(item),
+    doi: readField(item, "DOI"),
+    isbn: readField(item, "ISBN"),
+    url: readField(item, "url"),
+    citekey: getCitekey(item),
+    dateAdded: cleanString(item?.dateAdded),
+  };
+}
+
+function paperInputSummaryFromItem(
+  item: any,
+  fallbackLibraryId: number,
+): ReferenceSidecarInput {
+  const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
+  return {
+    libraryId,
+    itemKey: cleanString(item?.key),
+    title: getTitle(item),
+    year: getYear(item),
+    itemType: cleanString(item?.itemType),
+    tags: getTags(item),
+    collections: collectionRefs(item),
     creators: getCreators(item),
     doi: readField(item, "DOI"),
     isbn: readField(item, "ISBN"),
@@ -297,14 +346,13 @@ function metadataFingerprintFromItem(
 ): SynthesisRegistryMetadataFingerprint {
   const libraryId = normalizeLibraryId(item?.libraryID, fallbackLibraryId);
   const itemKey = cleanString(item?.key);
-  const date = readField(item, "date");
   const deleted =
     typeof item?.isDeleted === "function"
       ? item.isDeleted()
       : Boolean(item?.deleted);
   const metadata = buildReferenceSidecarMetadataFingerprintPayload({
     title: getTitle(item),
-    year: getYear(date),
+    year: getYear(item),
     itemType: cleanString(item?.itemType),
     creators: getCreators(item),
     tags: getTags(item),
@@ -325,6 +373,9 @@ function metadataFingerprintFromItem(
 }
 
 function isVisibleTopLevelRegular(item: any) {
+  if (!item) {
+    return false;
+  }
   const regular =
     typeof item?.isRegularItem === "function"
       ? item.isRegularItem()
@@ -359,6 +410,140 @@ async function registryInputsFromZotero(libraryId: number) {
 function itemByLibraryAndKey(libraryId: number, itemKey: string) {
   const zotero = zoteroRuntime();
   return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
+}
+
+function itemById(itemId: number) {
+  const zotero = zoteroRuntime();
+  return zotero.Items?.get?.(itemId) || null;
+}
+
+function itemIdFromQueryRow(row: unknown) {
+  if (typeof row === "number") {
+    return Math.max(0, Math.floor(row));
+  }
+  if (!row || typeof row !== "object") {
+    return 0;
+  }
+  const record = row as Record<string, unknown>;
+  return Math.max(
+    0,
+    Math.floor(
+      Number(
+        record.itemID ||
+          record.itemId ||
+          record.item_id ||
+          record.id ||
+          0,
+      ) || 0,
+    ),
+  );
+}
+
+async function queryVisibleTopLevelRegularItemIds(args: {
+  libraryId: number;
+  limit: number;
+}) {
+  const zotero = zoteroRuntime();
+  const queryAsync = zotero.DB?.queryAsync;
+  if (typeof queryAsync !== "function") {
+    return null;
+  }
+  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
+  const baseParams = [args.libraryId, limit];
+  const queries = [
+    `
+      SELECT I.itemID
+      FROM items I
+      LEFT JOIN itemNotes N ON N.itemID = I.itemID
+      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
+      LEFT JOIN deletedItems D ON D.itemID = I.itemID
+      WHERE I.libraryID = ?
+        AND N.itemID IS NULL
+        AND A.itemID IS NULL
+        AND D.itemID IS NULL
+      ORDER BY I.key ASC
+      LIMIT ?
+    `,
+    `
+      SELECT I.itemID
+      FROM items I
+      LEFT JOIN itemNotes N ON N.itemID = I.itemID
+      LEFT JOIN itemAttachments A ON A.itemID = I.itemID
+      WHERE I.libraryID = ?
+        AND N.itemID IS NULL
+        AND A.itemID IS NULL
+      ORDER BY I.key ASC
+      LIMIT ?
+    `,
+  ];
+  for (const sql of queries) {
+    try {
+      const rows = await queryAsync.call(zotero.DB, sql, baseParams);
+      return (Array.isArray(rows) ? rows : [])
+        .map(itemIdFromQueryRow)
+        .filter(Boolean);
+    } catch {
+      // Try the next schema-compatible query or fall back to a bounded scan.
+    }
+  }
+  return null;
+}
+
+function boundedVisibleTopLevelRegularItems(args: {
+  libraryId: number;
+  limit: number;
+}) {
+  const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
+  const rows = [];
+  let misses = 0;
+  for (let id = 1; id <= 50000 && rows.length < limit; id += 1) {
+    const item = itemById(id);
+    if (!item) {
+      misses += 1;
+      if (misses >= 500) {
+        break;
+      }
+      continue;
+    }
+    misses = 0;
+    if (
+      isVisibleTopLevelRegular(item) &&
+      normalizeLibraryId(item?.libraryID, args.libraryId) === args.libraryId
+    ) {
+      rows.push(item);
+    }
+  }
+  return rows;
+}
+
+async function visibleTopLevelRegularItemsPage(args: {
+  libraryId: number;
+  limit: number;
+}) {
+  const requestedLimit = Math.max(1, Math.floor(Number(args.limit) || 1));
+  const ids = await queryVisibleTopLevelRegularItemIds({
+    libraryId: args.libraryId,
+    limit: requestedLimit,
+  });
+  if (ids) {
+    return ids
+      .map((id) => itemById(id))
+      .filter(isVisibleTopLevelRegular)
+      .filter(
+        (item: any) =>
+          normalizeLibraryId(item?.libraryID, args.libraryId) ===
+          args.libraryId,
+      )
+      .sort((left: any, right: any) =>
+        cleanString(left?.key).localeCompare(cleanString(right?.key)),
+      );
+  }
+  return boundedVisibleTopLevelRegularItems({
+    libraryId: args.libraryId,
+    limit: requestedLimit,
+  }).sort((left: any, right: any) =>
+    cleanString(left?.key).localeCompare(cleanString(right?.key)),
+  );
 }
 
 function resolveCollection(ref: string, libraryId: number) {
@@ -511,6 +696,9 @@ function firstPayloadBlock(args: {
   } | null = null;
   for (const row of args.scan.rows) {
     if (row.block.payloadType !== payloadType) {
+      continue;
+    }
+    if (row.block.source !== "embedded-image-attachment") {
       continue;
     }
     if (!row.block.errors?.length) {
@@ -785,6 +973,20 @@ export function createZoteroSynthesisLibraryAdapter(
   }
   return {
     getRegistryInputs: inputs,
+    async getRegistryInputsPage(request = {}) {
+      const requestedLibraryId = normalizeLibraryId(
+        request.libraryId,
+        libraryId,
+      );
+      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
+      const page = await visibleTopLevelRegularItemsPage({
+        libraryId: requestedLibraryId,
+        limit: limit > 0 ? limit : 250,
+      });
+      return page
+        .map((item: any) => paperInputSummaryFromItem(item, requestedLibraryId))
+        .filter((input) => input.itemKey);
+    },
     async getRegistryInputForItem(request) {
       const requestedLibraryId = normalizeLibraryId(
         request.libraryId,
@@ -799,6 +1001,21 @@ export function createZoteroSynthesisLibraryAdapter(
         return null;
       }
       return paperInputFromItem(item, requestedLibraryId);
+    },
+    async getRegistryInputSummaryForItem(request) {
+      const requestedLibraryId = normalizeLibraryId(
+        request.libraryId,
+        libraryId,
+      );
+      const itemKey = cleanString(request.itemKey);
+      if (!itemKey) {
+        return null;
+      }
+      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
+      if (!item || !isVisibleTopLevelRegular(item)) {
+        return null;
+      }
+      return paperInputSummaryFromItem(item, requestedLibraryId);
     },
     async getRegistryMetadataFingerprints(request = {}) {
       const requestedLibraryId = normalizeLibraryId(

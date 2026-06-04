@@ -36,7 +36,7 @@ Current fixture ownership:
 
 - `test/fixtures/selection-context/*` -> shared (`core` + multiple workflows)
 - `test/fixtures/literature-digest/*` -> workflow-literature-digest (legacy path retained)
-- `test/fixtures/workflow-reference-matching/*` -> workflow-reference-matching
+- deprecated reference-matching fixtures are archived under `deprecated/tests/fixtures/`
 - `test/fixtures/workflow-loader-*/*` -> core (loader validation domain)
 
 ## 4. Inventory Summary
@@ -46,8 +46,6 @@ Current fixture ownership:
   - `core`: 24
   - `ui`: 6
   - `workflow-literature-digest`: 4
-  - `workflow-reference-matching`: 3
-  - `workflow-reference-note-editor`: 1
   - `workflow-mineru`: 1
 - Orphaned test suites after mapping: 0
 
@@ -112,19 +110,9 @@ Target root: `test/workflow-literature-digest/*`
 - `50-workflow-literature-digest-mock-e2e.test.ts`
 - `literature-digest-fixture-cases.ts` (helper module)
 
-#### workflow-reference-matching
+#### deprecated reference note workflow suites
 
-Source root: `test/zotero/*.test.ts`  
-Target root: `test/workflow-reference-matching/*.test.ts`
-
-- `24-workflow-reference-matching.test.ts`
-- `25-reference-matching-citekey-fixture.test.ts`
-- `44-reference-table-rendering-parity.test.ts`
-
-#### workflow-reference-note-editor
-
-- `test/zotero/43-workflow-reference-note-editor.test.ts`
-  -> `test/workflow-reference-note-editor/43-workflow-reference-note-editor.test.ts`
+`workflow-reference-matching` and `workflow-reference-note-editor` are no longer active test domains. Historical suites and fixtures are archived under `deprecated/tests/`.
 
 #### workflow-mineru
 
@@ -133,14 +121,11 @@ Target root: `test/workflow-reference-matching/*.test.ts`
 
 ### 5.4 Fixture Migration Map
 
-- `test/fixtures/reference-matching/mix-all-reference-note-payload.json`
-  -> `test/fixtures/workflow-reference-matching/mix-all-reference-note-payload.json`
-- `test/fixtures/reference-matching/mix-all-bbt-citekeys-23124.json`
-  -> `test/fixtures/workflow-reference-matching/mix-all-bbt-citekeys-23124.json`
+- reference-matching fixture assets have moved to `deprecated/tests/fixtures/`.
 
 Compatibility note:
 
-- `fixturePath("reference-matching", ...)` is mapped to `workflow-reference-matching` in shared test helper.
+- Active shared test helpers no longer alias `reference-matching` fixture paths.
 
 ## 6. Coverage Sanity Check
 
@@ -150,4 +135,3 @@ Validation checklist:
 2. Every previously active suite is represented in one domain directory.
 3. Imports compile via domain-local re-export helpers.
 4. Node test execution passes with new layout.
-

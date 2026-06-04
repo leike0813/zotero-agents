@@ -1210,10 +1210,10 @@ describe("Synthesis Layer v1 integration service", function () {
       openProposals.map((proposal) => proposal.targetItemKey),
       ["C", "D"],
     );
-    assert.equal(graphBasis?.status, "stale");
+    assert.equal(graphBasis?.status, "ready");
     assert.equal(
       repository.listCitationEdges({ statuses: ["accepted"] }).length,
-      0,
+      1,
     );
 
     const rejectedProposalId = openProposals[0]?.proposalId;
@@ -1301,6 +1301,66 @@ describe("Synthesis Layer v1 integration service", function () {
         .listReferenceBindings({ statuses: ["accepted"] })
         .some((binding) => binding.itemKey === deleteProposal?.targetItemKey),
     );
+  });
+
+  it("accepts canonical merge proposals in reverse direction", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:reverse-canonical-merge",
+      kind: "canonical_merge",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:source",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:source"]),
+      targetCanonicalReferenceId: "cref:target",
+      confidence: "high",
+      score: 1,
+      reasonsJson: JSON.stringify(["exact_title_year"]),
+      evidenceJson: JSON.stringify({ source: "source", target: "target" }),
+      diagnosticsJson: "[]",
+      basisHash: "sha256:reverse-basis",
+      sourceHash: "sha256:reverse-source",
+    });
+
+    const reverse = await service.applyReferenceMatchProposalAction({
+      proposalId: "proposal:reverse-canonical-merge",
+      action: "reverse_accept",
+    });
+
+    assert.equal(reverse.ok, true);
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: ["proposal:reverse-canonical-merge"],
+      })[0]?.status,
+      "accepted",
+    );
+    const redirects = repository.listCanonicalReferenceRedirects();
+    assert.isTrue(
+      redirects.some(
+        (redirect) =>
+          redirect.fromCanonicalReferenceId === "cref:target" &&
+          redirect.toCanonicalReferenceId === "cref:source" &&
+          redirect.reason === "advanced_reference_matching_reverse_accept",
+      ),
+    );
+    assert.isFalse(
+      redirects.some(
+        (redirect) =>
+          redirect.fromCanonicalReferenceId === "cref:source" &&
+          redirect.toCanonicalReferenceId === "cref:target",
+      ),
+    );
+
+    await service.applyReferenceMatchProposalAction({
+      proposalId: "proposal:reverse-canonical-merge",
+      action: "reject",
+    });
+    assert.lengthOf(repository.listCanonicalReferenceRedirects(), 0);
   });
 
   it("runs advanced canonical dedupe as an explicit proposal/fact operation", async function () {
@@ -1396,7 +1456,7 @@ describe("Synthesis Layer v1 integration service", function () {
         );
       }),
     );
-    assert.equal(graphBasis?.status, "stale");
+    assert.equal(graphBasis?.status, "ready");
   });
 
   it("builds graph overview as all library papers plus shared external references", async function () {

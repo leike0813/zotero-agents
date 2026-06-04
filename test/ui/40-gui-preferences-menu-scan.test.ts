@@ -2188,9 +2188,9 @@ describe("gui: workflow context menu", function () {
       {
         label: "keeps pass-through workflow disabled without explicit override",
         workflows: [
-          makePassThroughWorkflow("reference-matching", "Reference Matching"),
+          makePassThroughWorkflow("manual-pass-through", "Manual Pass-through"),
         ],
-        expectedLabels: [/^Reference Matching \((no selection|未选择条目)\)$/],
+        expectedLabels: [/^Manual Pass-through \((no selection|未选择条目)\)$/],
         expectedDisabledStates: ["true"],
         expectedLength: 5,
         rebuildOnly: true,

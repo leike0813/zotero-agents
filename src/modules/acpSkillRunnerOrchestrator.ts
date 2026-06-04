@@ -1446,6 +1446,10 @@ export async function recoverAcpSkillRunConversation(args: {
         await adapter.cancel({ sessionId: liveSessionId });
         await detach("ended");
       },
+      interruptTurn: async () => {
+        await adapter.cancel({ sessionId: liveSessionId });
+        await detach("closed");
+      },
       reply: async (message) => {
         const nextPrompt = promptChain
           .catch(() => undefined)
@@ -2061,6 +2065,30 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       await cleanupLiveSession({
         conversationState: "ended",
+        closeAdapter: true,
+      });
+    },
+    interruptTurn: async () => {
+      if (pendingReplyRejecter) {
+        pendingReplyRejecter(
+          new Error("ACP skill run interrupted while waiting for user reply."),
+        );
+        pendingReplyResolver = null;
+        pendingReplyRejecter = null;
+      }
+      const current = upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "interrupt-turn-requested",
+          message: "ACP skill run current turn interruption requested.",
+          level: "warn",
+        },
+      });
+      if (current.sessionId) {
+        await adapter.cancel({ sessionId: current.sessionId });
+      }
+      await cleanupLiveSession({
+        conversationState: "closed",
         closeAdapter: true,
       });
     },

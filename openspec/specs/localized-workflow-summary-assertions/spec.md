@@ -17,12 +17,12 @@ Workflow summary count assertions SHALL treat localized labels as aliases of can
 ### Requirement: Workflow suites SHALL reuse one shared summary assertion helper
 Workflow-domain tests SHALL consume a shared summary assertion helper instead of maintaining duplicated local summary parsers.
 
-#### Scenario: Reference matching suite uses shared helper
-- **WHEN** `workflow-reference-matching` validates execution summary counts
+#### Scenario: Literature digest suite uses shared helper
+- **WHEN** `workflow-literature-digest` validates execution summary counts
 - **THEN** it calls the shared helper rather than a suite-local parser
 
 #### Scenario: Other workflow suites align to shared helper
-- **WHEN** `workflow-literature-digest` and `workflow-reference-note-editor` validate execution summary counts
+- **WHEN** `workflow-mineru` and `workflow-tag-regulator` validate execution summary counts
 - **THEN** they also call the same shared helper and do not keep duplicated local implementations
 
 ### Requirement: Assertion failures SHALL expose actionable diagnostics
@@ -31,4 +31,3 @@ When expected counts cannot be matched, failure output SHALL include enough cont
 #### Scenario: Missing expected count
 - **WHEN** summary text does not contain a required canonical count (directly or via localized alias)
 - **THEN** the assertion fails with a message that includes the expected key/value and raw summary text
-

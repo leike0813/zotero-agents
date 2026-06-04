@@ -6,6 +6,7 @@ import {
   escapeHtml,
   readTagAttribute,
 } from "./htmlCodec.mjs";
+import { attachWorkbenchPayloadToNote } from "./embeddedPayloadAttachments.mjs";
 import { requireHostApi } from "./runtime.mjs";
 
 function renderInlineMarkdown(text) {
@@ -288,20 +289,26 @@ export function buildConversationNotePayload(args) {
 }
 
 export function buildConversationNoteContent(args) {
-  return buildMarkdownBackedNoteContent({
-    noteKind: "conversation-note",
-    title: args.title,
-    viewName: "conversation-note-html",
-    payloadType: "conversation-note-markdown",
-    payload: buildConversationNotePayload(args),
-    payloadFormat: "json",
-    markdown: String(args.markdown || ""),
-    runtime: args.runtime,
-  });
+  return [
+    '<div data-zs-note-kind="conversation-note">',
+    `<h1>${escapeHtml(String(args.title || ""))}</h1>`,
+    '<div data-zs-view="conversation-note-html">',
+    renderMarkdownToHtml(args.markdown),
+    "</div>",
+    "</div>",
+  ].join("\n");
 }
 
 export async function createConversationNote(args) {
-  return requireHostApi(args.runtime).parents.addNote(args.parentItem, {
+  const note = await requireHostApi(args.runtime).parents.addNote(args.parentItem, {
     content: buildConversationNoteContent(args),
   });
+  await attachWorkbenchPayloadToNote({
+    runtime: args.runtime,
+    note,
+    noteKind: "conversation-note",
+    payloadType: "conversation-note-markdown",
+    payload: buildConversationNotePayload(args),
+  });
+  return note;
 }

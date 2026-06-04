@@ -42,6 +42,9 @@ type HostBridgeFileHandle = HostBridgeFileDescriptor & {
 export type HostBridgeFileDownloadManifest = {
   supported: true;
   endpoint: "GET /bridge/v1/files/{fileId}";
+  urlTemplate: "{endpoint}/files/{fileId}";
+  auth: "bearer";
+  supportsRemoteClients: true;
   arbitraryPathAllowed: false;
   approvalRequired: false;
 };
@@ -188,6 +191,9 @@ export function getHostBridgeFileDownloadManifest(): HostBridgeFileDownloadManif
   return {
     supported: true,
     endpoint: "GET /bridge/v1/files/{fileId}",
+    urlTemplate: "{endpoint}/files/{fileId}",
+    auth: "bearer",
+    supportsRemoteClients: true,
     arbitraryPathAllowed: false,
     approvalRequired: false,
   };

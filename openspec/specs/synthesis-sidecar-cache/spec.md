@@ -32,8 +32,8 @@ Reference sidecar refresh SHALL scan artifact sidecar state and diff references 
 #### Scenario: Refresh completes successfully
 - **WHEN** explicit Reference Sidecar refresh finishes
 - **THEN** `reference-sidecar:library` SHALL be marked ready in cache basis
-- **AND** `citation-graph:library` SHALL be marked stale when reference-affecting inputs may have changed
-- **AND** the refresh SHALL NOT rebuild citation graph cache rows.
+- **AND** graph-affecting changes MAY trigger a separate visible Citation Graph cache incremental refresh
+- **AND** the refresh SHALL NOT rebuild citation graph cache rows inside the sidecar transaction.
 
 #### Scenario: Refresh fails after previous success
 - **WHEN** explicit Reference Sidecar refresh fails
@@ -52,7 +52,7 @@ Synthesis sidecar writes SHALL occur only through workflow apply sync, explicit 
 Long-running Synthesis work SHALL be represented as explicit operation records, not dirty events, WorkItems, WorkRuns, worker claims, or queue drains.
 
 #### Scenario: Graph cache refresh starts
-- **WHEN** a user or debug command starts citation graph cache refresh
+- **WHEN** a user, workflow, sidecar refresh, advanced matching, or debug command starts citation graph cache refresh
 - **THEN** an explicit operation row SHALL record scope, status, progress, diagnostics, and timestamps
 - **AND** no claimable background queue row SHALL be created.
 
@@ -74,4 +74,3 @@ The cache-basis state set SHALL be limited to `missing`, `refreshing`, `ready`, 
 - **AND** `reference-sidecar:library` cache basis is ready
 - **THEN** Workbench and diagnostics SHALL treat Reference Sidecar data as ready
 - **AND** they SHALL NOT create a failed Reference Sidecar job from the legacy file.
-

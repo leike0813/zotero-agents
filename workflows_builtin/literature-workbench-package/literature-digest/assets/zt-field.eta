@@ -191,10 +191,6 @@ if (!refs.length) {
   for (var j = 0; j < refs.length; j++) {
     var r = refs[j] || {};
 
-    var ck = "";
-    if (r.citekey !== undefined && r.citekey !== null) ck = String(r.citekey);
-    else if (r.citeKey !== undefined && r.citeKey !== null) ck = String(r.citeKey);
-
     var year = (r.year === undefined || r.year === null) ? "" : String(r.year);
     var t = (r.title === undefined || r.title === null) ? "" : String(r.title);
 
@@ -208,7 +204,6 @@ if (!refs.length) {
     var locator = renderLocator(r);
 
     var row = "";
-    if (ck) row += ck + " | ";
     if (year) row += year + " | ";
     row += t;
     if (authors) row += " | " + authors;

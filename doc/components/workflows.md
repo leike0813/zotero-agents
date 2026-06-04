@@ -301,8 +301,7 @@ Hook 接收的 `runtime` 对象包含：
 ### normalizeSettings 设计意图与适用场景
 
 - 该钩子用于承载“workflow 专属配置语义”，避免把业务规则写进插件核心。
-- 它不是 BBT 专用能力；BBT 只是当前一个实例。
-- 当前实现中，`reference-matching` 使用该钩子来校验/回退 `citekey_template`（legacy + BBT-Lite）。
+- 它不是某个 workflow 的专用能力；具体业务校验应由对应 workflow 自己提供。
 - 适用场景（典型）：
   - 条件依赖：例如 `data_source=bbt-json` 时强制补默认端口；
   - 跨字段联动：A/B 互斥、C 由 D 推导；
@@ -336,100 +335,22 @@ Hook 接收的 `runtime` 对象包含：
   - 选择保存：按 Save 路径序列化并返回；
   - 选择不保存：按未保存关闭返回。
 - workflow 侧负责 renderer（业务 UI 与字段绑定），核心不再承载 workflow 专用编辑界面实现。
-- 迁移说明：`reference-note-editor` 已从旧的核心耦合桥接迁移到 host+renderer；未保存关闭时仍保持“当前 job 不保存并返回未保存原因”的语义。
+- 归档说明：旧的 `reference-note-editor` workflow 已从 active built-ins 移除；通用 editor host 仍可供其他 active workflow 使用。
 
-## reference-matching workflow（新增）
+## deprecated reference note workflows
 
-路径：`workflows/reference-matching/`
+`reference-matching` 和 `reference-note-editor` 已从 active built-in workflow package 中移除，历史实现归档在 `deprecated/workflows_builtin/literature-workbench-package/`。
 
-### 输入约束
-
-- provider 使用 `pass-through`，由本地代码执行，不依赖远端后端。
-- `filterInputs` 支持两类合法入口：
-  - 直接选中 references note；
-  - 选中父条目并在其子 note 中发现 references note。
-- references 判定规则：
-  - `data-zs-note-kind="references"`，或
-  - payload 标记 `data-zs-payload="references-json"`。
-- 非 references 输入会被过滤；若过滤后为空，workflow 进入 `no valid input units` 跳过语义。
-- 多父条目输入按“每 references note 一条请求记录”拆分执行，不打包。
-
-### 匹配规则
-
-- 数据源默认 `zotero-api`（全库本地检索）。
-- 当 `data_source=bbt-json` 时，走本地 Better BibTeX JSON-RPC：
-  - 端点模板：`http://127.0.0.1:{bbt_port}/better-bibtex/json-rpc`
-  - 端口参数：`bbt_port`（workflow 参数，默认 `23119`，范围 `1..65535`）
-- 新增模板参数：`citekey_template`（默认 `{author}_{title}_{year}`）。
-  - 支持 legacy 占位符：`{author}`、`{year}`、`{title}`；
-  - 支持 BBT-Lite 表达式：`auth/year/title` 对象、链式方法、单引号字符串字面量、`+` 拼接；
-  - BBT-Lite 当前仅覆盖 Auth/Year/Title 常用方法，不完整复刻 Better BibTeX 全量模板引擎；
-  - 非法模板会在设置层回退到“最近一次有效模板”或默认值。
-- 匹配顺序固定为三段：
-  - `reference.citekey/citeKey` 显式精确命中（最高优先级，唯一命中即短路）；
-  - 用 `citekey_template` 从 reference 生成预测 CiteKey 后再做精确命中（唯一命中即短路）；
-  - 上述两段都未形成唯一命中时，回退“标题主导 + 作者/年份辅助”评分匹配。
-- BBT-Lite 失败安全语义：
-  - 模板解析失败、对象/方法不支持、参数非法或字段缺失导致预测值无效时，不中断 workflow；
-  - 保持“显式 -> 预测 -> 评分”顺序，自动进入评分兜底阶段。
-- 评分兜底语义：
-  - 标题完全匹配优先；
-  - 非完全匹配必须满足高标题相似度，且作者或年份至少一个辅助证据成立；
-  - 低置信或多候选冲突不回填 citekey（宁缺毋滥）。
-- CiteKey 阶段若命中歧义（同 key 多候选）不会直接回写，会自动回退到后续阶段。
-- 命中后同步更新两处：
-  - payload JSON 中 reference 条目的 `citekey`
-  - HTML references table 的 `Citekey` 列
-
-### 回写与失败语义
-
-- 回写采用覆盖写入同一 note，但保留原外层结构（如 wrapper/header 非目标区域）。
-- payload 缺失、损坏、编码不支持或 JSON 非法时：
-  - 当前输入报错终止；
-  - 不进行部分回写（保持原 note 内容不变）。
-- `bbt-json` 端点不可达或返回非法 JSON/RPC error 时：
-  - 当前输入报错终止；
-  - 不进行部分回写（保持原 note 内容不变）。
-
-## reference-note-editor workflow（新增）
-
-路径：`workflows/reference-note-editor/`
-
-### 输入约束
-
-- provider 使用 `pass-through`，本地执行，不依赖后端 API。
-- 合法输入与 `reference-matching` 一致：
-  - 直接选中 references note；
-  - 选中父条目后展开其 references note。
-- references 判定规则：
-  - `data-zs-note-kind="references"`，或
-  - payload 标记 `data-zs-payload="references-json"`。
-- 过滤后无合法输入时，workflow 按 `no valid input units` 跳过。
-
-### 编辑行为
-
-- 每个合法输入单元打开一个独立编辑窗体（由 host 串行调度，非并行）。
-- 单次触发包含多个合法输入时，按输入顺序逐个弹窗编辑。
-- 编辑窗体显示目标父条目上下文，支持：
-  - 字段编辑（title/year/author/citekey/rawText）；
-  - 扩展元数据编辑（`publicationTitle`、`conferenceName`、`university`、`archiveID`、`volume`、`issue`、`pages`、`place`）；
-  - 增加条目；
-  - 删除条目；
-  - 调整条目顺序（上移/下移）。
-- 编辑区采用紧凑行布局：左侧行号、右侧行内操作按钮、明显滚动容器；`Raw Text` 始终可见可编辑。
-
-### 保存与失败语义
-
-- Save：重建 `references-json` payload 与 `references-table` HTML，并覆盖回写同一 note。
-- Cancel/关闭未保存：
-  - 当前 job 标记失败；
-  - note 保持不变。
-- 回写后保证 payload 与表格顺序、字段内容保持同步。
+- active workflow registry 不再加载或展示这两个 workflow；
+- stale workflow settings 不做迁移保真，除非用户自行安装同名 custom workflow，否则会被忽略；
+- note-level citekey 回填不再是 active workflow 能力，引用整理由 Synthesis sidecar / Advanced Reference Matching 负责；
+- references note 的 machine payload 仍可保留 `citekey` 字段，但可见 HTML 表格不再显示 Citekey 列。
 
 ### Reference 表格列映射（共享规则）
 
-- `reference-note-editor`、`reference-matching`、`literature-digest` 三个 workflow 使用同一套 canonical `references-table` 渲染规则，列顺序为：
-  - `#`、`Citekey`、`Year`、`Title`、`Authors`、`Source`、`Locator`。
+- active references-note writers 使用同一套 canonical `references-table` 渲染规则，列顺序为：
+  - `#`、`Year`、`Title`、`Authors`、`Source`、`Locator`。
+- `citekey` 可以保留在 `references-json` payload 中供 machine reader 使用，但不得作为可见表格列渲染。
 - `Source` 列取值优先级（命中首个非空即停止）：
   - `publicationTitle` > `conferenceName` > `university` > `archiveID`。
 - `Locator` 列由以下字段按固定顺序合并：

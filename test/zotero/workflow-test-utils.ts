@@ -87,9 +87,6 @@ export function fixturePath(...segments: string[]) {
   const normalizedSegments = segments.map((segment) =>
     String(segment || "").trim(),
   );
-  if (normalizedSegments[0] === "reference-matching") {
-    normalizedSegments[0] = "workflow-reference-matching";
-  }
   const preferred = joinPath(
     getProjectRoot(),
     "test",

@@ -41,6 +41,12 @@ the token value. Never print, persist, summarize, or expose token values.
 You normally do not need `--endpoint` or `--profile` because the environment and
 profile are already injected. Use explicit flags only for diagnostics.
 
+Remote LAN clients should use the profile copied from Zotero Preferences. That
+profile points at a fixed LAN endpoint and uses a manually rotated master token.
+The master token is for stable remote configuration; do not print or persist it
+outside the private profile. `file download <fileId> --output <path>` works with
+remote profiles as long as the `fileId` came from Host Bridge metadata.
+
 ## 3. Output Contract
 
 Every normal CLI invocation writes exactly one JSON object to stdout.
@@ -208,6 +214,21 @@ zotero-bridge synthesis resolve-resolver --input @runtime/payloads/resolver-inpu
 zotero-bridge synthesis get-citation-graph-metrics --input @runtime/payloads/metrics-input.json
 zotero-bridge synthesis export-filtered-paper-artifacts --input @runtime/payloads/export-input.json
 ```
+
+`resolve-resolver` input must be an object with a top-level `resolver` field:
+
+```json
+{
+  "resolver": {
+    "mode": "tag_query",
+    "query": "tag-name"
+  }
+}
+```
+
+Do not pass `topic_resolver`, root-level `queries`, or the resolver object by
+itself. `topic_resolver` is a workflow bundle field, not the Host Bridge
+`resolve-resolver` input contract.
 
 Capability mapping:
 

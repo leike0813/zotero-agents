@@ -181,6 +181,24 @@ function mcpRequest(
 }
 
 describe("Synthesis Layer MVP real-data closure", function () {
+  it("uses Zotero year metadata when date is unavailable", async function () {
+    const item = new Zotero.Item("journalArticle");
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Year Field Paper");
+    item.setField("year", "2024");
+    await item.saveTx();
+
+    const adapter = createZoteroSynthesisLibraryAdapter({
+      libraryId: Zotero.Libraries.userLibraryID,
+    });
+    const input = await adapter.getRegistryInputSummaryForItem?.({
+      libraryId: Zotero.Libraries.userLibraryID,
+      itemKey: item.key,
+    });
+
+    assert.equal(input?.year, "2024");
+  });
+
   it("builds library index and registry from mock Zotero metadata and child artifact notes", async function () {
     const collection = await createCollection("Topic Alpha");
     const alpha = await createPaper({

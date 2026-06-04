@@ -8,6 +8,16 @@ export type SynthesisUiTab =
   | "graph"
   | "reader";
 
+export type SynthesisWorkbenchSurfaceName =
+  | "home"
+  | "topics"
+  | "index"
+  | "review"
+  | "graph"
+  | "tags"
+  | "concepts"
+  | "reader";
+
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
 export type SynthesisUiCacheReadiness =
   | "missing"
@@ -562,6 +572,7 @@ export type SynthesisUiState = {
     bindingStatus: SynthesisUiBindingStatusFilter;
     reviewDrawerOpen: boolean;
     reviewDrawerIndex: number;
+    expandedSourceRefs: string[];
   };
   reviews: {
     activeTab: SynthesisUiReviewTab;
@@ -835,6 +846,7 @@ export type SynthesisUiHostCommandName =
   | "retryAdvancedReferenceMatching"
   | "applyReferenceMatchProposalAction"
   | "applyReferenceMatchProposalActions"
+  | "refreshCitationGraphCacheIncrementalNow"
   | "rebuildCitationGraphCacheNow"
   | "retryCitationGraphCacheRebuild"
   | "deleteTopicArtifact"
@@ -914,6 +926,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "retryAdvancedReferenceMatching",
   "applyReferenceMatchProposalAction",
   "applyReferenceMatchProposalActions",
+  "refreshCitationGraphCacheIncrementalNow",
   "rebuildCitationGraphCacheNow",
   "retryCitationGraphCacheRebuild",
   "deleteTopicArtifact",
@@ -958,6 +971,8 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   retryAdvancedReferenceMatching: "Retry advanced reference matching",
   applyReferenceMatchProposalAction: "Apply reference match proposal",
   applyReferenceMatchProposalActions: "Apply reference match proposals",
+  refreshCitationGraphCacheIncrementalNow:
+    "Refresh citation graph cache incrementally",
   rebuildCitationGraphCacheNow: "Rebuild citation graph cache",
   retryCitationGraphCacheRebuild: "Retry citation graph cache rebuild",
   deleteTopicArtifact: "Delete topic artifact",
@@ -2430,6 +2445,7 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       bindingStatus: "all",
       reviewDrawerOpen: true,
       reviewDrawerIndex: 0,
+      expandedSourceRefs: [],
     },
     reviews: {
       activeTab: "reference_matching",
@@ -2472,6 +2488,52 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       previousTab: "artifacts",
     },
   };
+}
+
+export function mergeSynthesisUiSnapshotInput(
+  base: SynthesisUiSnapshotInput | undefined,
+  patch: SynthesisUiSnapshotInput | undefined,
+): SynthesisUiSnapshotInput {
+  if (!base) {
+    return { ...(patch || { libraryId: 1 }) };
+  }
+  if (!patch) {
+    return { ...base };
+  }
+  const merged: SynthesisUiSnapshotInput = {
+    ...base,
+    ...patch,
+    libraryId: patch.libraryId || base.libraryId,
+  };
+  ([
+    "maintenance",
+    "storage",
+    "preferences",
+    "sync",
+    "deletedArtifacts",
+    "registry",
+    "tags",
+    "topicGraph",
+    "concepts",
+    "graph",
+  ] as const).forEach((key) => {
+    const baseValue = base[key];
+    const patchValue = patch[key];
+    if (
+      baseValue &&
+      patchValue &&
+      typeof baseValue === "object" &&
+      typeof patchValue === "object" &&
+      !Array.isArray(baseValue) &&
+      !Array.isArray(patchValue)
+    ) {
+      (merged as Record<string, unknown>)[key] = {
+        ...(baseValue as Record<string, unknown>),
+        ...(patchValue as Record<string, unknown>),
+      };
+    }
+  });
+  return merged;
 }
 
 function filterArtifacts(
@@ -2598,8 +2660,6 @@ function filterGraph(
   edges: SynthesisUiGraphEdge[],
   filters: SynthesisUiState["graph"],
 ) {
-  const searchable = (node: SynthesisUiGraphNode) =>
-    `${node.label} ${node.id} ${node.year || ""} ${(node.tags || []).join(" ")} ${(node.collections || []).join(" ")}`;
   const matchesNodeBaseFilters = (node: SynthesisUiGraphNode) =>
     filters.nodeKinds.includes(node.kind) &&
     (filters.showLowSignalReferences || !node.low_signal);
@@ -2610,7 +2670,7 @@ function filterGraph(
     if (node.visibility === "hover_only") {
       return false;
     }
-    return includesText(searchable(node), filters.search);
+    return true;
   });
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
   const visibleEdges = edges.filter((edge) => {
@@ -3308,6 +3368,11 @@ export function applySynthesisUiAction(
         next.registry.reviewDrawerIndex = Math.max(
           0,
           Math.floor(cleanNumber(filters.reviewDrawerIndex, 0)),
+        );
+      }
+      if ("expandedSourceRefs" in filters) {
+        next.registry.expandedSourceRefs = normalizeStringList(
+          filters.expandedSourceRefs,
         );
       }
     }

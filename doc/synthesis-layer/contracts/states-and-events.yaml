@@ -205,6 +205,22 @@ state_machines:
         to: workbench_hot_path
         reason: import_must_write_through_repository_apis
 
+  - id: sm.ui.workbench_surface
+    owner: synthesis_workbench_ui
+    object: workbench_surface_read_model
+    states: [missing, loading, ready, stale, failed]
+    transitions:
+      - { from: missing, to: loading }
+      - { from: loading, to: ready }
+      - { from: loading, to: failed }
+      - { from: ready, to: stale }
+      - { from: stale, to: loading }
+      - { from: failed, to: loading }
+    forbidden_transitions:
+      - from: loading
+        to: full_snapshot_refresh
+        reason: surface_loading_must_not_construct_monolithic_workbench_snapshot
+
 sequences:
   - id: seq.sidecar.digest_apply_sync
     owner: sidecar_cache_service
@@ -221,7 +237,11 @@ sequences:
   - id: seq.reference.sidecar_refresh
     owner: reference_sidecar_service
     trigger: reference_sidecar_refresh_requested
-    output: reference_sidecar_ready_and_citation_graph_stale_cache_basis
+    output: reference_sidecar_ready_and_visible_citation_graph_incremental_refresh_or_bootstrap
+  - id: seq.graph.cache_incremental_refresh
+    owner: citation_graph_cache
+    trigger: graph_affecting_sidecar_facts_changed
+    output: affected_graph_projection_slices_and_ready_cache_basis
   - id: seq.graph.cache_rebuild
     owner: citation_graph_cache
     trigger: graph_cache_rebuild_requested
@@ -242,6 +262,10 @@ sequences:
     owner: import_export_service
     trigger: import_preview_or_apply_requested
     output: dry_run_diff_or_import_result
+  - id: seq.ui.workbench_surface_refresh
+    owner: synthesis_workbench_ui
+    trigger: workbench_surface_requested
+    output: shell_chrome_or_single_surface_read_model
 
 events:
   source:
@@ -259,6 +283,8 @@ events:
     - import_apply_requested
     - synthesis_reset_requested
     - synthesis_clean_install_reset_requested
+    - workbench_surface_requested
+    - workbench_chrome_requested
   operation:
     - sidecar_artifact_cache_sync
     - reference_binding_review

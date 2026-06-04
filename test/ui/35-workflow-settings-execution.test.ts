@@ -82,7 +82,6 @@ describe("workflow settings execution", function () {
   afterEach(function () {
     clearSkillRunnerModelCache();
     clearWorkflowSettings("literature-digest");
-    clearWorkflowSettings("reference-matching");
     clearWorkflowSettings("tag-manager");
     if (typeof prevBackendsConfigPref === "undefined") {
       Zotero.Prefs.clear(backendsConfigPrefKey, true);
@@ -903,26 +902,12 @@ describe("workflow settings execution", function () {
     assert.deepEqual(requests[0].parameter, { hello: "world" });
   });
 
-  itZoteroFullOrNode("builds configurable pass-through descriptor without requiring backend profile", async function () {
+  itZoteroFullOrNode("does not load deprecated reference workflows as active built-ins", async function () {
     await ensureWorkflowRegistryLoaded();
-    clearWorkflowSettings("reference-matching");
     const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "reference-matching",
-    );
-    assert.isOk(workflow);
-
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      autoSelectFallbackProfile: true,
-    });
-
-    assert.equal(descriptor.providerId, "pass-through");
-    assert.equal(descriptor.requiresBackendProfile, false);
-    assert.equal(descriptor.profileMissing, false);
-    assert.equal(descriptor.selectedProfile, "");
-    assert.isAbove(descriptor.workflowSchemaEntries.length, 0);
-    assert.equal(descriptor.hasConfigurableSettings, true);
+    const workflowIds = loaded.workflows.map((entry) => entry.manifest.id);
+    assert.notInclude(workflowIds, "reference-matching");
+    assert.notInclude(workflowIds, "reference-note-editor");
   });
 
   itNodeOnly("persists GitHub workflow params for tag-manager without requiring backend profile", async function () {
@@ -956,111 +941,4 @@ describe("workflow settings execution", function () {
     assert.equal(descriptor.workflowParams.github_token, "secret-token");
   });
 
-  itNodeOnly("applies persisted bbt port parameter for reference-matching workflow", async function () {
-    await ensureWorkflowRegistryLoaded();
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        data_source: "bbt-json",
-        bbt_port: 24119,
-      },
-    });
-
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "reference-matching",
-    );
-    assert.isOk(workflow);
-
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.workflowParams.data_source, "bbt-json");
-    assert.equal(context.workflowParams.bbt_port, 24119);
-  });
-
-  itNodeOnly("falls back to default bbt port when persisted value is invalid", async function () {
-    await ensureWorkflowRegistryLoaded();
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        data_source: "bbt-json",
-        bbt_port: "invalid" as unknown as number,
-      },
-    });
-
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "reference-matching",
-    );
-    assert.isOk(workflow);
-
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.workflowParams.data_source, "bbt-json");
-    assert.equal(context.workflowParams.bbt_port, 23119);
-  });
-
-  itNodeOnly("applies persisted bbt-lite citekey template for reference-matching workflow", async function () {
-    await ensureWorkflowRegistryLoaded();
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        citekey_template:
-          "auth.lower + '_' + title.nopunct.skipwords.select(1,1).lower + '-' + title.nopunct.skipwords.select(2,1).lower + '_' + year",
-      },
-    });
-
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "reference-matching",
-    );
-    assert.isOk(workflow);
-
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(
-      context.workflowParams.citekey_template,
-      "auth.lower + '_' + title.nopunct.skipwords.select(1,1).lower + '-' + title.nopunct.skipwords.select(2,1).lower + '_' + year",
-    );
-  });
-
-  itNodeOnly("rejects invalid bbt-lite citekey template and falls back to last valid/default", async function () {
-    await ensureWorkflowRegistryLoaded();
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        citekey_template: "auth.lower + '_' + year",
-      },
-    });
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        citekey_template: "auth.lower + (",
-      },
-    });
-
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "reference-matching",
-    );
-    assert.isOk(workflow);
-
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-      consumeRunOnce: false,
-    });
-    assert.equal(context.workflowParams.citekey_template, "auth.lower + '_' + year");
-
-    clearWorkflowSettings("reference-matching");
-    updateWorkflowSettings("reference-matching", {
-      workflowParams: {
-        citekey_template: "title.unknown() + '_' + year",
-      },
-    });
-    const fallbackContext = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(
-      fallbackContext.workflowParams.citekey_template,
-      "{author}_{title}_{year}",
-    );
-  });
 });

@@ -1,7 +1,6 @@
 import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
-import { applyReferenceMatchingToNote } from "../../lib/referenceMatchingApply.mjs";
 import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
 import {
   measureWorkflowTestSpan,
@@ -87,16 +86,6 @@ function getResultArtifactPath(result, key) {
     String(result?.data?.[key] || "").trim() ||
     String(result?.result?.[key] || "").trim()
   );
-}
-
-function isExplicitFalse(value) {
-  if (value === false) {
-    return true;
-  }
-  if (typeof value === "string") {
-    return value.trim().toLowerCase() === "false";
-  }
-  return false;
 }
 
 function resolveWorkflowParameter(args) {
@@ -649,103 +638,19 @@ async function applyResultImpl({
     representative_image: representativeImage,
     reference_quality: referencesPayload.quality,
   };
-  const autoReferenceMatching = {
-    enabled: !isExplicitFalse(workflowParameter?.auto_reference_matching),
-    attempted: false,
+  return {
+    ...appliedWithRepresentativeImage,
+    sidecar_apply: sidecarApply,
+    literature_matching_metadata: literatureMatchingMetadataResolved.payload
+      ? {
+          status: "attached",
+          entry: literatureMatchingMetadataResolved.entryPath,
+        }
+      : {
+          status: "unavailable",
+          warning: literatureMatchingMetadataResolved.warning,
+        },
   };
-  if (!autoReferenceMatching.enabled) {
-    return {
-      ...appliedWithRepresentativeImage,
-      sidecar_apply: sidecarApply,
-      literature_matching_metadata: literatureMatchingMetadataResolved.payload
-        ? {
-            status: "attached",
-            entry: literatureMatchingMetadataResolved.entryPath,
-          }
-        : {
-            status: "unavailable",
-            warning: literatureMatchingMetadataResolved.warning,
-          },
-      auto_reference_matching: autoReferenceMatching,
-    };
-  }
-
-  if (!referencesNote) {
-    return {
-      ...appliedWithRepresentativeImage,
-      sidecar_apply: sidecarApply,
-      literature_matching_metadata: literatureMatchingMetadataResolved.payload
-        ? {
-            status: "attached",
-            entry: literatureMatchingMetadataResolved.entryPath,
-          }
-        : {
-            status: "unavailable",
-            warning: literatureMatchingMetadataResolved.warning,
-          },
-      auto_reference_matching: {
-        ...autoReferenceMatching,
-        warning: "references note was not produced by literature-digest apply",
-      },
-    };
-  }
-
-  autoReferenceMatching.attempted = true;
-  try {
-    const matchingResult = await measureWorkflowTestSpan(
-      "executeApplyResult:literatureDigest:autoReferenceMatching",
-      {},
-      () =>
-        applyReferenceMatchingToNote({
-          noteItem: referencesNote,
-          parentItem,
-          parameter: {},
-          runtime,
-          manifest: { version: "0.1.0" },
-        }),
-    );
-    return {
-      ...appliedWithRepresentativeImage,
-      sidecar_apply: sidecarApply,
-      literature_matching_metadata: literatureMatchingMetadataResolved.payload
-        ? {
-            status: "attached",
-            entry: literatureMatchingMetadataResolved.entryPath,
-          }
-        : {
-            status: "unavailable",
-            warning: literatureMatchingMetadataResolved.warning,
-          },
-      auto_reference_matching: {
-        ...autoReferenceMatching,
-        matched: matchingResult?.matched || 0,
-        total: matchingResult?.total || 0,
-        related_added: matchingResult?.related_added || 0,
-        related_existing: matchingResult?.related_existing || 0,
-        related_skipped: matchingResult?.related_skipped || 0,
-      },
-    };
-  } catch (error) {
-    return {
-      ...appliedWithRepresentativeImage,
-      sidecar_apply: sidecarApply,
-      literature_matching_metadata: literatureMatchingMetadataResolved.payload
-        ? {
-            status: "attached",
-            entry: literatureMatchingMetadataResolved.entryPath,
-          }
-        : {
-            status: "unavailable",
-            warning: literatureMatchingMetadataResolved.warning,
-          },
-      auto_reference_matching: {
-        ...autoReferenceMatching,
-        warning: String(
-          error?.message || error || "auto reference matching failed",
-        ),
-      },
-    };
-  }
 }
 
 export async function applyResult(args) {

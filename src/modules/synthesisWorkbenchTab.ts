@@ -6,21 +6,31 @@ import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { getDefaultSynthesisService } from "./synthesis/service";
 import {
+  registerSynthesisWorkbenchSidecarChangeListener,
+  type SynthesisWorkbenchSidecarChangeEvent,
+} from "./synthesisWorkbenchInvalidation";
+import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
   getSynthesisUiOperationKey,
   getSynthesisUiOperationLabel,
+  mergeSynthesisUiSnapshotInput,
   type SynthesisUiAction,
   type SynthesisUiActionOperation,
   type SynthesisUiLayoutPreset,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
+  type SynthesisUiTab,
+  type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
   | "synthesis:snapshot"
+  | "synthesis:chrome"
+  | "synthesis:surface"
+  | "synthesis:surface-error"
   | "synthesis:artifact"
   | "synthesis:topic-detail"
   | "synthesis:digest";
@@ -76,6 +86,10 @@ type SynthesisWorkbenchRuntime = {
   state: SynthesisUiState;
   snapshotInput?: SynthesisUiSnapshotInput;
   snapshotInputLocked?: boolean;
+  loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
+  dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
+  libraryReadModelRevision: number;
+  libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
   lastCompletedCommand?: SynthesisUiActionOperation;
   lastFailedCommand?: SynthesisUiActionOperation;
@@ -89,9 +103,15 @@ const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const SYNTHESIS_WORKBENCH_HANDSHAKE_MAX_ATTEMPTS = 80;
 const SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS = 500;
+const SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS = 250;
 
 let synthesisWorkbenchTab: SynthesisWorkbenchRuntime | undefined;
+let synthesisLibraryReadModelRevision = 0;
 let prewarmedSynthesisSnapshotInput: SynthesisUiSnapshotInput | undefined;
+let prewarmSynthesisSurfacesPromise:
+  | Promise<SynthesisUiSnapshotInput | undefined>
+  | undefined;
+const synthesisWorkbenchRuntimes = new Set<SynthesisWorkbenchRuntime>();
 
 export type MountedSynthesisWorkbenchRuntime = {
   refresh: () => Promise<void>;
@@ -346,6 +366,132 @@ function buildSnapshotErrorInput(error: unknown): SynthesisUiSnapshotInput {
   };
 }
 
+function surfaceForTab(tab: SynthesisUiTab): SynthesisWorkbenchSurfaceName {
+  if (tab === "overview") return "home";
+  if (tab === "artifacts") return "topics";
+  if (tab === "registry") return "index";
+  if (tab === "reviews") return "review";
+  return tab;
+}
+
+function snapshotForRuntime(runtime: SynthesisWorkbenchRuntime) {
+  return buildSynthesisUiSnapshot(
+    {
+      ...(runtime.snapshotInput || buildDefaultSnapshotInput()),
+      actions: actionStatusInput(runtime),
+    },
+    runtime.state,
+  );
+}
+
+function mergeRuntimeSnapshotInput(
+  runtime: SynthesisWorkbenchRuntime,
+  patch: SynthesisUiSnapshotInput | undefined,
+) {
+  runtime.snapshotInput = mergeSynthesisUiSnapshotInput(
+    runtime.snapshotInput || buildDefaultSnapshotInput(),
+    patch,
+  );
+  prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
+}
+
+function markSurfaceLoaded(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  runtime.loadedSurfaces.add(surface);
+  runtime.dirtySurfaces.delete(surface);
+}
+
+function markSurfaceDirty(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  runtime.dirtySurfaces.add(surface);
+}
+
+function registerSynthesisWorkbenchRuntime(runtime: SynthesisWorkbenchRuntime) {
+  synthesisWorkbenchRuntimes.add(runtime);
+}
+
+function scheduleLibraryReadModelSurfaceRefresh(
+  runtime: SynthesisWorkbenchRuntime,
+  surfaces: SynthesisWorkbenchSurfaceName[],
+) {
+  if (runtime.libraryReadModelDirtyTimer) {
+    clearTimeout(runtime.libraryReadModelDirtyTimer);
+  }
+  runtime.libraryReadModelDirtyTimer = globalThis.setTimeout(() => {
+    runtime.libraryReadModelDirtyTimer = undefined;
+    const activeSurface = surfaceForTab(runtime.state.selectedTab);
+    if (!surfaces.includes(activeSurface)) {
+      return;
+    }
+    if (!surfaceNeedsServiceRefresh(runtime, activeSurface)) {
+      return;
+    }
+    void sendSurface(runtime, activeSurface, {
+      refreshFromService: true,
+    });
+  }, SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS);
+}
+
+export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
+  event: string;
+  type: string;
+  ids?: Array<string | number>;
+  extraData?: Record<string, unknown>;
+}) {
+  synthesisLibraryReadModelRevision += 1;
+  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"];
+  for (const runtime of synthesisWorkbenchRuntimes) {
+    runtime.libraryReadModelRevision = synthesisLibraryReadModelRevision;
+    invalidatedSurfaces.forEach((surface) => markSurfaceDirty(runtime, surface));
+    scheduleLibraryReadModelSurfaceRefresh(runtime, invalidatedSurfaces);
+  }
+  return {
+    revision: synthesisLibraryReadModelRevision,
+    invalidatedRuntimes: synthesisWorkbenchRuntimes.size,
+    invalidatedSurfaces,
+    event: args.event,
+    type: args.type,
+    itemCount: args.ids?.length || 0,
+  };
+}
+
+function handleSynthesisWorkbenchSidecarChanged(
+  args: SynthesisWorkbenchSidecarChangeEvent,
+) {
+  const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
+    args.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
+  for (const runtime of synthesisWorkbenchRuntimes) {
+    invalidatedSurfaces.forEach((surface) => markSurfaceDirty(runtime, surface));
+    scheduleLibraryReadModelSurfaceRefresh(runtime, invalidatedSurfaces);
+    void sendChrome(runtime, { refreshFromService: true }).catch((error) =>
+      reportWorkbenchError(error, runtime.window),
+    );
+  }
+  return {
+    invalidatedRuntimes: synthesisWorkbenchRuntimes.size,
+    invalidatedSurfaces,
+    reason: args.reason,
+    sourceRefs: (args.sourceRefs || []).filter(Boolean),
+  };
+}
+
+registerSynthesisWorkbenchSidecarChangeListener(
+  handleSynthesisWorkbenchSidecarChanged,
+);
+
+function surfaceNeedsServiceRefresh(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  return (
+    !runtime.loadedSurfaces.has(surface) || runtime.dirtySurfaces.has(surface)
+  );
+}
+
 function findCreateTopicSynthesisWorkflow() {
   return (
     getLoadedWorkflowEntries().find(
@@ -403,7 +549,15 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
-  const snapshot = await getDefaultSynthesisService().getSynthesisSnapshot();
+  const topicInput =
+    await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
+      "topics",
+      createDefaultSynthesisUiState(),
+    );
+  const snapshot = buildSynthesisUiSnapshot(
+    mergeSynthesisUiSnapshotInput(buildDefaultSnapshotInput(), topicInput),
+    createDefaultSynthesisUiState(),
+  );
   const row = snapshot.artifacts.rows.find(
     (entry) => String(entry.id || "").trim() === args.topicId,
   );
@@ -537,11 +691,11 @@ async function refreshWorkbenchCommandProgress(
       };
       prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
     }
-    await sendSnapshot(runtime, "synthesis:snapshot", {
+    await sendChrome(runtime, {
       refreshFromService: false,
     });
   } catch {
-    await sendSnapshot(runtime, "synthesis:snapshot", {
+    await sendChrome(runtime, {
       refreshFromService: false,
     });
   } finally {
@@ -559,13 +713,13 @@ function runWorkbenchCommandOnce(
   const operation = operationForHostCommand(command, args, "running");
   if (runtime.inFlightCommands.has(operation.key)) {
     recordDuplicateActionWarning(runtime, operation);
-    void sendSnapshot(runtime, "synthesis:snapshot", {
+    void sendChrome(runtime, {
       refreshFromService: false,
     });
     return;
   }
   runtime.inFlightCommands.set(operation.key, operation);
-  void sendSnapshot(runtime, "synthesis:snapshot", {
+  void sendChrome(runtime, {
     refreshFromService: false,
   });
   ensureCommandProgressPolling(runtime);
@@ -597,9 +751,19 @@ function runWorkbenchCommandOnce(
         if (!runtime.inFlightCommands.size) {
           clearCommandProgressPolling(runtime);
         }
-        void sendSnapshot(runtime, "synthesis:snapshot", {
+        void sendChrome(runtime, {
           refreshFromService: options.refreshFromService !== false,
         });
+        const invalidatedSurfaces = surfacesInvalidatedByCommand(command);
+        invalidatedSurfaces.forEach((surface) =>
+          markSurfaceDirty(runtime, surface),
+        );
+        const activeSurface = surfaceForTab(runtime.state.selectedTab);
+        if (invalidatedSurfaces.includes(activeSurface)) {
+          void sendSurface(runtime, activeSurface, {
+            refreshFromService: options.refreshFromService !== false,
+          });
+        }
       });
   if (options.deferStart) {
     globalThis.setTimeout(() => void start(), 0);
@@ -627,19 +791,13 @@ async function sendSnapshot(
     SynthesisBridgeMessageType,
     "synthesis:init" | "synthesis:snapshot"
   >,
-  options: { refreshFromService?: boolean } = {},
+  _options: { refreshFromService?: boolean } = {},
 ) {
   if (!runtime?.frameWindow) {
     return;
   }
-  const shouldRefresh =
-    options.refreshFromService !== false ||
-    (!runtime.snapshotInput && !runtime.snapshotInputLocked);
-  if (shouldRefresh && !runtime.snapshotInputLocked) {
-    runtime.snapshotInput = await getDefaultSynthesisService()
-      .getSynthesisSnapshotInput(runtime.state)
-      .catch((error) => buildSnapshotErrorInput(error));
-    prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
+  if (!runtime.snapshotInput) {
+    runtime.snapshotInput = buildDefaultSnapshotInput();
   }
   const snapshot = buildSynthesisUiSnapshot(
     {
@@ -649,6 +807,73 @@ async function sendSnapshot(
     runtime.state,
   );
   postWorkbenchMessage(runtime, messageType, snapshot);
+}
+
+async function sendChrome(
+  runtime: SynthesisWorkbenchRuntime,
+  options: { refreshFromService?: boolean } = {},
+) {
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
+    const input = await getDefaultSynthesisService()
+      .getSynthesisWorkbenchChromeInput(runtime.state)
+      .catch((error) => buildSnapshotErrorInput(error));
+    mergeRuntimeSnapshotInput(runtime, input);
+  }
+  postWorkbenchMessage(runtime, "synthesis:chrome", snapshotForRuntime(runtime));
+}
+
+async function sendSurface(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+  options: { refreshFromService?: boolean } = {},
+) {
+  if (!runtime?.frameWindow) {
+    return;
+  }
+  try {
+    if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
+      const input =
+        await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
+          surface,
+          runtime.state,
+        );
+      mergeRuntimeSnapshotInput(runtime, input);
+      markSurfaceLoaded(runtime, surface);
+    }
+    postWorkbenchMessage(runtime, "synthesis:surface", {
+      surface,
+      snapshot: snapshotForRuntime(runtime),
+    });
+  } catch (error) {
+    postWorkbenchMessage(runtime, "synthesis:surface-error", {
+      surface,
+      message: error instanceof Error ? error.message : String(error || ""),
+    });
+  }
+}
+
+async function sendActiveSurface(
+  runtime: SynthesisWorkbenchRuntime,
+  options: { refreshFromService?: boolean } = {},
+) {
+  await sendSurface(runtime, surfaceForTab(runtime.state.selectedTab), options);
+}
+
+function scheduleActiveSurfaceRefresh(
+  runtime: SynthesisWorkbenchRuntime,
+  options: { refreshFromService?: boolean } = {},
+) {
+  globalThis.setTimeout(() => {
+    const surface = surfaceForTab(runtime.state.selectedTab);
+    const refreshFromService =
+      options.refreshFromService !== undefined
+        ? options.refreshFromService
+        : surfaceNeedsServiceRefresh(runtime, surface);
+    void sendSurface(runtime, surface, { refreshFromService });
+  }, 0);
 }
 
 async function sendArtifactReader(
@@ -679,7 +904,7 @@ async function sendArtifactReader(
     payload: { topicId },
   });
   runtime.state = result.state;
-  await sendSnapshot(runtime, "synthesis:snapshot", {
+  await sendSurface(runtime, "reader", {
     refreshFromService: false,
   });
   postWorkbenchMessage(runtime, "synthesis:artifact", dto);
@@ -700,7 +925,7 @@ async function sendTopicDetail(
     payload: { topicId },
   });
   runtime.state = result.state;
-  await sendSnapshot(runtime, "synthesis:snapshot", {
+  await sendSurface(runtime, "reader", {
     refreshFromService: false,
   });
   postWorkbenchMessage(
@@ -734,8 +959,11 @@ async function openSynthesisFolderFromWorkbench(args: {
     openPathInSystem(artifact.paths.topicRoot, "synthesis topic folder");
     return;
   }
-  const snapshot = await getDefaultSynthesisService().getSynthesisSnapshot();
-  openPathInSystem(snapshot.storage.rootPath || "", "synthesis folder");
+  const chromeInput =
+    await getDefaultSynthesisService().getSynthesisWorkbenchChromeInput(
+      createDefaultSynthesisUiState(),
+    );
+  openPathInSystem(chromeInput.storage?.rootPath || "", "synthesis folder");
 }
 
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
@@ -803,20 +1031,58 @@ function handleAction(
   if (!runtime) {
     return;
   }
+  const previousState = runtime.state;
   const result = applySynthesisUiAction(runtime.state, {
     action: envelope.action,
     payload: envelope.payload,
   } satisfies SynthesisUiAction);
   if (!result.handled) {
-    void sendSnapshot(runtime, "synthesis:snapshot", {
+    void sendActiveSurface(runtime, {
       refreshFromService: false,
     });
     return;
   }
   runtime.state = result.state;
-  if (envelope.action === "ready" || envelope.action === "refresh") {
-    void sendSnapshot(runtime, "synthesis:snapshot", {
-      refreshFromService: true,
+  if (envelope.action === "ready") {
+    void sendChrome(runtime, { refreshFromService: true });
+    scheduleActiveSurfaceRefresh(runtime);
+    return;
+  }
+  if (envelope.action === "refresh") {
+    void sendChrome(runtime, { refreshFromService: true });
+    scheduleActiveSurfaceRefresh(runtime, { refreshFromService: true });
+    return;
+  }
+  if (envelope.action === "selectTab") {
+    void sendChrome(runtime, { refreshFromService: false });
+    scheduleActiveSurfaceRefresh(runtime);
+    return;
+  }
+  if (envelope.action === "setFilters") {
+    const registryFilters =
+      envelope.payload &&
+      typeof envelope.payload === "object" &&
+      "registry" in envelope.payload &&
+      envelope.payload.registry &&
+      typeof envelope.payload.registry === "object"
+        ? (envelope.payload.registry as Record<string, unknown>)
+        : undefined;
+    const registryScopeChanged =
+      runtime.state.selectedTab === "registry" &&
+      previousState.registry.scope !== runtime.state.registry.scope;
+    const registryExpandedChanged =
+      runtime.state.selectedTab === "registry" &&
+      Boolean(registryFilters && "expandedSourceRefs" in registryFilters) &&
+      previousState.registry.expandedSourceRefs.join("\n") !==
+        runtime.state.registry.expandedSourceRefs.join("\n");
+    const reviewsFilterChanged =
+      runtime.state.selectedTab === "reviews" &&
+      envelope.payload &&
+      typeof envelope.payload === "object" &&
+      "reviews" in envelope.payload;
+    void sendActiveSurface(runtime, {
+      refreshFromService:
+        reviewsFilterChanged || registryScopeChanged || registryExpandedChanged,
     });
     return;
   }
@@ -825,7 +1091,7 @@ function handleAction(
     isProtectedRebuildCommand(result.hostCommand.command) &&
     !confirmProtectedRebuildCommand(result.hostCommand.command, runtime.window)
   ) {
-    void sendSnapshot(runtime, "synthesis:snapshot", {
+    void sendActiveSurface(runtime, {
       refreshFromService: false,
     });
     return;
@@ -880,6 +1146,19 @@ function handleAction(
       {},
       () =>
         getDefaultSynthesisService().rebuildCitationGraphCacheNow({
+          onProgress: () => notifyWorkbenchCommandProgress(runtime),
+        }),
+      { deferStart: true },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "refreshCitationGraphCacheIncrementalNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "refreshCitationGraphCacheIncrementalNow",
+      {},
+      () =>
+        getDefaultSynthesisService().refreshCitationGraphCacheIncrementalNow({
           onProgress: () => notifyWorkbenchCommandProgress(runtime),
         }),
       { deferStart: true },
@@ -961,7 +1240,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "applyTopicGraphReviewAction") {
@@ -1002,7 +1281,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "updateConceptDisplayText") {
@@ -1025,7 +1304,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "applyConceptReviewAction") {
@@ -1054,7 +1333,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "refreshReferenceSidecarNow") {
@@ -1115,8 +1394,14 @@ function handleAction(
               entry.proposalId || entry.proposal_id || "",
             ).trim();
             const requestedAction = String(entry.action || "").trim();
-            const action: "accept" | "reject" | "reopen" | "delete" =
+            const action:
+              | "accept"
+              | "reverse_accept"
+              | "reject"
+              | "reopen"
+              | "delete" =
               requestedAction === "reject" ||
+              requestedAction === "reverse_accept" ||
               requestedAction === "reopen" ||
               requestedAction === "delete"
                 ? requestedAction
@@ -1137,7 +1422,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "applyReferenceMatchProposalAction") {
@@ -1146,6 +1431,7 @@ function handleAction(
     const requestedAction = String(commandArgs.action || "").trim();
     const action =
       requestedAction === "reject" ||
+      requestedAction === "reverse_accept" ||
       requestedAction === "reopen" ||
       requestedAction === "delete"
         ? requestedAction
@@ -1162,7 +1448,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "syncNow") {
@@ -1224,7 +1510,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "applyTagVocabularyImport") {
@@ -1247,7 +1533,7 @@ function handleAction(
       );
       return;
     }
-    void sendSnapshot(runtime, "synthesis:snapshot");
+    void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
   if (result.hostCommand?.command === "openTopicArtifact") {
@@ -1299,7 +1585,7 @@ function handleAction(
         runtime.window,
       )
     ) {
-      void sendSnapshot(runtime, "synthesis:snapshot");
+      void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
     runWorkbenchCommandOnce(runtime, "deleteTopicArtifact", { topicId }, () =>
@@ -1320,7 +1606,7 @@ function handleAction(
         runtime.window,
       )
     ) {
-      void sendSnapshot(runtime, "synthesis:snapshot");
+      void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
     runWorkbenchCommandOnce(runtime, "purgeDeletedTopicArtifacts", {}, () =>
@@ -1333,9 +1619,55 @@ function handleAction(
       reportWorkbenchError(error, runtime.window),
     );
   }
-  void sendSnapshot(runtime, "synthesis:snapshot", {
+  void sendActiveSurface(runtime, {
     refreshFromService: false,
   });
+}
+
+function surfacesInvalidatedByCommand(
+  command: SynthesisUiActionOperation["command"],
+): SynthesisWorkbenchSurfaceName[] {
+  if (
+    command === "refreshReferenceSidecarNow" ||
+    command === "retryReferenceSidecarRefresh" ||
+    command === "runAdvancedReferenceMatchingNow" ||
+    command === "retryAdvancedReferenceMatching"
+  ) {
+    return ["index", "review"];
+  }
+  if (
+    command === "applyReferenceMatchProposalAction" ||
+    command === "applyReferenceMatchProposalActions"
+  ) {
+    return ["index", "review", "graph"];
+  }
+  if (
+    command === "refreshCitationGraphCacheIncrementalNow" ||
+    command === "rebuildCitationGraphCacheNow" ||
+    command === "retryCitationGraphCacheRebuild" ||
+    command === "manualRecomputeLayout"
+  ) {
+    return ["graph"];
+  }
+  if (
+    command === "rebuildTagVocabularyIndex" ||
+    command === "previewTagVocabularyImport" ||
+    command === "applyTagVocabularyImport"
+  ) {
+    return ["tags"];
+  }
+  if (command === "rebuildConceptKbIndex") {
+    return ["concepts"];
+  }
+  if (
+    command === "runSynthesizeTopic" ||
+    command === "submitTopicSynthesisUpdate" ||
+    command === "deleteTopicArtifact" ||
+    command === "purgeDeletedTopicArtifacts"
+  ) {
+    return ["home", "topics"];
+  }
+  return [surfaceForTab(createDefaultSynthesisUiState().selectedTab)];
 }
 
 function shouldRefreshGraphLayoutForAction(
@@ -1355,9 +1687,11 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
     return;
   }
   const service = getDefaultSynthesisService();
-  const input = await service.getSynthesisSnapshotInput(runtime.state);
-  runtime.snapshotInput = input;
-  prewarmedSynthesisSnapshotInput = input;
+  const input = await service.getSynthesisWorkbenchSurfaceInput(
+    "graph",
+    runtime.state,
+  );
+  mergeRuntimeSnapshotInput(runtime, input);
   const status = input.graph?.layoutStatus || "missing";
   if (status === "ready" || !input.graph?.graph_hash) {
     return;
@@ -1365,7 +1699,7 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   await service.recomputeCitationGraphLayout({
     preset: runtime.state.graph.layoutPreset,
   });
-  await sendSnapshot(runtime, "synthesis:snapshot", {
+  await sendSurface(runtime, "graph", {
     refreshFromService: true,
   });
 }
@@ -1375,9 +1709,14 @@ function cleanupSynthesisRuntime(runtime: SynthesisWorkbenchRuntime) {
     clearInterval(runtime.handshakeTimer);
     runtime.handshakeTimer = undefined;
   }
+  if (runtime.libraryReadModelDirtyTimer) {
+    clearTimeout(runtime.libraryReadModelDirtyTimer);
+    runtime.libraryReadModelDirtyTimer = undefined;
+  }
   clearCommandProgressPolling(runtime);
   clearSynthesisWorkbenchBridge(runtime);
   runtime.removeMessageListener?.();
+  synthesisWorkbenchRuntimes.delete(runtime);
 }
 
 function cleanupSynthesisWorkbenchTab() {
@@ -1427,20 +1766,12 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   runtime.handshakeComplete = true;
   stopWorkbenchHandshake(runtime);
-  if (runtime.snapshotInput) {
-    void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
-    void sendSnapshot(runtime, "synthesis:snapshot", {
-      refreshFromService: false,
-    });
-    return;
-  }
   if (!runtime.snapshotInput) {
     runtime.snapshotInput = buildDefaultSnapshotInput();
   }
   void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
-  void sendSnapshot(runtime, "synthesis:snapshot", {
-    refreshFromService: false,
-  });
+  void sendChrome(runtime, { refreshFromService: false });
+  void sendActiveSurface(runtime, { refreshFromService: false });
 }
 
 function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
@@ -1504,15 +1835,20 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     state: createDefaultSynthesisUiState(),
     snapshotInput: initialSnapshotInput,
     snapshotInputLocked: Boolean(args.snapshotInput),
+    loadedSurfaces: new Set(),
+    dirtySurfaces: new Set(),
+    libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
   };
+  registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
   setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
   scheduleWorkbenchHandshake(runtime);
   return {
     refresh: async () => {
-      await sendSnapshot(runtime, "synthesis:snapshot");
+      await sendChrome(runtime, { refreshFromService: true });
+      await sendActiveSurface(runtime, { refreshFromService: true });
     },
     cleanup: () => cleanupSynthesisRuntime(runtime),
   };
@@ -1569,10 +1905,14 @@ export async function openSynthesisWorkbenchTab(
     state: createDefaultSynthesisUiState(),
     snapshotInput: initialSnapshotInput,
     snapshotInputLocked: Boolean(args.snapshotInput),
+    loadedSurfaces: new Set(),
+    dirtySurfaces: new Set(),
+    libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
   };
   synthesisWorkbenchTab = runtime;
+  registerSynthesisWorkbenchRuntime(runtime);
   attachWorkbenchBridge(runtime);
   setSynthesisBrowserSource(frame, resolveSynthesisPageUrl());
   scheduleWorkbenchHandshake(runtime);
@@ -1581,6 +1921,56 @@ export async function openSynthesisWorkbenchTab(
 
 export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
+}
+
+export function prewarmSynthesisWorkbenchSurfaces(args: {
+  surfaces?: SynthesisWorkbenchSurfaceName[];
+} = {}): Promise<
+  SynthesisUiSnapshotInput | undefined
+> {
+  if (prewarmSynthesisSurfacesPromise) {
+    return prewarmSynthesisSurfacesPromise;
+  }
+  prewarmSynthesisSurfacesPromise = getDefaultSynthesisService()
+    .warmSynthesisWorkbenchSurfaces({
+      state: synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
+      surfaces: args.surfaces,
+      onPhase: async (phase) => {
+        if (phase.input) {
+          prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
+            prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
+            phase.input,
+          );
+        }
+        const runtime = synthesisWorkbenchTab;
+        if (!runtime || !phase.input) {
+          return;
+        }
+        mergeRuntimeSnapshotInput(runtime, phase.input);
+        if (phase.surface === "chrome") {
+          await sendChrome(runtime, { refreshFromService: false });
+          return;
+        }
+        markSurfaceLoaded(runtime, phase.surface);
+        if (surfaceForTab(runtime.state.selectedTab) === phase.surface) {
+          await sendSurface(runtime, phase.surface, {
+            refreshFromService: false,
+          });
+        }
+      },
+    })
+    .then((input) => {
+      prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
+        prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
+        input,
+      );
+      return prewarmedSynthesisSnapshotInput;
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      prewarmSynthesisSurfacesPromise = undefined;
+    });
+  return prewarmSynthesisSurfacesPromise;
 }
 
 export async function closeSynthesisWorkbenchTab() {

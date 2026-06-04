@@ -18,6 +18,11 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   hostBridgeToken: string;
   hostBridgeTokenCreatedAt: string;
   hostBridgeTokenRotatedAt: string;
+  hostBridgeAdvertisedHost: string;
+  hostBridgeMasterTokenEncryptedJson: string;
+  hostBridgeMasterTokenMasked: string;
+  hostBridgeMasterTokenUpdatedAt: string;
+  hostBridgeMasterTokenKeyMaterial: string;
   synthesisGitSyncEnabled: boolean;
   synthesisGitSyncRemoteUrl: string;
   synthesisGitSyncBranch: string;

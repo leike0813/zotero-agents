@@ -214,7 +214,8 @@ button.is-busy {
   grid-template-columns: 220px minmax(0, 1fr);
 }
 
-.loading-shell {
+.loading-shell,
+.surface-loading {
   grid-column: 1 / -1;
   display: grid;
   align-content: center;
@@ -223,6 +224,10 @@ button.is-busy {
   width: 100%;
   height: 100%;
   color: var(--zs-muted);
+}
+
+.surface-loading {
+  min-height: 280px;
 }
 
 .loading-spinner {
@@ -1719,6 +1724,56 @@ th {
   height: 100%;
 }
 
+.citation-graph-legend {
+  position: absolute;
+  inset-inline-start: 12px;
+  inset-block-end: 12px;
+  z-index: 2;
+  display: grid;
+  min-width: 184px;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow);
+  color: var(--zs-text);
+  font-size: 12px;
+}
+
+.citation-graph-legend strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.citation-graph-legend-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.citation-graph-legend-edge {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.citation-graph-legend-edge::after {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: -1px;
+  width: 0;
+  height: 0;
+  border-block: 5px solid transparent;
+  border-inline-start: 8px solid currentColor;
+  color: inherit;
+  content: "";
+  transform: translateY(-50%);
+}
+
 .graph-layout-banner {
   position: absolute;
   inset-block-start: 64px;
@@ -1734,6 +1789,26 @@ th {
   border-radius: 6px;
   background: var(--zs-panel);
   box-shadow: var(--zs-shadow);
+}
+
+.graph-zoom-overlay {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: min(220px, calc(100% - 28px));
+  padding: 8px 10px;
+  border: 1px solid var(--zs-border);
+  border-radius: 6px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-subtle);
+}
+
+.graph-zoom-slider {
+  width: 100%;
+  accent-color: var(--zs-accent);
 }
 
 .graph-empty {
@@ -1832,7 +1907,8 @@ th {
   color: var(--zs-text);
 }
 
-.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .graph-control-icon {
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within)
+  .graph-control-icon {
   display: grid;
   place-items: center;
   width: 100%;
@@ -1850,7 +1926,8 @@ th {
   stroke-linejoin: round;
 }
 
-.graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .graph-control-icon svg {
+.graph-control-drawer:not(:hover):not(:focus):not(:focus-within)
+  .graph-control-icon svg {
   transform: translateY(-1px);
 }
 

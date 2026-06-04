@@ -133,6 +133,34 @@ well-known profile 可直接保存 `auth.token`：
 
 文档和日志中只能使用占位符或 masked token，不应记录真实 token。
 
+### 3.3 Remote LAN profile
+
+远程主机调用 Host Bridge 时，必须在 Zotero 偏好页启用 LAN 访问。LAN
+访问会强制使用固定端口；如果固定端口不可用，Host Bridge 会报错而不是
+切到随机端口。远程配置应使用手动复制的 master token，而不是自动轮换的
+本机 token：
+
+```json
+{
+  "schema": "zotero-bridge.profile.v1",
+  "protocol": "host-bridge.v1",
+  "endpoint": "http://<zotero-host-ip>:26570/bridge/v1",
+  "auth": {
+    "type": "bearer",
+    "token": "<master-token>"
+  },
+  "source": "manual-remote"
+}
+```
+
+master token 只通过偏好页手动创建/轮换，并以加密 envelope 存入 prefs。
+该加密用于避免 prefs 明文暴露，不等同于 OS keychain。Host Bridge 同时
+接受当前自动 token 和 master token；manifest/status 只显示 masked token。
+
+文件下载同样支持远程 profile：`zotero-bridge file download <fileId>
+--output <path>` 会调用远程 endpoint 的 `/files/{fileId}`，仍然只接受
+broker-issued opaque file id，不接受本地路径。
+
 ## 4. ACP run workspace 注入
 
 ACP skill run 准备阶段会生成 `.zotero-bridge` 目录：
@@ -948,6 +976,21 @@ zotero-bridge synthesis get-citation-graph-metrics --input @runtime/payloads/met
 zotero-bridge synthesis export-filtered-paper-artifacts --input @runtime/payloads/export-input.json
 ```
 
+`resolve-resolver` 的输入必须是带顶层 `resolver` 字段的 JSON object：
+
+```json
+{
+  "resolver": {
+    "mode": "tag_query",
+    "query": "tag-name"
+  }
+}
+```
+
+不要传 `topic_resolver`、根级 `queries` 或 resolver 对象本体。
+`topic_resolver` 是 workflow bundle 字段，不是 Host Bridge
+`resolve-resolver` 的输入字段。
+
 `get-library-index`、`get-reference-sidecar-index` 和 citation-graph 子命令返回
 Synthesis sidecar cache 视图。它们不保证已经与 Zotero Library 同步，也不会为了
 读取而启动 refresh。Agent 需要当前 Zotero 事实时必须走 `item` / `note`
@@ -1028,9 +1071,11 @@ Content-Type: application/json
 `paper`。旧 `paper.ingest` operation 和 `papers` 批量 payload 不再支持；多篇
 候选必须由调用方逐篇调用。
 
-`note.upsertPayload` 是 Zotero note hidden workflow payload 的正式写入边界。
-它通过 embedded image attachment 写入或替换同 note 下同 `payloadType` 的 payload，
-不会修改 note 正文 HTML，也不会写旧式 `data-zs-payload` block。示例：
+`note.upsertPayload` 是 Zotero note workflow payload 的正式写入边界。
+它通过 v2 embedded image attachment 写入或替换同 note 下同 `payloadType`
+的 payload，并同步维护 note HTML 中的
+`img[data-attachment-key][data-zs-payload-anchor]` 保活 anchor。它不会写旧式
+`data-zs-payload` hidden block。示例：
 
 ```json
 {

@@ -19,13 +19,32 @@ Contract key: `p95_ms`.
 
 | Read Path | p95 Target | Required Strategy |
 | --- | ---: | --- |
-| Workbench snapshot | 500 ms | Delay heavy diagnostics; paginate large lists. |
+| Workbench chrome input | 150 ms | Read operation/cache/status state only; no content surface reads and no graph overview construction. |
+| Workbench active surface input | 500 ms | Load one named surface; no unrelated graph/tag/concept/index fan-out. |
 | Reference/cache table page | 250 ms | Max page size 100; stale cache badge when basis is unknown or old. |
-| Cleanup/review rows | 250 ms | Default limit 100. |
+| Cleanup/review rows | 250 ms | Review Center default limit 50; Index drawer may load only a small open-review slice. |
 | Topic list/options | 250 ms | Read topic summaries and direct source-check summaries; do not trigger cache refresh. |
 | Graph default read model | tiered | Read existing graph cache and expose missing/stale/failed status. Normal tier target p95 <= 1000 ms; target tier p95 <= 2500 ms with progressive render allowed; stress tier may return degraded summary/slice first. Missing/stale graph data recommends graph cache rebuild, not layout rebuild. |
 | Operation popover | 150 ms | Active explicit operation limit 50. |
 | Debug list | 1000 ms | Default limit 100, max 1000, `truncated` flag required. |
+
+Workbench full snapshot construction is a debug path, not a UI budget target.
+Startup warmup should fill lightweight chrome only by default. Content surface
+warmup must be bounded, explicit, and yield to Zotero's event loop before each
+phase. Hidden surfaces may remain stale until viewed or explicitly invalidated.
+
+Workbench tab switching should reuse loaded clean surface read models. A hidden
+surface invalidated by an operation should be marked dirty, not refreshed in the
+background. Zotero Library item notifications should only mark affected direct-read
+surfaces dirty and debounce a reload when the affected surface is visible; the
+notifier path must not scan the library, construct a full Workbench snapshot, or
+start Reference Sidecar refresh. Index surface reads must bound both the Zotero Library page and the
+sidecar join to the current page's source refs. Default Index rows should carry
+reference counts, not full raw-reference arrays; full reference rows are loaded
+only for bounded referenced views or explicit row/detail reads. Review surface
+reads must be bounded by the active Review tab and status/kind/confidence filters
+and must load readable context from summary item reads plus bounded raw-reference
+ids only.
 
 ## SQLite Policy
 
@@ -81,10 +100,11 @@ strategy.
 | Reference sidecar refresh stage 2 | changed references artifacts | 3000 ms per slice | Changed artifacts, extracted raw references, canonical matches, binding candidates. |
 | Advanced reference matching | unbound active references by default | 3000 ms per slice | Indexed papers, processed references, auto-accepted matches, proposals created, rejected proposals preserved. |
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
+| Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
 | Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
 | Citation graph complex metrics | phase bounded | 3000 ms | Fixed phases or metric rows. |
 | Citation graph layout rebuild | cached read fast path; compute in bounded slices | 3000 ms per explicit operation tick | Layout nodes or fixed phases for an existing graph hash. Target/stress tiers may use stale or partial coordinates while rebuild continues. |
-| Zotero related-items sync | explicit 100 accepted library edges | 2000 ms | Accepted library-to-library citation edges. |
+| Zotero related-items sync | scoped source refs or batched full accepted edges | 2000 ms per 100 accepted library edges | Accepted library-to-library citation edges resolved from ready graph cache or sidecar fallback. |
 | Topic discovery apply-time match | active topics for one literature | 2000 ms | Active topic count. |
 | Topic discovery repair | 500 topic-literature pairs | 2000 ms | Bounded pairs. |
 | Topic source check | one topic | 2000 ms | Saved source count. |

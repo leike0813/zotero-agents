@@ -8,6 +8,7 @@ import {
   redactHostBridgeToken,
   resetHostBridgeServerForTests,
   restartHostBridgeServer,
+  rotateHostBridgeMasterToken,
   rotateHostBridgeToken,
   shutdownHostBridgeServer,
   startHostBridgeSupervisor,
@@ -27,12 +28,39 @@ function parseRawHttpResponse(raw: string) {
   };
 }
 
+function rawHttpRequestBytes(args: {
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  bodyBytes?: Uint8Array;
+}) {
+  const bodyBytes = args.bodyBytes || new Uint8Array();
+  const headers = {
+    "Content-Length": String(bodyBytes.byteLength),
+    ...(args.headers || {}),
+  };
+  const head = [
+    `${args.method} ${args.path} HTTP/1.1`,
+    ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
+    "",
+    "",
+  ].join("\r\n");
+  return new Uint8Array(
+    Buffer.concat([Buffer.from(head, "latin1"), Buffer.from(bodyBytes)]),
+  );
+}
+
 describe("host bridge server phase 1", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
     setPref("hostBridgeLanEnabled", false);
     setPref("hostBridgePinPortEnabled", false);
     setPref("hostBridgePinnedPort", 26570);
+    setPref("hostBridgeAdvertisedHost", "");
+    setPref("hostBridgeMasterTokenEncryptedJson", "");
+    setPref("hostBridgeMasterTokenMasked", "");
+    setPref("hostBridgeMasterTokenUpdatedAt", "");
+    setPref("hostBridgeMasterTokenKeyMaterial", "");
   });
 
   it("serves unauthenticated health without leaking token or paths", async function () {
@@ -115,6 +143,9 @@ describe("host bridge server phase 1", function () {
     assert.deepInclude(parsed.json.result.fileDownloads, {
       supported: true,
       endpoint: "GET /bridge/v1/files/{fileId}",
+      urlTemplate: "{endpoint}/files/{fileId}",
+      auth: "bearer",
+      supportsRemoteClients: true,
       arbitraryPathAllowed: false,
       approvalRequired: false,
     });
@@ -185,6 +216,30 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(invalidMethod.json.error.code, "method_not_allowed");
   });
 
+  it("rejects malformed UTF-8 request bodies before JSON parsing", async function () {
+    const token = configureHostBridgeServerForTests({ token: "utf8-token" });
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v1/call",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/bridge/v1/call",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          bodyBytes: new Uint8Array([0x7b, 0xff, 0x7d]),
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(parsed.json.error.code, "bad_request");
+    assert.include(parsed.json.error.message, "invalid_utf8_body");
+  });
+
   it("reports loopback bind mode by default", function () {
     configureHostBridgeServerForTests();
     const status = getHostBridgeServerStatus();
@@ -214,6 +269,140 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(status.portMode, "pinned");
     assert.isTrue(status.pinPortEnabled);
     assert.deepEqual(listened, [27654]);
+  });
+
+  it("forces a fixed port for LAN mode and exposes remote endpoint hints", async function () {
+    const listened: Array<{ port: number; bindMode: string }> = [];
+    setPref("hostBridgeLanEnabled", true);
+    setPref("hostBridgePinPortEnabled", false);
+    setPref("hostBridgePinnedPort", 27655);
+    setPref("hostBridgeAdvertisedHost", "192.0.2.25");
+    hostBridgeServerInternalsForTests.setServerSocketFactory(
+      (port, bindMode) => ({
+        asyncListen: () => listened.push({ port, bindMode }),
+        close: () => undefined,
+      }),
+    );
+
+    const status = await restartHostBridgeServer();
+
+    assert.strictEqual(status.status, "running");
+    assert.strictEqual(status.bindMode, "lan");
+    assert.isTrue(status.lanEnabled);
+    assert.strictEqual(status.host, "0.0.0.0");
+    assert.strictEqual(
+      status.endpoint,
+      "http://127.0.0.1:27655/bridge/v1",
+    );
+    assert.isTrue(status.pinPortEnabled);
+    assert.strictEqual(status.portMode, "pinned");
+    assert.strictEqual(status.port, 27655);
+    assert.strictEqual(
+      status.remoteEndpoint,
+      "http://192.0.2.25:27655/bridge/v1",
+    );
+    assert.isFalse(status.remoteEndpointUsesPlaceholder);
+    assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${getPref("hostBridgeToken")}`,
+        },
+      }),
+    );
+    assert.strictEqual(manifest.status, 200);
+    assert.strictEqual(
+      manifest.json.result.endpoint.url,
+      "http://127.0.0.1:27655/bridge/v1",
+    );
+    assert.strictEqual(
+      manifest.json.result.endpoint.remoteUrl,
+      "http://192.0.2.25:27655/bridge/v1",
+    );
+  });
+
+  it("does not fall back to a random port when the LAN fixed port is unavailable", async function () {
+    setPref("hostBridgeLanEnabled", true);
+    setPref("hostBridgePinPortEnabled", true);
+    setPref("hostBridgePinnedPort", 27656);
+    hostBridgeServerInternalsForTests.setServerSocketFactory(() => {
+      throw new Error("port unavailable");
+    });
+
+    const status = await restartHostBridgeServer();
+
+    assert.strictEqual(status.status, "error");
+    assert.strictEqual(status.bindMode, "lan");
+    assert.isTrue(status.pinPortEnabled);
+    assert.strictEqual(status.portMode, "pinned");
+    assert.include(status.lastRecoveryReason, "LAN port");
+  });
+
+  it("allows local token and encrypted master token authentication independently", async function () {
+    const localToken = configureHostBridgeServerForTests({
+      token: "local-token",
+    });
+    const master = await rotateHostBridgeMasterToken();
+
+    const encrypted = String(
+      getPref("hostBridgeMasterTokenEncryptedJson") || "",
+    );
+    assert.isNotEmpty(encrypted);
+    assert.notInclude(encrypted, master.token);
+
+    const masterManifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${master.token}`,
+        },
+      }),
+    );
+    assert.strictEqual(masterManifest.status, 200);
+    assert.isTrue(masterManifest.json.result.auth.masterTokenConfigured);
+    assert.strictEqual(
+      masterManifest.json.result.auth.masterTokenMasked,
+      master.tokenMasked,
+    );
+    assert.notInclude(masterManifest.body, master.token);
+
+    const rotated = await rotateHostBridgeMasterToken();
+    const oldMaster = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${master.token}`,
+        },
+      }),
+    );
+    assert.strictEqual(oldMaster.status, 401);
+
+    const newMaster = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${rotated.token}`,
+        },
+      }),
+    );
+    assert.strictEqual(newMaster.status, 200);
+
+    const local = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${localToken}`,
+        },
+      }),
+    );
+    assert.strictEqual(local.status, 200);
   });
 
   it("disables pin port and falls back to the random range on pinned port conflict", async function () {

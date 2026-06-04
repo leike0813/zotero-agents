@@ -255,25 +255,18 @@ export async function runWorkflowPreparationSeam(args: {
         !args.suppressUiFeedback &&
         shouldShowWorkflowNotifications(args.workflow.manifest)
       ) {
-        const upToDateReferenceMatching =
-          args.workflow.manifest.id === "reference-matching" && skippedUnits > 0;
         resolved.alertWindow(
           args.win,
-          upToDateReferenceMatching
-            ? localizeWorkflowText(
-                "workflow-reference-matching-up-to-date",
-                "Reference matching results are already up to date for the selected references note(s).",
-              )
-            : buildWorkflowFinishMessage(
-                {
-                  workflowLabel: args.workflow.manifest.label,
-                  succeeded: 0,
-                  failed: 0,
-                  skipped: skippedUnits,
-                  failureReasons: [],
-                },
-                args.messageFormatter,
-              ),
+          buildWorkflowFinishMessage(
+            {
+              workflowLabel: args.workflow.manifest.label,
+              succeeded: 0,
+              failed: 0,
+              skipped: skippedUnits,
+              failureReasons: [],
+            },
+            args.messageFormatter,
+          ),
         );
       }
       return {

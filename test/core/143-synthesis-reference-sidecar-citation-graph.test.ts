@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import {
   maybeStartSynthesisJobProfileRun,
   readSynthesisJobProfilerSnapshotForTests,
@@ -65,7 +66,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     );
   });
 
-  it("direct-writes digest sidecar facts without starting graph refresh", async function () {
+  it("direct-writes digest sidecar facts and skips graph bootstrap when missing", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({ root });
 
@@ -95,10 +96,11 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(repository.listRawReferences().length, 1);
     assert.equal(repository.listReferenceFacts()[0]?.resolutionStatus, "unbound");
     assert.equal(repository.listArtifactSidecars().length, 3);
-    assert.equal(repository.listOperations({ includeCompleted: true }).length, 0);
-    assert.equal(
-      repository.listCacheBasis({ cacheKinds: ["citation_graph"] })[0]?.status,
-      "stale",
+    const operations = repository.listOperations({ includeCompleted: true });
+    assert.equal(operations[0]?.operationType, "related_items_sync");
+    assert.equal(operations[0]?.status, "failed");
+    assert.isUndefined(
+      repository.listCacheBasis({ cacheKinds: ["citation_graph"] })[0],
     );
 
     const registry = await service.getReferenceSidecarIndex({
@@ -106,6 +108,144 @@ describe("Synthesis sidecar cache hard cut", function () {
     });
     assert.equal(registry.rows[0]?.paper_ref, "1:AAA");
     assert.equal(registry.rows[0]?.artifactCoverage, "complete");
+  });
+
+  it("verifies incomplete visible Index rows against current Zotero artifacts", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      libraryAdapter: {
+        async getRegistryInputs() {
+          throw new Error("full registry scan must not be used");
+        },
+        async getRegistryInputsPage() {
+          return [
+            {
+              libraryId: 1,
+              itemKey: "AAA",
+              title: "Current Paper",
+              notes: [],
+            },
+          ];
+        },
+        async getRegistryInputForItem() {
+          return {
+            libraryId: 1,
+            itemKey: "AAA",
+            title: "Current Paper",
+            notes: [
+              {
+                key: "REFS",
+                title: "References",
+                html: renderPayloadBlock({
+                  payloadType: "references-json",
+                  payload: { references: [{ title: "Actual Reference" }] },
+                }),
+              },
+            ],
+          };
+        },
+      },
+    });
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      artifactType: "references",
+      status: "missing",
+      artifactHash: "",
+      locatorJson: "{}",
+      diagnosticsJson: "[]",
+      scannedAt: "2026-06-04T00:00:00.000Z",
+      updatedAt: "2026-06-04T00:00:00.000Z",
+    });
+
+    const input = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const row = input.registry?.rows?.[0];
+
+    assert.equal(row?.paper_ref, "1:AAA");
+    assert.equal(row?.artifactCoverage, "partial");
+    assert.notInclude(row?.missing_artifacts || [], "references");
+  });
+
+  it("keeps sidecar artifact diagnostics and locators consistent with cached artifact status", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const { service } = makeService({
+      root,
+      repository,
+      libraryAdapter: {
+        async getRegistryInputsPage() {
+          return [
+            {
+              libraryId: 1,
+              itemKey: "AAA",
+              title: "Current Paper",
+              notes: [],
+            },
+          ];
+        },
+        async getRegistryInputForItem() {
+          return null;
+        },
+      },
+    });
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      artifactType: "digest",
+      status: "available",
+      artifactHash: "sha256:digest",
+      locatorJson: JSON.stringify({
+        note_key: "NDIGEST",
+        note_title: "Digest",
+        payload_type: "digest-markdown",
+      }),
+      diagnosticsJson: "[]",
+      scannedAt: "2026-06-04T00:00:00.000Z",
+      updatedAt: "2026-06-04T00:00:00.000Z",
+    });
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      artifactType: "references",
+      status: "available",
+      artifactHash: "sha256:refs",
+      locatorJson: JSON.stringify({
+        note_key: "NREFS",
+        note_title: "References",
+        payload_type: "references-json",
+      }),
+      diagnosticsJson: "[]",
+      scannedAt: "2026-06-04T00:00:00.000Z",
+      updatedAt: "2026-06-04T00:00:00.000Z",
+    });
+    repository.upsertArtifactSidecar({
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      artifactType: "citation_analysis",
+      status: "available",
+      artifactHash: "sha256:cite",
+      locatorJson: JSON.stringify({
+        note_key: "NCITE",
+        note_title: "Citation Analysis",
+        payload_type: "citation-analysis-json",
+      }),
+      diagnosticsJson: "[]",
+      scannedAt: "2026-06-04T00:00:00.000Z",
+      updatedAt: "2026-06-04T00:00:00.000Z",
+    });
+
+    const index = await service.getReferenceSidecarIndex({ limit: 1 });
+    const row = index.rows[0];
+
+    assert.equal(row?.artifactCoverage, "complete");
+    assert.deepEqual(row?.diagnostics || [], []);
+    assert.equal(row?.artifacts.digest.note_key, "NDIGEST");
+    assert.equal(row?.artifacts.references.note_title, "References");
   });
 
   it("skips deterministic invalid references during sidecar ingestion [inv.reference.quality_gate_before_identity]", async function () {
@@ -302,13 +442,7 @@ describe("Synthesis sidecar cache hard cut", function () {
         progressCalls += 1;
       },
     });
-    assert.equal(
-      repository.getCacheBasis("citation-graph:library")?.status,
-      "stale",
-    );
-    assert.equal(repository.listCitationEdges().length, 0);
-
-    await service.rebuildCitationGraphCacheNow();
+    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
 
     assert.equal(ready.status, "ready");
     assert.isAtLeast(progressCalls, 3);
@@ -339,6 +473,126 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(failed.status, "ready");
     assert.equal(repository.getCacheBasis("reference-sidecar:library")?.status, "ready");
     assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+  });
+
+  it("refreshes citation graph source slices without replacing unrelated rows", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAA", title: "Source A", notes: [] },
+        { libraryId: 1, itemKey: "BBB", title: "Target B", notes: [] },
+        { libraryId: 1, itemKey: "CCC", title: "Source C", notes: [] },
+        { libraryId: 1, itemKey: "DDD", title: "Target D", notes: [] },
+        { libraryId: 1, itemKey: "EEE", title: "Target E", notes: [] },
+      ],
+    });
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Source A",
+      references: [{ title: "Target B", citekey: "b" }],
+      matchedItems: [{ libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" }],
+    });
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "CCC",
+      title: "Source C",
+      references: [{ title: "Target D", citekey: "d" }],
+      matchedItems: [{ libraryId: 1, itemKey: "DDD", title: "Target D", citekey: "d" }],
+    });
+    await service.rebuildCitationGraphCacheNow();
+
+    assert.sameMembers(
+      repository.listCitationEdges({ statuses: ["accepted"] }).map((edge) => `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`),
+      ["1:AAA->1:BBB", "1:CCC->1:DDD"],
+    );
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Source A",
+      references: [{ title: "Target E", citekey: "e" }],
+      matchedItems: [{ libraryId: 1, itemKey: "EEE", title: "Target E", citekey: "e" }],
+    });
+
+    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+    assert.sameMembers(
+      repository.listCitationEdges({ statuses: ["accepted"] }).map((edge) => `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`),
+      ["1:AAA->1:EEE", "1:CCC->1:DDD"],
+    );
+    assert.equal(
+      repository.listCitationLightMetrics({ literatureItemIds: ["1:EEE"] })[0]?.incomingCount,
+      1,
+    );
+    assert.equal(
+      repository.listOperations({ includeCompleted: true })
+        .some((operation) => operation.operationType === "citation_graph_cache_incremental_refresh"),
+      true,
+    );
+  });
+
+  it("runs manual stale graph cache incremental refresh from cache basis delta metadata", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAA", title: "Source A", notes: [] },
+        { libraryId: 1, itemKey: "BBB", title: "Target B", notes: [] },
+      ],
+    });
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Source A",
+      references: [{ title: "Target B", citekey: "b" }],
+      matchedItems: [{ libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" }],
+    });
+    await service.rebuildCitationGraphCacheNow();
+    const rebuildCount = repository.listOperations({ includeCompleted: true })
+      .filter((operation) => operation.operationType === "citation_graph_cache_rebuild")
+      .length;
+    repository.upsertCacheBasis({
+      cacheKey: "citation-graph:library",
+      cacheKind: "citation_graph",
+      scopeKind: "library",
+      scopeRef: "1",
+      status: "stale",
+      basisKind: "test",
+      basisValue: "manual-stale",
+      sourceHash: "sha256:stale",
+      diagnosticsJson: JSON.stringify([
+        {
+          code: "citation_graph_cache_stale_delta",
+          severity: "info",
+          reason: "test",
+          source_refs: ["1:AAA"],
+          changed_canonical_ids: [],
+          changed_binding_canonical_ids: [],
+          changed_redirect_canonical_ids: [],
+        },
+      ]),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const result = await service.refreshCitationGraphCacheIncrementalNow();
+
+    assert.equal(result.status, "completed");
+    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+    assert.equal(
+      repository.listOperations({ includeCompleted: true })
+        .filter((operation) => operation.operationType === "citation_graph_cache_rebuild")
+        .length,
+      rebuildCount,
+    );
+    assert.include(
+      repository.listOperations({ includeCompleted: true }).map(
+        (operation) => operation.operationType,
+      ),
+      "citation_graph_cache_incremental_refresh",
+    );
   });
 
   it("profiles reference sidecar and citation graph rebuild phases", async function () {
@@ -473,7 +727,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(repository.listCacheBasis().length, 0);
   });
 
-  it("runs related-items sync only as an explicit provenance-protected operation", async function () {
+  it("runs related-items sync from accepted sidecar edges without graph bootstrap", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({ root });
     const relations = new Set<string>();
@@ -516,9 +770,25 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(stats.reads, 1);
     assert.equal(stats.adds, 1);
     assert.equal(stats.removes, 0);
+    const rerun = await service.syncRelatedItemsNow({
+      host: {
+        hasRelatedItem(args) {
+          stats.reads += 1;
+          return relations.has(`${args.sourceItemKey}->${args.targetItemKey}`);
+        },
+        addRelatedItem(args) {
+          stats.adds += 1;
+          relations.add(`${args.sourceItemKey}->${args.targetItemKey}`);
+        },
+      },
+    });
+    assert.equal(rerun.added, 0);
+    assert.equal(rerun.existing, 1);
+    assert.equal(stats.reads, 2);
+    assert.equal(stats.adds, 1);
     assert.equal(
       repository.listRelatedItemsSyncEffects()[0]?.status,
-      "pending_external_write",
+      "already_existed",
     );
     assert.equal(
       repository.listOperations({ includeCompleted: true })[0]?.operationType,

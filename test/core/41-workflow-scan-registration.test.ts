@@ -115,6 +115,17 @@ describe("workflow scan + registry integration", function () {
       builtinDir.replace(/\\/g, "/"),
       /zotero-agents\/data\/workflows_builtin$/,
     );
+    assert.isTrue(
+      await existsPath(
+        joinPath(
+          builtinDir,
+          "literature-workbench-package",
+          "lib",
+          "referenceQualityGate.mjs",
+        ),
+      ),
+      "literature-digest quality gate module should be copied with builtin workflows",
+    );
 
     assert.equal(state.workflowsDir, configuredDir);
     assert.equal(state.builtinWorkflowsDir, builtinDir);
@@ -123,6 +134,9 @@ describe("workflow scan + registry integration", function () {
       workflow,
       `workflows=${state.loaded.workflows.map((entry) => entry.manifest.id).join(",")} warnings=${JSON.stringify(state.loaded.warnings)} errors=${JSON.stringify(state.loaded.errors)}`,
     );
+    const workflowIds = state.loaded.workflows.map((entry) => entry.manifest.id);
+    assert.notInclude(workflowIds, "reference-matching");
+    assert.notInclude(workflowIds, "reference-note-editor");
     assert.equal(workflow?.manifest.label, "Literature Digest");
     assert.isFunction(workflow?.hooks.applyResult);
     assert.isFunction(workflow?.hooks.filterInputs);

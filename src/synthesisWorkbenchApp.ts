@@ -36,6 +36,8 @@ type GraphNode = {
   label: string;
   kind: GraphNodeKind;
   year?: string;
+  tags?: string[];
+  collections?: string[];
   x?: number;
   y?: number;
   low_signal?: boolean;
@@ -61,6 +63,16 @@ type SynthesisTab =
   | "tags"
   | "concepts"
   | "graph"
+  | "reader";
+
+type WorkbenchSurfaceName =
+  | "home"
+  | "topics"
+  | "index"
+  | "review"
+  | "graph"
+  | "tags"
+  | "concepts"
   | "reader";
 
 type Snapshot = {
@@ -352,7 +364,12 @@ type OptimisticReviewDecision = {
   createdAt: number;
 };
 
-type ReferenceProposalAction = "accept" | "reject" | "reopen" | "delete";
+type ReferenceProposalAction =
+  | "accept"
+  | "reverse_accept"
+  | "reject"
+  | "reopen"
+  | "delete";
 
 type PendingReferenceProposalDecision = {
   proposalId: string;
@@ -365,10 +382,20 @@ type ReferenceProposalSubmission = {
   proposalIds: string[];
 };
 
+type WorkbenchSurfaceRuntime = {
+  status: "missing" | "loading" | "ready" | "stale" | "failed";
+  revision: number;
+  error?: string;
+  snapshot?: Snapshot;
+};
+
 const STATUSBAR_COMPLETED_TIMEOUT_MS = 4000;
 const STATUSBAR_FAILED_TIMEOUT_MS = 8000;
 const STATUSBAR_WARNING_TIMEOUT_MS = 8000;
 const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
+const GRAPH_MIN_ZOOM_RATIO = 0.12;
+const GRAPH_MAX_ZOOM_RATIO = 2.4;
+const GRAPH_ZOOM_SLIDER_MAX = 100;
 
 const state: {
   snapshot: Snapshot | null;
@@ -386,7 +413,9 @@ const state: {
   sigmaResizeObserver?: ResizeObserver;
   graph?: Graph;
   hoveredNode?: string;
+  hoverLabelNode?: string;
   hoverClearTimer?: number;
+  graphSearchDraft?: string;
   dynamicHoverNodeIds: Set<string>;
   dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
@@ -397,6 +426,7 @@ const state: {
   >;
   selectedReferenceProposalIds: Set<string>;
   referenceProposalSubmission?: ReferenceProposalSubmission;
+  surfaces: Record<string, WorkbenchSurfaceRuntime>;
   lastLocalAction?: ActionOperation;
   statusbarExpirations: Map<string, number>;
   statusbarTimer?: number;
@@ -405,6 +435,7 @@ const state: {
   dismissedTagImportPreviewSignature?: string;
   autoLayoutRequests: Set<string>;
   registryExpandedRows: Set<string>;
+  registryLoadingReferenceRows: Set<string>;
 } = {
   snapshot: null,
   topicDetailSection: "overview",
@@ -415,11 +446,13 @@ const state: {
   optimisticReviewDecisions: new Map(),
   pendingReferenceProposalDecisions: new Map(),
   selectedReferenceProposalIds: new Set(),
+  surfaces: {},
   statusbarExpirations: new Map(),
   jobPopoverOpen: false,
   tagImportOpen: false,
   autoLayoutRequests: new Set(),
   registryExpandedRows: new Set(),
+  registryLoadingReferenceRows: new Set(),
   dynamicHoverNodeIds: new Set(),
   dynamicHoverEdgeIds: new Set(),
 };
@@ -429,7 +462,39 @@ const colors: Record<GraphNodeKind, string> = {
   external_reference: "#7a861f",
 };
 
+const CITATION_GRAPH_EDGE_SIZE = 1.05;
+const CITATION_GRAPH_INCOMING_EDGE_COLOR = "#d97706";
+const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
+
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
+  if (action === "selectTab" && state.snapshot) {
+    const tab = textValue(payload.tab) as SynthesisTab;
+    if (
+      tab === "overview" ||
+      tab === "artifacts" ||
+      tab === "registry" ||
+      tab === "reviews" ||
+      tab === "tags" ||
+      tab === "concepts" ||
+      tab === "graph" ||
+      tab === "reader"
+    ) {
+      state.snapshot = {
+        ...state.snapshot,
+        selectedTab: tab,
+      };
+      const surface = surfaceForTab(tab);
+      if (
+        surfaceRuntime(surface)?.status === "ready" &&
+        restoreCachedSurfaceSnapshot(surface, tab)
+      ) {
+        // Keep the cached surface visible while the host decides whether it is stale.
+      } else {
+        markSurfaceRuntime(surface, "loading");
+      }
+      renderSelectedTabShell();
+    }
+  }
   if (action === "hostCommand") {
     const command = textValue(payload.command);
     const args = recordValue(payload.args);
@@ -568,6 +633,8 @@ function operationLabel(command: string) {
     retryAdvancedReferenceMatching: "Retrying advanced reference matching",
     applyReferenceMatchProposalAction: "Applying reference match proposal",
     applyReferenceMatchProposalActions: "Applying reference match proposals",
+    refreshCitationGraphCacheIncrementalNow:
+      "Refreshing citation graph cache incrementally",
     rebuildCitationGraphCacheNow: "Rebuilding citation graph cache",
     retryCitationGraphCacheRebuild: "Retrying citation graph cache rebuild",
     runSynthesizeTopic: "Starting topic synthesis",
@@ -896,6 +963,66 @@ function titleForTab(tab: Snapshot["selectedTab"]) {
   if (tab === "graph") return "Citation Graph";
   if (tab === "reviews") return "Review";
   return "Home";
+}
+
+function surfaceForTab(tab: Snapshot["selectedTab"]): WorkbenchSurfaceName {
+  if (tab === "overview") return "home";
+  if (tab === "artifacts") return "topics";
+  if (tab === "registry") return "index";
+  if (tab === "reviews") return "review";
+  return tab;
+}
+
+function surfaceRuntimeKey(
+  surface: WorkbenchSurfaceName,
+  snapshot: Snapshot | null = state.snapshot,
+) {
+  if (surface !== "index") {
+    return surface;
+  }
+  const scope = textValue(snapshot?.registry?.filters?.scope, "library");
+  return `index:${
+    scope === "referenced" ? "referenced" : scope === "all" ? "all" : "library"
+  }`;
+}
+
+function surfaceRuntime(surface: WorkbenchSurfaceName) {
+  return state.surfaces[surfaceRuntimeKey(surface)];
+}
+
+function markSurfaceRuntime(
+  surface: WorkbenchSurfaceName,
+  status: WorkbenchSurfaceRuntime["status"],
+  error?: string,
+  snapshot?: Snapshot,
+) {
+  const key = surfaceRuntimeKey(surface, snapshot || state.snapshot);
+  const previous = state.surfaces[key];
+  state.surfaces[key] = {
+    status,
+    revision: (previous?.revision || 0) + 1,
+    error,
+    snapshot: snapshot || previous?.snapshot,
+  };
+}
+
+function restoreCachedSurfaceSnapshot(
+  surface: WorkbenchSurfaceName,
+  selectedTab: SynthesisTab,
+) {
+  const cached = surfaceRuntime(surface)?.snapshot;
+  if (!cached || !state.snapshot) {
+    return false;
+  }
+  state.snapshot = {
+    ...cached,
+    selectedTab,
+    actions: state.snapshot.actions,
+    maintenance: state.snapshot.maintenance || cached.maintenance,
+    storage: state.snapshot.storage || cached.storage,
+    sync: state.snapshot.sync || cached.sync,
+  };
+  return true;
 }
 
 function actionStatusbarKey(
@@ -1374,6 +1501,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
       { tab },
       snapshot.selectedTab === tab,
     );
+    button.dataset.synthesisTab = tab;
     button.title = label;
     button.setAttribute("aria-label", label);
     const icon = el("span", `nav-icon nav-icon-${iconName}`);
@@ -1404,10 +1532,72 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   }
   content.appendChild(topbar);
   const main = el("section", "main");
+  main.dataset.synthesisSurface = surfaceForTab(snapshot.selectedTab);
   renderCurrentView(main, snapshot);
   content.appendChild(main);
   content.appendChild(renderActionStatusbar(snapshot));
   root.appendChild(content);
+}
+
+function renderSelectedTabShell() {
+  const root = document.getElementById("app") as HTMLElement | null;
+  if (!root || !state.snapshot) {
+    render();
+    return;
+  }
+  const main = root.querySelector(".main") as HTMLElement | null;
+  const topbar = root.querySelector(".topbar") as HTMLElement | null;
+  if (!main || !topbar) {
+    render();
+    return;
+  }
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-synthesis-tab]")
+    .forEach((button: HTMLButtonElement) => {
+      const active = button.dataset.synthesisTab === state.snapshot?.selectedTab;
+      button.classList.toggle("active", active);
+    });
+  clear(topbar);
+  topbar.appendChild(el("h1", "", titleForTab(state.snapshot.selectedTab)));
+  if (state.snapshot.selectedTab === "reader" && state.topicDetail) {
+    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, state.snapshot));
+  }
+  if (main.dataset.synthesisSurface === "graph") {
+    disposeGraphRenderer();
+  }
+  const surface = surfaceForTab(state.snapshot.selectedTab);
+  main.dataset.synthesisSurface = surface;
+  clear(main);
+  if (surfaceRuntime(surface)?.status === "ready") {
+    renderCurrentView(main, state.snapshot);
+    maybeRequestGraphLayoutRefresh(state.snapshot);
+  } else {
+    main.appendChild(renderSurfaceLoading(surface));
+  }
+  state.lastContentSignature = "";
+}
+
+function renderSurfaceLoading(surface: WorkbenchSurfaceName) {
+  const wrap = el("div", "surface-loading");
+  wrap.dataset.synthesisSurface = `${surface}-loading`;
+  wrap.appendChild(el("div", "loading-spinner"));
+  wrap.appendChild(el("div", "loading-title", `Loading ${surfaceLabel(surface)}`));
+  wrap.appendChild(
+    el("div", "loading-subtitle", "Preparing this Workbench view..."),
+  );
+  return wrap;
+}
+
+function surfaceLabel(surface: WorkbenchSurfaceName) {
+  if (surface === "home") return "Home";
+  if (surface === "topics") return "Topics";
+  if (surface === "index") return "Index";
+  if (surface === "review") return "Review";
+  if (surface === "graph") return "Citation Graph";
+  if (surface === "tags") return "Tags";
+  if (surface === "concepts") return "Concepts";
+  if (surface === "reader") return "Reader";
+  return "Synthesis";
 }
 
 function renderWorkbenchChrome() {
@@ -1423,6 +1613,33 @@ function renderWorkbenchChrome() {
   render();
 }
 
+function renderSurface(surface: WorkbenchSurfaceName) {
+  const root = document.getElementById("app") as HTMLElement | null;
+  if (!root || !state.snapshot) {
+    render();
+    return;
+  }
+  if (surfaceForTab(state.snapshot.selectedTab) !== surface) {
+    state.lastContentSignature = snapshotContentSignature(state.snapshot);
+    return;
+  }
+  const main = root.querySelector(".main") as HTMLElement | null;
+  if (!main) {
+    render();
+    return;
+  }
+  const renderState = captureWorkbenchRenderState(root);
+  if (state.snapshot.selectedTab === "graph") {
+    disposeGraphRenderer();
+  }
+  main.dataset.synthesisSurface = surface;
+  clear(main);
+  renderCurrentView(main, state.snapshot);
+  restoreWorkbenchRenderState(root, renderState);
+  state.lastContentSignature = snapshotContentSignature(state.snapshot);
+  maybeRequestGraphLayoutRefresh(state.snapshot);
+}
+
 function disposeGraphRenderer() {
   cancelScheduledHoverClear();
   state.sigmaResizeObserver?.disconnect();
@@ -1431,6 +1648,7 @@ function disposeGraphRenderer() {
   state.sigma = undefined;
   state.graph = undefined;
   state.hoveredNode = undefined;
+  state.hoverLabelNode = undefined;
   state.dynamicHoverNodeIds.clear();
   state.dynamicHoverEdgeIds.clear();
 }
@@ -1966,11 +2184,6 @@ function renderTopicsGraph(snapshot: Snapshot) {
     sendAction("setTopicGraphView", { search: search.value }),
   );
   toolbar.appendChild(search);
-  toolbar.appendChild(
-    makeButton("Rebuild Index", "hostCommand", {
-      command: "rebuildTopicGraphIndex",
-    }),
-  );
   board.appendChild(toolbar);
 
   const summary = el("div", "topic-graph-summary");
@@ -1992,10 +2205,7 @@ function renderTopicsGraph(snapshot: Snapshot) {
           : "No topic graph data yet",
         message: snapshot.artifacts.rows.length
           ? "Adjust the graph mode or search terms to reveal existing topics."
-          : "Create or update topic synthesis artifacts, then rebuild the topic graph.",
-        action: makeButton("Rebuild Index", "hostCommand", {
-          command: "rebuildTopicGraphIndex",
-        }),
+          : "Create or update topic synthesis artifacts to make them available here.",
         tone: "info",
       }),
     );
@@ -4848,11 +5058,13 @@ function buildRegistryReviewLookup(snapshot: Snapshot) {
   return { sourceByRawReferenceId, rowByPaperRef, rowByItemKey };
 }
 
+type RegistryReviewLookup = ReturnType<typeof buildRegistryReviewLookup>;
+
 function referenceMatchProposalContext(
   snapshot: Snapshot,
   proposal: Record<string, unknown>,
+  lookup: RegistryReviewLookup,
 ) {
-  const lookup = buildRegistryReviewLookup(snapshot);
   const evidence =
     proposal.evidence && typeof proposal.evidence === "object"
       ? (proposal.evidence as Record<string, unknown>)
@@ -4933,6 +5145,7 @@ function normalizeReferenceProposalAction(
   const action = textValue(value);
   if (
     action === "reject" ||
+    action === "reverse_accept" ||
     action === "reopen" ||
     action === "delete"
   ) {
@@ -5104,6 +5317,8 @@ function pruneReferenceProposalUiState(snapshot: Snapshot) {
 function referenceProposalActionLabel(action: ReferenceProposalAction) {
   return action === "accept"
     ? "Accept"
+    : action === "reverse_accept"
+      ? "Reverse & accept"
     : action === "reject"
       ? "Reject"
       : action === "reopen"
@@ -5202,11 +5417,16 @@ function appendRegistryColgroup(
 
 function renderRegistryTitle(row: Record<string, unknown>) {
   const references = registryReferences(row);
-  if (!references.length || textValue(row.index_scope) === "referenced") {
+  const referenceCount = Math.max(
+    references.length,
+    Math.floor(Number(row.reference_count || 0)),
+  );
+  if (referenceCount <= 0 || textValue(row.index_scope) === "referenced") {
     return textValue(row.title);
   }
   const key = registryRowKey(row);
   const expanded = !!key && state.registryExpandedRows.has(key);
+  const loading = !!key && state.registryLoadingReferenceRows.has(key);
   const title = el("div", "registry-reference-title-cell");
   const disclosure = el(
     "button",
@@ -5226,17 +5446,33 @@ function renderRegistryTitle(row: Record<string, unknown>) {
     }
     if (state.registryExpandedRows.has(key)) {
       state.registryExpandedRows.delete(key);
+      state.registryLoadingReferenceRows.delete(key);
+      renderSurface("index");
     } else {
       state.registryExpandedRows.add(key);
+      if (!references.length) {
+        state.registryLoadingReferenceRows.add(key);
+        sendAction("setFilters", {
+          registry: {
+            expandedSourceRefs: Array.from(state.registryExpandedRows),
+          },
+        });
+      }
+      renderSurface("index");
     }
-    render();
   });
   title.appendChild(disclosure);
   title.appendChild(
     el("span", "registry-reference-parent-title", textValue(row.title)),
   );
   title.appendChild(
-    el("span", "registry-reference-muted", `${references.length} refs`),
+    el(
+      "span",
+      "registry-reference-muted",
+      loading && !references.length
+        ? "Loading refs..."
+        : `${referenceCount} refs`,
+    ),
   );
   return title;
 }
@@ -5331,42 +5567,52 @@ function reviewFilters(snapshot: Snapshot) {
   return snapshot.reviews?.filters || {};
 }
 
-function referenceMatchProposalsForReviewCenter(snapshot: Snapshot) {
+function referenceMatchProposalEntriesForReviewCenter(
+  snapshot: Snapshot,
+  lookup: RegistryReviewLookup,
+) {
   const filters = reviewFilters(snapshot);
   const kindFilter = textValue(filters.kind, "all");
   const statusFilter = textValue(filters.status, "open");
   const confidenceFilter = textValue(filters.confidence, "all");
   const query = textValue(filters.search).toLowerCase();
-  return (snapshot.registry.matchProposals || []).filter((proposal) => {
-    const context = referenceMatchProposalContext(snapshot, proposal);
-    if (kindFilter !== "all" && textValue(proposal.kind) !== kindFilter) {
-      return false;
-    }
-    if (statusFilter !== "all" && textValue(proposal.status) !== statusFilter) {
-      return false;
-    }
-    if (
-      confidenceFilter !== "all" &&
-      textValue(proposal.confidence) !== confidenceFilter
-    ) {
-      return false;
-    }
-    if (!query) {
-      return true;
-    }
-    const haystack = [
-      context.sourceReferenceTitle,
-      context.parentItemTitle,
-      context.targetPaperTitle,
-      context.targetPaperRef,
-      proposal.kind,
-      proposal.confidence,
-      proposal.reasons,
-    ]
-      .map((value) => textValue(value).toLowerCase())
-      .join(" ");
-    return haystack.includes(query);
-  });
+  return (snapshot.registry.matchProposals || [])
+    .map((proposal) => ({
+      proposal,
+      context: referenceMatchProposalContext(snapshot, proposal, lookup),
+    }))
+    .filter(({ proposal, context }) => {
+      if (kindFilter !== "all" && textValue(proposal.kind) !== kindFilter) {
+        return false;
+      }
+      if (
+        statusFilter !== "all" &&
+        textValue(proposal.status) !== statusFilter
+      ) {
+        return false;
+      }
+      if (
+        confidenceFilter !== "all" &&
+        textValue(proposal.confidence) !== confidenceFilter
+      ) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        context.sourceReferenceTitle,
+        context.parentItemTitle,
+        context.targetPaperTitle,
+        context.targetPaperRef,
+        proposal.kind,
+        proposal.confidence,
+        proposal.reasons,
+      ]
+        .map((value) => textValue(value).toLowerCase())
+        .join(" ");
+      return haystack.includes(query);
+    });
 }
 
 function openReferenceMatchProposals(snapshot: Snapshot) {
@@ -5592,11 +5838,13 @@ function indexReviewItems(snapshot: Snapshot) {
 function renderReferenceMatchReviewCard(
   snapshot: Snapshot,
   proposal: Record<string, unknown>,
+  lookup: RegistryReviewLookup = buildRegistryReviewLookup(snapshot),
 ) {
   const proposalId = textValue(proposal.proposal_id);
-  const context = referenceMatchProposalContext(snapshot, proposal);
+  const context = referenceMatchProposalContext(snapshot, proposal, lookup);
   const pending = pendingReferenceProposalDecision(proposalId);
   const submitting = isReferenceProposalDecisionSubmitting(proposalId);
+  const isCanonicalMerge = textValue(proposal.kind) === "canonical_merge";
   const actions = [
     makeLocalButton("Accept", () =>
       queueReferenceProposalDecision(proposalId, "accept"),
@@ -5605,6 +5853,15 @@ function renderReferenceMatchReviewCard(
       queueReferenceProposalDecision(proposalId, "reject"),
     ),
   ];
+  if (isCanonicalMerge) {
+    actions.splice(
+      1,
+      0,
+      makeLocalButton("Reverse & accept", () =>
+        queueReferenceProposalDecision(proposalId, "reverse_accept"),
+      ),
+    );
+  }
   actions.forEach((button) => {
     button.disabled = submitting;
   });
@@ -5760,9 +6017,13 @@ function renderIndexReviewDrawer(snapshot: Snapshot) {
     return drawer;
   }
   const item = items[safeIndex] || items[0];
+  const lookup =
+    item.type === "reference_match"
+      ? buildRegistryReviewLookup(snapshot)
+      : undefined;
   drawer.appendChild(
     item.type === "reference_match"
-      ? renderReferenceMatchReviewCard(snapshot, item.proposal)
+      ? renderReferenceMatchReviewCard(snapshot, item.proposal, lookup!)
       : renderCleanupReviewCard(item.proposal),
   );
   return drawer;
@@ -6067,7 +6328,9 @@ function renderReferenceProposalBulkActions(
 }
 
 function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
-  const rows = referenceMatchProposalsForReviewCenter(snapshot);
+  const lookup = buildRegistryReviewLookup(snapshot);
+  const entries = referenceMatchProposalEntriesForReviewCenter(snapshot, lookup);
+  const rows = entries.map((entry) => entry.proposal);
   if (!rows.length) {
     const empty = renderEmptyState({
       title: "No reference matching reviews",
@@ -6108,8 +6371,7 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
   thead.appendChild(header);
   table.appendChild(thead);
   const tbody = el("tbody");
-  rows.forEach((proposal) => {
-    const context = referenceMatchProposalContext(snapshot, proposal);
+  entries.forEach(({ proposal, context }) => {
     const row = el("tr");
     const proposalId = textValue(proposal.proposal_id);
     const selectionCell = el("td", "review-selection-cell");
@@ -6144,14 +6406,38 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
     );
     if (status === "open" && !isOptimisticallyResolved) {
       appendReferenceProposalActionButton(actions, "Accept", proposalId, "accept");
+      if (textValue(proposal.kind) === "canonical_merge") {
+        appendReferenceProposalActionButton(
+          actions,
+          "Reverse & accept",
+          proposalId,
+          "reverse_accept",
+        );
+      }
       appendReferenceProposalActionButton(actions, "Reject", proposalId, "reject");
     } else if (status === "accepted") {
       appendReferenceProposalActionButton(actions, "Reopen", proposalId, "reopen");
+      if (textValue(proposal.kind) === "canonical_merge") {
+        appendReferenceProposalActionButton(
+          actions,
+          "Reverse & accept",
+          proposalId,
+          "reverse_accept",
+        );
+      }
       appendReferenceProposalActionButton(actions, "Reject", proposalId, "reject");
       appendReferenceProposalActionButton(actions, "Delete", proposalId, "delete");
     } else if (status === "rejected") {
       appendReferenceProposalActionButton(actions, "Reopen", proposalId, "reopen");
       appendReferenceProposalActionButton(actions, "Accept", proposalId, "accept");
+      if (textValue(proposal.kind) === "canonical_merge") {
+        appendReferenceProposalActionButton(
+          actions,
+          "Reverse & accept",
+          proposalId,
+          "reverse_accept",
+        );
+      }
       appendReferenceProposalActionButton(actions, "Delete", proposalId, "delete");
     } else {
       actions.appendChild(el("span", "muted", "-"));
@@ -6426,11 +6712,6 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
       command: "exportTagVocabulary",
     }),
   );
-  filters.appendChild(
-    makeButton("Rebuild Index", "hostCommand", {
-      command: "rebuildTagVocabularyIndex",
-    }),
-  );
   const importToggle = makeLocalButton("Import Tags", () => {
     state.tagImportOpen = true;
     state.dismissedTagImportPreviewSignature = undefined;
@@ -6442,8 +6723,8 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
   status.appendChild(
     badge(
       snapshot.tags.projection.stale
-        ? "Tag index needs rebuild"
-        : "Tag index ready",
+        ? "Tag cache stale"
+        : "Tag cache ready",
       snapshot.tags.projection.stale ? "warn" : "ok",
     ),
   );
@@ -6482,10 +6763,7 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
           : "No tag vocabulary indexed yet",
         message: snapshot.tags.rows.length
           ? "Adjust the search, facet, or status filters to show more tags."
-          : "Import tags or rebuild the tag vocabulary index.",
-        action: makeButton("Rebuild Index", "hostCommand", {
-          command: "rebuildTagVocabularyIndex",
-        }),
+          : "Import tags to make them available here.",
         tone: snapshot.tags.rows.length ? "default" : "info",
       }),
     ),
@@ -6655,18 +6933,13 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       snapshot.concepts.filters.overlayEnabled,
     ),
   );
-  filters.appendChild(
-    makeButton("Rebuild Index", "hostCommand", {
-      command: "rebuildConceptKbIndex",
-    }),
-  );
   panel.appendChild(renderPanelToolbar(filters));
   const status = el("div", "details");
   status.appendChild(
     badge(
       snapshot.concepts.projection.stale
-        ? "Concept index needs rebuild"
-        : "Concept index ready",
+        ? "Concept cache stale"
+        : "Concept cache ready",
       snapshot.concepts.projection.stale ? "warn" : "ok",
     ),
   );
@@ -6695,10 +6968,7 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
           : "No concepts indexed yet",
         message: snapshot.concepts.rows.length
           ? "Adjust the search, concept type, or status filters to show more concepts."
-          : "Rebuild the concept index after adding concept knowledge.",
-        action: makeButton("Rebuild Index", "hostCommand", {
-          command: "rebuildConceptKbIndex",
-        }),
+          : "Add concept knowledge to make it available here.",
         tone: snapshot.concepts.rows.length ? "default" : "info",
       }),
     ),
@@ -6917,11 +7187,32 @@ function graphDiagnosticSummary(
     .join("; ");
 }
 
+function renderCitationGraphLegend() {
+  const legend = el("div", "citation-graph-legend");
+  legend.setAttribute("aria-label", "Citation direction legend");
+  legend.appendChild(el("strong", "", "Citation direction"));
+  const rows: Array<[string, string]> = [
+    ["Incoming to selected", CITATION_GRAPH_INCOMING_EDGE_COLOR],
+    ["Outgoing from selected", CITATION_GRAPH_OUTGOING_EDGE_COLOR],
+  ];
+  rows.forEach(([label, color]) => {
+    const row = el("div", "citation-graph-legend-row");
+    const swatch = el("span", "citation-graph-legend-edge");
+    swatch.style.background = color;
+    swatch.style.color = color;
+    row.appendChild(swatch);
+    row.appendChild(el("span", "", label));
+    legend.appendChild(row);
+  });
+  return legend;
+}
+
 function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const shell = el("div", "graph-shell");
   const stage = el("div", "graph-stage");
   const canvas = el("div", "sigma-stage");
   stage.appendChild(canvas);
+  stage.appendChild(renderGraphZoomOverlay());
   shell.appendChild(stage);
 
   const detail = el("aside", "panel details graph-control-drawer");
@@ -6987,7 +7278,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const hasVisibleCoordinates = snapshot.graph.visibleNodes.some(
     (node) => typeof node.x === "number" && typeof node.y === "number",
   );
-  if (graphCacheStatus !== "ready" || !snapshot.graph.graph_hash || !hasGraphData) {
+  if (!snapshot.graph.graph_hash || !hasGraphData) {
     const empty = el("div", "graph-empty");
     empty.appendChild(
       renderEmptyState({
@@ -7007,6 +7298,36 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     );
     stage.appendChild(empty);
     return;
+  }
+  if (graphCacheStatus !== "ready") {
+    const banner = el("div", "graph-layout-banner");
+    banner.appendChild(
+      el(
+        "strong",
+        "",
+        graphCacheStatus === "failed" ? "Graph cache failed" : "Graph cache stale",
+      ),
+    );
+    banner.appendChild(
+      el(
+        "span",
+        "muted",
+        graphCacheStatus === "failed"
+          ? "Showing latest available graph data. Rebuild the graph cache to repair it."
+          : "Showing latest available graph data. Refresh stale graph to update it.",
+      ),
+    );
+    banner.appendChild(
+      graphCacheStatus === "stale"
+        ? makeGraphIncrementalRefreshButton(snapshot)
+        : makeButton("Rebuild graph cache", "hostCommand", {
+            command: "rebuildCitationGraphCacheNow",
+            args: {
+              reason: "graph_tab_failed",
+            },
+          }),
+    );
+    stage.appendChild(banner);
   }
   if (snapshot.graph.layoutStatus !== "ready") {
     const banner = el("div", "graph-layout-banner");
@@ -7043,7 +7364,99 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     stage.appendChild(pending);
     return;
   }
+  stage.appendChild(renderCitationGraphLegend());
   renderSigmaGraph(canvas, snapshot);
+}
+
+function renderGraphZoomOverlay() {
+  const overlay = el("div", "graph-zoom-overlay");
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = "0";
+  slider.max = String(GRAPH_ZOOM_SLIDER_MAX);
+  slider.step = "1";
+  slider.value = "50";
+  slider.setAttribute("aria-label", "Graph zoom");
+  slider.className = "graph-zoom-slider";
+  slider.addEventListener("input", () => {
+    const renderer = state.sigma;
+    if (!renderer) {
+      return;
+    }
+    setGraphZoomFromSlider(renderer, slider);
+  });
+  overlay.appendChild(slider);
+  return overlay;
+}
+
+function clampGraphZoomRatio(value: unknown) {
+  const ratio = Number(value);
+  if (!Number.isFinite(ratio)) {
+    return 1;
+  }
+  return Math.min(GRAPH_MAX_ZOOM_RATIO, Math.max(GRAPH_MIN_ZOOM_RATIO, ratio));
+}
+
+function graphZoomSliderValueFromRatio(ratio: unknown) {
+  const clamped = clampGraphZoomRatio(ratio);
+  const progress =
+    (GRAPH_MAX_ZOOM_RATIO - clamped) /
+    (GRAPH_MAX_ZOOM_RATIO - GRAPH_MIN_ZOOM_RATIO);
+  return String(Math.round(progress * GRAPH_ZOOM_SLIDER_MAX));
+}
+
+function graphZoomRatioFromSliderValue(value: unknown) {
+  const progress = Math.min(
+    1,
+    Math.max(0, Number(value) / GRAPH_ZOOM_SLIDER_MAX || 0),
+  );
+  return (
+    GRAPH_MAX_ZOOM_RATIO -
+    progress * (GRAPH_MAX_ZOOM_RATIO - GRAPH_MIN_ZOOM_RATIO)
+  );
+}
+
+function graphZoomSliderForRenderer(renderer: Sigma) {
+  return ((renderer as any).getContainer?.() as HTMLElement | undefined)
+    ?.closest(".graph-stage")
+    ?.querySelector(".graph-zoom-slider") as HTMLInputElement | null;
+}
+
+function syncGraphZoomSlider(renderer: Sigma) {
+  const slider = graphZoomSliderForRenderer(renderer);
+  if (!slider) {
+    return;
+  }
+  const camera = renderer.getCamera() as any;
+  slider.value = graphZoomSliderValueFromRatio(camera?.getState?.().ratio);
+}
+
+function clampGraphCameraZoom(renderer: Sigma) {
+  const camera = renderer.getCamera() as any;
+  const state = camera?.getState?.();
+  if (!state) {
+    return;
+  }
+  const ratio = clampGraphZoomRatio(state.ratio);
+  if (ratio !== state.ratio) {
+    camera.setState?.({ ...state, ratio });
+    renderer.refresh();
+  }
+  syncGraphZoomSlider(renderer);
+}
+
+function setGraphZoomFromSlider(renderer: Sigma, slider: HTMLInputElement) {
+  const camera = renderer.getCamera() as any;
+  const state = camera?.getState?.();
+  if (!state) {
+    return;
+  }
+  camera.setState?.({
+    ...state,
+    ratio: clampGraphZoomRatio(graphZoomRatioFromSliderValue(slider.value)),
+  });
+  renderer.refresh();
+  syncGraphZoomSlider(renderer);
 }
 
 function renderGraphControls(snapshot: Snapshot) {
@@ -7052,12 +7465,31 @@ function renderGraphControls(snapshot: Snapshot) {
   const search = el("input");
   search.dataset.synthesisControlKey = "graph.search";
   search.placeholder = "Search node";
-  search.value = snapshot.graph.filters.search || "";
+  search.value =
+    state.graphSearchDraft ?? snapshot.graph.filters.search ?? "";
   search.addEventListener("input", () => {
-    sendAction("setFilters", { graph: { search: search.value } });
-    focusSearch(search.value);
+    state.graphSearchDraft = search.value;
+  });
+  search.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Enter") {
+      event.preventDefault();
+      submitGraphSearch(search.value);
+    }
   });
   filters.appendChild(search);
+  filters.appendChild(
+    makeLocalButton("Search", () => {
+      submitGraphSearch(search.value);
+    }),
+  );
+  filters.appendChild(
+    makeLocalButton("Clear", () => {
+      search.value = "";
+      state.graphSearchDraft = "";
+      sendAction("setFilters", { graph: { search: "" } });
+      refreshGraphSearchHighlight();
+    }),
+  );
 
   const role = selectControl(
     ["all", ...roleOptions(snapshot)],
@@ -7069,6 +7501,7 @@ function renderGraphControls(snapshot: Snapshot) {
     snapshot.graph.diagnostics?.cache_status,
     snapshot.graph.graph_hash ? "ready" : "missing",
   );
+  filters.appendChild(makeGraphIncrementalRefreshButton(snapshot));
   filters.appendChild(
     makeButton(
       "Rebuild graph cache",
@@ -7146,6 +7579,67 @@ function renderGraphControls(snapshot: Snapshot) {
   return wrap;
 }
 
+function submitGraphSearch(query: string) {
+  state.graphSearchDraft = query;
+  sendAction("setFilters", { graph: { search: query } });
+  focusSearch(query);
+  refreshGraphSearchHighlight();
+}
+
+function currentGraphSearchQuery(snapshot?: Snapshot) {
+  return textValue(state.graphSearchDraft ?? snapshot?.graph.filters.search);
+}
+
+function graphNodeSearchText(node: GraphNode) {
+  return `${node.label} ${node.id} ${node.year || ""} ${(node.tags || []).join(
+    " ",
+  )} ${(node.collections || []).join(" ")}`.toLowerCase();
+}
+
+function graphNodeMatchesSearchText(searchable: unknown, query: string) {
+  const normalized = query.trim().toLowerCase();
+  return (
+    !!normalized && textValue(searchable).toLowerCase().includes(normalized)
+  );
+}
+
+function refreshGraphSearchHighlight() {
+  if (!currentGraphSearchQuery(state.snapshot || undefined)) {
+    state.hoverLabelNode = undefined;
+  }
+  state.sigma?.refresh();
+}
+
+function graphCacheHasIncrementalDelta(snapshot: Snapshot) {
+  return Boolean(snapshot.graph.diagnostics?.cache_delta_available);
+}
+
+function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
+  const hasDelta = graphCacheHasIncrementalDelta(snapshot);
+  const disabled = graphCacheStatus !== "stale" || !hasDelta;
+  const button = makeButton(
+    "Refresh stale graph",
+    "hostCommand",
+    {
+      command: "refreshCitationGraphCacheIncrementalNow",
+      args: { reason: "user" },
+    },
+    false,
+    disabled,
+  );
+  if (disabled) {
+    button.title =
+      graphCacheStatus !== "stale"
+        ? "Incremental graph refresh is available only when the graph cache is stale."
+        : "This stale graph cache has no recorded incremental refresh scope; use full rebuild.";
+  }
+  return button;
+}
+
 function graphNodeColor(node: GraphNode) {
   if (node.display_tier === "single_external") {
     return "#b6bd74";
@@ -7219,6 +7713,7 @@ function scheduleHoverClear(
       clearDynamicHoverGraph(graph);
       state.hoveredNode = undefined;
     }
+    state.hoverLabelNode = undefined;
     renderer.refresh();
   }, 80);
 }
@@ -7255,20 +7750,16 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       kind: node.kind,
       visibility: node.visibility || "default",
       display_tier: node.display_tier || "library",
+      searchable: graphNodeSearchText(node),
     });
   }
   for (const edge of snapshot.graph.visibleEdges) {
     if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
-      const targetKind = graph.getNodeAttribute(edge.target, "kind");
-      const targetTier = graph.getNodeAttribute(edge.target, "display_tier");
       graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
-        color: "#8a98a8",
-        size:
-          (targetKind === "library_paper"
-            ? 1.15
-            : targetTier === "shared_external"
-              ? 0.55
-              : 0.35) * Math.max(1, Math.min(2, edge.mention_count || 1)),
+        type: "arrow",
+        hidden: true,
+        color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
+        size: CITATION_GRAPH_EDGE_SIZE,
         label: edge.primary_role || "",
         zIndex: 0,
         visibility: edge.visibility || "default",
@@ -7279,6 +7770,7 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   state.graph = graph;
   const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
   state.hoveredNode = pinnedHoverNode;
+  state.hoverLabelNode = undefined;
   if (pinnedHoverNode) {
     addHoverNeighborhood(graph, pinnedHoverNode);
   }
@@ -7288,42 +7780,88 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     renderEdgeLabels: false,
     zIndex: true,
     nodeReducer(node: string, data: Record<string, unknown>) {
-      if (!state.hoveredNode) return data;
-      if (!graph.hasNode(state.hoveredNode)) return data;
+      const query = currentGraphSearchQuery(snapshot);
+      const searchActive = !!query.trim();
+      const searchMatch = graphNodeMatchesSearchText(data.searchable, query);
+      if (!state.hoveredNode || !graph.hasNode(state.hoveredNode)) {
+        if (!searchActive) return data;
+        return {
+          ...data,
+          color: searchMatch ? "#0ea5e9" : "#d3d8de",
+          size: searchMatch
+            ? Math.max(
+                Number(data.size || 1) * 1.35,
+                Number(data.size || 1) + 1,
+              )
+            : Number(data.size || 1),
+          zIndex: searchMatch
+            ? Math.max(30, Number(data.zIndex || 0))
+            : Number(data.zIndex || 0),
+          label: searchMatch ? data.title : "",
+        };
+      }
       const neighbor =
         node === state.hoveredNode ||
         graph.areNeighbors(node, state.hoveredNode);
       const showHoverLabel =
+        searchMatch ||
+        node === state.hoverLabelNode ||
         node === state.hoveredNode ||
         (neighbor &&
           (data.kind === "library_paper" || data.visibility === "hover_only"));
       return {
         ...data,
-        color: neighbor ? data.color : "#d3d8de",
-        size:
-          neighbor || data.visibility !== "hover_only"
+        color: searchMatch
+          ? "#0ea5e9"
+          : neighbor
+            ? data.color
+            : "#d3d8de",
+        size: searchMatch
+          ? Math.max(Number(data.size || 1) * 1.35, Number(data.size || 1) + 1)
+          : neighbor || data.visibility !== "hover_only"
             ? data.size
             : Math.max(1, Number(data.size || 1) * 0.6),
-        zIndex: neighbor
-          ? Math.max(10, Number(data.zIndex || 0))
-          : Number(data.zIndex || 0),
+        zIndex: searchMatch
+          ? Math.max(30, Number(data.zIndex || 0))
+          : neighbor
+            ? Math.max(10, Number(data.zIndex || 0))
+            : Number(data.zIndex || 0),
         label: showHoverLabel ? data.title : "",
       };
     },
     edgeReducer(edge: string, data: Record<string, unknown>) {
-      if (!state.hoveredNode) return data;
-      if (!graph.hasNode(state.hoveredNode)) return data;
+      const selectedEdgeId =
+        snapshot.graph.selectedElement?.kind === "edge"
+          ? snapshot.graph.selectedElement.id
+          : undefined;
+      const activeNode =
+        state.hoveredNode && graph.hasNode(state.hoveredNode)
+          ? state.hoveredNode
+          : undefined;
       const source = graph.source(edge);
       const target = graph.target(edge);
-      const neighbor =
-        source === state.hoveredNode || target === state.hoveredNode;
+      const connectedToActiveNode = activeNode
+        ? source === activeNode || target === activeNode
+        : false;
+      const selectedEdge = selectedEdgeId === edge;
+      const visible = connectedToActiveNode || selectedEdge;
+      const directionColor =
+        activeNode && target === activeNode
+          ? CITATION_GRAPH_INCOMING_EDGE_COLOR
+          : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
       return {
         ...data,
-        hidden: !neighbor,
+        hidden: !visible,
+        color: directionColor,
+        size: CITATION_GRAPH_EDGE_SIZE,
+        zIndex: visible ? 20 : 0,
       };
     },
   } as any);
   state.sigma = renderer;
+  const camera = renderer.getCamera() as any;
+  camera?.on?.("updated", () => clampGraphCameraZoom(renderer));
+  clampGraphCameraZoom(renderer);
   if (typeof ResizeObserver !== "undefined") {
     state.sigmaResizeObserver = new ResizeObserver(() => {
       scheduleSigmaResize(renderer, container);
@@ -7334,6 +7872,9 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   renderer.on("enterNode", ({ node }: { node: string }) => {
     const pinnedNode = selectedGraphHoverNode(snapshot, graph);
     if (pinnedNode && node !== pinnedNode) {
+      state.hoverLabelNode = graph.areNeighbors(node, pinnedNode)
+        ? node
+        : undefined;
       renderer.refresh();
       return;
     }
@@ -7347,14 +7888,17 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       return;
     }
     if (node === state.hoveredNode) {
+      state.hoverLabelNode = undefined;
       renderer.refresh();
       return;
     }
     addHoverNeighborhood(graph, node);
     state.hoveredNode = node;
+    state.hoverLabelNode = undefined;
     renderer.refresh();
   });
   renderer.on("leaveNode", () => {
+    state.hoverLabelNode = undefined;
     scheduleHoverClear(
       renderer,
       graph,
@@ -7365,12 +7909,14 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     cancelScheduledHoverClear();
     addHoverNeighborhood(graph, node);
     state.hoveredNode = node;
+    state.hoverLabelNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "node", id: node } });
   });
   renderer.on("clickEdge", ({ edge }: { edge: string }) => {
     cancelScheduledHoverClear();
     state.hoveredNode = undefined;
+    state.hoverLabelNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: { kind: "edge", id: edge } });
   });
@@ -7378,6 +7924,7 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     cancelScheduledHoverClear();
     clearDynamicHoverGraph(graph);
     state.hoveredNode = undefined;
+    state.hoverLabelNode = undefined;
     renderer.refresh();
     sendAction("setGraphView", { selectedElement: null });
   });
@@ -7388,22 +7935,17 @@ function focusSearch(query: string) {
   if (!normalized || !state.snapshot || !state.graph || !state.sigma) {
     return;
   }
-  const match = state.snapshot.graph.visibleNodes.find((node) =>
-    `${node.label} ${node.id}`.toLowerCase().includes(normalized),
+  state.hoverLabelNode = undefined;
+  const match = state.snapshot.graph.visibleNodes.find(
+    (node) =>
+      graphNodeSearchText(node).includes(normalized) &&
+      state.graph?.hasNode(node.id),
   );
   if (!match || !state.graph.hasNode(match.id)) {
     return;
   }
-  const attrs = state.graph.getNodeAttributes(match.id) as {
-    x?: number;
-    y?: number;
-  };
-  state.sigma
-    .getCamera()
-    .animate(
-      { x: attrs.x || 0, y: attrs.y || 0, ratio: 0.35 },
-      { duration: 250 },
-    );
+  state.hoverLabelNode = match.id;
+  state.sigma.refresh();
 }
 
 function renderSelectedDetail(snapshot: Snapshot) {
@@ -7689,29 +8231,15 @@ function compactReviewItemSignature(row: Record<string, unknown>) {
   ];
 }
 
-function compactGraphNodeSignature(row: Record<string, unknown>) {
-  return [
-    row.id,
-    row.kind,
-    row.label,
-    row.year,
-    row.x,
-    row.y,
-    row.low_signal,
-    row.visibility,
-    row.display_tier,
-  ];
-}
-
-function compactGraphEdgeSignature(row: Record<string, unknown>) {
-  return [
-    row.id,
-    row.source,
-    row.target,
-    row.relation,
-    row.status,
-    row.weight,
-  ];
+function graphCountSignature(snapshot: Snapshot) {
+  return {
+    nodeCount: snapshot.graph.nodes.length,
+    edgeCount: snapshot.graph.edges.length,
+    visibleNodeCount: snapshot.graph.visibleNodes.length,
+    visibleEdgeCount: snapshot.graph.visibleEdges.length,
+    hoverOnlyNodeCount: snapshot.graph.hoverOnlyNodes.length,
+    hoverOnlyEdgeCount: snapshot.graph.hoverOnlyEdges.length,
+  };
 }
 
 function compactTagRowSignature(row: Record<string, unknown>) {
@@ -7795,14 +8323,10 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       selectedTab,
       filters: snapshot.graph.filters,
       graph_hash: snapshot.graph.graph_hash,
+      layoutStatus: snapshot.graph.layoutStatus,
       layoutPreset: snapshot.graph.layoutPreset,
       selectedElement: snapshot.graph.selectedElement,
-      nodes: snapshot.graph.nodes.map(compactGraphNodeSignature),
-      edges: snapshot.graph.edges.map(compactGraphEdgeSignature),
-      visibleNodeIds: snapshot.graph.visibleNodes.map((node) => node.id),
-      visibleEdgeIds: snapshot.graph.visibleEdges.map((edge) => edge.id),
-      hoverOnlyNodeIds: snapshot.graph.hoverOnlyNodes.map((node) => node.id),
-      hoverOnlyEdgeIds: snapshot.graph.hoverOnlyEdges.map((edge) => edge.id),
+      counts: graphCountSignature(snapshot),
     });
   }
   if (selectedTab === "tags") {
@@ -8243,6 +8767,94 @@ window.addEventListener("keydown", (event: KeyboardEvent) => {
 window.addEventListener("message", (event: MessageEvent) => {
   const data = event.data;
   if (!data || typeof data !== "object") {
+    return;
+  }
+  if (data.type === "synthesis:chrome") {
+    const nextSnapshot = (data.payload || null) as Snapshot | null;
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    if (!state.snapshot) {
+      render();
+      return;
+    }
+    const nextChromeSignature = snapshotChromeSignature(state.snapshot);
+    if (nextChromeSignature !== state.lastChromeSignature) {
+      state.lastChromeSignature = nextChromeSignature;
+      renderWorkbenchChrome();
+    }
+    return;
+  }
+  if (data.type === "synthesis:surface") {
+    const payload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as Record<string, unknown>)
+        : {};
+    const surface = String(payload.surface || "") as WorkbenchSurfaceName;
+    const nextSnapshot = (payload.snapshot || null) as Snapshot | null;
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    if (!state.snapshot) {
+      render();
+      return;
+    }
+    const nextChromeSignature = snapshotChromeSignature(state.snapshot);
+    const chromeChanged = nextChromeSignature !== state.lastChromeSignature;
+    if (
+      surface === "home" ||
+      surface === "topics" ||
+      surface === "index" ||
+      surface === "review" ||
+      surface === "graph" ||
+      surface === "tags" ||
+      surface === "concepts" ||
+      surface === "reader"
+    ) {
+      markSurfaceRuntime(surface, "ready", undefined, state.snapshot);
+      if (surface === "index") {
+        state.registryLoadingReferenceRows.clear();
+      }
+      renderSurface(surface);
+    } else {
+      render();
+      return;
+    }
+    if (chromeChanged) {
+      state.lastChromeSignature = nextChromeSignature;
+      renderWorkbenchChrome();
+    }
+    return;
+  }
+  if (data.type === "synthesis:surface-error") {
+    const payload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as Record<string, unknown>)
+        : {};
+    state.lastLocalAction = {
+      key: `surface-error:${String(payload.surface || "unknown")}`,
+      command: "refresh",
+      status: "failed",
+      label: "Loading Synthesis surface",
+      completed_at: new Date().toISOString(),
+      message: String(payload.message || "Surface failed to load."),
+    };
+    const surface = String(payload.surface || "") as WorkbenchSurfaceName;
+    if (
+      surface === "home" ||
+      surface === "topics" ||
+      surface === "index" ||
+      surface === "review" ||
+      surface === "graph" ||
+      surface === "tags" ||
+      surface === "concepts" ||
+      surface === "reader"
+    ) {
+      markSurfaceRuntime(
+        surface,
+        "failed",
+        String(payload.message || "Surface failed to load."),
+      );
+    }
+    renderWorkbenchChrome();
     return;
   }
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {

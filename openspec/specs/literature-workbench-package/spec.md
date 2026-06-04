@@ -96,41 +96,21 @@ If any selected artifact would overwrite an existing generated note, the workflo
 
 ### Requirement: literature-workbench-package SHALL unify builtin literature workflows under one package
 
-The builtin package `literature-workbench-package` MUST provide the stable
-package home for literature note generation, import/export, and explainer note
-creation workflows.
+The builtin package `literature-workbench-package` MUST provide the stable package home for active literature note generation, import/export, explainer, and ingestion workflows. Deprecated note-level workflows MUST NOT remain exposed as active built-in workflow ids.
 
-#### Scenario: package registration after rename
-
-- **WHEN** builtin workflows are scanned
-- **THEN** the package id SHALL be `literature-workbench-package`
-- **AND** `reference-workbench-package` SHALL NOT remain exposed as an active builtin package id
-
-#### Scenario: workflow identity remains stable across package rename
+#### Scenario: active workflow identity remains stable across package rename
 
 - **WHEN** the package is loaded
-- **THEN** workflow ids such as `literature-digest`, `literature-explainer`, `export-notes`, `import-notes`, `reference-matching`, and `reference-note-editor` SHALL remain unchanged
+- **THEN** workflow ids such as `literature-digest`, `literature-explainer`, `export-notes`, and `import-notes` SHALL remain unchanged
+- **AND** deprecated note-level workflows `reference-matching` and `reference-note-editor` SHALL NOT be exposed as active built-in workflow ids.
 
 ### Requirement: literature-workbench-package SHALL provide a unified note and artifact codec
-
-The package MUST implement a shared codec layer for note content, payload
-blocks, and artifact export/import semantics.
-
-#### Scenario: digest artifact round-trip stays stable
-
-- **WHEN** a literature-digest artifact is imported into a note and then exported again
-- **THEN** the exported native artifact SHALL preserve the existing contract for `digest`, `references`, and `citation-analysis`
+The package MUST use the shared v2 payload storage codec for digest-family notes, custom markdown notes, and conversation notes.
 
 #### Scenario: conversation note round-trip is supported
-
 - **WHEN** a conversation note created from `literature-explainer` is exported through `export-notes`
-- **THEN** it SHALL export as markdown
-- **AND** the exported markdown SHALL preserve the original conversation markdown payload
-
-#### Scenario: custom note round-trip is supported
-
-- **WHEN** a custom markdown note is imported and then exported
-- **THEN** the exported markdown SHALL match the original markdown content
+- **THEN** it SHALL export the original conversation markdown from the v2 payload attachment
+- **AND** legacy hidden conversation-note payloads SHALL remain readable until migrated.
 
 ### Requirement: literature-explainer SHALL execute as a package workflow using the shared codec
 
@@ -187,20 +167,16 @@ the same package codec layer.
 - **THEN** the digest note final HTML SHALL still contain the canonical `digest-markdown` payload block
 - **AND** representative image helpers SHALL NOT patch digest note HTML from a stale `note.getNote()` snapshot after the digest writer has completed.
 
-### Requirement: Literature Digest SHALL Auto Run Reference Matching After Apply
+### Requirement: Literature Digest Apply SHALL NOT Auto Run Reference Matching
 
-The `literature-digest` workflow MUST provide a default-enabled
-`auto_reference_matching` workflow runtime option and, when enabled, SHALL run
-reference matching on the references note produced by the digest apply step.
-The option MUST NOT be dispatched to the skill/agent as a provider-facing
-parameter.
+The `literature-digest` workflow SHALL NOT expose or execute an automatic Reference Matching option during digest apply. Related-items updates are handled by the Synthesis sidecar update chain after the digest artifacts are applied.
 
-#### Scenario: Digest apply uses runtime-only auto matching option
-- **WHEN** `literature-digest` successfully writes its generated notes
-- **AND** local result context has `auto_reference_matching` not equal to `false`
-- **THEN** the workflow SHALL run reference matching on the produced references note
-- **AND** it SHALL write the reference matching baseline into that references payload
-- **AND** optional representative image handling SHALL NOT prevent reference matching from running.
+#### Scenario: Digest apply ignores removed auto matching option
+
+- **WHEN** `literature-digest` successfully writes generated digest, references, and citation-analysis notes
+- **THEN** it SHALL NOT call the note-level Reference Matching apply helper
+- **AND** it SHALL NOT write an `auto_reference_matching` result field
+- **AND** stale callers that still pass `auto_reference_matching` SHALL NOT prevent apply from succeeding.
 
 ### Requirement: Literature search ingest target collection uses dynamic options
 
@@ -272,21 +248,17 @@ skip uncertain or restricted PDFs without blocking metadata ingest.
 - **THEN** the skill SHALL mark the PDF as skipped instead of attaching it.
 
 ### Requirement: Literature Digest SHALL persist generated-note payloads through Zotero-safe storage
+Generated digest-family notes MUST keep machine-readable payloads available after Zotero note editor normalization by using v2 anchored embedded payload storage.
 
-Generated digest-family notes MUST keep machine-readable payloads available after Zotero note editor normalization.
-
-#### Scenario: New generated notes use attachment-backed payloads
+#### Scenario: New generated notes use v2 anchored payloads
 - **WHEN** `literature-digest` or `import-notes` writes digest, references, or citation-analysis notes
-- **THEN** the visible note HTML SHALL NOT include `data-zs-payload`, `data-zs-note-kind`, hidden source metadata blocks, or custom representative-image wrapper blocks
-- **AND** each generated note SHALL have a note-child embedded-image payload attachment marked with the matching payload type.
+- **THEN** the visible note HTML SHALL NOT include hidden `data-zs-payload` blocks
+- **AND** each generated note SHALL have a parseable v2 embedded payload attachment
+- **AND** each payload attachment SHALL be referenced by a matching payload anchor in note HTML.
 
-#### Scenario: Legacy HTML payloads remain readable
-- **WHEN** `export-notes` reads an older generated note that still contains a valid HTML payload block
-- **THEN** it SHALL export the same canonical artifact files as before.
-
-#### Scenario: Attachment-backed payloads survive note normalization
-- **WHEN** a generated digest-family note has been normalized by Zotero's editor and no longer contains custom HTML markers
-- **THEN** `export-notes` SHALL still export digest, references, and citation-analysis artifacts from the embedded payload attachment.
+#### Scenario: Legacy payloads remain exportable
+- **WHEN** `export-notes` reads a note with a v2 payload, v1 tail-marker payload, or hidden HTML payload
+- **THEN** it SHALL export the same canonical artifact content.
 
 ### Requirement: Digest representative images SHALL use Zotero-legal note HTML
 
@@ -304,4 +276,38 @@ Representative images MUST be written as normal Zotero embedded images and remai
 #### Scenario: Representative image remains best-effort
 - **WHEN** representative image resolution, import, read, or export fails
 - **THEN** digest text payload import/export SHALL still succeed.
+
+### Requirement: Literature Digest Apply SHALL Filter Deterministic Invalid References Before Note Writing
+The `literature-digest` workflow apply step SHALL run a precision-first
+reference quality gate before writing the generated references note.
+
+#### Scenario: Deterministic invalid rows are present
+- **WHEN** the references artifact contains rows with empty titles, bare DOI/URL titles, publication-metadata-only titles, author-only titles, or no usable content tokens
+- **THEN** apply SHALL remove those rows before writing the references note
+- **AND** it SHALL expose rejected counters and stable reason codes in apply diagnostics.
+
+#### Scenario: Low-quality but plausible rows are present
+- **WHEN** the references artifact contains rows with bibliographic suffixes, possible author-prefix noise, missing year/authors, or short but plausible titles
+- **THEN** apply SHALL keep those rows in the references note
+- **AND** it SHALL expose warning counters and stable reason codes in apply diagnostics.
+
+#### Scenario: All references are rejected
+- **WHEN** every row in the references artifact is deterministically invalid
+- **THEN** apply SHALL write an empty references array
+- **AND** apply SHALL still finish successfully.
+
+#### Scenario: References note payload shape is inspected
+- **WHEN** the generated references payload is read after apply
+- **THEN** it SHALL contain the existing `references` array
+- **AND** it SHALL NOT contain quality diagnostics as native references artifact data.
+
+### Requirement: Deprecated reference note workflows SHALL be archived only
+
+Historical `reference-matching` and `reference-note-editor` implementations MAY remain under `deprecated/**`, but active built-in packaging SHALL NOT load, copy, menu-render, or settings-render them.
+
+#### Scenario: Built-in manifest excludes deprecated workflows
+
+- **WHEN** active built-in workflow files are synchronized and loaded
+- **THEN** `workflows_builtin/manifest.json` SHALL NOT list `reference-matching` or `reference-note-editor` files
+- **AND** `literature-workbench-package/workflow-package.json` SHALL NOT list either workflow id.
 

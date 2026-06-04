@@ -15,7 +15,11 @@ import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
-import { openSynthesisWorkbenchTab } from "./modules/synthesisWorkbenchTab";
+import {
+  notifySynthesisWorkbenchLibraryItemsChanged,
+  openSynthesisWorkbenchTab,
+  prewarmSynthesisWorkbenchSurfaces,
+} from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
@@ -75,8 +79,11 @@ import {
 } from "./modules/persistenceIntegrity";
 import {
   ensureHostBridgeServer,
+  buildHostBridgeRemoteCliProfileForCopy,
   getHostBridgeServerStatus,
+  readHostBridgeMasterTokenForCopy,
   restartHostBridgeServer,
+  rotateHostBridgeMasterToken,
   rotateHostBridgeToken,
   startHostBridgeSupervisor,
   stopHostBridgeSupervisor,
@@ -85,11 +92,15 @@ import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 import { getDefaultSynthesisService } from "./modules/synthesis/service";
-import { recordSynthesisZoteroItemNotifications } from "./modules/synthesis/itemObserver";
+import {
+  isSynthesisLibraryReadModelInvalidationEvent,
+  recordSynthesisZoteroItemNotifications,
+} from "./modules/synthesis/itemObserver";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
+const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 
 function registerPrefsPane() {
   const runtimeRootURI =
@@ -140,6 +151,13 @@ export function setSkillRunnerStartupBackendReconcileRunnerForTests(
 
 async function delayMs(ms: number) {
   await delay(ms);
+}
+
+function prewarmSynthesisWorkbenchAfterStartup() {
+  void (async () => {
+    await delay(SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS);
+    await prewarmSynthesisWorkbenchSurfaces({ surfaces: [] });
+  })().catch(() => undefined);
 }
 
 function getRuntimeToolkit() {
@@ -267,6 +285,7 @@ async function onStartup() {
   // Mark initialized as true to confirm plugin loading status
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
+  prewarmSynthesisWorkbenchAfterStartup();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
@@ -350,6 +369,21 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
+  if (
+    isSynthesisLibraryReadModelInvalidationEvent({
+      event,
+      type,
+      ids,
+      extraData,
+    })
+  ) {
+    notifySynthesisWorkbenchLibraryItemsChanged({
+      event,
+      type,
+      ids,
+      extraData,
+    });
+  }
   void recordSynthesisZoteroItemNotifications({
     event,
     type,
@@ -601,6 +635,9 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "setHostBridgeLanEnabled": {
       const enabled = data.enabled === true;
       setPref("hostBridgeLanEnabled", enabled);
+      if (enabled) {
+        setPref("hostBridgePinPortEnabled", true);
+      }
       if (getHostBridgeServerStatus().status === "running") {
         await restartHostBridgeServer();
       }
@@ -620,15 +657,28 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         Number.isInteger(rawPort) && rawPort >= 1024 && rawPort <= 65535
           ? rawPort
           : 26570;
-      setPref("hostBridgePinPortEnabled", enabled);
+      const lanEnabled = getHostBridgeServerStatus().lanEnabled === true;
+      setPref("hostBridgePinPortEnabled", lanEnabled || enabled);
       setPref("hostBridgePinnedPort", port);
       await restartHostBridgeServer();
       return {
         ok: true,
         stage: "host-bridge-pin-port-setting",
-        message: enabled
+        message: lanEnabled || enabled
           ? `Host Bridge fixed port enabled on ${port}.`
           : "Host Bridge fixed port disabled.",
+        details: getHostBridgeServerStatus(),
+      };
+    }
+    case "setHostBridgeAdvertisedHost": {
+      const host = String(data.host || "").trim();
+      setPref("hostBridgeAdvertisedHost", host);
+      return {
+        ok: true,
+        stage: "host-bridge-advertised-host",
+        message: host
+          ? "Host Bridge remote host updated."
+          : "Host Bridge remote host placeholder will be used.",
         details: getHostBridgeServerStatus(),
       };
     }
@@ -637,7 +687,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const server = getHostBridgeServerStatus();
       if (server.status === "running" && server.endpoint) {
         await writeHostBridgeWellKnownProfile({
-          endpoint: server.endpoint,
+          endpoint:
+            server.bindMode === "lan"
+              ? `http://127.0.0.1:${server.port}/bridge/v1`
+              : server.endpoint,
           token: rotated.token,
           updatedAt: rotated.rotatedAt,
         });
@@ -649,6 +702,77 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         details: {
           tokenMasked: rotated.tokenMasked,
           rotatedAt: rotated.rotatedAt,
+          server: getHostBridgeServerStatus(),
+        },
+      };
+    }
+    case "rotateHostBridgeMasterToken": {
+      try {
+        const rotated = await rotateHostBridgeMasterToken();
+        return {
+          ok: true,
+          stage: "host-bridge-master-token-rotate",
+          message: "Host Bridge master token rotated.",
+          details: {
+            tokenMasked: rotated.tokenMasked,
+            rotatedAt: rotated.rotatedAt,
+            server: getHostBridgeServerStatus(),
+          },
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          stage: "host-bridge-master-token-rotate",
+          message: String(error),
+          details: {
+            server: getHostBridgeServerStatus(),
+          },
+        };
+      }
+    }
+    case "copyHostBridgeMasterToken": {
+      const result = await readHostBridgeMasterTokenForCopy();
+      if (!result.ok) {
+        return {
+          ok: false,
+          stage: "host-bridge-master-token-copy",
+          message: result.message,
+          details: {
+            code: result.code,
+            server: getHostBridgeServerStatus(),
+          },
+        };
+      }
+      return {
+        ok: true,
+        stage: "host-bridge-master-token-copy",
+        message: "Host Bridge master token copied.",
+        details: {
+          clipboardText: result.token,
+          server: getHostBridgeServerStatus(),
+        },
+      };
+    }
+    case "copyHostBridgeRemoteProfile": {
+      const result = await buildHostBridgeRemoteCliProfileForCopy();
+      if (!result.ok) {
+        return {
+          ok: false,
+          stage: "host-bridge-remote-profile-copy",
+          message: result.message,
+          details: {
+            code: result.code,
+            server: getHostBridgeServerStatus(),
+          },
+        };
+      }
+      return {
+        ok: true,
+        stage: "host-bridge-remote-profile-copy",
+        message: "Host Bridge remote CLI profile copied.",
+        details: {
+          clipboardText: `${JSON.stringify(result.profile, null, 2)}\n`,
+          endpoint: result.endpoint,
           server: getHostBridgeServerStatus(),
         },
       };

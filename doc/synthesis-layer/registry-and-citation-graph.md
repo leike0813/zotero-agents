@@ -133,7 +133,7 @@ Stage 2: changed-reference processing.
 
 This refresh must expose progress from real counts: scanned artifact sources, changed artifacts, extracted references, canonical matches, and affected binding candidates. A failed source should write bounded diagnostics for that source without making the entire refresh appear permanently running.
 
-On success, reference refresh marks only `reference-sidecar:library` ready in `synt_cache_basis`. It marks `citation-graph:library` stale because graph data is derived from the refreshed sidecar, but it does not rebuild graph nodes, edges, metrics, or layout. Refresh progress and terminal failure are recorded in `synt_operation`; that operation row is not a data-readiness source.
+On success, reference refresh marks `reference-sidecar:library` ready in `synt_cache_basis`. It may then start a separate visible Citation Graph cache operation for the changed source refs. That follow-up operation either refreshes source-slice graph rows or, when allowed by the triggering operation, bootstraps a missing graph cache. Refresh progress and terminal failure are recorded in `synt_operation`; operation rows are not data-readiness sources.
 
 ## Workflow Apply
 
@@ -145,7 +145,7 @@ On success, reference refresh marks only `reference-sidecar:library` ready in `s
 4. Run incremental canonical dedupe for the new raw references.
 5. Run lightweight best-effort binding where safe.
 
-This is not an implicit Zotero Library trigger. It is scoped to the applied item and must not start graph cache rebuild, topic source check, or a library-wide backscan.
+This is not an implicit Zotero Library trigger. It is scoped to the applied item and must not start topic source check or a library-wide backscan. Apply may trigger a bounded source-slice graph refresh for that item; if graph cache is missing or failed, apply skips graph bootstrap. After that graph refresh attempt, apply may start a separate visible related-items sync scoped to the same `source_ref`; the sync can compute accepted library-to-library edges from sidecar facts when graph cache is unavailable.
 
 ## Advanced Reference Matching and Review
 
@@ -163,7 +163,7 @@ Advanced Reference Matching is separate from ordinary refresh because it may nee
 - Deterministic external duplicates may write canonical redirects; fuzzy dedupe candidates only create `canonical_merge` proposals.
 - Suggested or ambiguous binding/dedupe results create `synt_reference_match_proposal` rows.
 - User actions accept or reject proposals; accepted proposals write binding or canonical redirect facts.
-- Any accepted fact changes mark citation graph cache stale but do not rebuild graph cache automatically.
+- Accepted fact changes may trigger a separate visible source-slice graph refresh and then a visible related-items sync. Open proposals never create graph edges or related-item writes.
 
 The Synthesis Index harness runs the same cluster-first dedupe algorithm as a
 debug tool for current index state. Harness runs write only the isolated debug
@@ -173,7 +173,7 @@ raw aggregation, title-candidate provenance, sticky existing representatives,
 and capped raw support as documented in
 `.codex/artifacts/advanced-reference-dedupe-cluster-algorithm.md`.
 
-## Citation Graph Cache Rebuild
+## Citation Graph Cache Refresh and Rebuild
 
 Citation graph structure is derived from:
 
@@ -182,7 +182,11 @@ Citation graph structure is derived from:
 3. accepted reference bindings;
 4. direct Zotero checks for currently bound source/target item existence when graph correctness requires it.
 
-Graph cache rebuild is a separate explicit operation, exposed as `rebuildCitationGraphCacheNow` in the service/host layer. It must not scan artifacts, extract references, or repair bindings. It reads active raw references, resolves effective canonical references, applies accepted bindings, writes graph nodes/edges/light metrics, and marks `citation-graph:library` ready in `synt_cache_basis`.
+Graph cache has two maintenance modes. Source-slice incremental refresh rewrites only affected source outgoing edges, source ownership rows, incoming groups, related nodes, and affected light metrics. Full rebuild remains exposed as `rebuildCitationGraphCacheNow` in the service/host layer and replaces the whole graph cache.
+
+When another explicit operation marks `citation-graph:library` stale, it may record bounded incremental scope in cache-basis diagnostics: changed `source_refs`, canonical ids, binding canonical ids, and redirect canonical ids. Manual `refreshCitationGraphCacheIncrementalNow` consumes only that recorded stale delta; if no delta is recorded, the user-facing fallback is full rebuild.
+
+Both modes must not scan artifacts, extract references, repair bindings, rebuild layout, or run related-items sync. They read active raw references, resolve effective canonical references, apply accepted bindings, write graph nodes/edges/light metrics, and mark `citation-graph:library` ready in `synt_cache_basis` on success.
 
 Graph cache rebuild must not read old Registry/literature-index tables as truth. It may produce nodes, edges, and metrics for speed, but those outputs remain stale-tolerant projections. Layout rebuild is a separate operation that computes coordinates for an existing graph hash and must not rebuild graph data.
 
@@ -194,16 +198,17 @@ Graph display rules:
 - External nodes with incoming degree greater than 1 should be shown by default as shared external references.
 - External nodes with incoming degree 1 are hover-only by default.
 - If graph structure exists but layout is missing or stale, the UI should draw using available coordinates when possible and offer explicit layout refresh.
-- If graph cache is missing or stale, the UI should offer explicit graph cache rebuild, not layout rebuild.
+- If graph cache is stale and stale delta metadata exists, the UI should offer explicit incremental graph cache refresh. If graph cache is missing or stale without delta metadata, the UI should offer explicit graph cache rebuild, not layout rebuild.
 
 ## Related Items Sync
 
-The old reference matching workflow added Zotero built-in related-item relations during apply. In the target architecture this is optional and explicit. Zotero Library remains the SSOT for native related-item relations; Synthesis can only propose or perform bounded side effects with provenance:
+The old literature-digest apply path no longer runs automatic note-level Reference Matching. Zotero Library remains the SSOT for native related-item relations; Synthesis can only perform bounded side effects with provenance:
 
-- Source is accepted library-to-library citation edges from the Citation Graph.
+- Source is accepted library-to-library citation edges from ready Citation Graph cache when available, or directly from active sidecar facts when graph cache is missing, stale, failed, empty, or graph refresh failed.
 - Target is Zotero related-item relations between the source Zotero item and accepted target Zotero item.
 - The sync should be idempotent and bounded, with Synthesis-owned provenance for every attempted effect.
-- Explicit graph/cache refresh or approved binding review may recommend related-items sync when accepted library-to-library edges exist or stale Synthesis-created effects need revocation.
+- Literature-digest apply and Reference Sidecar refresh may run scoped sync for changed source refs; Advanced Matching may run full sync after accepted binding or redirect facts change.
+- Related-items sync must not rebuild graph cache, extract references, run matcher logic, or mutate sidecar facts.
 - It should never run from unbound, external-only, rejected, or candidate-only references.
 - It should expose progress and diagnostics but should not block graph/reference cache refresh completion unless the user explicitly chose an all-or-nothing sync.
 - It must never delete a Zotero related-item relation that lacks Synthesis provenance.

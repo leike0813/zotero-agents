@@ -179,7 +179,7 @@ stateDiagram-v2
 
 Allowed transitions:
 
-- `missing/stale -> refreshing` only from workflow apply sync, explicit cache refresh, explicit repair, protected import, or scoped debug command.
+- `missing/stale -> refreshing` only from workflow apply sync, explicit cache refresh, explicit graph incremental refresh, explicit repair, protected import, or scoped debug command.
 - `refreshing -> ready` only after validation for the recorded basis.
 
 Forbidden transitions:
@@ -192,7 +192,7 @@ Forbidden transitions:
 
 Owner: Explicit operation service.
 
-Object: A user/debug-triggered operation such as reference sidecar refresh, citation graph cache rebuild, citation graph layout rebuild, reference binding review, related-items sync, import, export, or reset. Runtime progress is stored in `synt_operation`.
+Object: A user/debug-triggered or workflow-triggered visible operation such as reference sidecar refresh, citation graph cache incremental refresh, citation graph cache rebuild, citation graph layout rebuild, reference binding review, related-items sync, import, export, or reset. Runtime progress is stored in `synt_operation`.
 
 ```mermaid
 stateDiagram-v2
@@ -220,6 +220,36 @@ Forbidden transitions:
 - Global queue pause/resume/drain controlling operations.
 - Startup replaying old operations as hidden work.
 - Terminal operation rows becoming cache readiness without a matching `synt_cache_basis` promotion.
+
+## `sm.ui.workbench_surface`
+
+Owner: Synthesis Workbench UI.
+
+Object: Shell/Chrome/Surface read model for one Workbench area.
+
+```mermaid
+stateDiagram-v2
+  [*] --> missing
+  missing --> loading: surface requested
+  loading --> ready: surface read model returned
+  loading --> failed: surface read failed
+  ready --> stale: operation or Zotero Library read-model invalidation marks surface dirty
+  stale --> loading: visible surface reload
+  failed --> loading: retry or revisit
+```
+
+Allowed transitions:
+
+- `ready -> stale` from a completed operation that invalidates the surface.
+- `ready -> stale` from a Zotero item notification that invalidates the direct-read library metadata shown by a surface, such as Index rows.
+- `missing/stale/failed -> loading` from startup warmup, visible tab selection, or explicit refresh.
+
+Forbidden transitions:
+
+- `loading -> full snapshot refresh`.
+- Chrome progress update refreshing a content surface.
+- Surface-local UI state clearing the Workbench root DOM.
+- Zotero Library metadata dirty changing Reference Sidecar or Citation Graph `synt_cache_basis` readiness.
 
 ## `sm.topic.source_check`
 
@@ -287,4 +317,4 @@ Rules:
 3. Discovery and source check are separate: discovery hints never change topic source-check state.
 4. Durable user decisions win over transient review items and cache refresh output.
 5. Current Zotero Library reads win over cached Zotero metadata whenever correctness matters.
-6. Reference sidecar refresh and citation graph cache rebuild are different operations; layout rebuild is a third operation scoped to coordinates only.
+6. Reference sidecar refresh, citation graph cache incremental refresh, and citation graph cache rebuild are different operations; layout rebuild is a fourth operation scoped to coordinates only.

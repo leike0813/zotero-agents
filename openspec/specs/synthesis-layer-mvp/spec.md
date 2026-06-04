@@ -18,33 +18,17 @@ rows, and derived artifact notes.
 - **AND** `getReferenceSidecarIndex()` SHALL return rows for those papers.
 
 ### Requirement: Resolver execution is deterministic
+Topic Resolver execution SHALL be deterministic and plugin-owned, and `synthesis.resolve_resolver` SHALL require a canonical resolver under the top-level `resolver` input field.
 
-Topic Resolver execution SHALL be deterministic and plugin-owned. Resolver
-validation SHALL be performed by `synthesis.resolve_resolver`; v1 SHALL NOT
-expose a separate `synthesis.validate_resolver` MCP tool.
+#### Scenario: Resolver wrapper field is missing
+- **WHEN** `synthesis.resolve_resolver` receives an input object without a valid `resolver` object
+- **THEN** it SHALL return `ok: false`
+- **AND** the errors SHALL identify `$.resolver` as the missing or invalid field.
 
-#### Scenario: Tag query includes and excludes papers
-
-- **WHEN** a resolver uses `and`, `or`, or `not` tag clauses
-- **THEN** matching SHALL be evaluated against current source tags.
-
-#### Scenario: Mixed resolver excludes papers
-
-- **WHEN** a mixed resolver contains include and exclude resolvers
-- **THEN** exclude results SHALL be removed after include results are collected.
-
-#### Scenario: Resolver input is non-canonical
-
-- **WHEN** `synthesis.resolve_resolver` receives a resolver with fields outside
-  the canonical resolver schema
-- **THEN** it SHALL return `ok: false` with structured errors and no papers.
-
-#### Scenario: Resolver matches no papers
-
-- **WHEN** `synthesis.resolve_resolver` receives a valid resolver that matches
-  zero papers
-- **THEN** it SHALL return `ok: false` with diagnostics explaining the empty
-  result.
+#### Scenario: Workflow bundle resolver field is rejected
+- **WHEN** `synthesis.resolve_resolver` receives `topic_resolver` instead of `resolver`
+- **THEN** it SHALL return `ok: false`
+- **AND** it SHALL explain that `topic_resolver` is not accepted by this Host Bridge/MCP contract.
 
 ### Requirement: Paper artifacts are read from existing workflow payloads
 
@@ -166,3 +150,4 @@ using persisted layout coordinates.
 - **WHEN** no persisted graph snapshot exists
 - **THEN** the Workbench SHALL show diagnostics and a rebuild action instead of
   a fake graph or silent blank canvas.
+

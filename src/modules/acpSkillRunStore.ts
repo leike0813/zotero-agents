@@ -326,6 +326,7 @@ export type AcpSkillRunRuntimeOptionsSnapshot = {
 
 type AcpSkillRunController = {
   cancel: () => Promise<void>;
+  interruptTurn?: () => Promise<void>;
   reply?: (message: string) => Promise<void>;
   disconnect?: () => Promise<void>;
   endSession?: () => Promise<void>;
@@ -2340,7 +2341,11 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
       "No active ACP skill run controller is available for interruption.",
     );
   }
-  await controller.cancel();
+  if (controller.interruptTurn) {
+    await controller.interruptTurn();
+  } else {
+    await controller.cancel();
+  }
   upsertAcpSkillRun({
     requestId,
     activePrompt: false,

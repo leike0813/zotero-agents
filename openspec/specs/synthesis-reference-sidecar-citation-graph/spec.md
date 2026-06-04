@@ -34,26 +34,41 @@ Citation graph cache refresh SHALL NOT mark topic artifacts stale, enqueue topic
 - **THEN** topic create/update and source-check state SHALL remain unchanged
 - **AND** graph metrics MAY become available as optional enrichment.
 
-### Requirement: Citation graph cache refresh is explicit
-Citation Graph cache SHALL be rebuilt only by an explicit graph cache rebuild operation or equivalent scoped debug command.
+### Requirement: Citation graph cache refresh is visible and bounded
+Citation Graph cache SHALL be maintained only by visible operation paths: source-slice incremental refresh, explicit graph cache rebuild, or equivalent scoped debug command.
 
 #### Scenario: Reference sidecar refresh changes references
 - **WHEN** Reference Sidecar refresh inserts, stales, canonicalizes, or binds references
-- **THEN** Citation Graph cache SHALL be marked stale
-- **AND** Citation Graph cache rows SHALL NOT be rebuilt in the same operation.
+- **THEN** Citation Graph cache MAY be refreshed by a separate incremental graph operation
+- **AND** Citation Graph cache rows SHALL NOT be rebuilt inside the Reference Sidecar transaction.
+
+#### Scenario: Workflow apply changes one source
+- **WHEN** literature-digest workflow apply updates sidecar facts for one source
+- **THEN** Citation Graph cache MAY refresh that source slice if graph cache already exists
+- **AND** it SHALL NOT bootstrap a missing graph cache.
 
 #### Scenario: Graph cache rebuild runs
 - **WHEN** `rebuildCitationGraphCacheNow` runs
 - **THEN** it SHALL derive graph nodes, edges, and lightweight metrics from active raw references, effective canonical references, and accepted reference bindings
 - **AND** it SHALL mark `citation-graph:library` ready on success.
 
+#### Scenario: Incremental graph refresh runs
+- **WHEN** graph-affecting sidecar facts change for known source refs
+- **THEN** the incremental graph operation SHALL rewrite affected source edges, source ownership, incoming groups, nodes, and light metrics
+- **AND** unrelated source rows SHALL remain readable.
+
 ### Requirement: Reference binding status is minimal
-Reference binding state SHALL use `unbound`, `candidate`, `accepted`, `rejected`, and `stale_target` as the only Index-facing states.
+Reference binding facts SHALL represent accepted canonical-reference-to-Zotero targets; proposal and review state SHALL be represented separately.
 
 #### Scenario: Legacy accepted bindings are read
 - **WHEN** existing binding rows contain previous `auto` or `confirmed` values
-- **THEN** active Index and graph code SHALL normalize them to `accepted`
+- **THEN** active Index and graph code SHALL normalize them to accepted facts
 - **AND** automatic or user-confirmed provenance SHALL be represented as evidence, not as separate states.
+
+#### Scenario: Candidate binding is produced
+- **WHEN** advanced matching produces a candidate or ambiguous Zotero binding
+- **THEN** it SHALL create or update a reference match proposal
+- **AND** it SHALL NOT persist that candidate as a binding fact.
 
 ### Requirement: Full Registry projection APIs are absent from active paths
 Active Reference Sidecar and Citation Graph cache paths SHALL NOT depend on full Registry projection APIs.
@@ -61,4 +76,165 @@ Active Reference Sidecar and Citation Graph cache paths SHALL NOT depend on full
 #### Scenario: Sidecar main path executes
 - **WHEN** Reference Sidecar refresh, Workbench snapshot, Index data source, Graph cache rebuild, or MCP cache diagnostics execute
 - **THEN** they SHALL NOT call legacy Registry projection refresh, full-index replacement, or old registry fact listing APIs.
+
+### Requirement: Reference match proposals separate review from facts
+Synthesis SHALL store advanced matcher review candidates in `synt_reference_match_proposal`.
+
+#### Scenario: Zotero binding proposal is open
+- **WHEN** a candidate Zotero target needs review
+- **THEN** the proposal SHALL store source canonical reference, target library/item key, confidence, score, reasons, diagnostics, and basis hash.
+
+#### Scenario: Canonical merge proposal is open
+- **WHEN** a canonical dedupe candidate needs review
+- **THEN** the proposal SHALL store source canonical reference, target canonical reference, confidence, score, reasons, diagnostics, and basis hash.
+
+### Requirement: Accepted proposals write graph-affecting facts
+Accepting a reference match proposal SHALL write the corresponding accepted fact and mark citation graph cache stale.
+
+#### Scenario: Binding proposal is accepted
+- **WHEN** the user accepts a `zotero_binding` proposal
+- **THEN** Synthesis SHALL write an accepted reference binding fact
+- **AND** mark the proposal accepted.
+
+#### Scenario: Canonical merge proposal is accepted
+- **WHEN** the user accepts a `canonical_merge` proposal
+- **THEN** Synthesis SHALL write a canonical reference redirect fact
+- **AND** mark the proposal accepted.
+
+### Requirement: Reference Sidecar Ingestion SHALL Skip Deterministic Invalid Raw References
+Synthesis sidecar ingestion SHALL use deterministic invalid-reference filtering
+as a fallback for legacy, imported, or direct service inputs that bypass
+literature-digest workflow apply.
+
+#### Scenario: Legacy references artifact includes invalid rows
+- **WHEN** sidecar ingestion reads references with bare DOI/URL titles, publication-metadata-only titles, author-only titles, empty titles, or no usable content tokens
+- **THEN** those rows SHALL NOT create raw reference rows
+- **AND** they SHALL NOT create canonical references.
+
+#### Scenario: Warning-only rows are ingested
+- **WHEN** sidecar ingestion reads a plausible reference with bibliographic suffix, possible author-prefix noise, missing year/authors, or a short but plausible title
+- **THEN** that row SHALL remain eligible for raw/canonical materialization.
+
+#### Scenario: Sidecar ingestion executes
+- **WHEN** sidecar ingestion applies the fallback filter
+- **THEN** it SHALL NOT call Advanced Reference Matching, clustered dedupe, or review proposal generation.
+
+### Requirement: Cluster Dedupe Fact Changes SHALL Stale Citation Graph Cache
+Advanced Reference Matching cluster dedupe SHALL affect Citation Graph only
+through accepted redirect facts.
+
+#### Scenario: Cluster redirect is written
+- **WHEN** production advanced matching writes a canonical redirect from a
+  cluster redirect action
+- **THEN** `citation-graph:library` SHALL be marked stale
+- **AND** graph data rows SHALL NOT be rebuilt in the same operation.
+
+#### Scenario: Cluster review proposal is written
+- **WHEN** production advanced matching writes an open `canonical_merge`
+  proposal from a cluster review action
+- **THEN** it SHALL NOT create accepted graph edges
+- **AND** it SHALL NOT rebuild graph data.
+
+### Requirement: Graph cache consumes accepted sidecar facts only
+Citation graph cache rebuild SHALL consume active raw references, effective canonical references, accepted bindings, and accepted canonical redirects.
+
+#### Scenario: Canonical redirect is written by advanced dedupe
+- **WHEN** Advanced Reference Matching writes a canonical redirect
+- **THEN** citation graph cache SHALL be marked stale
+- **AND** graph cache rebuild SHALL later resolve references through the redirect.
+
+#### Scenario: Canonical merge proposal is open
+- **WHEN** a `canonical_merge` proposal is open
+- **THEN** graph cache rebuild SHALL NOT treat it as an accepted redirect.
+
+### Requirement: Citation Graph cache supports source-slice incremental refresh
+
+Citation Graph cache SHALL support a bounded source-slice refresh that rewrites only affected source outgoing edges, source ownership, incoming groups, related nodes, and light metrics.
+
+#### Scenario: Source slice is refreshed without replacing unrelated rows
+
+- **GIVEN** an existing graph cache has edges from source A and source B
+- **WHEN** the graph cache refresh receives only source A as affected
+- **THEN** source A graph rows are rebuilt from current active sidecar facts
+- **AND** source B graph rows remain present.
+
+### Requirement: Sidecar-changing actions may trigger visible graph incremental refresh
+
+Workflow apply, Reference Sidecar refresh, and Advanced Matching SHALL be allowed to trigger an explicit incremental graph refresh operation after their own sidecar or fact changes complete.
+
+#### Scenario: Incremental graph refresh is a separate operation
+
+- **WHEN** a sidecar-changing operation triggers graph refresh
+- **THEN** Citation Graph refresh progress is represented by its own `synt_operation`
+- **AND** failure of that graph refresh SHALL NOT roll back the completed sidecar-changing operation.
+
+### Requirement: Graph bootstrap policy is operation-specific
+
+Graph cache missing or failed state SHALL be handled according to the triggering operation.
+
+#### Scenario: Workflow apply skips missing graph bootstrap
+
+- **GIVEN** graph cache is missing or failed
+- **WHEN** literature-digest workflow apply updates sidecar facts
+- **THEN** it SHALL NOT run a full graph rebuild.
+
+#### Scenario: Explicit heavy operations may bootstrap graph cache
+
+- **GIVEN** graph cache is missing or failed
+- **WHEN** Reference Sidecar refresh or Advanced Matching changes graph-affecting facts
+- **THEN** it MAY run an explicit full graph rebuild operation.
+
+### Requirement: Stale graph cache can be refreshed manually from recorded delta
+
+When `citation-graph:library` is stale, Workbench SHALL be able to trigger a manual source-slice incremental refresh only from stale delta metadata recorded in cache-basis diagnostics.
+
+#### Scenario: Manual stale refresh has recorded delta
+
+- **GIVEN** graph cache basis is stale
+- **AND** diagnostics record affected source refs or changed canonical/binding/redirect ids
+- **WHEN** `refreshCitationGraphCacheIncrementalNow` runs
+- **THEN** it SHALL refresh the affected graph source slices
+- **AND** it SHALL NOT run full graph cache rebuild.
+
+#### Scenario: Manual stale refresh has no recorded delta
+
+- **GIVEN** graph cache basis is stale
+- **AND** diagnostics do not record an incremental refresh scope
+- **WHEN** Workbench renders graph controls
+- **THEN** the manual incremental refresh action SHALL be unavailable
+- **AND** full graph cache rebuild SHALL remain available as the fallback.
+
+### Requirement: Related-items sync follows explicit sidecar update paths
+
+Literature-digest sidecar apply, Reference Sidecar refresh, and Advanced Matching SHALL be allowed to trigger a visible related-items sync operation after their own fact updates and graph refresh attempts.
+
+#### Scenario: Digest apply triggers scoped related-items sync
+
+- **WHEN** literature-digest apply updates sidecar facts for one source ref
+- **THEN** the service SHALL attempt graph incremental refresh for that source ref
+- **AND** it SHALL then run related-items sync scoped to that source ref
+- **AND** graph refresh failure SHALL NOT block related-items sync.
+
+#### Scenario: Sidecar refresh triggers scoped related-items sync
+
+- **WHEN** Reference Sidecar refresh changes references artifact state for source refs
+- **THEN** related-items sync SHALL run only for those changed source refs.
+
+#### Scenario: Advanced Matching triggers full related-items sync after graph-affecting facts
+
+- **WHEN** Advanced Matching writes accepted binding or canonical redirect facts
+- **THEN** related-items sync SHALL run as a full sync
+- **AND** open review proposals alone SHALL NOT require related-items sync.
+
+### Requirement: Related-items sync resolves edges without requiring graph cache
+
+Related-items sync SHALL use graph cache only as an optimization. If graph cache is missing, stale, failed, empty, or refresh fails, it SHALL compute accepted library-to-library citation edges directly from active sidecar facts.
+
+#### Scenario: Graph cache is unavailable
+
+- **GIVEN** active raw references and accepted reference bindings exist
+- **AND** Citation Graph cache is missing or failed
+- **WHEN** related-items sync runs
+- **THEN** it SHALL compute source-to-target library edges from active sidecar facts
+- **AND** it SHALL NOT rebuild graph cache.
 

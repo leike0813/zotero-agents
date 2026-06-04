@@ -255,7 +255,7 @@ pub enum SynthesisCommand {
 
     #[command(
         about = "Resolve a topic resolver into a paper set",
-        long_about = "Map to Host Bridge capability synthesis.resolve_resolver. Use --input for resolver JSON."
+        long_about = "Map to Host Bridge capability synthesis.resolve_resolver. --input must be a JSON object containing a top-level resolver field, for example {\"resolver\":{\"mode\":\"tag_query\",\"query\":\"tag-name\"}}. Do not pass topic_resolver, root-level queries, or the resolver object by itself."
     )]
     ResolveResolver(SynthesisInputArgs),
 

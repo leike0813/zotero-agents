@@ -131,7 +131,8 @@ Current source of truth:
 `renderReferencesTable(references: unknown): string`
 - Canonical HTML table renderer used by shared reference-note workflows.
 - Column order:
-  - `#`, `Citekey`, `Year`, `Title`, `Authors`, `Source`, `Locator`.
+  - `#`, `Year`, `Title`, `Authors`, `Source`, `Locator`.
+- `citekey` remains part of normalized payload data when present, but is not rendered as a visible table column.
 - Input is normalized via `normalizeReferencesArray`.
 
 ## Hook-Facing Dialog/Editor Bridge APIs

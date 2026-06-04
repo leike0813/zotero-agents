@@ -12,10 +12,12 @@ import {
 import {
   buildLegalGeneratedMarkdownNoteContent,
   buildLegalGeneratedNoteContent,
+  parsePayloadBlock,
+  renderMarkdownToHtml,
 } from "../../lib/noteCodecs.mjs";
 import {
   attachWorkbenchPayloadToNote,
-  resolveWorkbenchEmbeddedPayloadBlock,
+  listWorkbenchEmbeddedPayloadBlocksForNote,
 } from "../../lib/embeddedPayloadAttachments.mjs";
 import { copyTextToClipboard } from "../../lib/clipboard.mjs";
 import {
@@ -31,6 +33,8 @@ const WORKBENCH_PAYLOAD_TYPES = [
   "digest-markdown",
   "references-json",
   "citation-analysis-json",
+  "conversation-note-markdown",
+  "custom-markdown",
 ];
 
 function normalizeText(value) {
@@ -199,32 +203,94 @@ function stripInitialHeading(markdown, title) {
   );
 }
 
-function extractFirstRepresentativeImageTag(noteContent) {
-  const descriptor = extractRepresentativeImageExportDescriptor(noteContent);
-  if (!descriptor?.attachmentKey) {
-    return null;
-  }
-  const imgTagMatch = String(noteContent || "").match(
-    /<img\b[^>]*\bdata-attachment-key\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/i,
+function extractRepresentativeImageHtmlBlock(noteContent) {
+  const match = String(noteContent || "").match(
+    /<div\s+data-zs-block=(["'])representative-image\1[\s\S]*?<\/div>/i,
   );
-  if (!imgTagMatch) {
-    return null;
+  return match
+    ? {
+        block: match[0],
+        index: match.index || 0,
+      }
+    : null;
+}
+
+function isPayloadImageTag(imgTag) {
+  const tag = String(imgTag || "");
+  if (/\bdata-zs-payload-anchor\b/i.test(tag)) {
+    return true;
   }
-  const imgTag = imgTagMatch[0];
-  const key = normalizeText(readTagAttribute(imgTag, "data-attachment-key"));
-  if (key !== descriptor.attachmentKey) {
+  const alt = normalizeText(readTagAttribute(tag, "alt")).toLowerCase();
+  const title = normalizeText(readTagAttribute(tag, "title")).toLowerCase();
+  const width = normalizeText(readTagAttribute(tag, "width"));
+  const height = normalizeText(readTagAttribute(tag, "height"));
+  if (
+    alt === "zotero skills artifact payload" ||
+    title === "zotero agents artifact payload"
+  ) {
+    return true;
+  }
+  return (
+    width === "1" &&
+    height === "1" &&
+    (alt.includes("artifact payload") || title.includes("artifact payload"))
+  );
+}
+
+function findRepresentativeImageCandidate(source, descriptorAttachmentKey) {
+  const text = String(source || "");
+  const matches = text.matchAll(
+    /<img\b[^>]*\bdata-attachment-key\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi,
+  );
+  let fallback = null;
+  for (const match of matches) {
+    const imgTag = match[0];
+    if (isPayloadImageTag(imgTag)) {
+      continue;
+    }
+    const key = normalizeText(readTagAttribute(imgTag, "data-attachment-key"));
+    if (!key) {
+      continue;
+    }
+    const candidate = {
+      imgTag,
+      index: match.index || 0,
+      attachmentKey: key,
+    };
+    if (descriptorAttachmentKey && key === descriptorAttachmentKey) {
+      return candidate;
+    }
+    if (!fallback) {
+      fallback = candidate;
+    }
+  }
+  return fallback;
+}
+
+function extractFirstRepresentativeImageTag(noteContent) {
+  const representativeBlock = extractRepresentativeImageHtmlBlock(noteContent);
+  const descriptor = extractRepresentativeImageExportDescriptor(
+    representativeBlock?.block || noteContent,
+  );
+  const candidate = representativeBlock
+    ? findRepresentativeImageCandidate(
+        representativeBlock.block,
+        descriptor?.attachmentKey,
+      )
+    : findRepresentativeImageCandidate(noteContent, descriptor?.attachmentKey);
+  if (!candidate) {
     return null;
   }
   return {
-    imgTag,
-    index: imgTagMatch.index || 0,
-    attachmentKey: key,
+    imgTag: candidate.imgTag,
+    index: (representativeBlock?.index || 0) + candidate.index,
+    attachmentKey: candidate.attachmentKey,
     alt:
-      normalizeText(readTagAttribute(imgTag, "alt")) ||
+      normalizeText(readTagAttribute(candidate.imgTag, "alt")) ||
       normalizeText(descriptor.alt) ||
       "Representative image",
-    width: normalizeText(readTagAttribute(imgTag, "width")),
-    height: normalizeText(readTagAttribute(imgTag, "height")),
+    width: normalizeText(readTagAttribute(candidate.imgTag, "width")),
+    height: normalizeText(readTagAttribute(candidate.imgTag, "height")),
   };
 }
 
@@ -290,6 +356,35 @@ function parseLegacyPayload(noteContent, runtime) {
       payload: parsed.payload,
     };
   } catch {
+    // try markdown-backed note payloads
+  }
+  try {
+    const parsed = parsePayloadBlock(
+      noteContent,
+      "conversation-note-markdown",
+      runtime,
+      { payloadFormat: "json" },
+    );
+    return {
+      status: "legacy-html-payload",
+      kind: "conversation-note",
+      payloadType: "conversation-note-markdown",
+      payload: parsed.payload,
+    };
+  } catch {
+    // try custom
+  }
+  try {
+    const parsed = parsePayloadBlock(noteContent, "custom-markdown", runtime, {
+      payloadFormat: "text",
+    });
+    return {
+      status: "legacy-html-payload",
+      kind: "custom",
+      payloadType: "custom-markdown",
+      payload: parsed.payload,
+    };
+  } catch {
     return null;
   }
 }
@@ -308,20 +403,6 @@ function rebuildDigestPayloadFromHtml(noteContent) {
     payloadType: "digest-markdown",
     payload,
   };
-}
-
-async function hasNewPayloadAttachment(noteItem, runtime) {
-  for (const payloadType of WORKBENCH_PAYLOAD_TYPES) {
-    const block = await resolveWorkbenchEmbeddedPayloadBlock({
-      runtime,
-      noteItem,
-      payloadType,
-    });
-    if (block && !block.errors?.length) {
-      return payloadType;
-    }
-  }
-  return "";
 }
 
 function buildMigratedNoteHtml(migration, noteContent, runtime) {
@@ -354,7 +435,79 @@ function buildMigratedNoteHtml(migration, noteContent, runtime) {
       markdown: stripInitialHeading(reportMarkdown, "Citation Analysis"),
     });
   }
+  if (migration.kind === "conversation-note") {
+    return [
+      '<div data-zs-note-kind="conversation-note">',
+      "<h1>Conversation Note</h1>",
+      '<div data-zs-view="conversation-note-html">',
+      renderMarkdownToHtml(migration.payload?.content || ""),
+      "</div>",
+      "</div>",
+    ].join("\n");
+  }
+  if (migration.kind === "custom") {
+    return buildLegalGeneratedNoteContent({
+      title: "Custom Note",
+      bodyHtml: renderMarkdownToHtml(migration.payload || ""),
+    });
+  }
   return noteContent;
+}
+
+function payloadKindFromType(payloadType) {
+  if (payloadType === "digest-markdown") {
+    return "digest";
+  }
+  if (payloadType === "references-json") {
+    return "references";
+  }
+  if (payloadType === "citation-analysis-json") {
+    return "citation-analysis";
+  }
+  if (payloadType === "conversation-note-markdown") {
+    return "conversation-note";
+  }
+  if (payloadType === "custom-markdown") {
+    return "custom";
+  }
+  return "";
+}
+
+async function resolveEmbeddedMigration(noteItem, runtime) {
+  const blocks = await listWorkbenchEmbeddedPayloadBlocksForNote({
+    runtime,
+    noteItem,
+  });
+  const supported = blocks.find((entry) =>
+    WORKBENCH_PAYLOAD_TYPES.includes(normalizeText(entry.payloadType)),
+  );
+  if (!supported || supported.errors?.length) {
+    return null;
+  }
+  if (
+    Number(supported.payloadStorageVersion) === 2 &&
+    supported.anchorStatus === "present"
+  ) {
+    return {
+      status: "refresh-v2-payload-badge",
+      kind: payloadKindFromType(supported.payloadType),
+      payloadType: supported.payloadType,
+      payload: supported.payload,
+      sourceStorage: supported.sourceStorage,
+      anchorStatus: supported.anchorStatus,
+    };
+  }
+  return {
+    status:
+      Number(supported.payloadStorageVersion) === 2
+        ? "repair-v2-anchor"
+        : "legacy-embedded-payload",
+    kind: payloadKindFromType(supported.payloadType),
+    payloadType: supported.payloadType,
+    payload: supported.payload,
+    sourceStorage: supported.sourceStorage,
+    anchorStatus: supported.anchorStatus,
+  };
 }
 
 async function migrateNote(args) {
@@ -392,14 +545,29 @@ async function migrateNote(args) {
     };
   }
 
-  const existingPayloadType = await hasNewPayloadAttachment(noteItem, runtime);
-  if (existingPayloadType) {
+  const embeddedMigration = await resolveEmbeddedMigration(noteItem, runtime);
+  if (embeddedMigration?.payloadType && embeddedMigration.kind) {
+    const attached = await attachWorkbenchPayloadToNote({
+      runtime,
+      note: noteItem,
+      noteKind: embeddedMigration.kind,
+      payloadType: embeddedMigration.payloadType,
+      payload: embeddedMigration.payload,
+    });
     return {
       noteId: noteItem.id || null,
       noteKey: normalizeText(noteItem.key),
-      status: "skipped",
-      reason: "already_attachment_backed",
-      payloadType: existingPayloadType,
+      status:
+        embeddedMigration.status === "refresh-v2-payload-badge"
+          ? "refreshed"
+          : "migrated",
+      source: embeddedMigration.status,
+      sourceStorage: embeddedMigration.sourceStorage,
+      kind: embeddedMigration.kind,
+      payloadType: embeddedMigration.payloadType,
+      attachmentKey: normalizeText(attached?.attachmentKey),
+      nextStorageVersion: 2,
+      anchorStatus: normalizeText(attached?.anchorStatus) || "present",
     };
   }
 

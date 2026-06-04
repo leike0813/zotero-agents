@@ -351,6 +351,8 @@ describe("Synthesis invariant guards", () => {
     assert.include(refreshBlock, 'cacheKey: "reference-sidecar:library"');
     assert.include(refreshBlock, 'cacheKey: "citation-graph:library"');
     assert.include(refreshBlock, 'status: "stale"');
+    assert.include(refreshBlock, "refreshCitationGraphCacheIncremental");
+    assert.notInclude(refreshBlock, "replaceCitationGraphState(");
     assert.include(advancedMatchingBlock, "buildReferenceMatcherIndex");
     assert.include(advancedMatchingBlock, "resolveReferenceWithPolicy");
     assert.match(
@@ -359,6 +361,7 @@ describe("Synthesis invariant guards", () => {
     );
     assert.notMatch(advancedMatchingBlock, /\bdedupeCanonicalReferences\s*\(/);
     assert.include(advancedMatchingBlock, "upsertReferenceMatchProposal");
+    assert.include(advancedMatchingBlock, "refreshCitationGraphCacheIncremental");
     assert.notMatch(
       readRepoText("src/modules/synthesis/referenceMatcher.ts"),
       /export function dedupeCanonicalReferences\s*\(/,
@@ -383,6 +386,35 @@ describe("Synthesis invariant guards", () => {
     assert.notInclude(sendSnapshotBlock, "buildDefaultSnapshotInput(error)");
     assert.notInclude(appSource, "actionToBackgroundJob");
     assert.notInclude(appSource, "applyLiteratureCleanupAction");
+  });
+
+  it("keeps related-items sync independent from graph rebuild and digest auto matching", () => {
+    const serviceSource = readRepoText("src/modules/synthesis/service.ts");
+    const digestWorkflow = readRepoText(
+      "workflows_builtin/literature-workbench-package/literature-digest/workflow.json",
+    );
+    const digestApply = readRepoText(
+      "workflows_builtin/literature-workbench-package/literature-digest/hooks/applyResult.mjs",
+    );
+    const syncBlock = extractFunctionBlock(
+      serviceSource,
+      "syncRelatedItemsFromAcceptedEdges",
+    );
+    const publicSyncBlock = extractFunctionBlock(
+      serviceSource,
+      "syncRelatedItemsNow",
+    );
+
+    assert.notInclude(digestWorkflow, "auto_reference_matching");
+    assert.notInclude(digestApply, "auto_reference_matching");
+    assert.notInclude(digestApply, "applyReferenceMatchingToNote");
+    assert.notInclude(syncBlock, "rebuildCitationGraphCacheFromSidecar");
+    assert.notInclude(publicSyncBlock, "rebuildCitationGraphCacheFromSidecar");
+    assert.include(
+      serviceSource,
+      "loadAcceptedLibraryCitationEdgesForRelatedItems",
+    );
+    assert.include(serviceSource, "yieldToEventLoop");
   });
 
   it("keeps review candidate generation bounded [inv.review.queue_bounded]", () => {

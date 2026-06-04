@@ -342,16 +342,28 @@ describe("ACP SkillRunner-compatible runner", function () {
       ["run-new", "run-old"],
     );
 
+    let canceled = false;
     let interrupted = false;
     registerAcpSkillRunController("run-new", {
       cancel: async () => {
+        canceled = true;
+      },
+      interruptTurn: async () => {
         interrupted = true;
+        upsertAcpSkillRun({
+          requestId: "run-new",
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+        });
       },
     });
     await interruptAcpSkillRunCurrentTurn("run-new");
     const interruptedRun = getAcpSkillRunRecord("run-new");
+    assert.isFalse(canceled);
     assert.isTrue(interrupted);
     assert.equal(interruptedRun?.status, "running");
+    assert.equal(interruptedRun?.conversationState, "closed");
+    assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
     assert.isUndefined(interruptedRun?.removedAt);
   });

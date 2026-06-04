@@ -19,6 +19,66 @@ import {
 } from "../../src/modules/hostBridgeProfileStore";
 
 describe("host bridge cli packaging and install", function () {
+  it("documents resolve-resolver with the top-level resolver input contract", async function () {
+    const cliArgs = await fs.readFile(
+      path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
+      "utf8",
+    );
+    const readme = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "addon/content/acp-runtime-prompts/templates/host_bridge_cli_readme.md",
+      ),
+      "utf8",
+    );
+    const prompt = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "addon/content/acp-runtime-prompts/templates/host_bridge_cli_prompt.md",
+      ),
+      "utf8",
+    );
+    const docs = await fs.readFile(
+      path.join(process.cwd(), "doc/host-bridge-cli.md"),
+      "utf8",
+    );
+
+    for (const source of [cliArgs, readme, prompt, docs]) {
+      assert.include(source, "resolver");
+      assert.include(source, "topic_resolver");
+    }
+    assert.include(cliArgs, "top-level resolver field");
+    assert.include(readme, '"resolver"');
+    assert.include(readme, "Do not pass `topic_resolver`");
+    assert.include(prompt, "do not pass `topic_resolver`");
+    assert.include(docs, '"resolver"');
+  });
+
+  it("declares remote Host Bridge profile and master token preference controls", async function () {
+    const prefs = await fs.readFile(
+      path.join(process.cwd(), "addon/content/preferences.xhtml"),
+      "utf8",
+    );
+    const preferenceScript = await fs.readFile(
+      path.join(process.cwd(), "src/modules/preferenceScript.ts"),
+      "utf8",
+    );
+    const docs = await fs.readFile(
+      path.join(process.cwd(), "doc/host-bridge-cli.md"),
+      "utf8",
+    );
+
+    assert.include(prefs, "host-bridge-advertised-host");
+    assert.include(prefs, "host-bridge-rotate-master-token");
+    assert.include(prefs, "host-bridge-copy-master-token");
+    assert.include(prefs, "host-bridge-copy-remote-profile");
+    assert.include(preferenceScript, "copyHostBridgeRemoteProfile");
+    assert.include(preferenceScript, "copyHostBridgeMasterToken");
+    assert.include(preferenceScript, "hostBridgePinPortCheckbox.disabled = lanEnabled");
+    assert.include(docs, "manual-remote");
+    assert.include(docs, "master token");
+  });
+
   it("uses stable bundled platform directory names", function () {
     assert.deepEqual(resolveHostBridgeCliPlatform({ platform: "win32" }), {
       dir: "win32-x64",

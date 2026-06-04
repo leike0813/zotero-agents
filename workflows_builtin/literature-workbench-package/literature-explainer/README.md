@@ -88,4 +88,4 @@
 ## 相关工作流
 
 - [literature-digest](../literature-digest/README.md): 自动生成文献摘要
-- [reference-note-editor](../reference-note-editor/README.md): 编辑结构化参考文献
+- note-level `reference-note-editor` 已归档到 `deprecated/workflows_builtin`

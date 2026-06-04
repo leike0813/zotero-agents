@@ -123,26 +123,11 @@ Zotero MCP write tools SHALL disclose preview, permission, execution, and verifi
 - **AND** agents SHALL be guided to verify state before retrying after ambiguous transport failures.
 
 ### Requirement: Zotero MCP note payload tools
+The Zotero MCP service SHALL expose workflow-aware note payloads from v2 embedded payload storage and legacy payload formats.
 
-The Zotero MCP service SHALL expose workflow-aware note payload read tools without requiring agents to parse Zotero note HTML manually.
-
-#### Scenario: Listing note payloads
-
-- **WHEN** an MCP client calls `list_note_payloads` with a Zotero note ref
-- **THEN** the result SHALL list each hidden `data-zs-payload` block
-- **AND** it SHALL include `payloadType`, encoding, version when available, estimated decoded size, note kind, and a recommended `get_note_payload` call.
-
-#### Scenario: Reading a markdown payload
-
-- **WHEN** an MCP client calls `get_note_payload` for a markdown payload
-- **THEN** the result SHALL expose canonical markdown text with `offset`, `nextOffset`, `totalChars`, and `hasMore`
-- **AND** it SHALL decode both plain markdown payloads and JSON wrappers containing `content`.
-
-#### Scenario: Reading a JSON payload
-
-- **WHEN** an MCP client calls `get_note_payload` for a JSON payload
-- **THEN** the result SHALL expose the decoded JSON payload in structured content
-- **AND** it SHALL expose a bounded JSON text chunk for agent-readable inspection.
+#### Scenario: Listing note payloads includes v2 metadata
+- **WHEN** an agent lists note payloads for a v2-backed note
+- **THEN** the result SHALL include the payload type, embedded attachment key, storage version, source, and anchor status.
 
 ### Requirement: Zotero MCP markdown-backed note write tools
 
@@ -151,7 +136,7 @@ The Zotero MCP service SHALL provide permission-gated tools for creating and upd
 #### Scenario: Creating a markdown note
 
 - **WHEN** an MCP client calls `create_markdown_note`
-- **THEN** the tool SHALL create note HTML containing a rendered view and a base64 hidden markdown payload
+- **THEN** the tool SHALL create note HTML containing a rendered view and a readable markdown payload
 - **AND** the write SHALL execute only after the normal MCP permission flow approves it.
 
 #### Scenario: Updating a markdown note
@@ -360,4 +345,24 @@ and correction decisions.
 - **WHEN** a tool returns `isError=true`
 - **THEN** structured content SHALL include the tool name, stable error code,
   retryable flag, and optional retry-after milliseconds.
+
+### Requirement: MCP-facing Host Bridge docs do not leak master tokens
+MCP/agent-facing documentation MAY describe remote Host Bridge profiles, but MUST NOT expose plaintext master tokens in status or manifest examples.
+
+#### Scenario: Manifest shown to agent
+- **WHEN** Host Bridge manifest is inspected
+- **THEN** master token state is masked
+- **AND** plaintext master token is only available through the explicit preferences copy action
+
+### Requirement: Zotero MCP server SHALL preserve JSON-RPC request text
+The embedded Zotero MCP server SHALL parse JSON-RPC HTTP request bodies from raw bytes and decode them as UTF-8.
+
+#### Scenario: Non-ASCII JSON-RPC arguments survive request parsing
+- **WHEN** an MCP client posts JSON-RPC arguments containing non-ASCII text
+- **THEN** the tool handler SHALL receive those characters exactly.
+
+#### Scenario: Malformed UTF-8 JSON-RPC body is rejected
+- **WHEN** an MCP request body is not valid UTF-8
+- **THEN** the server SHALL return a stable parse/bad-request response
+- **AND** it SHALL NOT pass mojibake text to the JSON-RPC dispatcher.
 

@@ -386,6 +386,15 @@ describe("acp ui smoke", function () {
     assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks(body);");
     assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks,");
     assert.include(transcriptRendererJs, "copyTextToClipboard,");
+    assert.include(transcriptRendererJs, "function assistantToolCommandTooltip");
+    assert.include(transcriptRendererJs, "function setAssistantTooltip");
+    assert.include(transcriptRendererJs, "node.title = value");
+    assert.include(transcriptRendererJs, 'node.setAttribute("aria-label", value)');
+    assert.include(transcriptRendererJs, "setAssistantTooltip(badge, tooltip)");
+    assert.include(transcriptRendererJs, "setAssistantTooltip(summaryNode, tooltip)");
+    assert.include(transcriptRendererJs, "function toolActivityTooltipText");
+    assert.include(transcriptRendererJs, ".map(assistantToolCommandTooltip)");
+    assert.include(transcriptRendererJs, 'join("\\n")');
 
     assert.include(panelRendererJs, "replyHistoryByKey");
     assert.include(panelRendererJs, "replyHistoryLimit = 50");

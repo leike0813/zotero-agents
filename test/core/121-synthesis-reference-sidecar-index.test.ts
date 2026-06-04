@@ -4,6 +4,7 @@ import {
   buildReferenceSidecarIndexRow,
   buildSynthesisLayerDbPath,
 } from "../../src/modules/synthesis/registry";
+import { readArtifactsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
 
 function note(args: {
   key: string;
@@ -99,6 +100,33 @@ describe("Synthesis Reference Sidecar Index", function () {
     });
 
     assert.equal(first.artifacts.digest.hash, second.artifacts.digest.hash);
+  });
+
+  it("treats legacy visible Digest notes as available digest artifacts", function () {
+    const input = {
+      libraryId: 1,
+      itemKey: "ABCD1234",
+      title: "Paper",
+      notes: [
+        {
+          key: "DLEGACY",
+          title: "Digest",
+          updatedAt: "2026-05-10T12:00:00.000Z",
+          html: "<h1>Digest</h1><p>Visible digest body</p>",
+        },
+      ],
+    };
+
+    const row = buildReferenceSidecarIndexRow(input);
+    const read = readArtifactsFromRegistryInputs([input], {
+      paper_ref: "1:ABCD1234",
+      artifact_types: ["digest"],
+    });
+
+    assert.equal(row.artifacts.digest.status, "available");
+    assert.equal(row.artifacts.digest.note_key, "DLEGACY");
+    assert.equal(read.artifacts[0]?.status, "available");
+    assert.equal(read.artifacts[0]?.note_key, "DLEGACY");
   });
 
   it("records duplicate payload diagnostics while selecting deterministic candidates", function () {

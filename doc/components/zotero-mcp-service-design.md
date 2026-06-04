@@ -148,18 +148,24 @@ Recommendation priority is Markdown full text, then TXT full text, then PDF, the
 
 ### Note Payload Codec
 
-Workflow-backed notes may include hidden payload blocks:
+Workflow-backed notes store current machine payloads in note-child embedded
+image attachments. The attachment file is a valid PNG with a Workbench payload
+chunk, and the visible note HTML keeps the attachment alive with an
+`<img data-attachment-key="..." data-zs-payload-anchor="...">` anchor.
+
+Older notes may still include hidden payload blocks:
 
 ```html
 <span data-zs-block="payload" data-zs-payload="custom-markdown" data-zs-version="1" data-zs-encoding="base64" data-zs-value="..."></span>
 ```
 
-The MCP note payload codec recognizes:
+The MCP note payload codec recognizes both the current embedded payload
+attachment format and legacy hidden payload blocks:
 
 - markdown payloads: `custom-markdown`, `conversation-note-markdown`, `digest-markdown`
 - JSON payloads: `references-json`, `citation-analysis-json`
 
-Markdown payloads are exposed as canonical markdown. JSON payloads are readable through MCP but are not writable through markdown note tools. MCP markdown writes may create/update `custom-markdown` and `conversation-note-markdown` only.
+Markdown payloads are exposed as canonical markdown. JSON payloads are readable through MCP but are not writable through markdown note tools. MCP markdown writes may create/update `custom-markdown` and `conversation-note-markdown` only. Payload manifests may include storage diagnostics such as storage version, embedded attachment key, payload hash, source format, and anchor status.
 
 ## Read And Context Tools
 
@@ -406,7 +412,7 @@ Text disclosure requirements:
 
 ### `list_note_payloads`
 
-Purpose: list hidden workflow payload blocks in one Zotero note without returning full payload content.
+Purpose: list workflow note payloads from current embedded attachments and legacy payload blocks without returning full payload content.
 
 Input:
 
@@ -440,13 +446,13 @@ Structured content:
 Text disclosure requirements:
 
 - note ref
-- per payload: `payloadType`, `noteKind`, encoding, version, estimated decoded size, format
+- per payload: `payloadType`, `noteKind`, encoding, version, storage source/version, anchor status, estimated decoded size, format
 - decoding errors when present
 - next call: `get_note_payload` with the note ref and payload type
 
 ### `get_note_payload`
 
-Purpose: decode one hidden workflow payload from a Zotero note.
+Purpose: decode one workflow payload from a Zotero note.
 
 Input:
 
@@ -643,6 +649,8 @@ Bounded behavior:
   sync.
 - `synthesis.resolve_resolver` supports `cursor` and `limit` and returns
   `next_cursor`, `has_more`, `returned`, and `total`.
+  Its input must contain a top-level `resolver` object; `topic_resolver` is a
+  workflow bundle field and is not accepted by the MCP/Host Bridge tool.
 - `synthesis.get_library_index` returns a bounded paper page by default.
   `includeTags`, `includeCollections`, and `includeItems` opt into larger
   sections. The result is a cache view and may be stale or empty.
@@ -822,7 +830,7 @@ Text disclosure requirements: parent ref, note kind, payload type, markdown leng
 
 ### `update_markdown_note`
 
-Purpose: permission-gated update of an existing markdown-backed note while preserving the hidden payload convention.
+Purpose: permission-gated update of an existing markdown-backed note while preserving its readable workflow payload convention.
 
 Input:
 

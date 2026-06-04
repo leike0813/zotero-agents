@@ -1,7 +1,10 @@
 import {
   getHostBridgeToken,
+  getHostBridgeMasterTokenStatus,
   isHostBridgeAuthorizationValid,
+  readHostBridgeMasterToken,
   redactHostBridgeToken,
+  rotateHostBridgeMasterToken as rotateStoredHostBridgeMasterToken,
   rotateHostBridgeToken as rotateStoredHostBridgeToken,
 } from "./hostBridgeAuth";
 import {
@@ -88,6 +91,7 @@ type HttpRequest = {
   query: Record<string, string>;
   headers: Record<string, string>;
   body: string;
+  bodyByteLength: number;
   parseError?: string;
 };
 
@@ -125,6 +129,10 @@ function getLanEnabled() {
 
 function getPinPortEnabled() {
   return getPref("hostBridgePinPortEnabled") === true;
+}
+
+function getEffectivePinPortEnabled(lanEnabled = getLanEnabled()) {
+  return lanEnabled || getPinPortEnabled();
 }
 
 function normalizePinnedPort(value: unknown) {
@@ -194,6 +202,33 @@ function updateState(partial: Partial<HostBridgeServerState>) {
 
 function buildEndpoint(host: string, port: number) {
   return `http://${host}:${port}/bridge/v1`;
+}
+
+function normalizeAdvertisedHost(value: unknown) {
+  const host = String(value || "").trim();
+  return host || "<zotero-host-ip>";
+}
+
+function getAdvertisedHost() {
+  return normalizeAdvertisedHost(getPref("hostBridgeAdvertisedHost"));
+}
+
+function buildRemoteEndpoint(port: number) {
+  if (!port) {
+    return "";
+  }
+  return buildEndpoint(getAdvertisedHost(), port);
+}
+
+function buildLocalProfileEndpoint(bindMode: HostBridgeBindMode, port: number) {
+  return buildEndpoint(bindMode === "lan" ? LOOPBACK_HOST : hostFromBindMode(bindMode), port);
+}
+
+function buildLocalClientEndpoint(bindMode: HostBridgeBindMode, port: number) {
+  if (!port) {
+    return "";
+  }
+  return buildLocalProfileEndpoint(bindMode, port);
 }
 
 function getComponents() {
@@ -327,10 +362,61 @@ function parseTestPath(rawPath: string) {
   };
 }
 
-function parseHttpRequest(raw: string): HttpRequest {
-  const splitIndex = raw.indexOf("\r\n\r\n");
-  const head = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
-  const body = splitIndex >= 0 ? raw.slice(splitIndex + 4) : "";
+function bytesToLatin1String(bytes: Uint8Array) {
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(
+      String.fromCharCode(...bytes.slice(offset, offset + chunkSize)),
+    );
+  }
+  return chunks.join("");
+}
+
+function binaryStringToBytes(text: string) {
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) {
+    bytes[index] = text.charCodeAt(index) & 0xff;
+  }
+  return bytes;
+}
+
+function concatBytes(chunks: Uint8Array[], totalLength: number) {
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+function findHeaderSeparator(bytes: Uint8Array) {
+  for (let index = 0; index <= bytes.length - 4; index += 1) {
+    if (
+      bytes[index] === 13 &&
+      bytes[index + 1] === 10 &&
+      bytes[index + 2] === 13 &&
+      bytes[index + 3] === 10
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function decodeUtf8Body(bytes: Uint8Array) {
+  try {
+    if (typeof TextDecoder === "function") {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    }
+    return decodeURIComponent(escape(bytesToLatin1String(bytes)));
+  } catch {
+    return null;
+  }
+}
+
+function parseHttpHeaders(head: string) {
   const lines = head.split("\r\n");
   const [method = "", rawPath = ""] = String(lines[0] || "").split(/\s+/);
   const parsedPath = parseTestPath(rawPath);
@@ -344,35 +430,44 @@ function parseHttpRequest(raw: string): HttpRequest {
       .slice(separator + 1)
       .trim();
   }
+  return { method, parsedPath, headers };
+}
+
+function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
+  const splitIndex = findHeaderSeparator(raw);
+  const headBytes = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
+  const bodyBytes = splitIndex >= 0 ? raw.slice(splitIndex + 4) : new Uint8Array();
+  const head = bytesToLatin1String(headBytes);
+  const { method, parsedPath, headers } = parseHttpHeaders(head);
+  const contentLength = Math.max(0, Number(headers["content-length"] || bodyBytes.length));
+  const boundedBodyBytes =
+    contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
+  const body = decodeUtf8Body(boundedBodyBytes);
+  const bodyParseError = body === null ? "invalid_utf8_body" : "";
   return {
     method: method.toUpperCase(),
     path: parsedPath.path,
     query: parsedPath.query,
     headers,
-    body,
-    parseError: parsedPath.parseError,
+    body: body || "",
+    bodyByteLength: boundedBodyBytes.byteLength,
+    parseError: parsedPath.parseError || bodyParseError,
   };
 }
 
-function tryParseHeaders(text: string) {
-  const splitIndex = text.indexOf("\r\n\r\n");
+function parseHttpRequest(raw: string): HttpRequest {
+  return parseHttpRequestBytes(binaryStringToBytes(raw));
+}
+
+function tryParseHeaders(bytes: Uint8Array) {
+  const splitIndex = findHeaderSeparator(bytes);
   if (splitIndex < 0) {
     return null;
   }
-  const headerText = text.slice(0, splitIndex);
-  const body = text.slice(splitIndex + 4);
-  const headers: Record<string, string> = {};
-  for (const line of headerText.split("\r\n").slice(1)) {
-    const separator = line.indexOf(":");
-    if (separator < 0) {
-      continue;
-    }
-    headers[line.slice(0, separator).trim().toLowerCase()] = line
-      .slice(separator + 1)
-      .trim();
-  }
+  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
+  const { headers } = parseHttpHeaders(headerText);
   return {
-    body,
+    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
     contentLength: Number(headers["content-length"] || 0),
   };
 }
@@ -388,14 +483,24 @@ function readInputStream(inputStream: any) {
   const components = getComponents();
   const classes = components?.classes || (globalThis as any).Cc;
   const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const factory = classes?.["@mozilla.org/scriptableinputstream;1"];
+  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
+  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
+  const scriptableFactory = classes?.["@mozilla.org/scriptableinputstream;1"];
   const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!factory || !nsIScriptableInputStream) {
+  if (!binaryFactory && !scriptableFactory) {
     throw new Error("Zotero scriptable input stream is unavailable");
   }
-  const stream = factory.createInstance(nsIScriptableInputStream);
-  stream.init(inputStream);
-  let text = "";
+  const stream =
+    binaryFactory && nsIBinaryInputStream
+      ? binaryFactory.createInstance(nsIBinaryInputStream)
+      : scriptableFactory.createInstance(nsIScriptableInputStream);
+  if (binaryFactory && nsIBinaryInputStream) {
+    stream.setInputStream(inputStream);
+  } else {
+    stream.init(inputStream);
+  }
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
   const startedAt = Date.now();
   while (Date.now() - startedAt < 500) {
     let available = 0;
@@ -410,20 +515,27 @@ function readInputStream(inputStream: any) {
       throw error;
     }
     if (available <= 0) {
-      const parsed = tryParseHeaders(text);
-      if (parsed && parsed.body.length >= parsed.contentLength) {
+      const current = concatBytes(chunks, totalLength);
+      const parsed = tryParseHeaders(current);
+      if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
         break;
       }
       continue;
     }
-    text += stream.read(available);
-    const parsed = tryParseHeaders(text);
-    if (parsed && parsed.body.length >= parsed.contentLength) {
+    const chunk =
+      binaryFactory && nsIBinaryInputStream
+        ? Uint8Array.from(stream.readByteArray(available) || [])
+        : binaryStringToBytes(stream.read(available));
+    chunks.push(chunk);
+    totalLength += chunk.length;
+    const current = concatBytes(chunks, totalLength);
+    const parsed = tryParseHeaders(current);
+    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
       break;
     }
   }
   stream.close?.();
-  return text;
+  return concatBytes(chunks, totalLength);
 }
 
 function utf8ByteLength(text: string) {
@@ -810,16 +922,21 @@ function health(): HostBridgeHealth {
 }
 
 function manifest(): HostBridgeManifest {
+  const masterToken = getHostBridgeMasterTokenStatus();
   return {
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint: {
-      url: state.endpoint,
+      url: buildLocalClientEndpoint(state.bindMode, state.port),
+      remoteUrl: buildRemoteEndpoint(state.port),
+      advertisedHost: getAdvertisedHost(),
       bindMode: state.bindMode,
       lanEnabled: state.lanEnabled,
     },
     auth: {
       type: "bearer",
       tokenMasked: redactHostBridgeToken(state.token || getHostBridgeToken()),
+      masterTokenConfigured: masterToken.configured,
+      masterTokenMasked: masterToken.tokenMasked,
     },
     capabilities: listHostBridgeCapabilities(),
     workflowControl: getHostBridgeWorkflowControlManifest(),
@@ -1192,7 +1309,7 @@ async function handleHttpRequest(request: HttpRequest) {
     return response(200, "OK", hostBridgeOk(health()));
   }
 
-  if (!isHostBridgeAuthorizationValid(request.headers, state.token)) {
+  if (!(await isHostBridgeAuthorizationValid(request.headers, state.token))) {
     return response(
       401,
       "Unauthorized",
@@ -1205,7 +1322,7 @@ async function handleHttpRequest(request: HttpRequest) {
     );
   }
 
-  if (bodyByteLength(request.body || "") > MAX_REQUEST_BODY_BYTES) {
+  if ((request.bodyByteLength || 0) > MAX_REQUEST_BODY_BYTES) {
     return response(
       413,
       "Payload Too Large",
@@ -1275,7 +1392,7 @@ function listen(serverSocket: any) {
         const inputStream = transport.openInputStream(0, 0, 0);
         const outputStream = transport.openOutputStream(0, 0, 0);
         const rawRequest = readInputStream(inputStream);
-        const request = parseHttpRequest(rawRequest);
+        const request = parseHttpRequestBytes(rawRequest);
         const rawResponse = await handleHttpRequest(request);
         writeOutputStream(outputStream, rawResponse);
       })().catch((error) => {
@@ -1304,7 +1421,10 @@ function listen(serverSocket: any) {
 
 async function startServer() {
   const lanEnabled = getLanEnabled();
-  const pinPortEnabled = getPinPortEnabled();
+  if (lanEnabled && !getPinPortEnabled()) {
+    setPref("hostBridgePinPortEnabled", true);
+  }
+  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
   const pinnedPort = getPinnedPort();
   const bindMode = bindModeFromLanEnabled(lanEnabled);
   const host = hostFromBindMode(bindMode);
@@ -1334,14 +1454,14 @@ async function startServer() {
       serverSocket,
       bindMode,
       lanEnabled,
-      pinPortEnabled: getPinPortEnabled(),
+      pinPortEnabled: getEffectivePinPortEnabled(lanEnabled),
       pinnedPort: getPinnedPort(),
       portMode: mode,
       lastRecoveryReason: recoveryReason,
       lastError: "",
     });
     await writeHostBridgeWellKnownProfile({
-      endpoint: state.endpoint,
+      endpoint: buildLocalProfileEndpoint(bindMode, port),
       token,
       updatedAt: state.updatedAt,
     });
@@ -1353,6 +1473,23 @@ async function startServer() {
     try {
       return await tryBind(pinnedPort, "pinned");
     } catch (error) {
+      if (lanEnabled) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : String(error || "Pinned Host Bridge LAN port was unavailable");
+        recoveryReason =
+          "Pinned Host Bridge LAN port is unavailable; LAN mode requires a fixed port.";
+        updateState({
+          status: "error",
+          pinPortEnabled: true,
+          portMode: "pinned",
+          lastRecoveryReason: recoveryReason,
+          lastError: message,
+        });
+        scheduleHostBridgeRecovery(message);
+        throw new Error(message);
+      }
       lastError = error;
       portMode = "fallback";
       setPref("hostBridgePinPortEnabled", false);
@@ -1462,7 +1599,7 @@ export function rotateHostBridgeToken() {
   });
   if (state.status === "running" && state.endpoint) {
     void writeHostBridgeWellKnownProfile({
-      endpoint: state.endpoint,
+      endpoint: buildLocalProfileEndpoint(state.bindMode, state.port),
       token: rotated.token,
       updatedAt: rotated.rotatedAt,
     });
@@ -1470,24 +1607,70 @@ export function rotateHostBridgeToken() {
   return rotated;
 }
 
+export async function rotateHostBridgeMasterToken() {
+  return rotateStoredHostBridgeMasterToken();
+}
+
+export async function readHostBridgeMasterTokenForCopy() {
+  return readHostBridgeMasterToken();
+}
+
+export async function buildHostBridgeRemoteCliProfileForCopy() {
+  const masterToken = await readHostBridgeMasterToken();
+  if (!masterToken.ok) {
+    return masterToken;
+  }
+  const server = getHostBridgeServerStatus();
+  const endpoint =
+    server.remoteEndpoint ||
+    buildEndpoint(getAdvertisedHost(), server.port || getPinnedPort());
+  return {
+    ok: true as const,
+    endpoint,
+    token: masterToken.token,
+    profile: {
+      schema: "zotero-bridge.profile.v1",
+      protocol: HOST_BRIDGE_PROTOCOL_VERSION,
+      endpoint,
+      auth: {
+        type: "bearer",
+        token: masterToken.token,
+      },
+      source: "manual-remote",
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
 export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
   const token = state.token || String(getPref("hostBridgeToken") || "");
+  const masterToken = getHostBridgeMasterTokenStatus();
+  const advertisedHost = getAdvertisedHost();
+  const remoteEndpoint = buildRemoteEndpoint(state.port || getPinnedPort());
+  const localEndpoint =
+    buildLocalClientEndpoint(state.bindMode, state.port) || state.endpoint;
   return {
     status: state.status,
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     host: state.host,
     port: state.port,
-    endpoint: state.endpoint,
+    endpoint: localEndpoint,
+    remoteEndpoint,
+    advertisedHost,
+    remoteEndpointUsesPlaceholder: advertisedHost === "<zotero-host-ip>",
     bindMode: state.bindMode,
     lanEnabled: state.lanEnabled,
     portMode: state.portMode,
-    pinPortEnabled: getPinPortEnabled(),
+    pinPortEnabled: getEffectivePinPortEnabled(state.lanEnabled),
     pinnedPort: getPinnedPort(),
     supervised: supervisorEnabled,
     restartCount: state.restartCount,
     lastRecoveryReason: state.lastRecoveryReason,
     authRequired: true,
     tokenMasked: redactHostBridgeToken(token),
+    masterTokenConfigured: masterToken.configured,
+    masterTokenMasked: masterToken.tokenMasked,
+    masterTokenUpdatedAt: masterToken.updatedAt,
     lastRequestMethod: state.lastRequestMethod,
     lastResponseStatus: state.lastResponseStatus,
     lastError: state.lastError,
@@ -1573,14 +1756,21 @@ export async function handleHostBridgeHttpRequestForTests(args: {
   path: string;
   headers?: Record<string, unknown>;
   body?: string;
+  rawRequestBytes?: Uint8Array;
 }) {
+  if (args.rawRequestBytes) {
+    const raw = await handleHttpRequest(parseHttpRequestBytes(args.rawRequestBytes));
+    return typeof raw === "string" ? raw : raw.text;
+  }
   const parsedPath = parseTestPath(args.path || "/");
+  const body = args.body || "";
   const request: HttpRequest = {
     method: String(args.method || "GET").toUpperCase(),
     path: parsedPath.path,
     query: parsedPath.query,
     headers: normalizeTestHeaders(args.headers),
-    body: args.body || "",
+    body,
+    bodyByteLength: utf8ByteLength(body),
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);

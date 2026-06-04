@@ -2,15 +2,9 @@
 
 ## Purpose
 Define the external import/export artifact contract for literature-digest generated notes.
-
 ## Requirements
 ### Requirement: Literature-Digest Generated Notes SHALL Support Canonical Artifact Export Mapping
 The three generated note kinds from literature-digest MUST map deterministically to external artifact files.
-
-#### Scenario: Digest note exports markdown only
-- **WHEN** a digest generated note is exported
-- **THEN** the exported artifact SHALL be markdown text
-- **AND** it SHALL NOT include Zotero note HTML wrapper markup
 
 #### Scenario: References note exports decoded JSON payload
 - **WHEN** a references generated note is exported
@@ -19,11 +13,11 @@ The three generated note kinds from literature-digest MUST map deterministically
 - **AND** the default external shape SHALL be a bare JSON array
 - **AND** it SHALL NOT export the plugin-internal wrapper payload shape
 
-#### Scenario: Citation analysis note exports paired artifacts
-- **WHEN** a citation-analysis generated note is exported
-- **THEN** the workflow SHALL export native citation-analysis JSON with top-level `meta/summary/timeline/items/unmapped_mentions/report_md`
-- **AND** it SHALL export `report_md` as `citation_analysis.md`
-- **AND** it SHALL NOT export the plugin-internal wrapper payload shape
+#### Scenario: References note is written after deterministic quality filtering
+- **WHEN** literature-digest apply writes a references generated note
+- **THEN** deterministic invalid reference rows SHALL be removed before the note payload is stored
+- **AND** warning-only low-quality rows SHALL remain in the stored references array
+- **AND** quality counters or rejected-row diagnostics SHALL NOT be added as a top-level native references artifact wrapper.
 
 ### Requirement: Literature-Digest Artifact Import SHALL Reuse Canonical Generated-Note Writing
 Artifact import flows MUST reuse the same canonical generated-note writer used by the original literature-digest workflow.
@@ -60,3 +54,4 @@ Structured JSON artifact import MUST validate against workflow-local copies of t
 - **THEN** validation SHALL use the workflow-local copy of `citation_analysis.schema.json`
 - **AND** runtime SHALL NOT depend on reading the external `reference/Skill-Runner` tree
 - **AND** validation SHALL interpret the copied wrapper schema as the native inner citation-analysis artifact contract
+

@@ -4,13 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { listNotePayloadBlocksForItem } from "../../src/modules/zoteroNotePayloadResolver";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
 import {
-  decodeBase64Utf8,
   isZoteroRuntime,
   joinPath,
   mkTempDir,
@@ -38,36 +38,19 @@ async function writeZoteroDebugSnapshot(name: string, payload: unknown) {
   }
 }
 
-function readTagAttribute(tagText: string, name: string) {
-  const escaped = String(name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = String(tagText || "").match(
-    new RegExp(`${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"),
+async function readConversationPayload(note: Zotero.Item) {
+  const block = (await listNotePayloadBlocksForItem(note)).find(
+    (entry) => entry.payloadType === "conversation-note-markdown",
   );
-  if (!match) {
-    return "";
-  }
-  return String(match[1] || match[2] || match[3] || "");
-}
-
-function parsePayloadData(noteContent: string) {
-  const payloadTagMatch = String(noteContent || "").match(
-    /<span[^>]*data-zs-payload=(["'])conversation-note-markdown\1[^>]*>/i,
-  );
-  if (!payloadTagMatch) {
-    return null;
-  }
-  const payloadTag = payloadTagMatch[0];
-  const encoded = readTagAttribute(payloadTag, "data-zs-value");
-  if (!encoded) {
-    return null;
-  }
-  const decoded = decodeBase64Utf8(encoded);
-  return JSON.parse(decoded) as {
+  return block?.payload as
+    | {
     path?: string;
     format?: string;
     content?: string;
     version?: number;
-  };
+  }
+    | null
+    | undefined;
 }
 
 async function getWorkflow() {
@@ -214,10 +197,15 @@ describe("workflow: literature-explainer", function () {
     const noteContent = note.getNote();
     assert.match(noteContent, /data-zs-note-kind="conversation-note"/);
     assert.match(noteContent, /<h1>Conversation Note \d{10}<\/h1>/);
-    assert.match(noteContent, /data-zs-payload="conversation-note-markdown"/);
+    assert.notMatch(noteContent, /data-zs-payload="conversation-note-markdown"/);
+    assert.match(noteContent, /data-zs-payload-anchor="conversation-note-markdown"/);
+    assert.include(noteContent, 'alt="ZA"');
+    assert.include(noteContent, 'title="Zotero Agents artifact payload"');
+    assert.include(noteContent, 'width="32"');
+    assert.include(noteContent, 'height="32"');
     assert.match(noteContent, /<div data-zs-view="conversation-note-html">/);
 
-    const payload = parsePayloadData(noteContent);
+    const payload = await readConversationPayload(note);
     assert.isOk(payload);
     assert.equal(payload?.path, notePath);
     assert.equal(payload?.format, "markdown");
@@ -271,7 +259,7 @@ describe("workflow: literature-explainer", function () {
       assert.lengthOf(applied.notes || [], 1);
       assert.equal(applied.note_path, notePath.replace(/\\/g, "/"));
       const note = Zotero.Items.get((applied.notes || [])[0].id)!;
-      const payload = parsePayloadData(note.getNote());
+      const payload = await readConversationPayload(note);
       assert.equal(payload?.path, notePath.replace(/\\/g, "/"));
       assert.equal(payload?.content, markdown);
     } finally {
@@ -317,6 +305,18 @@ describe("workflow: literature-explainer", function () {
     const originalBuffer = (globalThis as typeof globalThis & { Buffer?: unknown }).Buffer;
     const nodeBuffer = originalBuffer as typeof Buffer;
     let capturedContent = "";
+    const fakeNote = {
+      id: 9001,
+      key: "FAKENOTE1",
+      libraryID: 1,
+      parentID: 42,
+      getAttachments() {
+        return [];
+      },
+      getNote() {
+        return capturedContent;
+      },
+    };
     const runtimeBtoa = (source: string) => {
       if (typeof globalThis.btoa === "function") {
         return globalThis.btoa(source);
@@ -359,9 +359,15 @@ describe("workflow: literature-explainer", function () {
             parents: {
               async addNote(_parent: unknown, args: { content: string }) {
                 capturedContent = args.content;
-                return {
-                  id: 9001,
-                };
+                return fakeNote;
+              },
+            },
+            notes: {
+              async importEmbeddedImage() {
+                return { attachmentKey: "PAYLOADIMG1" };
+              },
+              async update(_note: unknown, args: { content: string }) {
+                capturedContent = args.content;
               },
             },
           },
@@ -375,10 +381,8 @@ describe("workflow: literature-explainer", function () {
       assert.lengthOf(applied.notes || [], 1);
       assert.equal(applied.parent_item_id, 42);
       assert.equal((applied.notes || [])[0]?.id, 9001);
-      const payload = parsePayloadData(capturedContent);
-      assert.isOk(payload);
-      assert.equal(payload?.path, "result/note.buffer-null.md");
-      assert.equal(payload?.content, "# Buffer Null\n\nfallback path");
+      assert.notInclude(capturedContent, 'data-zs-payload="conversation-note-markdown"');
+      assert.include(capturedContent, 'data-zs-payload-anchor="conversation-note-markdown"');
     } finally {
       (globalThis as typeof globalThis & { Buffer?: unknown }).Buffer = originalBuffer;
     }
@@ -473,7 +477,7 @@ describe("workflow: literature-explainer", function () {
         `note parent mismatch; expected=${parent.id}; actual=${String(note.parentID || "")}`,
       );
     }
-    const payload = parsePayloadData(note.getNote());
+    const payload = await readConversationPayload(note);
     await writeZoteroDebugSnapshot("zs-literature-explainer-debug.json", {
       stage: "after-read-note",
       noteId: note.id,
@@ -538,7 +542,7 @@ describe("workflow: literature-explainer", function () {
     assert.equal(parent.getNotes().length, notesBefore + 1);
 
     const note = Zotero.Items.get((applied.notes || [])[0].id)!;
-    const payload = parsePayloadData(note.getNote()) as
+    const payload = (await readConversationPayload(note)) as
       | {
           path?: string;
           format?: string;
@@ -581,7 +585,7 @@ describe("workflow: literature-explainer", function () {
 
     assert.lengthOf(applied.notes || [], 1);
     const note = Zotero.Items.get((applied.notes || [])[0].id)!;
-    const payload = parsePayloadData(note.getNote());
+    const payload = await readConversationPayload(note);
     assert.equal(payload?.path, "result/note.abs.md");
     assert.equal(payload?.content, markdown);
   });
@@ -615,7 +619,7 @@ describe("workflow: literature-explainer", function () {
 
     assert.lengthOf(applied.notes || [], 1);
     const note = Zotero.Items.get((applied.notes || [])[0].id)!;
-    const payload = parsePayloadData(note.getNote());
+    const payload = await readConversationPayload(note);
     assert.equal(payload?.path, uploadsPath);
     assert.equal(payload?.content, markdown);
   });

@@ -49,7 +49,7 @@ invariants:
 
   - id: inv.reference.refresh_not_graph_rebuild
     severity: fatal
-    statement: Reference sidecar refresh must not synchronously rebuild Citation Graph cache; it may only mark the graph cache stale after promoting Reference Sidecar readiness.
+    statement: Reference sidecar refresh must not hide a full Citation Graph cache rebuild inside the sidecar transaction; it may trigger a separate visible graph incremental refresh or allowed bootstrap after promoting Reference Sidecar readiness.
     evidence: Reference sidecar refresh tests and invariant static guard.
 
   - id: inv.reference.readiness_cache_basis_only
@@ -124,7 +124,7 @@ invariants:
 
   - id: inv.graph.related_items_sync_explicit
     severity: fatal
-    statement: Zotero related-items sync runs only as an explicit provenance-protected operation or explicit approved review action; graph cache rebuild never schedules it automatically.
+    statement: Zotero related-items sync runs only as a visible provenance-protected operation after explicit Synthesis update paths or explicit/debug commands; graph cache rebuild never schedules it automatically and graph cache is only an optional fast path.
     evidence: Related-items sync tests.
 
   - id: inv.graph.related_items_sync_provenance_required
@@ -141,6 +141,21 @@ invariants:
     severity: fatal
     statement: Workbench presents reference/graph sidecar rows as cache or explicit decisions and does not present them as synchronized Zotero Library truth.
     evidence: Workbench UI tests.
+
+  - id: inv.ui.surface_scoped_refresh
+    severity: fatal
+    statement: Workbench ready, tab selection, progress polling, Zotero Library item notifications, and local review state updates must use shell/chrome/surface-scoped read models and must not construct a full Synthesis UI snapshot; chrome must not read content surface data such as graph overview rows, Index rows, Review evidence, Tag/Concept projections, or Topic Graph data. Clean loaded surfaces must be served from cache on tab switch, and hidden invalidated surfaces must be marked dirty rather than refreshed in the background. Zotero Library metadata dirty must invalidate only UI read-model caches such as Index and must not start Reference Sidecar refresh or change synt_cache_basis readiness.
+    evidence: Workbench UI static guards and performance tests.
+
+  - id: inv.ui.review_index_hot_paths_bounded
+    severity: fatal
+    statement: Index surface reads must bound Zotero parent-item reads and sidecar joins to the current page; default Index rows must expose reference counts rather than full raw-reference arrays. Review surface reads must use the active Review tab and filters to load a bounded proposal/review page, must resolve readable proposal context from summary item reads and bounded raw-reference ids, and must not load unrelated Review Center data or Index sidecar row state.
+    evidence: Workbench service hot-path guards and performance tests.
+
+  - id: inv.ui.no_surface_local_global_render
+    severity: high
+    statement: Surface-local UI mutations must not clear or rebuild the Workbench root; they may update only chrome and the affected surface container.
+    evidence: Workbench frontend static guards.
 
   - id: inv.host_bridge.cache_views
     severity: high

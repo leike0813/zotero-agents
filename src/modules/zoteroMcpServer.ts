@@ -185,6 +185,7 @@ type HttpRequest = {
   query: Record<string, string>;
   headers: Record<string, string>;
   body: string;
+  bodyByteLength: number;
   parseError?: string;
 };
 
@@ -805,14 +806,24 @@ function readInputStream(
   const components = getComponents();
   const classes = components?.classes || (globalThis as any).Cc;
   const interfaces = components?.interfaces || (globalThis as any).Ci;
+  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
+  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
   const factory = classes?.["@mozilla.org/scriptableinputstream;1"];
   const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!factory || !nsIScriptableInputStream) {
+  if (!binaryFactory && !factory) {
     throw new Error("Zotero scriptable input stream is unavailable");
   }
-  const stream = factory.createInstance(nsIScriptableInputStream);
-  stream.init(inputStream);
-  let text = "";
+  const stream =
+    binaryFactory && nsIBinaryInputStream
+      ? binaryFactory.createInstance(nsIBinaryInputStream)
+      : factory.createInstance(nsIScriptableInputStream);
+  if (binaryFactory && nsIBinaryInputStream) {
+    stream.setInputStream(inputStream);
+  } else {
+    stream.init(inputStream);
+  }
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
   const startedAt = Date.now();
   while (Date.now() - startedAt < 500) {
     let available = 0;
@@ -825,24 +836,31 @@ function readInputStream(
       throw error;
     }
     if (available <= 0) {
-      if (text.includes("\r\n\r\n")) {
-        const parsed = tryParseHeaders(text);
-        if (parsed && parsed.body.length >= parsed.contentLength) {
+      const current = concatBytes(chunks, totalLength);
+      if (findHeaderSeparator(current) >= 0) {
+        const parsed = tryParseHeaders(current);
+        if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
           break;
         }
       }
       continue;
     }
-    text += stream.read(available);
-    const parsed = tryParseHeaders(text);
-    if (parsed && parsed.body.length >= parsed.contentLength) {
+    const chunk =
+      binaryFactory && nsIBinaryInputStream
+        ? Uint8Array.from(stream.readByteArray(available) || [])
+        : binaryStringToBytes(stream.read(available));
+    chunks.push(chunk);
+    totalLength += chunk.length;
+    const current = concatBytes(chunks, totalLength);
+    const parsed = tryParseHeaders(current);
+    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
       break;
     }
   }
   if (args.close !== false) {
     stream.close?.();
   }
-  return text;
+  return concatBytes(chunks, totalLength);
 }
 
 function isClosedStreamError(error: unknown) {
@@ -853,13 +871,61 @@ function isClosedStreamError(error: unknown) {
   );
 }
 
-function tryParseHeaders(text: string) {
-  const splitIndex = text.indexOf("\r\n\r\n");
-  if (splitIndex < 0) {
+function bytesToLatin1String(bytes: Uint8Array) {
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(
+      String.fromCharCode(...bytes.slice(offset, offset + chunkSize)),
+    );
+  }
+  return chunks.join("");
+}
+
+function binaryStringToBytes(text: string) {
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) {
+    bytes[index] = text.charCodeAt(index) & 0xff;
+  }
+  return bytes;
+}
+
+function concatBytes(chunks: Uint8Array[], totalLength: number) {
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+function findHeaderSeparator(bytes: Uint8Array) {
+  for (let index = 0; index <= bytes.length - 4; index += 1) {
+    if (
+      bytes[index] === 13 &&
+      bytes[index + 1] === 10 &&
+      bytes[index + 2] === 13 &&
+      bytes[index + 3] === 10
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function decodeUtf8Body(bytes: Uint8Array) {
+  try {
+    if (typeof TextDecoder === "function") {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    }
+    return decodeURIComponent(escape(bytesToLatin1String(bytes)));
+  } catch {
     return null;
   }
-  const headerText = text.slice(0, splitIndex);
-  const body = text.slice(splitIndex + 4);
+}
+
+function parseHttpHeaders(headerText: string) {
   const headers: Record<string, string> = {};
   for (const line of headerText.split("\r\n").slice(1)) {
     const separator = line.indexOf(":");
@@ -870,8 +936,18 @@ function tryParseHeaders(text: string) {
       .slice(separator + 1)
       .trim();
   }
+  return headers;
+}
+
+function tryParseHeaders(bytes: Uint8Array) {
+  const splitIndex = findHeaderSeparator(bytes);
+  if (splitIndex < 0) {
+    return null;
+  }
+  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
+  const headers = parseHttpHeaders(headerText);
   return {
-    body,
+    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
     contentLength: Number(headers["content-length"] || 0),
   };
 }
@@ -884,10 +960,14 @@ function safeDecodeURIComponent(value: string) {
   }
 }
 
-function parseHttpRequest(raw: string): HttpRequest {
-  const splitIndex = raw.indexOf("\r\n\r\n");
-  const head = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
-  const body = splitIndex >= 0 ? raw.slice(splitIndex + 4) : "";
+function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
+  const splitIndex = findHeaderSeparator(raw);
+  const head =
+    splitIndex >= 0
+      ? bytesToLatin1String(raw.slice(0, splitIndex))
+      : bytesToLatin1String(raw);
+  const bodyBytes =
+    splitIndex >= 0 ? raw.slice(splitIndex + 4) : new Uint8Array();
   const lines = head.split("\r\n");
   const [method = "", rawPath = ""] = String(lines[0] || "").split(/\s+/);
   const query: Record<string, string> = {};
@@ -910,24 +990,27 @@ function parseHttpRequest(raw: string): HttpRequest {
     }
     query[decodedName] = decodedValue;
   }
-  const headers: Record<string, string> = {};
-  for (const line of lines.slice(1)) {
-    const separator = line.indexOf(":");
-    if (separator < 0) {
-      continue;
-    }
-    headers[line.slice(0, separator).trim().toLowerCase()] = line
-      .slice(separator + 1)
-      .trim();
-  }
+  const headers = parseHttpHeaders(head);
+  const contentLength = Math.max(
+    0,
+    Number(headers["content-length"] || bodyBytes.length),
+  );
+  const boundedBodyBytes =
+    contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
+  const body = decodeUtf8Body(boundedBodyBytes);
   return {
     method: method.toUpperCase(),
     path: path || "/",
     query,
     headers,
-    body,
-    parseError,
+    body: body || "",
+    bodyByteLength: boundedBodyBytes.byteLength,
+    parseError: parseError || (body === null ? "invalid_utf8_body" : ""),
   };
+}
+
+function parseHttpRequest(raw: string): HttpRequest {
+  return parseHttpRequestBytes(binaryStringToBytes(raw));
 }
 
 function utf8ByteLength(text: string) {
@@ -2036,7 +2119,7 @@ async function handleHttpRequest(
       },
     });
   }
-  if (bodyByteLength(request.body || "") > MAX_MCP_REQUEST_BODY_BYTES) {
+  if ((request.bodyByteLength || 0) > MAX_MCP_REQUEST_BODY_BYTES) {
     const responseBody = {
       error: "request_body_too_large",
       maxBytes: MAX_MCP_REQUEST_BODY_BYTES,
@@ -2269,16 +2352,16 @@ function listen(serverSocket: any) {
     onSocketAccepted(_server: unknown, transport: any) {
       void (async () => {
         let output: any;
-        let rawRequest = "";
+        let rawRequest = new Uint8Array();
         try {
           const input = transport.openInputStream(0, 0, 0);
           output = transport.openOutputStream(0, 0, 0);
           rawRequest = readInputStream(input, { close: false });
-          if (!rawRequest.trim()) {
+          if (!rawRequest.length) {
             transport.close?.(0);
             return;
           }
-          const request = parseHttpRequest(rawRequest);
+          const request = parseHttpRequestBytes(rawRequest);
           const requestId = createMcpRequestId();
           const response = await handleHttpRequest(request, requestId);
           appendMcpRuntimeLog({
@@ -2341,7 +2424,10 @@ function listen(serverSocket: any) {
           });
           try {
             if (output) {
-              writeOutputStream(output, buildRequestFailureResponse(rawRequest, error));
+              writeOutputStream(
+                output,
+                buildRequestFailureResponse(bytesToLatin1String(rawRequest), error),
+              );
             }
           } catch {
             // Fall through to socket close.
@@ -2544,6 +2630,7 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
       "content-type": "application/json",
     },
     body: "",
+    bodyByteLength: 0,
   };
   try {
     appendMcpRuntimeLog({
@@ -2662,17 +2749,22 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
   path: string;
   headers?: Record<string, unknown>;
   body?: string;
+  rawRequestBytes?: Uint8Array;
 }) {
-  const parsedPath = parseTestPath(args.path || "/");
   const requestId = createMcpRequestId();
-  const request = {
-    method: String(args.method || "GET").toUpperCase(),
-    path: parsedPath.path,
-    query: parsedPath.query,
-    headers: normalizeTestHeaders(args.headers),
-    body: args.body || "",
-    parseError: parsedPath.parseError,
-  };
+  const parsedPath = parseTestPath(args.path || "/");
+  const body = args.body || "";
+  const request = args.rawRequestBytes
+    ? parseHttpRequestBytes(args.rawRequestBytes)
+    : {
+        method: String(args.method || "GET").toUpperCase(),
+        path: parsedPath.path,
+        query: parsedPath.query,
+        headers: normalizeTestHeaders(args.headers),
+        body,
+        bodyByteLength: utf8ByteLength(body),
+        parseError: parsedPath.parseError,
+      };
   const response = await handleHttpRequest(request, requestId);
   appendMcpRuntimeLog({
     requestId,

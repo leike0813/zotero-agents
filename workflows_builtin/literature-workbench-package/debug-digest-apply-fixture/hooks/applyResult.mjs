@@ -104,13 +104,13 @@ function buildLegalReferencesNoteContent(references) {
   const rows = (Array.isArray(references) ? references : [])
     .map(
       (entry) =>
-        `<tr><td>${escapeHtml(entry.entry_index || "")}</td><td>${escapeHtml(entry.citekey || "")}</td><td>${escapeHtml(entry.title || "")}</td><td>${escapeHtml(entry.year || "")}</td></tr>`,
+        `<tr><td>${escapeHtml(entry.entry_index || "")}</td><td>${escapeHtml(entry.title || "")}</td><td>${escapeHtml(entry.year || "")}</td></tr>`,
     )
     .join("");
   return [
     '<div data-schema-version="9">',
     "<h1>References</h1>",
-    "<table><thead><tr><th>#</th><th>Citekey</th><th>Title</th><th>Year</th></tr></thead>",
+    "<table><thead><tr><th>#</th><th>Title</th><th>Year</th></tr></thead>",
     `<tbody>${rows}</tbody></table>`,
     "</div>",
   ].join("\n");

@@ -52,7 +52,7 @@ describe("workflow settings domain", function () {
     };
     const merged = mergeExecutionOptions(previous, incoming);
     const normalized = normalizeSavedWorkflowSettings({
-      workflowId: "reference-matching",
+      workflowId: "custom-pass-through-workflow",
       previous,
       merged,
       incoming,
@@ -60,10 +60,10 @@ describe("workflow settings domain", function () {
     assert.equal(normalized.workflowParams?.citekey_template, "auth.lower + (");
   });
 
-  it("does not special-case reference-matching schema normalization", function () {
+  it("keeps schema normalization workflow-id agnostic", function () {
     const manifest = {
-      id: "reference-matching",
-      label: "Reference Matching",
+      id: "custom-pass-through-workflow",
+      label: "Custom Pass-through Workflow",
       hooks: { applyResult: "hooks/applyResult.js" },
       parameters: {
         citekey_template: {

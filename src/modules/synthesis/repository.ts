@@ -357,6 +357,15 @@ export type SynthesisCitationGraphStateReplacement = {
   complexMetrics?: SynthesisCitationComplexMetricsRecord[];
 };
 
+export type SynthesisCitationGraphSourceSliceReplacement = {
+  sourceLiteratureItemIds: string[];
+  nodes: SynthesisCitationNodeRecord[];
+  edges?: SynthesisCitationEdgeRecord[];
+  sourceOwnership?: SynthesisCitationSourceOwnershipRecord[];
+  incomingGroups?: SynthesisCitationIncomingGroupRecord[];
+  updatedAt?: string;
+};
+
 export type SynthesisLiteratureMatchingMetadataRecord = {
   literatureItemId: string;
   schemaId?: string;
@@ -1438,6 +1447,11 @@ function createMemoryAdapter(): SqlAdapter {
         return;
       }
       if (normalized.startsWith("delete from synt_citation_node")) {
+        const id = cleanString(params.literature_item_id);
+        if (id) {
+          state.citationNodes.delete(id);
+          return;
+        }
         state.citationNodes.clear();
         return;
       }
@@ -1485,10 +1499,20 @@ function createMemoryAdapter(): SqlAdapter {
         return;
       }
       if (normalized.startsWith("delete from synt_citation_metrics_light")) {
+        const id = cleanString(params.literature_item_id);
+        if (id) {
+          state.citationLightMetrics.delete(id);
+          return;
+        }
         state.citationLightMetrics.clear();
         return;
       }
       if (normalized.startsWith("delete from synt_citation_metrics_complex")) {
+        const id = cleanString(params.literature_item_id);
+        if (id) {
+          state.citationComplexMetrics.delete(id);
+          return;
+        }
         state.citationComplexMetrics.clear();
         return;
       }
@@ -4256,13 +4280,25 @@ export class SynthesisRepository {
     );
   }
 
-  listCanonicalReferences(args: { statuses?: string[] } = {}) {
+  listCanonicalReferences(
+    args: { canonicalReferenceIds?: string[]; statuses?: string[] } = {},
+  ) {
     this.initialize();
+    const canonicalReferenceIds = new Set(
+      (args.canonicalReferenceIds || []).map(cleanString).filter(Boolean),
+    );
     const statuses = new Set(
       (args.statuses || []).map(cleanString).filter(Boolean),
     );
     const clauses: string[] = [];
     const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "canonical_reference_id",
+      "canonical_reference_id",
+      canonicalReferenceIds,
+    );
     appendInFilter(clauses, params, "status", "status", statuses);
     const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     return this.db
@@ -4276,6 +4312,11 @@ export class SynthesisRepository {
         params,
       )
       .map(rowToCanonicalReference)
+      .filter(
+        (row) =>
+          !canonicalReferenceIds.size ||
+          canonicalReferenceIds.has(row.canonicalReferenceId),
+      )
       .filter((row) => !statuses.size || statuses.has(row.status || ""));
   }
 
@@ -4319,11 +4360,39 @@ export class SynthesisRepository {
     );
   }
 
-  listCanonicalReferenceRedirects() {
+  listCanonicalReferenceRedirects(
+    args: { fromCanonicalReferenceIds?: string[] } = {},
+  ) {
     this.initialize();
+    const fromCanonicalReferenceIds = new Set(
+      (args.fromCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
+    );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "from_canonical_reference_id",
+      "from_canonical_reference_id",
+      fromCanonicalReferenceIds,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     return this.db
-      .all("SELECT * FROM synt_canonical_reference_redirect")
-      .map(rowToCanonicalReferenceRedirect);
+      .all(
+        `
+          SELECT *
+          FROM synt_canonical_reference_redirect
+          ${where}
+          ORDER BY from_canonical_reference_id ASC
+        `,
+        params,
+      )
+      .map(rowToCanonicalReferenceRedirect)
+      .filter(
+        (row) =>
+          !fromCanonicalReferenceIds.size ||
+          fromCanonicalReferenceIds.has(row.fromCanonicalReferenceId),
+      );
   }
 
   deleteCanonicalReferenceRedirect(args: {
@@ -4371,6 +4440,48 @@ export class SynthesisRepository {
       current = redirects.get(current) || current;
     }
     return current;
+  }
+
+  resolveEffectiveCanonicalReferenceIds(canonicalReferenceIdsRaw: string[]) {
+    const canonicalIds = new Set(
+      (canonicalReferenceIdsRaw || []).map(cleanString).filter(Boolean),
+    );
+    const effective = new Map<string, string>();
+    if (!canonicalIds.size) {
+      return effective;
+    }
+    const redirectByFrom = new Map<string, string>();
+    let frontier = Array.from(canonicalIds);
+    const seenFrontier = new Set<string>();
+    while (frontier.length) {
+      const pending = frontier.filter((id) => !seenFrontier.has(id));
+      frontier = [];
+      if (!pending.length) {
+        break;
+      }
+      pending.forEach((id) => seenFrontier.add(id));
+      for (const redirect of this.listCanonicalReferenceRedirects({
+        fromCanonicalReferenceIds: pending,
+      })) {
+        redirectByFrom.set(
+          redirect.fromCanonicalReferenceId,
+          redirect.toCanonicalReferenceId,
+        );
+        if (!seenFrontier.has(redirect.toCanonicalReferenceId)) {
+          frontier.push(redirect.toCanonicalReferenceId);
+        }
+      }
+    }
+    for (const canonicalId of canonicalIds) {
+      let current = canonicalId;
+      const seen = new Set<string>();
+      while (redirectByFrom.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = redirectByFrom.get(current) || current;
+      }
+      effective.set(canonicalId, current);
+    }
+    return effective;
   }
 
   upsertRawReference(record: SynthesisRawReferenceRecord) {
@@ -4442,6 +4553,7 @@ export class SynthesisRepository {
 
   listRawReferences(
     args: {
+      rawReferenceIds?: string[];
       sourceRefs?: string[];
       statuses?: string[];
       referencesArtifactHashes?: string[];
@@ -4449,6 +4561,9 @@ export class SynthesisRepository {
     } = {},
   ) {
     this.initialize();
+    const rawReferenceIds = new Set(
+      (args.rawReferenceIds || []).map(cleanString).filter(Boolean),
+    );
     const sourceRefs = new Set(
       (args.sourceRefs || []).map(cleanString).filter(Boolean),
     );
@@ -4461,6 +4576,13 @@ export class SynthesisRepository {
     const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
     const clauses: string[] = [];
     const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "raw_reference_id",
+      "raw_reference_id",
+      rawReferenceIds,
+    );
     appendInFilter(clauses, params, "source_ref", "source_ref", sourceRefs);
     appendInFilter(clauses, params, "status", "status", statuses);
     appendInFilter(
@@ -4484,6 +4606,10 @@ export class SynthesisRepository {
         params,
       )
       .map(rowToRawReference)
+      .filter(
+        (row) =>
+          !rawReferenceIds.size || rawReferenceIds.has(row.rawReferenceId),
+      )
       .filter((row) => !sourceRefs.size || sourceRefs.has(row.sourceRef))
       .filter((row) => !statuses.size || statuses.has(row.status || ""))
       .filter(
@@ -4728,6 +4854,7 @@ export class SynthesisRepository {
       proposalIds?: string[];
       statuses?: string[];
       kinds?: string[];
+      confidences?: string[];
       sourceCanonicalReferenceIds?: string[];
       limit?: number;
     } = {},
@@ -4746,6 +4873,9 @@ export class SynthesisRepository {
         .map(normalizeReferenceMatchProposalKind)
         .filter(Boolean),
     );
+    const confidences = new Set(
+      (args.confidences || []).map(cleanString).filter(Boolean),
+    );
     const sourceCanonicalIds = new Set(
       (args.sourceCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
     );
@@ -4755,6 +4885,7 @@ export class SynthesisRepository {
     appendInFilter(clauses, params, "proposal_id", "proposal_id", proposalIds);
     appendInFilter(clauses, params, "status", "status", statuses);
     appendInFilter(clauses, params, "kind", "kind", kinds);
+    appendInFilter(clauses, params, "confidence", "confidence", confidences);
     appendInFilter(
       clauses,
       params,
@@ -4779,6 +4910,7 @@ export class SynthesisRepository {
       .filter((row) => !proposalIds.size || proposalIds.has(row.proposalId))
       .filter((row) => !statuses.size || statuses.has(row.status))
       .filter((row) => !kinds.size || kinds.has(row.kind))
+      .filter((row) => !confidences.size || confidences.has(cleanString(row.confidence)))
       .filter(
         (row) =>
           !sourceCanonicalIds.size ||
@@ -4863,6 +4995,165 @@ export class SynthesisRepository {
   replaceCitationGraphState(state: SynthesisCitationGraphStateReplacement) {
     this.transaction(() => {
       this.replaceCitationGraphStateRows(state);
+    });
+  }
+
+  private recomputeCitationLightMetricsRows(
+    literatureItemIds: Iterable<unknown>,
+    timestamp: string,
+  ) {
+    const ids = Array.from(
+      new Set(Array.from(literatureItemIds).map(cleanString).filter(Boolean)),
+    );
+    for (const literatureItemId of ids) {
+      const node = this.listCitationNodes({
+        literatureItemIds: [literatureItemId],
+        limit: 1,
+      })[0];
+      this.db.run(
+        "DELETE FROM synt_citation_metrics_light WHERE literature_item_id=@literature_item_id",
+        { literature_item_id: literatureItemId },
+      );
+      if (!node) {
+        continue;
+      }
+      const outgoingEdges = this.listCitationEdges({
+        sourceLiteratureItemIds: [literatureItemId],
+      });
+      const incomingEdges = this.listCitationEdges({
+        targetLiteratureItemIds: [literatureItemId],
+      });
+      const matchedOutgoingCount = outgoingEdges.filter(
+        (edge) => edge.edgeStatus === "accepted",
+      ).length;
+      const unresolvedOutgoingCount = outgoingEdges.filter(
+        (edge) => edge.edgeStatus !== "accepted",
+      ).length;
+      this.upsertCitationLightMetrics({
+        literatureItemId,
+        outgoingCount: outgoingEdges.length,
+        incomingCount: incomingEdges.length,
+        matchedOutgoingCount,
+        unresolvedOutgoingCount,
+        ambiguousOutgoingCount: 0,
+        localDegree: outgoingEdges.length + incomingEdges.length,
+        sourceStructureVersion: Date.parse(timestamp) || 0,
+        updatedAt: timestamp,
+      });
+    }
+  }
+
+  private cleanupCitationOrphanExternalNodes(
+    candidateLiteratureItemIds: Iterable<unknown>,
+    protectedLiteratureItemIds: Iterable<unknown>,
+  ) {
+    const protectedIds = new Set(
+      Array.from(protectedLiteratureItemIds).map(cleanString).filter(Boolean),
+    );
+    const candidateIds = Array.from(
+      new Set(
+        Array.from(candidateLiteratureItemIds).map(cleanString).filter(Boolean),
+      ),
+    );
+    for (const literatureItemId of candidateIds) {
+      if (protectedIds.has(literatureItemId)) {
+        continue;
+      }
+      const node = this.listCitationNodes({
+        literatureItemIds: [literatureItemId],
+        limit: 1,
+      })[0];
+      if (!node || node.hasZoteroBinding) {
+        continue;
+      }
+      const hasOutgoing = this.listCitationEdges({
+        sourceLiteratureItemIds: [literatureItemId],
+        limit: 1,
+      }).length > 0;
+      const hasIncoming = this.listCitationEdges({
+        targetLiteratureItemIds: [literatureItemId],
+        limit: 1,
+      }).length > 0;
+      if (hasOutgoing || hasIncoming) {
+        continue;
+      }
+      this.db.run(
+        "DELETE FROM synt_citation_node WHERE literature_item_id=@literature_item_id",
+        { literature_item_id: literatureItemId },
+      );
+      this.db.run(
+        "DELETE FROM synt_citation_metrics_light WHERE literature_item_id=@literature_item_id",
+        { literature_item_id: literatureItemId },
+      );
+      this.db.run(
+        "DELETE FROM synt_citation_metrics_complex WHERE literature_item_id=@literature_item_id",
+        { literature_item_id: literatureItemId },
+      );
+    }
+  }
+
+  replaceCitationGraphSourceSlice(
+    state: SynthesisCitationGraphSourceSliceReplacement,
+  ) {
+    const sourceIds = Array.from(
+      new Set(
+        (state.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
+      ),
+    );
+    if (!sourceIds.length) {
+      return;
+    }
+    const timestamp = cleanString(state.updatedAt) || this.now();
+    const oldEdges = this.listCitationEdges({
+      sourceLiteratureItemIds: sourceIds,
+    });
+    const affectedNodeIds = new Set<string>(sourceIds);
+    const oldTargetIds: string[] = [];
+    for (const edge of oldEdges) {
+      affectedNodeIds.add(edge.sourceLiteratureItemId);
+      if (edge.targetLiteratureItemId) {
+        affectedNodeIds.add(edge.targetLiteratureItemId);
+        oldTargetIds.push(edge.targetLiteratureItemId);
+      }
+    }
+    for (const node of state.nodes || []) {
+      affectedNodeIds.add(node.literatureItemId);
+    }
+    for (const edge of state.edges || []) {
+      affectedNodeIds.add(edge.sourceLiteratureItemId);
+      if (edge.targetLiteratureItemId) {
+        affectedNodeIds.add(edge.targetLiteratureItemId);
+      }
+    }
+    this.transaction(() => {
+      for (const sourceId of sourceIds) {
+        this.db.run(
+          "DELETE FROM synt_citation_incoming_group WHERE source_literature_item_id=@source_literature_item_id",
+          { source_literature_item_id: sourceId },
+        );
+        this.db.run(
+          "DELETE FROM synt_citation_source_ownership WHERE source_literature_item_id=@source_literature_item_id",
+          { source_literature_item_id: sourceId },
+        );
+        this.db.run(
+          "DELETE FROM synt_citation_edge WHERE source_literature_item_id=@source_literature_item_id",
+          { source_literature_item_id: sourceId },
+        );
+      }
+      for (const record of state.nodes || []) {
+        this.upsertCitationNode(record);
+      }
+      for (const record of state.edges || []) {
+        this.upsertCitationEdge(record);
+      }
+      for (const record of state.sourceOwnership || []) {
+        this.upsertCitationSourceOwnership(record);
+      }
+      for (const record of state.incomingGroups || []) {
+        this.upsertCitationIncomingGroup(record);
+      }
+      this.cleanupCitationOrphanExternalNodes(oldTargetIds, sourceIds);
+      this.recomputeCitationLightMetricsRows(affectedNodeIds, timestamp);
     });
   }
 
@@ -5659,13 +5950,37 @@ export class SynthesisRepository {
     return limit > 0 ? rows.slice(0, limit) : rows;
   }
 
-  listReferenceFacts(args: { sourceLiteratureItemIds?: string[] } = {}) {
+  listReferenceFacts(
+    args: { sourceLiteratureItemIds?: string[]; rawReferenceIds?: string[] } = {},
+  ) {
     this.initialize();
     const sourceIds = new Set(
       (args.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
     );
+    const rawReferences = this.listRawReferences({
+      rawReferenceIds: args.rawReferenceIds,
+      sourceRefs: Array.from(sourceIds),
+      statuses: ["active"],
+    });
+    const physicalCanonicalIds = Array.from(
+      new Set(
+        rawReferences
+          .map((row) => cleanString(row.canonicalReferenceId))
+          .filter(Boolean),
+      ),
+    );
+    const effectiveCanonicalByPhysical =
+      this.resolveEffectiveCanonicalReferenceIds(physicalCanonicalIds);
+    const relevantCanonicalIds = Array.from(
+      new Set([
+        ...physicalCanonicalIds,
+        ...Array.from(effectiveCanonicalByPhysical.values()),
+      ]),
+    );
     const canonicalById = new Map(
-      this.listCanonicalReferences().map(
+      this.listCanonicalReferences({
+        canonicalReferenceIds: relevantCanonicalIds,
+      }).map(
         (row) => [row.canonicalReferenceId, row] as const,
       ),
     );
@@ -5697,10 +6012,12 @@ export class SynthesisRepository {
       }
       return "accepted";
     };
-    for (const binding of this.listReferenceBindings()) {
-      const effectiveId = this.resolveEffectiveCanonicalReferenceId(
-        binding.canonicalReferenceId,
-      );
+    for (const binding of this.listReferenceBindings({
+      canonicalReferenceIds: relevantCanonicalIds,
+    })) {
+      const effectiveId =
+        effectiveCanonicalByPhysical.get(binding.canonicalReferenceId) ||
+        binding.canonicalReferenceId;
       const existing = bindingsByCanonical.get(effectiveId);
       if (
         !existing ||
@@ -5709,19 +6026,17 @@ export class SynthesisRepository {
         bindingsByCanonical.set(effectiveId, binding);
       }
     }
-    return this.listRawReferences({ statuses: ["active"] })
-      .filter(
-        (row) => !sourceIds.size || sourceIds.has(row.sourceRef),
-      )
+    return rawReferences
       .sort(
         (left, right) =>
           left.sourceRef.localeCompare(right.sourceRef) ||
           left.referenceIndex - right.referenceIndex,
       )
       .map((reference) => {
-        const canonicalId = this.resolveEffectiveCanonicalReferenceId(
-          reference.canonicalReferenceId || "",
-        );
+        const physicalCanonicalId = cleanString(reference.canonicalReferenceId);
+        const canonicalId =
+          effectiveCanonicalByPhysical.get(physicalCanonicalId) ||
+          physicalCanonicalId;
         const canonical = canonicalById.get(canonicalId);
         const binding = canonicalId
           ? bindingsByCanonical.get(canonicalId)
@@ -5750,6 +6065,75 @@ export class SynthesisRepository {
           bindingStatus: binding?.status,
         };
       });
+  }
+
+  listReferenceFactSummariesBySource(
+    args: { sourceLiteratureItemIds?: string[] } = {},
+  ) {
+    this.initialize();
+    const sourceIds = new Set(
+      (args.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
+    );
+    const rawReferences = this.listRawReferences({
+      sourceRefs: Array.from(sourceIds),
+      statuses: ["active"],
+    });
+    const physicalCanonicalIds = Array.from(
+      new Set(
+        rawReferences
+          .map((row) => cleanString(row.canonicalReferenceId))
+          .filter(Boolean),
+      ),
+    );
+    const effectiveCanonicalByPhysical =
+      this.resolveEffectiveCanonicalReferenceIds(physicalCanonicalIds);
+    const relevantCanonicalIds = Array.from(
+      new Set([
+        ...physicalCanonicalIds,
+        ...Array.from(effectiveCanonicalByPhysical.values()),
+      ]),
+    );
+    const boundCanonicalIds = new Set<string>();
+    for (const binding of this.listReferenceBindings({
+      canonicalReferenceIds: relevantCanonicalIds,
+    })) {
+      if (binding.status !== "accepted") {
+        continue;
+      }
+      boundCanonicalIds.add(
+        effectiveCanonicalByPhysical.get(binding.canonicalReferenceId) ||
+          binding.canonicalReferenceId,
+      );
+    }
+    const summaries = new Map<
+      string,
+      { sourceLiteratureItemId: string; referenceCount: number; unboundReferenceCount: number }
+    >();
+    for (const reference of rawReferences) {
+      const source = cleanString(reference.sourceRef);
+      if (!source) {
+        continue;
+      }
+      const existing =
+        summaries.get(source) ||
+        {
+          sourceLiteratureItemId: source,
+          referenceCount: 0,
+          unboundReferenceCount: 0,
+        };
+      existing.referenceCount += 1;
+      const physicalCanonicalId = cleanString(reference.canonicalReferenceId);
+      const effectiveCanonicalId =
+        effectiveCanonicalByPhysical.get(physicalCanonicalId) ||
+        physicalCanonicalId;
+      if (!effectiveCanonicalId || !boundCanonicalIds.has(effectiveCanonicalId)) {
+        existing.unboundReferenceCount += 1;
+      }
+      summaries.set(source, existing);
+    }
+    return Array.from(summaries.values()).sort((left, right) =>
+      left.sourceLiteratureItemId.localeCompare(right.sourceLiteratureItemId),
+    );
   }
 
   listCitationNodes(
@@ -5880,8 +6264,26 @@ export class SynthesisRepository {
     const sourceIds = new Set(
       (args.sourceLiteratureItemIds || []).map(cleanString).filter(Boolean),
     );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "source_literature_item_id",
+      "source_literature_item_id",
+      sourceIds,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     return this.db
-      .all("SELECT * FROM synt_citation_source_ownership")
+      .all(
+        `
+          SELECT *
+          FROM synt_citation_source_ownership
+          ${where}
+          ORDER BY source_literature_item_id ASC, edge_id ASC
+        `,
+        params,
+      )
       .map(rowToCitationSourceOwnership)
       .filter(
         (row) => !sourceIds.size || sourceIds.has(row.sourceLiteratureItemId),
@@ -5901,8 +6303,26 @@ export class SynthesisRepository {
     const targetIds = new Set(
       (args.targetLiteratureItemIds || []).map(cleanString).filter(Boolean),
     );
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(
+      clauses,
+      params,
+      "target_literature_item_id",
+      "target_literature_item_id",
+      targetIds,
+    );
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     return this.db
-      .all("SELECT * FROM synt_citation_incoming_group")
+      .all(
+        `
+          SELECT *
+          FROM synt_citation_incoming_group
+          ${where}
+          ORDER BY target_literature_item_id ASC, edge_id ASC
+        `,
+        params,
+      )
       .map(rowToCitationIncomingGroup)
       .filter(
         (row) => !targetIds.size || targetIds.has(row.targetLiteratureItemId),
@@ -7615,23 +8035,39 @@ export class SynthesisRepository {
       );
   }
 
-  listReviewItems(args: { statuses?: string[]; reviewKind?: string } = {}) {
+  listReviewItems(
+    args: { statuses?: string[]; reviewKind?: string; limit?: number } = {},
+  ) {
     this.initialize();
     const statuses = new Set(
       (args.statuses || []).map(cleanString).filter(Boolean),
     );
     const reviewKind = cleanString(args.reviewKind);
+    const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "status", "review_status", statuses);
+    if (reviewKind) {
+      clauses.push("review_kind = @review_kind");
+      params.review_kind = reviewKind;
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, limit);
     return this.db
-      .all("SELECT * FROM synt_review_item")
+      .all(
+        `
+          SELECT *
+          FROM synt_review_item
+          ${where}
+          ORDER BY priority ASC, updated_at ASC, review_item_id ASC
+          ${limitSql}
+        `,
+        params,
+      )
       .map(rowToReviewItem)
       .filter((row) => !reviewKind || row.reviewKind === reviewKind)
       .filter((row) => !statuses.size || statuses.has(row.status))
-      .sort(
-        (left, right) =>
-          left.priority - right.priority ||
-          (left.updatedAt || "").localeCompare(right.updatedAt || "") ||
-          left.reviewItemId.localeCompare(right.reviewItemId),
-      );
+      .slice(0, limit || Number.POSITIVE_INFINITY);
   }
 
   markCitationGraphCacheStale(args: {

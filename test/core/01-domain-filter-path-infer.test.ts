@@ -97,7 +97,7 @@ describe("domain filter path inference", function () {
   it("allows retained Zotero workflow smoke files", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(
-        "test/workflow-reference-matching/24-workflow-reference-matching.test.ts",
+        "test/workflow-literature-digest/21-workflow-literature-digest.test.ts",
         "lite",
       ),
       true,
@@ -146,7 +146,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: reference-matching keeps parent related updates idempotent and only fills missing links",
+          "workflow: literature-workbench import/export notes exports conversation notes through the unified markdown-backed note codec",
         mode: "lite",
       }),
       false,
@@ -156,7 +156,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: reference-matching keeps parent related updates idempotent and only fills missing links",
+          "workflow: literature-workbench import/export notes exports conversation notes through the unified markdown-backed note codec",
         mode: "full",
       }),
       true,

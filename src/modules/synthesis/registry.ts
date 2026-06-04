@@ -296,7 +296,11 @@ function discoverArtifact(
   for (const note of sortedNotes) {
     const blocks = (
       note.payloadBlocks || listNotePayloadBlocks(note.html)
-    ).filter((entry) => entry.payloadType === payloadType);
+    ).filter(
+      (entry) =>
+        entry.payloadType === payloadType &&
+        entry.source === "embedded-image-attachment",
+    );
     for (const block of blocks) {
       if (block.version !== "1") {
         diagnostics.push(unsupportedVersionDiagnostic(type, block.version));

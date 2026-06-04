@@ -100,18 +100,51 @@ ACP run profile scope is trusted for write auto-approval by the ACP run store.
   approval.
 
 ### Requirement: Host note payload APIs SHALL expose workflow payloads
+Host Bridge note payload APIs MUST return workflow payloads regardless of whether they are stored in v2 embedded payload attachments, legacy v1 embedded attachments, or hidden HTML blocks.
 
-Host Bridge note payload APIs MUST return workflow payloads regardless of whether they are stored in legacy HTML blocks or embedded payload attachments.
+#### Scenario: Payload manifest includes storage diagnostics
+- **WHEN** Host Bridge lists note payloads
+- **THEN** each payload entry SHALL include source/storage version diagnostics when available
+- **AND** embedded payload entries SHALL include attachment key and anchor status when available.
 
-#### Scenario: Listing attachment-backed payloads
-- **WHEN** `library.listNotePayloads` is called for a note with a valid workbench payload attachment
-- **THEN** the response SHALL include the attachment-backed payload type, format, estimated size, and source metadata.
+### Requirement: Host Bridge LAN mode requires a fixed port
+When LAN access is enabled, Host Bridge MUST use the configured fixed port and MUST NOT silently fall back to a random port.
 
-#### Scenario: Reading attachment-backed payload details
-- **WHEN** `library.getNotePayload` is called for a payload type stored in a workbench payload attachment
-- **THEN** the response SHALL return the same payload, markdown/content chunking, and JSON formatting semantics as legacy HTML payloads.
+#### Scenario: LAN enabled
+- **WHEN** LAN access is enabled
+- **THEN** fixed port mode is enabled
+- **AND** status reports `bindMode=lan` and `portMode=pinned`
 
-#### Scenario: Legacy payloads keep priority
-- **WHEN** a note contains both a valid legacy HTML payload block and an attachment-backed payload of the same type
-- **THEN** readers SHALL prefer the legacy HTML block for backward-compatible deterministic behavior.
+#### Scenario: LAN fixed port unavailable
+- **WHEN** the configured fixed port cannot be bound in LAN mode
+- **THEN** Host Bridge reports an error
+- **AND** it does not disable fixed port mode or select a random port
+
+### Requirement: Host Bridge accepts master token authentication
+Host Bridge MUST accept either the current local token or the configured master token as bearer auth.
+
+#### Scenario: Master token auth
+- **WHEN** a request uses the current master token
+- **THEN** protected endpoints authorize successfully
+- **AND** manifests/status only expose masked master token metadata
+
+### Requirement: File download manifest declares remote support
+The manifest MUST describe file downloads as bearer-authenticated and remote-client compatible.
+
+#### Scenario: Manifest requested
+- **WHEN** the manifest is returned
+- **THEN** `fileDownloads.supportsRemoteClients` is true
+- **AND** `fileDownloads.urlTemplate` is `{endpoint}/files/{fileId}`
+
+### Requirement: Host Bridge capability calls SHALL preserve JSON input text
+Host Bridge capability calls SHALL parse HTTP JSON request bodies from raw bytes and decode them as UTF-8.
+
+#### Scenario: Non-ASCII capability input survives request parsing
+- **WHEN** a Host Bridge caller posts a JSON body containing Chinese text, full-width punctuation, or emoji
+- **THEN** the decoded capability input SHALL preserve those characters exactly.
+
+#### Scenario: Malformed UTF-8 request body is rejected
+- **WHEN** a Host Bridge request body is not valid UTF-8
+- **THEN** the request SHALL fail with a structured bad-request error
+- **AND** the bridge SHALL NOT pass mojibake text to a capability handler.
 

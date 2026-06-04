@@ -258,27 +258,30 @@ function normalizeReferencesFromPayload(payload, runtime) {
 export async function resolveReferencesPayloadForNote(args) {
   const noteContent = String(args?.noteContent || "");
   const runtime = args?.runtime;
+  const block = await resolveWorkbenchEmbeddedPayloadBlock({
+    runtime,
+    noteItem: args?.noteItem,
+    payloadType: "references-json",
+  });
+  if (block && !block.errors?.length) {
+    const payload = block.payload;
+    return {
+      payload,
+      references: normalizeReferencesFromPayload(payload, runtime),
+      payloadTag: "",
+      source: "embedded-image-attachment",
+      sourceStorage: block.sourceStorage,
+      payloadStorageVersion: block.payloadStorageVersion,
+      anchorStatus: block.anchorStatus,
+    };
+  }
   try {
     return parseReferencesPayload(noteContent, runtime);
   } catch {
     // New generated notes persist payloads in note-child embedded-image
     // attachments so Zotero's note editor can normalize the visible HTML.
   }
-  const block = await resolveWorkbenchEmbeddedPayloadBlock({
-    runtime,
-    noteItem: args?.noteItem,
-    payloadType: "references-json",
-  });
-  if (!block || block.errors?.length) {
-    throw new Error("references payload block not found in note");
-  }
-  const payload = block.payload;
-  return {
-    payload,
-    references: normalizeReferencesFromPayload(payload, runtime),
-    payloadTag: "",
-    source: "embedded-image-attachment",
-  };
+  throw new Error("references payload block not found in note");
 }
 
 export function replaceReferencesTable(noteContent, tableHtml) {

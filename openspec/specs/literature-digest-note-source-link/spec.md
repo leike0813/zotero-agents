@@ -40,19 +40,22 @@ If the workflow cannot resolve a valid markdown source `itemKey`, it SHALL conti
 - **AND** source metadata field MAY be omitted for that run
 
 ### Requirement: Obsidian Template Projection SHALL Include Source And Locator
-Literature Digest Obsidian templates SHALL project references metadata including `Source` and `Locator`, aligned with canonical reference-note ordering.
+
+Literature Digest Obsidian templates SHALL project references metadata including `Source` and `Locator`, aligned with canonical reference-note ordering, and SHALL NOT render a per-reference Citekey column.
 
 #### Scenario: Render references in zt-note template
+
 - **WHEN** `references-json` payload includes optional source/locator fields
 - **THEN** `zt-note.eta` SHALL render references table columns in order:
-  `#`, `CiteKey`, `Year`, `Title`, `Authors`, `Source`, `Locator`
-- **AND** `Source` and `Locator` values SHALL follow canonical mapping rules
+  `#`, `Year`, `Title`, `Authors`, `Source`, `Locator`
+- **AND** `Source` and `Locator` values SHALL follow canonical mapping rules.
 
 #### Scenario: Render references in zt-field template
+
 - **WHEN** `references-json` payload includes optional source/locator fields
 - **THEN** `zt-field.eta` SHALL include `Source` and `Locator` in each rendered references row
 - **AND** per-row segment order SHALL follow:
-  `CiteKey | Year | Title | Authors | Source | Locator`
+  `Year | Title | Authors | Source | Locator`.
 
 ### Requirement: Literature Digest language parameter declaration SHALL align with tag-regulator note language
 `literature-digest` workflow language parameter declaration MUST stay aligned with `tag-regulator.tag_note_language` to keep language configuration semantics consistent across workflows.

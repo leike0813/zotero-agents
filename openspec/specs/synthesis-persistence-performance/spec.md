@@ -29,3 +29,91 @@ Reference Sidecar refresh and Citation Graph cache rebuild SHALL be measured as 
 - **WHEN** Citation Graph cache rebuild runs
 - **THEN** progress SHALL report graph input loading, effective canonical resolution, binding target application, node and edge generation, metrics generation, and cache commit.
 
+### Requirement: Advanced matching is budgeted separately from refresh
+Advanced reference matching SHALL have a separate performance budget from Reference Sidecar refresh.
+
+#### Scenario: Fuzzy dedupe runs
+- **WHEN** fuzzy canonical dedupe runs
+- **THEN** it SHALL use bounded blocking keys and operation-level pair budgets
+- **AND** it SHALL NOT perform a global all-canonical N² title-similarity scan.
+
+#### Scenario: Fuzzy budget is exceeded
+- **WHEN** a fuzzy block or operation exceeds its budget
+- **THEN** Synthesis SHALL record diagnostics and skip excess comparisons instead of widening the scan.
+
+### Requirement: Harness writes only isolated debug persistence
+The Synthesis Index harness SHALL write algorithm run output only to an
+explicit debug SQLite database.
+
+#### Scenario: Debug database path overlaps real databases
+- **WHEN** the requested debug database path equals the Zotero database path or
+  the plugin database path
+- **THEN** the harness SHALL reject the command before running algorithm work.
+
+#### Scenario: Cluster run completes
+- **WHEN** a cluster dedupe run completes
+- **THEN** the real Zotero and plugin databases SHALL remain unmodified
+- **AND** the debug database SHALL contain the run metadata, clusters, edges,
+  actions, counters, and diagnostics.
+
+#### Scenario: Low-quality canonical records are filtered
+- **WHEN** a cluster run encounters excluded canonical records
+- **THEN** those records SHALL be reported through counters or diagnostics
+- **AND** they SHALL NOT expand candidate blocks or pair comparisons.
+
+### Requirement: Workbench reads are bounded by surface
+Synthesis Workbench read paths SHALL avoid loading unrelated domain data for a surface.
+
+#### Scenario: Graph surface is loaded
+- **WHEN** the Graph surface is requested
+- **THEN** the service SHALL read graph cache and layout state only
+- **AND** it SHALL NOT scan Index rows, Reference Sidecar rows, Tags, or Concepts.
+
+#### Scenario: Review surface is loaded
+- **WHEN** the Review surface is requested
+- **THEN** the service SHALL read only the active Review tab's bounded review/proposal page and required readable context
+- **AND** it SHALL apply status/kind/confidence filters before loading readable context
+- **AND** proposal context SHALL be resolved from summary item reads and bounded raw-reference ids
+- **AND** it SHALL NOT route through the Index sidecar row builder
+- **AND** it SHALL NOT load graph nodes, tag vocabulary, or concept rows.
+
+#### Scenario: Index surface is loaded
+- **WHEN** the Index surface is requested
+- **THEN** the service SHALL read a bounded Zotero parent-item page
+- **AND** it SHALL join sidecar rows only for the current page's source refs
+- **AND** default Index library rows SHALL expose reference counts instead of full raw-reference arrays
+- **AND** referenced-only mode SHALL use a bounded raw-reference page
+- **AND** it SHALL NOT load the Review Center proposal page.
+
+#### Scenario: Zotero item notification invalidates UI cache
+- **WHEN** a Zotero item notification reaches the Synthesis Workbench host
+- **THEN** the notifier path SHALL only mark affected surface read models dirty and debounce a visible-surface reload
+- **AND** it SHALL NOT scan the full Zotero Library
+- **AND** it SHALL NOT construct a full Workbench snapshot or invoke Reference Sidecar refresh.
+
+### Requirement: Warmup yields between phases
+Synthesis Workbench warmup SHALL yield control between read-model phases.
+
+#### Scenario: Warmup phase completes
+- **WHEN** a warmup phase completes or fails
+- **THEN** the warmup runner SHALL yield to the event loop before starting the next phase.
+
+### Requirement: Production Cluster Dedupe SHALL Remain Bounded
+Production cluster external dedupe SHALL use bounded blocking and pair budgets.
+
+#### Scenario: Candidate blocks exceed budget
+- **WHEN** cluster dedupe block size or pair budget is exceeded
+- **THEN** production advanced matching SHALL record diagnostics
+- **AND** it SHALL NOT widen to a global all-canonical pair scan.
+
+### Requirement: Full related-items sync is batched and bounded by accepted edges
+
+Full related-items sync SHALL process accepted library-to-library citation edges in batches and yield between batches. It SHALL avoid per-edge full graph hash recomputation and SHALL cache binding lookups within a sync run.
+
+#### Scenario: Full sync processes many edges
+
+- **WHEN** full related-items sync runs over many accepted edges
+- **THEN** it SHALL report progress through its own operation
+- **AND** it SHALL yield control between batches
+- **AND** it SHALL NOT recompute the entire graph state for every edge.
+

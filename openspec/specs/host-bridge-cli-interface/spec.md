@@ -4,21 +4,12 @@
 TBD - created by archiving change introduce-host-bridge-cli-interface. Update Purpose after archive.
 ## Requirements
 ### Requirement: Rust CLI calls the Host Bridge
-The system SHALL provide a Rust `zotero-bridge` CLI contract that communicates
-with the plugin Host Bridge over HTTP JSON.
+The system SHALL provide a Rust `zotero-bridge` CLI contract that communicates with the plugin Host Bridge over HTTP JSON using UTF-8 request bodies.
 
-#### Scenario: CLI status command checks bridge health
-- **WHEN** a user runs `zotero-bridge status`
-- **THEN** the CLI SHALL call the bridge health endpoint
-- **AND** it SHALL print stable status output without printing bearer tokens.
-
-#### Scenario: CLI capability command sends JSON input
-- **WHEN** a user runs `zotero-bridge call <capability> --input <json-or-file>`
-- **THEN** the CLI SHALL send the parsed JSON input to
-  `POST /bridge/v1/call`
-- **AND** it SHALL print the bridge response as stable JSON
-- **AND** the generic call command SHALL be treated as an advanced diagnostic
-  command rather than the primary interface for common workflows.
+#### Scenario: CLI sends non-ASCII JSON without corruption
+- **WHEN** the CLI sends JSON input containing non-ASCII text
+- **THEN** the Host Bridge SHALL decode the request body as UTF-8 bytes selected by `Content-Length`
+- **AND** the capability handler SHALL receive the original text without mojibake.
 
 ### Requirement: Rust CLI exposes semantic command groups
 The CLI SHALL provide semantic commands for common Zotero host operations rather
@@ -138,4 +129,20 @@ offer a user-facing installation action for terminal use.
 - **WHEN** the CLI detects that the Host Bridge does not support the expected
   `host-bridge.v1` protocol
 - **THEN** it SHALL exit non-zero and report `incompatible_bridge_protocol`.
+
+### Requirement: Remote Host Bridge profiles use stable master tokens
+Remote CLI documentation and generated profile examples MUST support a profile containing a LAN endpoint and a master bearer token.
+
+#### Scenario: User copies remote profile
+- **WHEN** LAN access is configured with a fixed port and master token
+- **THEN** the copied profile contains `endpoint` and `auth.token`
+- **AND** the endpoint uses the advertised host or `<zotero-host-ip>` placeholder
+
+### Requirement: File download command works with remote profiles
+The CLI file download command MUST continue to accept only broker-issued file ids and MUST work when the configured endpoint is remote.
+
+#### Scenario: Remote endpoint configured
+- **WHEN** a profile points to `http://<host>:<port>/bridge/v1`
+- **THEN** `file download <fileId>` calls `GET /files/{fileId}` with bearer auth
+- **AND** it does not accept local filesystem paths as file ids
 

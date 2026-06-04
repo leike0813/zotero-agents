@@ -10,6 +10,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Source artifacts are read directly when topic or digest workflows need them.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
+- Workbench UI reads are surface-scoped: chrome/status, Index, Review, Graph, Tags, Concepts, and Topics are separate read models.
 - Normal startup must not reconcile the whole Zotero Library into Synthesis.
 - Long work must be user/debug-triggered, scoped, cancellable when practical, and visibly stale-tolerant.
 - Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, Registry rebuild, and registry epochs are removed implementation targets.
@@ -33,13 +34,14 @@ Broad maintenance is explicit:
 | Operation | Trigger | Writes | Does Not Do |
 | --- | --- | --- | --- |
 | Artifact cache sync | digest/topic apply for one item/topic | selected artifact existence/hash projection rows | scan unrelated Zotero items or persist Zotero item metadata |
-| Reference sidecar refresh | user/debug selects item/library scope | artifact sidecar scan/diff, changed raw-reference extraction, canonical-reference dedupe, safe best-effort binding, `reference-sidecar:library=ready`, and `citation-graph:library=stale` | full library metadata projection, graph cache rebuild, graph layout rebuild, or user approval decisions |
+| Reference sidecar refresh | user/debug selects item/library scope | artifact sidecar scan/diff, changed raw-reference extraction, canonical-reference dedupe, safe best-effort binding, `reference-sidecar:library=ready`, and a separate visible Citation Graph cache incremental refresh or bootstrap when allowed | full library metadata projection, hidden graph rebuild, graph layout rebuild, or user approval decisions |
 | Reference binding repair/review | user starts review flow | accepted/rejected binding, merge, dedupe, or retarget decisions | silently rewrite Zotero item metadata or run from ordinary refresh |
-| Citation graph cache rebuild | user opens Graph rebuild/debug command | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; `citation-graph:library=ready` | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed |
+| Citation graph cache incremental refresh | workflow apply, Reference Sidecar refresh, or Advanced Matching changed graph-affecting sidecar facts | affected source-slice graph nodes, edges, incoming groups, source ownership, and light metrics; `citation-graph:library=ready` on success | scan artifacts, extract references, run matcher, rebuild layout, related-items sync, or topic work |
+| Citation graph cache rebuild | user opens Graph rebuild/debug command, or allowed bootstrap after Reference Sidecar refresh / Advanced Matching when graph cache is missing | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; `citation-graph:library=ready` | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed |
 | Citation graph layout rebuild | user opens layout/debug command | layout coordinates for an existing graph hash and preset | rebuild graph data or refresh reference sidecar |
 | Topic source check | user/debug/maintenance request for selected topic | source-check diagnostic from direct Zotero/artifact reads | read reference or graph cache as truth |
 | Topic discovery repair | user/debug bounded repair | bounded hint rows | global LLM n x m judging |
-| Related-items sync | explicit or approved graph side effect | Zotero native relation effect rows and diagnostics | delete unproven user-created Zotero relations |
+| Related-items sync | digest apply, Reference Sidecar refresh, Advanced Matching fact changes, or explicit/debug command | Zotero native relation effect rows and diagnostics from accepted library-to-library citation edges | rebuild graph cache, extract references, run matcher, mutate sidecar facts, or delete unproven user-created Zotero relations |
 | Reset/import/export | protected command | sidecar state according to declared scope | silently import legacy JSON into runtime |
 
 Explicit operations should report progress using real counts or fixed phases. If the total is unknown, UI must show indeterminate progress rather than inventing a percent.
@@ -71,11 +73,11 @@ The target model avoids automatic drift fan-out. Zotero Library drift is handled
 | --- | --- |
 | User opens a topic | Source check compares the topic source manifest with current Zotero/artifact reads for that topic. |
 | User opens Graph | Graph view may show missing/stale/failed cache and offer citation graph cache rebuild. |
-| Digest is applied | Only that item's sidecar projection is updated. |
+| Digest is applied | Only that item's sidecar projection is updated, graph cache receives a source-slice incremental refresh attempt when allowed, and related-items sync runs for that source ref using graph cache or sidecar facts. |
 | Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair. |
 | Structural inconsistency is suspected | Fail closed for cache writes and ask for inspect/repair; do not generate per-item fan-out. |
 
-Startup may do repository health checks, but it must not scan Zotero Library, reconcile sidecar cache, enqueue work, replay old operations, or start refresh.
+Startup may do repository health checks and phased Workbench read-model warmup, but it must not reconcile sidecar cache, enqueue work, replay old operations, or start refresh. Warmup is not a maintenance operation: it may read bounded surface state, fill in-memory UI cache, and yield between phases, but it must not write domain cache rows.
 
 ## Cache Refresh Safety
 
@@ -116,7 +118,7 @@ Stage 2 processes only changed references artifacts:
 
 The operation should expose progress from real counts: scanned sources, changed artifacts, extracted raw references, canonical matches, and affected binding candidates. If a single source fails to parse, the operation should record a source-scoped diagnostic and continue where safe.
 
-After successful stage 2, the reference sidecar cache basis is ready and the citation graph cache basis is stale. A separate citation graph cache rebuild is required before Graph reads should be considered ready.
+After successful stage 2, the reference sidecar cache basis is ready. The changed source refs are then handed to a separate visible Citation Graph cache operation: it refreshes affected graph slices when a usable graph cache exists, or performs an allowed full bootstrap when graph cache is missing/failed.
 
 ## Reference Binding Review
 
@@ -129,7 +131,7 @@ The flow is:
 3. Run external canonical dedupe only inside the explicit advanced matching operation, never during refresh/apply.
 4. Present ambiguous dedupe, merge, fuzzy, and binding candidates for user review.
 5. Store accepted/rejected decisions with provenance, confidence, evidence summary, and affected Zotero binding or canonical redirect refs.
-6. Mark graph cache stale or recommend graph cache rebuild; do not rebuild graph inside the review action unless the user explicitly requested that operation.
+6. Trigger a separate graph incremental refresh for accepted binding/redirect fact changes where supported; do not rebuild layout inside review. A separate related-items sync may run after Advanced Matching fact changes, and it must not depend on graph cache success.
 
 Fuzzy external dedupe is review-only in this version. It runs after deterministic dedupe clusters are formed and compares unresolved singleton canonical references against deterministic cluster representatives and remaining singleton targets under block and pair budgets.
 
@@ -137,13 +139,15 @@ Rejected or accepted decisions are durable sidecar facts, not ordinary cache row
 
 ## Related Items Sync
 
-Zotero native related-item relations remain Zotero-owned facts. Synthesis may optionally apply graph-derived related-item changes only with durable provenance:
+Zotero native related-item relations remain Zotero-owned facts. Synthesis may apply accepted library-to-library citation edges only through a visible related-items sync operation with durable provenance:
 
 - create a pending external-write effect before calling Zotero APIs;
 - never remove a relation without recorded Synthesis-created provenance;
 - treat pre-existing relations as `already_existed`;
 - if Zotero state diverges from recorded provenance, mark `stale_target` and leave Zotero untouched;
 - failures update sync diagnostics and do not roll back graph/reference cache.
+
+Related-items sync first uses ready graph cache rows when available. If graph cache is missing, stale, failed, empty, or a preceding graph refresh failed, it resolves the same edge set directly from active raw references, effective canonical redirects, and accepted reference bindings. It must not rebuild graph cache or run matcher logic.
 
 ## Failure Recovery
 
