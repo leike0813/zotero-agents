@@ -3,6 +3,7 @@ import {
   buildUnifiedCitationGraph,
   computeCitationGraphMetrics,
   computeCitationGraphLayout,
+  normalizeCitationLayoutAlgorithm,
   provisionalReferenceKey,
 } from "../../src/modules/synthesis/citationGraph";
 import { buildCitationGraphInputsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
@@ -290,12 +291,62 @@ describe("Synthesis Citation Graph", function () {
       ],
     });
 
-    const first = computeCitationGraphLayout(graph, "balanced");
-    const second = computeCitationGraphLayout(graph, "balanced");
+    const first = computeCitationGraphLayout(graph, "force");
+    const second = computeCitationGraphLayout(graph, "force");
+    const radial = computeCitationGraphLayout(graph, "radial");
+    const components = computeCitationGraphLayout(graph, "components");
 
     assert.equal(first.layout_hash, second.layout_hash);
     assert.deepEqual(first.nodes, second.nodes);
     assert.equal(first.graph_hash, graph.graph_hash);
+    assert.equal(first.layout_version, 1.2);
+    assert.equal(first.algorithm, "force");
+    assert.deepEqual(first.params, {
+      link_distance: 180,
+      charge: -520,
+      collision_radius: 24,
+      iterations: 700,
+      isolated_radius: 72,
+      isolated_gap: 96,
+    });
+    assert.equal(radial.algorithm, "radial");
+    assert.equal(components.algorithm, "components");
+    assert.notEqual(radial.layout_hash, first.layout_hash);
+    assert.notEqual(components.layout_hash, first.layout_hash);
+    assert.notEqual(radial.layout_hash, components.layout_hash);
+    assert.equal(normalizeCitationLayoutAlgorithm("compact"), "force");
+    assert.equal(normalizeCitationLayoutAlgorithm("balanced"), "force");
+    assert.equal(normalizeCitationLayoutAlgorithm("expanded"), "force");
+  });
+
+  it("keeps isolated nodes near the force layout instead of repelling them far away", function () {
+    const graph = buildUnifiedCitationGraph({
+      papers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Connected Source",
+          references: [{ title: "Connected Target", year: "2020" }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Isolated Paper",
+          references: [],
+        },
+      ],
+    });
+
+    const layout = computeCitationGraphLayout(graph, "force");
+    const source = layout.nodes["zotero:item:A"];
+    const isolated = layout.nodes["zotero:item:B"];
+
+    assert.isDefined(source);
+    assert.isDefined(isolated);
+    assert.isBelow(
+      Math.hypot(isolated.x - source.x, isolated.y - source.y),
+      800,
+    );
   });
 
   it("computes deterministic library-only citation metrics", function () {

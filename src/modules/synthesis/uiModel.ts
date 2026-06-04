@@ -35,7 +35,7 @@ export type SynthesisUiFreshness =
   | "failed"
   | "unknown";
 
-export type SynthesisUiLayoutPreset = "compact" | "balanced" | "expanded";
+export type SynthesisUiLayoutAlgorithm = "force" | "radial" | "components";
 
 export type SynthesisUiRegistryScopeFilter = "all" | "library" | "referenced";
 
@@ -609,7 +609,7 @@ export type SynthesisUiState = {
   graph: {
     search: string;
     role: "all" | string;
-    layoutPreset: SynthesisUiLayoutPreset;
+    layoutAlgorithm: SynthesisUiLayoutAlgorithm;
     neighborhoodDepth: number;
     nodeKinds: SynthesisUiGraphNode["kind"][];
     showLowSignalReferences: boolean;
@@ -798,7 +798,7 @@ export type SynthesisUiSnapshot = {
     filters: Omit<SynthesisUiState["graph"], "selectedElement">;
     graph_hash: string;
     layoutStatus: SynthesisUiCacheReadiness;
-    layoutPreset: SynthesisUiLayoutPreset;
+    layoutAlgorithm: SynthesisUiLayoutAlgorithm;
     nodeKinds: SynthesisUiGraphNode["kind"][];
     showLowSignalReferences: boolean;
     selectedElement?: SynthesisUiGraphElement;
@@ -1009,7 +1009,7 @@ export function getSynthesisUiOperationKey(
 ) {
   switch (command) {
     case "manualRecomputeLayout":
-      return `${command}:${keyPart(args.preset, "balanced")}`;
+      return `${command}:${normalizeLayoutAlgorithm(args.algorithm || args.preset)}`;
     case "applyConceptReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyTopicGraphReviewAction":
@@ -1174,12 +1174,12 @@ function normalizeReferenceBindingStatus(
     : normalized;
 }
 
-function normalizePreset(value: unknown): SynthesisUiLayoutPreset {
-  const preset = cleanString(value);
-  if (preset === "compact" || preset === "balanced" || preset === "expanded") {
-    return preset;
+function normalizeLayoutAlgorithm(value: unknown): SynthesisUiLayoutAlgorithm {
+  const algorithm = cleanString(value);
+  if (algorithm === "radial" || algorithm === "components") {
+    return algorithm;
   }
-  return "balanced";
+  return "force";
 }
 
 function normalizeStringList(values: unknown) {
@@ -2503,7 +2503,7 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
     graph: {
       search: "",
       role: "all",
-      layoutPreset: "balanced",
+      layoutAlgorithm: "force",
       neighborhoodDepth: 1,
       nodeKinds: [
         "library_paper",
@@ -3219,7 +3219,7 @@ export function buildSynthesisUiSnapshot(
       filters: {
         search: state.graph.search,
         role: state.graph.role,
-        layoutPreset: normalizePreset(state.graph.layoutPreset),
+        layoutAlgorithm: normalizeLayoutAlgorithm(state.graph.layoutAlgorithm),
         neighborhoodDepth: state.graph.neighborhoodDepth,
         nodeKinds: [...state.graph.nodeKinds],
         showLowSignalReferences: state.graph.showLowSignalReferences,
@@ -3232,7 +3232,7 @@ export function buildSynthesisUiSnapshot(
         input.graph?.layoutStatus === "failed"
           ? input.graph.layoutStatus
           : "missing",
-      layoutPreset: normalizePreset(state.graph.layoutPreset),
+      layoutAlgorithm: normalizeLayoutAlgorithm(state.graph.layoutAlgorithm),
       nodeKinds: [...state.graph.nodeKinds],
       showLowSignalReferences: state.graph.showLowSignalReferences,
       selectedElement: state.graph.selectedElement,
@@ -3541,8 +3541,15 @@ export function applySynthesisUiAction(
   }
 
   if (action === "setGraphView") {
+    if ("layoutAlgorithm" in payload) {
+      next.graph.layoutAlgorithm = normalizeLayoutAlgorithm(
+        payload.layoutAlgorithm,
+      );
+    }
     if ("layoutPreset" in payload) {
-      next.graph.layoutPreset = normalizePreset(payload.layoutPreset);
+      next.graph.layoutAlgorithm = normalizeLayoutAlgorithm(
+        payload.layoutPreset,
+      );
     }
     if ("role" in payload) {
       next.graph.role = cleanString(payload.role) || "all";

@@ -31,8 +31,10 @@ import {
 } from "./foundation";
 import {
   buildUnifiedCitationGraph,
+  CITATION_GRAPH_LAYOUT_VERSION,
   computeCitationGraphMetrics,
   computeCitationGraphLayout,
+  normalizeCitationLayoutAlgorithm,
   type CitationGraph,
   type CitationGraphEdge,
   type CitationGraphLibraryNodeMetrics,
@@ -40,7 +42,7 @@ import {
   type CitationGraphNode,
   type CitationGraphLayout,
   type CitationGraphPaperInput,
-  type CitationLayoutPreset,
+  type CitationLayoutAlgorithm,
 } from "./citationGraph";
 import {
   buildCitationGraphInputsFromRegistryInputs,
@@ -1775,9 +1777,10 @@ function parseCitationGraphLayout(
   return null;
 }
 
-function normalizeCitationLayoutPreset(value: unknown): CitationLayoutPreset {
-  const preset = cleanString(value);
-  return preset === "compact" || preset === "expanded" ? preset : "balanced";
+function normalizeCitationLayoutAlgorithmInput(
+  value: unknown,
+): CitationLayoutAlgorithm {
+  return normalizeCitationLayoutAlgorithm(value);
 }
 
 function citationGraphLayoutStatus(args: {
@@ -1800,6 +1803,9 @@ function citationGraphLayoutStatus(args: {
   if (!args.layout) {
     return "missing";
   }
+  if (args.layout.layout_version !== CITATION_GRAPH_LAYOUT_VERSION) {
+    return "stale";
+  }
   if (
     args.record.status === "ready" &&
     args.record.graphHash === args.graph.graph_hash &&
@@ -1812,7 +1818,7 @@ function citationGraphLayoutStatus(args: {
 
 async function readPersistedGraphProjection(
   root: string,
-  preset: CitationLayoutPreset,
+  algorithm: CitationLayoutAlgorithm,
 ) {
   const paths = buildSynthesisStoragePaths(root);
   const graphEnvelope = await readJson<CanonicalEnvelope<CitationGraph>>(
@@ -1825,10 +1831,14 @@ async function readPersistedGraphProjection(
   const layoutEnvelope = await readJson<
     CanonicalEnvelope<{
       graph_hash?: string;
-      layouts?: Partial<Record<CitationLayoutPreset, CitationGraphLayout>>;
+      layouts?: Partial<Record<CitationLayoutAlgorithm, CitationGraphLayout>> &
+        Record<string, CitationGraphLayout | undefined>;
     }>
   >(paths.unifiedCitationLayouts).catch(() => null);
-  const layout = layoutEnvelope?.data?.layouts?.[preset] || null;
+  const layout =
+    layoutEnvelope?.data?.layouts?.[algorithm] ||
+    (algorithm === "force" ? layoutEnvelope?.data?.layouts?.balanced : null) ||
+    null;
   const layoutStatus =
     layout && layout.graph_hash === graph.graph_hash
       ? ("ready" as const)
@@ -10239,7 +10249,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       );
       const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
         viewKey: "workbench_overview",
-        preset: state.graph.layoutPreset,
+        preset: state.graph.layoutAlgorithm,
       });
       const staleDelta =
         citationGraphIncrementalDeltaFromBasis(citationGraphCache);
@@ -10384,7 +10394,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       citationGraphIncrementalDeltaFromBasis(citationGraphCache);
     const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
       viewKey: "workbench_overview",
-      preset: state.graph.layoutPreset,
+      preset: state.graph.layoutAlgorithm,
     });
     const graphLayout = parseCitationGraphLayout(graphLayoutRecord);
     const graphLayoutStatus = citationGraphLayoutStatus({
@@ -11672,7 +11682,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function recomputeCitationGraphLayout(
     args: {
-      preset?: CitationLayoutPreset;
+      algorithm?: CitationLayoutAlgorithm;
+      preset?: unknown;
       force?: boolean;
       timeBudgetMs?: number;
     } = {},
@@ -11680,7 +11691,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const startedAt = Date.now();
     const jobName = "synthesis:citation-graph-layout-operation";
     const runId = `${jobName}:${now()}`;
-    const preset = normalizeCitationLayoutPreset(args.preset);
+    const algorithm = normalizeCitationLayoutAlgorithmInput(
+      args.algorithm || args.preset,
+    );
     const viewKey = "workbench_overview";
     const timeBudgetMs = Math.max(
       1,
@@ -11697,7 +11710,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnostics.push(diagnostic);
       synthesisRepository.markCitationGraphLayoutFailed({
         viewKey,
-        preset,
+        preset: algorithm,
         graphHash: graph.graph_hash,
         diagnosticsJson: JSON.stringify(diagnostics),
       });
@@ -11710,14 +11723,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
     const existing = synthesisRepository.getCitationGraphLayoutState({
       viewKey,
-      preset,
+      preset: algorithm,
     });
     const existingLayout = parseCitationGraphLayout(existing);
     if (
       !args.force &&
       existing?.status === "ready" &&
       existing.graphHash === graph.graph_hash &&
-      existingLayout?.graph_hash === graph.graph_hash
+      existingLayout?.graph_hash === graph.graph_hash &&
+      existingLayout.layout_version === CITATION_GRAPH_LAYOUT_VERSION
     ) {
       return {
         processed: 0,
@@ -11756,15 +11770,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         progressMode: "indeterminate",
       });
       const layout = await lock.runExclusive(libraryId, () =>
-        computeCitationGraphLayout(graph, preset),
+        computeCitationGraphLayout(graph, algorithm),
       );
       const promotedLayout = synthesisRepository.upsertCitationGraphLayoutState({
         layoutKey: synthesisRepository.citationLayoutKey({
           viewKey,
-          preset,
+          preset: algorithm,
         }),
         viewKey,
-        preset,
+        preset: algorithm,
         graphHash: graph.graph_hash,
         status: "ready",
         layoutJson: JSON.stringify(layout),
@@ -11831,7 +11845,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnostics.push(diagnostic);
       synthesisRepository.markCitationGraphLayoutFailed({
         viewKey,
-        preset,
+        preset: algorithm,
         graphHash: graph.graph_hash,
         diagnosticsJson: JSON.stringify(diagnostics),
       });

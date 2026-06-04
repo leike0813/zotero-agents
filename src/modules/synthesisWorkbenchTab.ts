@@ -18,7 +18,7 @@ import {
   mergeSynthesisUiSnapshotInput,
   type SynthesisUiAction,
   type SynthesisUiActionOperation,
-  type SynthesisUiLayoutPreset,
+  type SynthesisUiLayoutAlgorithm,
   type SynthesisUiSnapshotInput,
   type SynthesisUiState,
   type SynthesisUiTab,
@@ -1128,14 +1128,21 @@ function handleAction(
   }
   if (result.hostCommand?.command === "manualRecomputeLayout") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const preset =
-      String(commandArgs.preset || runtime.state.graph.layoutPreset).trim() ||
-      runtime.state.graph.layoutPreset;
-    runWorkbenchCommandOnce(runtime, "manualRecomputeLayout", { preset }, () =>
-      getDefaultSynthesisService().recomputeCitationGraphLayout({
-        preset: preset as SynthesisUiLayoutPreset,
-        force: true,
-      }),
+    const algorithm =
+      String(
+        commandArgs.algorithm ||
+          commandArgs.preset ||
+          runtime.state.graph.layoutAlgorithm,
+      ).trim() || runtime.state.graph.layoutAlgorithm;
+    runWorkbenchCommandOnce(
+      runtime,
+      "manualRecomputeLayout",
+      { algorithm },
+      () =>
+        getDefaultSynthesisService().recomputeCitationGraphLayout({
+          algorithm: algorithm as SynthesisUiLayoutAlgorithm,
+          force: true,
+        }),
     );
     return;
   }
@@ -1618,6 +1625,7 @@ function handleAction(
     void refreshGraphLayoutIfNeeded(runtime).catch((error) =>
       reportWorkbenchError(error, runtime.window),
     );
+    return;
   }
   void sendActiveSurface(runtime, {
     refreshFromService: false,
@@ -1678,7 +1686,8 @@ function shouldRefreshGraphLayoutForAction(
   }
   return (
     envelope.action === "setGraphView" &&
-    "layoutPreset" in (envelope.payload || {})
+    ("layoutAlgorithm" in (envelope.payload || {}) ||
+      "layoutPreset" in (envelope.payload || {}))
   );
 }
 
@@ -1694,10 +1703,13 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   mergeRuntimeSnapshotInput(runtime, input);
   const status = input.graph?.layoutStatus || "missing";
   if (status === "ready" || !input.graph?.graph_hash) {
+    await sendSurface(runtime, "graph", {
+      refreshFromService: false,
+    });
     return;
   }
   await service.recomputeCitationGraphLayout({
-    preset: runtime.state.graph.layoutPreset,
+    algorithm: runtime.state.graph.layoutAlgorithm,
   });
   await sendSurface(runtime, "graph", {
     refreshFromService: true,

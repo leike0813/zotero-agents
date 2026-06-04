@@ -147,46 +147,52 @@ export type CitationGraphMetrics = {
   metrics_hash: string;
 };
 
-export type CitationLayoutPreset = "compact" | "balanced" | "expanded";
+export type CitationLayoutAlgorithm = "force" | "radial" | "components";
 
 export type CitationGraphLayout = {
   graph_hash: string;
-  layout_engine: "d3-force";
-  layout_version: 1;
-  preset: CitationLayoutPreset;
-  params: {
-    link_distance: number;
-    charge: number;
-    collision_radius: number;
-    iterations: number;
-  };
+  layout_engine: "d3-force" | "radial" | "components";
+  layout_version: number;
+  algorithm: CitationLayoutAlgorithm;
+  preset: CitationLayoutAlgorithm;
+  params: Record<string, number | string>;
   nodes: Record<string, { x: number; y: number }>;
   layout_hash: string;
 };
 
-const LAYOUT_PRESETS: Record<
-  CitationLayoutPreset,
-  CitationGraphLayout["params"]
-> = {
-  compact: {
-    link_distance: 45,
-    charge: -80,
-    collision_radius: 6,
-    iterations: 300,
-  },
-  balanced: {
-    link_distance: 80,
-    charge: -140,
-    collision_radius: 8,
-    iterations: 400,
-  },
-  expanded: {
-    link_distance: 130,
-    charge: -220,
-    collision_radius: 10,
-    iterations: 500,
-  },
+export const CITATION_GRAPH_LAYOUT_VERSION = 1.2;
+
+const FORCE_LAYOUT_PARAMS = {
+  link_distance: 180,
+  charge: -520,
+  collision_radius: 24,
+  iterations: 700,
+  isolated_radius: 72,
+  isolated_gap: 96,
 };
+
+const RADIAL_LAYOUT_PARAMS = {
+  library_radius_step: 82,
+  external_offset: 76,
+  fallback_radius_step: 64,
+  golden_angle: 2.399963229728653,
+};
+
+const COMPONENT_LAYOUT_PARAMS = {
+  component_gap: 360,
+  node_gap: 54,
+  golden_angle: 2.399963229728653,
+};
+
+export function normalizeCitationLayoutAlgorithm(
+  value: unknown,
+): CitationLayoutAlgorithm {
+  const algorithm = normalizeText(value);
+  if (algorithm === "radial" || algorithm === "components") {
+    return algorithm;
+  }
+  return "force";
+}
 
 function normalizeText(value: unknown) {
   return String(value || "").trim();
@@ -634,10 +640,10 @@ export function buildUnifiedCitationGraph(args: {
 
 function coordinateSeed(
   nodeId: string,
-  preset: CitationLayoutPreset,
+  algorithm: CitationLayoutAlgorithm,
   axis: "x" | "y",
 ) {
-  const hex = sha256(`${nodeId}:${preset}:${axis}`).slice(
+  const hex = sha256(`${nodeId}:${algorithm}:${axis}`).slice(
     "sha256:".length,
     "sha256:".length + 8,
   );
@@ -1002,20 +1008,136 @@ export function computeCitationGraphMetrics(
 
 export function computeCitationGraphLayout(
   graph: CitationGraph,
-  preset: CitationLayoutPreset,
+  algorithmInput: CitationLayoutAlgorithm,
 ): CitationGraphLayout {
-  const params = LAYOUT_PRESETS[preset];
-  const model = new Graph({ multi: false, type: "directed" });
-  const nodes = [...graph.nodes].sort((left, right) =>
+  const algorithm = normalizeCitationLayoutAlgorithm(algorithmInput);
+  if (algorithm === "radial") {
+    return computeRadialCitationGraphLayout(graph);
+  }
+  if (algorithm === "components") {
+    return computeComponentCitationGraphLayout(graph);
+  }
+  return computeForceCitationGraphLayout(graph);
+}
+
+function finalizeCitationGraphLayout(args: {
+  graph: CitationGraph;
+  layoutEngine: CitationGraphLayout["layout_engine"];
+  algorithm: CitationLayoutAlgorithm;
+  params: CitationGraphLayout["params"];
+  nodes: Record<string, { x: number; y: number }>;
+}): CitationGraphLayout {
+  const base = {
+    graph_hash: args.graph.graph_hash,
+    layout_engine: args.layoutEngine,
+    layout_version: CITATION_GRAPH_LAYOUT_VERSION,
+    algorithm: args.algorithm,
+    preset: args.algorithm,
+    params: args.params,
+    nodes: args.nodes,
+  };
+  return {
+    ...base,
+    layout_hash: hashCanonicalJson(base),
+  };
+}
+
+function sortedCitationNodes(graph: CitationGraph) {
+  return [...graph.nodes].sort((left, right) =>
     left.node_id.localeCompare(right.node_id),
   );
-  const links = [...graph.edges].sort((left, right) =>
+}
+
+function sortedCitationEdges(graph: CitationGraph) {
+  return [...graph.edges].sort((left, right) =>
     left.edge_id.localeCompare(right.edge_id),
   );
-  const simulationNodes = nodes.map((node) => ({
+}
+
+function citationGraphDegreeMaps(graph: CitationGraph) {
+  const incoming = new Map<string, number>();
+  const outgoing = new Map<string, number>();
+  for (const edge of graph.edges) {
+    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
+    outgoing.set(edge.source, (outgoing.get(edge.source) || 0) + 1);
+  }
+  return { incoming, outgoing };
+}
+
+function stableNodeRank(
+  node: CitationGraphNode,
+  incoming: Map<string, number>,
+  outgoing: Map<string, number>,
+) {
+  return {
+    incoming: incoming.get(node.node_id) || 0,
+    outgoing: outgoing.get(node.node_id) || 0,
+    year: Number(node.year) || Number.POSITIVE_INFINITY,
+    title: normalizeText(node.title || node.node_id).toLowerCase(),
+  };
+}
+
+function compareCitationNodeImportance(
+  incoming: Map<string, number>,
+  outgoing: Map<string, number>,
+) {
+  return (left: CitationGraphNode, right: CitationGraphNode) => {
+    const leftRank = stableNodeRank(left, incoming, outgoing);
+    const rightRank = stableNodeRank(right, incoming, outgoing);
+    return (
+      rightRank.incoming - leftRank.incoming ||
+      rightRank.outgoing - leftRank.outgoing ||
+      leftRank.year - rightRank.year ||
+      leftRank.title.localeCompare(rightRank.title) ||
+      left.node_id.localeCompare(right.node_id)
+    );
+  };
+}
+
+function coordinateOnSpiral(index: number, radiusStep: number, angleStep: number) {
+  if (index <= 0) {
+    return { x: 0, y: 0 };
+  }
+  const angle = index * angleStep;
+  const radius = radiusStep * Math.sqrt(index);
+  return {
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
+  };
+}
+
+function roundedCoordinates(
+  nodes: Record<string, { x: number; y: number }>,
+): Record<string, { x: number; y: number }> {
+  return Object.fromEntries(
+    Object.entries(nodes)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, point]) => [
+        id,
+        {
+          x: roundCoordinate(point.x),
+          y: roundCoordinate(point.y),
+        },
+      ]),
+  );
+}
+
+function computeForceCitationGraphLayout(graph: CitationGraph) {
+  const params = FORCE_LAYOUT_PARAMS;
+  const model = new Graph({ multi: false, type: "directed" });
+  const nodes = sortedCitationNodes(graph);
+  const links = sortedCitationEdges(graph);
+  const connectedNodeIds = new Set<string>();
+  for (const edge of links) {
+    connectedNodeIds.add(edge.source);
+    connectedNodeIds.add(edge.target);
+  }
+  const connectedNodes = nodes.filter((node) => connectedNodeIds.has(node.node_id));
+  const isolatedNodes = nodes.filter((node) => !connectedNodeIds.has(node.node_id));
+  const simulationNodes = connectedNodes.map((node) => ({
     id: node.node_id,
-    x: coordinateSeed(node.node_id, preset, "x"),
-    y: coordinateSeed(node.node_id, preset, "y"),
+    x: coordinateSeed(node.node_id, "force", "x"),
+    y: coordinateSeed(node.node_id, "force", "y"),
   }));
   for (const node of simulationNodes) {
     model.addNode(node.id);
@@ -1045,24 +1167,187 @@ export function computeCitationGraphLayout(
     simulation.tick();
   }
   const coordinates: Record<string, { x: number; y: number }> = {};
+  const connectedCoordinates: Array<{ x: number; y: number }> = [];
   for (const node of simulationNodes.sort((left, right) =>
     left.id.localeCompare(right.id),
   )) {
+    connectedCoordinates.push({
+      x: Number(node.x || 0),
+      y: Number(node.y || 0),
+    });
     coordinates[node.id] = {
       x: roundCoordinate(Number(node.x || 0)),
       y: roundCoordinate(Number(node.y || 0)),
     };
   }
-  const base = {
-    graph_hash: graph.graph_hash,
-    layout_engine: "d3-force" as const,
-    layout_version: 1 as const,
-    preset,
+  if (isolatedNodes.length) {
+    const maxX = connectedCoordinates.length
+      ? Math.max(...connectedCoordinates.map((point) => point.x))
+      : 0;
+    const minY = connectedCoordinates.length
+      ? Math.min(...connectedCoordinates.map((point) => point.y))
+      : 0;
+    const center = {
+      x: maxX + params.isolated_radius + params.isolated_gap,
+      y: minY,
+    };
+    isolatedNodes.forEach((node, index) => {
+      const offset = coordinateOnSpiral(
+        index,
+        params.isolated_radius,
+        RADIAL_LAYOUT_PARAMS.golden_angle,
+      );
+      coordinates[node.node_id] = {
+        x: roundCoordinate(center.x + offset.x),
+        y: roundCoordinate(center.y + offset.y),
+      };
+    });
+  }
+  return finalizeCitationGraphLayout({
+    graph,
+    layoutEngine: "d3-force",
+    algorithm: "force",
     params,
     nodes: coordinates,
-  };
-  return {
-    ...base,
-    layout_hash: hashCanonicalJson(base),
-  };
+  });
+}
+
+function computeRadialCitationGraphLayout(graph: CitationGraph) {
+  const nodes = sortedCitationNodes(graph);
+  const { incoming, outgoing } = citationGraphDegreeMaps(graph);
+  const libraryNodes = nodes
+    .filter((node) => node.kind === "library_paper")
+    .sort(compareCitationNodeImportance(incoming, outgoing));
+  const nonLibraryNodes = nodes
+    .filter((node) => node.kind !== "library_paper")
+    .sort(compareCitationNodeImportance(incoming, outgoing));
+  const coordinates: Record<string, { x: number; y: number }> = {};
+  libraryNodes.forEach((node, index) => {
+    coordinates[node.node_id] = coordinateOnSpiral(
+      index,
+      RADIAL_LAYOUT_PARAMS.library_radius_step,
+      RADIAL_LAYOUT_PARAMS.golden_angle,
+    );
+  });
+  const inboundSourcesByTarget = new Map<string, string[]>();
+  for (const edge of sortedCitationEdges(graph)) {
+    if (!inboundSourcesByTarget.has(edge.target)) {
+      inboundSourcesByTarget.set(edge.target, []);
+    }
+    inboundSourcesByTarget.get(edge.target)?.push(edge.source);
+  }
+  nonLibraryNodes.forEach((node, index) => {
+    const sourcePoints = (inboundSourcesByTarget.get(node.node_id) || [])
+      .map((source) => coordinates[source])
+      .filter(Boolean);
+    if (!sourcePoints.length) {
+      coordinates[node.node_id] = coordinateOnSpiral(
+        libraryNodes.length + index + 1,
+        RADIAL_LAYOUT_PARAMS.fallback_radius_step,
+        RADIAL_LAYOUT_PARAMS.golden_angle,
+      );
+      return;
+    }
+    const centroid = sourcePoints.reduce(
+      (acc, point) => ({
+        x: acc.x + point.x / sourcePoints.length,
+        y: acc.y + point.y / sourcePoints.length,
+      }),
+      { x: 0, y: 0 },
+    );
+    const seedAngle =
+      Math.atan2(centroid.y, centroid.x) ||
+      (index + 1) * RADIAL_LAYOUT_PARAMS.golden_angle;
+    const offset =
+      RADIAL_LAYOUT_PARAMS.external_offset +
+      Math.sqrt(index + 1) * (RADIAL_LAYOUT_PARAMS.external_offset / 3);
+    coordinates[node.node_id] = {
+      x: centroid.x + Math.cos(seedAngle) * offset,
+      y: centroid.y + Math.sin(seedAngle) * offset,
+    };
+  });
+  return finalizeCitationGraphLayout({
+    graph,
+    layoutEngine: "radial",
+    algorithm: "radial",
+    params: RADIAL_LAYOUT_PARAMS,
+    nodes: roundedCoordinates(coordinates),
+  });
+}
+
+function computeComponentCitationGraphLayout(graph: CitationGraph) {
+  const nodes = sortedCitationNodes(graph);
+  const { incoming, outgoing } = citationGraphDegreeMaps(graph);
+  const nodesById = new Map(nodes.map((node) => [node.node_id, node]));
+  const adjacency = new Map<string, Set<string>>();
+  for (const node of nodes) {
+    adjacency.set(node.node_id, new Set());
+  }
+  for (const edge of sortedCitationEdges(graph)) {
+    if (adjacency.has(edge.source) && adjacency.has(edge.target)) {
+      adjacency.get(edge.source)?.add(edge.target);
+      adjacency.get(edge.target)?.add(edge.source);
+    }
+  }
+  const visited = new Set<string>();
+  const components: CitationGraphNode[][] = [];
+  for (const node of nodes) {
+    if (visited.has(node.node_id)) {
+      continue;
+    }
+    const queue = [node.node_id];
+    visited.add(node.node_id);
+    const component: CitationGraphNode[] = [];
+    for (let index = 0; index < queue.length; index += 1) {
+      const current = queue[index];
+      const graphNode = nodesById.get(current);
+      if (graphNode) {
+        component.push(graphNode);
+      }
+      for (const next of adjacency.get(current) || []) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    components.push(component);
+  }
+  components.sort(
+    (left, right) =>
+      right.length - left.length ||
+      left[0]?.node_id.localeCompare(right[0]?.node_id || "") ||
+      0,
+  );
+  const columns = Math.max(1, Math.ceil(Math.sqrt(components.length || 1)));
+  const coordinates: Record<string, { x: number; y: number }> = {};
+  components.forEach((component, componentIndex) => {
+    const column = componentIndex % columns;
+    const row = Math.floor(componentIndex / columns);
+    const center = {
+      x:
+        (column - (Math.min(columns, components.length) - 1) / 2) *
+        COMPONENT_LAYOUT_PARAMS.component_gap,
+      y: row * COMPONENT_LAYOUT_PARAMS.component_gap,
+    };
+    const ordered = component.sort(compareCitationNodeImportance(incoming, outgoing));
+    ordered.forEach((node, index) => {
+      const offset = coordinateOnSpiral(
+        index,
+        COMPONENT_LAYOUT_PARAMS.node_gap,
+        COMPONENT_LAYOUT_PARAMS.golden_angle,
+      );
+      coordinates[node.node_id] = {
+        x: center.x + offset.x,
+        y: center.y + offset.y,
+      };
+    });
+  });
+  return finalizeCitationGraphLayout({
+    graph,
+    layoutEngine: "components",
+    algorithm: "components",
+    params: COMPONENT_LAYOUT_PARAMS,
+    nodes: roundedCoordinates(coordinates),
+  });
 }

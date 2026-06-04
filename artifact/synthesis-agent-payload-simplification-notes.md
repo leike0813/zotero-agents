@@ -1106,9 +1106,742 @@ Stage 9 不再是“填写 KG sidecar schema”，而是：
 > 补全 concept lexical/semantic disambiguation 信息，并提供 topic graph relation candidates
 > 与 topic matching terms；sidecar 结构和 matching seeds 由 runtime 物化。
 
+## Create Stage 10: `finalize_summary_coverage`
+
+### 当前问题
+
+原 Stage 10 `external_statistics_report` 同时要求 agent 写：
+
+- `summary`
+- `external_literature_analysis`
+- `coverage`
+- `statistics`
+- `synthesis_report`
+- `source_artifacts`
+- `diagnostics`
+
+这里混合了四类职责：
+
+1. agent 语义收尾：summary、coverage reason、collection suggestions。
+2. runtime / graph 统计：paper count、time span、route count、citation graph role counts、artifact availability。
+3. final artifact 适配：`coverage`、`statistics`、`external_literature_analysis` 的最终 section shape。
+4. report 渲染：把前序已验证 sections 组织成连续报告。
+
+继续让 agent 在 Stage 10 手写 `statistics` 数字和 `synthesis_report_body` 会带来两个问题：
+
+- 数字不可靠。统计应来自 graph / canonical 层，因为 graph 查询结果去重后更有价值。
+- 报告重复推理。agent 已经在 Stage 7/8 写过核心综合，最后再手写 report 容易与前序 sections
+  出现轻微不一致，也增加无谓 token 成本。
+
+### 共识
+
+Stage 10 应改为 final summary + coverage reliability + collection suggestions。
+
+建议命名：
+
+```text
+finalize_summary_coverage
+```
+
+agent 不再写：
+
+- statistics 数字
+- `source_artifacts`
+- `synthesis_report_body`
+- external reference ids / canonical external references
+- representative external reference bibliography
+- citation contexts
+
+agent 只写解释性收尾：
+
+- 用户可读 summary。
+- coverage verdict 与 reason。
+- reliability summary / caveats。
+- external context 的简要判断。
+- suggested collection directions。
+
+### Agent-facing payload
+
+```json
+{
+  "summary_brief": "",
+  "summary_overview": "",
+  "key_takeaways": [],
+  "coverage_verdict": "partial",
+  "coverage_reason": "",
+  "reliability_summary": "",
+  "coverage_caveats": [],
+  "external_context_summary": "",
+  "suggested_collection_directions": [
+    {
+      "direction": "",
+      "reason": "",
+      "example_titles_or_terms": [],
+      "priority": "medium"
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+`coverage_verdict` 枚举：
+
+```text
+sufficient / partial / insufficient / severely_missing / unknown
+```
+
+`suggested_collection_directions[].priority` 枚举：
+
+```text
+high / medium / low / unknown
+```
+
+### External analysis 降级为 collection suggestions
+
+Stage 10 不再承担完整 external literature analysis。
+
+external 部分只回答：
+
+- 当前库内材料暗示哪些库外背景、对照方法、benchmark、综述或经典文献方向可能缺失。
+- 这些缺失为什么影响 topic synthesis 的 coverage / reliability。
+- 用户下一步可以按哪些方向、标题或检索词补充文献。
+
+不要求：
+
+- 给外部 reference 建稳定 id。
+- 查询或维护外部 canonical reference。
+- 对外部 references 去重。
+- 维护 cited-by graph。
+- 让 agent 填完整 bibliography。
+
+`suggested_collection_directions[]` 是行动建议，不是 canonical reference list。
+
+### Statistics 从 graph 查询
+
+统计数字应优先从 graph / canonical 层查询，而不是从 cross-paper context 推导。
+
+原因：
+
+- cross-paper context 是给 agent 阅读和综合用的上下文。
+- graph 是去重后的结构化事实层，更适合统计。
+- external analysis context 和 graph statistics 目标不同，不应为了兼容硬揉在一起。
+
+runtime 负责查询 graph 并生成 deterministic statistics，例如：
+
+```json
+{
+  "graph_statistics": {
+    "paper_count": 0,
+    "canonical_reference_count": 0,
+    "deduped_external_reference_count": 0,
+    "year_span": {
+      "start_year": 2020,
+      "end_year": 2026
+    },
+    "route_count": 0,
+    "citation_role_counts": {},
+    "artifact_availability": {},
+    "graph_stats_status": "available"
+  }
+}
+```
+
+如果 graph 不可用、缺失或 stale，runtime 不要求 agent 补数字，而是写入：
+
+```json
+{
+  "graph_stats_status": "missing_or_stale",
+  "statistics_caveat": ""
+}
+```
+
+### Synthesis report 确定性渲染
+
+最终 `synthesis_report` 不再由 agent 在 Stage 10 手写。
+
+runtime 使用固定模板从已验证 sections 确定性渲染报告。建议章节：
+
+```text
+1. Topic definition and scope
+2. Research routes
+3. Historical progression
+4. Core findings
+5. Improvement dimensions and debates
+6. Gaps, coverage, and reliability
+7. Collection suggestions
+```
+
+每章只从指定来源取材：
+
+- Topic definition and scope：Stage 1 topic definition、Stage 7/8 positioning、Stage 10 summary。
+- Research routes：`taxonomy_summary` / `taxonomy.summary`。
+- Historical progression：`timeline_summary` / `timeline_events.summary`。
+- Core findings：`claims`。
+- Improvement dimensions and debates：`improvement_dimensions`、`debates`。
+- Gaps, coverage, and reliability：`gaps`、runtime graph statistics、Stage 10 coverage fields。
+- Collection suggestions：Stage 10 `suggested_collection_directions[]`。
+
+这样可以避免最后一步重复推理，并使报告风格、顺序和覆盖范围规范化。
+
+### Runtime 物化职责
+
+runtime 从 Stage 10 轻量 payload 和前序 sections 编译：
+
+- `summary`
+- `external_literature_analysis`
+- `coverage`
+- `statistics`
+- `synthesis_report`
+
+runtime 同时合并或派生：
+
+- Stage 1 topic definition -> `topic`
+- Stage 7/8 core synthesis -> taxonomy / timeline / positioning / claims / improvement dimensions / debates / gaps / review outline
+- Stage 6 context/provenance -> paper evidence、semantic evidence map、timeline markers、source artifacts
+- graph query results -> deterministic `coverage` / `statistics` numeric fields
+- Stage 10 `suggested_collection_directions[]` -> lightweight external / collection suggestion section
+
+### Stage 10 一句话定义
+
+Stage 10 不再是“external statistics report”，而是：
+
+> 基于已完成的核心综合、external context 和 graph statistics，写 final summary、coverage
+> reliability interpretation 与 collection suggestions；所有统计数字、source artifacts 和最终
+> synthesis report 由 runtime 确定性物化。
+
+## Create Stage 11/12: `validate_final_artifacts` / `emit_final_json`
+
+### 当前问题
+
+当前 Stage 11 `validate_final_artifacts` 会直接写：
+
+```text
+result/result.json
+```
+
+并将其注册为 final stdout artifact。随后 Stage 12 只是读取该文件输出。
+
+这与后端编排协议不匹配。按照后端协议，`result/result.json` 应该由编排器在验证 agent
+最终 stdout JSON 之后写入，而不是由 skill runtime 直接写入。
+
+原因：
+
+- `result/result.json` 是编排器确认过的最终业务输出，不应由 skill 内部提前占位。
+- 编排器需要先校验 agent stdout 是否符合 output schema 与 operation-specific CAS 合同。
+- 如果 runtime 直接写 `result/result.json`，会混淆“candidate output”和“accepted final output”。
+- create/update 的 apply precondition 也应基于编排器验证后的 bundle，而不是 runtime 私自写出的 final file。
+
+### 共识
+
+Stage 11 仍负责校验和渲染 manifest / sections / sidecars，但不写 `result/result.json`。
+
+Stage 11 应改为写一个 candidate output 文件，例如：
+
+```text
+result/final-output.candidate.json
+```
+
+或：
+
+```text
+runtime/final-output.json
+```
+
+建议使用：
+
+```text
+result/final-output.candidate.json
+```
+
+因为它仍属于本次 run 的 result 产物，但语义上明确不是 accepted final result。
+
+Stage 12 负责让 agent 读取 candidate 文件，并将其作为最终 stdout JSON 输出。
+
+编排器负责：
+
+1. 捕获 agent stdout。
+2. 校验 stdout 是否符合 skill output schema。
+3. 校验 create / update_full / update_patch 的 operation-specific precondition。
+4. 校验通过后写入：
+
+```text
+result/result.json
+```
+
+### Stage 11 Runtime 职责
+
+`validate_final_artifacts` 应继续负责：
+
+- 读取已物化 sections。
+- 校验完整 artifact 或 patch artifact。
+- 校验 sidecars 已存在并登记。
+- 生成 `result/topic-analysis.json` 或 `result/topic-analysis.patch.json`。
+- 生成 `result/sidecars/*.json`。
+- 生成 candidate final output：
+
+```json
+{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "object-detection",
+    "title": "Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json"
+}
+```
+
+但该 candidate 应写入：
+
+```text
+result/final-output.candidate.json
+```
+
+并注册为：
+
+```text
+synthesis.topic_synthesis_final_output_candidate
+```
+
+而不是：
+
+```text
+synthesis.topic_synthesis_final_bundle
+```
+
+Stage 11 不应把 `stage_12_completed` 直接标记为 completed。它只应完成
+`stage_11_render_and_validate`，然后 gate 进入 Stage 12。
+
+### Stage 12 Agent 职责
+
+Stage 12 只做：
+
+```powershell
+Get-Content -Encoding UTF8 "result/final-output.candidate.json"
+```
+
+agent 将该 JSON 原样作为最终 stdout 输出，不追加解释、Markdown fence 或正文。
+
+### Orchestrator 职责
+
+编排器在收到 agent stdout 后：
+
+- 校验 create output schema：`operation: "create"` 禁止 `base_hashes`。
+- 校验 update_full output schema：必须包含 `base_hashes`。
+- 校验 update_patch output schema：必须包含 `read_section_hashes`。
+- create apply 只检查目标 topic 当前不存在。
+- update_full apply 校验 base hashes。
+- update_patch apply 校验 read section hashes。
+- 校验通过后写入 canonical accepted output：
+
+```text
+result/result.json
+```
+
+兼容旧 create bundle 时，如果 stdout 带非空 `base_hashes`，编排器 / host apply 可以忽略这些
+hash 并记录 warning；但 `result/result.json` 应写入经验证和规范化后的 accepted bundle。
+
+### 命名建议
+
+旧：
+
+```text
+result/result.json
+```
+
+runtime 直接写。
+
+新：
+
+```text
+result/final-output.candidate.json
+```
+
+runtime 写 candidate，agent 输出 candidate，orchestrator 验证后写 `result/result.json`。
+
+## Output Schema / Database / Topic Details 修改方案
+
+这一轮修改的核心不是整体重做 topic artifact，而是把 agent-facing 合同、host apply
+precondition 和 UI 读取边界重新切清楚。
+
+结论：
+
+- skill output schema 必须改。
+- 数据库表原则上不做结构性迁移。
+- Topic Details 页面需要改展示逻辑，但不需要先推翻整体布局。
+
+### 1. Skill output schema 修改
+
+这里需要区分三类 schema：
+
+1. stage payload schema：agent 在每个 gate 提交的中间 payload。
+2. final stdout bundle schema：agent 最终 stdout 输出给 orchestrator 的 bundle。
+3. final topic artifact schema：host apply 后进入 topic details / export / downstream review 的持久化 artifact。
+
+#### 1.1 Stage payload schema 必改
+
+这是本轮简化的主要收益来源。
+
+Create skill 的 stage payload 应调整为：
+
+- Stage 1：agent 只写 topic semantic definition，不写 `topic_definition.id`。
+- Stage 2：agent 只写 resolver proposal，不写 resolved paper set / workset / library index。
+- Stage 3：graph metrics 为 runtime-only，无 agent payload。
+- Stage 4：evidence collection / artifact availability 为 runtime-only，无 agent payload。
+- Stage 5：agent 只写 `paper_ref`、relevance、quality、`core_digest`。
+- Stage 6：cross-paper context / provenance index 为 runtime-only，无 agent-authored semantic map。
+- Stage 7/8：合并为 `persist_core_synthesis`，agent 一次写 taxonomy、timeline semantic events、
+  positioning、claims、improvement dimensions、debates、gaps、review outline 和
+  `concept_candidate_labels[]`。
+- Stage 9：agent 只补 concept / topic relation enrichment，不写 sidecar wrapper schema。
+- Stage 10：agent 只写 summary、coverage interpretation、reliability interpretation 和 collection
+  suggestions，不写 statistics 数字和最终 report body。
+- Stage 11：runtime 写 candidate final output，不写 accepted `result/result.json`。
+- Stage 12：agent 原样输出 candidate JSON。
+
+Update skill 的 stage payload 也要同步：
+
+- update 始终先运行 resolver。
+- resolver delta 由 runtime 计算。
+- `update_full` 走完整 agent payload，但 final stdout 必须带 `base_hashes`。
+- `update_patch` 只提交 patch 相关 sections，并且 final stdout 必须带
+  `read_section_hashes`。
+- update patch 不允许跳过 resolver，也不允许引用 removed paper。
+
+#### 1.2 Final stdout bundle schema 必改
+
+最终 stdout bundle 应改为 operation-discriminated union。
+
+`create` 分支：
+
+```json
+{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "runtime-derived-topic-id",
+    "title": "Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver-manifest.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json",
+  "topic_interest_metadata_path": "result/sidecars/topic-interest-metadata.json",
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+要求：
+
+- `operation` 必须是 `"create"`。
+- 禁止出现 `base_hashes`。
+- 不要求 `read_section_hashes`。
+- apply precondition 只有 topic absence。
+
+`update_full` 分支：
+
+```json
+{
+  "kind": "topic_synthesis",
+  "operation": "update_full",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "existing-topic-id",
+    "title": "Object Detection"
+  },
+  "base_hashes": {
+    "manifest": "sha256:...",
+    "artifact": "sha256:...",
+    "export": "sha256:...",
+    "metadata": "sha256:..."
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver-manifest.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json",
+  "topic_interest_metadata_path": "result/sidecars/topic-interest-metadata.json",
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+要求：
+
+- `base_hashes` 必填。
+- apply 时校验 current manifest / artifact / export / metadata hash 未变化。
+- hash 不匹配时返回 conflict，不写入。
+
+`update_patch` 分支：
+
+```json
+{
+  "kind": "topic_synthesis",
+  "operation": "update_patch",
+  "language": "zh-CN",
+  "topic_id": "existing-topic-id",
+  "read_section_hashes": {
+    "claims": "sha256:...",
+    "timeline_events": "sha256:..."
+  },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.patch.json",
+  "topic_interest_metadata_path": "result/sidecars/topic-interest-metadata.json",
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+要求：
+
+- `read_section_hashes` 必填。
+- 不要求 `base_hashes`。
+- apply 时只校验读取过的 sections。
+- 未读取 section 变化不阻断 patch。
+- patch manifest 的 changed sections 必须覆盖 agent-authored sections 和 runtime-derived dependent
+  sections。
+
+#### 1.3 Legacy create 兼容策略
+
+新 skill output schema 和文档应禁止 create 输出 `base_hashes`。
+
+但 host apply 可以保留 legacy tolerant path：
+
+- 如果 `operation: "create"` 的旧 bundle 带非空 `base_hashes`，host apply 忽略这些 hash。
+- 返回 warning：`create_base_hashes_ignored`。
+- accepted canonical bundle 不应继续保留 create `base_hashes`。
+- 如果 topic 已存在，必须返回 `topic_exists` / `duplicate_topic`，不能因为 legacy hash 匹配而转成
+  update。
+
+因此实现上建议区分：
+
+- strict skill schema：给新 skill / orchestrator validation 使用，create 禁止 `base_hashes`。
+- host compatibility parser：只为旧结果兜底，允许读取后规范化并记录 warning。
+
+#### 1.4 Final topic artifact schema 需要小版本调整
+
+final artifact 不需要整体瘦身，但以下 section contract 要调整：
+
+`timeline_events`：
+
+- 保留 `summary`。
+- 保留 semantic `events[]`，用于历史叙事和详情。
+- 新增 runtime-derived `markers[]`，作为前端 timeline 唯一绘图输入。
+- agent-facing payload 不出现 `marker_kind`；agent 写出的 event 默认是 milestone。
+
+`comparison_matrix`：
+
+- agent-facing payload 废弃。
+- final artifact 应改为 `improvement_dimension_summary` / `improvement_dimensions[]`。
+- 如果短期需要兼容旧 UI，可由 runtime 机械派生旧 `comparison_matrix`，但新 UI 不应以它为主数据。
+
+`external_literature_analysis`：
+
+- 从复杂 external report 降级为轻量外部上下文摘要、coverage caveats 和 collection directions。
+- 不要求 representative reference canonicalization。
+- 不要求 agent 写 deduped external refs。
+
+`statistics`：
+
+- 数字字段由 runtime 从 graph / canonical 层查询。
+- graph 缺失或 stale 时写 `graph_stats_status` 和 caveat。
+- agent 不写统计数字。
+
+`synthesis_report`：
+
+- 由 runtime 使用固定模板确定性渲染。
+- agent 不写 continuous report body。
+
+### 2. 数据库表修改
+
+本轮不建议新增或迁移 topic artifact 相关数据库表。
+
+理由：
+
+- topic artifact 主体已经以 JSON sections / manifest / metadata 形式持久化。
+- timeline markers、improvement dimensions、external summary、statistics 都可以作为 artifact
+  sections 内部字段保存。
+- 这些字段目前主要服务 topic details 展示、markdown export 和 downstream review，不需要数据库级
+  join / filter / sort。
+- 新增表会引入迁移、回填、索引和兼容成本，不符合“如无必要，勿增实体”。
+
+需要修改的是持久化流程，而不是表结构：
+
+- create apply：检查 topic absence，拒绝 existing topic。
+- update_full apply：校验 `base_hashes`。
+- update_patch apply：校验 `read_section_hashes`。
+- runtime 在写 final sections 前派生：
+  - `paper_evidence`
+  - `semantic_evidence_map`
+  - `timeline_events.markers`
+  - `source_artifacts`
+  - `statistics`
+  - deterministic `synthesis_report`
+- sidecar ingest 继续使用现有表：
+  - concept proposals -> Concept KB 现有表。
+  - topic relation proposals -> Topic Graph 现有表。
+  - topic interest metadata -> `synt_topic_interest_metadata` 现有表。
+
+现有 `synt_topic_interest_metadata.seed_literature_item_ids_json` 可以继续使用。
+区别是 `seed_literature_item_ids` 由 runtime 根据 Stage 5/6 排序和 context selection 派生，
+不再由 agent payload 提供。
+
+#### 未来可能需要建表的条件
+
+只有出现以下需求时才考虑新增表或索引：
+
+- Topic list 需要按 improvement dimension、coverage verdict、graph stats 做数据库级筛选。
+- Timeline 需要跨 topic 聚合检索或全局时间轴。
+- 外部文献缺口需要进入全局推荐队列，并支持状态流转。
+- UI 性能证明直接读取 artifact JSON 成为瓶颈。
+
+在这些需求出现前，保持 JSON artifact 为 source of truth 更合适。
+
+### 3. Topic Details 页面修改
+
+Topic Details 不需要先大改整体布局。现有 tab + timeline rail + evidence explorer 的框架可以保留。
+
+需要改的是各 section 的数据读取和展示逻辑。
+
+#### 3.1 Timeline
+
+当前 UI 从 `paper_evidence` 和 `timeline_events.events` 临时推导 marker。
+
+新逻辑：
+
+- 优先读取 `timeline_events.markers`。
+- marker 是 timeline 绘图唯一输入。
+- marker 通过 `paper_evidence_id` 查 paper evidence。
+- marker 通过 `event_id` 查 milestone event。
+- `kind: "paper"` 画普通 paper pin。
+- `kind: "milestone"` 画 milestone pin。
+- 缺 `markers` 的旧 artifact 才 fallback 到当前推导逻辑。
+
+这样可以把“谁负责年份、谁负责去重、谁决定 pin 形态”固定在 runtime，而不是前端临时猜。
+
+#### 3.2 Compare / Improvement
+
+当前 Compare tab 读取 `comparison_matrix`。
+
+新逻辑：
+
+- tab 名称建议从 Compare 改为 Improvement 或 Dimensions。
+- 主数据改为 `improvement_dimensions[]`。
+- 顶部展示 `improvement_dimension_summary`。
+- 每个 dimension 展示：
+  - `dimension_label`
+  - `dimension_analysis`
+  - `representative_items`
+  - `maturity`
+  - `caveat`
+  - `source_paper_refs` / runtime-derived evidence trace
+- 旧 artifact 如果只有 `comparison_matrix`，UI 可 fallback 渲染旧 compare matrix。
+
+#### 3.3 External
+
+External tab 不再展示复杂 reference analysis。
+
+新逻辑：
+
+- 展示 `external_context_summary`。
+- 展示 `coverage_caveats[]`。
+- 展示 `suggested_collection_directions[]`。
+- 如果 runtime graph statistics 可用，可展示“统计基于 graph / canonical 层”的状态标识。
+- 不要求前端展示 deduped external reference index。
+
+#### 3.4 Statistics
+
+Statistics tab 应强调数字来源。
+
+新逻辑：
+
+- 优先读取 runtime-derived `statistics.graph_statistics`。
+- 展示 `graph_stats_status`。
+- graph missing / stale 时展示 caveat，不把缺失当作 agent 输出错误。
+- 不再从 `external_literature_analysis` 的代表文献数量推导统计结论。
+
+#### 3.5 Report
+
+Report tab 可以保留。
+
+新逻辑：
+
+- 展示 runtime deterministic `synthesis_report`。
+- 如果 report 带 `source_section_chapters`，可继续提供来源章节提示。
+- UI 不应假设 report 是 agent 手写自由文本。
+
+#### 3.6 Evidence Explorer
+
+Evidence Explorer 应继续以 `paper_evidence` 为入口。
+
+需要调整的是 evidence map 语义：
+
+- runtime provenance index 只作为 locator / directory。
+- semantic evidence map 来自最终 sections 的 `source_paper_refs` 反向编译。
+- UI 展示 trace 时应优先使用 runtime-derived evidence refs，而不是要求 agent payload 已经闭合
+  `evidence_map_refs`。
+
+### 4. Backend / Orchestrator 修改边界
+
+orchestrator 应成为 accepted result 的唯一写入者。
+
+新流程：
+
+1. Stage 11 runtime 生成 `result/final-output.candidate.json`。
+2. Stage 12 agent 将 candidate JSON 作为 stdout 输出。
+3. Orchestrator 捕获 stdout。
+4. Orchestrator 使用 strict output schema 校验。
+5. Orchestrator 写 accepted `result/result.json`。
+6. Host apply 根据 operation 进入 create / update_full / update_patch precondition。
+
+Host apply 返回结构化状态：
+
+- `applied`
+- `topic_exists`
+- `duplicate_topic`
+- `conflict`
+- `invalid_output`
+
+warning 使用结构化 code：
+
+- `create_base_hashes_ignored`
+- `graph_statistics_missing`
+- `graph_statistics_stale`
+- `concept_cards_proposal_failed`
+- `topic_graph_relation_proposals_failed`
+- `topic_interest_metadata_failed`
+
+### 5. 兼容和迁移策略
+
+短期兼容：
+
+- 旧 artifact 没有 `timeline_events.markers` 时，UI fallback 到旧 marker 推导。
+- 旧 artifact 只有 `comparison_matrix` 时，Improvement tab fallback 到 Compare rendering。
+- 旧 create bundle 带 `base_hashes` 时，host apply 可忽略并 warning。
+
+新产物要求：
+
+- 新 create stdout 不得带 `base_hashes`。
+- 新 artifact 应写 `timeline_events.markers`。
+- 新 artifact 应写 `improvement_dimensions`。
+- 新 report 应由 runtime deterministic renderer 生成。
+
+不建议做批量迁移：
+
+- 不需要立即重写旧 topic artifact。
+- 旧 topic 在下一次 update_full 或 recreate 后自然升级。
+- Topic Details 通过 fallback 支持旧数据读取即可。
+
 ## 下一步实施建议
 
-1. 先新增或调整 agent-facing stage payload schema，不急于改变最终 topic artifact 内部 section schema。
+1. 先新增或调整 agent-facing stage payload schema；最终 topic artifact 不做整体瘦身，但对
+   `timeline_events.markers`、`improvement_dimensions`、runtime-derived statistics/report 做定向
+   contract 调整。
 2. Stage 1 增加 runtime title-to-topic-id 派生逻辑，并把 duplicate_check 展平。
 3. Stage 2 拆分 agent-authored resolver proposal 与 runtime resolver execution receipt。
 4. Stage 3 / Stage 4 从 agent 主路径移出，改为 runtime-only gate action。
@@ -1127,4 +1860,20 @@ Stage 9 不再是“填写 KG sidecar schema”，而是：
     `topic_relation_candidates[]` 和 `topic_matching_terms`，不再填写 sidecar schema。
 16. Runtime 根据 Stage 5/6 的排序和 context selection 派生 `seed_literature_item_ids`，
     不要求 agent 写 seed paper refs。
-17. 修改 SKILL.md 和 demo，使 agent 明确知道：前四步主要是 runtime/host 准备，Stage 5 是轻量筛选，Stage 6 是 runtime context preparation，真正跨论文综合从 `persist_core_synthesis` 开始，KG 阶段只做 enrichment。
+17. Stage 10 改为 `finalize_summary_coverage`，agent 只写 summary、coverage interpretation
+    和 collection suggestions。
+18. Stage 10 的 statistics 数字由 runtime 从 graph / canonical 层查询生成；graph 缺失或 stale 时写 caveat，
+    不让 agent 补数字。
+19. 最终 `synthesis_report` 由 runtime 使用固定模板从已验证 sections 确定性渲染，
+    agent 不再手写 `synthesis_report_body`。
+20. Stage 11 不再写 `result/result.json`，改写 `result/final-output.candidate.json`。
+21. Stage 12 让 agent 读取 candidate JSON 并作为 stdout 输出；orchestrator 验证 stdout 后再写
+    `result/result.json`。
+22. 修改 SKILL.md 和 demo，使 agent 明确知道：前四步主要是 runtime/host 准备，Stage 5 是轻量筛选，Stage 6 是 runtime context preparation，真正跨论文综合从 `persist_core_synthesis` 开始，KG 阶段只做 enrichment，Stage 10 只做解释性收尾，最终 accepted result 由编排器写入。
+23. 修改 final stdout output schema 为 operation-discriminated union：create 禁止
+    `base_hashes`，update_full 必须 `base_hashes`，update_patch 必须 `read_section_hashes`。
+24. 保持数据库表结构不变，优先修改 host apply、sidecar ingest、artifact materializer 和
+    Topic Details adapter。
+25. Topic Details timeline 优先读取 `timeline_events.markers`，旧 artifact fallback 到当前推导逻辑。
+26. Topic Details Compare tab 改为 Improvement / Dimensions 主视图，读取
+    `improvement_dimensions[]`，旧 artifact fallback 到 `comparison_matrix`。

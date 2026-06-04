@@ -1116,7 +1116,8 @@ describe("Synthesis Layer v1 integration service", function () {
 
     await service.refreshReferenceSidecarNow();
     await service.rebuildCitationGraphCacheNow();
-    await service.runCitationGraphLayoutWorker({
+    await service.recomputeCitationGraphLayout({
+      algorithm: "force",
       force: true,
       timeBudgetMs: 1000,
     });
@@ -1136,6 +1137,37 @@ describe("Synthesis Layer v1 integration service", function () {
       snapshot.graph.nodes.find((node) => node.id === "zotero:item:A")?.x,
     );
     assert.equal(snapshot.graph.layoutStatus, "ready");
+
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    repository.upsertCitationGraphLayoutState({
+      layoutKey: repository.citationLayoutKey({
+        viewKey: "workbench_overview",
+        preset: "force",
+      }),
+      viewKey: "workbench_overview",
+      preset: "force",
+      graphHash: snapshot.graph.graph_hash,
+      status: "ready",
+      layoutJson: JSON.stringify({
+        graph_hash: snapshot.graph.graph_hash,
+        layout_engine: "d3-force",
+        layout_version: 1,
+        preset: "balanced",
+        params: {
+          link_distance: 80,
+          charge: -140,
+          collision_radius: 8,
+          iterations: 400,
+        },
+        nodes: {},
+        layout_hash: "sha256:legacy-layout",
+      }),
+      diagnosticsJson: "[]",
+    });
+
+    const staleSnapshot = await reloaded.getSynthesisSnapshot();
+
+    assert.equal(staleSnapshot.graph.layoutStatus, "stale");
   });
 
   it("runs advanced reference matching as an explicit proposal/fact operation", async function () {

@@ -237,13 +237,15 @@ type Snapshot = {
     filters: {
       search: string;
       role: string;
-      layoutPreset: string;
+      layoutAlgorithm: string;
+      layoutPreset?: string;
       nodeKinds: GraphNodeKind[];
       showLowSignalReferences: boolean;
     };
     graph_hash: string;
     layoutStatus: "missing" | "refreshing" | "ready" | "stale" | "failed";
-    layoutPreset: string;
+    layoutAlgorithm: string;
+    layoutPreset?: string;
     selectedElement?: { kind: "node" | "edge"; id: string };
     nodes: GraphNode[];
     edges: GraphEdge[];
@@ -401,11 +403,11 @@ const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
 const GRAPH_MIN_ZOOM_RATIO = 0.12;
 const GRAPH_MAX_ZOOM_RATIO = 2.4;
 const GRAPH_ZOOM_SLIDER_MAX = 100;
-const GRAPH_LIBRARY_BASE_NODE_SIZE = 5.8;
-const GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3.8;
-const GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE = 2.2;
-const GRAPH_LIBRARY_NODE_SIZE_CAP = 10.5;
-const GRAPH_EXTERNAL_NODE_SIZE_CAP = 6.2;
+const GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6;
+const GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3;
+const GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE = 2;
+const GRAPH_LIBRARY_NODE_SIZE_CAP = 8;
+const GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8;
 const GRAPH_IMPORTANCE_HALO_TOP_RATIO = 0.1;
 const GRAPH_IMPORTANCE_HALO_MAX = 8;
 const GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT = "rgba(37, 99, 235, 0.52)";
@@ -604,11 +606,18 @@ function keyPart(value: unknown, fallback = "all") {
   return textValue(value, fallback).replace(/\s+/g, "_") || fallback;
 }
 
+function normalizeGraphLayoutAlgorithm(value: unknown) {
+  const algorithm = textValue(value).trim();
+  return algorithm === "radial" || algorithm === "components"
+    ? algorithm
+    : "force";
+}
+
 function operationKey(command: string, args: Record<string, unknown> = {}) {
   if (!command) return "";
   switch (command) {
     case "manualRecomputeLayout":
-      return `${command}:${keyPart(args.preset, "balanced")}`;
+      return `${command}:${normalizeGraphLayoutAlgorithm(args.algorithm || args.preset)}`;
     case "applyConceptReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyTopicGraphReviewAction":
@@ -7647,7 +7656,10 @@ function renderGraphControls(snapshot: Snapshot) {
       "hostCommand",
       {
         command: "manualRecomputeLayout",
-        args: { reason: "user", preset: snapshot.graph.filters.layoutPreset },
+        args: {
+          reason: "user",
+          algorithm: snapshot.graph.filters.layoutAlgorithm,
+        },
       },
       false,
       graphCacheStatus !== "ready" ||
@@ -7691,18 +7703,22 @@ function renderGraphControls(snapshot: Snapshot) {
   kinds.appendChild(lowSignal);
   wrap.appendChild(kinds);
 
-  const presets = el("div", "filters");
-  ["compact", "balanced", "expanded"].forEach((preset) => {
-    presets.appendChild(
+  const algorithms = el("div", "filters");
+  ([
+    ["force", "Force"],
+    ["radial", "Radial"],
+    ["components", "Components"],
+  ] as Array<[string, string]>).forEach(([algorithm, label]) => {
+    algorithms.appendChild(
       makeButton(
-        preset,
+        label,
         "setGraphView",
-        { layoutPreset: preset },
-        snapshot.graph.layoutPreset === preset,
+        { layoutAlgorithm: algorithm },
+        snapshot.graph.layoutAlgorithm === algorithm,
       ),
     );
   });
-  wrap.appendChild(presets);
+  wrap.appendChild(algorithms);
   return wrap;
 }
 
@@ -8643,7 +8659,7 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       filters: snapshot.graph.filters,
       graph_hash: snapshot.graph.graph_hash,
       layoutStatus: snapshot.graph.layoutStatus,
-      layoutPreset: snapshot.graph.layoutPreset,
+      layoutAlgorithm: snapshot.graph.layoutAlgorithm,
       selectedElement: snapshot.graph.selectedElement,
       counts: graphCountSignature(snapshot),
     });
@@ -8725,7 +8741,19 @@ type WorkbenchRenderState = {
   selectionStart?: number | null;
   selectionEnd?: number | null;
   graphCamera?: Record<string, unknown>;
+  graphCameraKey?: string;
 };
+
+function graphCameraRestoreKey(snapshot: Snapshot | null) {
+  if (!snapshot || snapshot.selectedTab !== "graph") {
+    return "";
+  }
+  return [
+    snapshot.graph.graph_hash,
+    snapshot.graph.layoutAlgorithm,
+    snapshot.graph.layoutStatus,
+  ].join(":");
+}
 
 function captureWorkbenchRenderState(root: HTMLElement): WorkbenchRenderState {
   const main = root.querySelector(".main") as HTMLElement | null;
@@ -8773,6 +8801,7 @@ function captureWorkbenchRenderState(root: HTMLElement): WorkbenchRenderState {
         ? active.selectionEnd
         : undefined,
     graphCamera,
+    graphCameraKey: graphCameraRestoreKey(state.snapshot),
   };
 }
 
@@ -8824,7 +8853,12 @@ function restoreWorkbenchRenderState(
       control.setSelectionRange(previous.selectionStart, previous.selectionEnd);
     }
   }
-  if (previous.graphCamera && state.sigma) {
+  if (
+    previous.graphCamera &&
+    previous.graphCameraKey &&
+    previous.graphCameraKey === graphCameraRestoreKey(state.snapshot) &&
+    state.sigma
+  ) {
     try {
       (state.sigma.getCamera() as any).setState(previous.graphCamera);
       state.sigma.refresh();
@@ -8908,12 +8942,12 @@ function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
   ) {
     return;
   }
-  const preset =
-    snapshot.graph.filters.layoutPreset || snapshot.graph.layoutPreset;
-  const key = `${snapshot.graph.graph_hash}:${preset}`;
+  const algorithm =
+    snapshot.graph.filters.layoutAlgorithm || snapshot.graph.layoutAlgorithm;
+  const key = `${snapshot.graph.graph_hash}:${algorithm}`;
   if (
     state.autoLayoutRequests.has(key) ||
-    isOperationPending("manualRecomputeLayout", { preset })
+    isOperationPending("manualRecomputeLayout", { algorithm })
   ) {
     return;
   }
@@ -8921,7 +8955,7 @@ function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
   window.setTimeout(() => {
     sendAction("hostCommand", {
       command: "manualRecomputeLayout",
-      args: { reason: "auto", preset },
+      args: { reason: "auto", algorithm },
     });
   }, 0);
 }

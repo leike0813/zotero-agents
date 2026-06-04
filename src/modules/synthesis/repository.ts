@@ -2495,7 +2495,7 @@ function ensureSchema(db: SqlAdapter) {
     CREATE TABLE IF NOT EXISTS synt_citation_layout_state (
       layout_key TEXT PRIMARY KEY,
       view_key TEXT NOT NULL DEFAULT 'workbench_overview',
-      preset TEXT NOT NULL DEFAULT 'balanced',
+      preset TEXT NOT NULL DEFAULT 'force',
       graph_hash TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'missing',
       layout_json TEXT NOT NULL DEFAULT '{}',
@@ -3368,7 +3368,7 @@ function rowToCitationLayoutState(row: SqlRow): SynthesisCitationLayoutRecord {
   return {
     layoutKey: cleanString(row.layout_key),
     viewKey: cleanString(row.view_key) || "workbench_overview",
-    preset: cleanString(row.preset) || "balanced",
+    preset: cleanString(row.preset) || "force",
     graphHash: cleanString(row.graph_hash),
     status: normalizeCitationLayoutStatus(row.status),
     layoutJson: cleanString(row.layout_json) || "{}",
@@ -6414,7 +6414,7 @@ export class SynthesisRepository {
 
   citationLayoutKey(args: { viewKey?: string; preset?: string }) {
     const viewKey = cleanString(args.viewKey) || "workbench_overview";
-    const preset = cleanString(args.preset) || "balanced";
+    const preset = cleanString(args.preset) || "force";
     return `${viewKey}:${preset}`;
   }
 
@@ -6450,7 +6450,7 @@ export class SynthesisRepository {
   upsertCitationGraphLayoutState(record: SynthesisCitationLayoutRecord) {
     this.initialize();
     const viewKey = cleanString(record.viewKey) || "workbench_overview";
-    const preset = cleanString(record.preset) || "balanced";
+    const preset = cleanString(record.preset) || "force";
     const timestamp = cleanString(record.updatedAt) || this.now();
     const existing = this.getCitationGraphLayoutState({ viewKey, preset });
     this.db.run(
@@ -6503,7 +6503,7 @@ export class SynthesisRepository {
     return this.upsertCitationGraphLayoutState({
       layoutKey: this.citationLayoutKey(args),
       viewKey: cleanString(args.viewKey) || "workbench_overview",
-      preset: cleanString(args.preset) || "balanced",
+      preset: cleanString(args.preset) || "force",
       graphHash: cleanString(args.graphHash) || existing?.graphHash || "",
       status: "running",
       layoutJson: existing?.layoutJson || "{}",
@@ -6524,7 +6524,7 @@ export class SynthesisRepository {
     return this.upsertCitationGraphLayoutState({
       layoutKey: this.citationLayoutKey(args),
       viewKey: cleanString(args.viewKey) || "workbench_overview",
-      preset: cleanString(args.preset) || "balanced",
+      preset: cleanString(args.preset) || "force",
       graphHash: cleanString(args.graphHash) || existing?.graphHash || "",
       status: "failed",
       layoutJson: existing?.layoutJson || "{}",

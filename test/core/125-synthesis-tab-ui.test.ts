@@ -88,7 +88,7 @@ describe("Synthesis tab UI model", function () {
           },
         ],
         lastFailed: {
-          key: "manualRecomputeLayout:balanced",
+          key: "manualRecomputeLayout:force",
           command: "manualRecomputeLayout",
           status: "failed",
           label: "Rebuild graph layout",
@@ -212,7 +212,7 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.artifacts.rows[1]?.summary, "Beta summary");
     assert.equal(snapshot.artifacts.rows[1]?.completion, 62);
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
-    assert.equal(snapshot.graph.layoutPreset, "balanced");
+    assert.equal(snapshot.graph.layoutAlgorithm, "force");
     assert.equal(
       snapshot.actions.inFlight[0]?.command,
       "applyConceptReviewAction",
@@ -495,9 +495,15 @@ describe("Synthesis tab UI model", function () {
     );
     assert.equal(
       getSynthesisUiOperationKey("manualRecomputeLayout", {
-        preset: "balanced",
+        algorithm: "radial",
       }),
-      "manualRecomputeLayout:balanced",
+      "manualRecomputeLayout:radial",
+    );
+    assert.equal(
+      getSynthesisUiOperationKey("manualRecomputeLayout", {
+        preset: "expanded",
+      }),
+      "manualRecomputeLayout:force",
     );
     assert.equal(
       getSynthesisUiOperationKey("acceptTopicGraphRelation", {
@@ -873,12 +879,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "Use Imported");
   });
 
-  it("updates graph layout preset and selected element without recomputing layout", function () {
+  it("updates graph layout algorithm and selected element without recomputing layout", function () {
     const state = createDefaultSynthesisUiState();
     const next = applySynthesisUiAction(state, {
       action: "setGraphView",
       payload: {
-        layoutPreset: "expanded",
+        layoutAlgorithm: "radial",
         nodeKinds: ["library_paper", "external_reference"],
         showLowSignalReferences: true,
         role: "method",
@@ -888,7 +894,7 @@ describe("Synthesis tab UI model", function () {
     });
 
     assert.isTrue(next.handled);
-    assert.equal(next.state.graph.layoutPreset, "expanded");
+    assert.equal(next.state.graph.layoutAlgorithm, "radial");
     assert.deepEqual(next.state.graph.selectedElement, {
       kind: "node",
       id: "n1",
@@ -901,6 +907,13 @@ describe("Synthesis tab UI model", function () {
     assert.equal(next.state.graph.showLowSignalReferences, true);
     assert.equal(next.state.graph.role, "method");
     assert.isUndefined(next.hostCommand);
+
+    const legacyPreset = applySynthesisUiAction(state, {
+      action: "setGraphView",
+      payload: { layoutPreset: "expanded" },
+    });
+
+    assert.equal(legacyPreset.state.graph.layoutAlgorithm, "force");
 
     const cleared = applySynthesisUiAction(next.state, {
       action: "setGraphView",
@@ -1158,10 +1171,17 @@ describe("Synthesis tab UI model", function () {
     assert.include(tabSource, "recomputeCitationGraphLayout");
     assert.notInclude(tabSource, "runCitationGraphLayoutWorker");
     assert.include(tabSource, "refreshGraphLayoutIfNeeded");
+    assert.include(tabSource, "return;\n  }\n  void sendActiveSurface");
     assert.include(appSource, '"Rebuild graph cache"');
     assert.include(appSource, 'command: "rebuildCitationGraphCacheNow"');
     assert.include(appSource, '"Redraw layout"');
     assert.include(appSource, 'command: "manualRecomputeLayout"');
+    assert.include(appSource, '"Force"');
+    assert.include(appSource, '"Radial"');
+    assert.include(appSource, '"Components"');
+    assert.include(appSource, "layoutAlgorithm");
+    assert.include(appSource, "graphCameraRestoreKey");
+    assert.notInclude(appSource, '["compact", "balanced", "expanded"]');
     assert.notInclude(
       tabSource,
       ".rebuildCitationGraphProjection()\n      .finally",
@@ -1911,10 +1931,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
     assert.include(source, "function graphNodeSize");
-    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE = 5.8");
-    assert.include(source, "GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3.8");
-    assert.include(source, "GRAPH_LIBRARY_NODE_SIZE_CAP = 10.5");
-    assert.include(source, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 6.2");
+    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6");
+    assert.include(source, "GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3");
+    assert.include(source, "GRAPH_LIBRARY_NODE_SIZE_CAP = 8");
+    assert.include(source, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8");
     assert.include(source, "function buildGraphNodeImportance");
     assert.include(source, "function graphNodeIncomingDegree");
     assert.include(source, "function fallbackGraphIncomingDegrees");
