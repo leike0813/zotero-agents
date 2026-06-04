@@ -196,7 +196,7 @@ ENUM_CONTRACTS_BY_STAGE = {
         "gaps[].severity": ["low", "medium", "high", "critical", "unknown"],
     },
     "stage_9_kg_proposals": {
-        "concept_cards_proposal.cards[].concept_type": [
+        "concept_cards[].concept_type": [
             "method_family",
             "mechanism",
             "task",
@@ -206,7 +206,7 @@ ENUM_CONTRACTS_BY_STAGE = {
             "training_signal",
             "theoretical_construct",
         ],
-        "topic_graph_relation_proposals.proposals[].proposal_type": [
+        "topic_relations[].proposal_type": [
             "broader_topic_candidate",
             "related_topic_candidate",
             "overlap_topic_candidate",
@@ -663,34 +663,29 @@ def next_action(conn) -> dict:
                 ],
                 progress={"paper_count": len(paper_refs(conn)), "analyzed_count": len(paper_refs(conn))},
             )
-        # Public v2 sequence: export_cross_paper_context -> persist_cross_paper_evidence_map.
+        # Public v3 sequence: export_cross_paper_context -> derive_cross_paper_evidence_map.
         evidence_map_hash = str(get_meta(conn, "cross_paper_evidence_map_hash", "") or "")
         if not evidence_map_hash:
             return action_payload(
                 status="ready",
                 stage="stage_6_cross_paper_map",
-                next_action="persist_cross_paper_evidence_map",
+                next_action="derive_cross_paper_evidence_map",
                 execution_note=(
-                    "LLM-authored cross-paper evidence map is required before final sections. "
-                    "Read runtime/views/cross-paper-context.md, runtime/views/external-literature-context.md, "
-                    "runtime/views/cross-paper-context.manifest.json, and runtime/views/cross-paper-evidence-index.json. "
-                    "Do not redo paper-level extraction; aggregate validated paper units into taxonomy_candidates, "
-                    "comparison_dimensions, claim_candidates, debate_candidates, gap_candidates, and review_outline_seeds. "
-                    "Use unknown for missing facts, keep external literature as background only, and do not infer field-wide gaps from local coverage gaps."
+                    "Derive the cross-paper evidence map from validated paper units. "
+                    "This is runtime-maintained provenance; do not ask the agent to author "
+                    "cross-paper candidate ids or evidence_map_refs."
                 ),
                 command=(
                     f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
-                    '--action persist_cross_paper_evidence_map --payload-file "runtime/payloads/cross-paper-evidence-map.json"'
+                    "--action derive_cross_paper_evidence_map"
                 ),
                 required_reads=[
-                    "runtime/views/cross-paper-context.md",
-                    "runtime/views/external-literature-context.md",
                     "runtime/views/cross-paper-context.manifest.json",
                     "runtime/views/cross-paper-evidence-index.json",
                 ],
                 required_writes=[
                     "runtime/payloads/cross-paper-evidence-map.json",
-                    "validated cross-paper evidence map receipt",
+                    "runtime-derived cross-paper evidence map receipt",
                 ],
                 progress={"completed_stages": sorted(completed)},
             )
@@ -761,7 +756,7 @@ def next_action(conn) -> dict:
                 execution_note=(
                     "Draft the required-form KG proposal payload after core sections. "
                     "Read step_09_kg_proposals.md, validated route/timeline and core sections, both context markdown files, and the evidence map. "
-                    "The payload must contain concept_cards_proposal.cards[] and topic_graph_relation_proposals.proposals[]. "
+                    "The payload must contain flat concept_cards[], topic_relations[], topic_interest, and diagnostics[]. "
                     "If no reliable proposals exist, write empty arrays with diagnostics; do not skip the sidecars and do not write canonical KG assets."
                 ),
                 command=(
@@ -774,7 +769,6 @@ def next_action(conn) -> dict:
                     "runtime/payloads/core-analytical-sections.json",
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/external-literature-context.md",
-                    "runtime/payloads/cross-paper-evidence-map.json",
                 ],
                 required_writes=[
                     "runtime/payloads/kg-proposals.json",
@@ -791,7 +785,8 @@ def next_action(conn) -> dict:
             execution_note=(
                 "Write the Stage 10 payload first; runtime will prevalidate and materialize result/sections/*.json only after the payload passes. "
                 "Read step_10_external_statistics_report.md, route-timeline synthesis, core analytical sections, both context markdown files, and the validated evidence map. "
-                "The payload must contain sections for topic, summary, paper_evidence, external_literature_analysis, coverage, statistics, synthesis_report, evidence_map, source_artifacts, and diagnostics. "
+                "The payload must contain sections for topic, summary, external_literature_analysis, coverage, statistics, synthesis_report, source_artifacts, and diagnostics. "
+                "Do not write paper_evidence or evidence_map in this payload; runtime derives and merges them from validated paper units. "
                 "Do not include taxonomy, timeline_events, positioning, claims, comparison_matrix, debates, gaps, or review_outline in this payload; runtime preserves those from validated Stage 7/8 artifacts. "
                 "synthesis_report.source_section_chapters must bind research_routes to taxonomy.summary and historical_progression to timeline_events.summary. "
                 "synthesis_report is a continuous report, not a short summary: it must include a non-empty title and cover topic definition/scope, research routes, historical progression, core findings, comparison/debates, gaps/coverage, and external literature/collection suggestions."
@@ -809,7 +804,6 @@ def next_action(conn) -> dict:
                 "runtime/views/cross-paper-context.md",
                 "runtime/views/external-literature-context.md",
                 "runtime/views/cross-paper-evidence-index.json",
-                "runtime/payloads/cross-paper-evidence-map.json",
                 "topic_intent",
                 "topic_resolver",
             ],

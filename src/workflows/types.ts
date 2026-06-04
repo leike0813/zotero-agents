@@ -114,6 +114,7 @@ export type WorkflowRequestSpec = {
   kind: string;
   create?: {
     skill_id?: string;
+    skill_source?: "local-package" | "installed";
   };
   input?: {
     upload?: {

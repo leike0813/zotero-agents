@@ -1,9 +1,16 @@
 import type { AcpHostContext, AcpMcpHealthSnapshot } from "./acpTypes";
 import {
+  getHostBridgeToken,
+  isHostBridgeAuthorizationValid,
+  redactHostBridgeToken,
+} from "./hostBridgeAuth";
+import { getHostBridgeServerStatus } from "./hostBridgeServer";
+import {
   appendRuntimeLog,
   listRuntimeLogs,
   type RuntimeLogLevel,
 } from "./runtimeLogManager";
+import { getPref, setPref } from "../utils/prefs";
 import {
   handleZoteroMcpJsonRpc,
   ZOTERO_MCP_TOOL_GET_MCP_STATUS,
@@ -174,7 +181,9 @@ type ServerState = {
   resolveHostContext?: () => AcpHostContext;
   requestToolPermission?: (
     request: ZoteroMcpToolPermissionRequest,
-  ) => Promise<ZoteroMcpToolPermissionDecision> | ZoteroMcpToolPermissionDecision;
+  ) =>
+    | Promise<ZoteroMcpToolPermissionDecision>
+    | ZoteroMcpToolPermissionDecision;
   beforeToolCallForTests?: () => Promise<void> | void;
   listeners: Set<(event: ZoteroMcpDiagnosticEvent) => void | Promise<void>>;
 };
@@ -236,8 +245,13 @@ type ZoteroMcpQueueItem<T> = {
 };
 
 class ZoteroMcpToolTimeoutError extends Error {
-  constructor(readonly toolName: string, readonly timeoutMs: number) {
-    super(`Zotero MCP tool "${toolName || "unknown"}" timed out after ${timeoutMs}ms`);
+  constructor(
+    readonly toolName: string,
+    readonly timeoutMs: number,
+  ) {
+    super(
+      `Zotero MCP tool "${toolName || "unknown"}" timed out after ${timeoutMs}ms`,
+    );
     this.name = "ZoteroMcpToolTimeoutError";
   }
 }
@@ -333,7 +347,10 @@ class ZoteroMcpToolCallQueue {
     run: () => Promise<T>,
   ): Promise<ZoteroMcpQueueResult<T>> {
     const queueDepthAtAccept = this.running + this.pending.length;
-    if (queueDepthAtAccept >= this.policy.runningLimit + this.policy.pendingLimit) {
+    if (
+      queueDepthAtAccept >=
+      this.policy.runningLimit + this.policy.pendingLimit
+    ) {
       return Promise.resolve({
         kind: "queue_full",
         queueDepthAtAccept,
@@ -359,7 +376,9 @@ class ZoteroMcpToolCallQueue {
       }
       if (this.policy.queueTimeoutMs >= 0) {
         item.timeout = setTimeout(() => {
-          const index = this.pending.indexOf(item as ZoteroMcpQueueItem<unknown>);
+          const index = this.pending.indexOf(
+            item as ZoteroMcpQueueItem<unknown>,
+          );
           if (index < 0) {
             return;
           }
@@ -465,6 +484,10 @@ function compactMcpError(error: unknown) {
   return error instanceof Error ? error.message : String(error || "");
 }
 
+export function isZoteroMcpServerEnabled() {
+  return getPref("mcpServer.enabled") !== false;
+}
+
 function snapshotCircuitBreakers(): ZoteroMcpCircuitBreakerSnapshot[] {
   const now = Date.now();
   return [...circuitBreakers.values()]
@@ -531,7 +554,7 @@ function maskToken(token: string) {
   if (!value) {
     return "";
   }
-  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+  return redactHostBridgeToken(value);
 }
 
 function requestHasFailure(entry: ZoteroMcpRequestLogEntry) {
@@ -624,7 +647,8 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
   const openCircuitCount = guardState.circuitBreakers.filter(
     (entry) => entry.state === "open",
   ).length;
-  const queueDepth = Number(queueState.running || 0) + Number(queueState.pending || 0);
+  const queueDepth =
+    Number(queueState.running || 0) + Number(queueState.pending || 0);
   const clientHandshakeSeen = !!initializeRequest;
   const toolsListSeen = !!toolsListRequest;
   const toolCallSeen = !!toolCallRequest;
@@ -635,14 +659,22 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
     String(state.lastError || "").trim() ||
     String(guardState.lastFatalError || "").trim() ||
     (latestFailure
-      ? String(latestFailure.responseError || latestFailure.error || latestFailure.limitReason)
+      ? String(
+          latestFailure.responseError ||
+            latestFailure.error ||
+            latestFailure.limitReason,
+        )
       : "");
   const latestRuntimeLog = getRecentMcpRuntimeLogs(1)[0];
   const latestRuntimeFailure = latestMcpRuntimeFailure();
 
-  if (state.status === "error" || String(guardState.lastFatalError || "").trim()) {
+  if (
+    state.status === "error" ||
+    String(guardState.lastFatalError || "").trim()
+  ) {
     healthState = "error";
-    recommendedAction = "Reconnect the ACP session or restart Zotero if the server does not recover.";
+    recommendedAction =
+      "Reconnect the ACP session or restart Zotero if the server does not recover.";
   } else if (serverRunning && toolsListSeen) {
     healthState = "tools_seen";
   } else if (serverRunning && clientHandshakeSeen) {
@@ -655,7 +687,8 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
     healthState = "starting";
   } else if (descriptorInjected) {
     healthState = "unavailable";
-    recommendedAction = "The descriptor was injected earlier, but the local MCP server is not running now.";
+    recommendedAction =
+      "The descriptor was injected earlier, but the local MCP server is not running now.";
   }
 
   const tooltip = [
@@ -674,7 +707,9 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
     latestFailure
       ? `lastRequestFailure=${latestFailure.jsonrpcMethod || latestFailure.method}`
       : "",
-    latestRuntimeFailure ? `lastRuntimeFailure=${latestRuntimeFailure.stage}` : "",
+    latestRuntimeFailure
+      ? `lastRuntimeFailure=${latestRuntimeFailure.stage}`
+      : "",
     lastError ? `lastError=${lastError}` : "",
     recommendedAction ? `action=${recommendedAction}` : "",
   ].filter(Boolean);
@@ -763,20 +798,13 @@ export function subscribeZoteroMcpDiagnostics(
   return addListener(listener);
 }
 
-function generateToken() {
-  const cryptoLike = (globalThis as { crypto?: Crypto }).crypto;
-  if (cryptoLike?.getRandomValues) {
-    const bytes = new Uint8Array(16);
-    cryptoLike.getRandomValues(bytes);
-    return Array.from(bytes)
-      .map((value) => value.toString(16).padStart(2, "0"))
-      .join("");
-  }
-  throw new Error("Secure random source is unavailable for Zotero MCP token generation");
-}
-
 function getComponents() {
-  return (globalThis as any).Components || (globalThis as any).ChromeUtils?.importESModule?.("resource://gre/modules/Services.sys.mjs")?.Components;
+  return (
+    (globalThis as any).Components ||
+    (globalThis as any).ChromeUtils?.importESModule?.(
+      "resource://gre/modules/Services.sys.mjs",
+    )?.Components
+  );
 }
 
 function createServerSocket(port: number) {
@@ -828,7 +856,9 @@ function readInputStream(
   while (Date.now() - startedAt < 500) {
     let available = 0;
     try {
-      available = Number(stream.available?.() || inputStream.available?.() || 0);
+      available = Number(
+        stream.available?.() || inputStream.available?.() || 0,
+      );
     } catch (error) {
       if (isClosedStreamError(error)) {
         break;
@@ -866,8 +896,7 @@ function readInputStream(
 function isClosedStreamError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "");
   return (
-    message.includes("NS_BASE_STREAM_CLOSED") ||
-    message.includes("0x80470002")
+    message.includes("NS_BASE_STREAM_CLOSED") || message.includes("0x80470002")
   );
 }
 
@@ -1023,7 +1052,8 @@ function writeOutputStream(outputStream: any, response: string) {
   const components = getComponents();
   const classes = components?.classes || (globalThis as any).Cc;
   const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const converterFactory = classes?.["@mozilla.org/intl/converter-output-stream;1"];
+  const converterFactory =
+    classes?.["@mozilla.org/intl/converter-output-stream;1"];
   const nsIConverterOutputStream = interfaces?.nsIConverterOutputStream;
   if (converterFactory && nsIConverterOutputStream) {
     const converter = converterFactory.createInstance(nsIConverterOutputStream);
@@ -1046,8 +1076,7 @@ function buildHttpResponse(args: {
 }) {
   const bodyText =
     typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-  const bodyLength =
-    utf8ByteLength(bodyText);
+  const bodyLength = utf8ByteLength(bodyText);
   return [
     `HTTP/1.1 ${args.status} ${args.reason}`,
     `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
@@ -1061,10 +1090,7 @@ function buildHttpResponse(args: {
   ].join("\r\n");
 }
 
-function buildNoContentResponse(args: {
-  status: number;
-  reason: string;
-}) {
+function buildNoContentResponse(args: { status: number; reason: string }) {
   return [
     `HTTP/1.1 ${args.status} ${args.reason}`,
     "Content-Length: 0",
@@ -1074,9 +1100,8 @@ function buildNoContentResponse(args: {
   ].join("\r\n");
 }
 
-function isAuthorized(request: HttpRequest) {
-  const expected = `bearer ${state.token}`.toLowerCase();
-  return String(request.headers.authorization || "").trim().toLowerCase() === expected;
+async function isAuthorized(request: HttpRequest) {
+  return isHostBridgeAuthorizationValid(request.headers, getHostBridgeToken());
 }
 
 function isOriginAllowed(request: HttpRequest) {
@@ -1320,7 +1345,7 @@ function toolsListFacts(response: unknown) {
   const entry = Array.isArray(response) ? response[0] : response;
   const tools =
     entry && typeof entry === "object"
-      ? ((entry as { result?: { tools?: unknown[] } }).result?.tools || [])
+      ? (entry as { result?: { tools?: unknown[] } }).result?.tools || []
       : [];
   const names = Array.isArray(tools)
     ? tools
@@ -1333,8 +1358,8 @@ function toolsListFacts(response: unknown) {
     : [];
   return {
     toolCount: names.length,
-    requiredSynthesisToolsPresent: REQUIRED_SYNTHESIS_SMOKE_TOOLS.every((tool) =>
-      names.includes(tool),
+    requiredSynthesisToolsPresent: REQUIRED_SYNTHESIS_SMOKE_TOOLS.every(
+      (tool) => names.includes(tool),
     ),
     requiredSynthesisTools: REQUIRED_SYNTHESIS_SMOKE_TOOLS,
   };
@@ -1384,7 +1409,9 @@ function appendMcpRuntimeLog(args: {
     message: `Zotero MCP ${args.stage}`,
     transport: {
       method: args.method || args.request?.method,
-      path: args.path || (args.request ? sanitizePathForDiagnostics(args.request) : ""),
+      path:
+        args.path ||
+        (args.request ? sanitizePathForDiagnostics(args.request) : ""),
       status: args.status,
       duration: args.durationMs,
       size: args.responseBytes,
@@ -1401,7 +1428,9 @@ function appendMcpRuntimeLog(args: {
   });
 }
 
-function getRecentMcpRuntimeLogs(limit = MAX_RECENT_RUNTIME_LOGS): ZoteroMcpRuntimeLogSummary[] {
+function getRecentMcpRuntimeLogs(
+  limit = MAX_RECENT_RUNTIME_LOGS,
+): ZoteroMcpRuntimeLogSummary[] {
   return listRuntimeLogs({
     scopes: ["system"],
     component: MCP_RUNTIME_LOG_COMPONENT,
@@ -1492,7 +1521,9 @@ function recordMcpRequest(args: {
   };
   updateState({
     lastResponseStatus: args.status,
-    recentRequests: [...state.recentRequests, entry].slice(-MAX_RECENT_REQUESTS),
+    recentRequests: [...state.recentRequests, entry].slice(
+      -MAX_RECENT_REQUESTS,
+    ),
   });
   emit({
     kind: "zotero_mcp_response",
@@ -1514,7 +1545,9 @@ function payloadContainsToolCall(payload: unknown): boolean {
 }
 
 function firstToolName(payload: unknown): string {
-  return summarizeJsonRpcPayloadValue(payload).toolName.split(",")[0]?.trim() || "";
+  return (
+    summarizeJsonRpcPayloadValue(payload).toolName.split(",")[0]?.trim() || ""
+  );
 }
 
 function payloadContainsQueuedToolCall(payload: unknown): boolean {
@@ -1527,9 +1560,14 @@ function payloadContainsQueuedToolCall(payload: unknown): boolean {
     ) {
       return false;
     }
-    const params = (entry as { params?: { name?: unknown; toolName?: unknown; tool?: unknown } })
-      .params;
-    const toolName = String(params?.name || params?.toolName || params?.tool || "").trim();
+    const params = (
+      entry as {
+        params?: { name?: unknown; toolName?: unknown; tool?: unknown };
+      }
+    ).params;
+    const toolName = String(
+      params?.name || params?.toolName || params?.tool || "",
+    ).trim();
     return toolName !== ZOTERO_MCP_TOOL_GET_MCP_STATUS;
   });
 }
@@ -1537,10 +1575,7 @@ function payloadContainsQueuedToolCall(payload: unknown): boolean {
 function responseContainsError(response: unknown): boolean {
   const entries = Array.isArray(response) ? response : [response];
   return entries.some(
-    (entry) =>
-      !!entry &&
-      typeof entry === "object" &&
-      "error" in entry,
+    (entry) => !!entry && typeof entry === "object" && "error" in entry,
   );
 }
 
@@ -1550,7 +1585,8 @@ function responseToolErrorName(response: unknown): string {
     if (!entry || typeof entry !== "object") {
       continue;
     }
-    const error = (entry as { error?: { data?: { errorName?: unknown } } }).error;
+    const error = (entry as { error?: { data?: { errorName?: unknown } } })
+      .error;
     const errorName = String(error?.data?.errorName || "").trim();
     if (errorName) {
       return errorName;
@@ -1614,7 +1650,11 @@ function recordCircuitSuccess(toolName: string) {
   circuitBreakers.delete(name);
 }
 
-function recordCircuitFailure(toolName: string, errorName: string, message: string) {
+function recordCircuitFailure(
+  toolName: string,
+  errorName: string,
+  message: string,
+) {
   const name = String(toolName || "").trim();
   if (!name || !isCircuitCountingErrorName(errorName)) {
     return;
@@ -1643,7 +1683,8 @@ function recordCircuitFailure(toolName: string, errorName: string, message: stri
 }
 
 function jsonRpcInternalError(id: ZoteroMcpJsonRpcId, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "Internal error");
+  const message =
+    error instanceof Error ? error.message : String(error || "Internal error");
   return {
     jsonrpc: "2.0" as const,
     id,
@@ -1715,9 +1756,7 @@ function jsonRpcQueueError(
         ? "Zotero MCP tool queue is full"
         : "Zotero MCP tool queue wait timed out",
       data: {
-        code: full
-          ? "zotero_mcp_queue_full"
-          : "zotero_mcp_queue_timeout",
+        code: full ? "zotero_mcp_queue_full" : "zotero_mcp_queue_timeout",
         errorName: full
           ? "ZoteroMcpQueueFullError"
           : "ZoteroMcpQueueTimeoutError",
@@ -1732,7 +1771,9 @@ function firstJsonRpcId(payload: unknown): ZoteroMcpJsonRpcId {
     return null;
   }
   const id = (entry as { id?: unknown }).id;
-  return typeof id === "string" || typeof id === "number" || id === null ? id : null;
+  return typeof id === "string" || typeof id === "number" || id === null
+    ? id
+    : null;
 }
 
 function firstJsonRpcIdFromRaw(rawRequest: string): ZoteroMcpJsonRpcId {
@@ -1775,7 +1816,11 @@ async function runMcpJsonRpcWithMetrics(
     const circuit = resolveCircuitState(toolName);
     if (circuit?.open) {
       return {
-        response: jsonRpcCircuitOpenError(firstJsonRpcId(payload), toolName, circuit),
+        response: jsonRpcCircuitOpenError(
+          firstJsonRpcId(payload),
+          toolName,
+          circuit,
+        ),
         queueDepthAtAccept: 0,
         queuePosition: 0,
         queueWaitMs: 0,
@@ -1805,7 +1850,9 @@ async function runMcpJsonRpcWithMetrics(
       }
       const response = await handleZoteroMcpJsonRpc(payload, {
         resolveHostContext: state.resolveHostContext,
-        resolveMcpStatus: () => getZoteroMcpServerStatus() as unknown as Record<string, unknown>,
+        resolveMcpStatus: () =>
+          getZoteroMcpServerStatus() as unknown as Record<string, unknown>,
+        resolveHostBridgeStatus: getHostBridgeServerStatus,
         requestToolPermission: state.requestToolPermission,
         onToolCall: async (event) => {
           updateState({
@@ -1941,8 +1988,8 @@ async function runMcpJsonRpcWithMetrics(
           queueResult.kind === "tool_timeout"
             ? "ZoteroMcpToolTimeoutError"
             : queueResult.kind === "queue_full"
-            ? "ZoteroMcpQueueFullError"
-            : "ZoteroMcpQueueTimeoutError",
+              ? "ZoteroMcpQueueFullError"
+              : "ZoteroMcpQueueTimeoutError",
       };
     }
     return {
@@ -1971,7 +2018,7 @@ async function handleHttpRequest(
   request: HttpRequest,
   requestId = createMcpRequestId(),
 ): Promise<string> {
-  const authorized = isAuthorized(request);
+  const authorized = await isAuthorized(request);
   updateState({
     requestCount: state.requestCount + 1,
     lastRequestMethod: `${request.method} ${request.path}`,
@@ -2403,7 +2450,8 @@ function listen(serverSocket: any) {
           }
           transport.close?.(0);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error || "");
+          const message =
+            error instanceof Error ? error.message : String(error || "");
           lastFatalError = message;
           updateState({
             status: state.status === "running" ? "running" : "error",
@@ -2426,7 +2474,10 @@ function listen(serverSocket: any) {
             if (output) {
               writeOutputStream(
                 output,
-                buildRequestFailureResponse(bytesToLatin1String(rawRequest), error),
+                buildRequestFailureResponse(
+                  bytesToLatin1String(rawRequest),
+                  error,
+                ),
               );
             }
           } catch {
@@ -2454,6 +2505,10 @@ function listen(serverSocket: any) {
 }
 
 function buildDescriptor(): ZoteroMcpServerDescriptor {
+  const token = getHostBridgeToken();
+  if (state.token !== token) {
+    updateState({ token });
+  }
   return {
     name: "zotero",
     type: "http",
@@ -2461,7 +2516,7 @@ function buildDescriptor(): ZoteroMcpServerDescriptor {
     headers: [
       {
         name: "Authorization",
-        value: `Bearer ${state.token}`,
+        value: `Bearer ${token}`,
       },
     ],
     enabled: true,
@@ -2488,7 +2543,7 @@ async function startServer(preferredPort?: number) {
     const port = PORT_MIN + ((startPort - PORT_MIN + offset) % PORT_SPAN);
     try {
       const serverSocket = createServerSocket(port);
-      const token = generateToken();
+      const token = getHostBridgeToken();
       const endpoint = `http://${HOST}:${port}/mcp`;
       updateState({
         status: "running",
@@ -2529,14 +2584,31 @@ async function startServer(preferredPort?: number) {
   throw new Error(message);
 }
 
-export async function ensureZoteroMcpServer(args: {
-  resolveHostContext?: () => AcpHostContext;
-  requestToolPermission?: (
-    request: ZoteroMcpToolPermissionRequest,
-  ) => Promise<ZoteroMcpToolPermissionDecision> | ZoteroMcpToolPermissionDecision;
-  onDiagnostic?: (event: ZoteroMcpDiagnosticEvent) => void | Promise<void>;
-} = {}) {
+export async function ensureZoteroMcpServer(
+  args: {
+    resolveHostContext?: () => AcpHostContext;
+    requestToolPermission?: (
+      request: ZoteroMcpToolPermissionRequest,
+    ) =>
+      | Promise<ZoteroMcpToolPermissionDecision>
+      | ZoteroMcpToolPermissionDecision;
+    onDiagnostic?: (event: ZoteroMcpDiagnosticEvent) => void | Promise<void>;
+  } = {},
+) {
   addListener(args.onDiagnostic);
+  if (!isZoteroMcpServerEnabled()) {
+    const message = "Zotero MCP server is disabled by preference";
+    updateState({
+      status: state.status === "running" ? "running" : "stopped",
+      lastError: message,
+    });
+    emit({
+      kind: "zotero_mcp_unavailable",
+      level: "info",
+      message,
+    });
+    throw new Error(message);
+  }
   if (args.resolveHostContext) {
     updateState({
       resolveHostContext: args.resolveHostContext,
@@ -2672,30 +2744,36 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
   }
 }
 
-export function configureZoteroMcpServerForTests(args: {
-  token?: string;
-  endpoint?: string;
-  resolveHostContext?: () => AcpHostContext;
-  requestToolPermission?: (
-    request: ZoteroMcpToolPermissionRequest,
-  ) => Promise<ZoteroMcpToolPermissionDecision> | ZoteroMcpToolPermissionDecision;
-  pendingLimit?: number;
-  queueTimeoutMs?: number;
-  runningTimeoutMs?: number;
-  beforeToolCallForTests?: () => Promise<void> | void;
-} = {}) {
+export function configureZoteroMcpServerForTests(
+  args: {
+    token?: string;
+    endpoint?: string;
+    resolveHostContext?: () => AcpHostContext;
+    requestToolPermission?: (
+      request: ZoteroMcpToolPermissionRequest,
+    ) =>
+      | Promise<ZoteroMcpToolPermissionDecision>
+      | ZoteroMcpToolPermissionDecision;
+    pendingLimit?: number;
+    queueTimeoutMs?: number;
+    runningTimeoutMs?: number;
+    beforeToolCallForTests?: () => Promise<void> | void;
+  } = {},
+) {
   toolCallQueue.reset();
   toolCallQueue.configure({
     pendingLimit: args.pendingLimit,
     queueTimeoutMs: args.queueTimeoutMs,
     runningTimeoutMs: args.runningTimeoutMs,
   });
+  const token = args.token || "test-token";
+  setPref("hostBridgeToken", token);
   updateState({
     status: "running",
     host: HOST,
     port: 0,
     endpoint: args.endpoint || "http://127.0.0.1:0/mcp",
-    token: args.token || "test-token",
+    token,
     resolveHostContext: args.resolveHostContext,
     requestToolPermission: args.requestToolPermission,
     beforeToolCallForTests: args.beforeToolCallForTests,

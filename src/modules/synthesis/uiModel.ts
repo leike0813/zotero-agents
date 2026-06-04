@@ -374,6 +374,10 @@ export type SynthesisUiGraphNode = {
   external_degree?: number;
   visibility?: "default" | "hover_only";
   display_tier?: "library" | "shared_external" | "single_external";
+  metrics?: {
+    internal_in_degree?: number;
+    internal_out_degree?: number;
+  };
 };
 
 export type SynthesisUiGraphEdge = {
@@ -2358,6 +2362,7 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
         rawKind === "external_reference"
           ? ("external_reference" as const)
           : ("library_paper" as const);
+      const metrics = normalizeGraphNodeMetrics(node.metrics);
       return {
         id: cleanString(node.id),
         label: cleanString(node.label) || cleanString(node.id),
@@ -2383,6 +2388,7 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
             : kind === "library_paper"
               ? ("library" as const)
               : ("shared_external" as const),
+        ...(metrics ? { metrics } : {}),
       };
     })
     .filter((node) => node.id)
@@ -2391,6 +2397,28 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
         left.label.localeCompare(right.label) ||
         left.id.localeCompare(right.id),
     );
+}
+
+function normalizeGraphNodeMetrics(
+  metrics: SynthesisUiGraphNode["metrics"] | undefined,
+) {
+  if (!metrics || typeof metrics !== "object") {
+    return undefined;
+  }
+  const normalized: NonNullable<SynthesisUiGraphNode["metrics"]> = {};
+  if (typeof metrics.internal_in_degree === "number") {
+    normalized.internal_in_degree = Math.max(
+      0,
+      Math.floor(cleanNumber(metrics.internal_in_degree, 0)),
+    );
+  }
+  if (typeof metrics.internal_out_degree === "number") {
+    normalized.internal_out_degree = Math.max(
+      0,
+      Math.floor(cleanNumber(metrics.internal_out_degree, 0)),
+    );
+  }
+  return Object.keys(normalized).length ? normalized : undefined;
 }
 
 function normalizeGraphEdges(edges: SynthesisUiGraphEdge[] | undefined) {

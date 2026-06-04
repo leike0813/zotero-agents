@@ -6,6 +6,7 @@ import type {
   ProviderExecutionResult,
 } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
+import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import {
   getLoadedWorkflowEntries,
   rescanWorkflowRegistry,
@@ -147,6 +148,20 @@ export type AcpRequiredMcpPreflightProbe = (args: {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneJsonObject(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  if (!isJsonObject(value)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
 function normalizeStringArray(value: unknown) {
@@ -374,9 +389,7 @@ function resolveZoteroHostAccessRequirement(args: {
   ) {
     return {
       required:
-        typeof declaration.required === "boolean"
-          ? declaration.required
-          : true,
+        typeof declaration.required === "boolean" ? declaration.required : true,
       autoApproveWrites: declaration.auto_approve_writes === true,
       source: "request" as const,
     };
@@ -726,9 +739,16 @@ function resolveRecoveredWorkflowId(
 async function applyRecoveredAcpSkillResult(args: {
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
   resultJson: Record<string, unknown>;
+  force?: boolean;
+  reason?: string;
 }) {
-  if (args.record.applyResultState === "succeeded") {
-    return;
+  if (args.record.applyResultState === "succeeded" && !args.force) {
+    return {
+      ok: true,
+      status: "skipped",
+      reason: "already_succeeded",
+      requestId: args.record.requestId,
+    };
   }
   const workflowId = resolveRecoveredWorkflowId(args.record);
   const workflow = await resolveWorkflowById(workflowId);
@@ -739,7 +759,8 @@ async function applyRecoveredAcpSkillResult(args: {
   }
   const request = args.record.requestPayload;
   const targetParentID = resolveTargetParentIDFromRequest(request);
-  if (!targetParentID) {
+  const applyParent = targetParentID || null;
+  if (!applyParent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
     throw new Error(
       "cannot resolve target parent for recovered ACP skill apply",
     );
@@ -771,9 +792,9 @@ async function applyRecoveredAcpSkillResult(args: {
     state: "pending",
   });
   try {
-    await executeApplyResult({
+    const applyResult = await executeApplyResult({
       workflow,
-      parent: targetParentID,
+      parent: applyParent,
       bundleReader,
       resultContext,
       request,
@@ -788,6 +809,22 @@ async function applyRecoveredAcpSkillResult(args: {
       requestId: args.record.requestId,
       state: "succeeded",
     });
+    return {
+      ok: true,
+      status: "succeeded",
+      requestId: args.record.requestId,
+      workflowId,
+      topicId:
+        normalizeString((applyResult as { topicId?: unknown })?.topicId) ||
+        normalizeString(args.resultJson.topic_id) ||
+        normalizeString(
+          isJsonObject(args.resultJson.topic_definition)
+            ? args.resultJson.topic_definition.id
+            : "",
+        ),
+      reason: normalizeString(args.reason) || undefined,
+      applyResult,
+    };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
@@ -804,6 +841,125 @@ async function applyRecoveredAcpSkillResult(args: {
     });
     throw error;
   }
+}
+
+async function readAcpSkillRunResultJson(
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
+) {
+  if (typeof record.resultJson !== "undefined") {
+    return cloneJsonObject(record.resultJson, "ACP skill run resultJson");
+  }
+  const resultJsonPath = normalizeString(record.resultJsonPath);
+  if (!resultJsonPath) {
+    throw new Error("ACP skill run is missing resultJsonPath");
+  }
+  const text = await readRuntimeTextFile(resultJsonPath);
+  if (!normalizeString(text)) {
+    throw new Error(
+      `ACP skill run result JSON is unavailable: ${resultJsonPath}`,
+    );
+  }
+  return cloneJsonObject(
+    JSON.parse(text) as unknown,
+    `ACP skill run result JSON at ${resultJsonPath}`,
+  );
+}
+
+function applyResultJsonOverride(args: {
+  resultJson: Record<string, unknown>;
+  override?: Record<string, unknown>;
+  mode?: unknown;
+}) {
+  if (!args.override) {
+    return {
+      resultJson: args.resultJson,
+      overridden: false,
+      overrideMode: "none",
+    };
+  }
+  const overrideMode =
+    normalizeString(args.mode) === "replace" ? "replace" : "merge";
+  return {
+    resultJson:
+      overrideMode === "replace"
+        ? cloneJsonObject(args.override, "resultJsonOverride")
+        : {
+            ...args.resultJson,
+            ...cloneJsonObject(args.override, "resultJsonOverride"),
+          },
+    overridden: true,
+    overrideMode,
+  };
+}
+
+export async function reapplyAcpSkillRunResult(args: {
+  requestId?: string;
+  runId?: string;
+  force?: boolean;
+  persistResult?: boolean;
+  resultJsonOverride?: Record<string, unknown>;
+  overrideMode?: "merge" | "replace";
+  resultJson?: Record<string, unknown>;
+}) {
+  const requestId =
+    normalizeString(args.requestId) || normalizeString(args.runId);
+  if (!requestId) {
+    throw new Error("requestId is required");
+  }
+  const record = getAcpSkillRunRecord(requestId);
+  if (!record) {
+    throw new Error(`ACP skill run not found: ${requestId}`);
+  }
+  let resultJson = args.resultJson
+    ? cloneJsonObject(args.resultJson, "resultJson")
+    : await readAcpSkillRunResultJson(record);
+  const override = applyResultJsonOverride({
+    resultJson,
+    override: args.resultJsonOverride,
+    mode: args.overrideMode,
+  });
+  resultJson = override.resultJson;
+  if (override.overridden && args.persistResult !== false) {
+    const resultJsonPath = normalizeString(record.resultJsonPath);
+    if (!resultJsonPath) {
+      throw new Error(
+        "cannot persist overridden result: resultJsonPath is missing",
+      );
+    }
+    await writeAcpSkillRunnerResultEnvelope({
+      resultJsonPath,
+      resultJson,
+    });
+    upsertAcpSkillRun({
+      requestId,
+      resultJson,
+      event: {
+        stage: "debug-reapply-result-overridden",
+        message: "Debug reapply overrode ACP skill result JSON.",
+        level: "info",
+        details: {
+          overrideMode: override.overrideMode,
+          resultJsonPath,
+        },
+      },
+    });
+  }
+  const apply = await applyRecoveredAcpSkillResult({
+    record: {
+      ...record,
+      resultJson,
+    },
+    resultJson,
+    force: args.force === true,
+    reason: override.overridden ? "debug_reapply_overridden" : "debug_reapply",
+  });
+  return {
+    ...apply,
+    schema: "host_bridge.debug.acp_skill_run.reapply_result.v1",
+    overridden: override.overridden,
+    overrideMode: override.overrideMode,
+    persistedResult: override.overridden && args.persistResult !== false,
+  };
 }
 
 async function resolveBackendForRecoveredRun(backendId: string) {
@@ -1753,8 +1909,7 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceDir: string;
       requestId: string;
       autoApproveWrites?: boolean;
-    }) =>
-      materializeHostBridgeCliRunInjection(input));
+    }) => materializeHostBridgeCliRunInjection(input));
   const hostBridgeCliInjection = zoteroHostAccess.required
     ? await hostBridgeCliInjectionFactory({
         workspaceDir: workspace.workspaceDir,
@@ -2444,7 +2599,8 @@ export async function executeAcpSkillRunnerJob(args: {
           resultJson: fallback.payload,
           event: {
             stage: "output-validation-succeeded",
-            message: "Output validation succeeded through result-file fallback.",
+            message:
+              "Output validation succeeded through result-file fallback.",
             level: "warn",
             details: {
               resultJsonPath: workspace.resultJsonPath,

@@ -3,16 +3,25 @@
   "title": "Topic Synthesis KG Proposals",
   "type": "object",
   "additionalProperties": true,
-  "required": [
-    "schema_id",
-    "schema_version",
-    "concept_cards_proposal",
-    "topic_graph_relation_proposals",
-    "topic_interest_metadata"
+  "oneOf": [
+    {
+      "required": [
+        "concept_cards_proposal",
+        "topic_graph_relation_proposals",
+        "topic_interest_metadata"
+      ]
+    },
+    {
+      "required": ["concept_cards", "topic_relations", "topic_interest", "diagnostics"]
+    }
   ],
   "properties": {
     "schema_id": { "const": "synthesis.topic_synthesis_kg_proposals" },
     "schema_version": { "type": "string", "minLength": 1 },
+    "concept_cards": { "type": "array" },
+    "topic_relations": { "type": "array" },
+    "topic_interest": { "type": "object" },
+    "diagnostics": { "type": "array" },
     "concept_cards_proposal": {
       "type": "object",
       "additionalProperties": true,

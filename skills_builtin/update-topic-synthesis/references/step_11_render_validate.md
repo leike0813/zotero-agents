@@ -85,17 +85,18 @@ stdout 只输出合法业务 JSON object。canonical persistence 与导出渲染
 ```json
 {
   "kind": "topic_synthesis",
-  "operation": "create",
-  "analysis_manifest_path": "result/topic-analysis.json",
+  "operation": "update_patch",
+  "topic_id": "object-detection",
+  "analysis_manifest_path": "result/topic-analysis.patch.json",
   "resolver_manifest_path": "runtime/payloads/resolver.json",
   "topic_definition": { "id": "object-detection", "title": "Object Detection" },
-  "base_hashes": {
-    "manifest": "",
-    "artifact": "",
-    "export": "",
-    "metadata": "",
-    "index": ""
+  "read_section_hashes": {
+    "claims": "sha256:..."
   },
   "artifact_metadata": {}
 }
 ```
+
+`update_full` 示例同上，但 `operation` 为 `update_full`，`analysis_manifest_path`
+为 `result/topic-analysis.json`，并且必须包含 `base_hashes`。`update_patch`
+只要求 `read_section_hashes`。

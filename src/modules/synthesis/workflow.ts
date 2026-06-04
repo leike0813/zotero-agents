@@ -5,7 +5,9 @@ export type SynthesisResultBundle = {
   operation?: "create" | "update_full" | "update_patch";
   mode: "create" | "update";
   language?: string;
-  base_hashes: Record<string, string>;
+  base_hashes?: Record<string, string>;
+  legacy_create_base_hashes_ignored?: boolean;
+  topic_id?: string;
   read_section_hashes?: Record<string, string>;
   topic_definition: Record<string, unknown>;
   topic_resolver?: Record<string, unknown>;
@@ -107,16 +109,18 @@ export function validateSynthesisResultBundle(input: unknown): {
     const conceptCardsProposalPath = cleanString(
       input.concept_cards_proposal_path,
     );
-    const baseHashes = requireObject(input, "base_hashes") as Record<
-      string,
-      string
-    >;
     const artifactMetadata = requireObject(input, "artifact_metadata");
     const language = requireString(input, "language");
+    const legacyCreateBaseHashesIgnored =
+      operation === "create" && isObject(input.base_hashes);
     if (operation === "update_patch") {
       if (cleanString(input.markdown_path)) {
         throw new Error("update_patch bundle must not depend on markdown_path");
       }
+      const readSectionHashes = requireObject(
+        input,
+        "read_section_hashes",
+      ) as Record<string, string>;
       return {
         ok: true,
         bundle: {
@@ -124,11 +128,8 @@ export function validateSynthesisResultBundle(input: unknown): {
           operation,
           mode: "update",
           language,
-          base_hashes: baseHashes,
-          read_section_hashes: requireObject(
-            input,
-            "read_section_hashes",
-          ) as Record<string, string>,
+          topic_id: cleanString(input.topic_id),
+          read_section_hashes: readSectionHashes,
           topic_definition: {},
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
@@ -145,6 +146,10 @@ export function validateSynthesisResultBundle(input: unknown): {
         "structured topic synthesis bundle must not depend on markdown_path",
       );
     }
+    const baseHashes =
+      operation === "update_full"
+        ? (requireObject(input, "base_hashes") as Record<string, string>)
+        : undefined;
     return {
       ok: true,
       bundle: {
@@ -152,7 +157,10 @@ export function validateSynthesisResultBundle(input: unknown): {
         operation,
         mode: operation === "create" ? "create" : "update",
         language,
-        base_hashes: baseHashes,
+        ...(baseHashes ? { base_hashes: baseHashes } : {}),
+        ...(legacyCreateBaseHashesIgnored
+          ? { legacy_create_base_hashes_ignored: true }
+          : {}),
         topic_definition: requireTopicDefinition(input),
         resolver_manifest_path: requireString(input, "resolver_manifest_path"),
         resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
@@ -238,9 +246,12 @@ export function decideSynthesisApply(args: {
       })),
     };
   }
+  if (bundle.operation === "create") {
+    return { action: "persist", bundle, mismatches: [] };
+  }
   const cas = checkBaseHashes({
     current: args.currentHashes,
-    base: bundle.base_hashes,
+    base: bundle.base_hashes || {},
   });
   const mismatches = cas.ok
     ? []

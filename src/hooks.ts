@@ -1,6 +1,6 @@
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
-import { setPref } from "./utils/prefs";
+import { getPref, setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/selectionSample";
 import {
@@ -88,6 +88,11 @@ import {
   startHostBridgeSupervisor,
   stopHostBridgeSupervisor,
 } from "./modules/hostBridgeServer";
+import {
+  ensureZoteroMcpServer,
+  getZoteroMcpServerStatus,
+  shutdownZoteroMcpServer,
+} from "./modules/zoteroMcpServer";
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
@@ -275,6 +280,13 @@ async function onStartup() {
   }
   startManagedLocalRuntimeAutoEnsureLoop();
   startHostBridgeSupervisor();
+  if (getPref("mcpServer.enabled") !== false) {
+    void ensureZoteroMcpServer().catch((error) => {
+      if (typeof console !== "undefined") {
+        console.warn("[zotero-mcp] startup failed", error);
+      }
+    });
+  }
 
   registerPrefsPane();
 
@@ -343,6 +355,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 async function onShutdown(): Promise<void> {
   await shutdownAcpSkillRunConversations();
   await shutdownAcpSessionManager();
+  await shutdownZoteroMcpServer();
   await stopHostBridgeSupervisor();
   await shutdownSkillRunnerAsyncLifecycle();
   await flushRuntimeLogsPersistence();
@@ -614,6 +627,39 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         stage: "host-bridge-state",
         details: getHostBridgeServerStatus(),
       };
+    case "stateMcpServer":
+      return {
+        ok: true,
+        stage: "mcp-server-state",
+        details: {
+          enabled: getPref("mcpServer.enabled") !== false,
+          server: getZoteroMcpServerStatus(),
+        },
+      };
+    case "setMcpServerEnabled": {
+      const enabled = data.enabled === true;
+      setPref("mcpServer.enabled", enabled);
+      if (enabled) {
+        try {
+          await ensureZoteroMcpServer();
+        } catch {
+          // The returned status carries the startup failure for the preferences UI.
+        }
+      } else {
+        await shutdownZoteroMcpServer();
+      }
+      return {
+        ok: true,
+        stage: "mcp-server-enabled-setting",
+        message: enabled
+          ? "Zotero MCP server enabled."
+          : "Zotero MCP server disabled.",
+        details: {
+          enabled,
+          server: getZoteroMcpServerStatus(),
+        },
+      };
+    }
     case "showHostBridgeEndpoint": {
       try {
         const details = await ensureHostBridgeServer();
@@ -664,9 +710,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return {
         ok: true,
         stage: "host-bridge-pin-port-setting",
-        message: lanEnabled || enabled
-          ? `Host Bridge fixed port enabled on ${port}.`
-          : "Host Bridge fixed port disabled.",
+        message:
+          lanEnabled || enabled
+            ? `Host Bridge fixed port enabled on ${port}.`
+            : "Host Bridge fixed port disabled.",
         details: getHostBridgeServerStatus(),
       };
     }

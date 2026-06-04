@@ -686,7 +686,28 @@ Common errors:
 - `output_exists`
 - `download_output_unwritable`
 
-## 14. Approval Rules
+## 14. Debug ACP Skill Run Recovery
+
+Debug mode exposes an ACP skill run recovery command for re-running a stored
+workflow `applyResult` hook without asking the agent to regenerate the result:
+
+```text
+zotero-bridge debug acp-skill-run reapply-result --input '{"requestId":"acp-skill-..."}'
+```
+
+When the stored result must be corrected before apply, pass a JSON override.
+`overrideMode` defaults to `merge`; use `replace` only when supplying the full
+replacement result:
+
+```text
+zotero-bridge debug acp-skill-run reapply-result --input '{"requestId":"acp-skill-...","resultJsonOverride":{"base_hashes":{}},"overrideMode":"merge"}'
+```
+
+This maps to `debug.acpSkillRun.reapplyResult`. It reads the existing run
+workspace, optionally persists the overridden `result/result.json`, and then
+runs the original workflow `applyResult` hook.
+
+## 15. Approval Rules
 
 No approval required:
 
@@ -714,7 +735,7 @@ When approval is required, wait for the user to approve or deny in Zotero UI.
 Do not simulate approval, do not retry in a loop without new information, and do
 not use a write-capable alternative path.
 
-## 15. Raw Capability Calls
+## 16. Raw Capability Calls
 
 Use raw capability calls only when the semantic command tree does not expose the
 needed operation:
@@ -740,6 +761,10 @@ Main capabilities:
 - `mutation.execute`
 - `diagnostic.get_status`
 
+Debug capabilities:
+
+- `debug.acpSkillRun.reapplyResult`
+
 Raw call success `data`:
 
 ```json
@@ -750,7 +775,7 @@ Raw call success `data`:
 }
 ```
 
-## 16. Error Handling Cheatsheet
+## 17. Error Handling Cheatsheet
 
 Common configuration and connection errors:
 

@@ -978,7 +978,7 @@ Framing、Related Work 和 survey writing。
 后续 workflow 修改应遵循：
 
 - Stage 5 `persist_paper_units` 必须抽取路线、timeline、claim、debate、gap 和外部文献信号。
-- Stage 6 `persist_cross_paper_evidence_map` 必须支持生成研究路线分析和历史递进逻辑。
+- Stage 6 `derive_cross_paper_evidence_map` 必须支持生成研究路线分析和历史递进逻辑。
 - Stage 7/8 应先形成 `taxonomy.summary`、`timeline_events.summary` 和核心分析 sections。
 - Stage 9 `persist_kg_proposals` 只生成 KG proposal sidecars；它不写 structured artifact
   sections，也不写 canonical KG assets。

@@ -52,6 +52,12 @@ function bindPrefEvents() {
   const hostBridgeLanCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`,
   ) as HTMLInputElement | null;
+  const mcpServerEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-mcp-server-enabled`,
+  ) as HTMLInputElement | null;
+  const mcpServerStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-mcp-server-status`,
+  ) as HTMLElement | null;
   const hostBridgePinPortCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`,
   ) as HTMLInputElement | null;
@@ -1567,9 +1573,36 @@ function bindPrefEvents() {
     }
   };
 
+  const renderMcpServerState = (response: unknown) => {
+    const result = (response || {}) as {
+      details?: Record<string, unknown>;
+    };
+    const details = (result.details || {}) as Record<string, unknown>;
+    const server = (details.server || {}) as Record<string, unknown>;
+    const enabled =
+      details.enabled === true || getPref("mcpServer.enabled") !== false;
+    if (mcpServerEnabledCheckbox) {
+      mcpServerEnabledCheckbox.checked = enabled;
+    }
+    if (mcpServerStatusText) {
+      const endpoint = String(server.endpoint || "").trim();
+      const status = String(server.status || "unknown").trim();
+      const tokenMasked = String(server.tokenMasked || "").trim();
+      const error = String(server.lastError || "").trim();
+      mcpServerStatusText.textContent = [
+        enabled ? "enabled" : "disabled",
+        `status=${status}`,
+        endpoint ? `endpoint=${endpoint}` : "",
+        tokenMasked ? `token=${tokenMasked}` : "",
+        error ? `error=${error}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  };
+
   const copyTextToClipboard = (text: string) => {
-    const nav = (addon.data.prefs?.window.navigator ||
-      globalThis.navigator) as
+    const nav = (addon.data.prefs?.window.navigator || globalThis.navigator) as
       | { clipboard?: { writeText?: (text: string) => Promise<void> } }
       | undefined;
     if (text && typeof nav?.clipboard?.writeText === "function") {
@@ -1593,6 +1626,26 @@ function bindPrefEvents() {
         details: {},
       };
       renderHostBridgeState(response);
+      return response;
+    }
+  };
+
+  const refreshMcpServerState = async () => {
+    try {
+      const response = await addon.hooks.onPrefsEvent("stateMcpServer", {
+        window: addon.data.prefs?.window,
+      });
+      renderMcpServerState(response);
+      return response;
+    } catch (error) {
+      const response = {
+        ok: false,
+        message: String(error),
+        details: {
+          enabled: getPref("mcpServer.enabled") !== false,
+        },
+      };
+      renderMcpServerState(response);
       return response;
     }
   };
@@ -1780,6 +1833,19 @@ function bindPrefEvents() {
     });
   }
 
+  if (mcpServerEnabledCheckbox) {
+    mcpServerEnabledCheckbox.checked = getPref("mcpServer.enabled") !== false;
+    mcpServerEnabledCheckbox.addEventListener("change", () => {
+      void (async () => {
+        const response = await addon.hooks.onPrefsEvent("setMcpServerEnabled", {
+          window: addon.data.prefs?.window,
+          enabled: mcpServerEnabledCheckbox.checked === true,
+        });
+        renderMcpServerState(response);
+      })();
+    });
+  }
+
   const persistHostBridgePinPort = () => {
     if (!hostBridgePinPortCheckbox || !hostBridgePinnedPortInput) {
       return;
@@ -1945,6 +2011,10 @@ function bindPrefEvents() {
     hostBridgeAdvertisedHostInput
   ) {
     void refreshHostBridgeState();
+  }
+
+  if (mcpServerEnabledCheckbox || mcpServerStatusText) {
+    void refreshMcpServerState();
   }
 
   if (runtimeDataRescanButton) {

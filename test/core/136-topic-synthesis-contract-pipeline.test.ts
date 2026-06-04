@@ -53,12 +53,29 @@ function artifactNote(args: {
   value: string;
   format?: "markdown" | "json";
 }) {
-  const encoded = Buffer.from(args.value, "utf8").toString("base64");
+  const format = args.format || "markdown";
   return {
     key: `${args.payloadType}-note`,
     title: args.payloadType,
     updatedAt: "2026-05-18T00:00:00.000Z",
-    html: `<span data-zs-block="payload" data-zs-payload="${args.payloadType}" data-zs-version="1" data-zs-format="${args.format || "markdown"}" data-zs-encoding="base64" data-zs-value="${encoded}"></span>`,
+    html: "",
+    payloadBlocks: [
+      {
+        source: "embedded-image-attachment",
+        sourceStorage: "embedded-image-attachment-v2",
+        payloadType: args.payloadType,
+        noteKind: "",
+        version: "1",
+        encoding: "embedded-image-attachment",
+        encodedValue: "",
+        estimatedSize: args.value.length,
+        format,
+        decodedText: args.value,
+        markdown: format === "markdown" ? args.value : undefined,
+        payload: format === "json" ? JSON.parse(args.value) : undefined,
+        attachmentKey: `${args.payloadType}-attachment`,
+      },
+    ],
   };
 }
 
@@ -495,13 +512,6 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
     kind: "topic_synthesis",
     operation: "create",
     language: "zh-CN",
-    base_hashes: {
-      manifest: "",
-      artifact: "",
-      export: "",
-      metadata: "",
-      index: "",
-    },
     topic_definition: {
       id: "object-detection",
       title: "Object Detection",
@@ -753,6 +763,9 @@ db.set_meta(conn, "artifact_metadata", {
     },
 })
 db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
+db.set_meta(conn, "cross_paper_evidence_map_path", "runtime/payloads/cross-paper-evidence-map.json")
+db.set_meta(conn, "cross_paper_evidence_map_hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000")
+db.set_meta(conn, "cross_paper_evidence_map_candidate_counts", {"runtime_derived": len(candidate_ids)})
 db.put_key_value(conn, "topic_intent", "topic_definition", {"id": "object-detection", "title": "Object Detection"})
 db.put_key_value(conn, "topic_resolver", "resolver_diagnostics", {"final_count": 1, "warnings": []})
 conn.execute(
@@ -889,6 +902,9 @@ db.set_meta(conn, "operation", "create")
 db.set_meta(conn, "language", "zh-CN")
 db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
 db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
+db.set_meta(conn, "cross_paper_evidence_map_path", "runtime/payloads/cross-paper-evidence-map.json")
+db.set_meta(conn, "cross_paper_evidence_map_hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000")
+db.set_meta(conn, "cross_paper_evidence_map_candidate_counts", {"runtime_derived": len(candidate_ids)})
 db.put_key_value(conn, "topic_intent", "topic_definition", {"id": "object-detection", "title": "Object Detection"})
 bundle = {
     "paper_ref": "1:DETR",
@@ -1011,12 +1027,10 @@ function stage9Payload(sections: Record<string, unknown>) {
     sections: pickSections(sections, [
       "topic",
       "summary",
-      "paper_evidence",
       "external_literature_analysis",
       "coverage",
       "statistics",
       "synthesis_report",
-      "evidence_map",
       "source_artifacts",
       "diagnostics",
     ]),
@@ -1119,15 +1133,9 @@ describe("Topic synthesis contract pipeline", function () {
       payload: {
         schema_id: "synthesis.topic_synthesis_kg_proposals",
         schema_version: "1.0.0",
-        concept_cards_proposal: {
-          cards: [],
-          diagnostics: [{ code: "no_reliable_concepts" }],
-        },
-        topic_graph_relation_proposals: {
-          proposals: [],
-          diagnostics: [{ code: "no_reliable_relations" }],
-        },
-        topic_interest_metadata: {
+        concept_cards: [],
+        topic_relations: [],
+        topic_interest: {
           schema: "topic_interest_metadata.v1",
           topic_id: "object-detection",
           include_terms: ["object detection", "DETR"],
@@ -1135,8 +1143,9 @@ describe("Topic synthesis contract pipeline", function () {
           methods: ["DETR"],
           exclude_terms: ["semantic segmentation"],
           seed_literature_item_ids: ["lit:detr"],
-          diagnostics: [{ code: "explicit_stage9_metadata" }],
+          diagnostics: ["explicit_stage9_metadata"],
         },
+        diagnostics: ["no_reliable_concepts", "no_reliable_relations"],
       },
     });
     const conceptSidecar = await readJsonFile<JsonObject>(
@@ -1293,6 +1302,7 @@ describe("Topic synthesis contract pipeline", function () {
       path.join(runRoot, "result", "result.json"),
     );
 
+    assert.notProperty(resultBundle, "base_hashes");
     assertValidOutputSchema(resultBundle);
     assertValidArtifactSchema(artifact);
 
@@ -1365,7 +1375,64 @@ describe("Topic synthesis contract pipeline", function () {
     );
     assert.isOk(row);
     assert.equal((row as any).paper_count, 1);
-    assert.equal((row as any).external_literature_count, 1);
+    assert.equal((row as any).external_literature_count, 0);
+  });
+
+  it("ignores legacy create base hashes when the target topic is absent", async function () {
+    const root = await makeRoot("zs-topic-contract-root-");
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-18T00:00:00.000Z",
+      registryInputs: [registryInputForDetr()],
+    });
+    const sections = baseSections();
+    const resultBundle = createResultBundle({
+      base_hashes: {
+        manifest: "sha256:legacy-manifest",
+        artifact: "sha256:legacy-artifact",
+        export: "sha256:legacy-export",
+        metadata: "sha256:legacy-metadata",
+        index: "sha256:legacy-index",
+      },
+    });
+    const { runRoot } = await createRunWorkspace({
+      sections,
+      resultBundle,
+    });
+
+    const applyResult = await applyRunWorkspace({
+      service,
+      runRoot,
+      resultBundle,
+    });
+
+    assert.equal((applyResult as any).status, "persisted");
+    assert.include(
+      ((applyResult as any).warnings || []) as string[],
+      "create_base_hashes_ignored",
+    );
+  });
+
+  it("rejects create when the target topic already exists", async function () {
+    const root = await makeRoot("zs-topic-contract-root-");
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-18T00:00:00.000Z",
+      registryInputs: [registryInputForDetr()],
+    });
+    const sections = baseSections();
+    const { runRoot, resultBundle } = await createRunWorkspace({ sections });
+    await applyRunWorkspace({ service, runRoot, resultBundle });
+
+    const duplicate = await service.applyTopicSynthesisResult(resultBundle, {
+      resultContext: resultContextForRunRoot(runRoot),
+    } as any);
+
+    assert.equal(duplicate.ok, false);
+    assert.equal((duplicate as any).status, "topic_exists");
+    assert.equal((duplicate as any).topicId, "object-detection");
   });
 
   it("preserves section hashes between current manifest and persisted section files", async function () {
@@ -1593,13 +1660,6 @@ describe("Topic synthesis contract pipeline", function () {
       operation: "update_patch",
       topic_id: "object-detection",
       language: "zh-CN",
-      base_hashes: {
-        manifest: "",
-        artifact: "",
-        export: "",
-        metadata: "",
-        index: "",
-      },
       read_section_hashes: {
         claims: currentClaimHash,
       },

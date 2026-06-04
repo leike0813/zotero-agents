@@ -27,6 +27,9 @@ from runtime_db import (
     build_cross_paper_context_views,
     clear_failed_retryable,
     connect,
+    derive_cross_paper_evidence_map,
+    derive_paper_evidence_section,
+    evidence_id_for_paper_ref,
     get_key_value,
     get_meta,
     missing_paper_analysis_refs,
@@ -35,6 +38,7 @@ from runtime_db import (
     paper_analysis_values,
     paper_artifact_bundle_values,
     paper_refs,
+    paper_unit_id_for_paper_ref,
     paper_workset_values,
     persist_citation_graph_metrics,
     persist_cross_paper_evidence_map,
@@ -113,12 +117,10 @@ CORE_SECTIONS = (
 STAGE9_AUTHORED_SECTIONS = (
     "topic",
     "summary",
-    "paper_evidence",
     "external_literature_analysis",
     "coverage",
     "statistics",
     "synthesis_report",
-    "evidence_map",
     "source_artifacts",
     "diagnostics",
 )
@@ -259,6 +261,7 @@ def action_stage(action_name: str) -> str:
     if action_name in {
         "export_cross_paper_context",
         "persist_cross_paper_evidence_map",
+        "derive_cross_paper_evidence_map",
     }:
         return "stage_6_cross_paper_map"
     if action_name in {
@@ -406,6 +409,45 @@ def _has_non_empty_refs(value: dict, key: str) -> bool:
     return isinstance(entry, list) and any(str(ref).strip() for ref in entry)
 
 
+def _source_paper_refs(value: dict) -> list[str]:
+    refs: list[str] = []
+    for key in ("source_paper_refs", "supporting_paper_refs", "paper_refs"):
+        entry = value.get(key)
+        if isinstance(entry, str) and entry.strip():
+            refs.append(entry.strip())
+        elif isinstance(entry, list):
+            refs.extend(str(ref).strip() for ref in entry if str(ref).strip())
+    result: list[str] = []
+    seen: set[str] = set()
+    for ref in refs:
+        if ref not in seen:
+            seen.add(ref)
+            result.append(ref)
+    return result
+
+
+def _inject_runtime_refs_from_source_papers(value: object) -> object:
+    if isinstance(value, list):
+        return [_inject_runtime_refs_from_source_papers(entry) for entry in value]
+    if not isinstance(value, dict):
+        return value
+    next_value = {
+        key: _inject_runtime_refs_from_source_papers(entry)
+        for key, entry in value.items()
+    }
+    source_refs = _source_paper_refs(value)
+    if source_refs:
+        if not _has_non_empty_refs(next_value, "evidence_refs"):
+            next_value["evidence_refs"] = [
+                evidence_id_for_paper_ref(ref) for ref in source_refs
+            ]
+        if not _has_non_empty_refs(next_value, "evidence_map_refs"):
+            next_value["evidence_map_refs"] = [
+                paper_unit_id_for_paper_ref(ref) for ref in source_refs
+            ]
+    return next_value
+
+
 def _has_any_text(value: object) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
@@ -476,6 +518,7 @@ def _require_route_timeline_depth(payload: dict) -> None:
 
 
 def validate_route_timeline_synthesis(conn, payload: dict, run_root: Path) -> dict:
+    payload = _inject_runtime_refs_from_source_papers(payload)
     taxonomy = _require_object(payload.get("taxonomy"), "taxonomy")
     taxonomy_summary = _require_object(taxonomy.get("summary"), "taxonomy.summary")
     if not _has_text(taxonomy_summary, "text", "analysis", "overview"):
@@ -588,6 +631,7 @@ def _validate_core_sections_depth(conn, payload: dict) -> None:
 
 
 def validate_core_analytical_sections(conn, payload: dict, run_root: Path) -> dict:
+    payload = _inject_runtime_refs_from_source_papers(payload)
     for key in ("claims", "debates", "gaps"):
         _require_list(payload.get(key), key)
     for key in ("comparison_matrix", "review_outline", "positioning"):
@@ -723,7 +767,20 @@ def _merge_prevalidated_sections(conn, run_root: Path, stage9_sections: dict, *,
     for section_name in CORE_SECTIONS:
         if section_name in core_sections:
             sections[section_name] = core_sections[section_name]
+    if "paper_evidence" not in sections:
+        sections["paper_evidence"] = derive_paper_evidence_section(conn)
+    if "evidence_map" not in sections:
+        sections["evidence_map"] = _runtime_evidence_map_section(conn)
     return sections
+
+
+def _runtime_evidence_map_section(conn) -> dict:
+    return {
+        "path": str(get_meta(conn, "cross_paper_evidence_map_path", "") or ""),
+        "hash": str(get_meta(conn, "cross_paper_evidence_map_hash", "") or ""),
+        "candidate_counts": get_meta(conn, "cross_paper_evidence_map_candidate_counts", {}),
+        "candidate_ids": sorted(_evidence_map_candidate_ids(conn)),
+    }
 
 
 def _materialize_section_files(run_root: Path, sections: dict) -> dict:
@@ -743,6 +800,7 @@ def persist_external_statistics_report_payload(
     operation: str,
     language: str,
 ) -> dict:
+    payload = _inject_runtime_refs_from_source_papers(payload)
     stage9_sections = _stage9_payload_sections(payload, operation=operation)
     sections = _merge_prevalidated_sections(conn, run_root, stage9_sections, operation=operation)
     sections = inject_section_digest_refs(conn, sections)
@@ -821,6 +879,7 @@ def _normalize_topic_interest_metadata(value: object, *, topic_definition: dict)
 
 
 def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
+    payload = _normalize_kg_proposals_payload(payload)
     if payload.get("schema_id") not in (None, "synthesis.topic_synthesis_kg_proposals"):
         raise ValueError("kg proposal payload schema_id must be synthesis.topic_synthesis_kg_proposals")
     if (
@@ -900,6 +959,27 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         "topic_interest_metadata_path": TOPIC_INTEREST_METADATA_PATH,
         "topic_interest_metadata_hash": topic_interest_metadata_hash,
     }
+
+
+def _normalize_kg_proposals_payload(payload: dict) -> dict:
+    if any(key in payload for key in ("concept_cards", "topic_relations", "topic_interest")):
+        diagnostics = payload.get("diagnostics", [])
+        if not isinstance(diagnostics, list):
+            diagnostics = [str(diagnostics)]
+        return {
+            "schema_id": payload.get("schema_id", "synthesis.topic_synthesis_kg_proposals"),
+            "schema_version": str(payload.get("schema_version") or "1.0.0"),
+            "concept_cards_proposal": {
+                "cards": payload.get("concept_cards", []),
+                "diagnostics": diagnostics,
+            },
+            "topic_graph_relation_proposals": {
+                "proposals": payload.get("topic_relations", []),
+                "diagnostics": diagnostics,
+            },
+            "topic_interest_metadata": payload.get("topic_interest", {}),
+        }
+    return payload
 
 
 def _require_registered_sidecar(conn, run_root: Path, relative_path: str, *, label: str) -> str:
@@ -1073,17 +1153,18 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "kind": "topic_synthesis",
         "operation": operation,
         "language": language,
-        "base_hashes": get_meta(
-            conn,
-            "base_hashes",
-            {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""},
-        ),
         "topic_definition": topic_definition,
         "resolver_manifest_path": resolver_manifest_path,
         "resolver_diagnostics": resolver_diagnostics,
         "artifact_metadata": artifact_metadata,
         "analysis_manifest_path": manifest_path,
     }
+    if operation == "update_full":
+        final["base_hashes"] = get_meta(
+            conn,
+            "base_hashes",
+            {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""},
+        )
     if operation == "update_patch":
         final["topic_id"] = (
             topic_definition.get("id") if isinstance(topic_definition, dict) else None
@@ -1243,6 +1324,13 @@ def main() -> None:
         if args.action == "export_cross_paper_context":
             result = export_cross_paper_context(conn, Path(args.run_root))
             set_stage_state(conn, "stage_6_cross_paper_map", "running")
+            print(json.dumps(stage_result(conn, args.action, {}, result), ensure_ascii=False, sort_keys=True))
+            return
+
+        if args.action == "derive_cross_paper_evidence_map":
+            result = derive_cross_paper_evidence_map(conn, run_root=args.run_root)
+            set_stage_state(conn, "stage_6_cross_paper_map", "completed")
+            set_stage_state(conn, "stage_7_route_timeline", "running")
             print(json.dumps(stage_result(conn, args.action, {}, result), ensure_ascii=False, sort_keys=True))
             return
 

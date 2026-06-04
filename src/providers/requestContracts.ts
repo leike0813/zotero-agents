@@ -97,6 +97,12 @@ function validateSkillRunnerJobPayload(request: unknown) {
   if (!isNonEmptyString(request.skill_id)) {
     return "payload.skill_id must be non-empty string";
   }
+  if (Object.prototype.hasOwnProperty.call(request, "skill_source")) {
+    const skillSource = String(request.skill_source || "").trim();
+    if (skillSource !== "local-package" && skillSource !== "installed") {
+      return "payload.skill_source must be local-package or installed when provided";
+    }
+  }
   if (!Object.prototype.hasOwnProperty.call(request, "upload_files")) {
     return null;
   }
@@ -134,7 +140,9 @@ function validateSkillRunnerJobPayload(request: unknown) {
     if (!Object.prototype.hasOwnProperty.call(request.input, key)) {
       return `payload.input.${key} must be declared for upload mapping`;
     }
-    const relativePath = String((request.input as Record<string, unknown>)[key] || "")
+    const relativePath = String(
+      (request.input as Record<string, unknown>)[key] || "",
+    )
       .trim()
       .replace(/\\/g, "/")
       .replace(/^\.\/+/, "");
@@ -241,7 +249,10 @@ function validateAcpSkillRunPayload(request: unknown) {
     if (typeof value !== "string") {
       continue;
     }
-    const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\/+/, "");
+    const normalized = value
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\.\/+/, "");
     if (
       normalized === "inputs" ||
       normalized.startsWith("inputs/") ||

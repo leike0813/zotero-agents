@@ -1245,6 +1245,71 @@ def _digest_ref_for_bundle(bundle: dict) -> dict | None:
     return None
 
 
+def _compact_evidence_summary(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = [_compact_evidence_summary(entry) for entry in value]
+        return "; ".join(part for part in parts if part)
+    if isinstance(value, dict):
+        parts = [_compact_evidence_summary(entry) for entry in value.values()]
+        return "; ".join(part for part in parts if part)
+    return str(value).strip() if value is not None else ""
+
+
+def _paper_evidence_summary(analysis: dict, paper_ref: str) -> str:
+    for key in (
+        "evidence_summary",
+        "findings",
+        "summary",
+        "research_problem",
+        "method_contribution",
+        "claim_support_candidates",
+    ):
+        summary = _compact_evidence_summary(analysis.get(key))
+        if summary:
+            return summary[:1200]
+    return f"Runtime-derived evidence entry for {paper_ref}; see validated paper_unit for detailed analysis."
+
+
+def derive_paper_evidence_section(conn: sqlite3.Connection) -> list[dict]:
+    workset_by_ref = {
+        str(row.get("paper_ref") or "").strip(): row
+        for row in paper_workset_values(conn)
+        if isinstance(row, dict)
+    }
+    analyses_by_ref = {
+        str(row.get("paper_ref") or "").strip(): row
+        for row in paper_analysis_values(conn)
+        if isinstance(row, dict)
+    }
+    bundles_by_ref = {
+        str(row.get("paper_ref") or "").strip(): row
+        for row in paper_artifact_bundle_values(conn)
+        if isinstance(row, dict)
+    }
+    refs = paper_refs(conn) or sorted(ref for ref in bundles_by_ref if ref)
+    rows: list[dict] = []
+    for paper_ref in refs:
+        bundle = bundles_by_ref.get(paper_ref, {})
+        digest_ref = _digest_ref_for_bundle(bundle)
+        if not digest_ref:
+            continue
+        analysis = analyses_by_ref.get(paper_ref, {"paper_ref": paper_ref})
+        title, year = _paper_title_year(workset_by_ref.get(paper_ref, {"paper_ref": paper_ref}))
+        row = {
+            "id": evidence_id_for_paper_ref(paper_ref),
+            "paper_ref": paper_ref,
+            "title": title or paper_ref,
+            "evidence_summary": _paper_evidence_summary(analysis, paper_ref),
+            "digest_ref": digest_ref,
+        }
+        if year:
+            row["year"] = year
+        rows.append(row)
+    return rows
+
+
 def evidence_id_for_paper_ref(paper_ref: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9]+", "_", str(paper_ref or "").strip()).strip("_").lower()
     return f"pe:{safe or 'unknown'}"
@@ -1613,6 +1678,70 @@ def persist_cross_paper_evidence_map(
         "candidate_ids": validated["candidate_ids"],
         "candidate_counts": validated["candidate_counts"],
     }
+
+
+def derive_cross_paper_evidence_map(
+    conn: sqlite3.Connection,
+    *,
+    run_root: str | Path = ".",
+) -> dict:
+    """Derive a minimal provenance map from validated paper units.
+
+    The derived map keeps the final artifact's evidence-map audit contract while
+    removing the need for agents to invent cross-step candidate ids.
+    """
+
+    refs = paper_refs(conn)
+    payload = {
+        "schema_id": "synthesis.cross_paper_evidence_map",
+        "schema_version": "1.0.0",
+        "evidence_limits": {
+            "known_paper_unit_refs": [paper_unit_id_for_paper_ref(ref) for ref in refs],
+            "caveat": "Runtime-derived provenance map from validated paper units.",
+        },
+        "taxonomy_candidates": [
+            {
+                "id": paper_unit_id_for_paper_ref(ref),
+                "label": ref,
+                "paper_unit_refs": [paper_unit_id_for_paper_ref(ref)],
+                "analysis": "Runtime-derived source-paper provenance candidate.",
+                "downstream_use": [
+                    "taxonomy",
+                    "timeline_events",
+                    "claims",
+                    "comparison_matrix",
+                    "debates",
+                    "gaps",
+                    "review_outline",
+                ],
+            }
+            for ref in refs
+        ],
+        "comparison_dimensions": [
+            {
+                "id": paper_unit_id_for_paper_ref(ref),
+                "label": ref,
+                "coverage_refs": [paper_unit_id_for_paper_ref(ref)],
+                "rationale": "Runtime-derived source-paper coverage candidate.",
+            }
+            for ref in refs
+        ],
+        "claim_candidates": [
+            {
+                "id": paper_unit_id_for_paper_ref(ref),
+                "supporting_paper_unit_refs": [paper_unit_id_for_paper_ref(ref)],
+                "claim": "Runtime-derived source-paper support candidate.",
+                "scope": "Provenance only; semantic claim text is authored in final sections.",
+                "limitations": "Derived candidate does not add semantic evidence beyond the paper unit.",
+            }
+            for ref in refs
+        ],
+        "debate_candidates": [],
+        "gap_candidates": [],
+        "review_outline_seeds": [],
+        "diagnostics": ["runtime_derived_cross_paper_evidence_map"],
+    }
+    return persist_cross_paper_evidence_map(conn, payload, run_root=run_root)
 
 
 def _evidence_map_candidate_ids(conn: sqlite3.Connection) -> set[str]:

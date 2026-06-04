@@ -564,7 +564,8 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "synthesis_report");
       assert.include(skillText, "语义目标");
       assert.include(skillText, "提供可组合证据");
-      assert.include(skillText, "候选证据网络");
+      assert.include(skillText, "候选 id 空间");
+      assert.include(skillText, "source_paper_refs");
       assert.include(skillText, "连续知识报告");
       assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
@@ -669,6 +670,24 @@ describe("Synthesize topic workflow contract", function () {
     assert.match(validation.errors.join("\n"), /must NOT be valid|markdown/i);
   });
 
+  it("rejects new create skill output that includes base_hashes", async function () {
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const entry = registry.entriesById["create-topic-synthesis"];
+    const validation = await validateAcpSkillFinalPayload({
+      payload: {
+        ...validSkillOutputBundle(),
+        base_hashes: {
+          manifest: "sha256:legacy-manifest",
+        },
+      },
+      runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
+      primarySkillDir: path.dirname(path.dirname(entry.runnerJsonPath)),
+    });
+
+    assert.isFalse(validation.ok);
+    assert.match(validation.errors.join("\n"), /base_hashes|must NOT be valid/i);
+  });
+
   it("accepts valid topic synthesis result bundles", function () {
     const result = validateSynthesisResultBundle(validBundle());
 
@@ -758,13 +777,6 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
     kind: "topic_synthesis",
     operation: "create",
     language: "zh-CN",
-    base_hashes: {
-      manifest: "",
-      artifact: "",
-      export: "",
-      metadata: "",
-      index: "",
-    },
     topic_definition: {
       id: "topic:object-detection",
       title: "Object Detection",
@@ -796,13 +808,6 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
     operation: "update_patch",
     topic_id: "object-detection",
     language: "zh-CN",
-    base_hashes: {
-      manifest: "sha256:manifest",
-      artifact: "sha256:artifact",
-      export: "sha256:export",
-      metadata: "sha256:metadata",
-      index: "sha256:index",
-    },
     read_section_hashes: {
       claims: "sha256:old-claims",
     },
@@ -833,16 +838,32 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
-  it("accepts create and full-update bundles with section manifests and no markdown preview dependency", function () {
+  it("accepts create and full-update bundles with operation-specific CAS contracts", function () {
     for (const operation of ["create", "update_full"] as const) {
       const result = validateSynthesisResultBundle(
         v2CompleteBundle({
           operation,
+          ...(operation === "update_full"
+            ? {
+                base_hashes: {
+                  manifest: "sha256:manifest",
+                  artifact: "sha256:artifact",
+                  export: "sha256:export",
+                  metadata: "sha256:metadata",
+                  index: "sha256:index",
+                },
+              }
+            : {}),
         }),
       );
 
       assert.isTrue(result.ok);
       assert.equal((result.bundle as any).operation, operation);
+      if (operation === "create") {
+        assert.notProperty(result.bundle, "base_hashes");
+      } else {
+        assert.property(result.bundle, "base_hashes");
+      }
       assert.equal(
         (result.bundle as any).analysis_manifest_path,
         "result/topic-analysis.json",
@@ -856,6 +877,33 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       assert.notProperty(result.bundle, "topic_resolver");
       assert.notProperty(result.bundle, "resolved_paper_set");
     }
+  });
+
+  it("tolerates legacy create base hashes but marks them ignored", function () {
+    const result = validateSynthesisResultBundle(
+      v2CompleteBundle({
+        base_hashes: {
+          manifest: "sha256:legacy-manifest",
+          artifact: "sha256:legacy-artifact",
+        },
+      }),
+    );
+
+    assert.isTrue(result.ok);
+    assert.notProperty(result.bundle, "base_hashes");
+    assert.equal(result.bundle.legacy_create_base_hashes_ignored, true);
+  });
+
+  it("requires base hashes for full updates", function () {
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle(
+          v2CompleteBundle({
+            operation: "update_full",
+          }),
+        ),
+      /base_hashes/i,
+    );
   });
 
   it("rejects create and full-update bundles that still depend on markdown_path", function () {

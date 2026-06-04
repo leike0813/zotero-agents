@@ -25,7 +25,7 @@
 
 ## 质量要求
 
-- claim 必须有 rationale/analysis、evidence_refs、evidence_map_refs、confidence 和 limitation。
+- claim 必须有 rationale/analysis、`source_paper_refs`、confidence 和 limitation；runtime 会补齐 `evidence_refs` 与 `evidence_map_refs`。
 - comparison matrix 必须按机制、瓶颈、评价场景、性能/效率权衡等可解释维度组织。
 - debates 必须说明争议双方、评价口径、证据状态和当前判断。
 - gaps 必须区分 research gap、library coverage gap、evidence gap、evaluation gap。
@@ -121,8 +121,7 @@ claim 要避免“某论文提出某方法”这种 paper-level fact。合格 cl
       "id": "claim:route-divergence-by-bottleneck",
       "text": "DETR-style object detection 的路线分化主要由训练稳定性、注意力计算和实时部署三个瓶颈驱动。",
       "analysis": "paper units 显示，denoising/dynamic query 工作集中处理 matching 稳定性，deformable/multi-scale attention 工作集中处理计算和小目标问题，real-time variants 则重新组织 encoder/decoder 以满足速度约束。",
-      "evidence_refs": ["pe:1_detr", "pe:1_deformable", "pe:1_rtdetr"],
-      "evidence_map_refs": ["claim:route-divergence-by-bottleneck"],
+      "source_paper_refs": ["1:detr", "1:deformable", "1:rtdetr"],
       "confidence": 0.82,
       "limitations": "对非 DETR 检测器的对照依赖外部文献，库内一手 digest 不足。"
     }
@@ -169,8 +168,7 @@ claim 要避免“某论文提出某方法”这种 paper-level fact。合格 cl
       "id": "claim:convergence-is-central",
       "text": "Convergence efficiency remains a central DETR-family design pressure.",
       "analysis": "Multiple routes modify query initialization, attention sparsity, or decoder training to reduce cost.",
-      "evidence_refs": ["pe:1:ABC12345"],
-      "evidence_map_refs": ["claim:detr-efficiency-remains-central"],
+      "source_paper_refs": ["1:ABC12345"],
       "confidence": "medium",
       "limitations": "Mostly supported by detection benchmarks."
     }

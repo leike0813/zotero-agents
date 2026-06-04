@@ -8,6 +8,7 @@ import {
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
 import { listActiveWorkflowTasks, listWorkflowTasks } from "./taskRuntime";
 import { listAcpSkillRuns } from "./acpSkillRunStore";
+import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
@@ -470,6 +471,31 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "debug.tasks.snapshot",
     "Return debug-only workflow task and ACP run diagnostics.",
     debugTasksSnapshot,
+  ),
+  debugCapability(
+    "debug.acpSkillRun.reapplyResult",
+    "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
+    (input) => {
+      const object = asObject(input);
+      return reapplyAcpSkillRunResult({
+        requestId: object.requestId as string | undefined,
+        runId: object.runId as string | undefined,
+        force: object.force === true,
+        persistResult: Object.prototype.hasOwnProperty.call(
+          object,
+          "persistResult",
+        )
+          ? object.persistResult !== false
+          : undefined,
+        resultJsonOverride: isPlainObject(object.resultJsonOverride)
+          ? object.resultJsonOverride
+          : undefined,
+        overrideMode:
+          object.overrideMode === "replace" || object.overrideMode === "merge"
+            ? object.overrideMode
+            : undefined,
+      });
+    },
   ),
   debugCapability(
     "debug.synthesis.snapshot",

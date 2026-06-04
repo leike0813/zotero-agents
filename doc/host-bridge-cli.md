@@ -14,10 +14,11 @@ Host Bridge CLI 是 ACP agent 访问 Zotero host 能力的默认路径。ACP run
 `zotero-bridge` CLI 可执行文件路径，使 agent 能通过普通命令行访问
 Zotero 的只读能力、workflow 控制、task 状态和已登记文件下载。
 
-MCP server/protocol 仍保留在代码中，但当前默认不作为 ACP host access
-路径启动、注入、preflight 或显示在正常状态面板中。MCP 仅作为显式兼容
-和开发诊断工具使用。Host Bridge CLI 不可用时，默认记录诊断并继续当前
-run 流程，不自动切换到显式 MCP 兼容路径。
+MCP server/protocol 作为面向第三方 Agent 的另一种 Host capability broker
+保留并默认启动。它使用与 Host Bridge CLI 相同的 bearer token 鉴权方式，
+并暴露与 Host Bridge capabilities 对等的工具语义。ACP skill run 内部的
+默认 host access 路径仍是 Host Bridge CLI；CLI 不可用时，默认记录诊断并
+继续当前 run 流程，不自动切换到显式 MCP 兼容路径。
 
 ## 2. 通信模型
 
@@ -557,6 +558,8 @@ Host Bridge JSON error。当前不支持任意 path 下载，也不支持由 cli
   Host Bridge。
 - 不把本地绝对路径作为公共 API 输入或输出。
 - 不依赖 MCP 作为默认 fallback。
+- MCP 工具名与 Host Bridge capability 名称保持对等，例如
+  `library.get_item_detail`、`diagnostic.get_status` 和 `synthesis.list_topics`。
 - `file download` 只能使用 broker-issued `fileId`。
 - workflow submit 必须使用显式 input，不能从当前 Zotero UI selection 推断。
 - 写操作必须等待 Zotero UI 审批，CLI 不能自动批准自己发起的操作。

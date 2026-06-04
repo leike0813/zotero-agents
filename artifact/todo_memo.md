@@ -80,12 +80,15 @@
 - [ ] 重新设计被暂时禁用的synthesis layer同步功能
 - [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
-- [x] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
+- [p] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
 - [x] 升级 host bridge cli 界面，将 synthesis 作为一等子命令
 - [x] 调试完毕后，彻底统一 host bridge cli 相关注入点（根据workflow声明，统一单点注入，不直接写SKILL；裸命令尽量实现，run-local shim做兜底），避免现在写得到处都是
 - [x] **Citation graph增强**，图论算法引入，更多分析维度和数据，最终用于增强synthesis质量
 - [x] 常见 ACP backend 的快捷添加
 - [x] acp skills执行过程中点取消会显示“File Closed”，意义不明。继续发指令后提示区一直卡在这个状态
+- [ ] canonical_merge 事件的额外选项（例如手动选择匹配目标）
+- [ ] Review 页面中的其他选项卡需要测试
+- [ ] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
 - [ ] **初次启动时的使用指导demo**
 - [x] **文献搜索入库 workflow**
 - [p] **文献综述撰写 workflow**

@@ -6,6 +6,13 @@ import type {
 } from "../contracts";
 import type { ProviderProgressEvent } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
+import {
+  createMultipartZipPayload,
+  createZipFromNamedFiles,
+  type MultipartZipPart,
+  type ZipFileEntry,
+} from "./zipTransport";
 import {
   isWaiting,
   normalizeStatus,
@@ -26,7 +33,10 @@ function ensureLeadingSlash(input: string) {
 }
 
 function interpolatePath(template: string, values: Record<string, string>) {
-  return template.replace(/\{([^}]+)\}/g, (_, key: string) => values[key] || "");
+  return template.replace(
+    /\{([^}]+)\}/g,
+    (_, key: string) => values[key] || "",
+  );
 }
 
 function resolveJsonPath(root: unknown, pathExpr: string) {
@@ -77,7 +87,9 @@ function toPositiveIntegerOption(value: unknown) {
 }
 
 function normalizeExecutionMode(value: unknown): "auto" | "interactive" {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   return normalized === "interactive" ? "interactive" : "auto";
 }
 
@@ -167,136 +179,6 @@ function resolveUploadEntriesFromRequest(request: SkillRunnerJobRequestV1) {
       path: localPath,
     };
   });
-}
-
-const CRC32_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) {
-      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-    }
-    table[i] = c >>> 0;
-  }
-  return table;
-})();
-
-function crc32(bytes: Uint8Array) {
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) {
-    const idx = (crc ^ bytes[i]) & 0xff;
-    crc = (CRC32_TABLE[idx] ^ (crc >>> 8)) >>> 0;
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function writeUint16LE(value: number, target: number[]) {
-  target.push(value & 0xff, (value >>> 8) & 0xff);
-}
-
-function writeUint32LE(value: number, target: number[]) {
-  target.push(
-    value & 0xff,
-    (value >>> 8) & 0xff,
-    (value >>> 16) & 0xff,
-    (value >>> 24) & 0xff,
-  );
-}
-
-function concatBytes(chunks: Uint8Array[]) {
-  const total = chunks.reduce((sum, entry) => sum + entry.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function utf8Bytes(input: string) {
-  return new TextEncoder().encode(input);
-}
-
-function createMultipartZipPayload(args: { zipBytes: Uint8Array; filename: string }) {
-  const boundary = `----zotero-skills-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  const start = utf8Bytes(
-    `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="${args.filename}"\r\n` +
-      `Content-Type: application/zip\r\n\r\n`,
-  );
-  const end = utf8Bytes(`\r\n--${boundary}--\r\n`);
-  return {
-    contentType: `multipart/form-data; boundary=${boundary}`,
-    body: concatBytes([start, args.zipBytes, end]),
-  };
-}
-
-function createZipFromNamedFiles(entries: Array<{ name: string; data: Uint8Array }>) {
-  const ZIP_UTF8_FILENAME_FLAG = 0x0800;
-  const localChunks: Uint8Array[] = [];
-  const centralChunks: Uint8Array[] = [];
-  let offset = 0;
-  for (const entry of entries) {
-    const nameBytes = utf8Bytes(entry.name);
-    const crc = crc32(entry.data);
-    const localHeader: number[] = [];
-    writeUint32LE(0x04034b50, localHeader);
-    writeUint16LE(20, localHeader);
-    writeUint16LE(ZIP_UTF8_FILENAME_FLAG, localHeader);
-    writeUint16LE(0, localHeader);
-    writeUint16LE(0, localHeader);
-    writeUint16LE(0, localHeader);
-    writeUint32LE(crc, localHeader);
-    writeUint32LE(entry.data.length, localHeader);
-    writeUint32LE(entry.data.length, localHeader);
-    writeUint16LE(nameBytes.length, localHeader);
-    writeUint16LE(0, localHeader);
-
-    const localBlock = concatBytes([
-      new Uint8Array(localHeader),
-      nameBytes,
-      entry.data,
-    ]);
-    localChunks.push(localBlock);
-
-    const centralHeader: number[] = [];
-    writeUint32LE(0x02014b50, centralHeader);
-    writeUint16LE(20, centralHeader);
-    writeUint16LE(20, centralHeader);
-    writeUint16LE(ZIP_UTF8_FILENAME_FLAG, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint32LE(crc, centralHeader);
-    writeUint32LE(entry.data.length, centralHeader);
-    writeUint32LE(entry.data.length, centralHeader);
-    writeUint16LE(nameBytes.length, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint16LE(0, centralHeader);
-    writeUint32LE(0, centralHeader);
-    writeUint32LE(offset, centralHeader);
-
-    const centralBlock = concatBytes([new Uint8Array(centralHeader), nameBytes]);
-    centralChunks.push(centralBlock);
-    offset += localBlock.length;
-  }
-
-  const centralData = concatBytes(centralChunks);
-  const localData = concatBytes(localChunks);
-  const eocd: number[] = [];
-  writeUint32LE(0x06054b50, eocd);
-  writeUint16LE(0, eocd);
-  writeUint16LE(0, eocd);
-  writeUint16LE(entries.length, eocd);
-  writeUint16LE(entries.length, eocd);
-  writeUint32LE(centralData.length, eocd);
-  writeUint32LE(localData.length, eocd);
-  writeUint16LE(0, eocd);
-
-  return concatBytes([localData, centralData, new Uint8Array(eocd)]);
 }
 
 async function readFileBytes(filePath: string) {
@@ -433,7 +315,15 @@ export class SkillRunnerClient {
     requestId: string,
   ) {
     const files = step.files || [];
-    const zipEntries: Array<{ name: string; data: Uint8Array }> = [];
+    const zipParts: MultipartZipPart[] = [];
+    if (step.skillPackage) {
+      zipParts.push({
+        fieldName: "skill_package",
+        filename: step.skillPackage.filename || "skill_package.zip",
+        zipBytes: step.skillPackage.zipBytes,
+      });
+    }
+    const zipEntries: ZipFileEntry[] = [];
     for (const file of files) {
       const bytes = await readFileBytes(file.path);
       zipEntries.push({
@@ -441,7 +331,16 @@ export class SkillRunnerClient {
         data: bytes,
       });
     }
-    const zipBytes = createZipFromNamedFiles(zipEntries);
+    if (zipEntries.length > 0) {
+      zipParts.push({
+        fieldName: "file",
+        filename: "inputs.zip",
+        zipBytes: createZipFromNamedFiles(zipEntries),
+      });
+    }
+    if (zipParts.length === 0) {
+      throw new Error("SkillRunner upload step requires at least one zip part");
+    }
     const runtime = globalThis as {
       FormData?: new () => {
         append: (name: string, value: unknown, filename?: string) => void;
@@ -452,19 +351,23 @@ export class SkillRunnerClient {
       ) => Blob;
     };
     const canUseNativeFormData =
-      typeof runtime.FormData === "function" && typeof runtime.Blob === "function";
+      typeof runtime.FormData === "function" &&
+      typeof runtime.Blob === "function";
 
     let body: BodyInit;
     let headers: Record<string, string> | undefined;
     if (canUseNativeFormData) {
       const form = new runtime.FormData!();
-      form.append("file", new runtime.Blob!([zipBytes]), "inputs.zip");
+      for (const part of zipParts) {
+        form.append(
+          part.fieldName,
+          new runtime.Blob!([part.zipBytes]),
+          part.filename,
+        );
+      }
       body = form as unknown as BodyInit;
     } else {
-      const multipart = createMultipartZipPayload({
-        zipBytes,
-        filename: "inputs.zip",
-      });
+      const multipart = createMultipartZipPayload(zipParts);
       headers = {
         "content-type": multipart.contentType,
       };
@@ -492,6 +395,7 @@ export class SkillRunnerClient {
       requestId,
       details: {
         multipart: true,
+        fields: zipParts.map((part) => part.fieldName),
       },
     });
     await readJsonOrThrow(response);
@@ -523,9 +427,12 @@ export class SkillRunnerClient {
         return body;
       }
       if (status === "failed" || status === "canceled") {
-        const normalizedRequestId = String(body.request_id || requestId || "").trim();
+        const normalizedRequestId = String(
+          body.request_id || requestId || "",
+        ).trim();
         const terminalStatus = String(status || "unknown").trim() || "unknown";
-        const terminalError = String(body.error || "").trim() || "unknown error";
+        const terminalError =
+          String(body.error || "").trim() || "unknown error";
         throw new Error(
           `SkillRunner job terminal failure: request_id=${normalizedRequestId}, status=${terminalStatus}, error=${terminalError}`,
         );
@@ -563,7 +470,9 @@ export class SkillRunnerClient {
     requestMethod: string;
     requestId: string;
   }) {
-    const path = interpolatePath(args.requestPath, { request_id: args.requestId });
+    const path = interpolatePath(args.requestPath, {
+      request_id: args.requestId,
+    });
     const url = this.buildUrl(path);
     const startedAt = Date.now();
     const response = await this.fetchImpl(url, {
@@ -702,10 +611,10 @@ export class SkillRunnerClient {
     );
   }
 
-  private toHttpStepsRequest(
+  private async toHttpStepsRequest(
     request: SkillRunnerJobRequestV1,
     providerOptions: Record<string, unknown>,
-  ): SkillRunnerHttpStepsRequest {
+  ): Promise<SkillRunnerHttpStepsRequest> {
     const engine = String(providerOptions.engine || "").trim();
     const providerId = String(
       providerOptions.provider_id || providerOptions.model_provider || "",
@@ -749,31 +658,42 @@ export class SkillRunnerClient {
     }
     const fetchType = request.fetch_type === "result" ? "result" : "bundle";
     const uploadFiles = resolveUploadEntriesFromRequest(request);
+    const skillSource =
+      request.skill_source === "installed" ? "installed" : "local-package";
+    const skillPackage =
+      skillSource === "local-package"
+        ? await buildSkillRunnerSkillPackageBundle({
+            skillId: request.skill_id,
+          })
+        : null;
+    const createJson = {
+      ...(skillSource === "installed"
+        ? { skill_id: request.skill_id }
+        : { skill_source: "temp_upload" }),
+      ...(engine ? { engine } : {}),
+      ...(providerId ? { provider_id: providerId } : {}),
+      ...(model ? { model } : {}),
+      effort,
+      ...(request.input ? { input: request.input } : {}),
+      parameter: request.parameter || {},
+      ...(Object.keys(runtimeOptions).length > 0
+        ? { runtime_options: runtimeOptions }
+        : {}),
+    };
     const steps: SkillRunnerHttpStepDefinition[] = [
       {
         id: "create",
         request: {
           method: "POST",
           path: "/v1/jobs",
-          json: {
-            skill_id: request.skill_id,
-            ...(engine ? { engine } : {}),
-            ...(providerId ? { provider_id: providerId } : {}),
-            ...(model ? { model } : {}),
-            effort,
-            ...(request.input ? { input: request.input } : {}),
-            parameter: request.parameter || {},
-            ...(Object.keys(runtimeOptions).length > 0
-              ? { runtime_options: runtimeOptions }
-              : {}),
-          },
+          json: createJson,
         },
         extract: {
           request_id: "$.request_id",
         },
       },
     ];
-    if (uploadFiles.length > 0) {
+    if (skillPackage || uploadFiles.length > 0) {
       steps.push({
         id: "upload",
         request: {
@@ -781,6 +701,14 @@ export class SkillRunnerClient {
           path: "/v1/jobs/{request_id}/upload",
           multipart: true,
         },
+        ...(skillPackage
+          ? {
+              skillPackage: {
+                filename: "skill_package.zip",
+                zipBytes: skillPackage.zipBytes,
+              },
+            }
+          : {}),
         files: uploadFiles,
       });
     }
@@ -836,7 +764,9 @@ export class SkillRunnerClient {
       throw new Error("http.steps request missing create/poll step");
     }
     if (!bundleStep && !resultStep) {
-      throw new Error("http.steps request missing terminal fetch step (bundle or result)");
+      throw new Error(
+        "http.steps request missing terminal fetch step (bundle or result)",
+      );
     }
 
     const requestId = await this.executeCreateStep(createStep);
@@ -875,7 +805,10 @@ export class SkillRunnerClient {
       onProgress?: (event: ProviderProgressEvent) => void;
     },
   ): Promise<ProviderExecutionResult> {
-    const httpStepsRequest = this.toHttpStepsRequest(request, providerOptions);
+    const httpStepsRequest = await this.toHttpStepsRequest(
+      request,
+      providerOptions,
+    );
     const executionMode = String(
       request.runtime_options?.execution_mode || "",
     ).trim();
@@ -892,7 +825,9 @@ export class SkillRunnerClient {
       throw new Error("http.steps request missing create/poll step");
     }
     if (!bundleStep && !resultStep) {
-      throw new Error("http.steps request missing terminal fetch step (bundle or result)");
+      throw new Error(
+        "http.steps request missing terminal fetch step (bundle or result)",
+      );
     }
 
     const requestId = await this.executeCreateStep(createStep);

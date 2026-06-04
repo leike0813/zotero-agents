@@ -67,13 +67,6 @@ update 的目标是在保持 current topic
   "operation": "update_patch",
   "topic_id": "object-detection",
   "language": "zh-CN",
-  "base_hashes": {
-    "manifest": "sha256:...",
-    "artifact": "sha256:...",
-    "export": "sha256:...",
-    "metadata": "sha256:...",
-    "index": "sha256:..."
-  },
   "read_section_hashes": {
     "claims": "sha256:..."
   },
@@ -113,6 +106,9 @@ update 的目标是在保持 current topic
   `{ topicId, mode: "update", includeArtifact: true, includeManifest: true }`。
 - `get_topic_context` 返回的 current hashes、section hashes、recommended_update、current artifact/manifest 是 update 的 base truth。
 - update 成功的最终响应只包含合法业务 JSON 对象。
+- `update_full` stdout 必须包含 `base_hashes`，host apply 用它校验 current manifest/artifact/export/metadata/hash 未变化。
+- `update_patch` stdout 必须包含 `read_section_hashes`，host apply 只校验补丁读取过的 sections；未读取 section 变化不阻断 patch。
+- `update_patch` stdout 不要求也不使用 `base_hashes`，但 resolver 仍必须运行，不能跳过 resolver 直接写 patch。
 - `update_full` 成功必须生成公开可消费产物：
   - `result/topic-analysis.json`
   - `result/result.json`
@@ -270,8 +266,8 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `run_root`：当前 ACP run workspace，脚本命令中使用 `.`。
 - `db`：`runtime/topic-synthesis.sqlite`。
 - `topic_context`：`./.zotero-bridge/bin/zotero-bridge synthesis get-topic-context --input ...` 返回的 current topic 上下文。
-- `base_hashes`：current hashes，是 conflict 检测真源。
-- `read_section_hashes`：update_patch 读取过的 section hash。
+- `base_hashes`：`update_full` 的 current hashes，是 full update conflict 检测真源。
+- `read_section_hashes`：`update_patch` 读取过的 section hash，是 patch conflict 检测真源。
 - `topic_definition`：包含 `id`、`title`、definition/scope 等 topic 定义。
 - `resolver`：可复现的 topic resolver。
 - `resolved_paper_set`：当前或重算后的库内论文集合。
@@ -279,14 +275,17 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `citation_graph_metrics`：图指标 receipt；只做辅助排序和诊断。
 - `filtered_artifact_manifest`：host 导出的 filtered digest/references/citation-analysis 文件清单。
 - `paper_unit`：单篇论文语义分析 JSON 行。
-- `cross_paper_evidence_map`：跨文献候选证据图。
-- `evidence_map_refs`：最终 claims、timeline、taxonomy、comparison、debates、gaps 追溯到 evidence map candidate 的引用。
+- `cross_paper_evidence_map`：runtime 维护的跨文献候选证据图；主路径不由 agent 手写。
+- `source_paper_refs`：agent 在 route/timeline/core/Stage 10 payload 中写的扁平论文来源引用；runtime 用它派生 `evidence_refs` 与 `evidence_map_refs`。
+- `evidence_refs`：runtime 根据 `source_paper_refs` 生成的 `paper_evidence` 引用。
+- `evidence_map_refs`：runtime 根据 `source_paper_refs` 生成的 evidence map candidate 引用。
 - `taxonomy`：研究路线分析 section。
 - `timeline_events`：历史沿革分析 section，必须是 `{summary, events}`。
-- `kg_proposals`：`persist_kg_proposals` 的组合 payload，包含 concept proposal、topic graph relation proposal 与 topic interest metadata。
-- `concept_cards_proposal`：agent-authored concept card proposal；只能描述待摄取概念、别名、定义、证据和 diagnostics，不写 canonical concept id。
-- `topic_interest_metadata`：agent-authored topic discovery metadata；用于后续发现和匹配，不进入正文 section。
-- `topic_graph_relation_proposals`：agent-authored topic graph relation proposal；只能使用允许的 relation proposal type，不写 canonical edge id。
+- `kg_proposals`：`persist_kg_proposals` 的组合 payload；主路径使用扁平 `concept_cards[]`、`topic_relations[]`、`topic_interest`、`diagnostics[]`。
+- `concept_cards`：agent-authored concept card proposal 数组；只能描述待摄取概念、别名、定义、证据和 diagnostics，不写 canonical concept id。
+- `topic_interest`：agent-authored topic discovery metadata；用于后续发现和匹配，不进入正文 section。
+- `topic_relations`：agent-authored topic graph relation proposal 数组；只能使用允许的 relation proposal type，不写 canonical edge id。
+- `concept_cards_proposal` / `topic_graph_relation_proposals`：runtime 物化的 sidecar schema fields；主路径不要求 agent 手写 nested wrapper。
 - `sidecars`：由 runtime 渲染进 final manifest 的 sidecar 索引；列出 topic interest metadata、concept proposal 与 relation proposal 的固定路径、hash、content type 和 schema id。
 - `result/sections/*.json`：最终 section 内容真源。
 - `analysis_manifest_path`：最终 topic-analysis manifest 或 patch manifest 路径。
@@ -315,8 +314,8 @@ Topic Synthesis 内容合同以 `references/topic_synthesis_content_contract.md`
 - `coverage_verdict`：`sufficient` / `partial` / `insufficient` / `severely_missing` / `unknown`。
 - `representative_references[].information_completeness`：`complete` / `partial` / `minimal` / `unknown`。
 - `suggested_additions[].priority`：`high` / `medium` / `low` / `unknown`。
-- `concept_cards_proposal.cards[].concept_type` 建议控制词表：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
-- `topic_graph_relation_proposals.proposals[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
+- `concept_cards[].concept_type` 建议控制词表：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
+- `topic_relations[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
 
 ## 最小执行主路径
 
@@ -542,7 +541,7 @@ payload 顶层必须是 `analyses[]`，不是 `paper_units[]`。每个 analysis 
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_paper_units --payload-file "runtime/payloads/paper-units-batch.json"
 ```
 
-### 6. `export_cross_paper_context` / `persist_cross_paper_evidence_map`
+### 6. `export_cross_paper_context` / `derive_cross_paper_evidence_map`
 
 脚本导出：
 
@@ -553,46 +552,16 @@ runtime/views/cross-paper-context.manifest.json
 runtime/views/cross-paper-evidence-index.json
 ```
 
-LLM 写：
+LLM 不写 `runtime/payloads/cross-paper-evidence-map.json`。runtime 会从已校验 paper units
+派生跨论文 evidence map、候选 ids 和最终 `evidence_map` section。后续 Stage 7/8/10
+payload 只需要在相关对象上写 `source_paper_refs`；runtime 会补齐 `evidence_refs` 与
+`evidence_map_refs`。
 
-```text
-runtime/payloads/cross-paper-evidence-map.json
-```
-
-Schema skeleton：
-
-```json
-{
-  "schema_id": "synthesis.cross_paper_evidence_map",
-  "schema_version": "1.0.0",
-  "evidence_limits": {},
-  "taxonomy_candidates": [],
-  "comparison_dimensions": [],
-  "claim_candidates": [],
-  "debate_candidates": [],
-  "gap_candidates": [],
-  "review_outline_seeds": [],
-  "diagnostics": []
-}
-```
-
-语义目标：把已校验 paper units 聚合成 taxonomy/claim/debate/gap/review seeds。
-本阶段产出候选证据网络，不写最终 section 正文。
-
-payload 必须包含：
-
-- `schema_id: "synthesis.cross_paper_evidence_map"` 与 `schema_version`。
-- `evidence_limits` 对象。
-- `taxonomy_candidates[]`，每项必须有 `id` 与 `paper_unit_refs[]`。
-- `comparison_dimensions[]`，每项必须有 `id` 与 `coverage_refs[]`。
-- `claim_candidates[]`，每项必须有 `id` 与 `supporting_paper_unit_refs[]`。
-- `debate_candidates[]`，每项必须有 `id` 与非空 `evidence_type`。
-- `gap_candidates[]`，其中 `gap_type` 只能是 `library_coverage_gap` / `evidence_gap` / `method_gap` / `evaluation_gap` / `review_gap`。
-- `review_outline_seeds[]` 与 `diagnostics[]`。
+语义目标：固定 paper-unit provenance 和候选 id 空间，避免 agent 手工维护跨步骤 evidence map。
 
 ```bash
 python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action export_cross_paper_context
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action persist_cross_paper_evidence_map --payload-file "runtime/payloads/cross-paper-evidence-map.json"
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action derive_cross_paper_evidence_map
 ```
 
 ### 7. `persist_route_timeline`
@@ -666,9 +635,9 @@ Schema skeleton：
 {
   "schema_id": "synthesis.topic_synthesis_kg_proposals",
   "schema_version": "1.0.0",
-  "concept_cards_proposal": { "cards": [], "diagnostics": [] },
-  "topic_graph_relation_proposals": { "proposals": [], "diagnostics": [] },
-  "topic_interest_metadata": {
+  "concept_cards": [],
+  "topic_relations": [],
+  "topic_interest": {
     "schema": "topic_interest_metadata.v1",
     "topic_id": "",
     "include_terms": [],
@@ -677,16 +646,17 @@ Schema skeleton：
     "exclude_terms": [],
     "seed_literature_item_ids": [],
     "diagnostics": []
-  }
+  },
+  "diagnostics": []
 }
 ```
 
-payload 必须包含 `concept_cards_proposal.cards[]`、`concept_cards_proposal.diagnostics[]`、
-`topic_graph_relation_proposals.proposals[]`、`topic_graph_relation_proposals.diagnostics[]`
-与 `topic_interest_metadata`。
+payload 主路径必须包含 `concept_cards[]`、`topic_relations[]`、`topic_interest`
+与 `diagnostics[]`。runtime 会归一化并物化 `concept_cards_proposal`、
+`topic_graph_relation_proposals` 与 `topic_interest_metadata` 三个 sidecar。
 relation proposal type 只允许 `broader_topic_candidate`、`related_topic_candidate`、
 `overlap_topic_candidate`、`contrast_topic_candidate`；concept card 只能描述 proposal，
-不能写 canonical concept id 或 canonical graph edge id。`topic_interest_metadata` 用于
+不能写 canonical concept id 或 canonical graph edge id。`topic_interest` 用于
 topic discovery metadata，不进入正文 section；字段细则见 `references/step_09_kg_proposals.md`。
 runtime 会校验并物化三个必交 sidecar：
 
@@ -719,12 +689,10 @@ Schema skeleton：
   "sections": {
     "topic": {},
     "summary": {},
-    "paper_evidence": [],
     "external_literature_analysis": {},
     "coverage": {},
     "statistics": {},
     "synthesis_report": { "title": "", "body": "" },
-    "evidence_map": {},
     "source_artifacts": [],
     "diagnostics": {}
   }
@@ -732,12 +700,12 @@ Schema skeleton：
 ```
 
 payload 顶层必须是 `sections` object。Full update 时只包含 Stage 10 首次生成的
-`topic`、`summary`、`paper_evidence`、`external_literature_analysis`、`coverage`、
-`statistics`、`synthesis_report`、`evidence_map`、`source_artifacts`、`diagnostics`。
+`topic`、`summary`、`external_literature_analysis`、`coverage`、
+`statistics`、`synthesis_report`、`source_artifacts`、`diagnostics`。
 Patch update 至少包含实际替换的 Stage 10 section。不要把前序已验证的
 `taxonomy`、`timeline_events`、`positioning`、`claims`、`comparison_matrix`、
 `debates`、`gaps`、`review_outline` 写入这个 payload；runtime 会保真合并 Stage 7/8
-已验证工件，并在 Stage 10 校验通过后物化 `result/sections/*.json`。
+已验证工件，派生 `paper_evidence` 与 `evidence_map`，并在 Stage 10 校验通过后物化 `result/sections/*.json`。
 其中 `synthesis_report` 必须是带 `title` 的连续报告正文，并覆盖 topic definition/scope、research routes、historical progression、core findings、comparison/debates、gaps/coverage、external literature/collection suggestion；深度在本 stage 首次校验。
 
 语义目标：external literature 判断库内覆盖相对 topic 应有范围的充分程度并给出入库建议；

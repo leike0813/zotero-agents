@@ -200,6 +200,13 @@ export type SynthesisApplyResult =
       topicId: string;
       mismatches: Array<{ name: string; base: string; current: string }>;
       conflictCandidate: SynthesisConflictCandidate;
+    }
+  | {
+      ok: false;
+      status: "topic_exists" | "duplicate_topic";
+      topicId: string;
+      reason: string;
+      warnings?: string[];
     };
 
 export type SynthesisMirrorRefreshResult = {
@@ -1382,9 +1389,10 @@ function filterTopicScopedConflicts(
 function topicIdFromBundle(bundle: SynthesisResultBundle) {
   const topicId =
     cleanString(bundle.topic_definition.id) ||
+    cleanString(bundle.topic_id) ||
     cleanString(bundle.artifact_metadata.topic_id);
   if (!topicId) {
-    throw new Error("topic synthesis bundle requires topic_definition.id");
+    throw new Error("topic synthesis bundle requires topic_definition.id or topic_id");
   }
   return topicId;
 }
@@ -9388,6 +9396,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         const pathId = topicPathId(topicId);
         const paths = buildSynthesisStoragePaths(root, pathId);
         const timestamp = now();
+        const legacyCreateBaseHashesWarning =
+          bundle.operation === "create" &&
+          bundle.legacy_create_base_hashes_ignored
+            ? ["create_base_hashes_ignored"]
+            : [];
+        if (bundle.operation === "create") {
+          const existingRows = await readIndexRows(root);
+          const existingRow = existingRows.find(
+            (entry) => entry.topic_id === topicId,
+          );
+          const topicExists =
+            Boolean(existingRow) ||
+            (await runtimePathExists(paths.currentManifest)) ||
+            (await runtimePathExists(paths.currentArtifact));
+          if (topicExists) {
+            return {
+              ok: false,
+              status: "topic_exists",
+              topicId,
+              reason: `topic already exists: ${topicId}`,
+              ...(legacyCreateBaseHashesWarning.length
+                ? { warnings: legacyCreateBaseHashesWarning }
+                : {}),
+            };
+          }
+        }
         const resolverManifest =
           bundle.operation === "update_patch"
             ? undefined
@@ -9624,7 +9658,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           coverage_summary: metadataData.coverage_summary,
         });
         await writeIndexRows(root, rows, timestamp);
-        const warnings: string[] = [];
+        const warnings: string[] = [...legacyCreateBaseHashesWarning];
         try {
           const conceptPayload = await readRunWorkspaceJsonWithFallbacks(
             context,

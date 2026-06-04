@@ -56,11 +56,7 @@ describe("provider/backend registry", function () {
   let prevEndpointPref: unknown;
 
   function setBackendsConfig(configValue: unknown) {
-    Zotero.Prefs.set(
-      backendsConfigPrefKey,
-      JSON.stringify(configValue),
-      true,
-    );
+    Zotero.Prefs.set(backendsConfigPrefKey, JSON.stringify(configValue), true);
   }
 
   function readPersistedBackendsConfig() {
@@ -121,8 +117,12 @@ describe("provider/backend registry", function () {
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
     assert.isAtLeast(loaded.backends.length, 2);
-    assert.isOk(loaded.backends.find((entry) => entry.id === "skillrunner-primary"));
-    assert.isOk(loaded.backends.find((entry) => entry.id === "generic-http-local"));
+    assert.isOk(
+      loaded.backends.find((entry) => entry.id === "skillrunner-primary"),
+    );
+    assert.isOk(
+      loaded.backends.find((entry) => entry.id === "generic-http-local"),
+    );
   });
 
   it("loads optional management_auth for skillrunner backend", async function () {
@@ -176,7 +176,9 @@ describe("provider/backend registry", function () {
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
     assert.lengthOf(loaded.backends, 2);
-    const matched = loaded.backends.find((entry) => entry.id === "acp-opencode-dev");
+    const matched = loaded.backends.find(
+      (entry) => entry.id === "acp-opencode-dev",
+    );
     assert.isOk(matched);
     assert.equal(matched?.type, "acp");
     assert.equal(matched?.baseUrl, "local://acp-opencode-dev");
@@ -217,7 +219,9 @@ describe("provider/backend registry", function () {
       loaded.backends.filter((entry) => entry.id === "acp-opencode"),
       1,
     );
-    const matched = loaded.backends.find((entry) => entry.id === "acp-opencode");
+    const matched = loaded.backends.find(
+      (entry) => entry.id === "acp-opencode",
+    );
     assert.isOk(matched);
     assert.equal(matched?.displayName, "Stale ACP");
     assert.equal(matched?.command, "opencode");
@@ -583,6 +587,76 @@ describe("provider/backend registry", function () {
     );
   });
 
+  it("validates optional skillrunner skill_source values", async function () {
+    const originalProvider = resolveProviderById("skillrunner");
+    const stubProvider: Provider = {
+      id: "skillrunner",
+      supports: ({ requestKind, backend }) =>
+        backend.type === "skillrunner" && requestKind === "skillrunner.job.v1",
+      execute: async () => ({
+        status: "succeeded",
+        requestId: "stub-skillrunner-source",
+        fetchType: "result",
+        resultJson: {},
+        responseJson: {},
+      }),
+    };
+    registerProvider(stubProvider);
+    const backend = {
+      id: "skillrunner-primary",
+      type: "skillrunner" as const,
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" as const },
+    };
+
+    try {
+      const localResult = await executeWithProvider({
+        requestKind: "skillrunner.job.v1",
+        backend,
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          skill_source: "local-package",
+        },
+      });
+      const installedResult = await executeWithProvider({
+        requestKind: "skillrunner.job.v1",
+        backend,
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          skill_source: "installed",
+        },
+      });
+
+      assert.equal(localResult.status, "succeeded");
+      assert.equal(installedResult.status, "succeeded");
+
+      let thrown: unknown = null;
+      try {
+        await executeWithProvider({
+          requestKind: "skillrunner.job.v1",
+          backend,
+          request: {
+            kind: "skillrunner.job.v1",
+            skill_id: "tag-regulator",
+            skill_source: "backend",
+          },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      assert.instanceOf(thrown, ProviderRequestContractError);
+      assert.match(
+        String((thrown as ProviderRequestContractError).detail || ""),
+        /skill_source/i,
+      );
+    } finally {
+      registerProvider(originalProvider);
+    }
+  });
+
   it("accepts skillrunner.job.v1 payload when inline input is primitive or array JSON", async function () {
     const originalProvider = resolveProviderById("skillrunner");
     let executeCalled = 0;
@@ -659,7 +733,9 @@ describe("provider/backend registry", function () {
           input: {
             metadata: { itemKey: "AAA111" },
           },
-          upload_files: [{ key: "valid_tags", path: "D:/fixtures/valid_tags.yaml" }],
+          upload_files: [
+            { key: "valid_tags", path: "D:/fixtures/valid_tags.yaml" },
+          ],
         },
       });
     } catch (error) {
@@ -794,11 +870,18 @@ describe("provider/backend registry", function () {
     });
 
     const backends = await listBackendsForWorkflow(workflow);
-    assert.sameMembers(Array.from(new Set(backends.map((entry) => entry.type))), [
-      "acp",
-    ]);
-    assert.include(backends.map((entry) => entry.id), "acp-local");
-    assert.notInclude(backends.map((entry) => entry.id), "skillrunner-primary");
+    assert.sameMembers(
+      Array.from(new Set(backends.map((entry) => entry.type))),
+      ["acp"],
+    );
+    assert.include(
+      backends.map((entry) => entry.id),
+      "acp-local",
+    );
+    assert.notInclude(
+      backends.map((entry) => entry.id),
+      "skillrunner-primary",
+    );
 
     let thrown: unknown;
     try {
@@ -839,10 +922,10 @@ describe("provider/backend registry", function () {
     });
 
     const backends = await listBackendsForWorkflow(workflow);
-    assert.sameMembers(Array.from(new Set(backends.map((entry) => entry.type))), [
-      "skillrunner",
-      "acp",
-    ]);
+    assert.sameMembers(
+      Array.from(new Set(backends.map((entry) => entry.type))),
+      ["skillrunner", "acp"],
+    );
 
     const skillrunnerBackend = await resolveBackendForWorkflow(workflow, {
       preferredBackendId: "skillrunner-primary",
@@ -909,7 +992,10 @@ describe("provider/backend registry", function () {
 
     assert.isNull(result.manifest);
     assert.equal(result.diagnostic?.category, "manifest_validation_error");
-    assert.include(String(result.diagnostic?.reason || ""), "supportedBackends");
+    assert.include(
+      String(result.diagnostic?.reason || ""),
+      "supportedBackends",
+    );
   });
 
   it("only disables workflows that bind to invalid backend entries", async function () {
@@ -1009,5 +1095,4 @@ describe("provider/backend registry", function () {
     assert.isOk(thrown);
     assert.match(String(thrown), /acp|global chat|workflow/i);
   });
-
 });

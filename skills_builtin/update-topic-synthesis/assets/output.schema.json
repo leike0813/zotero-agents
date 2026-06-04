@@ -47,7 +47,6 @@
         "kind",
         "operation",
         "language",
-        "base_hashes",
         "read_section_hashes",
         "artifact_metadata",
         "analysis_manifest_path"
@@ -56,7 +55,6 @@
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "update_patch" },
         "language": { "type": "string", "minLength": 1 },
-        "base_hashes": { "type": "object" },
         "read_section_hashes": { "type": "object" },
         "artifact_metadata": { "type": "object" },
         "analysis_manifest_path": { "type": "string", "minLength": 1 }

@@ -16,7 +16,11 @@ import type { WorkflowManifest, WorkflowRequestSpec } from "./types";
 type AttachmentLike = {
   filePath?: string | null;
   mimeType?: string | null;
-  parent?: { id?: number | null; title?: string; data?: { title?: string } } | null;
+  parent?: {
+    id?: number | null;
+    title?: string;
+    data?: { title?: string };
+  } | null;
   item?: {
     id?: number;
     key?: string;
@@ -32,13 +36,23 @@ type AttachmentLike = {
 type SelectionLike = {
   items?: {
     attachments?: AttachmentLike[];
-    parents?: Array<{ item?: { id?: number; title?: string; data?: { title?: string } } }>;
+    parents?: Array<{
+      item?: { id?: number; title?: string; data?: { title?: string } };
+    }>;
     children?: Array<{
-      parent?: { id?: number | null; title?: string; data?: { title?: string } } | null;
+      parent?: {
+        id?: number | null;
+        title?: string;
+        data?: { title?: string };
+      } | null;
       item?: { id?: number; title?: string; data?: { title?: string } };
     }>;
     notes?: Array<{
-      parent?: { id?: number | null; title?: string; data?: { title?: string } } | null;
+      parent?: {
+        id?: number | null;
+        title?: string;
+        data?: { title?: string };
+      } | null;
       item?: { id?: number; title?: string; data?: { title?: string } };
     }>;
   };
@@ -68,21 +82,15 @@ function resolveWorkflowParams(args: {
 }) {
   return {
     ...resolveDefaultWorkflowParams(args.manifest),
-    ...(
-      args.executionOptions?.workflowParams &&
-      isObject(args.executionOptions.workflowParams)
-        ? args.executionOptions.workflowParams
-        : {}
-    ),
+    ...(args.executionOptions?.workflowParams &&
+    isObject(args.executionOptions.workflowParams)
+      ? args.executionOptions.workflowParams
+      : {}),
   };
 }
 
 function getAttachmentMime(entry: AttachmentLike) {
-  return (
-    entry.mimeType ||
-    entry.item?.data?.contentType ||
-    ""
-  ).toLowerCase();
+  return (entry.mimeType || entry.item?.data?.contentType || "").toLowerCase();
 }
 
 function isMarkdownAttachment(entry: AttachmentLike) {
@@ -123,7 +131,9 @@ function resolveAttachmentBySelector(
   }
   const path = String(matched[0].filePath || "").trim();
   if (!path) {
-    throw new Error(`Selector ${selector} resolved attachment without filePath`);
+    throw new Error(
+      `Selector ${selector} resolved attachment without filePath`,
+    );
   }
   return path;
 }
@@ -226,8 +236,12 @@ function renderTaskNameTemplate(args: {
     workflowLabel: args.manifest.label,
     targetParentID: args.targetParentID || "",
     sourceAttachmentPath,
-    sourceAttachmentName: sourceAttachmentPath ? getBaseName(sourceAttachmentPath) : "",
-    sourceAttachmentStem: sourceAttachmentPath ? getFileStem(sourceAttachmentPath) : "",
+    sourceAttachmentName: sourceAttachmentPath
+      ? getBaseName(sourceAttachmentPath)
+      : "",
+    sourceAttachmentStem: sourceAttachmentPath
+      ? getFileStem(sourceAttachmentPath)
+      : "",
     ...args.workflowParams,
   };
   const normalizedValues = new Map<string, string>();
@@ -270,7 +284,9 @@ function normalizeUploadRelativePath(value: string) {
 }
 
 function sanitizeUploadPathSegment(value: string) {
-  const normalized = String(value || "").trim().replace(/[^A-Za-z0-9._-]+/g, "-");
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-");
   return normalized || "file";
 }
 
@@ -346,6 +362,9 @@ function buildSkillRunnerJobRequest(args: {
       `Workflow ${args.manifest.id} skillrunner.job.v1 requires request.create.skill_id`,
     );
   }
+  const declaredSkillSource = String(request.create?.skill_source || "").trim();
+  const skillSource =
+    declaredSkillSource === "installed" ? "installed" : "local-package";
   const attachments = resolveSelectionAttachments(args.selectionContext);
   const targetParentID = resolveDeclarativeTargetParentID(args);
   const declaredFiles = request.input?.upload?.files || [];
@@ -398,6 +417,7 @@ function buildSkillRunnerJobRequest(args: {
     taskName,
     sourceAttachmentPaths,
     skill_id: skillId,
+    skill_source: skillSource,
     ...(uploadFiles.length > 0 ? { upload_files: uploadFiles } : {}),
     parameter: workflowParams,
     ...(Object.keys(inlineInput).length > 0 ? { input: inlineInput } : {}),
@@ -432,7 +452,9 @@ function buildGenericHttpRequest(args: {
     };
   } | null;
   const http = requestSpec?.http || {};
-  const method = String(http.method || "").trim().toUpperCase();
+  const method = String(http.method || "")
+    .trim()
+    .toUpperCase();
   const path = String(http.path || "").trim();
   if (!method || !path) {
     throw new Error(
@@ -464,23 +486,22 @@ function buildGenericHttpRequest(args: {
         target_parent_id: targetParentID,
       }
     : {};
-  const payload =
-    isObject(http.json)
+  const payload = isObject(http.json)
+    ? {
+        ...sharedPayload,
+        ...targetParentPayload,
+        ...http.json,
+      }
+    : typeof http.json === "undefined"
       ? {
           ...sharedPayload,
           ...targetParentPayload,
-          ...http.json,
         }
-      : typeof http.json === "undefined"
-        ? {
-            ...sharedPayload,
-            ...targetParentPayload,
-          }
-        : {
-            ...sharedPayload,
-            ...targetParentPayload,
-            input: http.json,
-          };
+      : {
+          ...sharedPayload,
+          ...targetParentPayload,
+          input: http.json,
+        };
 
   const requestPayload: GenericHttpRequestV1 = {
     kind: "generic-http.request.v1",
@@ -609,7 +630,8 @@ function buildGenericHttpStepsRequest(args: {
     steps: declaredSteps as GenericHttpStepsRequestV1["steps"],
     poll: {
       interval_ms:
-        requestSpec?.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
+        requestSpec?.poll?.interval_ms ||
+        args.manifest.execution?.poll_interval_ms,
       timeout_ms:
         requestSpec?.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },

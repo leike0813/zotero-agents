@@ -1,5 +1,10 @@
 import { createWorkflowHostApi } from "../workflows/hostApi";
 import { buildMarkdownBackedNoteContent } from "./notePayloadCodec";
+import {
+  getHostBridgeCapability,
+  listHostBridgeCapabilities,
+  type HostBridgeCapabilityDefinition,
+} from "./hostBridgeCapabilityRegistry";
 import type {
   SynthesisMcpService,
   SynthesisMcpServiceMethod,
@@ -12,6 +17,10 @@ import {
 } from "./zoteroHostCapabilityBroker";
 import type { WorkflowHostApi } from "../workflows/types";
 import type { AcpHostContext } from "./acpTypes";
+import type {
+  HostBridgeApprovalRequirement,
+  HostBridgeStatusSnapshot,
+} from "./hostBridgeProtocol";
 import type {
   ZoteroHostAttachmentDto,
   ZoteroHostCollectionRefInput,
@@ -145,6 +154,7 @@ export type ZoteroMcpHandlerOptions = {
   resolveHostApi?: () => WorkflowHostApi;
   resolveSynthesisService?: () => SynthesisMcpService;
   resolveMcpStatus?: () => Record<string, unknown>;
+  resolveHostBridgeStatus?: () => HostBridgeStatusSnapshot;
   requestToolPermission?: (
     request: ZoteroMcpToolPermissionRequest,
   ) =>
@@ -2944,12 +2954,210 @@ const TOOL_REGISTRY: ToolDefinition[] = [
   },
 ];
 
-const TOOL_MAP = new Map(TOOL_REGISTRY.map((tool) => [tool.name, tool]));
 const ZOTERO_MCP_QUEUE_NOTICE =
-  " Zotero host calls are serialized by the embedded server; do not call zotero MCP tools concurrently. For library scans use list_library_items, and for large notes use get_note_detail chunks. After write tools, verify state with get_item_detail or list_library_items before retrying. If you receive zotero_mcp_queue_full, zotero_mcp_queue_timeout, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call get_mcp_status.";
+  " Zotero host calls are serialized by the embedded server; do not call Zotero MCP tools concurrently. MCP tools mirror Host Bridge capability names and return { capability, approval, data }. For library scans use library.list_items, and for large notes use library.get_note_detail chunks. After write tools, verify state before retrying. If you receive zotero_mcp_queue_full, zotero_mcp_queue_timeout, zotero_mcp_tool_timeout, or zotero_mcp_tool_circuit_open, wait and retry later or call diagnostic.get_status.";
+
+function openObjectSchema(
+  properties: Record<string, unknown> = {},
+  required: string[] = [],
+): JsonObjectSchema {
+  const schema: JsonObjectSchema = {
+    type: "object",
+    properties,
+    additionalProperties: true,
+  };
+  if (required.length > 0) {
+    schema.required = required;
+  }
+  return schema;
+}
+
+function mcpInputSchemaForCapability(
+  input: HostBridgeCapabilityDefinition["input"],
+): JsonObjectSchema {
+  switch (input.type) {
+    case "none":
+      return objectSchema();
+    case "item-ref":
+      return openObjectSchema({
+        ref: {
+          description:
+            'Item reference. Prefer {"key":"ABCD1234","libraryId":1} or {"id":123}.',
+        },
+        id: {
+          type: ["number", "string"],
+          description: "Zotero item or note id.",
+        },
+        key: {
+          type: "string",
+          description: "Zotero item or note key.",
+        },
+        libraryId: {
+          type: ["number", "string"],
+          description: "Zotero library id for key-based refs.",
+        },
+      });
+    case "mutation-preview":
+      return openObjectSchema({
+        operation: {
+          type: "string",
+          description: "Canonical Host Bridge mutation operation.",
+        },
+      });
+    case "object":
+    default:
+      return openObjectSchema();
+  }
+}
+
+function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
+  return listHostBridgeCapabilities().map((capability) => ({
+    name: capability.name,
+    title: capability.name,
+    description: capability.summary,
+    inputSchema: mcpInputSchemaForCapability(capability.input),
+    handler: async (args, context) =>
+      callHostBridgeCapabilityAsMcpTool(capability.name, args, context),
+  }));
+}
+
+function summarizeHostBridgeCapabilityResult(
+  capabilityName: string,
+  data: unknown,
+) {
+  if (capabilityName === "diagnostic.get_status" && isPlainObject(data)) {
+    return buildMcpStatusSummary(data);
+  }
+  const payload = isPlainObject(data) ? data : {};
+  const parts = [`${capabilityName} Host Bridge capability result.`];
+  for (const key of [
+    "status",
+    "state",
+    "summary",
+    "message",
+    "total",
+    "returned",
+    "hasMore",
+    "has_more",
+  ]) {
+    if (payload[key] !== undefined) {
+      parts.push(`${key}=${compactText(payload[key])}`);
+    }
+  }
+  if (Array.isArray(data)) {
+    parts.push(`items=${data.length}`);
+  }
+  if (Array.isArray(payload.items)) {
+    parts.push(`items=${payload.items.length}`);
+  }
+  if (Array.isArray(payload.rows)) {
+    parts.push(`rows=${payload.rows.length}`);
+  }
+  if (Array.isArray(payload.tasks)) {
+    parts.push(`tasks=${payload.tasks.length}`);
+  }
+  return parts.join(" ");
+}
+
+async function requestCapabilityApprovalForMcp(args: {
+  capability: HostBridgeCapabilityDefinition;
+  input: Record<string, unknown>;
+  context: ToolContext;
+}): Promise<HostBridgeApprovalRequirement | "denied" | "unavailable"> {
+  if (args.capability.approval === "none") {
+    return "none";
+  }
+  if (!args.context.options.requestToolPermission) {
+    return "unavailable";
+  }
+  const previewCapability = getHostBridgeCapability("mutation.preview");
+  const preview =
+    args.capability.name === "mutation.execute" && previewCapability
+      ? ((await previewCapability.handler(args.input, {
+          getStatus:
+            args.context.options.resolveHostBridgeStatus ||
+            (() =>
+              (args.context.options.resolveMcpStatus?.() ||
+                {}) as HostBridgeStatusSnapshot),
+        })) as ZoteroHostMutationPreviewResponse)
+      : ({
+          ok: true,
+          operation: args.capability.name,
+          summary: args.capability.summary,
+          targetRefs: [],
+        } as unknown as ZoteroHostMutationPreviewResponse);
+  if (preview && preview.ok === false) {
+    throw new ZoteroMcpToolInputError(
+      preview.summary || "Host Bridge mutation preview failed",
+      preview,
+    );
+  }
+  const decision = normalizePermissionDecision(
+    await args.context.options.requestToolPermission({
+      toolName: args.capability.name,
+      mutation: args.input as ZoteroHostMutationRequest,
+      preview,
+      summary: preview.summary || args.capability.summary,
+      requestedAt: new Date().toISOString(),
+    }),
+  );
+  return decision.outcome === "approved"
+    ? args.capability.approval
+    : decision.outcome;
+}
+
+async function callHostBridgeCapabilityAsMcpTool(
+  capabilityName: string,
+  input: Record<string, unknown>,
+  context: ToolContext,
+) {
+  const capability = getHostBridgeCapability(capabilityName);
+  if (!capability) {
+    throw new ZoteroMcpToolInputError(
+      `Host Bridge capability not found: ${capabilityName}`,
+      { capability: capabilityName },
+    );
+  }
+  const approval = await requestCapabilityApprovalForMcp({
+    capability,
+    input,
+    context,
+  });
+  if (approval === "denied" || approval === "unavailable") {
+    return buildToolResult({
+      tool: capability.name,
+      summary:
+        approval === "unavailable"
+          ? "Zotero-side approval is unavailable for this MCP capability."
+          : "Zotero-side approval was denied for this MCP capability.",
+      isError: true,
+      structuredContent: {
+        capability: capability.name,
+        approval,
+        data: null,
+      },
+    });
+  }
+  const data = await capability.handler(input, {
+    getStatus:
+      context.options.resolveHostBridgeStatus ||
+      (() =>
+        (context.options.resolveMcpStatus?.() ||
+          {}) as HostBridgeStatusSnapshot),
+  });
+  return buildToolResult({
+    tool: capability.name,
+    summary: summarizeHostBridgeCapabilityResult(capability.name, data),
+    structuredContent: {
+      capability: capability.name,
+      approval,
+      data,
+    },
+  });
+}
 
 export function listZoteroMcpTools() {
-  return TOOL_REGISTRY.map((tool) => ({
+  return listHostBridgeMcpToolDefinitions().map((tool) => ({
     name: tool.name,
     title: tool.title,
     description: `${tool.description}${ZOTERO_MCP_QUEUE_NOTICE}`,
@@ -3018,7 +3226,9 @@ export async function handleZoteroMcpJsonRpc(
         return null;
       }
       const toolName = resolveToolName(request.params);
-      const tool = TOOL_MAP.get(toolName);
+      const tool = listHostBridgeMcpToolDefinitions().find(
+        (entry) => entry.name === toolName,
+      );
       if (!tool) {
         return jsonRpcError(
           request.id ?? null,
@@ -3055,10 +3265,6 @@ export async function handleZoteroMcpJsonRpc(
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
-          hostContext:
-            toolName === ZOTERO_MCP_TOOL_GET_CURRENT_VIEW
-              ? (result.structuredContent.hostContext as AcpHostContext)
-              : undefined,
           result: result.structuredContent,
         });
         return {

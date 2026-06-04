@@ -20,6 +20,7 @@ pref("hostBridgeMasterTokenEncryptedJson", "");
 pref("hostBridgeMasterTokenMasked", "");
 pref("hostBridgeMasterTokenUpdatedAt", "");
 pref("hostBridgeMasterTokenKeyMaterial", "");
+pref("mcpServer.enabled", true);
 pref("synthesisGitSyncEnabled", false);
 pref("synthesisGitSyncRemoteUrl", "");
 pref("synthesisGitSyncBranch", "main");

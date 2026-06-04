@@ -230,6 +230,8 @@ export type FluentMessageId =
   | 'pref-host-bridge-rotate-token'
   | 'pref-host-bridge-show-endpoint'
   | 'pref-host-bridge-status-idle'
+  | 'pref-mcp-server-enabled'
+  | 'pref-mcp-server-status-idle'
   | 'pref-runtime-data-category-cleanup-confirm'
   | 'pref-runtime-data-cleaning'
   | 'pref-runtime-data-cleanup'

@@ -13,7 +13,6 @@
   "sections": {
     "topic": {},
     "summary": {},
-    "paper_evidence": [],
     "external_literature_analysis": {},
     "coverage": {},
     "statistics": {},
@@ -25,12 +24,14 @@
       },
       "body": ""
     },
-    "evidence_map": {},
     "source_artifacts": [],
     "diagnostics": {}
   }
 }
 ```
+
+`paper_evidence` 与 `evidence_map` 由 runtime 派生，不出现在 agent-authored Stage 10 payload 中。
+需要表达库内论文证据来源时，在对应对象上写 `source_paper_refs`。
 
 ## External Literature
 
@@ -118,12 +119,10 @@ runtime/payloads/external-statistics-report.json
   "sections": {
     "topic": {},
     "summary": {},
-    "paper_evidence": [],
     "external_literature_analysis": {},
     "coverage": {},
     "statistics": {},
     "synthesis_report": {},
-    "evidence_map": {},
     "source_artifacts": [],
     "diagnostics": {}
   }
@@ -132,7 +131,7 @@ runtime/payloads/external-statistics-report.json
 
 Stage 7 已验证 `taxonomy`、`timeline_events`；Stage 8 已验证 `positioning`、`claims`、
 `comparison_matrix`、`debates`、`gaps`、`review_outline`。这些 section 不应出现在
-Stage 10 payload 中，runtime 会从已登记工件中保真合并。
+Stage 10 payload 中，runtime 会从已登记工件中保真合并，并派生 `paper_evidence` 与 `evidence_map`。
 
 ## Report 写作建议
 

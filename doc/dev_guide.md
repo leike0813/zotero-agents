@@ -115,6 +115,22 @@ Provider runtime options：
 - workflow settings 可配置 persisted/run-once 两套参数
 - skillrunner 支持 `engine/model/no_cache`（model 随 engine 动态刷新）
 
+SkillRunner skill source：
+
+- `skillrunner.job.v1` 默认使用插件侧本地 skill 包路线：`request.create.skill_id`
+  用于解析 `skills/` / `skills_builtin/` 中的同名 skill，插件运行时将该 skill
+  目录打包上传给后端。
+- 默认路线按当前 `reference/Skill-Runner` 源码执行：先 `POST /v1/jobs`
+  且 create body 带 `skill_source="temp_upload"`、不带 `skill_id`，随后
+  `POST /v1/jobs/{request_id}/upload` 上传 multipart 字段 `skill_package`；
+  有输入文件时同一请求还会带字段 `file`。
+- 若 workflow 确实要调用后端已安装 skill，可声明
+  `request.create.skill_source="installed"`；此时 provider 保留旧行为，在
+  `/v1/jobs` create body 中发送 `skill_id`，且不上传 `skill_package`。
+- `reference/Skill-Runner/docs/api_reference.md` 中的 `/v1/temp-skill-runs`
+  文档路线与当前参考后端源码不一致；本项目执行链路以当前源码中的
+  `/v1/jobs + skill_source=temp_upload` 为准。
+
 ## 7. 执行链路
 
 1. 从当前选择构建 `SelectionContext`

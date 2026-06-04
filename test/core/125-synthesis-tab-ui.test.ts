@@ -962,8 +962,18 @@ describe("Synthesis tab UI model", function () {
             },
           },
           nodes: [
-            { id: "paper:a", label: "A", kind: "library_paper" },
-            { id: "ref:external:x", label: "X", kind: "external_reference" },
+            {
+              id: "paper:a",
+              label: "A",
+              kind: "library_paper",
+              metrics: { internal_in_degree: 3, internal_out_degree: 2 },
+            },
+            {
+              id: "ref:external:x",
+              label: "X",
+              kind: "external_reference",
+              metrics: { internal_in_degree: 1, internal_out_degree: 0 },
+            },
             {
               id: "ref:raw:y",
               label: "Y",
@@ -997,6 +1007,11 @@ describe("Synthesis tab UI model", function () {
     assert.deepEqual(
       snapshot.graph.visibleEdges.map((edge) => edge.id),
       ["e1"],
+    );
+    assert.deepEqual(
+      snapshot.graph.visibleNodes.find((node) => node.id === "paper:a")
+        ?.metrics,
+      { internal_in_degree: 3, internal_out_degree: 2 },
     );
     assert.equal(snapshot.graph.diagnostics.reference_stats.dropped_empty, 0);
   });
@@ -1342,6 +1357,22 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderEvidenceDrawer");
     assert.include(source, "renderTopicTimeline");
     assert.include(source, "timelineItems");
+    assert.include(source, "timelineInYearCoordinate");
+    assert.include(source, "(itemIndex + 1) / (total + 1)");
+    assert.include(source, "denseTimelineMarkerKeys");
+    assert.include(source, '"paper_year"');
+    assert.include(source, '"bibliographic"');
+    assert.include(source, 'label: ""');
+    assert.include(source, "return papers.map((evidence, index)");
+    assert.include(source, "eventReferencesEvidence(entry, evidence)");
+    assert.include(source, "timelineMarkerTitle(evidence, index, event)");
+    assert.include(source, "eventYear(event) || evidenceYear(evidence)");
+    assert.include(source, 'const kind: TimelineItem["kind"]');
+    assert.include(source, '? "event" : "paper"');
+    assert.notInclude(source, "usedEvents");
+    assert.notInclude(source, "matchedEvent");
+    assert.notInclude(source, "key: `event:");
+    assert.notInclude(source, "`Phase ${index + 1}`");
     assert.include(source, "renderDigestModal");
     assert.include(source, "openDigestModal");
     assert.include(source, "buildDigestOutline");
@@ -1867,6 +1898,10 @@ describe("Synthesis tab UI model", function () {
     );
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+    const uiModel = await fs.readFile(
+      "src/modules/synthesis/uiModel.ts",
+      "utf8",
+    );
     const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
 
     assert.include(index, "app.bundle.js");
@@ -1876,10 +1911,42 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
     assert.include(source, "function graphNodeSize");
+    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE = 5.8");
+    assert.include(source, "GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3.8");
+    assert.include(source, "GRAPH_LIBRARY_NODE_SIZE_CAP = 10.5");
+    assert.include(source, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 6.2");
+    assert.include(source, "function buildGraphNodeImportance");
+    assert.include(source, "function graphNodeIncomingDegree");
+    assert.include(source, "function fallbackGraphIncomingDegrees");
+    assert.include(source, "GRAPH_IMPORTANCE_HALO_TOP_RATIO");
+    assert.include(source, "GRAPH_IMPORTANCE_HALO_MAX");
+    assert.include(source, 'from "sigma/rendering"');
+    assert.include(source, "function drawGraphImportanceHalo");
+    assert.include(source, "function drawGraphNodeHover");
+    assert.include(source, "if (data.importanceHalo && !data.importanceInteractive)");
+    assert.include(source, "drawDiscNodeHover");
+    assert.include(source, "defaultDrawNodeHover: drawGraphNodeHover");
+    assert.include(source, "function graphNodeImportanceColor");
+    assert.include(source, "importanceInteractive");
+    assert.include(source, "activeHaloNode");
+    assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_DARK");
+    assert.include(source, "GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT");
+    assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK");
+    assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT");
+    assert.include(source, "importanceHalo");
+    assert.include(source, "highlighted: importance?.halo || false");
+    assert.include(source, "highlighted: Boolean(data.importanceHalo");
+    assert.include(source, '"incoming citations"');
     assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
     assert.include(source, "renderCitationGraphLegend");
+    assert.include(source, "Node size = incoming citations");
+    assert.include(source, "Halo = top cited visible nodes");
+    assert.include(uiModel, "metrics?: {");
+    assert.include(uiModel, "function normalizeGraphNodeMetrics");
+    assert.include(uiModel, "internal_in_degree");
+    assert.include(uiModel, "internal_out_degree");
     assert.include(source, "addHoverNeighborhood");
     assert.include(source, "scheduleHoverClear");
     assert.include(source, "cancelScheduledHoverClear");
@@ -1913,6 +1980,11 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "renderGraphSvg");
     assert.include(css, ".sigma-stage");
     assert.include(css, "height: 100%;");
+    assert.include(css, ".citation-graph-legend-node");
+    assert.include(css, ".citation-graph-legend-node.is-halo.is-library");
+    assert.include(css, ".citation-graph-legend-node.is-halo.is-external");
+    assert.include(css, "--citation-graph-library-halo:");
+    assert.include(css, "--citation-graph-external-halo:");
     assert.include(css, ".graph-control-drawer");
     assert.include(css, ".graph-control-drawer:hover");
     assert.include(css, ".graph-control-drawer:focus-within");

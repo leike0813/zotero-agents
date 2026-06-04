@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synthesis Skill 执行流程演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f4;
+      --panel: #ffffff;
+      --panel-2: #f9faf8;
+      --ink: #1d2525;
+      --muted: #5b6664;
+      --line: #d9dfdb;
+      --accent: #256f68;
+      --accent-2: #8a5a22;
+      --accent-3: #3f5f92;
+      --danger: #a23b3b;
+      --ok: #28704d;
+      --shadow: 0 14px 34px rgba(31, 42, 39, 0.09);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.48;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246, 247, 244, 0.94);
+      backdrop-filter: blur(10px);
+    }
+    .topbar {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 24px 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: end;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      letter-spacing: 0;
+      line-height: 1.15;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+      max-width: 980px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    button, input {
+      font: inherit;
+    }
+    .seg {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 4px;
+      display: inline-flex;
+      gap: 4px;
+      box-shadow: 0 2px 8px rgba(31, 42, 39, 0.04);
+    }
+    .seg button, .icon-btn {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .seg button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .icon-btn {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .icon-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #e7f1ee;
+    }
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 24px 36px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    aside, .content-panel, .card, .schema-block, .contract-block {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    aside {
+      position: sticky;
+      top: 96px;
+      max-height: calc(100vh - 120px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .side-head {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+    .search {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+    .timeline {
+      overflow: auto;
+      padding: 10px;
+    }
+    .stage-btn {
+      width: 100%;
+      border: 1px solid transparent;
+      background: transparent;
+      text-align: left;
+      padding: 10px 9px;
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 8px;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .stage-btn:hover { background: #f0f3ef; }
+    .stage-btn.active {
+      background: #e7f1ee;
+      border-color: #b8d8d1;
+    }
+    .stage-no {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      padding-top: 2px;
+    }
+    .stage-title {
+      font-weight: 650;
+      font-size: 14px;
+    }
+    .stage-action {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      margin-top: 3px;
+      overflow-wrap: anywhere;
+    }
+    .content-panel {
+      min-height: 690px;
+      overflow: hidden;
+    }
+    .section-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
+      overflow-x: auto;
+    }
+    .section-tabs button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      padding: 13px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .section-tabs button.active {
+      background: var(--panel);
+      color: var(--accent);
+      box-shadow: inset 0 -3px 0 var(--accent);
+    }
+    .view {
+      padding: 20px;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .card {
+      box-shadow: none;
+      padding: 16px;
+    }
+    .card h2, .card h3, .schema-block h3, .contract-block h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    .card p { margin: 0 0 10px; }
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .pill-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+    .pill.ok { color: var(--ok); border-color: #aacdbd; background: #eef7f2; }
+    .pill.warn { color: var(--accent-2); border-color: #dbc19c; background: #fff7e8; }
+    .pill.danger { color: var(--danger); border-color: #e4b4b4; background: #fff0ef; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .field-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .field {
+      border-left: 3px solid #b8d8d1;
+      background: #fbfcfb;
+      padding: 9px 10px;
+      border-radius: 0 6px 6px 0;
+    }
+    .field code, code {
+      font-family: var(--mono);
+      color: #214c72;
+      background: #eef3f6;
+      border-radius: 4px;
+      padding: 1px 4px;
+      overflow-wrap: anywhere;
+    }
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid #cfd8d3;
+      background: #17201f;
+      color: #eaf2ef;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+    .schema-block, .contract-block {
+      box-shadow: none;
+      margin-top: 14px;
+      overflow: hidden;
+    }
+    .schema-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      background: var(--panel-2);
+      border-bottom: 1px solid var(--line);
+    }
+    .schema-body { padding: 14px; }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      font-weight: 650;
+      color: var(--accent);
+      background: #f8faf8;
+    }
+    details > div { padding: 12px; border-top: 1px solid var(--line); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      padding: 9px 8px;
+    }
+    th {
+      background: #f3f5f3;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .callout {
+      border-left: 4px solid var(--accent-2);
+      background: #fff7e8;
+      padding: 12px 14px;
+      border-radius: 0 7px 7px 0;
+      margin-top: 14px;
+    }
+    .callout strong { color: #6d4317; }
+    .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+    .flow-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      min-height: 90px;
+    }
+    .flow-item b {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent-3);
+    }
+    .hidden { display: none !important; }
+    mark {
+      background: #ffe69a;
+      color: inherit;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    @media (max-width: 980px) {
+      .topbar { grid-template-columns: 1fr; }
+      .toolbar { justify-content: flex-start; }
+      main { grid-template-columns: 1fr; }
+      aside {
+        position: static;
+        max-height: 430px;
+      }
+      .hero-grid, .grid-2, .grid-3, .flow-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div>
+        <h1>Synthesis Skill 执行流程演示</h1>
+        <div class="subtitle">用于审阅 `create-topic-synthesis` 与 `update-topic-synthesis` 的当前执行合同：gate 主路径、agent-facing payload、runtime 派生职责、KG sidecar、Create/Update CAS 语义。内容基于当前仓库中的 SKILL.md、output.schema.json、kg_proposals.schema.json 和 gate/runtime 合同整理。</div>
+      </div>
+      <div class="toolbar" aria-label="视图控制">
+        <div class="seg" role="tablist" aria-label="Skill">
+          <button id="modeCreate" class="active" type="button">Create</button>
+          <button id="modeUpdate" type="button">Update</button>
+        </div>
+        <button class="icon-btn" id="expandAll" type="button">展开 schema</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <div class="side-head">
+        <input class="search" id="stageSearch" placeholder="搜索阶段、字段、action..." aria-label="搜索阶段">
+      </div>
+      <div class="timeline" id="timeline" aria-label="阶段列表"></div>
+    </aside>
+
+    <section class="content-panel">
+      <nav class="section-tabs" role="tablist">
+        <button class="active" data-view="flow" type="button">阶段审阅</button>
+        <button data-view="contract" type="button">CAS 合同</button>
+        <button data-view="schema" type="button">Schema 速查</button>
+        <button data-view="runtime" type="button">Runtime 派生</button>
+        <button data-view="gate" type="button">Gate 与错误</button>
+      </nav>
+      <div class="view" id="view"></div>
+    </section>
+  </main>
+
+  <script>
+    const sharedStages = [
+      {
+        no: 0,
+        stage: "stage_0_runtime_setup",
+        action: "confirm_runtime_setup",
+        title: "初始化运行时",
+        agent: "确认当前目录是 ACP run workspace，锁定 operation、language 和 run root。",
+        runtime: "初始化 runtime/topic-synthesis.sqlite，写入阶段状态、metadata 和 action receipt。",
+        reads: ["prompt payload", "current working directory"],
+        writes: ["runtime/topic-synthesis.sqlite"],
+        schema: "无 agent-authored 语义 payload；由 stage_runtime.py 固化 operation/language。",
+        notes: ["每次正式写入/校验后必须重新运行 gate。", "stage state 只允许 pending/running/completed/failed_retryable/failed_terminal/canceled。"]
+      },
+      {
+        no: 3,
+        stage: "stage_3_graph_metrics",
+        action: "persist_citation_graph_metrics",
+        title: "读取 citation graph metrics",
+        agent: "按 gate 给出的 paper_refs 批量调用 metrics，并保留 bridge 返回结果。",
+        runtime: "登记 metrics receipt；缺失、stale 或 empty 不阻断，但进入 diagnostics。",
+        reads: ["zotero-bridge synthesis get-citation-graph-metrics"],
+        writes: ["runtime/payloads/citation-graph-metrics-batch.json"],
+        schema: `{
+  "paper_refs": ["1:ABC"],
+  "result": { "ok": true, "items": [], "diagnostics": [] }
+}`,
+        notes: ["metrics 只能作为排序、role hints、coverage/gaps 和 external-heavy 诊断。", "不得把 PageRank、in-degree 等指标当作 claim 或 timeline evidence。"]
+      },
+      {
+        no: 4,
+        stage: "stage_4_evidence_collection",
+        action: "persist_filtered_artifact_manifest",
+        title: "导出 filtered paper artifacts",
+        agent: "调用 host artifact export，消费 host 写出的 manifest；不要手写 artifact manifest。",
+        runtime: "校验 digest/references/citation-analysis 的 bounded manifest，登记 content path/hash。",
+        reads: ["zotero-bridge synthesis export-filtered-paper-artifacts"],
+        writes: ["runtime/payloads/paper-artifacts-manifest.json", "filtered content files"],
+        schema: `{
+  "schema_id": "synthesis.filtered_artifact_manifest",
+  "papers": [
+    {
+      "paper_ref": "1:ABC",
+      "artifacts": [],
+      "payload_types_seen": []
+    }
+  ],
+  "diagnostics": []
+}`,
+        notes: ["artifact status: available / missing / decode_error / unsupported。", "缺 artifact 不是 blocker，但必须进入 diagnostics。"]
+      },
+      {
+        no: 5,
+        stage: "stage_5_paper_units",
+        action: "persist_paper_units",
+        title: "单篇 paper unit 分析",
+        agent: "读取 filtered content files，抽取每篇论文的可组合事实；此处只做单篇分析。",
+        runtime: "校验 analyses[]，注入 digest locator，拒绝缺 digest 时仍生成 claim/timeline candidates。",
+        reads: ["filtered digest/references/citation-analysis files", "paper workset"],
+        writes: ["runtime/payloads/paper-units-batch.json", "paper_analysis rows"],
+        schema: `{
+  "analyses": [
+    {
+      "paper_ref": "1:ABC",
+      "evidence_available": true,
+      "bibliographic": { "title": "", "year": 2026, "authors": [] },
+      "topic_relevance": { "level": "core", "reason": "" },
+      "research_problem": { "text": "", "scope": "" },
+      "method_contribution": {
+        "route": "",
+        "mechanism": "",
+        "claimed_advantage": "",
+        "target_bottleneck": ""
+      },
+      "evaluation_context": {
+        "datasets": [],
+        "metrics": [],
+        "baselines": [],
+        "setting": ""
+      },
+      "findings": [],
+      "limitations": [],
+      "missing_payloads": []
+    }
+  ]
+}`,
+        notes: ["顶层必须是 analyses[]，不是 paper_units[]。", "topic_relevance.level: core / related / peripheral / excluded。", "不要手写 digest_ref、digest_locator、payload_hash。"]
+      },
+      {
+        no: 6,
+        stage: "stage_6_cross_paper_map",
+        action: "export_cross_paper_context / derive_cross_paper_evidence_map",
+        title: "导出上下文并派生 evidence map",
+        agent: "读取 runtime views，后续阶段只在对象上写 source_paper_refs。",
+        runtime: "从已校验 paper units 派生 cross-paper evidence map、候选 id、paper_evidence 和 evidence_map 需要的 provenance。",
+        reads: ["runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md", "runtime/views/cross-paper-evidence-index.json"],
+        writes: ["runtime/views/cross-paper-context.manifest.json", "runtime/payloads/cross-paper-evidence-map.json"],
+        schema: `// agent 不再写 cross-paper-evidence-map.json
+// 后续语义对象只写:
+{
+  "source_paper_refs": ["1:ABC", "1:DEF"]
+}
+
+// runtime 派生:
+{
+  "evidence_refs": ["pe:..."],
+  "evidence_map_refs": ["evmap:..."]
+}`,
+        notes: ["cross_paper_evidence_map 是 runtime-maintained provenance，不由 agent 填写。", "这一步降低跨步骤 evidence_ref 约束。"]
+      },
+      {
+        no: 7,
+        stage: "stage_7_route_timeline",
+        action: "persist_route_timeline",
+        title: "研究路线与历史沿革",
+        agent: "写 taxonomy 与 timeline_events，解释路线分化、互补、融合和历史递进逻辑。",
+        runtime: "校验 route/timeline payload，并补齐 evidence_refs / evidence_map_refs。",
+        reads: ["references/step_07_taxonomy_timeline.md", "cross-paper context", "cross-paper evidence map"],
+        writes: ["runtime/payloads/route-timeline-synthesis.json"],
+        schema: `{
+  "taxonomy": {
+    "summary": {},
+    "nodes": [
+      {
+        "route_id": "",
+        "label": "",
+        "analysis": "",
+        "source_paper_refs": ["1:ABC"]
+      }
+    ]
+  },
+  "timeline_events": {
+    "summary": {},
+    "events": [
+      {
+        "year": 2020,
+        "event": "",
+        "analysis": "",
+        "source_paper_refs": ["1:ABC"]
+      }
+    ]
+  }
+}`,
+        notes: ["taxonomy 不是标签表。", "timeline_events 必须是 { summary, events }，不是数组。"]
+      },
+      {
+        no: 8,
+        stage: "stage_8_core_sections",
+        action: "persist_core_sections",
+        title: "核心综合 sections",
+        agent: "写 positioning、claims、comparison_matrix、debates、gaps、review_outline。",
+        runtime: "校验核心综合 section，并对带 source_paper_refs 的对象补齐 evidence refs。",
+        reads: ["references/step_08_core_sections.md", "validated route/timeline", "cross-paper context"],
+        writes: ["runtime/payloads/core-analytical-sections.json"],
+        schema: `{
+  "positioning": {},
+  "claims": [
+    {
+      "claim": "",
+      "rationale": "",
+      "confidence": "",
+      "source_paper_refs": ["1:ABC"],
+      "limitations": []
+    }
+  ],
+  "comparison_matrix": { "dimensions": [], "rows": [] },
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}`,
+        notes: ["claims 是 topic-level finding，不是单篇论文结论。", "final/core gaps 当前 runtime 接受 research_gap / library_coverage_gap / evidence_gap / evaluation_gap。"]
+      },
+      {
+        no: 9,
+        stage: "stage_9_kg_proposals",
+        action: "persist_kg_proposals",
+        title: "KG proposal sidecars",
+        agent: "主路径写扁平 concept_cards[]、topic_relations[]、topic_interest、diagnostics[]。",
+        runtime: "归一化并物化 concept-cards-proposal、topic-graph-relation-proposals、topic-interest-metadata 三个 sidecar。",
+        reads: ["references/step_09_kg_proposals.md", "validated route/timeline", "validated core sections", "cross-paper context"],
+        writes: ["runtime/payloads/kg-proposals.json", "result/sidecars/*.json"],
+        schema: `{
+  "schema_id": "synthesis.topic_synthesis_kg_proposals",
+  "schema_version": "1.0.0",
+  "concept_cards": [],
+  "topic_relations": [],
+  "topic_interest": {
+    "schema": "topic_interest_metadata.v1",
+    "topic_id": "",
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "seed_literature_item_ids": [],
+    "diagnostics": []
+  },
+  "diagnostics": []
+}`,
+        notes: ["concept_cards_proposal / topic_graph_relation_proposals 仍是主路径必交 sidecars，但 agent 不写 nested wrapper。", "没有可靠 proposal 时写空数组和 diagnostics，不能跳过。", "不得写 canonical concept id、canonical edge id、SQLite 或 Git sync metadata。"]
+      },
+      {
+        no: 10,
+        stage: "stage_10_external_statistics_report",
+        action: "persist_external_statistics_report",
+        title: "外部文献、统计与连续报告",
+        agent: "写 Stage 10 首次生成的 sections：topic、summary、external_literature_analysis、coverage、statistics、synthesis_report、source_artifacts、diagnostics。",
+        runtime: "保真合并 Stage 7/8 已验证工件，派生 paper_evidence 与 evidence_map，并物化 result/sections/*.json。",
+        reads: ["references/step_10_external_statistics_report.md", "all validated stage artifacts"],
+        writes: ["runtime/payloads/external-statistics-report.json", "result/sections/*.json"],
+        schema: `{
+  "sections": {
+    "topic": {},
+    "summary": {},
+    "external_literature_analysis": {},
+    "coverage": {},
+    "statistics": {},
+    "synthesis_report": { "title": "", "body": "" },
+    "source_artifacts": [],
+    "diagnostics": {}
+  }
+}`,
+        notes: ["不要在此 payload 重写 taxonomy、timeline_events、positioning、claims、comparison_matrix、debates、gaps、review_outline。", "不要写 paper_evidence 或 evidence_map；runtime 从 paper units 与 source_paper_refs 派生。"]
+      },
+      {
+        no: 11,
+        stage: "stage_11_render_and_validate",
+        action: "validate_final_artifacts",
+        title: "最终渲染与校验",
+        agent: "只运行 gate 返回命令；不得手写或改写 result/result.json。",
+        runtime: "校验完整 artifact schema、evidence closure、sidecar manifest，并生成 final business JSON。",
+        reads: ["result/sections/*.json", "paper_analysis rows", "artifact metadata"],
+        writes: ["result/topic-analysis.json 或 result/topic-analysis.patch.json", "result/sidecars/*.json", "result/result.json"],
+        schema: `// stdout 只输出 result/result.json 中的业务 JSON
+// 不追加 Markdown fence、解释或正文 markdown。`,
+        notes: ["Host apply 负责 canonical persistence 与导出渲染。", "final stdout 不逐一列 sidecar path；sidecars 由 analysis manifest 公开。"]
+      },
+      {
+        no: 12,
+        stage: "stage_12_completed",
+        action: "emit_final_json",
+        title: "输出最终 JSON",
+        agent: "读取 runtime 生成的 result/result.json 并作为最终响应输出。",
+        runtime: "已登记最终 artifact；此阶段不再生成语义内容。",
+        reads: ["result/result.json"],
+        writes: ["assistant final JSON only"],
+        schema: `Get-Content -Encoding UTF8 "result/result.json"`,
+        notes: ["最终响应必须是合法业务 JSON 对象。"]
+      }
+    ];
+
+    const createSpecific = [
+      {
+        no: 1,
+        stage: "stage_1_topic_context",
+        action: "persist_topic_context",
+        title: "定义 topic 并检查重复",
+        agent: "调用 list-topics，基于 title/description/aliases 做语义重复检查；把 topicSeed 转成稳定 topic_definition。",
+        runtime: "校验 topic_definition.id/title 与 duplicate_check，登记 topic intent。",
+        reads: ["topicSeed", "language", "zotero-bridge synthesis list-topics"],
+        writes: ["runtime/payloads/topic-context.json"],
+        schema: `{
+  "topic_definition": {
+    "id": "stable-topic-id",
+    "title": "Topic Title",
+    "aliases": [],
+    "scope_boundary": { "include": [], "exclude": [] }
+  },
+  "duplicate_check": { "candidates": [], "decision": "none" },
+  "diagnostics": []
+}`,
+        notes: ["create 的并发保护不是 base hash，而是 host apply 时目标 topic 不存在。", "疑似重复时走 ACP interactive confirmation；用户取消则输出 topic_synthesis_canceled。"]
+      },
+      {
+        no: 2,
+        stage: "stage_2_resolver_and_workset",
+        action: "persist_library_index_page / persist_resolver",
+        title: "读取库索引并解析 workset",
+        agent: "分页读取完整 library index，设计可复现 resolver，并调用 resolve-resolver。",
+        runtime: "从 resolver result 派生 paper workset，保存 resolver diagnostics。",
+        reads: ["zotero-bridge synthesis get-library-index", "zotero-bridge synthesis resolve-resolver"],
+        writes: ["runtime/payloads/library-index-page-*.json", "runtime/payloads/resolver.json"],
+        schema: `{
+  "schema_id": "synthesis.topic_resolver_manifest",
+  "schema_version": "1.0.0",
+  "topic_resolver": { "queries": [], "include": [], "exclude": [] },
+  "resolved_paper_set": { "papers": [] },
+  "resolver_diagnostics": {}
+}`,
+        notes: ["每页 library index payload 必须包含 papers[]、cursor、next_cursor、has_more、index_hash。", "resolver 不能只写“相关论文若干”；include/exclude 必须匹配 topic 边界。"]
+      }
+    ];
+
+    const updateSpecific = [
+      {
+        no: 1,
+        stage: "stage_1_topic_context",
+        action: "persist_topic_context",
+        title: "读取 current topic context",
+        agent: "调用 get-topic-context，读取 current artifact、manifest、hashes、section_hashes 和 recommended_update。",
+        runtime: "登记 topic_definition、current_hashes、section_hashes、recommended_update，作为 full/patch 决策真源。",
+        reads: ["zotero-bridge synthesis get-topic-context"],
+        writes: ["runtime/payloads/topic-context.json"],
+        schema: `{
+  "topic_definition": {
+    "id": "existing-topic-id",
+    "title": "Topic Title",
+    "aliases": [],
+    "scope_boundary": { "include": [], "exclude": [] }
+  },
+  "current_hashes": {},
+  "section_hashes": {},
+  "recommended_update": {},
+  "diagnostics": []
+}`,
+        notes: ["get-topic-context input mode 只允许 update。", "current hashes 和 section hashes 是 update 的 base truth。"]
+      },
+      {
+        no: 2,
+        stage: "stage_2_resolver_and_workset",
+        action: "persist_library_index_page / persist_resolver",
+        title: "复核或重建 resolver",
+        agent: "根据 recommended_update 判断沿用 current resolver/paper set，或重新读取 library index 并 resolve。",
+        runtime: "派生 paper workset；记录沿用、替换或排除 paper 的 diagnostics。",
+        reads: ["current topic context", "zotero-bridge synthesis resolve-resolver"],
+        writes: ["runtime/payloads/resolver.json", "必要时 runtime/payloads/library-index-page-*.json"],
+        schema: `{
+  "schema_id": "synthesis.topic_resolver_manifest",
+  "schema_version": "1.0.0",
+  "topic_resolver": { "queries": [], "include": [], "exclude": [] },
+  "resolved_paper_set": { "papers": [] },
+  "resolver_diagnostics": {}
+}`,
+        notes: ["update_patch 不能跳过 resolver。", "patch 模式不得静默改变 paper set；重大 schema/language/resolver/paper set 变化必须转 update_full。"]
+      }
+    ];
+
+    const outputSchemas = {
+      create: `{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "detr-style-object-detection",
+    "title": "DETR-style Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": { "final_count": 21, "warnings": [] },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json"
+}
+
+// schema 约束：
+// - required: kind, operation, language, topic_definition,
+//   resolver_manifest_path, resolver_diagnostics,
+//   artifact_metadata, analysis_manifest_path
+// - operation const: create
+// - not required: base_hashes
+// - final JSON 不得含 markdown / markdown_path`,
+      updateFull: `{
+  "kind": "topic_synthesis",
+  "operation": "update_full",
+  "language": "zh-CN",
+  "base_hashes": {
+    "manifest": "sha256:...",
+    "artifact": "sha256:...",
+    "export": "sha256:...",
+    "metadata": "sha256:...",
+    "index": "sha256:..."
+  },
+  "topic_definition": { "id": "object-detection", "title": "Object Detection" },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": { "final_count": 21, "warnings": [] },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json"
+}`,
+      updatePatch: `{
+  "kind": "topic_synthesis",
+  "operation": "update_patch",
+  "language": "zh-CN",
+  "read_section_hashes": {
+    "claims": "sha256:..."
+  },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.patch.json"
+}
+
+// schema 约束：
+// - update_patch required read_section_hashes
+// - update_patch 不要求也不使用 base_hashes
+// - patch mode 是 section_replace；只替换 changed sections`,
+      canceled: `{
+  "kind": "topic_synthesis_canceled",
+  "status": "canceled",
+  "reason": "required_zotero_bridge_call_unavailable",
+  "message": "Required zotero-bridge synthesis command is unavailable."
+}`
+    };
+
+    const fieldSemantics = [
+      ["operation", "区分 create / update_full / update_patch。create skill 只允许 create；update skill 只允许 update_full 或 update_patch。"],
+      ["base_hashes", "仅属于 update_full。agent 基于旧 manifest/artifact/export/metadata/hash 生成 full result，host apply 必须确认当前状态未变化。"],
+      ["read_section_hashes", "仅属于 update_patch。表示 patch 生成过程中读取过的 sections，host apply 只校验这些 section 未变化。"],
+      ["topic_definition.id", "create 的目标 topic id，也是 host apply 检查目标不存在的对象。update 中必须匹配 current topic。"],
+      ["source_paper_refs", "agent-facing 扁平证据来源字段；runtime 用它派生 evidence_refs 与 evidence_map_refs。"],
+      ["cross_paper_evidence_map", "runtime 维护的 provenance map，不再由 agent 手写。"],
+      ["concept_cards", "agent-authored concept proposal 数组；描述待摄取概念，不写 canonical concept id。"],
+      ["topic_relations", "agent-authored topic relation proposal 数组；只写候选关系，不写 canonical edge id。"],
+      ["topic_interest", "topic discovery metadata；进入 sidecar，不进入正文 section。"],
+      ["diagnostics", "结构化说明不确定性、空数组原因、缺 artifact、覆盖 caveat 或 repair 信息。"]
+    ];
+
+    const enumRows = [
+      ["stage state", "pending / running / completed / failed_retryable / failed_terminal / canceled"],
+      ["artifact_type", "digest / references / citation_analysis"],
+      ["payload_type", "digest-markdown / references-json / citation-analysis-json"],
+      ["artifact status", "available / missing / decode_error / unsupported"],
+      ["paper_unit.topic_relevance.level", "core / related / peripheral / excluded"],
+      ["topic.topic_granularity", "method_family / task / problem / application_scenario / theory_concept / mechanism / dataset_or_benchmark / mixed"],
+      ["coverage_verdict", "sufficient / partial / insufficient / severely_missing / unknown"],
+      ["gaps[].severity", "low / medium / high / critical / unknown"],
+      ["Final/core gaps[].gap_type", "research_gap / library_coverage_gap / evidence_gap / evaluation_gap"],
+      ["concept_cards[].concept_type", "method_family / mechanism / task / benchmark / dataset / evaluation_axis / training_signal / theoretical_construct"],
+      ["topic_relations[].proposal_type", "broader_topic_candidate / related_topic_candidate / overlap_topic_candidate / contrast_topic_candidate"],
+      ["update patch manifest", "patch.mode = section_replace；patch.unchanged_section_policy = inherit_current"]
+    ];
+
+    let mode = "create";
+    let activeStage = 0;
+    let activeView = "flow";
+    let query = "";
+
+    function stagesForMode() {
+      const specific = mode === "create" ? createSpecific : updateSpecific;
+      const merged = [...specific, ...sharedStages].sort((a, b) => a.no - b.no);
+      return merged;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function highlight(value) {
+      const text = escapeHtml(value);
+      if (!query.trim()) return text;
+      const q = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return text.replace(new RegExp(q, "gi"), (m) => `<mark>${m}</mark>`);
+    }
+
+    function renderTimeline() {
+      const root = document.getElementById("timeline");
+      const stages = stagesForMode();
+      root.innerHTML = "";
+      for (const stage of stages) {
+        const haystack = [stage.stage, stage.action, stage.title, stage.agent, stage.runtime, stage.schema, ...(stage.notes || [])].join(" ").toLowerCase();
+        if (query && !haystack.includes(query.toLowerCase())) continue;
+        const btn = document.createElement("button");
+        btn.className = "stage-btn" + (stage.no === activeStage ? " active" : "");
+        btn.type = "button";
+        btn.innerHTML = `
+          <div class="stage-no">${String(stage.no).padStart(2, "0")}</div>
+          <div>
+            <div class="stage-title">${highlight(stage.title)}</div>
+            <div class="stage-action">${highlight(stage.action)}</div>
+          </div>
+        `;
+        btn.addEventListener("click", () => {
+          activeStage = stage.no;
+          activeView = "flow";
+          syncTabs();
+          render();
+        });
+        root.appendChild(btn);
+      }
+    }
+
+    function renderFlow() {
+      const stage = stagesForMode().find((item) => item.no === activeStage) || stagesForMode()[0];
+      return `
+        <div class="hero-grid">
+          <div class="card">
+            <h2>${stage.no}. ${highlight(stage.title)}</h2>
+            <p class="small"><code>${highlight(stage.stage)}</code> / <code>${highlight(stage.action)}</code></p>
+            <div class="pill-row">
+              <span class="pill ok">Gate next_action</span>
+              <span class="pill">${mode}</span>
+              ${stage.no === 6 ? '<span class="pill warn">runtime-maintained evidence map</span>' : ""}
+              ${stage.no === 9 ? '<span class="pill warn">KG sidecars required</span>' : ""}
+            </div>
+          </div>
+          <div class="card">
+            <h3>审阅重点</h3>
+            <p>${highlight(stage.notes?.[0] || "确认字段语义、读写边界和 runtime/agent 职责是否匹配当前合同。")}</p>
+            <p class="small">${highlight(stage.notes?.slice(1).join(" ") || "")}</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Agent 职责</h3>
+            <p>${highlight(stage.agent)}</p>
+            <div class="field-list">${stage.reads.map((item) => `<div class="field"><code>read</code> ${highlight(item)}</div>`).join("")}</div>
+          </div>
+          <div class="card">
+            <h3>Runtime / Host 职责</h3>
+            <p>${highlight(stage.runtime)}</p>
+            <div class="field-list">${stage.writes.map((item) => `<div class="field"><code>write</code> ${highlight(item)}</div>`).join("")}</div>
+          </div>
+        </div>
+        <div class="schema-block">
+          <div class="schema-head">
+            <h3>Payload / Schema Skeleton</h3>
+            <span class="small">以 agent-facing 字段为主，runtime 派生字段单独标注</span>
+          </div>
+          <div class="schema-body"><pre>${escapeHtml(stage.schema)}</pre></div>
+        </div>
+      `;
+    }
+
+    function renderContract() {
+      return `
+        <div class="hero-grid">
+          <div class="card">
+            <h2>Create / Update CAS 语义分裂</h2>
+            <p>Create 不再复用 update 的 CAS 模型。create 只校验目标 topic 当前不存在；update_full 用 base_hashes 防覆盖；update_patch 用 read_section_hashes 做 section-level CAS。</p>
+            <div class="pill-row">
+              <span class="pill ok">create: topic absence</span>
+              <span class="pill warn">update_full: base_hashes</span>
+              <span class="pill warn">update_patch: read_section_hashes</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Legacy create 兼容</h3>
+            <p>旧 create bundle 如果带非空 <code>base_hashes</code>，host apply 忽略这些 hash 并记录 <code>create_base_hashes_ignored</code> warning；只要目标 topic 不存在就允许 apply。</p>
+            <p class="small">如果目标 topic 已存在，即使 legacy hash 匹配，也拒绝 create，返回 <code>topic_exists</code> 或 <code>duplicate_topic</code>，不得转入 update。</p>
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="contract-block">
+            <div class="schema-head"><h3>Create</h3><span class="pill ok">absence check</span></div>
+            <div class="schema-body">
+              <p>成功 stdout 禁止 <code>base_hashes</code>。host apply 只检查 <code>topic_definition.id</code> 当前不存在。</p>
+              <pre>${escapeHtml(outputSchemas.create)}</pre>
+            </div>
+          </div>
+          <div class="contract-block">
+            <div class="schema-head"><h3>Update Full</h3><span class="pill warn">full CAS</span></div>
+            <div class="schema-body">
+              <p>必须包含 <code>base_hashes</code>，用于确认 current manifest/artifact/export/metadata/hash 未变化。</p>
+              <pre>${escapeHtml(outputSchemas.updateFull)}</pre>
+            </div>
+          </div>
+          <div class="contract-block">
+            <div class="schema-head"><h3>Update Patch</h3><span class="pill warn">section CAS</span></div>
+            <div class="schema-body">
+              <p>必须包含 <code>read_section_hashes</code>。未读取 section 的变化不阻断 patch。</p>
+              <pre>${escapeHtml(outputSchemas.updatePatch)}</pre>
+            </div>
+          </div>
+        </div>
+        <div class="callout"><strong>关键约束：</strong>update_patch 仍必须运行 resolver；不能跳过 resolver 直接写 patch。patch 只能替换 changed sections，重大 schema/language/resolver/paper set 变化应转为 update_full。</div>
+      `;
+    }
+
+    function renderSchema() {
+      return `
+        <div class="grid-2">
+          <div class="card">
+            <h2>字段语义速查</h2>
+            <table>
+              <thead><tr><th>字段</th><th>语义</th></tr></thead>
+              <tbody>${fieldSemantics.map(([field, meaning]) => `<tr><td><code>${field}</code></td><td>${meaning}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h2>枚举值速查</h2>
+            <table>
+              <thead><tr><th>字段</th><th>允许值</th></tr></thead>
+              <tbody>${enumRows.map(([field, values]) => `<tr><td><code>${field}</code></td><td>${values}</td></tr>`).join("")}</tbody>
+            </table>
+          </div>
+        </div>
+        <details open>
+          <summary>KG proposals agent-facing schema</summary>
+          <div><pre>${escapeHtml(stagesForMode().find((s) => s.no === 9).schema)}</pre></div>
+        </details>
+        <details>
+          <summary>取消态最终 JSON</summary>
+          <div><pre>${escapeHtml(outputSchemas.canceled)}</pre></div>
+        </details>
+        <details>
+          <summary>Stage 10 agent-facing payload</summary>
+          <div><pre>${escapeHtml(stagesForMode().find((s) => s.no === 10).schema)}</pre></div>
+        </details>
+      `;
+    }
+
+    function renderRuntime() {
+      return `
+        <div class="card">
+          <h2>Runtime 派生职责</h2>
+          <p>本轮简化的核心是把跨步骤、易错、强依赖的引用维护从 agent payload 中移走。agent 保留语义判断，runtime 维护 provenance、hash、locator、sidecar 物化和最终合并。</p>
+        </div>
+        <div class="flow-strip">
+          <div class="flow-item"><b>1. Paper units</b><span>agent 写单篇事实，runtime 注入 digest locator 并登记 hash。</span></div>
+          <div class="flow-item"><b>2. Evidence map</b><span>runtime 从已校验 paper units 派生 cross-paper evidence map。</span></div>
+          <div class="flow-item"><b>3. Source refs</b><span>agent 在 route/timeline/core/report 对象上写 source_paper_refs。</span></div>
+          <div class="flow-item"><b>4. Final sections</b><span>runtime 生成 evidence_refs、evidence_map_refs、paper_evidence、evidence_map。</span></div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Agent 不再填写</h3>
+            <div class="field-list">
+              <div class="field"><code>cross_paper_evidence_map</code> 手写候选图</div>
+              <div class="field"><code>evidence_map_refs</code> 跨步骤引用闭包</div>
+              <div class="field"><code>paper_evidence</code> final section</div>
+              <div class="field"><code>evidence_map</code> final section</div>
+              <div class="field"><code>digest_ref</code> / <code>digest_locator</code> / <code>payload_hash</code></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Agent 仍必须填写</h3>
+            <div class="field-list">
+              <div class="field"><code>source_paper_refs</code> 扁平来源引用</div>
+              <div class="field"><code>concept_cards[]</code> 概念 proposal</div>
+              <div class="field"><code>topic_relations[]</code> topic relation proposal</div>
+              <div class="field"><code>topic_interest</code> discovery metadata</div>
+              <div class="field"><code>diagnostics[]</code> 空数组、不确定性、coverage caveat</div>
+            </div>
+          </div>
+        </div>
+        <div class="callout"><strong>当前实现备注：</strong>update 主路径已经保留 resolver；新增/移除 paper 的专用 delta planner 尚未独立成为单独 agent-facing payload，当前仍依赖 <code>recommended_update</code>、resolver diagnostics、changed sections 与 <code>read_section_hashes</code> 约束 patch。</div>
+      `;
+    }
+
+    function renderGate() {
+      return `
+        <div class="hero-grid">
+          <div class="card">
+            <h2>Gate 执行纪律</h2>
+            <p>首次进入和每次正式写入/校验 JSON 工件后，都必须重新运行 <code>scripts/gate_runtime.py</code> 或等价的 <code>stage_runtime.py --action gate</code>。每一步只执行 gate 返回的单个 <code>next_action</code>。</p>
+          </div>
+          <div class="card">
+            <h3>状态与失败</h3>
+            <p>gate 必须返回明确状态。retryable failure 只修复当前 stage；terminal failure 或必需 bridge 不可用时输出合法 canceled JSON。</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>必须遵守</h3>
+            <div class="field-list">
+              <div class="field">只执行 gate 的 <code>next_action</code>、<code>command_example</code>、<code>instruction_refs</code>、<code>schema_refs</code>。</div>
+              <div class="field">所有语义判断先写结构化 JSON，再用 stage_runtime 校验、登记、推进。</div>
+              <div class="field">SQLite 只保存流程状态、receipt、manifest、hash、progress、artifact_registry。</div>
+              <div class="field">语义内容真源是 run workspace 中已校验 JSON 工件。</div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>禁止事项</h3>
+            <div class="field-list">
+              <div class="field">不得直接写 SQLite 表伪造阶段完成。</div>
+              <div class="field">不得手写或改写 <code>result/result.json</code>。</div>
+              <div class="field">不得用临时脚本生成语义分析或最终 sections。</div>
+              <div class="field">不得读取 raw/full artifact payload。</div>
+              <div class="field">不得把外部文献或 citation graph metrics 作为主 claim/timeline evidence。</div>
+            </div>
+          </div>
+        </div>
+        <details open>
+          <summary>Host apply 错误指示</summary>
+          <div>
+            <table>
+              <thead><tr><th>场景</th><th>期望结果</th></tr></thead>
+              <tbody>
+                <tr><td>create 目标 topic 已存在</td><td>拒绝，返回 <code>topic_exists</code> 或 <code>duplicate_topic</code>，不转 update。</td></tr>
+                <tr><td>legacy create 带非空 base_hashes 且 topic 不存在</td><td>忽略 hash，记录 <code>create_base_hashes_ignored</code> warning，允许 apply。</td></tr>
+                <tr><td>update_full 缺失或不匹配 base_hashes</td><td>拒绝 full update，避免覆盖已变化 topic。</td></tr>
+                <tr><td>update_patch 缺失 read_section_hashes</td><td>拒绝 patch。</td></tr>
+                <tr><td>update_patch 读取 section 已变化</td><td>拒绝 patch；未读取 section 变化不阻断。</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      `;
+    }
+
+    function syncTabs() {
+      document.querySelectorAll(".section-tabs button").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.view === activeView);
+      });
+    }
+
+    function render() {
+      renderTimeline();
+      const view = document.getElementById("view");
+      if (activeView === "flow") view.innerHTML = renderFlow();
+      if (activeView === "contract") view.innerHTML = renderContract();
+      if (activeView === "schema") view.innerHTML = renderSchema();
+      if (activeView === "runtime") view.innerHTML = renderRuntime();
+      if (activeView === "gate") view.innerHTML = renderGate();
+      syncTabs();
+    }
+
+    document.getElementById("modeCreate").addEventListener("click", () => {
+      mode = "create";
+      activeStage = Math.min(activeStage, 12);
+      document.getElementById("modeCreate").classList.add("active");
+      document.getElementById("modeUpdate").classList.remove("active");
+      render();
+    });
+    document.getElementById("modeUpdate").addEventListener("click", () => {
+      mode = "update";
+      activeStage = Math.min(activeStage, 12);
+      document.getElementById("modeUpdate").classList.add("active");
+      document.getElementById("modeCreate").classList.remove("active");
+      render();
+    });
+    document.querySelectorAll(".section-tabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeView = btn.dataset.view;
+        render();
+      });
+    });
+    document.getElementById("stageSearch").addEventListener("input", (event) => {
+      query = event.target.value;
+      renderTimeline();
+    });
+    document.getElementById("expandAll").addEventListener("click", () => {
+      document.querySelectorAll("details").forEach((detail) => {
+        detail.open = true;
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

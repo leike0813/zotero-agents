@@ -17,19 +17,18 @@
     monospace; font-size: 11px; word-break: break-all; color: #334155; }
     .zs-runtime-data-category { color: #334155; } .zs-runtime-data-size { color:
     #0f172a; font-variant-numeric: tabular-nums; text-align: right; white-space:
-    nowrap; }
-    .zs-runtime-issues-panel { display: none; max-height: 160px; overflow: auto;
-    border: 1px solid rgba(148, 163, 184, 0.45); border-radius: 6px; padding:
-    8px; background: rgba(255, 251, 235, 0.45); }
+    nowrap; } .zs-runtime-issues-panel { display: none; max-height: 160px;
+    overflow: auto; border: 1px solid rgba(148, 163, 184, 0.45); border-radius:
+    6px; padding: 8px; background: rgba(255, 251, 235, 0.45); }
     .zs-runtime-issues-panel.is-visible { display: block; }
     .zs-runtime-issues-grid { display: grid; grid-template-columns:
     minmax(140px, 1fr) minmax(180px, 2fr) auto; gap: 6px 10px; align-items:
     center; font-size: 12px; } .zs-runtime-issue-empty { color: #64748b;
     font-size: 12px; }
-    #zotero-prefpane-__addonRef__-skillrunner-local-inline-status {
-    gap: 8px; align-items: center; flex-wrap: wrap; } .zs-runtime-led { width:
-    10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px
-    solid #6b7280; background: #9ca3af; } .zs-runtime-led.is-green { background:
+    #zotero-prefpane-__addonRef__-skillrunner-local-inline-status { gap: 8px;
+    align-items: center; flex-wrap: wrap; } .zs-runtime-led { width: 10px;
+    height: 10px; border-radius: 50%; display: inline-block; border: 1px solid
+    #6b7280; background: #9ca3af; } .zs-runtime-led.is-green { background:
     #16a34a; border-color: #166534; } .zs-runtime-led.is-red { background:
     #dc2626; border-color: #991b1b; } .zs-runtime-led.is-gray { background:
     #9ca3af; border-color: #6b7280; } .zs-runtime-led.is-orange { background:
@@ -125,6 +124,17 @@
         data-l10n-id="pref-section-host-bridge"
       ></label>
       <description data-l10n-id="pref-host-bridge-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-mcp-server-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-mcp-server-enabled"></html:span>
+      </html:label>
+      <description
+        id="zotero-prefpane-__addonRef__-mcp-server-status"
+        data-l10n-id="pref-mcp-server-status-idle"
+      ></description>
       <html:label class="zs-uninstall-option">
         <html:input
           id="zotero-prefpane-__addonRef__-host-bridge-lan-enabled"
@@ -233,15 +243,15 @@
         id="zotero-prefpane-__addonRef__-runtime-data-categories"
         class="zs-runtime-data-grid"
       ></html:div>
-        <html:div
-          id="zotero-prefpane-__addonRef__-runtime-data-issues-panel"
-          class="zs-runtime-issues-panel"
-        ></html:div>
-        <html:div
-          id="zotero-prefpane-__addonRef__-runtime-data-state-db-info"
-          class="zs-runtime-data-path"
-        ></html:div>
-        <vbox class="zs-pref-danger-zone">
+      <html:div
+        id="zotero-prefpane-__addonRef__-runtime-data-issues-panel"
+        class="zs-runtime-issues-panel"
+      ></html:div>
+      <html:div
+        id="zotero-prefpane-__addonRef__-runtime-data-state-db-info"
+        class="zs-runtime-data-path"
+      ></html:div>
+      <vbox class="zs-pref-danger-zone">
         <label
           class="zs-pref-danger-title"
           data-l10n-id="pref-synthesis-db-reset-title"

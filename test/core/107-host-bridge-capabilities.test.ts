@@ -20,7 +20,6 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
-import { ZOTERO_MCP_TOOL_GET_CURRENT_VIEW } from "../../src/modules/zoteroMcpProtocol";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -204,7 +203,9 @@ describe("host bridge capability calls", function () {
   });
 
   it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
-    const token = configureHostBridgeServerForTests({ token: "utf8-call-token" });
+    const token = configureHostBridgeServerForTests({
+      token: "utf8-call-token",
+    });
     await createParentItem("桥接中文🚀 Paper");
 
     const parsed = await callBridgeCapabilityRaw({
@@ -321,6 +322,22 @@ describe("host bridge capability calls", function () {
     const token = configureHostBridgeServerForTests({
       token: "debug-on-token",
     });
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    );
+    const reapplyCapability = manifest.json.result.capabilities.find(
+      (capability: { name: string }) =>
+        capability.name === "debug.acpSkillRun.reapplyResult",
+    );
+    assert.isObject(reapplyCapability);
+    assert.strictEqual(reapplyCapability.approval, "none");
 
     const status = await callBridgeCapability({
       token,
@@ -702,7 +719,7 @@ describe("host bridge capability calls", function () {
     assert.notInclude(approvalRequest.detail, "{");
   });
 
-  it("keeps MCP tools as compatibility adapters over broker capabilities", async function () {
+  it("mirrors Host Bridge capability names through MCP tools", async function () {
     const item = await createParentItem("Bridge MCP Compatibility");
     const previousGetMainWindow = (Zotero as any).getMainWindow;
     (Zotero as any).getMainWindow = () => ({
@@ -721,17 +738,19 @@ describe("host bridge capability calls", function () {
         id: "current-view",
         method: "tools/call",
         params: {
-          name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+          name: "context.get_current_view",
           arguments: {},
         },
       });
 
       const structured = (response as any).result.structuredContent;
+      assert.strictEqual(structured.capability, "context.get_current_view");
+      assert.strictEqual(structured.approval, "none");
       assert.strictEqual(
-        structured.hostContext.currentItem.title,
+        structured.data.currentItem.title,
         "Bridge MCP Compatibility",
       );
-      assert.lengthOf(structured.hostContext.selectedItems, 1);
+      assert.lengthOf(structured.data.selectedItems, 1);
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }

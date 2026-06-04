@@ -1,5 +1,6 @@
 import Graph from "graphology";
 import Sigma from "sigma";
+import { drawDiscNodeHover } from "sigma/rendering";
 
 declare const window: Window &
   typeof globalThis & {
@@ -44,6 +45,10 @@ type GraphNode = {
   external_degree?: number;
   visibility?: "default" | "hover_only";
   display_tier?: "library" | "shared_external" | "single_external";
+  metrics?: {
+    internal_in_degree?: number;
+    internal_out_degree?: number;
+  };
 };
 
 type GraphEdge = {
@@ -396,6 +401,21 @@ const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
 const GRAPH_MIN_ZOOM_RATIO = 0.12;
 const GRAPH_MAX_ZOOM_RATIO = 2.4;
 const GRAPH_ZOOM_SLIDER_MAX = 100;
+const GRAPH_LIBRARY_BASE_NODE_SIZE = 5.8;
+const GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3.8;
+const GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE = 2.2;
+const GRAPH_LIBRARY_NODE_SIZE_CAP = 10.5;
+const GRAPH_EXTERNAL_NODE_SIZE_CAP = 6.2;
+const GRAPH_IMPORTANCE_HALO_TOP_RATIO = 0.1;
+const GRAPH_IMPORTANCE_HALO_MAX = 8;
+const GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT = "rgba(37, 99, 235, 0.52)";
+const GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT = "rgba(37, 99, 235, 0.22)";
+const GRAPH_LIBRARY_IMPORTANCE_HALO_DARK = "rgba(147, 197, 253, 0.82)";
+const GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT = "rgba(147, 197, 253, 0.32)";
+const GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT = "rgba(180, 83, 9, 0.56)";
+const GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT = "rgba(180, 83, 9, 0.22)";
+const GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK = "rgba(251, 191, 36, 0.86)";
+const GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT = "rgba(251, 191, 36, 0.34)";
 
 const state: {
   snapshot: Snapshot | null;
@@ -3142,7 +3162,12 @@ function primaryEvidenceForEvent(
   detail: TopicDetailDto,
   event: Record<string, unknown>,
 ) {
-  const refs = stringArray(event.evidence_refs);
+  const refs = [
+    ...stringArray(event.evidence_refs),
+    ...stringArray(event.paper_evidence_refs),
+    ...stringArray(event.paper_refs),
+    ...stringArray(event.source_paper_refs),
+  ];
   if (refs.length) {
     return evidenceForRef(detail, refs[0]);
   }
@@ -4403,6 +4428,16 @@ function renderEvidenceDrawer(detail: TopicDetailDto) {
 }
 
 function numericYear(value: unknown) {
+  const number = Number(value);
+  if (
+    Number.isFinite(number) &&
+    number >= 1500 &&
+    number <= 2199 &&
+    Number.isInteger(number)
+  ) {
+    return number;
+  }
+
   const text = textValue(value).trim();
   if (!text) return NaN;
 
@@ -4437,12 +4472,21 @@ type TimelineCluster = {
   items: TimelineItem[];
 };
 
+type PlacedTimelineItem = {
+  cluster: TimelineCluster;
+  item: TimelineItem;
+  left: number;
+};
+
+const TIMELINE_LABEL_COLLISION_GAP_PERCENT = 7;
+
 type TimelineItem = {
   key: string;
   kind: "paper" | "event";
   year: number;
   label: string;
   title: string;
+  order: number;
   evidence?: Record<string, unknown>;
   event?: Record<string, unknown>;
   weight: number;
@@ -4507,18 +4551,42 @@ function timelineAxisTicks(
 }
 
 function evidenceYear(evidence: Record<string, unknown>) {
-  return numericYear(
-    evidence.year ||
-      evidence.publication_year ||
-      evidence.publicationYear ||
-      evidence.date ||
-      evidence.published_at,
-  );
+  const keys = [
+    "year",
+    "publication_year",
+    "publicationYear",
+    "paper_year",
+    "paperYear",
+    "published_year",
+    "publishedYear",
+    "date",
+    "published_at",
+    "publishedAt",
+    "publication_date",
+    "publicationDate",
+  ];
+  const direct = numericYear(firstText(evidence, keys));
+  if (Number.isFinite(direct)) return direct;
+  for (const containerKey of [
+    "bibliographic",
+    "metadata",
+    "paper",
+    "source",
+    "item",
+  ]) {
+    const nested = recordValue(evidence[containerKey]);
+    const nestedYear = numericYear(firstText(nested, keys));
+    if (Number.isFinite(nestedYear)) return nestedYear;
+  }
+  return NaN;
 }
 
-function eventYear(event: Record<string, unknown>) {
+function eventYear(event: Record<string, unknown> | undefined) {
   return numericYear(
-    event.year || event.date || event.publication_year || event.publicationYear,
+    event?.year ||
+      event?.date ||
+      event?.publication_year ||
+      event?.publicationYear,
   );
 }
 
@@ -4526,10 +4594,17 @@ function timelineItemSortKey(item: TimelineItem) {
   const evidence = item.evidence || {};
   const ref = firstText(evidence, ["paper_ref", "id"]);
   const itemKey = ref.includes(":") ? ref.split(":").pop() : ref;
-  return (itemKey || item.key || item.label || item.title || "").toLowerCase();
+  const semanticKey = (
+    itemKey ||
+    item.key ||
+    item.label ||
+    item.title ||
+    ""
+  ).toLowerCase();
+  return `${semanticKey}:${String(item.order).padStart(6, "0")}`;
 }
 
-function eventRefsPaper(
+function eventReferencesEvidence(
   event: Record<string, unknown>,
   evidence: Record<string, unknown>,
 ) {
@@ -4538,6 +4613,7 @@ function eventRefsPaper(
     ...stringArray(event.evidence_refs),
     ...stringArray(event.paper_evidence_refs),
     ...stringArray(event.paper_refs),
+    ...stringArray(event.source_paper_refs),
   ];
   const direct = firstText(event, [
     "paper_evidence_id",
@@ -4545,7 +4621,12 @@ function eventRefsPaper(
     "paper_ref",
   ]);
   if (direct) refs.push(direct);
-  return refs.some((ref) => keys.has(ref));
+  return refs.some((ref) => {
+    const id = textValue(ref);
+    if (!id) return false;
+    if (keys.has(id)) return true;
+    return Array.from(keys).some((key) => id.endsWith(key) || key.endsWith(id));
+  });
 }
 
 function metricNumber(value: unknown) {
@@ -4606,49 +4687,72 @@ function timelineTone(
   return event ? "milestone" : "paper";
 }
 
+function timelineEventTitle(event: Record<string, unknown> | undefined) {
+  return firstText(event || {}, ["event", "title", "label", "summary"]);
+}
+
+function timelineMarkerTitle(
+  evidence: Record<string, unknown>,
+  index: number,
+  event: Record<string, unknown> | undefined,
+) {
+  const paperTitle = evidenceTitle(evidence, index);
+  const eventTitle = timelineEventTitle(event);
+  if (!eventTitle) return paperTitle;
+  if (eventTitle === paperTitle) return paperTitle;
+  return `${paperTitle} - ${eventTitle}`;
+}
+
+function timelineInYearCoordinate(
+  year: number,
+  itemIndex: number,
+  total: number,
+) {
+  return year + (itemIndex + 1) / (total + 1);
+}
+
+function timelineDenseMarkerKeys(items: PlacedTimelineItem[]) {
+  const dense = new Set<string>();
+  const sorted = [...items]
+    .filter((item) => Number.isFinite(item.left))
+    .sort((left, right) => left.left - right.left);
+  sorted.forEach((item, index) => {
+    const prev = sorted[index - 1];
+    const next = sorted[index + 1];
+    if (
+      (prev &&
+        item.left - prev.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT) ||
+      (next && next.left - item.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT)
+    ) {
+      dense.add(item.item.key);
+    }
+  });
+  return dense;
+}
+
 function timelineItems(detail: TopicDetailDto) {
   const events = topicTimelineEvents(detail);
-  const usedEvents = new Set<Record<string, unknown>>();
-  const items: TimelineItem[] = evidenceRows(detail).map((evidence, index) => {
-    const matchedEvent = events.find((event) =>
-      eventRefsPaper(event, evidence),
+  const papers = evidenceRows(detail);
+  return papers.map((evidence, index) => {
+    const event = events.find((entry) =>
+      eventReferencesEvidence(entry, evidence),
     );
-    if (matchedEvent) usedEvents.add(matchedEvent);
-    const year = eventYear(matchedEvent || {}) || evidenceYear(evidence);
-    const title =
-      firstText(matchedEvent || {}, ["event", "title", "label", "summary"]) ||
-      evidenceTitle(evidence, index);
+    const kind: TimelineItem["kind"] = event ? "event" : "paper";
+    const year = eventYear(event) || evidenceYear(evidence);
+    const title = timelineMarkerTitle(evidence, index, event);
     return {
       key: `paper:${evidenceId(evidence) || index}`,
-      kind: matchedEvent ? "event" : "paper",
+      kind,
       year,
       label: evidenceCode(evidence, index),
       title,
+      order: index,
       evidence,
-      event: matchedEvent,
-      weight: timelineWeight(evidence, matchedEvent),
-      tone: timelineTone(evidence, matchedEvent),
+      event,
+      weight: timelineWeight(evidence, event),
+      tone: timelineTone(evidence, event),
     };
   });
-  events.forEach((event, index) => {
-    if (usedEvents.has(event)) return;
-    const year = eventYear(event);
-    items.push({
-      key: `event:${firstText(event, ["id", "label", "title"], String(index))}`,
-      kind: "event",
-      year,
-      label: firstText(event, ["code", "short_id"], `E${index + 1}`),
-      title: firstText(
-        event,
-        ["event", "title", "label", "summary"],
-        `Event ${index + 1}`,
-      ),
-      event,
-      weight: timelineWeight(undefined, event),
-      tone: timelineTone(undefined, event),
-    });
-  });
-  return items;
 }
 
 function renderTimelineClusters(
@@ -4670,21 +4774,16 @@ function renderTimelineClusters(
   const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(
     ([key, clusterItems], index, all) => {
       const year = Number(key);
-      const title = firstText(clusterItems[0].event || {}, [
-        "phase",
-        "phase_title",
-        "label",
-        "title",
-      ]);
       return {
         key,
-        label: Number.isFinite(year) ? "" : title || `Phase ${index + 1}`,
+        label: "",
         left: timelineLeft(index, all.length, year, minYear, maxYear),
         items: clusterItems,
       };
     },
   );
   const fragment = document.createDocumentFragment();
+  const placedItems: PlacedTimelineItem[] = [];
   clusters.forEach((cluster, clusterIndex, allClusters) => {
     const year = Number(cluster.key);
     const sortedItems = [...cluster.items].sort((left, right) =>
@@ -4692,7 +4791,7 @@ function renderTimelineClusters(
     );
     sortedItems.forEach((item, itemIndex) => {
       const coordinate = Number.isFinite(year)
-        ? year + (itemIndex + 0.5) / sortedItems.length
+        ? timelineInYearCoordinate(year, itemIndex, sortedItems.length)
         : NaN;
       const left = Number.isFinite(coordinate)
         ? timelineLeft(
@@ -4703,47 +4802,56 @@ function renderTimelineClusters(
             maxYear,
           )
         : cluster.left;
-      const phase = el("section", "timeline-phase");
-      phase.style.left = `${left}%`;
-      const title = el("div", "phase-title");
-      if (cluster.label) {
-        title.appendChild(el("strong", "", cluster.label));
-      }
-      phase.appendChild(title);
-      const markerList = el("div", "marker-list");
-      const evidence = item.evidence;
-      const markerClasses = [
-        "timeline-marker",
-        `timeline-${item.kind}`,
-        `timeline-tone-${item.tone}`,
-      ];
-      if (sortedItems.length > 4) markerClasses.push("too-dense");
-      if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
-        markerClasses.push("selected");
-      const marker = el("button", markerClasses.join(" "));
-      marker.type = "button";
-      marker.style.left = "0";
-      marker.style.setProperty("--pin-scale", String(item.weight));
-      marker.title = item.title;
-      marker.setAttribute("aria-label", marker.title);
-      const code = el("span", "timeline-code", item.label);
-      marker.appendChild(code);
-      const pin = el("span", "timeline-pin");
-      pin.appendChild(el("span", "timeline-pin-body"));
-      pin.appendChild(el("span", "timeline-pin-dot"));
-      marker.appendChild(pin);
-      marker.appendChild(el("span", "timeline-event-label", marker.title));
-      if (evidence) {
-        marker.addEventListener("click", () => {
-          openEvidenceExplorer(evidenceId(evidence));
-        });
-      } else {
-        marker.disabled = true;
-      }
-      markerList.appendChild(marker);
-      phase.appendChild(markerList);
-      fragment.appendChild(phase);
+      placedItems.push({
+        cluster,
+        item,
+        left,
+      });
     });
+  });
+  const denseTimelineMarkerKeys = timelineDenseMarkerKeys(placedItems);
+  placedItems.forEach((placedItem) => {
+    const { cluster, item, left } = placedItem;
+    const phase = el("section", "timeline-phase");
+    phase.style.left = `${left}%`;
+    const title = el("div", "phase-title");
+    if (cluster.label) {
+      title.appendChild(el("strong", "", cluster.label));
+    }
+    phase.appendChild(title);
+    const markerList = el("div", "marker-list");
+    const evidence = item.evidence;
+    const markerClasses = [
+      "timeline-marker",
+      `timeline-${item.kind}`,
+      `timeline-tone-${item.tone}`,
+    ];
+    if (denseTimelineMarkerKeys.has(item.key)) markerClasses.push("too-dense");
+    if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
+      markerClasses.push("selected");
+    const marker = el("button", markerClasses.join(" "));
+    marker.type = "button";
+    marker.style.left = "0";
+    marker.style.setProperty("--pin-scale", String(item.weight));
+    marker.title = item.title;
+    marker.setAttribute("aria-label", marker.title);
+    const code = el("span", "timeline-code", item.label);
+    marker.appendChild(code);
+    const pin = el("span", "timeline-pin");
+    pin.appendChild(el("span", "timeline-pin-body"));
+    pin.appendChild(el("span", "timeline-pin-dot"));
+    marker.appendChild(pin);
+    marker.appendChild(el("span", "timeline-event-label", marker.title));
+    if (evidence) {
+      marker.addEventListener("click", () => {
+        openEvidenceExplorer(evidenceId(evidence));
+      });
+    } else {
+      marker.disabled = true;
+    }
+    markerList.appendChild(marker);
+    phase.appendChild(markerList);
+    fragment.appendChild(phase);
   });
   return fragment;
 }
@@ -7189,7 +7297,7 @@ function graphDiagnosticSummary(
 
 function renderCitationGraphLegend() {
   const legend = el("div", "citation-graph-legend");
-  legend.setAttribute("aria-label", "Citation direction legend");
+  legend.setAttribute("aria-label", "Citation graph legend");
   legend.appendChild(el("strong", "", "Citation direction"));
   const rows: Array<[string, string]> = [
     ["Incoming to selected", CITATION_GRAPH_INCOMING_EDGE_COLOR],
@@ -7204,6 +7312,25 @@ function renderCitationGraphLegend() {
     row.appendChild(el("span", "", label));
     legend.appendChild(row);
   });
+  legend.appendChild(el("strong", "", "Citation importance"));
+  const sizeRow = el("div", "citation-graph-legend-row");
+  const sizeSwatch = el("span", "citation-graph-legend-node-size");
+  sizeSwatch.appendChild(el("span", "citation-graph-legend-node is-small"));
+  sizeSwatch.appendChild(el("span", "citation-graph-legend-node is-large"));
+  sizeRow.appendChild(sizeSwatch);
+  sizeRow.appendChild(el("span", "", "Node size = incoming citations"));
+  legend.appendChild(sizeRow);
+  const haloRow = el("div", "citation-graph-legend-row");
+  const haloSwatch = el("span", "citation-graph-legend-node-size");
+  haloSwatch.appendChild(
+    el("span", "citation-graph-legend-node is-large is-halo is-library"),
+  );
+  haloSwatch.appendChild(
+    el("span", "citation-graph-legend-node is-large is-halo is-external"),
+  );
+  haloRow.appendChild(haloSwatch);
+  haloRow.appendChild(el("span", "", "Halo = top cited visible nodes"));
+  legend.appendChild(haloRow);
   return legend;
 }
 
@@ -7647,30 +7774,201 @@ function graphNodeColor(node: GraphNode) {
   return colors[node.kind];
 }
 
-function graphNodeSize(node: GraphNode) {
+function graphNodeImportanceColor(node: GraphNode) {
   if (node.kind === "library_paper") {
-    return 7;
-  }
-  if (node.display_tier === "shared_external") {
-    return 4;
+    return "#2f7df6";
   }
   if (node.display_tier === "single_external") {
-    return 2.2;
+    return "#c4ca5d";
+  }
+  return "#94a51f";
+}
+
+type GraphNodeImportance = {
+  incomingDegree: number;
+  percentile: number;
+  halo: boolean;
+};
+
+function graphNodeBaseSize(node: GraphNode) {
+  if (node.kind === "library_paper") {
+    return GRAPH_LIBRARY_BASE_NODE_SIZE;
+  }
+  if (node.display_tier === "shared_external") {
+    return GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE;
+  }
+  if (node.display_tier === "single_external") {
+    return GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE;
   }
   return 2.5;
 }
 
-function graphNodeZIndex(node: GraphNode) {
+function graphNodeSizeCap(node: GraphNode) {
+  return node.kind === "library_paper"
+    ? GRAPH_LIBRARY_NODE_SIZE_CAP
+    : GRAPH_EXTERNAL_NODE_SIZE_CAP;
+}
+
+function graphNodeSize(node: GraphNode, importance?: GraphNodeImportance) {
+  const base = graphNodeBaseSize(node);
+  if (!importance || importance.incomingDegree <= 0) {
+    return base;
+  }
+  const cap = graphNodeSizeCap(node);
+  return Math.min(cap, base + (cap - base) * importance.percentile);
+}
+
+function graphNodeZIndex(node: GraphNode, importance?: GraphNodeImportance) {
+  const importanceZIndex = importance?.halo ? 8 : 0;
   if (node.kind === "library_paper") {
-    return 4;
+    return Math.max(4, importanceZIndex);
   }
   if (node.display_tier === "shared_external") {
-    return 2;
+    return Math.max(2, importanceZIndex);
   }
   if (node.visibility === "hover_only") {
-    return 1;
+    return Math.max(1, importanceZIndex);
   }
-  return 2;
+  return Math.max(2, importanceZIndex);
+}
+
+function graphNodeIncomingDegree(
+  node: GraphNode,
+  fallbackIncomingDegrees: Map<string, number>,
+) {
+  const metricDegree = node.metrics?.internal_in_degree;
+  if (typeof metricDegree === "number" && Number.isFinite(metricDegree)) {
+    return Math.max(0, Math.floor(metricDegree));
+  }
+  return fallbackIncomingDegrees.get(node.id) || 0;
+}
+
+function fallbackGraphIncomingDegrees(snapshot: Snapshot) {
+  const visibleIds = new Set(snapshot.graph.visibleNodes.map((node) => node.id));
+  const incoming = new Map<string, number>();
+  [...snapshot.graph.edges, ...snapshot.graph.hoverOnlyEdges].forEach((edge) => {
+    if (visibleIds.has(edge.target)) {
+      incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
+    }
+  });
+  return incoming;
+}
+
+function buildGraphNodeImportance(snapshot: Snapshot) {
+  const fallbackIncomingDegrees = fallbackGraphIncomingDegrees(snapshot);
+  const entries = snapshot.graph.visibleNodes
+    .map((node) => ({
+      node,
+      incomingDegree: graphNodeIncomingDegree(node, fallbackIncomingDegrees),
+    }))
+    .filter((entry) => entry.incomingDegree > 0);
+  const degreeRanks = Array.from(
+    new Set(entries.map((entry) => entry.incomingDegree)),
+  ).sort((left, right) => left - right);
+  const rankByDegree = new Map(
+    degreeRanks.map((degree, index) => [
+      degree,
+      degreeRanks.length <= 1 ? 1 : index / (degreeRanks.length - 1),
+    ]),
+  );
+  const haloCount = Math.min(
+    GRAPH_IMPORTANCE_HALO_MAX,
+    Math.max(1, Math.ceil(entries.length * GRAPH_IMPORTANCE_HALO_TOP_RATIO)),
+  );
+  const haloNodeIds = new Set(
+    entries
+      .slice()
+      .sort(
+        (left, right) =>
+          right.incomingDegree - left.incomingDegree ||
+          left.node.id.localeCompare(right.node.id),
+      )
+      .slice(0, haloCount)
+      .map((entry) => entry.node.id),
+  );
+  return new Map(
+    entries.map((entry) => [
+      entry.node.id,
+      {
+        incomingDegree: entry.incomingDegree,
+        percentile: rankByDegree.get(entry.incomingDegree) || 0,
+        halo: haloNodeIds.has(entry.node.id),
+      },
+    ]),
+  );
+}
+
+function graphUsesDarkTheme() {
+  const root = document.documentElement;
+  const explicitTheme = root?.getAttribute("data-zs-theme");
+  if (explicitTheme === "dark") return true;
+  if (explicitTheme === "light") return false;
+  return Boolean(
+    window.matchMedia?.("(prefers-color-scheme: dark)")?.matches,
+  );
+}
+
+function drawGraphImportanceHalo(
+  context: CanvasRenderingContext2D,
+  data: {
+    x: number;
+    y: number;
+    size: number;
+    kind?: unknown;
+    importanceHalo?: unknown;
+  },
+) {
+  const dark = graphUsesDarkTheme();
+  const libraryNode = data.kind === "library_paper";
+  const strong = libraryNode
+    ? dark
+      ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK
+      : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT
+    : dark
+      ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK
+      : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT;
+  const soft = libraryNode
+    ? dark
+      ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT
+      : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT
+    : dark
+      ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT
+      : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT;
+  const radius = Math.max(5, Number(data.size || 1)) + 3;
+  context.save();
+  context.lineCap = "round";
+  context.strokeStyle = soft;
+  context.lineWidth = 4;
+  context.beginPath();
+  context.arc(data.x, data.y, radius + 1, 0, Math.PI * 2);
+  context.stroke();
+  context.strokeStyle = strong;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(data.x, data.y, radius, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function drawGraphNodeHover(
+  context: CanvasRenderingContext2D,
+  data: Record<string, unknown>,
+  settings: Record<string, unknown>,
+) {
+  if (data.importanceHalo && !data.importanceInteractive) {
+    drawGraphImportanceHalo(
+      context,
+      data as {
+        x: number;
+        y: number;
+        size: number;
+        kind?: unknown;
+        importanceHalo?: unknown;
+      },
+    );
+    return;
+  }
+  drawDiscNodeHover(context as any, data as any, settings as any);
 }
 
 function clearDynamicHoverGraph(graph: Graph) {
@@ -7733,20 +8031,28 @@ function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
 
 function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const graph = new Graph({ multi: false, type: "directed" });
+  const importanceByNodeId = buildGraphNodeImportance(snapshot);
   state.dynamicHoverNodeIds.clear();
   state.dynamicHoverEdgeIds.clear();
   const visibleIds = new Set(
     snapshot.graph.visibleNodes.map((node) => node.id),
   );
   for (const node of snapshot.graph.visibleNodes) {
+    const importance = importanceByNodeId.get(node.id);
     graph.addNode(node.id, {
       title: node.label,
       label: "",
       x: typeof node.x === "number" ? node.x : 0,
       y: typeof node.y === "number" ? node.y : 0,
-      size: graphNodeSize(node),
-      color: graphNodeColor(node),
-      zIndex: graphNodeZIndex(node),
+      size: graphNodeSize(node, importance),
+      color: importance?.halo
+        ? graphNodeImportanceColor(node)
+        : graphNodeColor(node),
+      zIndex: graphNodeZIndex(node, importance),
+      highlighted: importance?.halo || false,
+      importanceHalo: importance?.halo || false,
+      importanceInteractive: false,
+      incomingDegree: importance?.incomingDegree || 0,
       kind: node.kind,
       visibility: node.visibility || "default",
       display_tier: node.display_tier || "library",
@@ -7778,6 +8084,7 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     allowInvalidContainer: true,
     enableEdgeEvents: false,
     renderEdgeLabels: false,
+    defaultDrawNodeHover: drawGraphNodeHover,
     zIndex: true,
     nodeReducer(node: string, data: Record<string, unknown>) {
       const query = currentGraphSearchQuery(snapshot);
@@ -7797,12 +8104,17 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           zIndex: searchMatch
             ? Math.max(30, Number(data.zIndex || 0))
             : Number(data.zIndex || 0),
+          highlighted: Boolean(data.importanceHalo && searchMatch),
+          importanceInteractive: false,
           label: searchMatch ? data.title : "",
         };
       }
       const neighbor =
         node === state.hoveredNode ||
         graph.areNeighbors(node, state.hoveredNode);
+      const activeHaloNode = Boolean(
+        data.importanceHalo && node === state.hoveredNode,
+      );
       const showHoverLabel =
         searchMatch ||
         node === state.hoverLabelNode ||
@@ -7826,6 +8138,8 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           : neighbor
             ? Math.max(10, Number(data.zIndex || 0))
             : Number(data.zIndex || 0),
+        highlighted: Boolean(data.importanceHalo && (searchMatch || neighbor)),
+        importanceInteractive: activeHaloNode,
         label: showHoverLabel ? data.title : "",
       };
     },
@@ -7962,10 +8276,15 @@ function renderSelectedDetail(snapshot: Snapshot) {
   }
   if (selected.kind === "node") {
     const node = graphNodeById(snapshot).get(selected.id);
+    const incomingDegrees = fallbackGraphIncomingDegrees(snapshot);
     const fields: Array<[string, unknown]> = [
       ["title", node?.label || selected.id],
       ["type", node?.kind || selected.kind],
       ["year", node?.year || "-"],
+      [
+        "incoming citations",
+        node ? graphNodeIncomingDegree(node, incomingDegrees) : "-",
+      ],
       ["signal", node?.low_signal ? "low" : "normal"],
       ["id", selected.id],
     ];

@@ -70,6 +70,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -88,7 +89,9 @@ describe("transport: upload fallback without FormData", function () {
         onProgress: (event) => {
           progressEvents.push({
             type: String(event.type || ""),
-            requestId: String((event as { requestId?: unknown }).requestId || ""),
+            requestId: String(
+              (event as { requestId?: unknown }).requestId || "",
+            ),
           });
         },
       },
@@ -115,13 +118,19 @@ describe("transport: upload fallback without FormData", function () {
           return createJsonResponse({ ok: true });
         }
         if (url.endsWith("/v1/jobs/req-1")) {
-          return createJsonResponse({ request_id: "req-1", status: "succeeded" });
+          return createJsonResponse({
+            request_id: "req-1",
+            status: "succeeded",
+          });
         }
         if (url.endsWith("/v1/jobs/req-1/result")) {
           return createJsonResponse({
             request_id: "req-1",
             status: "succeeded",
-            data: { digest_path: "digest.md", references_path: "references.json" },
+            data: {
+              digest_path: "digest.md",
+              references_path: "references.json",
+            },
           });
         }
         return createJsonResponse({ error: "unexpected route" }, 404);
@@ -132,6 +141,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         upload_files: [
           {
             key: "source_path",
@@ -198,6 +208,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -225,6 +236,180 @@ describe("transport: upload fallback without FormData", function () {
         execution_mode: "auto",
       },
     });
+  });
+
+  it("uses temp_upload create body and multipart skill_package for local-package source without FormData", async function () {
+    const originalFormData = (globalThis as { FormData?: unknown }).FormData;
+    const originalBlob = (globalThis as { Blob?: unknown }).Blob;
+    (globalThis as { FormData?: unknown }).FormData = undefined;
+    (globalThis as { Blob?: unknown }).Blob = undefined;
+
+    let capturedCreateBody: Record<string, unknown> = {};
+    const capturedUpload: {
+      headers?: Record<string, string>;
+      bodyBytes?: Uint8Array;
+    } = {};
+
+    try {
+      const client = new SkillRunnerClient({
+        baseUrl: "http://127.0.0.1:8030",
+        fetchImpl: async (url: string, init?: RequestInit) => {
+          if (url.endsWith("/v1/jobs")) {
+            capturedCreateBody = JSON.parse(String(init?.body || "{}"));
+            return createJsonResponse({ request_id: "req-temp-upload" });
+          }
+          if (url.endsWith("/v1/jobs/req-temp-upload/upload")) {
+            capturedUpload.headers = (init?.headers || {}) as Record<
+              string,
+              string
+            >;
+            const body = init?.body as Uint8Array;
+            capturedUpload.bodyBytes =
+              body instanceof Uint8Array ? body : new Uint8Array();
+            return createJsonResponse({ ok: true });
+          }
+          if (url.endsWith("/v1/jobs/req-temp-upload")) {
+            return createJsonResponse({
+              request_id: "req-temp-upload",
+              status: "succeeded",
+            });
+          }
+          if (url.endsWith("/v1/jobs/req-temp-upload/result")) {
+            return createJsonResponse({
+              request_id: "req-temp-upload",
+              status: "succeeded",
+              data: {},
+            });
+          }
+          return createJsonResponse({ error: "unexpected route" }, 404);
+        },
+      });
+
+      await client.executeSkillRunnerJob(
+        {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          input: {
+            source_path: "inputs/source_path/example.md",
+          },
+          upload_files: [
+            {
+              key: "source_path",
+              path: fixturePath("literature-digest", "example.md"),
+            },
+          ],
+          fetch_type: "result",
+        },
+        {
+          engine: "gemini",
+        },
+      );
+
+      assert.equal(capturedCreateBody.skill_source, "temp_upload");
+      assert.notProperty(capturedCreateBody, "skill_id");
+      const contentType = String(
+        capturedUpload.headers?.["content-type"] || "",
+      );
+      assert.match(contentType, /^multipart\/form-data;\s*boundary=/);
+      const uploadText = new TextDecoder().decode(capturedUpload.bodyBytes);
+      assert.include(uploadText, 'name="skill_package"');
+      assert.include(uploadText, 'filename="skill_package.zip"');
+      assert.include(uploadText, 'name="file"');
+      assert.include(uploadText, 'filename="inputs.zip"');
+    } finally {
+      (globalThis as { FormData?: unknown }).FormData = originalFormData;
+      (globalThis as { Blob?: unknown }).Blob = originalBlob;
+    }
+  });
+
+  it("uses native FormData for local-package skill and input zip fields", async function () {
+    const originalFormData = (globalThis as { FormData?: unknown }).FormData;
+    const originalBlob = (globalThis as { Blob?: unknown }).Blob;
+    class MockBlob {
+      parts: unknown[];
+
+      constructor(parts: unknown[]) {
+        this.parts = parts;
+      }
+    }
+    class MockFormData {
+      fields: Array<{ name: string; filename?: string; value: unknown }> = [];
+
+      append(name: string, value: unknown, filename?: string) {
+        this.fields.push({ name, filename, value });
+      }
+    }
+    (globalThis as { FormData?: unknown }).FormData = MockFormData;
+    (globalThis as { Blob?: unknown }).Blob = MockBlob;
+
+    let capturedCreateBody: Record<string, unknown> = {};
+    let capturedUploadBody: MockFormData | null = null;
+
+    try {
+      const client = new SkillRunnerClient({
+        baseUrl: "http://127.0.0.1:8030",
+        fetchImpl: async (url: string, init?: RequestInit) => {
+          if (url.endsWith("/v1/jobs")) {
+            capturedCreateBody = JSON.parse(String(init?.body || "{}"));
+            return createJsonResponse({ request_id: "req-native-form" });
+          }
+          if (url.endsWith("/v1/jobs/req-native-form/upload")) {
+            capturedUploadBody = init?.body as unknown as MockFormData;
+            return createJsonResponse({ ok: true });
+          }
+          if (url.endsWith("/v1/jobs/req-native-form")) {
+            return createJsonResponse({
+              request_id: "req-native-form",
+              status: "succeeded",
+            });
+          }
+          if (url.endsWith("/v1/jobs/req-native-form/result")) {
+            return createJsonResponse({
+              request_id: "req-native-form",
+              status: "succeeded",
+              data: {},
+            });
+          }
+          return createJsonResponse({ error: "unexpected route" }, 404);
+        },
+      });
+
+      await client.executeSkillRunnerJob(
+        {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          input: {
+            source_path: "inputs/source_path/example.md",
+          },
+          upload_files: [
+            {
+              key: "source_path",
+              path: fixturePath("literature-digest", "example.md"),
+            },
+          ],
+          fetch_type: "result",
+        },
+        {
+          engine: "gemini",
+        },
+      );
+
+      assert.equal(capturedCreateBody.skill_source, "temp_upload");
+      assert.notProperty(capturedCreateBody, "skill_id");
+      assert.deepEqual(
+        capturedUploadBody?.fields.map((field) => ({
+          name: field.name,
+          filename: field.filename,
+        })),
+        [
+          { name: "skill_package", filename: "skill_package.zip" },
+          { name: "file", filename: "inputs.zip" },
+        ],
+      );
+    } finally {
+      (globalThis as { FormData?: unknown }).FormData = originalFormData;
+      (globalThis as { Blob?: unknown }).Blob = originalBlob;
+    }
   });
 
   it("omits no_cache for interactive execution and keeps interactive options", async function () {
@@ -262,6 +447,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -330,6 +516,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -399,6 +586,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "tag-regulator",
+        skill_source: "installed",
         input: {
           metadata: { parentKey: "AAA111" },
           input_tags: ["topic:test"],
@@ -411,7 +599,10 @@ describe("transport: upload fallback without FormData", function () {
     );
 
     assert.equal(result.status, "succeeded");
-    assert.isFalse(uploadCalled, "upload step should be skipped for inline-only payload");
+    assert.isFalse(
+      uploadCalled,
+      "upload step should be skipped for inline-only payload",
+    );
   });
 
   it("uploads using multipart bytes when FormData is unavailable", async function () {
@@ -434,20 +625,29 @@ describe("transport: upload fallback without FormData", function () {
             return createJsonResponse({ request_id: "req-1" });
           }
           if (url.endsWith("/v1/jobs/req-1/upload")) {
-            capturedUpload.headers = (init?.headers || {}) as Record<string, string>;
+            capturedUpload.headers = (init?.headers || {}) as Record<
+              string,
+              string
+            >;
             const body = init?.body as Uint8Array;
             capturedUpload.bodyBytes =
               body instanceof Uint8Array ? body : new Uint8Array();
             return createJsonResponse({ ok: true });
           }
           if (url.endsWith("/v1/jobs/req-1")) {
-            return createJsonResponse({ request_id: "req-1", status: "succeeded" });
+            return createJsonResponse({
+              request_id: "req-1",
+              status: "succeeded",
+            });
           }
           if (url.endsWith("/v1/jobs/req-1/result")) {
             return createJsonResponse({
               request_id: "req-1",
               status: "succeeded",
-              data: { digest_path: "digest.md", references_path: "references.json" },
+              data: {
+                digest_path: "digest.md",
+                references_path: "references.json",
+              },
             });
           }
           return createJsonResponse({ error: "unexpected route" }, 404);
@@ -507,7 +707,9 @@ describe("transport: upload fallback without FormData", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(result.fetchType, "result");
-      const contentType = String(capturedUpload.headers?.["content-type"] || "");
+      const contentType = String(
+        capturedUpload.headers?.["content-type"] || "",
+      );
       assert.match(contentType, /^multipart\/form-data;\s*boundary=/);
       const uploadText = new TextDecoder().decode(capturedUpload.bodyBytes);
       assert.include(uploadText, 'name="file"');
@@ -553,6 +755,7 @@ describe("transport: upload fallback without FormData", function () {
         {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          skill_source: "installed",
           input: {
             md_path: "inputs/md_path/example.md",
           },
@@ -611,6 +814,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         kind: "skillrunner.job.v1",
         skill_id: "literature-explainer",
+        skill_source: "installed",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -678,6 +882,7 @@ describe("transport: upload fallback without FormData", function () {
         {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          skill_source: "installed",
           input: {
             md_path: "inputs/md_path/example.md",
           },

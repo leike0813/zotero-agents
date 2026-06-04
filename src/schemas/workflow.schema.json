@@ -259,39 +259,39 @@
     "executionSpec": {
       "type": "object",
       "properties": {
-          "mode": {
-            "type": "string",
-            "enum": ["auto", "sync", "async"]
-          },
-          "mcp": {
-            "type": "object",
-            "properties": {
-              "requiredTools": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/nonEmptyString"
-                },
-                "uniqueItems": true
-              }
-            },
-            "additionalProperties": false
-          },
-          "zoteroHostAccess": {
-            "type": "object",
-            "properties": {
-              "required": {
-                "type": "boolean"
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "sync", "async"]
+        },
+        "mcp": {
+          "type": "object",
+          "properties": {
+            "requiredTools": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/nonEmptyString"
               },
-              "allowWriteApprovalBypass": {
-                "type": "boolean"
-              }
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "zoteroHostAccess": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
             },
-            "additionalProperties": false
+            "allowWriteApprovalBypass": {
+              "type": "boolean"
+            }
           },
-          "skillrunner_mode": {
-            "type": "string",
-            "enum": ["auto", "interactive"]
-          },
+          "additionalProperties": false
+        },
+        "skillrunner_mode": {
+          "type": "string",
+          "enum": ["auto", "interactive"]
+        },
         "poll_interval_ms": {
           "type": "number"
         },
@@ -369,6 +369,10 @@
       "properties": {
         "skill_id": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "skill_source": {
+          "type": "string",
+          "enum": ["local-package", "installed"]
         },
         "engine": false,
         "parameter": false,

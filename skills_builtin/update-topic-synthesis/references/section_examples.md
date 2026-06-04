@@ -14,8 +14,8 @@
 - `gaps[].severity`：`low` / `medium` / `high` / `critical` / `unknown`。
 - `representative_references[].information_completeness`：`complete` / `partial` / `minimal` / `unknown`。
 - `suggested_additions[].priority`：`high` / `medium` / `low` / `unknown`。
-- `concept_cards_proposal.cards[].concept_type`：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
-- `topic_graph_relation_proposals.proposals[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
+- `concept_cards[].concept_type`：`method_family` / `mechanism` / `task` / `benchmark` / `dataset` / `evaluation_axis` / `training_signal` / `theoretical_construct`。
+- `topic_relations[].proposal_type`：`broader_topic_candidate` / `related_topic_candidate` / `overlap_topic_candidate` / `contrast_topic_candidate`。
 
 ## Topic
 

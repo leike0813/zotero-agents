@@ -28,6 +28,8 @@
 说明主流路线、新兴路线、成熟路线和关键 trade-off。
 
 每个 node 至少分析：路线定义、核心问题、机制、代表论文、优势、局限、成熟度、与其他路线关系。
+需要表达库内证据时优先写 `source_paper_refs` 或 `paper_refs`；runtime 会补齐 `evidence_refs`
+与 `evidence_map_refs`。
 
 ## Taxonomy 分析粒度
 
@@ -76,7 +78,7 @@ events 负责前端 marker。
 每个 event 至少说明：
 
 - `year`：事件年份。年份不确定时写诊断，不要伪造。
-- `paper_refs` / `evidence_refs`：指向库内 paper evidence。
+- `source_paper_refs` / `paper_refs`：指向库内 resolved paper refs；runtime 会派生 paper evidence 引用。
 - `event_type`：如 `definition_shift`、`method_breakthrough`、`scaling`、`benchmark_shift`、`deployment`、`critique`。
 - `description`：该事件发生了什么。
 - `historical_role`：它对后续研究的影响是什么。
@@ -134,7 +136,7 @@ events 负责前端 marker。
         "definition": "Detection as bipartite matching over object queries.",
         "core_problem": "Remove heuristic post-processing.",
         "mechanism": "Transformer decoder object queries.",
-        "representative_papers": ["pe:1:ABC12345"],
+        "source_paper_refs": ["1:ABC12345"],
         "strengths": ["End-to-end formulation"],
         "limitations": ["Slow convergence"],
         "maturity": "mature"
@@ -150,8 +152,7 @@ events 负责前端 marker。
         "id": "event:detr-set-prediction",
         "year": 2020,
         "description": "DETR introduced set prediction for detection.",
-        "evidence_refs": ["pe:1:ABC12345"],
-        "evidence_map_refs": ["claim:set-prediction-reframes-detection"]
+        "source_paper_refs": ["1:ABC12345"]
       }
     ]
   }

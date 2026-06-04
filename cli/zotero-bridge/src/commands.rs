@@ -8,13 +8,13 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     args::{
-        CallArgs, DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisCommand,
-        DebugSynthesisJobsCommand, DebugSynthesisMaintenanceCommand, DebugSynthesisQueueCommand,
-        DebugSynthesisWorkerCommand, FileArgs, FileCommand, FileDownloadArgs, ItemArgs,
-        ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs, LiteratureArgs, LiteratureCommand,
-        LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
-        SynthesisArgs, SynthesisCommand, TaskArgs, TaskCommand, TaskListArgs, WorkflowArgs,
-        WorkflowCommand, WorkflowRunArgs, WorkflowSubmitArgs,
+        CallArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        DebugSynthesisCommand, DebugSynthesisJobsCommand, DebugSynthesisMaintenanceCommand,
+        DebugSynthesisQueueCommand, DebugSynthesisWorkerCommand, FileArgs, FileCommand,
+        FileDownloadArgs, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs,
+        LiteratureArgs, LiteratureCommand, LiteratureIngestArgs, NoteArgs, NoteCommand,
+        NoteDetailArgs, NotePayloadArgs, SynthesisArgs, SynthesisCommand, TaskArgs, TaskCommand,
+        TaskListArgs, WorkflowArgs, WorkflowCommand, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -148,6 +148,11 @@ fn debug_capability_and_input(args: DebugArgs) -> Result<(&'static str, Value), 
         DebugCommand::Status => Ok(("debug.status", json!({}))),
         DebugCommand::Persistence(input) => Ok(("debug.persistence.snapshot", debug_input(input)?)),
         DebugCommand::Tasks(input) => Ok(("debug.tasks.snapshot", debug_input(input)?)),
+        DebugCommand::AcpSkillRun(args) => match args.command {
+            DebugAcpSkillRunCommand::ReapplyResult(input) => {
+                Ok(("debug.acpSkillRun.reapplyResult", debug_input(input)?))
+            }
+        },
         DebugCommand::Synthesis(args) => debug_synthesis_capability_and_input(args.command),
     }
 }
@@ -234,9 +239,7 @@ fn synthesis_capability(command: &SynthesisCommand) -> &'static str {
         SynthesisCommand::GetSchemas(_) => "synthesis.get_schemas",
         SynthesisCommand::GetLibraryIndex(_) => "synthesis.get_library_index",
         SynthesisCommand::ResolveResolver(_) => "synthesis.resolve_resolver",
-        SynthesisCommand::GetReferenceSidecarIndex(_) => {
-            "synthesis.get_reference_sidecar_index"
-        }
+        SynthesisCommand::GetReferenceSidecarIndex(_) => "synthesis.get_reference_sidecar_index",
         SynthesisCommand::QueryCitationGraph(_) => "synthesis.query_citation_graph",
         SynthesisCommand::GetCitationGraphSlice(_) => "synthesis.get_citation_graph_slice",
         SynthesisCommand::GetCitationGraphMetrics(_) => "synthesis.get_citation_graph_metrics",
@@ -753,9 +756,10 @@ mod tests {
     #[test]
     fn maps_debug_subcommands_to_capabilities() {
         use crate::args::{
-            DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisArgs, DebugSynthesisCommand,
-            DebugSynthesisJobsArgs, DebugSynthesisJobsCommand, DebugSynthesisQueueArgs,
-            DebugSynthesisQueueCommand, DebugSynthesisWorkerArgs, DebugSynthesisWorkerCommand,
+            DebugAcpSkillRunArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+            DebugSynthesisArgs, DebugSynthesisCommand, DebugSynthesisJobsArgs,
+            DebugSynthesisJobsCommand, DebugSynthesisQueueArgs, DebugSynthesisQueueCommand,
+            DebugSynthesisWorkerArgs, DebugSynthesisWorkerCommand,
         };
 
         let cases = vec![
@@ -770,6 +774,16 @@ mod tests {
                     command: DebugCommand::Persistence(DebugInputArgs { input: None }),
                 },
                 "debug.persistence.snapshot",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::AcpSkillRun(DebugAcpSkillRunArgs {
+                        command: DebugAcpSkillRunCommand::ReapplyResult(DebugInputArgs {
+                            input: None,
+                        }),
+                    }),
+                },
+                "debug.acpSkillRun.reapplyResult",
             ),
             (
                 DebugArgs {

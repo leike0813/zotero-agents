@@ -628,7 +628,7 @@ describe("Topic synthesis runtime contract", function () {
         "persist_filtered_artifact_manifest",
         "persist_paper_units",
         "export_cross_paper_context",
-        "persist_cross_paper_evidence_map",
+        "derive_cross_paper_evidence_map",
         "persist_route_timeline",
         "persist_core_sections",
         "persist_kg_proposals",
@@ -752,7 +752,7 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(runtimeDb, "validate_paper_unit_contract");
       assert.include(runtimeDb, "write_cross_paper_evidence_index");
       assert.include(runtimeDb, "cross-paper-evidence-index.json");
-      assert.include(runtimeDb, "persist_cross_paper_evidence_map");
+      assert.include(runtimeDb, "derive_cross_paper_evidence_map");
       assert.include(
         runtimeDb,
         "cross_paper_evidence_map must be validated before final sections",
@@ -778,10 +778,7 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(gate, "paper-artifacts-manifest.json");
       assert.match(gate, /persist_paper_units[\s\S]+bundle receipt/i);
       assert.match(gate, /persist_paper_units[\s\S]+enhanced paper-unit/i);
-      assert.match(
-        gate,
-        /persist_cross_paper_evidence_map[\s\S]+cross-paper-evidence-map\.json/,
-      );
+      assert.match(gate, /derive_cross_paper_evidence_map/);
       assert.match(gate, /persist_paper_units[\s\S]+analysis manifest/i);
       assert.include(gate, "without sending hashes through LLM tokens");
       assert.include(gate, "single-paper facts");
@@ -793,9 +790,9 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(gate, "direct SQLite rows are not valid state");
       assert.match(
         gate,
-        /export_cross_paper_context[\s\S]+persist_cross_paper_evidence_map/,
+        /export_cross_paper_context[\s\S]+derive_cross_paper_evidence_map/,
       );
-      assert.include(gate, "persist_cross_paper_evidence_map");
+      assert.include(gate, "derive_cross_paper_evidence_map");
       assert.include(gate, "persist_route_timeline");
       assert.include(gate, "persist_core_sections");
       assert.include(gate, "persist_external_statistics_report");
@@ -929,8 +926,8 @@ describe("Topic synthesis runtime contract", function () {
       assert.notInclude(skillText, "persist_paper_analysis --paper-ref");
       assert.include(skillText, "persist_paper_units");
       assert.include(skillText, "paper unit");
-      assert.include(skillText, "persist_cross_paper_evidence_map");
-      assert.include(skillText, "cross-paper-evidence-map.json");
+      assert.include(skillText, "derive_cross_paper_evidence_map");
+      assert.include(skillText, "source_paper_refs");
       assert.include(skillText, "positioning");
       assert.include(skillText, "taxonomy");
       assert.include(skillText, "comparison_matrix");
@@ -946,7 +943,7 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(skillText, "支持综述写作");
       assert.include(skillText, "语义目标");
       assert.include(skillText, "提供可组合证据");
-      assert.include(skillText, "候选证据网络");
+      assert.include(skillText, "候选 id 空间");
       assert.include(skillText, "连续知识报告");
       assert.include(skillText, "concept card proposal 语义抽取");
       assert.include(skillText, "topic graph relation proposal 语义判断");
@@ -1033,12 +1030,10 @@ describe("Topic synthesis runtime contract", function () {
         assert.include(text, "digest_locator");
       }
       for (const text of [skillText, step06]) {
-        assert.include(text, "synthesis.cross_paper_evidence_map");
-        assert.include(text, "evidence_limits");
-        assert.include(text, "comparison_dimensions");
-        assert.include(text, "supporting_paper_unit_refs");
-        assert.include(text, "evidence_type");
-        assert.include(text, "library_coverage_gap");
+        assert.include(text, "derive_cross_paper_evidence_map");
+        assert.include(text, "source_paper_refs");
+        assert.include(text, "evidence_refs");
+        assert.include(text, "evidence_map_refs");
       }
     }
   });
@@ -1085,7 +1080,7 @@ describe("Topic synthesis runtime contract", function () {
       ],
       [
         "references/step_06_cross_paper_map.md",
-        ["聚合策略", "候选类型语义", "证据路由表", "不合格反例"],
+        ["当前主路径", "Agent 职责", "Runtime 职责", "derive_cross_paper_evidence_map"],
       ],
       [
         "references/step_07_taxonomy_timeline.md",
@@ -1108,22 +1103,20 @@ describe("Topic synthesis runtime contract", function () {
       [
         "references/step_09_kg_proposals.md",
         [
-          "上下文使用原则",
-          "若实在有必要",
-          "最小回读",
-          "concept_cards_proposal",
+          "Payload schema",
+          "concept_cards",
           "concept_type",
           "merge_hints",
           "confidence",
           "disambiguation",
-          "topic_graph_relation_proposals",
-          "Topic Graph Relation Proposal 判断口径",
+          "topic_relations",
+          "Topic Relations",
           "broader_topic_candidate",
           "related_topic_candidate",
           "overlap_topic_candidate",
           "contrast_topic_candidate",
-          "topic_interest_metadata",
-          "Topic Interest Metadata 判断口径",
+          "topic_interest",
+          "Topic Interest",
           "include_terms",
           "must_have_terms",
           "methods",

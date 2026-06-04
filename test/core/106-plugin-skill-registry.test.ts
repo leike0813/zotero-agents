@@ -7,6 +7,7 @@ import {
   resolvePluginSkillRoots,
   setPluginSkillRegistryRuntimeRootURI,
 } from "../../src/modules/pluginSkillRegistry";
+import { buildSkillRunnerSkillPackageBundle } from "../../src/providers/skillrunner/skillPackageBundler";
 import {
   collectRuntimeFiles,
   copyRuntimeDirectory,
@@ -52,6 +53,34 @@ async function writeSkill(args: {
     "utf8",
   );
   return skillDir;
+}
+
+function readZipEntryNames(bytes: Uint8Array) {
+  const names: string[] = [];
+  const decoder = new TextDecoder();
+  for (let offset = 0; offset <= bytes.length - 30; ) {
+    const signature =
+      bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24);
+    if (signature !== 0x04034b50) {
+      offset += 1;
+      continue;
+    }
+    const compressedSize =
+      bytes[offset + 18] |
+      (bytes[offset + 19] << 8) |
+      (bytes[offset + 20] << 16) |
+      (bytes[offset + 21] << 24);
+    const nameLength = bytes[offset + 26] | (bytes[offset + 27] << 8);
+    const extraLength = bytes[offset + 28] | (bytes[offset + 29] << 8);
+    const nameStart = offset + 30;
+    const nameEnd = nameStart + nameLength;
+    names.push(decoder.decode(bytes.slice(nameStart, nameEnd)));
+    offset = nameEnd + extraLength + compressedSize;
+  }
+  return names;
 }
 
 describe("plugin skill registry", function () {
@@ -177,7 +206,11 @@ describe("plugin skill registry", function () {
     const userRoot = path.join(tempRoot, "skills");
     const invalidDir = path.join(userRoot, "invalid");
     await fs.mkdir(invalidDir, { recursive: true });
-    await fs.writeFile(path.join(invalidDir, "SKILL.md"), "# invalid\n", "utf8");
+    await fs.writeFile(
+      path.join(invalidDir, "SKILL.md"),
+      "# invalid\n",
+      "utf8",
+    );
 
     const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
 
@@ -380,7 +413,9 @@ describe("plugin skill registry", function () {
   it("copies skill directories through read/write fallback when native copy fails", async function () {
     const sourceDir = path.join(tempRoot, "source-skill");
     const targetDir = path.join(tempRoot, "target-skill");
-    await fs.mkdir(path.join(sourceDir, "assets", "nested"), { recursive: true });
+    await fs.mkdir(path.join(sourceDir, "assets", "nested"), {
+      recursive: true,
+    });
     await fs.writeFile(path.join(sourceDir, "SKILL.md"), "# demo\n", "utf8");
     await fs.writeFile(
       path.join(sourceDir, "assets", "nested", "config.json"),
@@ -394,7 +429,8 @@ describe("plugin skill registry", function () {
       copy: async () => {
         throw new Error("native copy unavailable");
       },
-      read: async (filePath: string) => new Uint8Array(await fs.readFile(filePath)),
+      read: async (filePath: string) =>
+        new Uint8Array(await fs.readFile(filePath)),
       write: async (filePath: string, bytes: Uint8Array) => {
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         await fs.writeFile(filePath, Buffer.from(bytes));
@@ -417,5 +453,72 @@ describe("plugin skill registry", function () {
       ),
       JSON.stringify({ ok: true }),
     );
+  });
+
+  it("builds deterministic local skill package zip from effective registry entry", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "bundle-demo",
+      skillId: "bundle-demo",
+      skillMd: "---\nname: bundle-demo\n---\n\n# built-in\n",
+    });
+    const userSkillDir = await writeSkill({
+      root: userRoot,
+      dirName: "bundle-demo",
+      skillId: "bundle-demo",
+      skillMd: "---\nname: bundle-demo\n---\n\n# user\n",
+    });
+    await fs.mkdir(path.join(userSkillDir, ".git"), { recursive: true });
+    await fs.writeFile(
+      path.join(userSkillDir, ".git", "config"),
+      "ignored",
+      "utf8",
+    );
+    await fs.writeFile(path.join(userSkillDir, ".DS_Store"), "ignored", "utf8");
+    await fs.mkdir(path.join(userSkillDir, "references"), { recursive: true });
+    await fs.writeFile(
+      path.join(userSkillDir, "references", "guide.md"),
+      "# guide\n",
+      "utf8",
+    );
+
+    const bundle = await buildSkillRunnerSkillPackageBundle({
+      skillId: "bundle-demo",
+      builtinRoot,
+      userRoot,
+    });
+    const names = readZipEntryNames(bundle.zipBytes);
+
+    assert.equal(bundle.sourceDir, userSkillDir);
+    assert.includeMembers(names, [
+      "bundle-demo/SKILL.md",
+      "bundle-demo/assets/runner.json",
+      "bundle-demo/assets/output.schema.json",
+      "bundle-demo/references/guide.md",
+    ]);
+    assert.isFalse(names.some((name) => name.includes(".git/")));
+    assert.isFalse(names.some((name) => name.includes(".DS_Store")));
+  });
+
+  it("reports missing local skill package with installed-source guidance", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+
+    let thrown: unknown = null;
+    try {
+      await buildSkillRunnerSkillPackageBundle({
+        skillId: "missing-skill",
+        builtinRoot,
+        userRoot,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    assert.match(String(thrown), /missing-skill/);
+    assert.match(String(thrown), /skill_source='installed'/);
   });
 });

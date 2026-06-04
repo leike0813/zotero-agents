@@ -1,0 +1,8 @@
+- [x] 1. Update OpenSpec delta specs for provider execution and workflow manifest authoring.
+- [x] 2. Extend workflow/provider request types and schema with `skill_source`.
+- [x] 3. Update declarative request compilation to default SkillRunner requests to `local-package`.
+- [x] 4. Add deterministic local skill package bundling.
+- [x] 5. Update SkillRunner client transport for temp-upload create and multipart `skill_package` upload.
+- [x] 6. Update request contract validation for the new source field.
+- [x] 7. Add focused tests for compiler defaults, bundling, and provider transport.
+- [x] 8. Update developer documentation and run the minimal relevant validation commands.

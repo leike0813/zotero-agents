@@ -459,8 +459,26 @@ pub enum DebugCommand {
     #[command(about = "Read debug-only workflow task diagnostics")]
     Tasks(DebugInputArgs),
 
+    #[command(about = "Debug ACP skill run state and recovery actions")]
+    AcpSkillRun(DebugAcpSkillRunArgs),
+
     #[command(about = "Debug Synthesis Layer state and workers")]
     Synthesis(DebugSynthesisArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DebugAcpSkillRunArgs {
+    #[command(subcommand)]
+    pub command: DebugAcpSkillRunCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum DebugAcpSkillRunCommand {
+    #[command(
+        about = "Re-run applyResult for one existing ACP skill run result",
+        long_about = "Map to Host Bridge capability debug.acpSkillRun.reapplyResult. Use --input with {\"requestId\":\"...\"}; add resultJsonOverride and overrideMode when the stored result must be corrected before apply."
+    )]
+    ReapplyResult(DebugInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -627,7 +645,11 @@ mod tests {
         assert!(help.contains("status"));
         assert!(help.contains("persistence"));
         assert!(help.contains("tasks"));
+        assert!(help.contains("acp-skill-run"));
         assert!(help.contains("synthesis"));
+        let acp = debug.find_subcommand_mut("acp-skill-run").unwrap();
+        let acp_help = acp.render_long_help().to_string();
+        assert!(acp_help.contains("reapply-result"));
         let synthesis = debug.find_subcommand_mut("synthesis").unwrap();
         let synthesis_help = synthesis.render_long_help().to_string();
         for name in [

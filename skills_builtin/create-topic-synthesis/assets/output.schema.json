@@ -10,11 +10,11 @@
     {
       "title": "Completed create topic synthesis",
       "type": "object",
+      "not": { "required": ["base_hashes"] },
       "required": [
         "kind",
         "operation",
         "language",
-        "base_hashes",
         "topic_definition",
         "resolver_manifest_path",
         "resolver_diagnostics",
@@ -25,7 +25,6 @@
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "create" },
         "language": { "type": "string", "minLength": 1 },
-        "base_hashes": { "type": "object" },
         "topic_definition": {
           "type": "object",
           "required": ["id", "title"],

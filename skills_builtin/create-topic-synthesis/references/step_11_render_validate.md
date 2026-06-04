@@ -89,13 +89,6 @@ stdout 只输出合法业务 JSON object。canonical persistence 与导出渲染
   "analysis_manifest_path": "result/topic-analysis.json",
   "resolver_manifest_path": "runtime/payloads/resolver.json",
   "topic_definition": { "id": "object-detection", "title": "Object Detection" },
-  "base_hashes": {
-    "manifest": "",
-    "artifact": "",
-    "export": "",
-    "metadata": "",
-    "index": ""
-  },
   "artifact_metadata": {}
 }
 ```
