@@ -28,7 +28,7 @@ const DIGEST_MARKDOWN = [
 ].join("\n");
 
 function readSchema(pathValue: string) {
-  return JSON.parse(require("fs").readFileSync(pathValue, "utf8"));
+  return JSON.parse(fsSync.readFileSync(pathValue, "utf8"));
 }
 
 function validateWithSchema(schemaPath: string, value: unknown) {
@@ -265,21 +265,26 @@ function baseSections(
           "Use as a topic sentence for a Related Work paragraph introducing query-based detection.",
       },
     ],
-    comparison_matrix: {
-      dimensions: ["target_bottleneck", "core_mechanism"],
-      rows: [
-        {
-          id: "cmp:detr",
-          route_ref: "route:set-prediction",
-          paper_refs: ["pe:1_detr"],
-          values: {
-            target_bottleneck: "Hand-designed detection pipeline components.",
-            core_mechanism: "Object queries and bipartite matching.",
-          },
-          evidence_map_refs: ["cmp:detr"],
-        },
-      ],
+    improvement_dimension_summary: {
+      summary:
+        "The fixture highlights one improvement dimension: replacing hand-designed detection pipeline components with direct set prediction.",
+      dimension_count: 1,
+      evidence_map_refs: ["cmp:detr"],
     },
+    improvement_dimensions: [
+      {
+        id: "dim:set-prediction-formulation",
+        label: "Set-prediction formulation",
+        analysis:
+          "DETR improves the modeling formulation by replacing proposal and NMS-heavy detector pipelines with learned object queries and bipartite matching.",
+        problem_addressed: "Hand-designed detection pipeline components.",
+        improvement_mechanism: "Object queries and bipartite matching.",
+        source_paper_refs: ["1:DETR"],
+        paper_refs: ["pe:1_detr"],
+        route_refs: ["route:set-prediction"],
+        evidence_map_refs: ["cmp:detr"],
+      },
+    ],
     debates: [
       {
         id: "debate:end-to-end-practicality",
@@ -426,7 +431,11 @@ function baseSections(
           purpose:
             "Organize Related Work around the query-based set-prediction route.",
           organization: "method route",
-          source_sections: ["taxonomy", "timeline_events", "comparison_matrix"],
+          source_sections: [
+            "taxonomy",
+            "timeline_events",
+            "improvement_dimensions",
+          ],
           candidate_citations: ["pe:1_detr"],
           evidence_map_refs: ["tax:set-prediction"],
         },
@@ -444,7 +453,7 @@ function baseSections(
         research_routes: "taxonomy.summary",
         historical_progression: "timeline_events.summary",
       },
-      body: "This fixture synthesis defines object detection through a narrow DETR-style set-prediction lens so that the skill, workflow, host, and Workbench contracts can be tested together. The research-route chapter is grounded in taxonomy.summary: it identifies end-to-end set prediction as the route that replaces hand-designed proposals and post-processing with object queries and bipartite matching. The historical-progress chapter is grounded in timeline_events.summary: it treats DETR as a 2020 milestone that establishes the route and creates the later problem chain around convergence, attention efficiency, and deployment. The claim, comparison, debate, gap, external literature, coverage, statistics, and review outline sections remain deliberately compact, but each preserves evidence references and diagnostics so downstream UI and writing workflows can consume the artifact without relying on Markdown or legacy fields.",
+      body: "This fixture synthesis defines object detection through a narrow DETR-style set-prediction lens so that the skill, workflow, host, and Workbench contracts can be tested together. The research-route chapter is grounded in taxonomy.summary: it identifies end-to-end set prediction as the route that replaces hand-designed proposals and post-processing with object queries and bipartite matching. The historical-progress chapter is grounded in timeline_events.summary: it treats DETR as a 2020 milestone that establishes the route and creates the later problem chain around convergence, attention efficiency, and deployment. The claim, improvement-dimension, debate, gap, external literature, coverage, statistics, and review outline sections remain deliberately compact, but each preserves evidence references and diagnostics so downstream UI and writing workflows can consume the artifact without relying on Markdown fields.",
     },
     paper_evidence: [
       {
@@ -468,7 +477,7 @@ function baseSections(
       hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       candidate_counts: {
         taxonomy_candidates: 1,
-        comparison_dimensions: 1,
+        improvement_dimension_candidates: 1,
         claim_candidates: 1,
         debate_candidates: 1,
         gap_candidates: 1,
@@ -643,7 +652,10 @@ async function createRunWorkspace(args: {
   const analysisManifest =
     args.analysisManifest || createAnalysisManifest(args.sections);
   const resultBundle = args.resultBundle || createResultBundle();
-  await writeJsonFile(runRoot, "result/result.json", resultBundle);
+  await writeJsonFile(runRoot, "result/final-output.candidate.json", {
+    ...resultBundle,
+    __SKILL_DONE__: true,
+  });
   await writeJsonFile(runRoot, "result/topic-analysis.json", analysisManifest);
   await writeJsonFile(
     runRoot,
@@ -692,9 +704,9 @@ function resultContextForRunRoot(runRoot: string) {
     async resolveArtifact(args: {
       fieldName: string;
       rawPath: string;
-      fallbackPath: string;
+      defaultPath: string;
     }) {
-      const relativePath = args.rawPath || args.fallbackPath;
+      const relativePath = args.rawPath || args.defaultPath;
       const text = await fs.readFile(path.join(runRoot, relativePath), "utf8");
       return {
         text,
@@ -754,6 +766,7 @@ import runtime_db as db
 conn = db.connect(db_path)
 db.set_meta(conn, "operation", "create")
 db.set_meta(conn, "language", "zh-CN")
+db.set_meta(conn, "run_root", str(Path(sys.argv[3]).resolve()))
 db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
 db.set_meta(conn, "artifact_metadata", {
     "topic_id": "object-detection",
@@ -804,12 +817,17 @@ conn.execute(
 )
 conn.execute(
     "insert or replace into paper_analysis(paper_ref, analysis_json) values (?, ?)",
-    ("1:DETR", json.dumps({"paper_ref": "1:DETR", "topic_relevance": "fixture"}, ensure_ascii=False, sort_keys=True)),
+    ("1:DETR", json.dumps({
+        "paper_ref": "1:DETR",
+        "topic_relevance": {"level": "core", "reason": "fixture"},
+        "paper_quality": {"level": "high", "reason": "fixture"},
+        "core_digest": "DETR formulates object detection as direct set prediction with object queries and bipartite matching.",
+    }, ensure_ascii=False, sort_keys=True)),
 )
 conn.commit()
-db.record_action_receipt(conn, action_name="persist_citation_graph_metrics", payload={}, result={"paper_refs": ["1:DETR"]})
-db.record_action_receipt(conn, action_name="persist_filtered_artifact_manifest", payload={}, result={"paper_refs": ["1:DETR"]})
-db.record_action_receipt(conn, action_name="persist_paper_units", payload={}, result={"paper_refs": ["1:DETR"]})
+db.record_action_receipt(conn, action_name=db.CASCADE_METRICS_ACTION, payload={}, result={"paper_refs": ["1:DETR"]})
+db.record_action_receipt(conn, action_name=db.CASCADE_ARTIFACTS_ACTION, payload={}, result={"paper_refs": ["1:DETR"]})
+db.record_action_receipt(conn, action_name="persist_paper_triage", payload={}, result={"paper_refs": ["1:DETR"]})
 sidecars = [
     ("result/sidecars/concept-cards-proposal.json", "synthesis.concept_cards_proposal", {"schema_id": "synthesis.concept_cards_proposal", "schema_version": "1.0.0", "cards": [], "diagnostics": []}),
     ("result/sidecars/topic-interest-metadata.json", "topic_interest_metadata.v1", {"schema": "topic_interest_metadata.v1", "topic_id": "object-detection", "include_terms": ["object detection", "DETR"], "must_have_terms": ["object detection"], "methods": ["DETR"], "exclude_terms": [], "seed_literature_item_ids": ["lit:detr"], "diagnostics": []}),
@@ -819,7 +837,7 @@ for relative_path, schema_id, value in sidecars:
     path = run_root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    db.register_artifact(conn, path=relative_path, hash_value=db.sha256_file(path), content_type="json", schema_id=schema_id, stage="stage_9_kg_proposals", validated=True)
+    db.register_artifact(conn, path=relative_path, hash_value=db.sha256_file(path), content_type="json", schema_id=schema_id, stage="stage_9_kg_enrichment", validated=True)
 db.set_meta(conn, "concept_cards_proposal_path", "result/sidecars/concept-cards-proposal.json")
 db.set_meta(conn, "topic_interest_metadata_path", "result/sidecars/topic-interest-metadata.json")
 db.set_meta(conn, "topic_graph_relation_proposals_path", "result/sidecars/topic-graph-relation-proposals.json")
@@ -846,8 +864,6 @@ db.set_stage_state(conn, "stage_11_render_and_validate", "running")
       path.join(skillRoot, "scripts/stage_runtime.py"),
       "--db",
       dbPath,
-      "--run-root",
-      runRoot,
       "--operation",
       "create",
       "--language",
@@ -900,6 +916,7 @@ import runtime_db as db
 conn = db.connect(db_path)
 db.set_meta(conn, "operation", "create")
 db.set_meta(conn, "language", "zh-CN")
+db.set_meta(conn, "run_root", str(db_path.parent.parent.resolve()))
 db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
 db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
 db.set_meta(conn, "cross_paper_evidence_map_path", "runtime/payloads/cross-paper-evidence-map.json")
@@ -972,8 +989,6 @@ function runCreateStageAction(args: {
       path.join(skillRoot, "scripts/stage_runtime.py"),
       "--db",
       args.dbPath,
-      "--run-root",
-      args.runRoot,
       "--operation",
       "create",
       "--language",
@@ -1007,33 +1022,80 @@ function captureCreateStageActionError(args: {
   }
 }
 
-function routeTimelinePayload(sections: Record<string, unknown>) {
-  return pickSections(sections, ["taxonomy", "timeline_events"]);
-}
-
 function coreSectionsPayload(sections: Record<string, unknown>) {
-  return pickSections(sections, [
-    "positioning",
-    "claims",
-    "comparison_matrix",
-    "debates",
-    "gaps",
-    "review_outline",
-  ]);
+  return {
+    ...pickSections(sections, [
+      "taxonomy",
+      "timeline_events",
+      "positioning",
+      "claims",
+      "improvement_dimension_summary",
+      "improvement_dimensions",
+      "debates",
+      "gaps",
+      "review_outline",
+    ]),
+    concept_candidate_labels: [
+      "object query",
+      "bipartite matching",
+      "set prediction detector",
+    ],
+  };
 }
 
-function stage9Payload(sections: Record<string, unknown>) {
+function kgEnrichmentPayload() {
   return {
-    sections: pickSections(sections, [
-      "topic",
-      "summary",
-      "external_literature_analysis",
-      "coverage",
-      "statistics",
-      "synthesis_report",
-      "source_artifacts",
-      "diagnostics",
-    ]),
+    schema_id: "synthesis.topic_synthesis_kg_enrichment",
+    schema_version: "1.0.0",
+    concept_details: [],
+    topic_relation_candidates: [],
+    topic_matching_terms: {
+      include_terms: ["object detection", "DETR"],
+      must_have_terms: ["object detection"],
+      methods: ["DETR"],
+      exclude_terms: ["semantic segmentation"],
+      diagnostics: ["explicit_stage9_metadata"],
+    },
+    diagnostics: ["no_reliable_concepts", "no_reliable_relations"],
+  };
+}
+
+function finalizeSummaryCoveragePayload(sections: Record<string, unknown>) {
+  return {
+    summary: {
+      brief: (sections.summary as JsonObject).brief,
+      overview: (sections.summary as JsonObject).overview,
+      key_takeaways: (sections.summary as JsonObject).key_takeaways,
+      coverage_verdict: (sections.summary as JsonObject).coverage_verdict,
+    },
+    coverage: {
+      coverage_verdict: (sections.coverage as JsonObject).coverage_verdict,
+      reason: (sections.coverage as JsonObject).route_coverage_summary,
+      warnings: (sections.coverage as JsonObject).warnings,
+    },
+    reliability_caveats: (sections.diagnostics as JsonObject).limitations,
+    external_context_summary: {
+      summary: (sections.external_literature_analysis as JsonObject).summary,
+      themes: (sections.external_literature_analysis as JsonObject).themes,
+      representative_references: (
+        sections.external_literature_analysis as JsonObject
+      ).representative_references,
+      citation_contexts: (sections.external_literature_analysis as JsonObject)
+        .citation_contexts,
+      coverage_verdict: (sections.external_literature_analysis as JsonObject)
+        .coverage_verdict,
+      coverage_reason: (sections.external_literature_analysis as JsonObject)
+        .coverage_reason,
+      contribution_to_topic: (
+        sections.external_literature_analysis as JsonObject
+      ).contribution_to_topic,
+      limitations: (sections.external_literature_analysis as JsonObject)
+        .limitations,
+    },
+    collection_suggestions: (
+      sections.external_literature_analysis as JsonObject
+    ).suggested_additions,
+    diagnostics: (sections.diagnostics as JsonObject).warnings,
   };
 }
 
@@ -1060,11 +1122,11 @@ function assertValidArtifactSchema(value: unknown) {
 describe("Topic synthesis contract pipeline", function () {
   this.timeout(10000);
 
-  it("rejects shallow route/timeline content at Stage 7 before final validation", async function () {
-    const runRoot = await makeRoot("zs-topic-stage7-run-");
+  it("rejects shallow taxonomy/timeline content in the core synthesis payload", async function () {
+    const runRoot = await makeRoot("zs-topic-core-taxonomy-run-");
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
-    const invalid = routeTimelinePayload(sections);
+    const invalid = coreSectionsPayload(sections);
     delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
       .relation_to_other_routes;
     delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
@@ -1073,8 +1135,8 @@ describe("Topic synthesis contract pipeline", function () {
     const message = captureCreateStageActionError({
       runRoot,
       dbPath,
-      action: "persist_route_timeline",
-      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
+      action: "persist_core_synthesis",
+      payloadPath: "runtime/payloads/core-analytical-sections.json",
       payload: invalid,
     });
 
@@ -1085,20 +1147,13 @@ describe("Topic synthesis contract pipeline", function () {
     const runRoot = await makeRoot("zs-topic-stage8-run-");
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
-    runCreateStageAction({
-      runRoot,
-      dbPath,
-      action: "persist_route_timeline",
-      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
-      payload: routeTimelinePayload(sections),
-    });
     const invalid = coreSectionsPayload(sections);
     delete ((invalid.claims as JsonObject[])[0] as JsonObject).analysis;
 
     const message = captureCreateStageActionError({
       runRoot,
       dbPath,
-      action: "persist_core_sections",
+      action: "persist_core_synthesis",
       payloadPath: "runtime/payloads/core-analytical-sections.json",
       payload: invalid,
     });
@@ -1106,21 +1161,14 @@ describe("Topic synthesis contract pipeline", function () {
     assert.match(message, /claim.*analysis|analysis\/rationale/i);
   });
 
-  it("persists required-form KG proposal sidecars after core sections", async function () {
-    const runRoot = await makeRoot("zs-topic-kg-proposals-run-");
+  it("persists required-form KG enrichment sidecars after core sections", async function () {
+    const runRoot = await makeRoot("zs-topic-kg-enrichment-run-");
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
     runCreateStageAction({
       runRoot,
       dbPath,
-      action: "persist_route_timeline",
-      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
-      payload: routeTimelinePayload(sections),
-    });
-    runCreateStageAction({
-      runRoot,
-      dbPath,
-      action: "persist_core_sections",
+      action: "persist_core_synthesis",
       payloadPath: "runtime/payloads/core-analytical-sections.json",
       payload: coreSectionsPayload(sections),
     });
@@ -1128,25 +1176,9 @@ describe("Topic synthesis contract pipeline", function () {
     const result = runCreateStageAction({
       runRoot,
       dbPath,
-      action: "persist_kg_proposals",
-      payloadPath: "runtime/payloads/kg-proposals.json",
-      payload: {
-        schema_id: "synthesis.topic_synthesis_kg_proposals",
-        schema_version: "1.0.0",
-        concept_cards: [],
-        topic_relations: [],
-        topic_interest: {
-          schema: "topic_interest_metadata.v1",
-          topic_id: "object-detection",
-          include_terms: ["object detection", "DETR"],
-          must_have_terms: ["object detection"],
-          methods: ["DETR"],
-          exclude_terms: ["semantic segmentation"],
-          seed_literature_item_ids: ["lit:detr"],
-          diagnostics: ["explicit_stage9_metadata"],
-        },
-        diagnostics: ["no_reliable_concepts", "no_reliable_relations"],
-      },
+      action: "persist_kg_enrichment",
+      payloadPath: "runtime/payloads/kg-enrichment.json",
+      payload: kgEnrichmentPayload(),
     });
     const conceptSidecar = await readJsonFile<JsonObject>(
       path.join(runRoot, "result/sidecars/concept-cards-proposal.json"),
@@ -1171,27 +1203,24 @@ describe("Topic synthesis contract pipeline", function () {
     assert.deepEqual(relationSidecar.proposals, []);
     assert.equal(topicInterestMetadata.schema, "topic_interest_metadata.v1");
     assert.deepEqual(topicInterestMetadata.methods, ["DETR"]);
+    assert.deepEqual(topicInterestMetadata.include_terms, [
+      "object detection",
+      "DETR",
+    ]);
     assert.notInclude(
       topicInterestMetadata.diagnostics as string[],
       "topic_interest_metadata_derived_from_topic_definition",
     );
   });
 
-  it("rejects Stage 9 KG proposal payloads without topic interest metadata", async function () {
-    const runRoot = await makeRoot("zs-topic-kg-proposals-missing-metadata-");
+  it("rejects Stage 9 KG enrichment payloads without topic interest metadata", async function () {
+    const runRoot = await makeRoot("zs-topic-kg-enrichment-missing-metadata-");
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
     runCreateStageAction({
       runRoot,
       dbPath,
-      action: "persist_route_timeline",
-      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
-      payload: routeTimelinePayload(sections),
-    });
-    runCreateStageAction({
-      runRoot,
-      dbPath,
-      action: "persist_core_sections",
+      action: "persist_core_synthesis",
       payloadPath: "runtime/payloads/core-analytical-sections.json",
       payload: coreSectionsPayload(sections),
     });
@@ -1199,23 +1228,17 @@ describe("Topic synthesis contract pipeline", function () {
     const message = captureCreateStageActionError({
       runRoot,
       dbPath,
-      action: "persist_kg_proposals",
-      payloadPath: "runtime/payloads/kg-proposals.json",
+      action: "persist_kg_enrichment",
+      payloadPath: "runtime/payloads/kg-enrichment.json",
       payload: {
-        schema_id: "synthesis.topic_synthesis_kg_proposals",
+        schema_id: "synthesis.topic_synthesis_kg_enrichment",
         schema_version: "1.0.0",
-        concept_cards_proposal: {
-          cards: [],
-          diagnostics: [],
-        },
-        topic_graph_relation_proposals: {
-          proposals: [],
-          diagnostics: [],
-        },
+        concept_details: [],
+        topic_relation_candidates: [],
       },
     });
 
-    assert.match(message, /topic_interest_metadata/i);
+    assert.match(message, /topic_matching_terms/i);
   });
 
   it("prevalidates Stage 10 payload and materializes sections only after it passes", async function () {
@@ -1225,29 +1248,22 @@ describe("Topic synthesis contract pipeline", function () {
     runCreateStageAction({
       runRoot,
       dbPath,
-      action: "persist_route_timeline",
-      payloadPath: "runtime/payloads/route-timeline-synthesis.json",
-      payload: routeTimelinePayload(sections),
-    });
-    runCreateStageAction({
-      runRoot,
-      dbPath,
-      action: "persist_core_sections",
+      action: "persist_core_synthesis",
       payloadPath: "runtime/payloads/core-analytical-sections.json",
       payload: coreSectionsPayload(sections),
     });
-    const invalid = stage9Payload(sections);
-    (invalid.sections.synthesis_report as JsonObject).body = "Too shallow.";
+    const invalid = finalizeSummaryCoveragePayload(sections);
+    (invalid as JsonObject).taxonomy = {};
 
     const message = captureCreateStageActionError({
       runRoot,
       dbPath,
-      action: "persist_external_statistics_report",
+      action: "finalize_summary_coverage",
       payloadPath: "runtime/payloads/external-statistics-report.json",
       payload: invalid,
     });
 
-    assert.match(message, /synthesis_report body/i);
+    assert.match(message, /unknown keys|contains unknown/i);
     try {
       await fs.access(
         path.join(runRoot, "result/sections/synthesis-report.json"),
@@ -1262,19 +1278,35 @@ describe("Topic synthesis contract pipeline", function () {
     const valid = runCreateStageAction({
       runRoot,
       dbPath,
-      action: "persist_external_statistics_report",
+      action: "finalize_summary_coverage",
       payloadPath: "runtime/payloads/external-statistics-report.json",
-      payload: stage9Payload(sections),
+      payload: finalizeSummaryCoveragePayload(sections),
     });
 
-    assert.equal(valid.result.section_count, 18);
+    assert.equal(valid.result.section_count, 20);
     const materialized = await readJsonFile<JsonObject>(
       path.join(runRoot, "result/sections/taxonomy.json"),
+    );
+    const materializedStatistics = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result/sections/statistics.json"),
+    );
+    const materializedReport = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result/sections/synthesis-report.json"),
     );
     assert.equal(
       materialized.summary.text,
       (sections.taxonomy as JsonObject).summary.text,
     );
+    assert.equal(
+      materializedStatistics.schema_id,
+      "synthesis.runtime_statistics",
+    );
+    assert.isObject(materializedStatistics.graph_statistics);
+    assert.equal(
+      materializedReport.template_id,
+      "runtime-fixed-topic-synthesis-report-v1",
+    );
+    assert.include(materializedReport.body, "taxonomy.summary");
   });
 
   it("flows from skill output schema through apply hook, host persistence, and UI detail DTO", async function () {
@@ -1297,9 +1329,12 @@ describe("Topic synthesis contract pipeline", function () {
     });
 
     const runtimeValidation = runCreateSkillFinalValidation(runRoot, sections);
-    assert.equal(runtimeValidation.final_path, "result/result.json");
+    assert.equal(
+      runtimeValidation.final_path,
+      "result/final-output.candidate.json",
+    );
     const resultBundle = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result", "result.json"),
+      path.join(runRoot, "result", "final-output.candidate.json"),
     );
 
     assert.notProperty(resultBundle, "base_hashes");
@@ -1369,16 +1404,17 @@ describe("Topic synthesis contract pipeline", function () {
       "partial",
     );
     assert.equal(detail.statistics.paper_count, 1);
-    assert.include(
-      detail.synthesis_report.body,
-      "skill, workflow, host, and Workbench contracts",
+    assert.equal(
+      detail.synthesis_report.template_id,
+      "runtime-fixed-topic-synthesis-report-v1",
     );
+    assert.include(detail.synthesis_report.body, "taxonomy.summary");
     assert.isOk(row);
     assert.equal((row as any).paper_count, 1);
     assert.equal((row as any).external_literature_count, 0);
   });
 
-  it("ignores legacy create base hashes when the target topic is absent", async function () {
+  it("ignores create base hashes when the target topic is absent", async function () {
     const root = await makeRoot("zs-topic-contract-root-");
     const service = createSynthesisService({
       root,
@@ -1389,11 +1425,11 @@ describe("Topic synthesis contract pipeline", function () {
     const sections = baseSections();
     const resultBundle = createResultBundle({
       base_hashes: {
-        manifest: "sha256:legacy-manifest",
-        artifact: "sha256:legacy-artifact",
-        export: "sha256:legacy-export",
-        metadata: "sha256:legacy-metadata",
-        index: "sha256:legacy-index",
+        manifest: "sha256:create-manifest",
+        artifact: "sha256:create-artifact",
+        export: "sha256:create-export",
+        metadata: "sha256:create-metadata",
+        index: "sha256:create-index",
       },
     });
     const { runRoot } = await createRunWorkspace({
@@ -1528,49 +1564,46 @@ describe("Topic synthesis contract pipeline", function () {
     }
   });
 
-  it("rejects final artifacts without synthesis_report title before writing final outputs", async function () {
+  it("renders missing synthesis_report title from the fixed runtime template", async function () {
     const sections = baseSections();
     delete (sections.synthesis_report as JsonObject).title;
     const { runRoot } = await createRunWorkspace({ sections });
-    const before = await fs.readFile(
-      path.join(runRoot, "result", "result.json"),
-      "utf8",
+
+    runCreateSkillFinalValidation(runRoot, sections);
+    const report = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result", "sections", "synthesis-report.json"),
     );
 
-    const errorMessage = captureCreateSkillFinalValidationError(
-      runRoot,
-      sections,
-    );
-
-    assert.match(errorMessage, /synthesis_report\.title/i);
-    const after = await fs.readFile(
-      path.join(runRoot, "result", "result.json"),
-      "utf8",
-    );
-    assert.equal(after, before);
+    assert.equal(report.template_id, "runtime-fixed-topic-synthesis-report-v1");
+    assert.equal(report.title, "Object Detection");
   });
 
-  it("rejects shallow synthesis_report bodies in package-local final validation", async function () {
+  it("rewrites shallow synthesis_report bodies in package-local final validation", async function () {
     const sections = baseSections();
     (sections.synthesis_report as JsonObject).body =
       "This report mentions routes, history, findings, debates, gaps, coverage, and external literature, but remains too shallow.";
     const { runRoot } = await createRunWorkspace({ sections });
 
-    const errorMessage = captureCreateSkillFinalValidationError(
-      runRoot,
-      sections,
+    runCreateSkillFinalValidation(runRoot, sections);
+    const report = await readJsonFile<JsonObject>(
+      path.join(runRoot, "result", "sections", "synthesis-report.json"),
     );
 
-    assert.match(errorMessage, /synthesis_report body/i);
+    assert.equal(report.template_id, "runtime-fixed-topic-synthesis-report-v1");
+    assert.include(report.body, "taxonomy.summary");
+    assert.notEqual(
+      report.body,
+      (sections.synthesis_report as JsonObject).body,
+    );
   });
 
   it("allows validate_final_artifacts to repair polluted final result files", async function () {
     const sections = baseSections();
     const { runRoot } = await createRunWorkspace({ sections });
     const first = runCreateSkillFinalValidation(runRoot, sections);
-    assert.equal(first.final_path, "result/result.json");
+    assert.equal(first.final_path, "result/final-output.candidate.json");
     await fs.writeFile(
-      path.join(runRoot, "result", "result.json"),
+      path.join(runRoot, "result", "final-output.candidate.json"),
       '{"polluted":true}\n',
       "utf8",
     );
@@ -1581,12 +1614,12 @@ describe("Topic synthesis contract pipeline", function () {
 
     const repaired = runCreateSkillFinalValidation(runRoot, sections);
     const finalBundle = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result", "result.json"),
+      path.join(runRoot, "result", "final-output.candidate.json"),
     );
 
-    assert.equal(repaired.final_path, "result/result.json");
+    assert.equal(repaired.final_path, "result/final-output.candidate.json");
     assert.equal(finalBundle.kind, "topic_synthesis");
-    assert.notProperty(finalBundle, "__SKILL_DONE__");
+    assert.equal(finalBundle.__SKILL_DONE__, true);
   });
 
   it("merges an update_patch product into the previously persisted structured artifact", async function () {
@@ -1670,7 +1703,10 @@ describe("Topic synthesis contract pipeline", function () {
       },
     };
     const runRoot = await makeRoot("zs-topic-contract-patch-run-");
-    await writeJsonFile(runRoot, "result/result.json", patchBundle);
+    await writeJsonFile(runRoot, "result/final-output.candidate.json", {
+      ...patchBundle,
+      __SKILL_DONE__: true,
+    });
     await writeJsonFile(
       runRoot,
       "result/topic-analysis.patch.json",

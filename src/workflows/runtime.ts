@@ -308,6 +308,7 @@ function createRuntimeContext(
   override?: Partial<WorkflowRuntimeContext>,
 ): WorkflowRuntimeContext {
   const hostCapabilities = resolveRuntimeHostCapabilities();
+  const globalHostApi = (globalThis as Record<string, unknown>).__zsHostApi;
   const zotero =
     override?.zotero ||
     resolveRuntimeZotero() ||
@@ -319,7 +320,11 @@ function createRuntimeContext(
     handlers: override?.handlers || handlers,
     zotero,
     helpers: override?.helpers || createHookHelpers(zotero),
-    hostApi: override?.hostApi || createWorkflowHostApi(),
+    hostApi:
+      override?.hostApi ||
+      (globalHostApi && typeof globalHostApi === "object"
+        ? (globalHostApi as ReturnType<typeof createWorkflowHostApi>)
+        : createWorkflowHostApi()),
     hostApiVersion:
       typeof override?.hostApiVersion === "number"
         ? override.hostApiVersion

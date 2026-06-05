@@ -1,0 +1,268 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Joshua Ainslie; Santiago Ontanon; et al.",
+      "title": "Etc: Encoding long and structured data in transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "Iz Beltagy; Matthew E Peters; et al.",
+      "title": "Longformer: The long-document transformer"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "Rewon Child; Scott Gray; et al.",
+      "title": "Generating long sequences with sparse transformers"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Krzysztof Choromanski; Valerii Likhosherstov; et al.",
+      "title": "Masked language modeling for proteins via linearly scalable long-context transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2017",
+      "authors": "Jifeng Dai; Haozhi Qi; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-7",
+      "year": "2009",
+      "authors": "Jia Deng; Wei Dong; et al.",
+      "title": "Imagenet: A large-scale hierarchical image database"
+    },
+    {
+      "id": "ref-8",
+      "year": "2019",
+      "authors": "Golnaz Ghiasi; Tsung-Yi Lin; et al.",
+      "title": "Nas-fpn: Learning scalable feature pyramid architecture for object detection"
+    },
+    {
+      "id": "ref-9",
+      "year": "2016",
+      "authors": "Kaiming He; Xiangyu Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-10",
+      "year": "2019",
+      "authors": "Jonathan Ho; Nal Kalchbrenner; et al.",
+      "title": "Axial attention in multidimensional transformers"
+    },
+    {
+      "id": "ref-11",
+      "year": "2019",
+      "authors": "Han Hu; Zheng Zhang; et al.",
+      "title": "Local relation networks for image recognition"
+    },
+    {
+      "id": "ref-12",
+      "year": "2019",
+      "authors": "Zilong Huang; Xinggang Wang; et al.",
+      "title": "Ccnet: Criss-cross attention for semantic segmentation"
+    },
+    {
+      "id": "ref-13",
+      "year": "2020",
+      "authors": "Angelos Katharopoulos; Apoorv Vyas; et al.",
+      "title": "Transformers are rnns: Fast autoregressive transformers with linear attention"
+    },
+    {
+      "id": "ref-14",
+      "year": "2015",
+      "authors": "Diederik P Kingma; Jimmy Ba",
+      "title": "Adam: A method for stochastic optimization"
+    },
+    {
+      "id": "ref-15",
+      "year": "2020",
+      "authors": "Nikita Kitaev, Łukasz Kaiser; Anselm Levskaya",
+      "title": "Reformer: The efficient transformer"
+    },
+    {
+      "id": "ref-16",
+      "year": "2018",
+      "authors": "Tao Kong; Fuchun Sun; et al.",
+      "title": "Deep feature pyramid reconfiguration for object detection"
+    },
+    {
+      "id": "ref-17",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Piotr Dollar; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "Li Liu; Wanli Ouyang; et al.",
+      "title": "Deep learning for generic object detection: A survey"
+    },
+    {
+      "id": "ref-21",
+      "year": "2018",
+      "authors": "Peter J Liu; Mohammad Saleh; et al.",
+      "title": "Generating wikipedia by summarizing long sequences"
+    },
+    {
+      "id": "ref-22",
+      "year": "2018",
+      "authors": "Shu Liu; Lu Qi; et al.",
+      "title": "Path aggregation network for instance segmentation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2018",
+      "authors": "Niki Parmar; Ashish Vaswani; et al.",
+      "title": "Image transformer"
+    },
+    {
+      "id": "ref-24",
+      "year": "2019",
+      "authors": "Jiezhong Qiu; Hao Ma; et al.",
+      "title": "Blockwise self-attention for long document understanding"
+    },
+    {
+      "id": "ref-25",
+      "year": "2019",
+      "authors": "Prajit Ramachandran; Niki Parmar; et al.",
+      "title": "Stand-alone self-attention in vision models"
+    },
+    {
+      "id": "ref-26",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-27",
+      "year": "2020",
+      "authors": "Aurko Roy; Mohammad Saffar; et al.",
+      "title": "Efficient content-based sparse attention with routing transformers"
+    },
+    {
+      "id": "ref-28",
+      "year": "2020",
+      "authors": "Guanglu Song; Yu Liu; et al.",
+      "title": "Revisiting the sibling head in object detector"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Mingxing Tan; Ruoming Pang; et al.",
+      "title": "Efficientdet: Scalable and efficient object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Yi Tay; Dara Bahri; et al.",
+      "title": "Sparse sinkhorn attention"
+    },
+    {
+      "id": "ref-31",
+      "year": "2020",
+      "authors": "Yi Tay; Mostafa Dehghani; et al.",
+      "title": "Efficient transformers: A survey"
+    },
+    {
+      "id": "ref-32",
+      "year": "2020",
+      "authors": "Zachary Teed; Jia Deng",
+      "title": "Raft: Recurrent all-pairs field transforms for optical flow"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-35",
+      "year": "2020",
+      "authors": "Huiyu Wang; Yukun Zhu; et al.",
+      "title": "Axial-deeplab: Stand-alone axial-attention for panoptic segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2020",
+      "authors": "Sinong Wang; Belinda Li; et al.",
+      "title": "Linformer: Self-attention with linear complexity"
+    },
+    {
+      "id": "ref-37",
+      "year": "2019",
+      "authors": "Felix Wu; Angela Fan; et al.",
+      "title": "Pay less attention with lightweight and dynamic convolutions"
+    },
+    {
+      "id": "ref-38",
+      "year": "2017",
+      "authors": "Saining Xie; Ross Girshick; et al.",
+      "title": "Aggregated residual transformations for deep neural networks"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "Hang Xu; Lewei Yao; et al.",
+      "title": "Auto-fpn: Automatic network architecture adaptation for object detection beyond classification"
+    },
+    {
+      "id": "ref-40",
+      "year": "2020",
+      "authors": "Manzil Zaheer; Guru Guruganesh; et al.",
+      "title": "Big bird: Transformers for longer sequences"
+    },
+    {
+      "id": "ref-41",
+      "year": "2020",
+      "authors": "Shifeng Zhang; Cheng Chi; et al.",
+      "title": "Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Qijie Zhao; Tao Sheng; et al.",
+      "title": "M2det: A single-shot object detector based on multi-level feature pyramid network"
+    },
+    {
+      "id": "ref-43",
+      "year": "2019",
+      "authors": "Xizhou Zhu; Dazhi Cheng; et al.",
+      "title": "An empirical study of spatial attention mechanisms in deep networks"
+    },
+    {
+      "id": "ref-44",
+      "year": "2019",
+      "authors": "Xizhou Zhu; Han Hu; et al.",
+      "title": "Deformable convnets v2: More deformable, better results"
+    }
+  ]
+}

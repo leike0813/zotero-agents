@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Topic Synthesis KG Enrichment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "concept_details",
+    "topic_relation_candidates",
+    "topic_matching_terms"
+  ],
+  "properties": {
+    "schema_id": { "const": "synthesis.topic_synthesis_kg_enrichment" },
+    "schema_version": { "type": "string", "minLength": 1 },
+    "concept_details": { "type": "array", "items": { "type": "object" } },
+    "topic_relation_candidates": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "topic_matching_terms": { "type": "object" },
+    "diagnostics": { "type": "array", "items": { "type": "string" } }
+  }
+}

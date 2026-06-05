@@ -1047,35 +1047,24 @@ export async function listZoteroCollections(args: { libraryId?: number } = {}) {
     );
 }
 
-export async function getAllRegularZoteroItems() {
+export async function getAllRegularZoteroItems(libraryId?: number | string) {
   const zotero = resolveZotero();
-  if (typeof (zotero.Items as any).getAll === "function") {
-    try {
-      const loaded = await (zotero.Items as any).getAll();
-      if (Array.isArray(loaded)) {
-        return loaded.filter(isRegularVisibleItem);
-      }
-    } catch {
-      // fall through to deterministic scan
-    }
+  const resolvedLibraryId = normalizeLibraryId(libraryId);
+  if (typeof (zotero.Items as any).getAll !== "function") {
+    throw new Error("Zotero.Items.getAll(libraryId) is not available");
   }
-  const results: Zotero.Item[] = [];
-  let misses = 0;
-  for (let id = 1; id <= 50000; id += 1) {
-    const item = zotero.Items.get(id);
-    if (!item) {
-      misses += 1;
-      if (misses >= 200) {
-        break;
-      }
-      continue;
+  try {
+    const loaded = await (zotero.Items as any).getAll(resolvedLibraryId);
+    if (!Array.isArray(loaded)) {
+      throw new Error("Zotero.Items.getAll(libraryId) did not return an array");
     }
-    misses = 0;
-    if (isRegularVisibleItem(item)) {
-      results.push(item);
-    }
+    return loaded.filter(isRegularVisibleItem);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Zotero.Items.getAll(${resolvedLibraryId}) failed: ${message}`,
+    );
   }
-  return results;
 }
 
 function isRegularVisibleItem(item: Zotero.Item) {
@@ -1448,7 +1437,11 @@ function stripPayloadAnchorForType(noteContent: unknown, payloadType: string) {
   );
 }
 
-function appendPayloadAnchor(noteContent: unknown, payloadType: string, attachmentKey: string) {
+function appendPayloadAnchor(
+  noteContent: unknown,
+  payloadType: string,
+  attachmentKey: string,
+) {
   const stripped = stripPayloadAnchorForType(noteContent, payloadType);
   const anchor = `<img data-attachment-key="${escapeAttribute(attachmentKey)}" data-zs-payload-anchor="${escapeAttribute(payloadType)}" alt="ZA" title="Zotero Agents artifact payload" width="32" height="32">`;
   const block = `<p data-zs-payload-anchor-container="1">${anchor}</p>`;
@@ -2219,7 +2212,8 @@ async function listLibraryItems(
     Math.max(1, parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT),
   );
   const cursor = parseNonNegativeInteger(args.cursor);
-  const libraryId = parsePositiveInteger(args.libraryId);
+  const requestedLibraryId = parsePositiveInteger(args.libraryId);
+  const scanLibraryId = normalizeLibraryId(args.libraryId);
   const collection = requireCollectionForList(args);
   const collectionId = collection
     ? parsePositiveInteger((collection as unknown as { id?: unknown }).id)
@@ -2230,12 +2224,11 @@ async function listLibraryItems(
   const tag = trimText(args.tag).toLowerCase();
   const itemType = trimText(args.itemType);
   const query = trimText(args.query, FIELD_TEXT_LIMIT).toLowerCase();
-  const allItems = await getAllRegularZoteroItems();
+  const allItems = await getAllRegularZoteroItems(scanLibraryId);
   const filtered = allItems
     .filter(isTopLevelRegularVisibleItem)
     .filter(
-      (item) =>
-        !libraryId || normalizeLibraryId((item as any).libraryID) === libraryId,
+      (item) => normalizeLibraryId((item as any).libraryID) === scanLibraryId,
     )
     .filter((item) => !itemType || trimText(item.itemType) === itemType)
     .filter((item) => {
@@ -2266,7 +2259,7 @@ async function listLibraryItems(
     returned: page.length,
     hasMore,
     filters: {
-      libraryId: libraryId || undefined,
+      libraryId: requestedLibraryId || undefined,
       collection: collection ? serializeCollection(collection) : undefined,
       tag: tag || undefined,
       itemType: itemType || undefined,
@@ -2323,13 +2316,12 @@ export function createZoteroHostCapabilityBrokerApis() {
             parsePositiveInteger(args?.limit) || SEARCH_LIMIT_DEFAULT,
           ),
         );
-        const libraryId = parsePositiveInteger(args?.libraryId);
-        const items = await getAllRegularZoteroItems();
+        const scanLibraryId = normalizeLibraryId(args?.libraryId);
+        const items = await getAllRegularZoteroItems(scanLibraryId);
         return items
           .filter(
             (item) =>
-              !libraryId ||
-              normalizeLibraryId((item as any).libraryID) === libraryId,
+              normalizeLibraryId((item as any).libraryID) === scanLibraryId,
           )
           .filter((item) => searchMatch(item, query))
           .slice(0, limit)

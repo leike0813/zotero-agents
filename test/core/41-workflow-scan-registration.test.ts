@@ -223,31 +223,9 @@ describe("workflow scan + registry integration", function () {
     );
   });
 
-  it("keeps workflowId-scoped user override when builtin workflow comes from a package", async function () {
+  it("loads tag-regulator from literature package and excludes legacy tag-manager builtin", async function () {
     await syncBuiltinWorkflowsOnStartup();
-    const userDir = await mkTempDir("zotero-skills-user-workflows");
-    const workflowRoot = joinPath(userDir, "tag-manager-override");
-    await writeUtf8(
-      joinPath(workflowRoot, "workflow.json"),
-      JSON.stringify(
-        {
-          id: "tag-manager",
-          label: "Tag Manager Override",
-          provider: "pass-through",
-          hooks: {
-            applyResult: "hooks/applyResult.js",
-          },
-        },
-        null,
-        2,
-      ),
-    );
-    await writeUtf8(
-      joinPath(workflowRoot, "hooks", "applyResult.js"),
-      "export async function applyResult(){ return { ok: true, override: true }; }",
-    );
-
-    const state = await rescanWorkflowRegistry({ workflowsDir: userDir });
+    const state = await rescanWorkflowRegistry();
     const tagManager = state.loaded.workflows.find(
       (entry) => entry.manifest.id === "tag-manager",
     );
@@ -255,18 +233,10 @@ describe("workflow scan + registry integration", function () {
       (entry) => entry.manifest.id === "tag-regulator",
     );
 
-    assert.isOk(tagManager);
-    assert.equal(tagManager?.manifest.label, "Tag Manager Override");
-    assert.equal(state.workflowSourceById["tag-manager"], "user");
-    assert.isOk(
-      state.loaded.warnings.find((entry) =>
-        entry.includes(
-          'Workflow "tag-manager" exists in builtin and user directories; using user workflow',
-        ),
-      ),
-    );
+    assert.isUndefined(tagManager);
     assert.isOk(tagRegulator);
     assert.equal(state.workflowSourceById["tag-regulator"], "builtin");
+    assert.equal(tagRegulator?.packageId, "literature-workbench-package");
   });
 
   it("loads package workflows with precompiled-host-hook execution mode after registry rescan", async function () {

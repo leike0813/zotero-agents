@@ -3,9 +3,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
-  buildAcpSharedSkillCatalog,
-} from "../../src/modules/acpSharedSkillCatalog";
+  buildAcpSkillInjectionPlan,
+  resolveAcpAgentFamily,
+} from "../../src/modules/acpAgentFamilyResolver";
+import { buildAcpSharedSkillCatalog } from "../../src/modules/acpSharedSkillCatalog";
 import { materializeAcpSkill } from "../../src/modules/acpSkillMaterializer";
+import { materializeAcpRunExecutionInstructions } from "../../src/modules/acpSkillRunPromptBuilder";
+import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { rewriteAcpSkillReferences } from "../../src/modules/acpSkillReferenceRewriter";
 
@@ -20,7 +24,9 @@ async function createSkill(args: {
   skillMd?: string;
 }) {
   const skillDir = path.join(args.root, args.rootKind, args.skillId);
-  await fs.mkdir(path.join(skillDir, "assets", "templates"), { recursive: true });
+  await fs.mkdir(path.join(skillDir, "assets", "templates"), {
+    recursive: true,
+  });
   await fs.mkdir(path.join(skillDir, "scripts"), { recursive: true });
   await fs.mkdir(path.join(skillDir, "references"), { recursive: true });
   await fs.writeFile(
@@ -29,6 +35,7 @@ async function createSkill(args: {
       [
         "---",
         `name: ${args.skillId}`,
+        `description: ${args.skillId} catalog description`,
         "---",
         "",
         `# ${args.skillId}`,
@@ -39,10 +46,26 @@ async function createSkill(args: {
       ].join("\n"),
     "utf8",
   );
-  await fs.writeFile(path.join(skillDir, "scripts", "stage_runtime.py"), "print('ok')\n", "utf8");
-  await fs.writeFile(path.join(skillDir, "scripts", "helper.py"), "print('helper')\n", "utf8");
-  await fs.writeFile(path.join(skillDir, "references", "guide.md"), "# Guide\n", "utf8");
-  await fs.writeFile(path.join(skillDir, "assets", "templates", "report.j2"), "Report\n", "utf8");
+  await fs.writeFile(
+    path.join(skillDir, "scripts", "stage_runtime.py"),
+    "print('ok')\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "scripts", "helper.py"),
+    "print('helper')\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "references", "guide.md"),
+    "# Guide\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "assets", "templates", "report.j2"),
+    "Report\n",
+    "utf8",
+  );
   await fs.writeFile(
     path.join(skillDir, "assets", "output.schema.json"),
     JSON.stringify({ type: "object" }),
@@ -62,6 +85,36 @@ async function createSkill(args: {
 }
 
 describe("ACP shared skill catalog thin proxy overlay", function () {
+  it("resolves Hermes as a known ACP agent family without skill roots", async function () {
+    const root = await mkTempRoot();
+    try {
+      const backend = {
+        id: "acp-hermes",
+        displayName: "Hermes ACP",
+        type: "acp",
+        baseUrl: "local://acp-hermes",
+        command: "hermes",
+        args: ["acp"],
+        acp: { agentFamily: "hermes" as const },
+      };
+      const plan = buildAcpSkillInjectionPlan({
+        backend,
+        workspaceDir: root,
+      });
+
+      assert.equal(resolveAcpAgentFamily(backend), "hermes");
+      assert.equal(plan.family, "hermes");
+      assert.deepEqual(plan.skillRoots, []);
+      assert.isFalse(
+        plan.diagnostics.some(
+          (entry) => entry.code === "acp_agent_family_unknown",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("builds a shared catalog from effective plugin skills with user override", async function () {
     const root = await mkTempRoot();
     try {
@@ -85,9 +138,20 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
         catalogRootDir: path.join(root, "catalog"),
       });
       assert.equal(catalog.entriesById.demo.sourceKind, "user");
+      assert.equal(catalog.entriesById.demo.description, "");
+      assert.equal(
+        catalog.entriesById.aux.description,
+        "aux catalog description",
+      );
       assert.isString(catalog.entriesById.demo.resourceManifest.assetsDir);
-      assert.isAtLeast(catalog.entriesById.demo.resourceManifest.files.length, 1);
-      assert.include(catalog.entriesById.demo.catalogSkillRoot, path.join("catalog"));
+      assert.isAtLeast(
+        catalog.entriesById.demo.resourceManifest.files.length,
+        1,
+      );
+      assert.include(
+        catalog.entriesById.demo.catalogSkillRoot,
+        path.join("catalog"),
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -131,10 +195,17 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
 
       assert.equal(result.skillId, "demo");
       assert.equal(result.proxySkillCount, 2);
-      assert.equal(result.runnerJson.runtime && (result.runnerJson.runtime as any).dependencies?.[0], "jinja2");
+      assert.equal(
+        result.runnerJson.runtime &&
+          (result.runnerJson.runtime as any).dependencies?.[0],
+        "jinja2",
+      );
       assert.include(result.primarySkillDir, path.join("catalog"));
       const proxyDir = path.join(workspaceDir, ".agents", "skills", "demo");
-      const proxySkill = await fs.readFile(path.join(proxyDir, "SKILL.md"), "utf8");
+      const proxySkill = await fs.readFile(
+        path.join(proxyDir, "SKILL.md"),
+        "utf8",
+      );
       assert.include(proxySkill, "zotero-skills-acp-thin-proxy:start");
       assert.include(proxySkill, "zotero-skills-acp-runtime-patch:start");
       assert.include(proxySkill, result.primarySkillDir.replace(/\\/g, "/"));
@@ -157,6 +228,67 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
           .then(() => true)
           .catch(() => false),
       );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses shared catalog instructions instead of proxy skills for Hermes", async function () {
+    const root = await mkTempRoot();
+    try {
+      await createSkill({ root, rootKind: "skills", skillId: "demo" });
+      await createSkill({ root, rootKind: "skills_builtin", skillId: "aux" });
+      const registry = await scanPluginSkillRegistry({ cwd: root });
+      const workspace = await createAcpSkillRunnerWorkspace({
+        backendId: "acp-hermes",
+        rootDir: path.join(root, "runs"),
+      });
+      const result = await materializeAcpSkill({
+        registry,
+        requestedSkillId: "demo",
+        injectionPlan: {
+          family: "hermes",
+          skillRoots: [],
+          diagnostics: [],
+        },
+        workspaceDir: workspace.workspaceDir,
+        resultJsonPath: workspace.resultJsonPath,
+        inputManifestPath: workspace.inputManifestPath,
+        catalogRootDir: path.join(root, "catalog"),
+      });
+
+      assert.equal(result.proxySkillCount, 0);
+      assert.deepEqual(result.proxySkillRoots, []);
+      assert.isUndefined(result.requestedSkillProxyPath);
+      assert.include(result.primarySkillDir, path.join("catalog"));
+
+      const instructionPath = await materializeAcpRunExecutionInstructions({
+        context: {
+          skillId: "demo",
+          workspace,
+          backend: {
+            id: "acp-hermes",
+            type: "acp",
+            baseUrl: "local://acp-hermes",
+            command: "hermes",
+            args: ["acp"],
+            acp: { agentFamily: "hermes" },
+          },
+          agentFamily: "hermes",
+          proxySkillRoots: result.proxySkillRoots,
+          sharedSkillCatalogPath: result.sharedSkillCatalogPath,
+          sharedSkillCatalog: result.sharedSkillCatalog,
+        },
+      });
+      const instructions = await fs.readFile(instructionPath, "utf8");
+
+      assert.match(instructionPath.replace(/\\/g, "/"), /\/HERMES\.md$/);
+      assert.include(instructions, "Agent Skills");
+      assert.include(instructions, "Current skill to execute:");
+      assert.include(instructions, "ID: demo");
+      assert.include(instructions, "demo catalog description");
+      assert.include(instructions, result.primarySkillDir.replace(/\\/g, "/"));
+      assert.notInclude(instructions, "Requested skill proxy");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

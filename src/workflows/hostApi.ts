@@ -10,10 +10,7 @@ import {
   releaseLeakProbeTempArtifactForTests,
 } from "../modules/testLeakProbeTempArtifacts";
 import { recordTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
-import {
-  createZoteroHostCapabilityBrokerApis,
-  getAllRegularZoteroItems,
-} from "../modules/zoteroHostCapabilityBroker";
+import { createZoteroHostCapabilityBrokerApis } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
 import { copyRuntimeFile } from "../modules/runtimePersistence";
 import {
@@ -786,17 +783,17 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
       async getAll() {
         const zotero = resolveHostZotero();
-        if (typeof (zotero.Items as any).getAll === "function") {
-          try {
-            const loaded = await (zotero.Items as any).getAll();
-            if (Array.isArray(loaded)) {
-              return loaded;
-            }
-          } catch {
-            // fall through to deterministic scan
-          }
+        if (typeof (zotero.Items as any).getAll !== "function") {
+          throw new Error("Zotero.Items.getAll(libraryId) is not available");
         }
-        return getAllRegularZoteroItems();
+        const libraryId = Number(zotero.Libraries?.userLibraryID) || 1;
+        const loaded = await (zotero.Items as any).getAll(libraryId);
+        if (!Array.isArray(loaded)) {
+          throw new Error(
+            "Zotero.Items.getAll(libraryId) did not return an array",
+          );
+        }
+        return loaded;
       },
     },
     context: zoteroBroker.context,

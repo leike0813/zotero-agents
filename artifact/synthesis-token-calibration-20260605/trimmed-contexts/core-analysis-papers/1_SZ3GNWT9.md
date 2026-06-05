@@ -1,0 +1,83 @@
+# RF-DETR: neural architecture search for real-time detection transformers (2025)
+
+- Paper ref: 1:SZ3GNWT9
+- Title: RF-DETR: neural architecture search for real-time detection transformers
+- Year: 2025
+
+## Filtered Digest
+
+#### TL;DR
+
+本文提出 RF-DETR，一种轻量级专用检测 Transformer，通过权重共享神经架构搜索（NAS）为任意目标数据集发现精度-延迟 Pareto 曲线。该方法在目标数据集上微调预训练基础网络，无需重新训练即可评估数千种具有不同精度-延迟权衡的网络配置。
+
+RF-DETR 重新审视了 NAS 的"可调旋钮"以提高 DETR 向多样化目标域的可迁移性，包括 patch size、解码器层数、查询 token 数、图像分辨率和每个注意力块的窗口数。在推理时通过丢弃查询 token 和解码器层来改变延迟，而无需重新训练。
+
+在 COCO 上，RF-DETR（nano）达到 48.0 AP，以相似延迟超越 D-FINE（nano）5.3 AP；RF-DETR（2x-large）是首个在 COCO 上超过 60 AP 的实时检测器。在 Roboflow100-VL 上，RF-DETR（2x-large）超越 GroundingDINO（tiny）1.2 AP，同时速度快 20 倍。
+
+本文还提出了一种标准化的延迟评估协议：在前向传播之间缓冲 200ms 以减轻 GPU 功率节流导致的测量方差。此外，RF-DETR 采用无调度器训练策略，避免了对特定数据集特性的隐式过拟合。
+
+#### 研究问题与贡献
+
+- 研究问题：如何在保持实时推理效率的同时，通过权重共享 NAS 使专用检测 Transformer 能够适应多样化的目标数据集和硬件平台，并避免对 COCO 等标准基准的隐式过拟合？
+
+- 提出 RF-DETR 系列基于 NAS 的无调度器检测和分割模型，在 RF100-VL 和 COCO（延迟 ≤ 40ms）上超越先前 SOTA 实时方法
+
+- 首次将端到端权重共享 NAS 应用于目标检测和分割任务，探索了 patch size、解码器层数、查询 token 数、图像分辨率和窗口数等"可调旋钮"对精度-延迟权衡的影响
+
+- 利用大规模预训练和权重共享 NAS 实现向小数据集的有效迁移，无需针对每个硬件平台重复搜索和训练过程
+
+- 重新审视当前延迟基准测试协议，提出在连续前向传播之间缓冲 200ms 的标准化程序以提高可复现性
+
+#### 方法要点
+
+- 用 DINOv2 预训练 ViT 骨干网络替代 LW-DETR 的 CAEv2 骨干，显著提升小数据集上的检测精度
+
+- 采用 FlexiVIT 风格的变换在训练期间插值不同 patch size，使 NAS 搜索空间包含多种分辨率配置
+
+- 在所有解码器层输出上应用回归损失，允许在推理时丢弃任意解码器块，甚至完全移除解码器将模型变为单阶段检测器
+
+- 按编码器输出处对应 token 的类 logit 最大 sigmoid 值排序丢弃查询 token，以在不重新训练的情况下减少最大检测数和推理延迟
+
+- 预分配 N 个位置嵌入对应最大图像分辨率除以最小 patch size，对较小分辨率或较大 patch size 进行插值
+
+- 窗口注意力将自注意力限制为仅处理固定数量的相邻 token，通过增减每个块的窗口数来平衡精度、全局信息混合和计算效率
+
+- 添加轻量级实例分割头，通过双线性插值编码器输出并学习轻量级投影器生成像素嵌入图，与检测头共享低分辨率特征图以最小化延迟
+
+- 使用层归一替代批归一以支持消费者级 GPU 上的梯度累积训练
+
+- 采用无调度器训练策略：使用 EMA 调度器但不使用学习率预热，避免 cosine 调度对已知优化 horizon 的假设
+
+- 限制数据增强仅为水平翻转和随机裁剪，避免垂直翻转等在安全关键领域可能产生负面偏置的增强
+
+- 在批次级别调整图像大小以最小化每批填充像素数，并确保所有位置编码分辨率在训练时被等概率看到
+
+#### 关键结果
+
+- RF-DETR（nano）在 COCO 上达到 48.0 AP，以相似延迟超越 D-FINE（nano）5.3 AP，超越 LW-DETR（tiny）5+ AP
+
+- RF-DETR（2x-large）是首个在 COCO 上超过 60 AP 的实时检测器
+
+- RF-DETR（2x-large）在 RF100-VL 上超越 GroundingDINO（tiny）1.2 AP，同时运行速度快 20 倍
+
+- RF-DETR-Seg（nano）在 COCO 上超越 FastInst 5.4 AP，同时运行速度快近 10 倍
+
+- RF-DETR-Seg（nano）超越所有已报告的 YOLOv8 和 YOLOv11 模型尺寸的分割性能
+
+- 用 DINOv2 替代 CAEv2 骨干带来 2% AP 提升；额外的 Objects-365 预训练再提升 0.7% AP
+
+- 权重共享 NAS 在基础配置上再提升 0.3% AP 而不增加延迟
+
+- 在 RF100-VL 上，YOLOv8 和 YOLOv11 持续表现不如基于 DETR 的检测器，且增大模型尺寸无法改善其性能
+
+- D-FINE 在 RF100-VL 上表现不如 RT-DETR，表明其超参数可能过度优化了 COCO
+
+- 通过 200ms 缓冲标准化延迟评估后，YOLOv8（M）FP32 延迟从报告的 5.86ms 变为 14.8ms，揭示了功率节流对测量的显著影响
+
+- 天真的 FP16 量化可使 D-FINE 性能降至 0.5 AP，强调应使用相同模型工件报告精度和延迟
+
+- NAS 后微调在 COCO 上收益有限，但在 RF100-VL 上小模型有显著提升（nano +1.1 AP）
+
+- 将 COCO 优化的固定架构迁移到 RF100-VL 表现良好，但数据集特定 NAS 仍带来显著额外增益
+
+- RF-DETR 对未见过的 patch size（如 27、18）表现出强泛化能力，性能与 Pareto 最优族几乎相同

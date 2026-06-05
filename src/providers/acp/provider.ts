@@ -37,6 +37,13 @@ export class AcpProvider implements Provider {
         description:
           "Reasoning effort derived from ACP model variants. The runner resolves it to the raw ACP model id before prompting.",
       },
+      autoApproveAcpPermissions: {
+        type: "boolean" as const,
+        title: "Auto-approve ACP permission requests",
+        description:
+          "Automatically approve ACP backend tool permission requests for this ACP Skill run.",
+        default: false,
+      },
     };
   }
 
@@ -68,23 +75,26 @@ export class AcpProvider implements Provider {
       if (variants.length > 0) {
         return variants.map((variant) => variant.effortId);
       }
-      const cachedEfforts = (cache.reasoningEfforts || []).map((effort) => effort.id);
+      const cachedEfforts = (cache.reasoningEfforts || []).map(
+        (effort) => effort.id,
+      );
       return cachedEfforts.length > 0 ? cachedEfforts : ["default"];
     }
     return [];
   }
 
-  normalizeRuntimeOptions(
-    options: unknown = {},
-    backend?: BackendInstance,
-  ) {
+  normalizeRuntimeOptions(options: unknown = {}, backend?: BackendInstance) {
     const cache = backend?.acp?.runtimeOptionsCache;
     const source =
       options && typeof options === "object" && !Array.isArray(options)
         ? (options as Record<string, unknown>)
         : {};
+    const autoApproveAcpPermissions =
+      source.autoApproveAcpPermissions === true
+        ? { autoApproveAcpPermissions: true }
+        : {};
     if (!cache) {
-      return {};
+      return autoApproveAcpPermissions;
     }
     const modeIds = new Set((cache.modes || []).map((entry) => entry.id));
     const modelGroups = buildAcpFoldedModelGroups(cache.rawModels || []);
@@ -104,7 +114,9 @@ export class AcpProvider implements Provider {
       Array.from(modelGroups.keys())[0] ||
       "";
     const group = modelGroups.get(model);
-    const effortIds = new Set((group?.variants || []).map((entry) => entry.effortId));
+    const effortIds = new Set(
+      (group?.variants || []).map((entry) => entry.effortId),
+    );
     const normalizedEffort = normalizeAcpEffortId(source.acpReasoningEffort);
     const fallbackEffort =
       group && group.variants.length > 0
@@ -115,7 +127,7 @@ export class AcpProvider implements Provider {
           ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||
             normalizeAcpEffortId(cache.reasoningEfforts?.[0]?.id) ||
             ""
-        : "";
+          : "";
     return {
       ...(selectedMode && modeIds.has(selectedMode)
         ? { acpModeId: selectedMode }
@@ -128,6 +140,7 @@ export class AcpProvider implements Provider {
         : fallbackEffort
           ? { acpReasoningEffort: fallbackEffort }
           : {}),
+      ...autoApproveAcpPermissions,
     };
   }
 
@@ -170,7 +183,8 @@ export class AcpProvider implements Provider {
       operation: "execute",
       phase: "terminal",
       stage: "provider-acp-dispatch-stubbed",
-      message: "ACP provider routed prompt contract to phase-1 global chat surface",
+      message:
+        "ACP provider routed prompt contract to phase-1 global chat surface",
       details: {
         requestKind: args.requestKind,
         hasHostContext: !!request.hostContext,

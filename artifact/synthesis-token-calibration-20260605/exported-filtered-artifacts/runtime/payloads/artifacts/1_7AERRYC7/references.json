@@ -1,0 +1,262 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Carion, Nicolas; Massa, Francisco; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2022",
+      "authors": "Chen, Fangyi; Zhang, Han; et al.",
+      "title": "Enhanced training of querybased object detection via selective query recollection"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Chen, Kai; Pang, Jiangmiao; et al.",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "Chen, Kai; Wang, Jiaqi; et al.",
+      "title": "Mmdetection: Open mmlab detection toolbox and benchmark"
+    },
+    {
+      "id": "ref-5",
+      "year": "2022",
+      "authors": "Chen, Qiang; Chen, Xiaokang; et al.",
+      "title": "Group detr: Fast training convergence with decoupled one-to-many label assignment"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Chen, Qiang; Wang, Jian; et al.",
+      "title": "Group detr v2: Strong object detector with encoder-decoder pretraining"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Dosovitskiy, Alexey; Beyer, Lucas; et al.",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale"
+    },
+    {
+      "id": "ref-8",
+      "year": "2023",
+      "authors": "Fang, Yuxin; Sun, Quan; et al.",
+      "title": "Eva-O2: A visual representation for neon genesis"
+    },
+    {
+      "id": "ref-9",
+      "year": "2022",
+      "authors": "Gao, Ziteng; Wang, Limin; et al.",
+      "title": "Adamixer: A fast-converging query-based object detector"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Ghiasi, Golnaz; Cui, Yin; et al.",
+      "title": "Simple copy-paste is a strong data augmentation method for instance segmentation"
+    },
+    {
+      "id": "ref-11",
+      "year": "2015",
+      "authors": "Girshick, Ross",
+      "title": "Fast r-cnn"
+    },
+    {
+      "id": "ref-12",
+      "year": "2019",
+      "authors": "Gupta, Agrim; Dollar, Piotr; et al.",
+      "title": "Lvis:A dataset for large vocabulary instance segmentation"
+    },
+    {
+      "id": "ref-13",
+      "year": "2022",
+      "authors": "He, Kaiming; Chen, Xinlei; et al.",
+      "title": "Masked autoencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "He, Kaiming; Gkioxari, Georgia; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-15",
+      "year": "2016",
+      "authors": "He, Kaiming; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-16",
+      "year": "2022",
+      "authors": "Jia, Ding; Yuan, Yuhui; et al.",
+      "title": "Detrs with hybrid matching"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Kim, Kang; Lee, Hee Seok",
+      "title": "Probabilistic anchor assignment with iou prediction for object detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Li, Feng; Zhang, Hao; et al.",
+      "title": "Dn-detr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-19",
+      "year": "2020",
+      "authors": "Li, Xiang; Wang, Wenhai; et al.",
+      "title": "Generalized focal loss: Learning qualified and distributed bounding boxes for dense object detection"
+    },
+    {
+      "id": "ref-20",
+      "year": "2022",
+      "authors": "Li, Yanghao; Mao, Hanzi; et al.",
+      "title": "Exploring plain vision transformer backbones for object detection"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Lin, Tsung-Yi; Goyal, Priya; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2014",
+      "authors": "Lin, Tsung-Yi; Maire, Michael; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Liu, Shilong; Li, Feng; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are bettr queries for detr"
+    },
+    {
+      "id": "ref-24",
+      "year": "2022",
+      "authors": "Liu, Ze; Hu, Han; et al.",
+      "title": "Swin transformer v2: Scaling up capacity and resolution"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "Liu, Ze; Lin, Yutong; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-26",
+      "year": "2021",
+      "authors": "Meng, Depu; Chen, Xiaokang; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-27",
+      "year": "2015",
+      "authors": "Ren, Shaoqing; He, Kaiming; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-28",
+      "year": "2017",
+      "authors": "Selvaraju, Ramprasaath R; Cogswell, Michael; et al.",
+      "title": "Grad-cam: Visual explanations from deep networks via gradient-based localization"
+    },
+    {
+      "id": "ref-29",
+      "year": "2019",
+      "authors": "Shao, Shuai; Li, Zeming; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Song, Guanglu; Liu, Yu; et al.",
+      "title": "Revisiting the sibling head in object detector"
+    },
+    {
+      "id": "ref-31",
+      "year": "2019",
+      "authors": "Tian, Zhi; Shen, Chunhua; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2022",
+      "authors": "Wang, Wenhui; Bao, Hangbo; et al.",
+      "title": "Image as a foreign language:Beit pretraining for all vision and visionlanguage tasks"
+    },
+    {
+      "id": "ref-33",
+      "year": "2022",
+      "authors": "Wang, Wenhai; Dai, Jifeng; et al.",
+      "title": "Internimage: Exploring large-scale vision foundation models with deformable convolutions"
+    },
+    {
+      "id": "ref-34",
+      "year": "2022",
+      "authors": "Wang, Yingming; Zhang, Xiangyu; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-35",
+      "year": "2022",
+      "authors": "Wei, Yixuan; Hu, Han; et al.",
+      "title": "Contrastive learning rivals masked image modeling in fine-tuning via feature distillation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2022",
+      "authors": "Xue, Zeyue; Liang, Jianming; et al.",
+      "title": "Large-batch optimization for dense visual predictions"
+    },
+    {
+      "id": "ref-37",
+      "year": "2022",
+      "authors": "Yang, Jianwei; Li, Chunyuan; et al.",
+      "title": "Focal modulation networks"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Zhang, Hao; Li, Feng; et al.",
+      "title": "Dino:Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-39",
+      "year": "2022",
+      "authors": "Zhang, Haotian; Zhang, Pengchuan; et al.",
+      "title": "Glipv2: Unifying localization and vision-language understanding"
+    },
+    {
+      "id": "ref-40",
+      "year": "2020",
+      "authors": "Zhang, Shifeng; Chi, Cheng; et al.",
+      "title": "Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection"
+    },
+    {
+      "id": "ref-41",
+      "year": "2021",
+      "authors": "Zhou, Xingyi; Koltun, Vladlen; et al.",
+      "title": "Probabilistic two-stage detection"
+    },
+    {
+      "id": "ref-42",
+      "year": "2020",
+      "authors": "Zhu, Xizhou; Su, Weijie; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-43",
+      "year": "2021",
+      "authors": "Zong, Zhuofan; Cao, Qianggang; et al.",
+      "title": "Rcnet: Reverse feature pyramid and cross-scale shift network for object detection"
+    }
+  ]
+}

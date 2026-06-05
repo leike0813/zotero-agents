@@ -533,6 +533,81 @@ describe("Synthesis sidecar cache hard cut", function () {
     );
   });
 
+  it("cascades sidecar binding changes across shared external canonical slices", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      registryInputs: [
+        { libraryId: 1, itemKey: "AAA", title: "Source A", notes: [] },
+        { libraryId: 1, itemKey: "BBB", title: "Shared Target", notes: [] },
+        { libraryId: 1, itemKey: "CCC", title: "Source C", notes: [] },
+      ],
+    });
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Source A",
+      references: [{ title: "Shared Target", year: "2020" }],
+    });
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "CCC",
+      title: "Source C",
+      references: [{ title: "Shared Target", year: "2020" }],
+    });
+    await service.rebuildCitationGraphCacheNow();
+
+    const initialEdges = repository.listCitationEdges();
+    const sharedExternalTarget = initialEdges[0]?.targetLiteratureItemId;
+    assert.match(sharedExternalTarget || "", /^cref:/);
+    assert.sameMembers(
+      initialEdges.map(
+        (edge) =>
+          `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`,
+      ),
+      [`1:AAA->${sharedExternalTarget}`, `1:CCC->${sharedExternalTarget}`],
+    );
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Source A",
+      references: [{ title: "Shared Target", year: "2020" }],
+      matchedItems: [
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Shared Target",
+          year: "2020",
+        },
+      ],
+    });
+
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
+    assert.sameMembers(
+      repository
+        .listCitationEdges({
+          sourceLiteratureItemIds: ["1:AAA", "1:CCC"],
+          statuses: ["accepted"],
+        })
+        .map(
+          (edge) =>
+            `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`,
+        ),
+      ["1:AAA->1:BBB", "1:CCC->1:BBB"],
+    );
+    assert.lengthOf(
+      repository.listCitationEdges({
+        targetLiteratureItemIds: [sharedExternalTarget || ""],
+      }),
+      0,
+    );
+  });
+
   it("runs manual stale graph cache incremental refresh from cache basis delta metadata", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({

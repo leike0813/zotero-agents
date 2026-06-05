@@ -1,0 +1,48 @@
+{
+  "id": "tag-regulator",
+  "label": "Tag Regulator",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "inputs": {
+    "unit": "parent"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1"
+  },
+  "parameters": {
+    "infer_tag": {
+      "type": "boolean",
+      "title": "Infer Tag",
+      "default": true
+    },
+    "tag_note_language": {
+      "type": "string",
+      "title": "Tag Note Language",
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "skillrunner_mode": "auto"
+  },
+  "result": {
+    "fetch": {
+      "type": "result"
+    }
+  },
+  "hooks": {
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

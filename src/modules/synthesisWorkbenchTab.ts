@@ -1520,6 +1520,83 @@ function handleAction(
     void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
+  if (result.hostCommand?.command === "updateStagedTagSuggestion") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const originalTag = String(commandArgs.originalTag || commandArgs.tag || "").trim();
+    const tag = String(commandArgs.tag || "").trim();
+    if (tag) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "updateStagedTagSuggestion",
+        { tag },
+        async () => {
+          if (originalTag && originalTag !== tag) {
+            await getDefaultSynthesisService().discardStagedTagSuggestions({
+              tags: [originalTag],
+            });
+          }
+          return getDefaultSynthesisService().stageTagSuggestions({
+            entries: [
+              {
+                tag,
+                facet: String(commandArgs.facet || tag.split(":")[0] || "topic"),
+                note: String(commandArgs.note || ""),
+                source_flow: String(
+                  commandArgs.source_flow || "tag-regulator-suggest",
+                ),
+                parent_bindings: Array.isArray(commandArgs.parent_bindings)
+                  ? commandArgs.parent_bindings
+                  : [],
+              },
+            ],
+          });
+        },
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "promoteStagedTagSuggestions") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const tags = Array.isArray(commandArgs.tags)
+      ? commandArgs.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+      : [String(commandArgs.tag || "").trim()].filter(Boolean);
+    if (tags.length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "promoteStagedTagSuggestions",
+        { tag: tags[0], tags },
+        () => getDefaultSynthesisService().promoteStagedTagSuggestions({ tags }),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "discardStagedTagSuggestions") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const tags = Array.isArray(commandArgs.tags)
+      ? commandArgs.tags.map((tag) => String(tag || "").trim()).filter(Boolean)
+      : [String(commandArgs.tag || "").trim()].filter(Boolean);
+    if (tags.length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "discardStagedTagSuggestions",
+        { tag: tags[0], tags },
+        () => getDefaultSynthesisService().discardStagedTagSuggestions({ tags }),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "clearStagedTagSuggestions") {
+    runWorkbenchCommandOnce(runtime, "clearStagedTagSuggestions", {}, () =>
+      getDefaultSynthesisService().clearStagedTagSuggestions(),
+    );
+    return;
+  }
   if (result.hostCommand?.command === "applyTagVocabularyImport") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const action = String(commandArgs.action || "").trim();
@@ -1641,7 +1718,7 @@ function surfacesInvalidatedByCommand(
     command === "runAdvancedReferenceMatchingNow" ||
     command === "retryAdvancedReferenceMatching"
   ) {
-    return ["index", "review"];
+    return ["index", "review", "graph"];
   }
   if (
     command === "applyReferenceMatchProposalAction" ||
@@ -1660,7 +1737,11 @@ function surfacesInvalidatedByCommand(
   if (
     command === "rebuildTagVocabularyIndex" ||
     command === "previewTagVocabularyImport" ||
-    command === "applyTagVocabularyImport"
+    command === "applyTagVocabularyImport" ||
+    command === "updateStagedTagSuggestion" ||
+    command === "promoteStagedTagSuggestions" ||
+    command === "discardStagedTagSuggestions" ||
+    command === "clearStagedTagSuggestions"
   ) {
     return ["tags"];
   }

@@ -1,0 +1,334 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "Endto-end object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2023",
+      "authors": "Chang, J.; Wang, S.; et al.",
+      "title": "Detrdistill: A universal knowledge distillation framework for detr-families"
+    },
+    {
+      "id": "ref-3",
+      "year": "2023",
+      "authors": "Chen, Q.; Chen, X.; et al.",
+      "title": "Group detr: Fast detr training with group-wise one-to-many assignment"
+    },
+    {
+      "id": "ref-4",
+      "year": "2022",
+      "authors": "Chen, Q.; Wang, J.; et al.",
+      "title": "Group detr v2: Strong object detector with encoder-decoder pretraining. arXiv preprint arXiv:2211.03594"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Chen, W.; Du, X.; et al.",
+      "title": "A simple single-scale vision transformer for object localization and instance segmentation. arXiv preprint arXiv:2112.09747"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Chen, X.; Chen, J.; et al.",
+      "title": "D $^ 3$ etr: Decoder distillation for detection transformer. arXiv preprint arXiv:2211.09768"
+    },
+    {
+      "id": "ref-7",
+      "year": "2022",
+      "authors": "Chen, X.; Ding, M.; et al.",
+      "title": "Context autoencoder for self-supervised representation learning. arXiv preprint arXiv:2202.03026"
+    },
+    {
+      "id": "ref-8",
+      "year": "2022",
+      "authors": "Chen, X.; Wei, F.; et al.",
+      "title": "Conditional detr v2: Efficient detection transformer with box queries. arXiv preprint arXiv:2207.08914"
+    },
+    {
+      "id": "ref-9",
+      "year": "2023",
+      "authors": "Chen, Y.; Yuan, X.; et al.",
+      "title": "Yolo-ms: Rethinking multi-scale representation learning for real-time object detection. arXiv preprint arXiv:2308.05480"
+    },
+    {
+      "id": "ref-10",
+      "year": "2022",
+      "authors": "Ciaglia, F.; Zuppichini, F.S.; et al.",
+      "title": "Roboflow 100: A rich, multi-domain object detection benchmark. arXiv preprint arXiv:2211.13523"
+    },
+    {
+      "id": "ref-11",
+      "year": "2020",
+      "authors": "Clark, K.; Luong, M.T.; et al.",
+      "title": "Electra: Pre-training text encoders as discriminators rather than generators. arXiv preprint arXiv:2003.10555"
+    },
+    {
+      "id": "ref-12",
+      "year": "2009",
+      "authors": "Deng, J.; Dong, W.; et al.",
+      "title": "Imagenet: A largescale hierarchical image database"
+    },
+    {
+      "id": "ref-13",
+      "year": "2021",
+      "authors": "Ding, X.; Zhang, X.; et al.",
+      "title": "Repvgg: Making vgg-style convnets great again"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Dosovitskiy, A.; Beyer, L.; et al.",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929"
+    },
+    {
+      "id": "ref-15",
+      "year": "2020",
+      "authors": "Feng, D.; Rosenbaum, L.; et al.",
+      "title": "Deep multi-modal object detection and semantic segmentation for autonomous driving: Datasets, methods, and challenges. IEEE Transactions on Intelligent Transportation Systems 22(3), 1341–1360"
+    },
+    {
+      "id": "ref-16",
+      "year": "2022",
+      "authors": "Gao, Z.; Wang, L.; et al.",
+      "title": "Adamixer: A fast-converging query-based object detector"
+    },
+    {
+      "id": "ref-17",
+      "year": "2021",
+      "authors": "Ge, Z.; Liu, S.; et al.",
+      "title": "Yolox: Exceeding yolo series in 2021. arXiv preprint arXiv:2107.08430"
+    },
+    {
+      "id": "ref-18",
+      "year": "2023",
+      "authors": "Hatamizadeh, A.; Heinrich, G.; et al.",
+      "title": "Fastervit: Fast vision transformers with hierarchical attention. arXiv preprint arXiv:2306.06189"
+    },
+    {
+      "id": "ref-19",
+      "year": "2022",
+      "authors": "He, K.; Chen, X.; et al.",
+      "title": "Masked autoencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-20",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Hosang, J.; Benenson, R.; et al.",
+      "title": "Learning non-maximum suppression"
+    },
+    {
+      "id": "ref-22",
+      "year": "2023",
+      "authors": "Hu, Y.; Yang, J.; et al.",
+      "title": "Planning-oriented autonomous driving"
+    },
+    {
+      "id": "ref-23",
+      "year": "2017",
+      "authors": "Huang, G.; Liu, Z.; et al.",
+      "title": "Densely connected convolutional networks"
+    },
+    {
+      "id": "ref-24",
+      "year": "2023",
+      "authors": "Jia, D.; Yuan, Y.; et al.",
+      "title": "Detrs with hybrid matching"
+    },
+    {
+      "id": "ref-25",
+      "year": "2020",
+      "authors": "Jocher, G.",
+      "title": "Ultralytics yolov5 (2020), https://github.com/ultralytics/yolov5"
+    },
+    {
+      "id": "ref-26",
+      "year": "2023",
+      "authors": "Jocher, G.; Chaurasia, A.; et al.",
+      "title": "Ultralytics yolov8 (2023), https://github. com/ultralytics/ultralytics"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Karaoguz, H.; Jensfelt, P.",
+      "title": "Object detection approach for robot grasp detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2019",
+      "authors": "Li, B.; Ouyang, W.; et al.",
+      "title": "Gs3d: An efficient 3d object detection framework for autonomous driving"
+    },
+    {
+      "id": "ref-29",
+      "year": "2023",
+      "authors": "Li, C.; Li, L.; et al.",
+      "title": "Yolov6 v3. 0: A full-scale reloading. arXiv preprint arXiv:2301.05586"
+    },
+    {
+      "id": "ref-30",
+      "year": "2022",
+      "authors": "Li, C.; Li, L.; et al.",
+      "title": "Yolov6: A single-stage object detection framework for industrial applications. arXiv preprint arXiv:2209.02976"
+    },
+    {
+      "id": "ref-31",
+      "year": "2023",
+      "authors": "Li, F.; Zeng, A.; et al.",
+      "title": "Lite detr: An interleaved multi-scale encoder for efficient detr"
+    },
+    {
+      "id": "ref-32",
+      "year": "2022",
+      "authors": "Li, F.; Zhang, H.; et al.",
+      "title": "Dn-detr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-33",
+      "year": "2022",
+      "authors": "Li, Y.; Mao, H.; et al.",
+      "title": "Exploring plain vision transformer backbones for object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2021",
+      "authors": "Li, Y.; Xie, S.; et al.",
+      "title": "Benchmarking detection transfer learning with vision transformers. arXiv preprint arXiv:2111.11429"
+    },
+    {
+      "id": "ref-35",
+      "year": "2017",
+      "authors": "Lin, T.Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-36",
+      "year": "2014",
+      "authors": "Lin, T.Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-37",
+      "year": "2023",
+      "authors": "Lin, Y.; Yuan, Y.; et al.",
+      "title": "Detr doesn’t need multiscale or locality design. arXiv preprint arXiv:2308.01904"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Liu, S.; Li, F.; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are better queries for detr. arXiv preprint arXiv:2201.12329"
+    },
+    {
+      "id": "ref-39",
+      "year": "2023",
+      "authors": "Liu, S.; Ren, T.; et al.",
+      "title": "Detection transformer with stable matching. arXiv preprint arXiv:2304.04742"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Liu, Z.; Lin, Y.; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-41",
+      "year": "2017",
+      "authors": "Loshchilov, I.; Hutter, F.",
+      "title": "Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101"
+    },
+    {
+      "id": "ref-42",
+      "year": "2023",
+      "authors": "Lv, W.; Xu, S.; et al.",
+      "title": "Detrs beat yolos on real-time object detection. arXiv preprint arXiv:2304.08069"
+    },
+    {
+      "id": "ref-43",
+      "year": "2022",
+      "authors": "Lyu, C.; Zhang, W.; et al.",
+      "title": "Rtmdet: An empirical study of designing real-time object detectors. arXiv preprint arXiv:2212.07784"
+    },
+    {
+      "id": "ref-44",
+      "year": "2021",
+      "authors": "Meng, D.; Chen, X.; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-45",
+      "year": "2022",
+      "authors": "Ouyang-Zhang, J.; Cho, J.H.; et al.",
+      "title": "Nms strikes back. arXiv preprint arXiv:2212.06137"
+    },
+    {
+      "id": "ref-46",
+      "year": "2021",
+      "authors": "Paul, S.K.; Chowdhury, M.T.; et al.",
+      "title": "Object detection and pose estimation from rgb and depth data for real-time, adaptive robotic grasping"
+    },
+    {
+      "id": "ref-47",
+      "year": "2016",
+      "authors": "Redmon, J.; Divvala, S.; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-48",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks. Advances in neural information processing systems 28"
+    },
+    {
+      "id": "ref-49",
+      "year": "2019",
+      "authors": "Rezatofighi, H.; Tsoi, N.; et al.",
+      "title": "Generalized intersection over union: A metric and a loss for bounding box regression"
+    },
+    {
+      "id": "ref-50",
+      "year": "2021",
+      "authors": "Roh, B.; Shin, J.; et al.",
+      "title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity. arXiv preprint arXiv:2111.14330"
+    },
+    {
+      "id": "ref-51",
+      "year": "2019",
+      "authors": "Shao, S.; Li, Z.; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-52",
+      "year": "2017",
+      "authors": "Tarvainen, A.; Valpola, H.",
+      "title": "Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results. Advances in neural information processing systems 30"
+    },
+    {
+      "id": "ref-53",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-54",
+      "year": "2024",
+      "authors": "Wang, A.; Chen, H.; et al.",
+      "title": "Yolov10: Realtime end-to-end object detection. arXiv preprint arXiv:2405.14458"
+    },
+    {
+      "id": "ref-55",
+      "year": "2023",
+      "authors": "Wang, C.; He, W.; et al.",
+      "title": "Gold-yolo: Efficient object detector via gather-and-distribute mechanism. arXiv preprint arXiv:2309.11331"
+    }
+  ]
+}

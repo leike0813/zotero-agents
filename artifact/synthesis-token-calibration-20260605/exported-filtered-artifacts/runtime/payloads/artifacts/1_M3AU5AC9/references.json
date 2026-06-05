@@ -1,0 +1,244 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2014",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Spatial pyramid pooling in deep convolutional networks for visual recognition"
+    },
+    {
+      "id": "ref-2",
+      "year": "2015",
+      "authors": "Girshick, R.",
+      "title": "Fast R-CNN"
+    },
+    {
+      "id": "ref-3",
+      "year": "2015",
+      "authors": "Simonyan, K.; Zisserman, A.",
+      "title": "Very deep convolutional networks for large-scale image recognition"
+    },
+    {
+      "id": "ref-4",
+      "year": "2013",
+      "authors": "Uijlings, J. R.; van de Sande, K. E.; et al.",
+      "title": "Selective search for object recognition"
+    },
+    {
+      "id": "ref-5",
+      "year": "2014",
+      "authors": "Girshick, R.; Donahue, J.; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2014",
+      "authors": "Zitnick, C. L.; Dollar, P.",
+      "title": "Edge boxes: Locating object proposals from edges"
+    },
+    {
+      "id": "ref-7",
+      "year": "2015",
+      "authors": "Long, J.; Shelhamer, E.; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2010",
+      "authors": "Felzenszwalb, P. F.; Girshick, R. B.; et al.",
+      "title": "Object detection with discriminatively trained part-based models"
+    },
+    {
+      "id": "ref-9",
+      "year": "2014",
+      "authors": "Sermanet, P.; Eigen, D.; et al.",
+      "title": "Overfeat: Integrated recognition, localization and detection using convolutional networks"
+    },
+    {
+      "id": "ref-10",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-11",
+      "year": "2007",
+      "authors": "Everingham, M.; Van Gool, L.; et al.",
+      "title": "The PASCAL Visual Object Classes Challenge Results"
+    },
+    {
+      "id": "ref-12",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-13",
+      "year": "2015",
+      "authors": "Song, S.; Xiao, J.",
+      "title": "Deep sliding shapes for amodal 3d object detection in RGB-D images"
+    },
+    {
+      "id": "ref-14",
+      "year": "2015",
+      "authors": "Zhu, J.; Chen, X.; et al.",
+      "title": "DeePM: A deep part-based model for object detection and semantic part localization"
+    },
+    {
+      "id": "ref-15",
+      "year": "2015",
+      "authors": "Dai, J.; He, K.; et al.",
+      "title": "Instance-aware semantic segmentation via multi-task network cascades"
+    },
+    {
+      "id": "ref-16",
+      "year": "2015",
+      "authors": "Johnson, J.; Karpathy, A.; et al.",
+      "title": "Densecap: Fully convolutional localization networks for dense captioning"
+    },
+    {
+      "id": "ref-17",
+      "year": "2015",
+      "authors": "Kislyuk, D.; Liu, Y.; et al.",
+      "title": "Human curation and convnets: Powering item-to-item recommendations on pinterest"
+    },
+    {
+      "id": "ref-18",
+      "year": "2015",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-19",
+      "year": "2014",
+      "authors": "Hosang, J.; Benenson, R.; et al.",
+      "title": "How good are detection proposals, really?"
+    },
+    {
+      "id": "ref-20",
+      "year": "2015",
+      "authors": "Hosang, J.; Benenson, R.; et al.",
+      "title": "What makes for effective detection proposals?"
+    },
+    {
+      "id": "ref-21",
+      "year": "2015",
+      "authors": "Chavali, N.; Agrawal, H.; et al.",
+      "title": "Object-proposal evaluation protocol is 'gameable'"
+    },
+    {
+      "id": "ref-22",
+      "year": "2012",
+      "authors": "Carreira, J.; Sminchisescu, C.",
+      "title": "CPMC: Automatic object segmentation using constrained parametric min-cuts"
+    },
+    {
+      "id": "ref-23",
+      "year": "2014",
+      "authors": "Arbelaez, P.; Pont-Tuset, J.; et al.",
+      "title": "Multiscale combinatorial grouping"
+    },
+    {
+      "id": "ref-24",
+      "year": "2012",
+      "authors": "Alexe, B.; Deselaers, T.; et al.",
+      "title": "Measuring the objectness of image windows"
+    },
+    {
+      "id": "ref-25",
+      "year": "2013",
+      "authors": "Szegedy, C.; Toshev, A.; et al.",
+      "title": "Deep neural networks for object detection"
+    },
+    {
+      "id": "ref-26",
+      "year": "2014",
+      "authors": "Erhan, D.; Szegedy, C.; et al.",
+      "title": "Scalable object detection using deep neural networks"
+    },
+    {
+      "id": "ref-27",
+      "year": "2015",
+      "authors": "Szegedy, C.; Reed, S.; et al.",
+      "title": "Scalable, high-quality object detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2015",
+      "authors": "Pinheiro, P. O.; Collobert, R.; et al.",
+      "title": "Learning to segment object candidates"
+    },
+    {
+      "id": "ref-29",
+      "year": "2015",
+      "authors": "Dai, J.; He, K.; et al.",
+      "title": "Convolutional feature masking for joint object and stuff segmentation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Object detection networks on convolutional feature maps"
+    },
+    {
+      "id": "ref-31",
+      "year": "2015",
+      "authors": "Chorowski, J. K.; Bahdanau, D.; et al.",
+      "title": "Attention-based models for speech recognition"
+    },
+    {
+      "id": "ref-32",
+      "year": "2014",
+      "authors": "Zeiler, M. D.; Fergus, R.",
+      "title": "Visualizing and understanding convolutional neural networks"
+    },
+    {
+      "id": "ref-33",
+      "year": "2010",
+      "authors": "Nair, V.; Hinton, G. E.",
+      "title": "Rectified linear units improve restricted Boltzmann machines"
+    },
+    {
+      "id": "ref-34",
+      "year": "2015",
+      "authors": "Szegedy, C.; Liu, W.; et al.",
+      "title": "Going deeper with convolutions"
+    },
+    {
+      "id": "ref-35",
+      "year": "1989",
+      "authors": "LeCun, Y.",
+      "title": "Backpropagation applied to handwritten zip code recognition"
+    },
+    {
+      "id": "ref-36",
+      "year": "2015",
+      "authors": "Russakovsky, O.",
+      "title": "ImageNet Large Scale Visual Recognition Challenge"
+    },
+    {
+      "id": "ref-37",
+      "year": "2012",
+      "authors": "Krizhevsky, A.; Sutskever, I.; et al.",
+      "title": "Imagenet classification with deep convolutional neural networks"
+    },
+    {
+      "id": "ref-38",
+      "year": "2014",
+      "authors": "Jia, Y.; Shelhamer, E.; et al.",
+      "title": "Caffe: Convolutional architecture for fast feature embedding"
+    },
+    {
+      "id": "ref-39",
+      "year": "2015",
+      "authors": "Lenc, K.; Vedaldi, A.",
+      "title": "R-CNN minus R"
+    },
+    {
+      "id": "ref-40",
+      "year": "2012",
+      "authors": "Hoiem, D.; Chodpathumwan, Y.; et al.",
+      "title": "Diagnosing error in object detectors"
+    }
+  ]
+}

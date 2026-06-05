@@ -1,0 +1,262 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Bochkovskiy, A.; Wang, C.-Y.; et al.",
+      "title": "Yolov4: Optimal speed and accuracy of object detection"
+    },
+    {
+      "id": "ref-2",
+      "year": "2022",
+      "authors": "Bogdoll, D.; Nitsche, M.; et al.",
+      "title": "Anomaly detection in autonomous driving: A survey"
+    },
+    {
+      "id": "ref-3",
+      "year": "2022",
+      "authors": "Cai, Y.; Zhou, Y.; et al.",
+      "title": "Reversible column networks"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-5",
+      "year": "2022",
+      "authors": "Chen, Q.; Chen, X.; et al.",
+      "title": "Group detr: Fast training convergence with decoupled one-to-many label assignment"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Chen, Q.; Wang, J.; et al.",
+      "title": "Group detr v2: Strong object detector with encoder-decoder pretraining"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Ding, X.; Zhang, X.; et al.",
+      "title": "Repvgg: Making vgg-style convnets great again"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Gao, P.; Zheng, M.; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-9",
+      "year": "2021",
+      "authors": "Ge, Z.; Liu, S.; et al.",
+      "title": "Yolox: Exceeding yolo series in 2021"
+    },
+    {
+      "id": "ref-10",
+      "year": "2022",
+      "authors": "Glenn, J.",
+      "title": "Yolov5 release v7.0"
+    },
+    {
+      "id": "ref-11",
+      "year": "2023",
+      "authors": "Glenn, J.",
+      "title": "Yolov8"
+    },
+    {
+      "id": "ref-12",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-13",
+      "year": "2019",
+      "authors": "He, T.; Zhang, Z.; et al.",
+      "title": "Bag of tricks for image classification with convolutional neural networks"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Huang, X.; Wang, X.; et al.",
+      "title": "Pp-yolov2: A practical object detector"
+    },
+    {
+      "id": "ref-15",
+      "year": "2023",
+      "authors": "Li, C.; Li, L.; et al.",
+      "title": "Yolov6 v3.0: A ful-scale reloading"
+    },
+    {
+      "id": "ref-16",
+      "year": "2022",
+      "authors": "Li, F.; Zhang, H.; et al.",
+      "title": "Dn-detr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-17",
+      "year": "2023",
+      "authors": "Li, F.; Zeng, A.; et al.",
+      "title": "Lite detr: An interleaved multi-scale encoder for efficient detr"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Lin, J.; Mao, X.; et al.",
+      "title": "D2etr: Decoder-only detr with computationally efficient cross-scale attention"
+    },
+    {
+      "id": "ref-19",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-20",
+      "year": "2017",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-21",
+      "year": "2018",
+      "authors": "Liu, S.; Qi, L.; et al.",
+      "title": "Path aggregation network for instance segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Liu, S.; Li, F.; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are better queries for detr"
+    },
+    {
+      "id": "ref-23",
+      "year": "2016",
+      "authors": "Liu, W.; Anguelov, D.; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-24",
+      "year": "2020",
+      "authors": "Long, X.; Deng, K.; et al.",
+      "title": "Pp-yolo: An effective and efficient implementation of object detector"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "Meng, D.; Chen, X.; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-26",
+      "year": "2019",
+      "authors": "Nawaratne, R.; Alahakoon, D.; et al.",
+      "title": "Spatiotemporal anomaly detection using deep learning for real-time video surveillance"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolo9000: Better, faster, stronger"
+    },
+    {
+      "id": "ref-28",
+      "year": "2018",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-29",
+      "year": "2016",
+      "authors": "Redmon, J.; Divvala, S.; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2023",
+      "authors": "Ren, T.; Yang, J.; et al.",
+      "title": "A strong and reproducible object detector with only public datasets"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Roh, B.; Shin, J.; et al.",
+      "title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity"
+    },
+    {
+      "id": "ref-32",
+      "year": "2019",
+      "authors": "Shao, S.; Li, Z.; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "2021",
+      "authors": "Sun, P.; Zhang, R.; et al.",
+      "title": "Sparse r-cnn: End-to-end object detection with learnable proposals"
+    },
+    {
+      "id": "ref-34",
+      "year": "2021",
+      "authors": "Wang, C.-Y.; Bochkovskiy, A.; et al.",
+      "title": "Scaled-yolov4: Scaling cross stage partial network"
+    },
+    {
+      "id": "ref-35",
+      "year": "2023",
+      "authors": "Wang, C.-Y.; Bochkovskiy, A.; et al.",
+      "title": "Yolov7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors"
+    },
+    {
+      "id": "ref-36",
+      "year": "2022",
+      "authors": "Wang, Y.; Zhang, X.; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-37",
+      "year": "2022",
+      "authors": "Xu, S.; Wang, X.; et al.",
+      "title": "Pp-yoloe: An evolved version of yolo"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Yang, J.; Li, C.; et al.",
+      "title": "Focal modulation networks"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Yao, Z.; Ai, J.; et al.",
+      "title": "Efficient detr: Improving end-to-end object detector with dense prior"
+    },
+    {
+      "id": "ref-40",
+      "year": "2022",
+      "authors": "Zeng, F.; Dong, B.; et al.",
+      "title": "Motr: End-to-end multiple-object tracking with transformer"
+    },
+    {
+      "id": "ref-41",
+      "year": "2022",
+      "authors": "Zhang, H.; Li, F.; et al.",
+      "title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-42",
+      "year": "2020",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-43",
+      "year": "2023",
+      "authors": "Zong, Z.; Song, G.; et al.",
+      "title": "Detrs with collaborative hybrid assignments training"
+    }
+  ]
+}

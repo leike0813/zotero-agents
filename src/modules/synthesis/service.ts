@@ -1,5 +1,6 @@
 import { joinPath } from "../../utils/path";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
+import { handlers } from "../../handlers";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -205,6 +206,15 @@ export type SynthesisApplyResult =
     }
   | {
       ok: false;
+      status: "patch_conflict" | "removed_paper_reference";
+      topicId: string;
+      reason: string;
+      diagnostics?: unknown;
+      mismatches?: Array<{ name: string; base: string; current: string }>;
+      warnings?: string[];
+    }
+  | {
+      ok: false;
       status: "topic_exists" | "duplicate_topic";
       topicId: string;
       reason: string;
@@ -260,10 +270,7 @@ export type SynthesisWorkflowTopicOptionsResult = {
 
 export type SynthesisReadHint = {
   code: string;
-  scope:
-    | "reference-sidecar"
-    | "citation-graph"
-    | "citation-graph-metrics";
+  scope: "reference-sidecar" | "citation-graph" | "citation-graph-metrics";
   created_at: string;
 };
 
@@ -657,6 +664,14 @@ let defaultService: SynthesisService | null = null;
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+function compactError(error: unknown) {
+  return cleanString(
+    error && typeof error === "object" && "message" in error
+      ? (error as { message?: unknown }).message
+      : error,
+  );
 }
 
 type SynthesisJobProgressRecord = {
@@ -1394,7 +1409,9 @@ function topicIdFromBundle(bundle: SynthesisResultBundle) {
     cleanString(bundle.topic_id) ||
     cleanString(bundle.artifact_metadata.topic_id);
   if (!topicId) {
-    throw new Error("topic synthesis bundle requires topic_definition.id or topic_id");
+    throw new Error(
+      "topic synthesis bundle requires topic_definition.id or topic_id",
+    );
   }
   return topicId;
 }
@@ -1866,12 +1883,12 @@ function citationGraphHasContent(graph: CitationGraph | null | undefined) {
   return Boolean(graph && (graph.nodes.length > 0 || graph.edges.length > 0));
 }
 
-function shouldPreferLegacyCitationGraph(args: {
+function shouldPreferPersistedCitationGraph(args: {
   projectionGraph: CitationGraph | null | undefined;
-  legacyGraph: CitationGraph | null | undefined;
+  existingGraph: CitationGraph | null | undefined;
 }) {
   return (
-    citationGraphHasContent(args.legacyGraph) &&
+    citationGraphHasContent(args.existingGraph) &&
     !citationGraphHasContent(args.projectionGraph)
   );
 }
@@ -1961,7 +1978,9 @@ function dbCitationNodeToGraphNode(args: {
       cleanString(args.node.literatureItemId).match(/^(\d+):(.+)$/)?.[2],
     library_id:
       args.binding?.libraryId ||
-      Number(cleanString(args.node.literatureItemId).match(/^(\d+):(.+)$/)?.[1]) ||
+      Number(
+        cleanString(args.node.literatureItemId).match(/^(\d+):(.+)$/)?.[1],
+      ) ||
       undefined,
     provisional_key: args.node.hasZoteroBinding
       ? undefined
@@ -2678,14 +2697,18 @@ function normalizeStringListInput(value: unknown): string[] {
 
 function readZoteroItemField(item: unknown, field: string) {
   try {
-    return cleanString((item as { getField?: (name: string) => unknown })?.getField?.(field));
+    return cleanString(
+      (item as { getField?: (name: string) => unknown })?.getField?.(field),
+    );
   } catch {
     return "";
   }
 }
 
 function extractYearFromDate(value: unknown) {
-  return cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || "";
+  return (
+    cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || ""
+  );
 }
 
 function extractCitekeyFromExtra(value: unknown) {
@@ -2698,8 +2721,9 @@ function extractCitekeyFromExtra(value: unknown) {
 function zoteroCreatorsFromItem(item: unknown) {
   try {
     const creators =
-      (item as { getCreators?: () => Array<Record<string, unknown>> })
-        ?.getCreators?.() || [];
+      (
+        item as { getCreators?: () => Array<Record<string, unknown>> }
+      )?.getCreators?.() || [];
     const names = creators
       .map((creator) =>
         cleanString(
@@ -2724,10 +2748,11 @@ function zoteroCreatorsFromItem(item: unknown) {
 function zoteroTagsFromItem(item: unknown) {
   try {
     return normalizeStringListInput(
-      ((item as { getTags?: () => Array<{ tag?: unknown } | unknown> })
-        ?.getTags?.() || []).map((entry) =>
-        cleanString((entry as { tag?: unknown })?.tag || entry),
-      ),
+      (
+        (
+          item as { getTags?: () => Array<{ tag?: unknown } | unknown> }
+        )?.getTags?.() || []
+      ).map((entry) => cleanString((entry as { tag?: unknown })?.tag || entry)),
     );
   } catch {
     return [];
@@ -2755,11 +2780,15 @@ function resolveWorkflowSidecarItem(args: {
     normalizeLibraryId(itemRecord?.libraryID) ||
     args.defaultLibraryId;
   const itemKey = cleanString(args.input.itemKey || itemRecord?.key);
-  const date = cleanString(args.input.date || readZoteroItemField(item, "date"));
+  const date = cleanString(
+    args.input.date || readZoteroItemField(item, "date"),
+  );
   const title =
     cleanString(args.input.title) ||
     readZoteroItemField(item, "title") ||
-    cleanString((item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.());
+    cleanString(
+      (item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.(),
+    );
   const creators = normalizeStringListInput(args.input.creators).length
     ? normalizeStringListInput(args.input.creators)
     : zoteroCreatorsFromItem(item);
@@ -2772,7 +2801,10 @@ function resolveWorkflowSidecarItem(args: {
   const citekey =
     cleanString(args.input.citekey) ||
     readZoteroItemField(item, "citationKey") ||
-    cleanString((item as { toJSON?: () => Record<string, unknown> })?.toJSON?.()?.citationKey) ||
+    cleanString(
+      (item as { toJSON?: () => Record<string, unknown> })?.toJSON?.()
+        ?.citationKey,
+    ) ||
     extractCitekeyFromExtra(readZoteroItemField(item, "extra"));
   return {
     libraryId,
@@ -2803,7 +2835,10 @@ function referenceTitle(reference: SynthesisSidecarReferenceInput) {
 }
 
 function referenceYear(reference: SynthesisSidecarReferenceInput) {
-  return cleanString(reference.year || extractYearFromDate(reference.raw || reference.raw_reference));
+  return cleanString(
+    reference.year ||
+      extractYearFromDate(reference.raw || reference.raw_reference),
+  );
 }
 
 function referenceAuthors(reference: SynthesisSidecarReferenceInput) {
@@ -2811,7 +2846,9 @@ function referenceAuthors(reference: SynthesisSidecarReferenceInput) {
 }
 
 function referenceRaw(reference: SynthesisSidecarReferenceInput) {
-  return cleanString(reference.raw || reference.raw_reference || reference.reference);
+  return cleanString(
+    reference.raw || reference.raw_reference || reference.reference,
+  );
 }
 
 function referenceCitekey(reference: SynthesisSidecarReferenceInput) {
@@ -4078,7 +4115,7 @@ type ApplyContext = {
     resolveArtifact?: (args: {
       fieldName: string;
       rawPath: string;
-      fallbackPath: string;
+      defaultPath: string;
     }) => Promise<{ text: string }>;
   };
   bundleReader?: {
@@ -4099,7 +4136,7 @@ async function readRunWorkspaceText(
     const artifact = await context.resultContext.resolveArtifact({
       fieldName,
       rawPath: pathValue,
-      fallbackPath: pathValue,
+      defaultPath: pathValue,
     });
     return artifact.text;
   }
@@ -4117,15 +4154,15 @@ async function readRunWorkspaceJson(
   return JSON.parse(await readRunWorkspaceText(context, fieldName, rawPath));
 }
 
-async function readRunWorkspaceJsonWithFallbacks(
+async function readRunWorkspaceJsonFromCandidates(
   context: ApplyContext | undefined,
   fieldName: string,
   rawPath: string,
-  fallbackPaths: string[],
+  candidatePaths: string[],
 ) {
   const paths = [
     rawPath,
-    ...fallbackPaths.filter((entry) => entry && entry !== rawPath),
+    ...candidatePaths.filter((entry) => entry && entry !== rawPath),
   ];
   let lastError: unknown;
   for (const pathValue of paths) {
@@ -4158,214 +4195,47 @@ function manifestSidecarPath(
   return cleanString(entry?.path);
 }
 
-function legacyBundleSidecarPath(
-  bundle: SynthesisResultBundle,
-  key: keyof typeof MANIFEST_SIDECAR_KEYS,
-) {
-  switch (key) {
-    case "topic_interest_metadata":
-      return cleanString(bundle.topic_interest_metadata_path);
-    case "concept_cards_proposal":
-      return cleanString(bundle.concept_cards_proposal_path);
-    case "topic_graph_relation_proposals":
-      return cleanString(bundle.topic_graph_relation_proposals_path);
-  }
-}
-
 function sidecarPathForApply(args: {
   manifest: Record<string, unknown>;
-  bundle: SynthesisResultBundle;
   key: keyof typeof MANIFEST_SIDECAR_KEYS;
 }) {
   return (
     manifestSidecarPath(args.manifest, args.key) ||
-    legacyBundleSidecarPath(args.bundle, args.key) ||
     MANIFEST_SIDECAR_KEYS[args.key]
   );
-}
-
-function sectionNameFromPath(pathValue: string) {
-  const name = cleanString(pathValue).split(/[\\/]/).pop() || "";
-  return name.replace(/\.json$/i, "").replace(/-/g, "_");
-}
-
-function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
-  return {
-    topic: {
-      ...(isObject(bundle.topic_definition) ? bundle.topic_definition : {}),
-      discipline:
-        cleanString((bundle.topic_definition as any)?.discipline) || "unknown",
-      research_field:
-        cleanString((bundle.topic_definition as any)?.research_field) ||
-        "unknown",
-      scope_boundary: isObject((bundle.topic_definition as any)?.scope_boundary)
-        ? (bundle.topic_definition as any).scope_boundary
-        : { status: "unknown; legacy bundle lacks explicit scope boundary" },
-    },
-    summary: {
-      brief:
-        cleanString(bundle.artifact_metadata.summary) ||
-        cleanString(bundle.artifact_metadata.description),
-    },
-    positioning: {
-      importance: "",
-      timeliness: "",
-      scope_boundary: {},
-      review_position: "",
-    },
-    taxonomy: {
-      primary_axis: "legacy_bundle_route",
-      axis_rationale:
-        "Legacy bundle fallback cannot reconstruct full research routes; recreate the topic for a complete route analysis.",
-      summary: {
-        text: "Legacy fallback cannot reconstruct an integrated route landscape. Recreate or update the topic synthesis to obtain taxonomy.summary and substantive route nodes.",
-        report_chapter_hint: "legacy degraded summary only",
-      },
-      nodes: [
-        {
-          id: "route:legacy-fallback",
-          label: "Legacy fallback route",
-          definition:
-            "Degraded route placeholder materialized from a legacy bundle without section artifacts.",
-          core_problem: "Original section-level route analysis is unavailable.",
-          mechanism:
-            "Unknown; rerun create/update topic synthesis for substantive route analysis.",
-          representative_papers: ["legacy:unknown"],
-          strengths: ["Preserves degraded topic materialization"],
-          limitations: ["Not a substantive research-route analysis"],
-          maturity: "unknown",
-        },
-      ],
-    },
-    comparison_matrix: {
-      dimensions: [],
-      rows: [],
-    },
-    claims: [],
-    timeline_events: {
-      summary: {
-        text: "Legacy fallback cannot reconstruct historical progression. Recreate or update the topic synthesis to obtain timeline_events.summary and event-level analysis.",
-        phases: [],
-        milestone_event_refs: [],
-        report_chapter_hint: "legacy degraded summary only",
-      },
-      events: Array.isArray(bundle.timeline) ? bundle.timeline : [],
-    },
-    paper_evidence: [],
-    external_literature_analysis: {
-      summary: "",
-      themes: [
-        {
-          id: "theme:legacy-unknown",
-          title: "Legacy fallback external literature status",
-          analysis:
-            "External literature analysis is unavailable in the legacy bundle.",
-        },
-      ],
-      representative_references: [],
-      citation_contexts: [],
-      contribution_to_topic: "",
-      limitations: "",
-      coverage_verdict: "unknown",
-      suggested_additions: [],
-    },
-    debates: [],
-    coverage: {
-      paper_count: Array.isArray((bundle.resolved_paper_set as any)?.papers)
-        ? (bundle.resolved_paper_set as any).papers.length
-        : 0,
-      external_literature_count: 0,
-    },
-    gaps: [],
-    review_outline: {
-      introduction_logic: [],
-      related_work_logic: [],
-      body_sections: [],
-    },
-    statistics: {
-      paper_count: Array.isArray((bundle.resolved_paper_set as any)?.papers)
-        ? (bundle.resolved_paper_set as any).papers.length
-        : 0,
-      time_span: { start_year: "unknown", end_year: "unknown" },
-      route_coverage: "unknown; legacy bundle lacks section artifacts",
-      coverage_verdict: "unknown",
-    },
-    synthesis_report: {
-      title:
-        cleanString((bundle.topic_definition as any)?.title) ||
-        "Legacy Topic Synthesis",
-      source_section_chapters: {
-        research_routes: "taxonomy.summary",
-        historical_progression: "timeline_events.summary",
-      },
-      body: "This topic was materialized from a legacy topic_synthesis bundle that did not provide the complete section-level content contract. The stored report is therefore a degraded compatibility summary rather than a substantive synthesis report. Recreate or update this topic synthesis to obtain research-route analysis, timeline progression, argued claims, external literature coverage, statistics, and a continuous report suitable for Zotero reading and downstream literature review writing.",
-    },
-    evidence_map: {
-      path: "",
-      hash: "",
-      candidate_counts: {},
-      candidate_ids: [],
-    },
-    source_artifacts: [],
-    diagnostics: { warnings: [], legacy_fallback: true },
-  };
 }
 
 async function loadCompleteManifestAndSections(args: {
   bundle: SynthesisResultBundle;
   context?: ApplyContext;
 }) {
-  let manifest: Record<string, unknown>;
-  let sections: Record<string, unknown>;
-  if (args.context) {
-    manifest = await readRunWorkspaceJson(
+  if (!args.context) {
+    throw new Error("topic synthesis apply requires run workspace context");
+  }
+  const manifest = await readRunWorkspaceJson(
+    args.context,
+    "analysis_manifest_path",
+    args.bundle.analysis_manifest_path || "",
+  );
+  const validation = validateTopicAnalysisManifest(manifest);
+  if (!validation.ok) {
+    throw new Error(
+      `invalid topic analysis manifest: ${validation.errors.join("; ")}`,
+    );
+  }
+  const manifestSections = isObject(manifest.sections)
+    ? (manifest.sections as Record<string, unknown>)
+    : {};
+  const sections: Record<string, unknown> = {};
+  for (const [section, entry] of Object.entries(manifestSections)) {
+    if (!isObject(entry)) {
+      continue;
+    }
+    sections[section] = await readRunWorkspaceJson(
       args.context,
-      "analysis_manifest_path",
-      args.bundle.analysis_manifest_path || "",
+      `sections.${section}.path`,
+      cleanString(entry.path),
     );
-    const validation = validateTopicAnalysisManifest(manifest);
-    if (!validation.ok) {
-      throw new Error(
-        `invalid topic analysis manifest: ${validation.errors.join("; ")}`,
-      );
-    }
-    const manifestSections = isObject(manifest.sections)
-      ? (manifest.sections as Record<string, unknown>)
-      : {};
-    sections = {};
-    for (const [section, entry] of Object.entries(manifestSections)) {
-      if (!isObject(entry)) {
-        continue;
-      }
-      sections[section] = await readRunWorkspaceJson(
-        args.context,
-        `sections.${section}.path`,
-        cleanString(entry.path),
-      );
-    }
-  } else {
-    sections = fallbackSectionsFromBundle(args.bundle);
-    const manifestSections = Object.fromEntries(
-      Object.entries(sections).map(([section, value]) => [
-        section,
-        {
-          path: `result/sections/${canonicalSectionFileName(section)}`,
-          hash: hashCanonicalJson(value),
-          content_type: "json",
-        },
-      ]),
-    );
-    manifest = {
-      schema_id: "synthesis.topic_analysis_manifest",
-      schema_version: "2.0.0",
-      operation: args.bundle.operation || "create",
-      topic_id: topicIdFromBundle(args.bundle),
-      language: args.bundle.language || "auto",
-      sections: manifestSections,
-      ...(args.bundle.markdown_path
-        ? { markdown_path: args.bundle.markdown_path }
-        : {}),
-    };
   }
   return { manifest, sections };
 }
@@ -5209,10 +5079,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     record: SynthesisJobProgressRecord & { jobName: string },
     status: NonNullable<SynthesisOperationRecord["status"]>,
   ): SynthesisOperationRecord {
-    const operationId = cleanString(record.runId) || cleanString(record.jobName);
+    const operationId =
+      cleanString(record.runId) || cleanString(record.jobName);
     const existing = synthesisRepository.getOperation(operationId);
     const timestamp = now();
-    const terminal = status === "completed" || status === "failed" || status === "canceled";
+    const terminal =
+      status === "completed" || status === "failed" || status === "canceled";
     return {
       operationId,
       operationType: cleanString(record.source) || "operation",
@@ -5223,17 +5095,25 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       phaseLabel: cleanString(record.phaseLabel),
       message: cleanString(record.message),
       progressMode: record.progressMode || "indeterminate",
-      processedCount: Math.max(0, Math.floor(Number(record.processedCount) || 0)),
+      processedCount: Math.max(
+        0,
+        Math.floor(Number(record.processedCount) || 0),
+      ),
       skippedCount: Math.max(0, Math.floor(Number(record.skippedCount) || 0)),
       failedCount: Math.max(0, Math.floor(Number(record.failedCount) || 0)),
       totalCount: Math.max(0, Math.floor(Number(record.totalCount) || 0)),
       diagnosticsJson: cleanString(record.diagnosticsJson) || "[]",
-      createdAt: existing?.createdAt || cleanString(record.startedAt) || timestamp,
-      startedAt: existing?.startedAt || cleanString(record.startedAt) || timestamp,
+      createdAt:
+        existing?.createdAt || cleanString(record.startedAt) || timestamp,
+      startedAt:
+        existing?.startedAt || cleanString(record.startedAt) || timestamp,
       completedAt: terminal
         ? cleanString(record.completedAt) || timestamp
         : cleanString(record.completedAt),
-      updatedAt: cleanString(record.updatedAt) || cleanString(record.heartbeatAt) || timestamp,
+      updatedAt:
+        cleanString(record.updatedAt) ||
+        cleanString(record.heartbeatAt) ||
+        timestamp,
     };
   }
 
@@ -5416,7 +5296,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           last_phase: lastProgress.phase,
           total_count: lastProgress.totalCount,
         },
-        diagnostics: [{ code: "projection_index_rebuild_failed", message: errorMessage(error) }],
+        diagnostics: [
+          {
+            code: "projection_index_rebuild_failed",
+            message: errorMessage(error),
+          },
+        ],
       });
       throw error;
     }
@@ -5445,7 +5330,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       severity: "info" | "warning" | "error";
       message: string;
     }> = [];
-    const referenceCacheStatus = cleanString(args.referenceSidecarCache?.status);
+    const referenceCacheStatus = cleanString(
+      args.referenceSidecarCache?.status,
+    );
     const citationCacheStatus = cleanString(args.citationGraphCache?.status);
     if (!args.referenceSidecarCache || referenceCacheStatus === "missing") {
       missing.push("reference-sidecar:library");
@@ -5477,8 +5364,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       partial.push(missing[0]);
     }
     const running = maintenance.active_worker_count > 0;
-    const failed =
-      failedCaches.length > 0;
+    const failed = failedCaches.length > 0;
     const queued = maintenance.pending_sync;
     const status = running
       ? "running"
@@ -5554,8 +5440,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return {
       queue_state: "removed",
       pending_dirty_count: 0,
-      running_count: synthesisRepository.listOperations({ statuses: ["running"] })
-        .length,
+      running_count: synthesisRepository.listOperations({
+        statuses: ["running"],
+      }).length,
       failed_count: synthesisRepository
         .listOperations({ statuses: ["failed"], includeCompleted: true })
         .filter(isCurrentFailedOperation).length,
@@ -5647,20 +5534,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         .map((literatureItemId) => {
           const parsed = parsePaperRef(literatureItemId);
           return parsed?.itemKey
-            ? [
+            ? ([
                 literatureItemId,
                 {
                   literatureItemId,
                   libraryId: parsed.libraryId,
                   itemKey: parsed.itemKey,
                 },
-              ] as const
+              ] as const)
             : null;
         })
         .filter(
-          (
-            entry,
-          ): entry is readonly [string, CitationGraphZoteroBinding] =>
+          (entry): entry is readonly [string, CitationGraphZoteroBinding] =>
             Boolean(entry),
         ),
     );
@@ -6315,7 +6200,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const item = zoteroItemByLibraryAndKey(parsed.libraryId, parsed.itemKey);
     return (
       readZoteroItemField(item, "title") ||
-      cleanString((item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.())
+      cleanString(
+        (item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.(),
+      )
     );
   }
 
@@ -6521,7 +6408,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
   }
 
-  function artifactSourceParts(artifact: Pick<PaperArtifactReadResult, "paper_ref">) {
+  function artifactSourceParts(
+    artifact: Pick<PaperArtifactReadResult, "paper_ref">,
+  ) {
     const parsed = parsePaperRef(artifact.paper_ref);
     return {
       libraryId: parsed?.libraryId || libraryId,
@@ -6564,7 +6453,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function sidecarShortKey(value: unknown) {
-    return hashCanonicalJson(value).slice("sha256:".length, "sha256:".length + 24);
+    return hashCanonicalJson(value).slice(
+      "sha256:".length,
+      "sha256:".length + 24,
+    );
   }
 
   function sidecarTitleYearKey(args: { title?: unknown; year?: unknown }) {
@@ -6627,7 +6519,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const basis =
       citekey && args.matchedItems.byCitekey.get(citekey)
         ? { kind: "citekey", citekey, item: matched.paperRef }
-        : { kind: "title_year", title: identity.normalizedTitle, year: identity.year };
+        : {
+            kind: "title_year",
+            title: identity.normalizedTitle,
+            year: identity.year,
+          };
     return {
       bindingId: `binding:${sidecarShortKey({
         canonical: args.canonicalReferenceId,
@@ -6674,7 +6570,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       target_item_key: cleanString(proposal.targetItemKey) || undefined,
       confidence: cleanString(proposal.confidence) || undefined,
       score: Number(proposal.score) || 0,
-      reasons: parseJsonArray(proposal.reasonsJson).map(cleanString).filter(Boolean),
+      reasons: parseJsonArray(proposal.reasonsJson)
+        .map(cleanString)
+        .filter(Boolean),
       evidence: parseJsonObject(proposal.evidenceJson),
       diagnostics: parseJsonArray(proposal.diagnosticsJson),
       updated_at: proposal.updatedAt,
@@ -6775,6 +6673,65 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return Array.from(
       new Set(normalizeArray(values).map(cleanString).filter(Boolean)),
     ).sort((left, right) => left.localeCompare(right));
+  }
+
+  type CitationGraphFactDelta = {
+    changedCanonicalIds: string[];
+    changedBindingCanonicalIds: string[];
+    changedRedirectCanonicalIds: string[];
+  };
+
+  function emptyCitationGraphFactDelta(): CitationGraphFactDelta {
+    return {
+      changedCanonicalIds: [],
+      changedBindingCanonicalIds: [],
+      changedRedirectCanonicalIds: [],
+    };
+  }
+
+  function normalizedCitationGraphFactDelta(
+    delta: Partial<CitationGraphFactDelta> = {},
+  ): CitationGraphFactDelta {
+    return {
+      changedCanonicalIds: citationGraphDeltaStrings(delta.changedCanonicalIds),
+      changedBindingCanonicalIds: citationGraphDeltaStrings(
+        delta.changedBindingCanonicalIds,
+      ),
+      changedRedirectCanonicalIds: citationGraphDeltaStrings(
+        delta.changedRedirectCanonicalIds,
+      ),
+    };
+  }
+
+  function hasCitationGraphFactDelta(delta: Partial<CitationGraphFactDelta>) {
+    return (
+      citationGraphDeltaStrings(delta.changedCanonicalIds).length > 0 ||
+      citationGraphDeltaStrings(delta.changedBindingCanonicalIds).length > 0 ||
+      citationGraphDeltaStrings(delta.changedRedirectCanonicalIds).length > 0
+    );
+  }
+
+  function addCitationGraphFactDelta(
+    target: {
+      changedCanonicalIds: Set<string>;
+      changedBindingCanonicalIds: Set<string>;
+      changedRedirectCanonicalIds: Set<string>;
+    },
+    delta: Partial<CitationGraphFactDelta>,
+  ) {
+    for (const value of citationGraphDeltaStrings(delta.changedCanonicalIds)) {
+      target.changedCanonicalIds.add(value);
+    }
+    for (const value of citationGraphDeltaStrings(
+      delta.changedBindingCanonicalIds,
+    )) {
+      target.changedBindingCanonicalIds.add(value);
+    }
+    for (const value of citationGraphDeltaStrings(
+      delta.changedRedirectCanonicalIds,
+    )) {
+      target.changedRedirectCanonicalIds.add(value);
+    }
   }
 
   function citationGraphStaleDeltaDiagnostic(args: {
@@ -6923,6 +6880,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
     const matchedItems = matchedSidecarItemIndex(args.matchedItems);
     let matchedCount = 0;
+    const changedBindingCanonicalIds = new Set<string>();
     synthesisRepository.markRawReferencesStaleForSource({
       sourceRef: args.sourceRef,
       exceptReferencesArtifactHash: args.referencesArtifactHash,
@@ -6936,8 +6894,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       );
       synthesisRepository.upsertCanonicalReference(canonical);
       const identity = sidecarReferenceIdentity(reference);
-      const rawHash =
-        identity.raw ? hashMarkdown(identity.raw) : hashCanonicalJson(identity);
+      const rawHash = identity.raw
+        ? hashMarkdown(identity.raw)
+        : hashCanonicalJson(identity);
       const rawReference: SynthesisRawReferenceRecord = {
         rawReferenceId: `rawref:${sidecarShortKey({
           source: args.sourceRef,
@@ -6975,6 +6934,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         reviewer: args.reviewer,
       });
       if (binding) {
+        const currentBinding = synthesisRepository
+          .listReferenceBindings({
+            canonicalReferenceIds: [binding.canonicalReferenceId],
+            statuses: ["accepted"],
+          })
+          .find((row) => row.bindingId === binding.bindingId);
+        if (
+          !currentBinding ||
+          currentBinding.libraryId !== binding.libraryId ||
+          currentBinding.itemKey !== binding.itemKey ||
+          currentBinding.status !== binding.status
+        ) {
+          changedBindingCanonicalIds.add(binding.canonicalReferenceId);
+        }
         synthesisRepository.upsertReferenceBinding(binding);
         matchedCount += 1;
       }
@@ -6988,6 +6961,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ).length,
       matched_count: matchedCount,
       decision_count: matchedCount,
+      changedBindingCanonicalIds: Array.from(changedBindingCanonicalIds).sort(),
     };
   }
 
@@ -7038,10 +7012,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return { artifacts: [], diagnostics: [] };
   }
 
-  async function registryRowsFromCurrentLibraryAndSidecar(args: {
-    sourceRefs?: string[];
-    limit?: number;
-  } = {}) {
+  async function registryRowsFromCurrentLibraryAndSidecar(
+    args: {
+      sourceRefs?: string[];
+      limit?: number;
+    } = {},
+  ) {
     const requestedSourceRefs = new Set(
       (args.sourceRefs || []).map(cleanString).filter(Boolean),
     );
@@ -7068,8 +7044,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     for (const sidecar of sidecars) {
       if (!rowsByRef.has(sidecar.sourceRef)) {
         const parsed = parsePaperRef(sidecar.sourceRef);
-        const itemKey =
-          sidecar.itemKey || parsed?.itemKey || sidecar.sourceRef;
+        const itemKey = sidecar.itemKey || parsed?.itemKey || sidecar.sourceRef;
         rowsByRef.set(
           sidecar.sourceRef,
           registryRowsForInputs([
@@ -7086,8 +7061,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       if (!row) {
         continue;
       }
-      const artifactType =
-        sidecar.artifactType as ReferenceSidecarArtifactType;
+      const artifactType = sidecar.artifactType as ReferenceSidecarArtifactType;
       if (
         artifactType !== "digest" &&
         artifactType !== "references" &&
@@ -7107,7 +7081,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       row.artifacts[artifactType] = {
         type: artifactType,
         payload_type:
-          cleanString(locator.payload_type) || artifactPayloadType(artifactType),
+          cleanString(locator.payload_type) ||
+          artifactPayloadType(artifactType),
         status,
         note_key: cleanString(locator.note_key) || undefined,
         note_title: cleanString(locator.note_title) || undefined,
@@ -7169,9 +7144,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           rawReferenceIds: options.rawReferenceIds,
         })
       : [];
-    const referenceSummaries = synthesisRepository.listReferenceFactSummariesBySource({
-      sourceLiteratureItemIds,
-    });
+    const referenceSummaries =
+      synthesisRepository.listReferenceFactSummariesBySource({
+        sourceLiteratureItemIds,
+      });
     const referenceSummaryBySource = new Map(
       referenceSummaries.map(
         (summary) => [summary.sourceLiteratureItemId, summary] as const,
@@ -7217,7 +7193,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       limit,
     });
     const sourceRefs = Array.from(
-      new Set(rawReferences.map((row) => cleanString(row.sourceRef)).filter(Boolean)),
+      new Set(
+        rawReferences.map((row) => cleanString(row.sourceRef)).filter(Boolean),
+      ),
     ).sort((left, right) => left.localeCompare(right));
     const rawReferenceIds = rawReferences
       .map((row) => cleanString(row.rawReferenceId))
@@ -7383,7 +7361,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         (entry) => [entry.canonicalReferenceId, entry] as const,
       ),
     );
-    const bindingsByCanonical = new Map<string, SynthesisReferenceBindingRecord>();
+    const bindingsByCanonical = new Map<
+      string,
+      SynthesisReferenceBindingRecord
+    >();
     for (const binding of loaded.acceptedBindings) {
       bindingsByCanonical.set(
         synthesisRepository.resolveEffectiveCanonicalReferenceId(
@@ -7397,7 +7378,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const effectiveCanonicalId =
         synthesisRepository.resolveEffectiveCanonicalReferenceId(
           reference.canonicalReferenceId || "",
-        ) || reference.canonicalReferenceId || reference.rawReferenceId;
+        ) ||
+        reference.canonicalReferenceId ||
+        reference.rawReferenceId;
       const binding = effectiveCanonicalId
         ? bindingsByCanonical.get(effectiveCanonicalId)
         : undefined;
@@ -7465,7 +7448,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           const effectiveCanonicalId =
             synthesisRepository.resolveEffectiveCanonicalReferenceId(
               reference.canonicalReferenceId || "",
-            ) || reference.canonicalReferenceId || reference.rawReferenceId;
+            ) ||
+            reference.canonicalReferenceId ||
+            reference.rawReferenceId;
           const binding = effectiveCanonicalId
             ? bindingsByCanonical.get(effectiveCanonicalId)
             : undefined;
@@ -7796,7 +7781,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             .map(cleanString)
             .filter(Boolean)
             .sort(),
-          changed_redirect_canonical_ids: (args.changedRedirectCanonicalIds || [])
+          changed_redirect_canonical_ids: (
+            args.changedRedirectCanonicalIds || []
+          )
             .map(cleanString)
             .filter(Boolean)
             .sort(),
@@ -7858,11 +7845,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         severity: "error",
         message: errorMessage(error),
       });
-        failSynthesisJobProgress({
-          jobName,
-          runId,
-          source,
-          label,
+      failSynthesisJobProgress({
+        jobName,
+        runId,
+        source,
+        label,
         phase: phases[Math.min(phaseIndex, phases.length - 1)] || "failed",
         processedCount: phaseIndex,
         totalCount: phases.length,
@@ -7870,10 +7857,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         diagnosticsJson: JSON.stringify([diagnostic]),
         message: "Citation graph cache incremental refresh failed.",
       });
-        const timestamp = now();
-        const hasRows = synthesisRepository.listCitationNodes({ limit: 1 }).length > 0;
-        synthesisRepository.upsertCacheBasis({
-          cacheKey: "citation-graph:library",
+      const timestamp = now();
+      const hasRows =
+        synthesisRepository.listCitationNodes({ limit: 1 }).length > 0;
+      synthesisRepository.upsertCacheBasis({
+        cacheKey: "citation-graph:library",
         cacheKind: "citation_graph",
         scopeKind: "library",
         scopeRef: String(libraryId),
@@ -7881,21 +7869,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         basisKind: "reference_sidecar_incremental",
         basisValue: runId,
         sourceHash: previousBasis?.sourceHash || "",
-          policyVersion: "citation-graph-incremental-v1",
-          staleReason: hasRows ? "incremental_refresh_failed" : undefined,
-          activeOperationId: runId,
-          diagnosticsJson: JSON.stringify(
-            citationGraphStaleDiagnostics({
-              source: "incremental_refresh_failed",
-              diagnostics: [diagnostic],
-              sourceRefs: affectedSourceRefs,
-              changedCanonicalIds: args.changedCanonicalIds,
-              changedBindingCanonicalIds: args.changedBindingCanonicalIds,
-              changedRedirectCanonicalIds: args.changedRedirectCanonicalIds,
-            }),
-          ),
-          updatedAt: timestamp,
-        });
+        policyVersion: "citation-graph-incremental-v1",
+        staleReason: hasRows ? "incremental_refresh_failed" : undefined,
+        activeOperationId: runId,
+        diagnosticsJson: JSON.stringify(
+          citationGraphStaleDiagnostics({
+            source: "incremental_refresh_failed",
+            diagnostics: [diagnostic],
+            sourceRefs: affectedSourceRefs,
+            changedCanonicalIds: args.changedCanonicalIds,
+            changedBindingCanonicalIds: args.changedBindingCanonicalIds,
+            changedRedirectCanonicalIds: args.changedRedirectCanonicalIds,
+          }),
+        ),
+        updatedAt: timestamp,
+      });
       await progressOptions.onProgress?.();
       return {
         ok: false,
@@ -8010,6 +7998,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       let extracted = 0;
       let matched = 0;
       let processedChangedArtifacts = 0;
+      const changedBindingCanonicalIds = new Set<string>();
       await runProfiledSynthesisPhase({
         profileRun,
         phaseName: "reference_extract",
@@ -8039,12 +8028,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               });
               extracted += result.reference_count;
               matched += result.matched_count;
+              for (const canonicalId of result.changedBindingCanonicalIds) {
+                changedBindingCanonicalIds.add(canonicalId);
+              }
             }
             return { extracted, matched, processedChangedArtifacts };
           }),
         counters: (result) => ({
-          processed_changed_artifact_count:
-            result.processedChangedArtifacts,
+          processed_changed_artifact_count: result.processedChangedArtifacts,
           extracted_reference_count: result.extracted,
           matched_reference_count: result.matched,
         }),
@@ -8132,6 +8123,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               changed: changedReferenceArtifacts.length,
               extracted,
               matched,
+              changed_binding_canonical_ids: Array.from(
+                changedBindingCanonicalIds,
+              ),
             }),
             policyVersion: "reference-sidecar-v1",
             staleReason: "reference_sidecar_refreshed",
@@ -8141,6 +8135,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
                 sourceRefs: changedReferenceArtifacts
                   .map((artifact) => artifactSourceParts(artifact).sourceRef)
                   .filter(Boolean),
+                changedBindingCanonicalIds: Array.from(
+                  changedBindingCanonicalIds,
+                ),
               }),
             ),
             updatedAt: timestamp,
@@ -8186,6 +8183,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         await refreshCitationGraphCacheIncremental(
           {
             sourceRefs: changedReferenceSourceRefs,
+            changedBindingCanonicalIds: Array.from(
+              changedBindingCanonicalIds,
+            ),
             reason: "reference_sidecar_refresh",
             allowFullBootstrap: true,
           },
@@ -8327,9 +8327,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       for (const raw of synthesisRepository.listRawReferences({
         statuses: ["active"],
       })) {
-        const effective = synthesisRepository.resolveEffectiveCanonicalReferenceId(
-          raw.canonicalReferenceId || "",
-        );
+        const effective =
+          synthesisRepository.resolveEffectiveCanonicalReferenceId(
+            raw.canonicalReferenceId || "",
+          );
         if (!effective || acceptedCanonicalIds.has(effective)) {
           continue;
         }
@@ -8393,7 +8394,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               diagnostics: result.diagnostics,
               timestamp,
             }),
-            );
+          );
           autoAccepted += 1;
           acceptedCanonicalIds.add(canonicalReferenceId);
           changedBindingCanonicalIds.add(canonicalReferenceId);
@@ -8471,7 +8472,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           .filter(Boolean),
       );
       const dedupeInputs = work
-        .filter(([canonicalReferenceId]) => !acceptedCanonicalIds.has(canonicalReferenceId))
+        .filter(
+          ([canonicalReferenceId]) =>
+            !acceptedCanonicalIds.has(canonicalReferenceId),
+        )
         .map(([canonicalReferenceId, rows]) =>
           canonicalDedupeInputFromRows({
             canonicalReferenceId,
@@ -8493,7 +8497,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const dedupeActions = dedupeResult.actions;
       for (const action of dedupeActions) {
         dedupeProcessed += 1;
-        const sourceInput = dedupeInputById.get(action.sourceCanonicalReferenceId);
+        const sourceInput = dedupeInputById.get(
+          action.sourceCanonicalReferenceId,
+        );
         const sourceRawReferenceIds = sourceInput?.rawReferenceIds || [];
         const evidence = {
           ...action.evidence,
@@ -8631,8 +8637,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         try {
           await refreshCitationGraphCacheIncremental(
             {
-              changedBindingCanonicalIds: Array.from(changedBindingCanonicalIds),
-              changedRedirectCanonicalIds: Array.from(changedRedirectCanonicalIds),
+              changedBindingCanonicalIds: Array.from(
+                changedBindingCanonicalIds,
+              ),
+              changedRedirectCanonicalIds: Array.from(
+                changedRedirectCanonicalIds,
+              ),
               reason: `advanced-reference-matching:${sidecarShortKey({
                 runId,
                 autoAccepted,
@@ -8699,10 +8709,48 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return runAdvancedReferenceMatchingNow(progressOptions);
   }
 
-  async function applyReferenceMatchProposalAction(args: {
+  type ReferenceMatchProposalActionInternalResult = Record<string, unknown> & {
+    ok?: boolean;
+    graphFactsChanged?: boolean;
+    graphDelta?: CitationGraphFactDelta;
+  };
+
+  function publicReferenceMatchProposalActionResult(
+    result: ReferenceMatchProposalActionInternalResult,
+  ) {
+    const publicResult = { ...result };
+    delete publicResult.graphFactsChanged;
+    delete publicResult.graphDelta;
+    return publicResult;
+  }
+
+  async function refreshGraphAfterReferenceMatchProposalDelta(args: {
+    delta: Partial<CitationGraphFactDelta>;
+    reason: string;
+  }) {
+    const delta = normalizedCitationGraphFactDelta(args.delta);
+    if (!hasCitationGraphFactDelta(delta)) {
+      return;
+    }
+    try {
+      await refreshCitationGraphCacheIncremental({
+        ...delta,
+        reason: args.reason,
+        allowFullBootstrap: true,
+      });
+    } catch {
+      // The graph refresh operation records its own failure; proposal decisions
+      // remain committed and related-items sync can read sidecar facts directly.
+    }
+    await syncRelatedItemsAfterSynthesisUpdate({
+      reason: "reference_match_proposal",
+    });
+  }
+
+  async function applyReferenceMatchProposalActionDecision(args: {
     proposalId: string;
     action: "accept" | "reverse_accept" | "reject" | "reopen" | "delete";
-  }) {
+  }): Promise<ReferenceMatchProposalActionInternalResult> {
     const proposal = synthesisRepository.listReferenceMatchProposals({
       proposalIds: [args.proposalId],
       limit: 1,
@@ -8730,7 +8778,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const revokeAcceptedProposalFact = () => {
       if (proposal.kind === "canonical_merge") {
         const sourceCanonicalId = proposal.sourceCanonicalReferenceId;
-        const targetCanonicalId = cleanString(proposal.targetCanonicalReferenceId);
+        const targetCanonicalId = cleanString(
+          proposal.targetCanonicalReferenceId,
+        );
         const forward =
           synthesisRepository.deleteCanonicalReferenceRedirect({
             fromCanonicalReferenceId: sourceCanonicalId,
@@ -8748,97 +8798,94 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         basisHash: proposal.basisHash,
       });
     };
-    const graphDeltaForProposal = () =>
-      proposal.kind === "canonical_merge"
-        ? {
-            changedCanonicalIds: [
-              proposal.sourceCanonicalReferenceId,
-              cleanString(proposal.targetCanonicalReferenceId),
-            ],
-            changedRedirectCanonicalIds: [
-              proposal.sourceCanonicalReferenceId,
-              cleanString(proposal.targetCanonicalReferenceId),
-            ],
-          }
-        : {
-            changedCanonicalIds: [proposal.sourceCanonicalReferenceId],
-            changedBindingCanonicalIds: [proposal.sourceCanonicalReferenceId],
-          };
-    const markGraphStaleForProposalChange = (code: string, message: string) => {
-      markCitationGraphLibraryCacheStale({
-        source: `reference-match-proposal:${proposal.proposalId}`,
-        ...graphDeltaForProposal(),
-        diagnostics: [
-          {
-            code,
-            severity: "info",
-            message,
-          },
-        ],
-        timestamp,
-      });
-    };
+    const graphDeltaForProposal = (): CitationGraphFactDelta =>
+      normalizedCitationGraphFactDelta(
+        proposal.kind === "canonical_merge"
+          ? {
+              changedCanonicalIds: [
+                proposal.sourceCanonicalReferenceId,
+                cleanString(proposal.targetCanonicalReferenceId),
+              ],
+              changedRedirectCanonicalIds: [
+                proposal.sourceCanonicalReferenceId,
+                cleanString(proposal.targetCanonicalReferenceId),
+              ],
+            }
+          : {
+              changedCanonicalIds: [proposal.sourceCanonicalReferenceId],
+              changedBindingCanonicalIds: [proposal.sourceCanonicalReferenceId],
+            },
+      );
     if (args.action === "delete") {
-      const revoked = proposal.status === "accepted" ? revokeAcceptedProposalFact() : 0;
+      const wasAccepted = proposal.status === "accepted";
+      const revoked = wasAccepted
+        ? Number(revokeAcceptedProposalFact()) || 1
+        : 0;
       synthesisRepository.updateReferenceMatchProposalStatus({
         proposalId: proposal.proposalId,
         status: "superseded",
         timestamp,
       });
-      if (revoked) {
-        markGraphStaleForProposalChange(
-          "reference_match_proposal_deleted",
-          "Reference match proposal deleted; accepted reference fact was revoked.",
-        );
-      }
       return {
         ok: true,
         status: "superseded",
         proposal_id: proposal.proposalId,
         revoked_fact_count: revoked,
+        graphFactsChanged: wasAccepted,
+        graphDelta:
+          wasAccepted
+            ? graphDeltaForProposal()
+            : emptyCitationGraphFactDelta(),
       };
     }
     if (args.action === "reopen") {
-      const revoked = proposal.status === "accepted" ? revokeAcceptedProposalFact() : 0;
+      const wasAccepted = proposal.status === "accepted";
+      const revoked = wasAccepted
+        ? Number(revokeAcceptedProposalFact()) || 1
+        : 0;
       synthesisRepository.updateReferenceMatchProposalStatus({
         proposalId: proposal.proposalId,
         status: "open",
         timestamp,
       });
-      if (revoked) {
-        markGraphStaleForProposalChange(
-          "reference_match_proposal_reopened",
-          "Reference match proposal reopened; accepted reference fact was revoked.",
-        );
-      }
       return {
         ok: true,
         status: "open",
         proposal_id: proposal.proposalId,
         revoked_fact_count: revoked,
+        graphFactsChanged: wasAccepted,
+        graphDelta:
+          wasAccepted
+            ? graphDeltaForProposal()
+            : emptyCitationGraphFactDelta(),
       };
     }
     if (args.action === "reject") {
-      const revoked = proposal.status === "accepted" ? revokeAcceptedProposalFact() : 0;
+      const wasAccepted = proposal.status === "accepted";
+      const revoked = wasAccepted
+        ? Number(revokeAcceptedProposalFact()) || 1
+        : 0;
       synthesisRepository.updateReferenceMatchProposalStatus({
         proposalId: proposal.proposalId,
         status: "rejected",
         timestamp,
       });
-      if (revoked) {
-        markGraphStaleForProposalChange(
-          "reference_match_proposal_rejected",
-          "Reference match proposal rejected; accepted reference fact was revoked.",
-        );
-      }
       return {
         ok: true,
         status: "rejected",
         proposal_id: proposal.proposalId,
         revoked_fact_count: revoked,
+        graphFactsChanged: wasAccepted,
+        graphDelta:
+          wasAccepted
+            ? graphDeltaForProposal()
+            : emptyCitationGraphFactDelta(),
       };
     }
-    if (args.action === "reverse_accept" && proposal.kind !== "canonical_merge") {
+    if (
+      args.action === "reverse_accept" &&
+      proposal.kind !== "canonical_merge"
+    ) {
       return {
         ok: false,
         status: "invalid_action",
@@ -8847,7 +8894,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           {
             code: "reference_match_reverse_accept_requires_canonical_merge",
             severity: "error",
-            message: "Reverse accept is only valid for canonical merge proposals.",
+            message:
+              "Reverse accept is only valid for canonical merge proposals.",
           },
         ],
       };
@@ -8857,10 +8905,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         revokeAcceptedProposalFact();
       }
       const sourceCanonicalId = proposal.sourceCanonicalReferenceId;
-      const targetCanonicalId = cleanString(proposal.targetCanonicalReferenceId);
+      const targetCanonicalId = cleanString(
+        proposal.targetCanonicalReferenceId,
+      );
       const reverse = args.action === "reverse_accept";
       synthesisRepository.upsertCanonicalReferenceRedirect({
-        fromCanonicalReferenceId: reverse ? targetCanonicalId : sourceCanonicalId,
+        fromCanonicalReferenceId: reverse
+          ? targetCanonicalId
+          : sourceCanonicalId,
         toCanonicalReferenceId: reverse ? sourceCanonicalId : targetCanonicalId,
         reason: reverse
           ? "advanced_reference_matching_reverse_accept"
@@ -8889,20 +8941,27 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       status: "accepted",
       timestamp,
     });
-    markCitationGraphLibraryCacheStale({
-      source: `reference-match-proposal:${proposal.proposalId}`,
-      ...graphDeltaForProposal(),
-      diagnostics: [
-        {
-          code: "reference_match_proposal_accepted",
-          severity: "info",
-          message:
-            "Reference match proposal accepted; citation graph cache requires explicit refresh.",
-        },
-      ],
-      timestamp,
-    });
-    return { ok: true, status: "accepted", proposal_id: proposal.proposalId };
+    return {
+      ok: true,
+      status: "accepted",
+      proposal_id: proposal.proposalId,
+      graphFactsChanged: true,
+      graphDelta: graphDeltaForProposal(),
+    };
+  }
+
+  async function applyReferenceMatchProposalAction(args: {
+    proposalId: string;
+    action: "accept" | "reverse_accept" | "reject" | "reopen" | "delete";
+  }) {
+    const result = await applyReferenceMatchProposalActionDecision(args);
+    if (result.ok && result.graphFactsChanged) {
+      await refreshGraphAfterReferenceMatchProposalDelta({
+        delta: result.graphDelta || emptyCitationGraphFactDelta(),
+        reason: `reference-match-proposal:${cleanString(args.proposalId)}`,
+      });
+    }
+    return publicReferenceMatchProposalActionResult(result);
   }
 
   async function applyReferenceMatchProposalActions(args: {
@@ -8912,6 +8971,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }>;
   }) {
     const results: Array<Record<string, unknown>> = [];
+    const graphDeltaSets = {
+      changedCanonicalIds: new Set<string>(),
+      changedBindingCanonicalIds: new Set<string>(),
+      changedRedirectCanonicalIds: new Set<string>(),
+    };
     let applied = 0;
     let skipped = 0;
     let failed = 0;
@@ -8934,12 +8998,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         continue;
       }
       try {
-        const result = await applyReferenceMatchProposalAction({
+        const result = await applyReferenceMatchProposalActionDecision({
           proposalId,
           action: decision.action,
         });
+        if (result.ok && result.graphFactsChanged) {
+          addCitationGraphFactDelta(
+            graphDeltaSets,
+            result.graphDelta || emptyCitationGraphFactDelta(),
+          );
+        }
         results.push({
-          ...result,
+          ...publicReferenceMatchProposalActionResult(result),
           action: decision.action,
         });
         if (result.ok) {
@@ -8963,6 +9033,27 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ],
         });
       }
+    }
+    const graphDelta = normalizedCitationGraphFactDelta({
+      changedCanonicalIds: Array.from(graphDeltaSets.changedCanonicalIds),
+      changedBindingCanonicalIds: Array.from(
+        graphDeltaSets.changedBindingCanonicalIds,
+      ),
+      changedRedirectCanonicalIds: Array.from(
+        graphDeltaSets.changedRedirectCanonicalIds,
+      ),
+    });
+    if (hasCitationGraphFactDelta(graphDelta)) {
+      await refreshGraphAfterReferenceMatchProposalDelta({
+        delta: graphDelta,
+        reason: `reference-match-proposal-batch:${sidecarShortKey({
+          decisions: (args.decisions || []).map((decision) => [
+            decision.proposalId,
+            decision.action,
+          ]),
+          applied,
+        })}`,
+      });
     }
     return {
       ok: failed === 0,
@@ -9406,9 +9497,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         const pathId = topicPathId(topicId);
         const paths = buildSynthesisStoragePaths(root, pathId);
         const timestamp = now();
-        const legacyCreateBaseHashesWarning =
-          bundle.operation === "create" &&
-          bundle.legacy_create_base_hashes_ignored
+        const createBaseHashesWarning =
+          bundle.operation === "create" && bundle.create_base_hashes_ignored
             ? ["create_base_hashes_ignored"]
             : [];
         if (bundle.operation === "create") {
@@ -9426,8 +9516,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               status: "topic_exists",
               topicId,
               reason: `topic already exists: ${topicId}`,
-              ...(legacyCreateBaseHashesWarning.length
-                ? { warnings: legacyCreateBaseHashesWarning }
+              ...(createBaseHashesWarning.length
+                ? { warnings: createBaseHashesWarning }
                 : {}),
             };
           }
@@ -9493,9 +9583,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             changedSections: patch.changedSections,
           }) as any;
           if (applied.status !== "applied") {
-            throw new Error(
-              `topic section patch failed: ${JSON.stringify(applied)}`,
-            );
+            return {
+              ok: false,
+              status: "patch_conflict",
+              topicId,
+              reason: "topic section patch failed",
+              diagnostics: applied,
+              mismatches: Array.isArray(applied.mismatches)
+                ? applied.mismatches
+                : [],
+            };
           }
           sections = applied.sections;
           manifest = {
@@ -9524,24 +9621,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             context,
           }));
         } else {
-          sections = fallbackSectionsFromBundle(bundle);
-          manifest = {
-            schema_id: "synthesis.topic_analysis_manifest",
-            schema_version: "2.0.0",
-            operation: bundle.mode === "create" ? "create" : "update_full",
-            topic_id: topicId,
-            language: "auto",
-            sections: Object.fromEntries(
-              Object.entries(sections).map(([section, value]) => [
-                section,
-                {
-                  path: `result/sections/${canonicalSectionFileName(section)}`,
-                  hash: hashCanonicalJson(value),
-                  content_type: "json",
-                },
-              ]),
-            ),
-          };
+          throw new Error(
+            "topic synthesis result requires operation and analysis_manifest_path",
+          );
         }
         const artifact = assembleTopicArtifact({
           manifest,
@@ -9668,14 +9750,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           coverage_summary: metadataData.coverage_summary,
         });
         await writeIndexRows(root, rows, timestamp);
-        const warnings: string[] = [...legacyCreateBaseHashesWarning];
+        const warnings: string[] = [...createBaseHashesWarning];
         try {
-          const conceptPayload = await readRunWorkspaceJsonWithFallbacks(
+          const conceptPayload = await readRunWorkspaceJsonFromCandidates(
             context,
             "sidecars.concept_cards_proposal.path",
             sidecarPathForApply({
               manifest,
-              bundle,
               key: "concept_cards_proposal",
             }),
             ["runtime/payloads/concept-cards-proposal.json"],
@@ -9705,12 +9786,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             transactionId: `topic-graph-node-${pathId}`,
           });
           try {
-            const proposalPayload = await readRunWorkspaceJsonWithFallbacks(
+            const proposalPayload = await readRunWorkspaceJsonFromCandidates(
               context,
               "sidecars.topic_graph_relation_proposals.path",
               sidecarPathForApply({
                 manifest,
-                bundle,
                 key: "topic_graph_relation_proposals",
               }),
               ["result/topic-graph-relation-proposals.json"],
@@ -9739,12 +9819,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           });
         }
         try {
-          const topicInterestPayload = await readRunWorkspaceJsonWithFallbacks(
+          const topicInterestPayload = await readRunWorkspaceJsonFromCandidates(
             context,
             "sidecars.topic_interest_metadata.path",
             sidecarPathForApply({
               manifest,
-              bundle,
               key: "topic_interest_metadata",
             }),
             ["result/sidecars/topic-interest-metadata.json"],
@@ -10055,9 +10134,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       summary: summarySection,
       positioning: isObject(artifact.positioning) ? artifact.positioning : {},
       taxonomy: isObject(artifact.taxonomy) ? artifact.taxonomy : {},
-      comparison_matrix: isObject(artifact.comparison_matrix)
-        ? artifact.comparison_matrix
+      improvement_dimension_summary: isObject(
+        artifact.improvement_dimension_summary,
+      )
+        ? artifact.improvement_dimension_summary
         : {},
+      improvement_dimensions: Array.isArray(artifact.improvement_dimensions)
+        ? artifact.improvement_dimensions
+        : [],
       claims: Array.isArray(artifact.claims) ? artifact.claims : [],
       timeline_events: isObject(artifact.timeline_events)
         ? artifact.timeline_events
@@ -10161,7 +10245,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (surface === "index") {
       const referencedScope = state.registry.scope === "referenced";
       const registryPage = referencedScope
-        ? await registryRowsForReferencedScope(SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX)
+        ? await registryRowsForReferencedScope(
+            SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
+          )
         : {
             rows: (
               await registryRowsFromCurrentLibraryAndSidecar({
@@ -10222,10 +10308,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const proposalRawReferenceIds = rawReferenceIdsForMatchProposals(
         referenceMatchProposalRecords,
       );
-      const registryRows =
-        await registryRowsForReferenceMatchProposalContext(
-          referenceMatchProposalRecords,
-        );
+      const registryRows = await registryRowsForReferenceMatchProposalContext(
+        referenceMatchProposalRecords,
+      );
       const referenceMatchProposals = referenceMatchProposalRecords.map(
         referenceMatchProposalToUiRow,
       );
@@ -10247,10 +10332,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const citationGraphCache = synthesisRepository.getCacheBasis(
         "citation-graph:library",
       );
-      const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState({
-        viewKey: "workbench_overview",
-        preset: state.graph.layoutAlgorithm,
-      });
+      const graphLayoutRecord = synthesisRepository.getCitationGraphLayoutState(
+        {
+          viewKey: "workbench_overview",
+          preset: state.graph.layoutAlgorithm,
+        },
+      );
       const staleDelta =
         citationGraphIncrementalDeltaFromBasis(citationGraphCache);
       const graphLayout = parseCitationGraphLayout(graphLayoutRecord);
@@ -10289,7 +10376,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       };
     }
     if (surface === "tags") {
-      const tags = await tagVocabulary.loadTagVocabulary().catch(() => undefined);
+      const tags = await tagVocabulary
+        .loadTagVocabulary()
+        .catch(() => undefined);
+      const staged = await tagVocabulary
+        .listStagedTagSuggestions()
+        .catch(() => []);
       return {
         libraryId,
         tags: tags
@@ -10301,6 +10393,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               manifest: tags.manifest,
               validationWarnings: tags.validation_warnings,
               projection: tags.projection,
+              staged,
               importPreview: tagImportPreviewState?.preview,
             }
           : undefined,
@@ -10403,10 +10496,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       layout: graphLayout,
     });
     const tags = await tagVocabulary.loadTagVocabulary().catch(() => undefined);
+    const stagedTags = await tagVocabulary
+      .listStagedTagSuggestions()
+      .catch(() => []);
     const concepts = await conceptKb.loadConceptKb().catch(() => undefined);
-    const referenceSidecarStatus = await peekReferenceSidecarCacheStatus().catch(
-      () => undefined,
-    );
+    const referenceSidecarStatus =
+      await peekReferenceSidecarCacheStatus().catch(() => undefined);
     const topicGraphSnapshot = await topicGraph
       .loadTopicGraph()
       .catch(() => undefined);
@@ -10475,21 +10570,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       },
       artifacts: artifactRows,
       registry: {
-        rows: registryRowsToUi(registryRows).map(
-          (row) => {
-            const references = referenceFactsBySource.get(row.paper_ref) || [];
-            const unbound = references.filter(
-              (reference) => !reference.bindingStatus,
-            ).length;
-            return {
-              ...row,
-              literature_item_id: row.paper_ref,
-              reference_count: references.length,
-              unbound_reference_count: unbound,
-              references: references.map(referenceSidecarReferenceToUiRow),
-            };
-          },
-        ),
+        rows: registryRowsToUi(registryRows).map((row) => {
+          const references = referenceFactsBySource.get(row.paper_ref) || [];
+          const unbound = references.filter(
+            (reference) => !reference.bindingStatus,
+          ).length;
+          return {
+            ...row,
+            literature_item_id: row.paper_ref,
+            reference_count: references.length,
+            unbound_reference_count: unbound,
+            references: references.map(referenceSidecarReferenceToUiRow),
+          };
+        }),
         cleanupProposals: indexReviewProposals,
         matchProposals: referenceMatchProposals,
         cacheStatus: referenceSidecarStatus,
@@ -10527,6 +10620,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             manifest: tags.manifest,
             validationWarnings: tags.validation_warnings,
             projection: tags.projection,
+            staged: stagedTags,
             importPreview: tagImportPreviewState?.preview,
           }
         : undefined,
@@ -10556,16 +10650,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function warmSynthesisWorkbenchSurfaces(args: {
-    state?: SynthesisUiState;
-    surfaces?: SynthesisWorkbenchSurfaceName[];
-    onPhase?: (phase: {
-      surface: "chrome" | SynthesisWorkbenchSurfaceName;
-      status: "ready" | "failed";
-      input?: SynthesisUiSnapshotInput;
-      error?: unknown;
-    }) => void | Promise<void>;
-  } = {}) {
+  async function warmSynthesisWorkbenchSurfaces(
+    args: {
+      state?: SynthesisUiState;
+      surfaces?: SynthesisWorkbenchSurfaceName[];
+      onPhase?: (phase: {
+        surface: "chrome" | SynthesisWorkbenchSurfaceName;
+        status: "ready" | "failed";
+        input?: SynthesisUiSnapshotInput;
+        error?: unknown;
+      }) => void | Promise<void>;
+    } = {},
+  ) {
     const state = args.state || createDefaultSynthesisUiState();
     const surfaces =
       args.surfaces !== undefined
@@ -11109,7 +11205,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         operationType: "related_items_sync",
         libraryId,
         scopeKind: args.sourceRefs?.length ? "source_ref" : "library",
-        scopeRef: args.sourceRefs?.length ? args.sourceRefs.join(",") : "library",
+        scopeRef: args.sourceRefs?.length
+          ? args.sourceRefs.join(",")
+          : "library",
         status: "failed",
         label: "Related items sync",
         phase: "failed",
@@ -11267,7 +11365,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const rawAuthors = sortedRows.flatMap((row) =>
       parseJsonArray(row.authorsJson).map(cleanString).filter(Boolean),
     );
-    const identifiersFromCanonical = (canonical?: SynthesisCanonicalReferenceRecord) =>
+    const identifiersFromCanonical = (
+      canonical?: SynthesisCanonicalReferenceRecord,
+    ) =>
       Object.entries(parseJsonObject(canonical?.identifiersJson))
         .flatMap(([kind, value]) =>
           Array.isArray(value)
@@ -11285,9 +11385,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     ).sort((left, right) => left.localeCompare(right));
     const physicalCanonicals = physicalCanonicalIds
       .map((id) => args.canonicalById?.get(id))
-      .filter(
-        (row): row is SynthesisCanonicalReferenceRecord => Boolean(row),
-      );
+      .filter((row): row is SynthesisCanonicalReferenceRecord => Boolean(row));
     const allIdentifiers = Array.from(
       new Map(
         [
@@ -11301,7 +11399,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         ]),
       ).values(),
     ).sort((left, right) =>
-      `${left.kind}:${left.value}`.localeCompare(`${right.kind}:${right.value}`),
+      `${left.kind}:${left.value}`.localeCompare(
+        `${right.kind}:${right.value}`,
+      ),
     );
     const rawTitleGroups = new Map<string, SynthesisRawReferenceRecord[]>();
     for (const row of sortedRows) {
@@ -11357,9 +11457,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           .filter(Boolean),
         frequency: group.length,
       })),
-    ].filter(
-      (candidate): candidate is NonNullable<typeof candidate> =>
-        Boolean(candidate),
+    ].filter((candidate): candidate is NonNullable<typeof candidate> =>
+      Boolean(candidate),
     );
     const first = sortedRows[0];
     return {
@@ -11372,12 +11471,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         cleanString(first?.normalizedTitle),
       year: cleanString(args.canonical?.year) || cleanString(first?.year),
       authors: normalizeStringListInput([...canonicalAuthors, ...rawAuthors]),
-      rawReferenceIds: sortedRows.map((row) => row.rawReferenceId).filter(Boolean),
-      rawHashes: sortedRows.map((row) => cleanString(row.rawHash)).filter(Boolean),
+      rawReferenceIds: sortedRows
+        .map((row) => row.rawReferenceId)
+        .filter(Boolean),
+      rawHashes: sortedRows
+        .map((row) => cleanString(row.rawHash))
+        .filter(Boolean),
       rawReferences: sortedRows
         .map((row) => cleanString(row.rawReference))
         .filter(Boolean),
-      sourceRefs: sortedRows.map((row) => cleanString(row.sourceRef)).filter(Boolean),
+      sourceRefs: sortedRows
+        .map((row) => cleanString(row.sourceRef))
+        .filter(Boolean),
       stickyRepresentative: args.inboundRedirectTargets?.has(
         args.canonicalReferenceId,
       ),
@@ -11490,7 +11595,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           (cleanString(args.digest?.content)
             ? hashMarkdown(args.digest?.content)
             : ""),
-        locatorJson: JSON.stringify({ note_key: cleanString(args.digest?.noteKey) }),
+        locatorJson: JSON.stringify({
+          note_key: cleanString(args.digest?.noteKey),
+        }),
         diagnosticsJson: "[]",
         scannedAt: timestamp,
         updatedAt: timestamp,
@@ -11591,6 +11698,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     try {
       await refreshCitationGraphCacheIncremental({
         sourceRefs: [sourceRef],
+        changedBindingCanonicalIds: referenceResult.changedBindingCanonicalIds,
         reason: "workflow_reference_sidecar_changed",
         allowFullBootstrap: false,
       });
@@ -11602,13 +11710,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       sourceRefs: [sourceRef],
       reason: "literature_digest_apply",
     });
+    const publicReferenceResult = { ...referenceResult };
+    delete (
+      publicReferenceResult as { changedBindingCanonicalIds?: unknown }
+    ).changedBindingCanonicalIds;
     return {
       ok: true,
       status: "sidecar_applied",
       sourceRef,
       source_ref: sourceRef,
       paperRef: item.paperRef,
-      ...referenceResult,
+      ...publicReferenceResult,
     };
   }
 
@@ -11667,16 +11779,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     await refreshCitationGraphCacheIncremental({
       sourceRefs: [sourceRef],
+      changedBindingCanonicalIds: referenceResult.changedBindingCanonicalIds,
       reason: "reference_matching_sidecar_changed",
       allowFullBootstrap: false,
     });
+    const publicReferenceResult = { ...referenceResult };
+    delete (
+      publicReferenceResult as { changedBindingCanonicalIds?: unknown }
+    ).changedBindingCanonicalIds;
     return {
       ok: true,
       status: "sidecar_applied",
       sourceRef,
       source_ref: sourceRef,
       paperRef: item.paperRef,
-      ...referenceResult,
+      ...publicReferenceResult,
     };
   }
 
@@ -11772,19 +11889,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const layout = await lock.runExclusive(libraryId, () =>
         computeCitationGraphLayout(graph, algorithm),
       );
-      const promotedLayout = synthesisRepository.upsertCitationGraphLayoutState({
-        layoutKey: synthesisRepository.citationLayoutKey({
+      const promotedLayout = synthesisRepository.upsertCitationGraphLayoutState(
+        {
+          layoutKey: synthesisRepository.citationLayoutKey({
+            viewKey,
+            preset: algorithm,
+          }),
           viewKey,
           preset: algorithm,
-        }),
-        viewKey,
-        preset: algorithm,
-        graphHash: graph.graph_hash,
-        status: "ready",
-        layoutJson: JSON.stringify(layout),
-        diagnosticsJson: JSON.stringify(diagnostics),
-        updatedAt: now(),
-      });
+          graphHash: graph.graph_hash,
+          status: "ready",
+          layoutJson: JSON.stringify(layout),
+          diagnosticsJson: JSON.stringify(diagnostics),
+          updatedAt: now(),
+        },
+      );
       const promotion = { promoted: Boolean(promotedLayout) };
       if (!promotion.promoted) {
         const diagnostic = {
@@ -12072,7 +12191,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     rawInput: Record<string, unknown> = {},
   ) {
     const includeUiSnapshot =
-      rawInput.includeUiSnapshot === true || rawInput.include_ui_snapshot === true;
+      rawInput.includeUiSnapshot === true ||
+      rawInput.include_ui_snapshot === true;
     const operations =
       rawInput.includeRuns === true || rawInput.include_runs === true
         ? synthesisRepository.listOperations({
@@ -12080,10 +12200,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             limit: debugLimit(rawInput),
           })
         : undefined;
-    const cacheBasis = synthesisRepository.listCacheBasis().slice(
-      0,
-      debugLimit(rawInput),
-    );
+    const cacheBasis = synthesisRepository
+      .listCacheBasis()
+      .slice(0, debugLimit(rawInput));
     return debugEnvelope("host_bridge.debug.synthesis.snapshot.v1", rawInput, {
       operations,
       cacheBasis,
@@ -12120,11 +12239,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       cacheKinds,
       statuses,
     });
-    return debugEnvelope("host_bridge.debug.synthesis.cache.list.v1", rawInput, {
-      rows: rows.slice(0, limit),
-      total: rows.length,
-      truncated: rows.length > limit,
-    });
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.cache.list.v1",
+      rawInput,
+      {
+        rows: rows.slice(0, limit),
+        total: rows.length,
+        truncated: rows.length > limit,
+      },
+    );
   }
 
   async function debugSynthesisOperationsList(
@@ -12136,11 +12259,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const progress = includeRawRows
       ? synthesisDebugProgressRows(rawInput)
       : undefined;
-    return debugEnvelope("host_bridge.debug.synthesis.operations.v1", rawInput, {
-      rows: jobs.rows,
-      operations: progress?.rows,
-      truncated: jobs.truncated || Boolean(progress?.truncated),
-    });
+    return debugEnvelope(
+      "host_bridge.debug.synthesis.operations.v1",
+      rawInput,
+      {
+        rows: jobs.rows,
+        operations: progress?.rows,
+        truncated: jobs.truncated || Boolean(progress?.truncated),
+      },
+    );
   }
 
   async function debugSynthesisProfilerList(
@@ -12302,11 +12429,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     for (const row of rows) {
       const paperRef = cleanString(row.paper_ref);
       const registryInput = await resolveRegistryInputForPaperRef(paperRef);
-      const referencesArtifact = synthesisRepository
-        .listArtifactSidecars({
-          sourceRefs: [paperRef],
-          artifactTypes: ["references"],
-        })[0];
+      const referencesArtifact = synthesisRepository.listArtifactSidecars({
+        sourceRefs: [paperRef],
+        artifactTypes: ["references"],
+      })[0];
       const activeRawReferences = synthesisRepository.listRawReferences({
         sourceRefs: [paperRef],
         statuses: ["active"],
@@ -12434,6 +12560,79 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.validateTagVocabulary(args);
   }
 
+  async function listStagedTagSuggestions() {
+    return tagVocabulary.listStagedTagSuggestions();
+  }
+
+  async function stageTagSuggestions(
+    args: Parameters<typeof tagVocabulary.stageTagSuggestions>[0],
+  ) {
+    return tagVocabulary.stageTagSuggestions(args);
+  }
+
+  async function promoteStagedTagSuggestions(
+    args: Parameters<typeof tagVocabulary.promoteStagedTagSuggestions>[0],
+  ) {
+    const requestedTags = Array.isArray(args?.tags)
+      ? args.tags
+          .map((tag) => cleanString(tag))
+          .filter(Boolean)
+      : [];
+    const stagedBefore = await tagVocabulary.listStagedTagSuggestions();
+    const stagedByTag = new Map(
+      stagedBefore.map((entry) => [entry.tag.toLowerCase(), entry]),
+    );
+    const result = await runCanonicalWriteWithAutosync(() =>
+      tagVocabulary.promoteStagedTagSuggestions(args),
+    );
+    const diagnostics: Array<Record<string, unknown>> = [];
+    const appliedParentTags: Array<{ tag: string; parent_item_id: number }> = [];
+    for (const tag of result.promoted || []) {
+      const staged = stagedByTag.get(tag.toLowerCase());
+      const parentBindings = Array.isArray(staged?.parent_bindings)
+        ? staged!.parent_bindings
+        : [];
+      for (const parentItemId of parentBindings) {
+        const item = Zotero.Items.get(parentItemId);
+        if (!item) {
+          diagnostics.push({
+            code: "staged_tag_parent_missing",
+            tag,
+            parent_item_id: parentItemId,
+          });
+          continue;
+        }
+        try {
+          await handlers.tag.add(item, [tag]);
+          appliedParentTags.push({ tag, parent_item_id: parentItemId });
+        } catch (error) {
+          diagnostics.push({
+            code: "staged_tag_parent_apply_failed",
+            tag,
+            parent_item_id: parentItemId,
+            message: compactError(error),
+          });
+        }
+      }
+    }
+    return {
+      ...result,
+      requested: requestedTags,
+      applied_parent_tags: appliedParentTags,
+      diagnostics,
+    };
+  }
+
+  async function discardStagedTagSuggestions(
+    args: Parameters<typeof tagVocabulary.discardStagedTagSuggestions>[0],
+  ) {
+    return tagVocabulary.discardStagedTagSuggestions(args);
+  }
+
+  async function clearStagedTagSuggestions() {
+    return tagVocabulary.clearStagedTagSuggestions();
+  }
+
   async function previewTagVocabularyImport(
     payload: Parameters<typeof tagVocabulary.previewImport>[0],
   ) {
@@ -12527,7 +12726,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
-  async function rebuildTopicGraphIndex(options: WorkbenchProgressOptions = {}) {
+  async function rebuildTopicGraphIndex(
+    options: WorkbenchProgressOptions = {},
+  ) {
     return runProjectionIndexRebuildWithProgress({
       jobName: "synthesis:topic-graph-index",
       label: "Topic graph index rebuild",
@@ -12734,10 +12935,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function getReferenceSidecarIndex(args: Record<string, unknown> = {}) {
     const cacheStale = false;
     const refs = normalizeArray(
-      args.sourceRefs ||
-        args.source_refs ||
-        args.sourceRef ||
-        args.source_ref,
+      args.sourceRefs || args.source_refs || args.sourceRef || args.source_ref,
     )
       .map(cleanString)
       .filter(Boolean);
@@ -12787,13 +12985,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ...(cacheStale ? ["reference sidecar index is stale"] : []),
         ],
         recommended_commands:
-          cacheMissing || cacheStale
-            ? ["refreshReferenceSidecarNow"]
-            : [],
+          cacheMissing || cacheStale ? ["refreshReferenceSidecarNow"] : [],
         maintenance: readMaintenanceForDto(
-          cacheMissing || cacheStale
-            ? ["refreshReferenceSidecarNow"]
-            : [],
+          cacheMissing || cacheStale ? ["refreshReferenceSidecarNow"] : [],
         ),
         read_hints: readHintsForCall,
       },
@@ -13265,11 +13459,420 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
   }
 
+  function synthesisOutputSchemaContracts() {
+    const topicDefinition = {
+      type: "object",
+      required: ["id", "title"],
+      properties: {
+        id: { type: "string", minLength: 1 },
+        title: { type: "string", minLength: 1 },
+      },
+    };
+    const common = {
+      kind: { const: "topic_synthesis" },
+      language: { type: "string", minLength: 1 },
+      topic_definition: topicDefinition,
+      resolver_manifest_path: { type: "string", minLength: 1 },
+      resolver_diagnostics: { type: "object" },
+      artifact_metadata: { type: "object" },
+      analysis_manifest_path: { type: "string", minLength: 1 },
+    };
+    return {
+      schema_id: "synthesis.topic_synthesis_result_bundle",
+      schema_version: "2.1.0",
+      oneOf: [
+        {
+          title: "Create topic synthesis",
+          required: [
+            "kind",
+            "operation",
+            "language",
+            "topic_definition",
+            "resolver_manifest_path",
+            "resolver_diagnostics",
+            "artifact_metadata",
+            "analysis_manifest_path",
+          ],
+          not: { required: ["base_hashes"] },
+          properties: { ...common, operation: { const: "create" } },
+        },
+        {
+          title: "Full update topic synthesis",
+          required: [
+            "kind",
+            "operation",
+            "language",
+            "base_hashes",
+            "topic_definition",
+            "resolver_manifest_path",
+            "resolver_diagnostics",
+            "artifact_metadata",
+            "analysis_manifest_path",
+          ],
+          properties: {
+            ...common,
+            operation: { const: "update_full" },
+            base_hashes: { type: "object" },
+          },
+        },
+        {
+          title: "Patch update topic synthesis",
+          required: [
+            "kind",
+            "operation",
+            "language",
+            "read_section_hashes",
+            "artifact_metadata",
+            "analysis_manifest_path",
+          ],
+          properties: {
+            kind: { const: "topic_synthesis" },
+            operation: { const: "update_patch" },
+            language: { type: "string", minLength: 1 },
+            read_section_hashes: { type: "object" },
+            artifact_metadata: { type: "object" },
+            analysis_manifest_path: { type: "string", minLength: 1 },
+          },
+        },
+      ],
+    };
+  }
+
   async function getSchemas() {
     return {
       schemas: {
         result_bundle: "synthesis.topic_synthesis_result_bundle@1.0.0",
         canonical_metadata: "synthesis.topic_artifact_metadata@1.0.0",
+      },
+      output_schema: synthesisOutputSchemaContracts(),
+      operation_cas_contract: {
+        create: {
+          forbidden: ["base_hashes"],
+          precondition: "topic_absent",
+          create_base_hashes: "ignored_with_warning",
+        },
+        update_full: {
+          required: ["base_hashes"],
+          precondition: "bundle_hashes_match",
+          basis: ["manifest", "artifact", "export", "metadata", "index"],
+        },
+        update_patch: {
+          required: ["read_section_hashes"],
+          precondition: "read_sections_match",
+          resolver: "must_run_before_apply",
+        },
+      },
+      stage_payload_schema_manifest: [
+        {
+          stage: "stage_1_topic_context",
+          action: "persist_topic_context",
+          schema: "topic_context_payload.schema.json",
+          agent_authored: true,
+          runtime_owned: [
+            "topic_id_derivation",
+            "update_context_hash_derivation",
+          ],
+        },
+        {
+          stage: "stage_5_paper_triage",
+          action: "persist_paper_triage",
+          schema: "paper_triage_batch.schema.json",
+          agent_authored: true,
+          required_fields: [
+            "paper_ref",
+            "topic_relevance",
+            "paper_quality",
+            "core_digest",
+          ],
+        },
+        {
+          stage: "stage_6_prepare_cross_paper_context",
+          action: "prepare_cross_paper_context",
+          agent_authored: false,
+          runtime_owned: [
+            "paper_scoring",
+            "context_selection",
+            "source_paper_evidence_index",
+          ],
+        },
+        {
+          stage: "stage_7_persist_core_synthesis",
+          action: "persist_core_synthesis",
+          agent_authored: true,
+          required_fields: [
+            "taxonomy",
+            "timeline_events",
+            "positioning",
+            "claims",
+            "improvement_dimension_summary",
+            "improvement_dimensions",
+            "debates",
+            "gaps",
+            "review_outline",
+            "concept_candidate_labels",
+          ],
+          evidence_contract: "source_paper_refs_only",
+        },
+        {
+          stage: "stage_9_persist_kg_enrichment",
+          action: "persist_kg_enrichment",
+          agent_authored: true,
+          required_fields: [
+            "concept_details",
+            "topic_relation_candidates",
+            "topic_matching_terms",
+          ],
+        },
+        {
+          stage: "stage_10_finalize_summary_coverage",
+          action: "finalize_summary_coverage",
+          agent_authored: true,
+          runtime_owned: ["statistics", "synthesis_report"],
+        },
+      ],
+      enum_definitions: {
+        operation: ["create", "update_full", "update_patch"],
+        paper_quality: ["high", "medium", "low", "unknown"],
+        topic_relevance: ["core", "related", "peripheral", "excluded"],
+        graph_cluster_policy: [
+          "source_only",
+          "include_external",
+          "bounded_external",
+        ],
+        improvement_dimension_kind: [
+          "method",
+          "data",
+          "evaluation",
+          "efficiency",
+          "application",
+          "theory",
+        ],
+      },
+      artifact_section_summaries: {
+        timeline_events: {
+          primary_render_input: "markers",
+          fallback: "events_plus_paper_evidence",
+          runtime_materialized: ["markers"],
+        },
+        improvement_dimensions: {
+          runtime_materialized_from: "validated_section_source_paper_refs",
+        },
+        paper_evidence: { runtime_materialized_from: "source_paper_refs" },
+        semantic_evidence_map: {
+          runtime_materialized_from: "validated_section_source_paper_refs",
+        },
+        statistics: { runtime_materialized_from: "topic_scoped_graph_cluster" },
+        synthesis_report: { runtime_materialized_from: "fixed_template" },
+      },
+    };
+  }
+
+  function normalizedConceptKey(value: unknown) {
+    return cleanString(value).toLocaleLowerCase().replace(/\s+/g, " ");
+  }
+
+  async function queryConceptKb(args: Record<string, unknown> = {}) {
+    const labels = Array.from(
+      new Set(
+        [
+          ...normalizeArray(args.concept_candidate_labels),
+          ...normalizeArray(args.conceptCandidateLabels),
+          ...normalizeArray(args.labels),
+          args.label,
+          args.query,
+        ]
+          .map(cleanString)
+          .filter(Boolean),
+      ),
+    ).slice(0, parsePositiveInteger(args.limit, 50, 100));
+    const snapshot = await conceptKb.loadConceptKb().catch((error) => ({
+      concepts: [],
+      senses: [],
+      aliases: [],
+      diagnostics: [
+        {
+          code: "concept_kb_unavailable",
+          message: String((error as Error)?.message || error),
+        },
+      ],
+    }));
+    const concepts = Array.isArray(snapshot.concepts)
+      ? snapshot.concepts.filter(isRecord)
+      : [];
+    const senses = Array.isArray((snapshot as Record<string, unknown>).senses)
+      ? ((snapshot as Record<string, unknown>).senses as unknown[]).filter(
+          isRecord,
+        )
+      : [];
+    const aliases = Array.isArray((snapshot as Record<string, unknown>).aliases)
+      ? ((snapshot as Record<string, unknown>).aliases as unknown[]).filter(
+          isRecord,
+        )
+      : [];
+    const conceptById = new Map(
+      concepts.map((concept) => [cleanString(concept.concept_id), concept]),
+    );
+    const results = labels.map((label) => {
+      const key = normalizedConceptKey(label);
+      const exact = concepts.filter(
+        (concept) => normalizedConceptKey(concept.label) === key,
+      );
+      const aliasMatches = aliases
+        .filter((alias) => normalizedConceptKey(alias.alias) === key)
+        .map((alias) => ({
+          alias,
+          concept: conceptById.get(cleanString(alias.concept_id)) || null,
+        }));
+      const candidateConceptIds = new Set<string>();
+      exact.forEach((concept) =>
+        candidateConceptIds.add(cleanString(concept.concept_id)),
+      );
+      aliasMatches.forEach((entry) =>
+        candidateConceptIds.add(cleanString(entry.alias.concept_id)),
+      );
+      const candidateSenses = senses.filter((sense) =>
+        candidateConceptIds.has(cleanString(sense.concept_id)),
+      );
+      return {
+        label,
+        exact_matches: exact,
+        alias_matches: aliasMatches,
+        sense_candidates: candidateSenses,
+        ambiguous: candidateConceptIds.size > 1,
+      };
+    });
+    return {
+      ok: true,
+      labels,
+      matches: results,
+      diagnostics: [
+        ...(((snapshot as Record<string, unknown>).diagnostics as unknown[]) ||
+          []),
+        {
+          code: "bounded_read_only",
+          message:
+            "Concept KB query read existing concepts, aliases, and senses without mutating review state.",
+          details: { requested: labels.length, returned: results.length },
+        },
+      ],
+    };
+  }
+
+  async function queryCitationGraphCluster(args: Record<string, unknown> = {}) {
+    const sourceRefs = Array.from(
+      new Set(
+        [
+          ...normalizeArray(args.source_paper_refs),
+          ...normalizeArray(args.sourcePaperRefs),
+          ...normalizeArray(args.paper_refs),
+          ...normalizeArray(args.paperRefs),
+          args.paper_ref,
+          args.paperRef,
+        ]
+          .map(cleanString)
+          .filter(Boolean),
+      ),
+    ).slice(0, 250);
+    const maxExternalNodes = parsePositiveInteger(
+      args.max_external_nodes || args.maxExternalNodes,
+      25,
+      250,
+    );
+    const policy = cleanString(args.cluster_policy || args.clusterPolicy);
+    const clusterPolicy = [
+      "source_only",
+      "include_external",
+      "bounded_external",
+    ].includes(policy)
+      ? policy
+      : "bounded_external";
+    const graph = await queryCitationGraph();
+    const nodes = Array.isArray((graph as Record<string, unknown>).nodes)
+      ? ((graph as Record<string, unknown>).nodes as CitationGraphNode[])
+      : [];
+    const edges = Array.isArray((graph as Record<string, unknown>).edges)
+      ? ((graph as Record<string, unknown>).edges as CitationGraphEdge[])
+      : [];
+    const sourceNodeIds = new Set(
+      sourceRefs.map(paperRefToCitationGraphNodeId).filter(Boolean),
+    );
+    const selectedNodeIds = new Set<string>(sourceNodeIds);
+    const selectedEdges: CitationGraphEdge[] = [];
+    let externalCount = 0;
+    for (const edge of edges) {
+      const touchesSource =
+        sourceNodeIds.has(edge.source) || sourceNodeIds.has(edge.target);
+      if (!touchesSource) {
+        continue;
+      }
+      const nextIds = [edge.source, edge.target].filter(
+        (nodeId) => !sourceNodeIds.has(nodeId),
+      );
+      if (clusterPolicy === "source_only" && nextIds.length) {
+        continue;
+      }
+      const hasExternal = nextIds.some((nodeId) => !sourceNodeIds.has(nodeId));
+      if (
+        clusterPolicy === "bounded_external" &&
+        hasExternal &&
+        externalCount >= maxExternalNodes
+      ) {
+        continue;
+      }
+      if (hasExternal) {
+        externalCount += nextIds.length;
+      }
+      selectedEdges.push(edge);
+      selectedNodeIds.add(edge.source);
+      selectedNodeIds.add(edge.target);
+    }
+    const selectedNodes = nodes.filter((node) =>
+      selectedNodeIds.has(node.node_id),
+    );
+    const unresolvedSourceRefs = sourceRefs.filter(
+      (ref) =>
+        !nodes.some(
+          (node) => node.node_id === paperRefToCitationGraphNodeId(ref),
+        ),
+    );
+    const years = selectedNodes
+      .map((node) => Number(node.year))
+      .filter((year) => Number.isFinite(year));
+    return {
+      ok: true,
+      source_paper_refs: sourceRefs,
+      cluster_policy: clusterPolicy,
+      nodes: selectedNodes,
+      edges: selectedEdges,
+      summaries: {
+        source_paper_count: sourceRefs.length,
+        source_node_count: Array.from(sourceNodeIds).filter((nodeId) =>
+          selectedNodeIds.has(nodeId),
+        ).length,
+        cluster_node_count: selectedNodes.length,
+        internal_edge_count: selectedEdges.filter(
+          (edge) =>
+            sourceNodeIds.has(edge.source) && sourceNodeIds.has(edge.target),
+        ).length,
+        external_edge_count: selectedEdges.filter(
+          (edge) =>
+            !sourceNodeIds.has(edge.source) || !sourceNodeIds.has(edge.target),
+        ).length,
+        unresolved_count: unresolvedSourceRefs.length,
+        year_span: years.length
+          ? { start_year: Math.min(...years), end_year: Math.max(...years) }
+          : null,
+      },
+      diagnostics: {
+        bounded: true,
+        side_effect_free: true,
+        max_external_nodes: maxExternalNodes,
+        unresolved_source_refs: unresolvedSourceRefs,
+        graph_status:
+          selectedNodes.length || !sourceRefs.length
+            ? "ready"
+            : "missing_or_stale",
+        maintenance: (graph as Record<string, unknown>).maintenance,
       },
     };
   }
@@ -13636,6 +14239,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     getTopicContext,
     resolveTopicPaperDigest,
     getSchemas,
+    queryConceptKb,
+    queryCitationGraphCluster,
     getLibraryIndex,
     resolveResolver,
     getReferenceSidecarIndex,
@@ -13649,6 +14254,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     saveTagVocabulary,
     exportTagVocabularyCheckpoint,
     validateTagVocabulary,
+    listStagedTagSuggestions,
+    stageTagSuggestions,
+    promoteStagedTagSuggestions,
+    discardStagedTagSuggestions,
+    clearStagedTagSuggestions,
     previewTagVocabularyImport,
     applyTagVocabularyImport,
     rebuildTagVocabularyIndex,

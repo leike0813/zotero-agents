@@ -35,6 +35,7 @@ type ZoteroMock = {
   Items: {
     get: (id: number) => MockItem | undefined;
     getByLibraryAndKey: (libraryID: number, key: string) => MockItem | undefined;
+    getAll?: (libraryID: number) => Promise<MockItem[]>;
     getAsync?: (id: number) => Promise<MockItem | undefined>;
     trashTx?: (ids: number[]) => Promise<void>;
   };
@@ -2268,6 +2269,17 @@ function createZoteroMock(): ZoteroMock {
       get: (id: number) => itemsById.get(id),
       getByLibraryAndKey: (_libraryID: number, key: string) =>
         itemsByKey.get(key),
+      getAll: async (libraryID: number) => {
+        const resolvedLibraryId = Number(libraryID);
+        if (!Number.isFinite(resolvedLibraryId) || resolvedLibraryId <= 0) {
+          throw new Error("libraryID is required");
+        }
+        return Array.from(itemsById.values()).filter(
+          (item) =>
+            item.libraryID === Math.floor(resolvedLibraryId) &&
+            !(item as any).deleted,
+        );
+      },
       getAsync: async (id: number) => itemsById.get(id),
       trashTx: async (ids: number[]) => {
         for (const rawId of ids || []) {

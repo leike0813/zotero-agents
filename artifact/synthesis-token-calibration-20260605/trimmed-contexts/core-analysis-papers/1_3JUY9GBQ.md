@@ -1,0 +1,51 @@
+# DETR3D: 3D object detection from multi-view images via 3D-to-2D queries (2022)
+
+- Paper ref: 1:3JUY9GBQ
+- Title: DETR3D: 3D object detection from multi-view images via 3D-to-2D queries
+- Year: 2022
+
+## Filtered Digest
+
+#### TL;DR
+
+本文提出了 DETR3D，一种基于多视角摄像机的 3D 目标检测框架。与现有方法从 2D 图像直接估计 3D 边界框或通过深度预测网络生成伪激光雷达输入不同，DETR3D 直接在 3D 空间中进行预测。
+
+该方法通过相机变换矩阵将稀疏的 3D 对象查询反投影到 2D 特征图上，使用双线性采样收集多视角特征，再经自注意力层融合后输出边界框预测。该方法无需 NMS 后处理，在 nuScenes 基准上达到了 SOTA 性能。
+
+#### 研究问题与贡献
+
+- 研究问题：如何在不依赖深度预测或伪 3D 重建的前提下，仅从多视角 RGB 图像实现准确的 3D 目标检测？
+
+- 提出了一种端到端的 3D 目标检测模型，将多视角检测转化为 3D set-to-set 预测问题，所有计算层均融合多相机信息。
+
+- 设计了一个通过几何反投影连接 2D 特征提取与 3D 边界框预测的模块，避免了深度估计不准确带来的级联误差。
+
+- 该方法不需要 NMS 等后处理步骤，性能与现有基于 NMS 的方法相当，在相机重叠区域显著优于对比方法。
+
+- 开源了代码以促进复现和后续研究。
+
+#### 方法要点
+
+- 使用 ResNet + FPN 从 6 个相机图像中提取多尺度 2D 特征。
+
+- 初始化一组可学习的 3D 对象查询，每层将查询解码为 3D 参考点并投影到各相机平面。
+
+- 通过双线性插值从多视角特征图中采样，聚合跨相机、跨尺度的特征。
+
+- 使用多头自注意力层建模对象间交互，逐层迭代细化对象查询。
+
+- 采用 set-to-set loss（匈牙利匹配 + Focal Loss + L1 Loss）进行端到端训练，无需 NMS。
+
+#### 关键结果
+
+- 在 nuScenes 验证集上，DETR3D（ResNet101 + FCOS3D 初始化 + CBGS）达到 NDS 0.434、mAP 0.349，优于 CenterNet 和 FCOS3D。
+
+- 在 nuScenes 测试集 leaderboard 上，DETR3D 达到 NDS 0.479、mAP 0.412，截至 2021/10/13 为 SOTA。
+
+- 在相机重叠区域（占总框 9.7%），DETR3D 的 NDS 为 0.384，显著高于 FCOS3D 的 0.329。
+
+- 与伪激光雷达基线（PackNet + CenterPoint）相比，DETR3D 的 NDS 为 0.374 vs 0.160，验证了避免显式深度预测的有效性。
+
+- 迭代细化消融实验表明，从 Layer 0 的 NDS 0.380 到 Layer 5 的 0.425，逐层细化带来持续提升。
+
+- 对象查询数量在 900 时性能饱和（NDS 0.425）。

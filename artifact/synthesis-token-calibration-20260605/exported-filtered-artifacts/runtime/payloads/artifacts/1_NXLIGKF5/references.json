@@ -1,0 +1,124 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "Chen, T.; Saxena, S.; et al.",
+      "title": "Pix2seq: A language modeling framework for object detection"
+    },
+    {
+      "id": "ref-3",
+      "year": "2021",
+      "authors": "Dai, X.; Chen, Y.; et al.",
+      "title": "Dynamic detr: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Dai, X.; Chen, Y.; et al.",
+      "title": "Dynamic detr: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Fenoaltea, E.M.; Baybusinov, I.B.; et al.",
+      "title": "The stable marriage problem: An interdisciplinary review from the physicist's perspective"
+    },
+    {
+      "id": "ref-6",
+      "year": "2021",
+      "authors": "Gao, P.; Zheng, M.; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-7",
+      "year": "2014",
+      "authors": "Girshick, R.; Donahue, J.; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-9",
+      "year": "2018",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-10",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-11",
+      "year": "2022",
+      "authors": "Liu, S.; Li, F.; et al.",
+      "title": "DAB-DETR: Dynamic anchor boxes are better queries for DETR"
+    },
+    {
+      "id": "ref-12",
+      "year": "2021",
+      "authors": "Meng, D.; Chen, X.; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-13",
+      "year": "2016",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolo9000: Better, faster, stronger"
+    },
+    {
+      "id": "ref-14",
+      "year": "2018",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-15",
+      "year": "2017",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-16",
+      "year": "2020",
+      "authors": "Sun, Z.; Cao, S.; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-17",
+      "year": "2017",
+      "authors": "Vaswani, A.; Shazeer, N.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-18",
+      "year": "2021",
+      "authors": "Wang, Y.; Zhang, X.; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-19",
+      "year": "2021",
+      "authors": "Yao, Z.; Ai, J.; et al.",
+      "title": "Efficient detr: Improving end-to-end object detector with dense prior"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

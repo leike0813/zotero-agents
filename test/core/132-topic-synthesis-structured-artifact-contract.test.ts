@@ -108,9 +108,14 @@ function completeSectionManifest(overrides: Record<string, unknown> = {}) {
         hash: "sha256:taxonomy",
         content_type: "json",
       },
-      comparison_matrix: {
-        path: "result/sections/comparison-matrix.json",
-        hash: "sha256:comparison",
+      improvement_dimension_summary: {
+        path: "result/sections/improvement-dimension-summary.json",
+        hash: "sha256:improvement-summary",
+        content_type: "json",
+      },
+      improvement_dimensions: {
+        path: "result/sections/improvement-dimensions.json",
+        hash: "sha256:improvement-dimensions",
         content_type: "json",
       },
       debates: {
@@ -324,20 +329,21 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
         },
       ],
     },
-    comparison_matrix: {
-      dimensions: ["problem addressed", "core mechanism"],
-      rows: [
-        {
-          id: "cmp:detr",
-          paper_ref: "1:DETR",
-          values: {
-            "problem addressed": "object detection pipeline",
-            "core mechanism": "set prediction with transformers",
-          },
-          evidence_map_refs: ["cmp:detr"],
-        },
-      ],
+    improvement_dimension_summary: {
+      summary: "对象检测方法的关键差异主要体现在候选生成、查询机制和匹配策略。",
+      evidence_map_refs: ["dim:detr"],
     },
+    improvement_dimensions: [
+      {
+        id: "dim:detr",
+        label: "Set prediction formulation",
+        analysis:
+          "DETR 用 object queries 与 Hungarian matching 将对象检测改写为集合预测问题。",
+        source_paper_refs: ["1:DETR"],
+        evidence_refs: ["paper:1:DETR"],
+        evidence_map_refs: ["dim:detr"],
+      },
+    ],
     debates: [],
     review_outline: {
       introduction_logic: [
@@ -371,13 +377,13 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
       hash: "sha256:evidence-map",
       candidate_counts: {
         taxonomy_candidates: 1,
-        comparison_dimensions: 1,
+        improvement_dimension_candidates: 1,
         claim_candidates: 1,
         debate_candidates: 0,
         gap_candidates: 0,
         review_outline_seeds: 1,
       },
-      candidate_ids: ["claim:detector-evolution", "tax:end-to-end", "cmp:detr"],
+      candidate_ids: ["claim:detector-evolution", "tax:end-to-end", "dim:detr"],
     },
     paper_evidence: [
       {
@@ -623,6 +629,85 @@ describe("Topic synthesis structured artifact contract", function () {
     const result = validateWithTopicArtifactSchema(structuredArtifact());
 
     assert.isTrue(result.ok, result.errors.join("\n"));
+  });
+
+  it("accepts improvement dimensions and runtime timeline markers", async function () {
+    const module = await importOptional(
+      "../../src/modules/synthesis/topicStructuredArtifact",
+    );
+    const validateTopicSynthesisArtifact = requireExport(
+      module,
+      "validateTopicSynthesisArtifact",
+    );
+    const artifact = structuredArtifact({
+      timeline_events: {
+        summary: {
+          text: "对象检测的示例历史线索以 DETR 为最小里程碑，体现了从 pipeline 检测走向集合预测的范式变化。",
+        },
+        events: [
+          {
+            id: "event:detr",
+            year: 2020,
+            label: "DETR",
+            description: "DETR 将检测问题转化为集合预测。",
+            phase: "paradigm_shift",
+            why_it_matters: "它证明检测可以被重新表述为集合预测问题。",
+            progression_logic:
+              "后续工作围绕 query、matching 和 efficiency 展开。",
+            follow_on_effect: "形成 query-based detection 的后续改进链条。",
+            evidence_refs: ["paper:1:DETR"],
+            evidence_map_refs: ["claim:detector-evolution"],
+          },
+        ],
+        markers: [
+          {
+            id: "tm:1",
+            kind: "milestone",
+            event_id: "event:detr",
+            paper_evidence_id: "paper:1:DETR",
+            year: 2020,
+            label: "DETR",
+          },
+        ],
+      },
+      improvement_dimension_summary: {
+        text: "改进维度从建模范式、匹配机制和效率权衡解释 DETR 路线。",
+      },
+      improvement_dimensions: [
+        {
+          id: "dim:set-prediction",
+          label: "Set prediction formulation",
+          analysis: "DETR 的主要改进是把检测重写为集合预测问题。",
+          trajectory: "后续路线继续优化 query 设计、匹配稳定性和效率。",
+          source_paper_refs: ["1:DETR"],
+          evidence_refs: ["paper:1:DETR"],
+          evidence_map_refs: ["dim:set-prediction"],
+        },
+      ],
+      evidence_map: {
+        path: "runtime/payloads/cross-paper-evidence-map.json",
+        hash: "sha256:evidence-map",
+        candidate_counts: {
+          taxonomy_candidates: 1,
+          improvement_dimension_candidates: 1,
+          claim_candidates: 1,
+          debate_candidates: 0,
+          gap_candidates: 0,
+          review_outline_seeds: 1,
+        },
+        candidate_ids: [
+          "claim:detector-evolution",
+          "tax:end-to-end",
+          "dim:set-prediction",
+        ],
+      },
+    });
+
+    const schemaResult = validateWithTopicArtifactSchema(artifact);
+    const hostResult = validateTopicSynthesisArtifact(artifact);
+
+    assert.isTrue(schemaResult.ok, schemaResult.errors.join("\n"));
+    assert.isTrue(hostResult.ok, hostResult.errors?.join("; "));
   });
 
   it("rejects final reports without title or sufficient depth at the host boundary", async function () {

@@ -22,6 +22,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "tsx scripts/run-zotero-start-with-mock.ts start:raw",
+    "start:direct": "tsx scripts/run-zotero-direct.ts",
+    "start:direct:build": "tsx scripts/run-zotero-direct.ts --build",
     "start:raw": "zotero-plugin serve",
     "build": "zotero-plugin build && tsc --noEmit",
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",

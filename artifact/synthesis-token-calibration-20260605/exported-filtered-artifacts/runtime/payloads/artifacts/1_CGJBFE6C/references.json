@@ -1,0 +1,250 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2022",
+      "authors": "Qiang Chen; Xiaokang Chen; et al.",
+      "title": "Group detr: Fast training convergence with decoupled one-to-many label assignment"
+    },
+    {
+      "id": "ref-3",
+      "year": "2023",
+      "authors": "Fangyi Chen; Han Zhang; et al.",
+      "title": "Enhanced training of query-based object detection via selective query recollection"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Xiyang Dai; Yinpeng Chen; et al.",
+      "title": "Dynamic detr: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Xiyang Dai; Yinpeng Chen; et al.",
+      "title": "Dynamic detr: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-6",
+      "year": "2014",
+      "authors": "Ross Girshick; Jeff Donahue; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2015",
+      "authors": "Ross Girshick",
+      "title": "Fast r-cnn"
+    },
+    {
+      "id": "ref-8",
+      "year": "2015",
+      "authors": "Kaiming He; X",
+      "title": "Zhang, Shaoqing Ren, and Jian Sun"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-10",
+      "year": "2017",
+      "authors": "Jan Hendrik Hosang; Rodrigo Benenson; et al.",
+      "title": "Learning non-maximum suppression"
+    },
+    {
+      "id": "ref-11",
+      "year": "2018",
+      "authors": "Jie Hu; Li Shen; et al.",
+      "title": "Squeezeand-excitation networks"
+    },
+    {
+      "id": "ref-12",
+      "year": "2022",
+      "authors": "Ding Jia; Yuhui Yuan; et al.",
+      "title": "Detrs with hybrid matching"
+    },
+    {
+      "id": "ref-13",
+      "year": "2011",
+      "authors": "James M",
+      "title": "Joyce"
+    },
+    {
+      "id": "ref-14",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Ni, and Lei Zhang"
+    },
+    {
+      "id": "ref-15",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Mask dino: Towards a unified transformer-based framework for object detection and segmentation"
+    },
+    {
+      "id": "ref-16",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C"
+    },
+    {
+      "id": "ref-17",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Piotr Dollar; et al.",
+      "title": "Gir- ´ shick, Kaiming He, Bharath Hariharan, and Serge J"
+    },
+    {
+      "id": "ref-18",
+      "year": "2019",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object ´ detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Ze Liu; Yutong Lin; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-21",
+      "year": "2022",
+      "authors": "Shilong Liu; Feng Li; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are better queries for detr"
+    },
+    {
+      "id": "ref-22",
+      "year": "2022",
+      "authors": "Yang Liu; Yao Zhang; et al.",
+      "title": "Sap-detr: Bridging the gap between salient points and queries-based transformer detector for fast model convergency"
+    },
+    {
+      "id": "ref-23",
+      "year": "2023",
+      "authors": "Siyi Liu; Tianhe Ren; et al.",
+      "title": "Detection transformer with stable matching"
+    },
+    {
+      "id": "ref-24",
+      "year": "2017",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-25",
+      "year": "2023",
+      "authors": "Tian Qiu; Linyun Zhou; et al.",
+      "title": "Team detr: Guide queries as a professional team in detection transformers"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Joseph Redmon; Ali Farhadi",
+      "title": "Yolov3: An incrementalimprovement"
+    },
+    {
+      "id": "ref-27",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Divvala; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-29",
+      "year": "2019",
+      "authors": "Seyed Hamid Rezatofighi; Nathan Tsoi; et al.",
+      "title": "Reid, and Silvio Savarese"
+    },
+    {
+      "id": "ref-30",
+      "year": "2022",
+      "authors": "Byungseok Roh; JaeWoong Shin; et al.",
+      "title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity"
+    },
+    {
+      "id": "ref-31",
+      "year": "2014",
+      "authors": "Olga Russakovsky; Jia Deng; et al.",
+      "title": "Bernstein, Alexander C"
+    },
+    {
+      "id": "ref-32",
+      "year": "2020",
+      "authors": "Zhiqing Sun; Shengcao Cao; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2021",
+      "authors": "Tao Wang; Li Yuan; et al.",
+      "title": "Pnp-detr: Towards efficient visual analysis with transformers"
+    },
+    {
+      "id": "ref-35",
+      "year": "2021",
+      "authors": "Yingming Wang; Xiangyu Zhang; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-36",
+      "year": "2022",
+      "authors": "Gongjie Zhang; Zhipeng Luo; et al.",
+      "title": "Accelerating detr convergence via semantic-aligned matching"
+    },
+    {
+      "id": "ref-37",
+      "year": "2023",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "Ni, and HeungYeung Shum"
+    },
+    {
+      "id": "ref-38",
+      "year": "2023",
+      "authors": "Kaikai Zhao; Norimichi Ukita",
+      "title": "Ks-detr: Knowledge sharing in attention learning for detection transformer"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2022",
+      "authors": "Zhuofan Zong; Guanglu Song; et al.",
+      "title": "Detrs with collaborative hybrid assignments training"
+    },
+    {
+      "id": "ref-41",
+      "year": "2023",
+      "authors": "Zhuofan Zong; Guanglu Song; et al.",
+      "title": "Detrs with collaborative hybrid assignments training"
+    }
+  ]
+}

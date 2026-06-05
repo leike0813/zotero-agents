@@ -1,9 +1,8 @@
 import { assert } from "chai";
+import { readFileSync } from "node:fs";
 import { config } from "../../package.json";
 import type { BackendInstance } from "../../src/backends/types";
-import {
-  computeAcpBackendConfigFingerprint,
-} from "../../src/modules/acpBackendProbe";
+import { computeAcpBackendConfigFingerprint } from "../../src/modules/acpBackendProbe";
 import {
   createAcpBackendFromPreset,
   listAcpBackendPresets,
@@ -137,6 +136,16 @@ describe("backend manager risk regression", function () {
     resetSkillRunnerBackendHealthRegistryForTests();
   });
 
+  it("keeps backend manager actions outside the scroll region and guards dirty exits", function () {
+    const source = readFileSync("src/modules/backendManager.ts", "utf8");
+    assert.include(source, 'data-zs-backend-scroll-region", "1"');
+    assert.include(source, 'data-zs-backend-action-bar", "1"');
+    assert.include(source, "createBackendManagerDraftSignature");
+    assert.include(source, "installBackendManagerBeforeUnloadPrompt");
+    assert.include(source, "backend-manager-unsaved-exit-confirm");
+    assert.notInclude(source, ".addButton(getString(\"backend-manager-save\"");
+  });
+
   it("rejects duplicated backend internal ids during dialog collection", function () {
     const doc = makeDoc([
       makeRow({
@@ -242,7 +251,7 @@ describe("backend manager risk regression", function () {
     const presets = listAcpBackendPresets();
     assert.sameMembers(
       presets.map((preset) => preset.id),
-      ["opencode", "codex", "claude-code", "gemini-cli", "qwen-code"],
+      ["opencode", "codex", "claude-code", "gemini-cli", "hermes", "qwen-code"],
     );
 
     const codex = createAcpBackendFromPreset("codex");
@@ -266,6 +275,20 @@ describe("backend manager risk regression", function () {
       "--experimental-acp",
     ]);
     assert.equal(gemini.acp?.agentFamily, "gemini-cli");
+
+    const hermes = createAcpBackendFromPreset("hermes");
+    assert.deepEqual(hermes, {
+      id: "acp-hermes",
+      displayName: "Hermes ACP",
+      type: "acp",
+      baseUrl: "local://acp-hermes",
+      command: "hermes",
+      args: ["acp"],
+      auth: { kind: "none" },
+      acp: {
+        agentFamily: "hermes",
+      },
+    });
   });
 
   it("keeps only OpenCode as the auto-created built-in ACP backend", function () {
@@ -300,11 +323,7 @@ describe("backend manager risk regression", function () {
         type: "acp",
         baseUrl: "local://acp-qwen-code",
         command: "npx",
-        args: [
-          "@qwen-code/qwen-code@latest",
-          "--acp",
-          "--experimental-skills",
-        ],
+        args: ["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"],
         acp: {
           agentFamily: "qwen-code",
         },
@@ -553,7 +572,10 @@ describe("backend manager risk regression", function () {
       (entry) => entry.id === "backend-acp-tested",
     );
     assert.equal(backend?.acp?.connectionTest?.status, "passed");
-    assert.equal(backend?.acp?.runtimeOptionsCache?.currentDisplayModelId, "qwen3");
+    assert.equal(
+      backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
+      "qwen3",
+    );
   });
 
   it("triggers silent model-cache refresh when a new skillrunner backend is added", function () {
@@ -671,7 +693,9 @@ describe("backend manager risk regression", function () {
 
     const parsed = JSON.parse(persisted) as {
       schemaVersion?: number;
-      backends: Array<{ management_auth?: { kind?: string; username?: string } }>;
+      backends: Array<{
+        management_auth?: { kind?: string; username?: string };
+      }>;
     };
     assert.equal(parsed.schemaVersion, 2);
     assert.deepEqual(parsed.backends[0].management_auth, {
@@ -702,7 +726,9 @@ describe("backend manager risk regression", function () {
     );
 
     registerSkillRunnerBackendForHealthTracking("backend-skillrunner-removed");
-    assert.isOk(getSkillRunnerBackendHealthState("backend-skillrunner-removed"));
+    assert.isOk(
+      getSkillRunnerBackendHealthState("backend-skillrunner-removed"),
+    );
 
     try {
       persistBackendsConfig([], {
@@ -719,6 +745,8 @@ describe("backend manager risk regression", function () {
       }
     }
 
-    assert.isNull(getSkillRunnerBackendHealthState("backend-skillrunner-removed"));
+    assert.isNull(
+      getSkillRunnerBackendHealthState("backend-skillrunner-removed"),
+    );
   });
 });

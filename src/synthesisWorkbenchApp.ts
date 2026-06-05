@@ -141,10 +141,14 @@ type Snapshot = {
     filters: Record<string, unknown>;
   };
   tags: {
-    filters: Record<string, string>;
+    filters: Record<string, unknown>;
     facets: string[];
     rows: Array<Record<string, unknown>>;
     visibleRows: Array<Record<string, unknown>>;
+    stagedRows: Array<Record<string, unknown>>;
+    visibleStagedRows: Array<Record<string, unknown>>;
+    stagedCount: number;
+    stagedFacets: string[];
     selected?: Record<string, unknown>;
     validationWarnings: Array<Record<string, unknown>>;
     projection: {
@@ -267,6 +271,14 @@ type Snapshot = {
   };
 };
 
+type TagsEditingState = {
+  originalTag?: string;
+  draftTag?: string;
+  draftNote?: string;
+  status?: string;
+  error?: string;
+};
+
 type ArtifactReaderDto = {
   topicId: string;
   title: string;
@@ -301,6 +313,8 @@ type TopicDetailDto = {
   summary?: Record<string, unknown>;
   positioning?: Record<string, unknown>;
   taxonomy?: Record<string, unknown>;
+  improvement_dimension_summary?: Record<string, unknown>;
+  improvement_dimensions?: unknown[];
   comparison_matrix?: Record<string, unknown>;
   claims?: unknown[];
   timeline_events?: unknown[] | Record<string, unknown>;
@@ -629,6 +643,11 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
     case "applyTagVocabularyImport":
       return `${command}:${keyPart(args.action)}`;
+    case "updateStagedTagSuggestion":
+      return `${command}:${keyPart(args.originalTag || args.tag)}`;
+    case "promoteStagedTagSuggestions":
+    case "discardStagedTagSuggestions":
+      return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
     case "openTopicArtifact":
@@ -649,6 +668,10 @@ function operationLabel(command: string) {
     previewTagVocabularyImport: "Previewing tag import",
     applyTagVocabularyImport: "Applying tag import",
     exportTagVocabulary: "Exporting tags",
+    updateStagedTagSuggestion: "Updating staged tag",
+    promoteStagedTagSuggestions: "Promoting staged tags",
+    discardStagedTagSuggestions: "Discarding staged tags",
+    clearStagedTagSuggestions: "Clearing staged tags",
     rebuildTagVocabularyIndex: "Rebuilding tag index",
     rebuildConceptKbIndex: "Rebuilding concept index",
     applyConceptReviewAction: "Applying concept review",
@@ -3534,6 +3557,11 @@ function topicTimelineSummary(detail: TopicDetailDto) {
   return recordValue(timeline.summary);
 }
 
+function topicTimelineMarkers(detail: TopicDetailDto) {
+  const timeline = recordValue(detail.timeline_events);
+  return recordArray(timeline.markers);
+}
+
 function renderTopicClaimsSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", "Claims"));
@@ -3784,10 +3812,57 @@ function renderMethodComparisonCard(row: Record<string, unknown>) {
 
 function renderTopicCompareSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Compare"));
+  const improvementDimensions = recordArray(detail.improvement_dimensions);
+  if (improvementDimensions.length) {
+    section.appendChild(el("h2", "", "Improvement / Dimensions"));
+    const summary = firstText(recordValue(detail.improvement_dimension_summary), [
+      "text",
+      "summary",
+      "analysis",
+      "overview",
+    ]);
+    if (summary) section.appendChild(renderParagraphs(summary));
+    improvementDimensions.forEach((dimension, index) => {
+      const card = el("article", "debate-card");
+      card.appendChild(el("span", "claim-index", `I${index + 1}`));
+      card.appendChild(
+        el(
+          "h3",
+          "",
+          firstText(
+            dimension,
+            ["label", "title", "dimension", "name", "id"],
+            `Dimension ${index + 1}`,
+          ),
+        ),
+      );
+      const analysis = firstText(dimension, [
+        "analysis",
+        "summary",
+        "description",
+        "rationale",
+        "tradeoff",
+      ]);
+      if (analysis) card.appendChild(renderParagraphs(analysis));
+      const trajectory = firstText(dimension, [
+        "trajectory",
+        "progression",
+        "improvement_pattern",
+      ]);
+      if (trajectory) card.appendChild(el("p", "muted", trajectory));
+      if (stringArray(dimension.source_paper_refs).length) {
+        card.appendChild(evidenceRefChips(detail, dimension.source_paper_refs));
+      } else if (stringArray(dimension.evidence_refs).length) {
+        card.appendChild(evidenceRefChips(detail, dimension.evidence_refs));
+      }
+      section.appendChild(card);
+    });
+  } else {
+    section.appendChild(el("h2", "", "Compare"));
+  }
   const matrix = detail.comparison_matrix || {};
   const rows = comparisonRows(matrix);
-  if (rows.length) {
+  if (!improvementDimensions.length && rows.length) {
     // 1. Extract all unique routes/methods to form columns
     const routeSet = new Set<string>();
     rows.forEach((r) => {
@@ -3882,7 +3957,7 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     table.appendChild(tbody);
     tableWrap.appendChild(table);
     section.appendChild(tableWrap);
-  } else {
+  } else if (!improvementDimensions.length) {
     section.appendChild(renderEmptyStructuredState("No comparison matrix"));
   }
   const debates = recordArray(detail.debates);
@@ -4739,9 +4814,72 @@ function timelineDenseMarkerKeys(items: PlacedTimelineItem[]) {
   return dense;
 }
 
+function timelineMarkerEvidence(
+  marker: Record<string, unknown>,
+  papers: Record<string, unknown>[],
+) {
+  const refs = [
+    firstText(marker, ["paper_evidence_id", "evidence_id", "paper_ref"]),
+    ...stringArray(marker.evidence_refs),
+    ...stringArray(marker.paper_evidence_refs),
+    ...stringArray(marker.source_paper_refs),
+  ].filter(Boolean);
+  return papers.find((evidence) => {
+    const keys = evidenceRefKeys(evidence);
+    return refs.some((ref) => keys.has(ref));
+  });
+}
+
+function timelineMarkerEvent(
+  marker: Record<string, unknown>,
+  events: Record<string, unknown>[],
+) {
+  const eventId = firstText(marker, ["event_id", "timeline_event_id"]);
+  if (!eventId) return undefined;
+  return events.find((event) => firstText(event, ["id"]) === eventId);
+}
+
 function timelineItems(detail: TopicDetailDto) {
   const events = topicTimelineEvents(detail);
   const papers = evidenceRows(detail);
+  const markers = topicTimelineMarkers(detail);
+  if (markers.length) {
+    return markers.map((marker, index) => {
+      const evidence = timelineMarkerEvidence(marker, papers);
+      const event = timelineMarkerEvent(marker, events);
+      const kindText = firstText(marker, ["kind", "marker_kind", "type"]);
+      const kind: TimelineItem["kind"] =
+        kindText === "paper" || (!event && !kindText) ? "paper" : "event";
+      const evidenceIndex = evidence
+        ? Math.max(
+            0,
+            papers.findIndex((row) => evidenceId(row) === evidenceId(evidence)),
+          )
+        : index;
+      const title =
+        firstText(marker, ["title", "label", "summary"]) ||
+        (evidence
+          ? timelineMarkerTitle(evidence, evidenceIndex, event)
+          : timelineEventTitle(event)) ||
+        `Marker ${index + 1}`;
+      return {
+        key:
+          firstText(marker, ["id", "marker_id"]) ||
+          `marker:${firstText(marker, ["paper_evidence_id", "event_id"], String(index))}`,
+        kind,
+        year: numericYear(firstText(marker, ["year", "date"])) || eventYear(event),
+        label:
+          firstText(marker, ["label", "code"]) ||
+          (evidence ? evidenceCode(evidence, evidenceIndex) : `T${index + 1}`),
+        title,
+        order: index,
+        evidence,
+        event,
+        weight: timelineWeight(evidence, event),
+        tone: timelineTone(evidence, event),
+      };
+    });
+  }
   return papers.map((evidence, index) => {
     const event = events.find((entry) =>
       eventReferencesEvidence(entry, evidence),
@@ -6734,108 +6872,310 @@ function tagWarningsFor(row: Record<string, unknown>) {
     : [];
 }
 
-function renderTagInspector(snapshot: Snapshot) {
-  const selected = snapshot.tags.selected;
-  const panel = el("aside", "panel details");
-  const header = el("div", "panel-header");
-  header.appendChild(el("strong", "", "Tag Inspector"));
-  panel.appendChild(header);
-  const details = el("div", "details");
-  if (!selected) {
-    details.appendChild(
-      renderEmptyState({
-        title: "No tag selected",
-        message: "Select a tag row to inspect aliases, usage, and validation.",
-      }),
-    );
-    panel.appendChild(details);
-    return panel;
-  }
-  const fields: Array<[string, unknown]> = [
-    ["canonical tag", selected.tag],
-    ["facet", selected.facet],
-    ["note", selected.note || "-"],
-    [
-      "aliases",
-      Array.isArray(selected.aliases) ? selected.aliases.join(", ") : "-",
-    ],
-    [
-      "abbrev",
-      Array.isArray(selected.abbrev) ? selected.abbrev.join(", ") : "-",
-    ],
-    ["deprecated", selected.deprecated ? "yes" : "no"],
-    ["replacement", selected.replacement || "-"],
-    ["usage count", selected.usage_count || 0],
-    ["source", selected.source || "-"],
-    ["last synced", selected.last_synced_at || "-"],
-  ];
-  fields.forEach(([label, value]) => {
-    const row = el("div", "detail-row");
-    row.appendChild(el("span", "muted", label));
-    row.appendChild(el("strong", "", String(value)));
-    details.appendChild(row);
-  });
-  const warnings = tagWarningsFor(selected);
-  if (warnings.length) {
-    const warningBox = el("div", "details");
-    warningBox.appendChild(el("strong", "", "Validation Warnings"));
-    warnings.forEach((warning) => {
-      warningBox.appendChild(
-        badge(
-          `${warning.code}: ${warning.message || ""}`,
-          warning.severity === "error" ? "danger" : "warn",
-        ),
-      );
-    });
-    details.appendChild(warningBox);
-  }
-  panel.appendChild(details);
-  return panel;
+function renderTags(main: HTMLElement, snapshot: Snapshot) {
+  const shell = renderTagsWorkbenchShell(snapshot);
+  const view = textValue(snapshot.tags.filters.view, "vocabulary") === "staged"
+    ? "staged"
+    : "vocabulary";
+  shell.appendChild(renderTagsSummaryBar(snapshot));
+  shell.appendChild(renderTagsSubviewTabs(snapshot, view));
+  shell.appendChild(
+    view === "staged"
+      ? renderStagedInboxSubview(snapshot)
+      : renderVocabularySubview(snapshot),
+  );
+  main.appendChild(shell);
 }
 
-function renderTags(main: HTMLElement, snapshot: Snapshot) {
-  const shell = el("div", "graph-shell");
-  const panel = el("div", "panel");
-  const filters = el("div", "filters");
-  const search = el("input");
-  search.dataset.synthesisControlKey = "tags.search";
-  search.placeholder = "Search tags";
-  search.value = snapshot.tags.filters.search || "";
-  search.addEventListener("input", () =>
-    sendAction("setFilters", { tags: { search: search.value } }),
+function renderTagsWorkbenchShell(snapshot: Snapshot) {
+  const density =
+    textValue(snapshot.tags.filters.density, "compact") === "comfortable"
+      ? "comfortable"
+      : "compact";
+  const shell = el(
+    "section",
+    `tags-workbench density-${density}`,
   );
-  filters.appendChild(search);
-  filters.appendChild(
-    selectControl(
-      ["all", ...snapshot.tags.facets],
-      snapshot.tags.filters.facet || "all",
-      (value) => sendAction("setFilters", { tags: { facet: value } }),
+  shell.setAttribute("aria-label", "Synthesis tag management");
+  return shell;
+}
+
+function renderTagsSummaryMetric(label: string, value: unknown, tone = "") {
+  const metricNode = el("div", "tags-summary-metric");
+  metricNode.appendChild(el("span", "muted", label));
+  metricNode.appendChild(badge(value, tone));
+  return metricNode;
+}
+
+function renderTagsSummaryBar(snapshot: Snapshot) {
+  const bar = el("div", "tags-summary-bar");
+  const metrics = el("div", "tags-summary-metrics");
+  metrics.appendChild(
+    renderTagsSummaryMetric("Canonical", snapshot.tags.rows.length, "ok"),
+  );
+  metrics.appendChild(
+    renderTagsSummaryMetric("Staged", snapshot.tags.stagedCount || 0, "warn"),
+  );
+  metrics.appendChild(
+    renderTagsSummaryMetric(
+      "Warnings",
+      snapshot.tags.validationWarnings.length,
+      snapshot.tags.validationWarnings.length ? "warn" : "ok",
     ),
   );
-  filters.appendChild(
-    selectControl(
-      ["all", "active", "deprecated", "warning"],
-      snapshot.tags.filters.status || "all",
-      (value) => sendAction("setFilters", { tags: { status: value } }),
+  metrics.appendChild(
+    renderTagsSummaryMetric(
+      "Cache",
+      snapshot.tags.projection.stale ? "stale" : "ready",
+      snapshot.tags.projection.stale ? "warn" : "ok",
     ),
   );
-  filters.appendChild(
+  const actions = el("div", "tags-summary-actions");
+  actions.appendChild(
     makeButton("Validate", "hostCommand", {
       command: "validateTagVocabulary",
     }),
   );
-  filters.appendChild(
+  actions.appendChild(
     makeButton("Export", "hostCommand", {
       command: "exportTagVocabulary",
     }),
   );
-  const importToggle = makeLocalButton("Import Tags", () => {
-    state.tagImportOpen = true;
-    state.dismissedTagImportPreviewSignature = undefined;
-    render();
+  actions.appendChild(
+    makeLocalButton("Import", () => {
+      state.tagImportOpen = true;
+      state.dismissedTagImportPreviewSignature = undefined;
+      render();
+    }),
+  );
+  bar.appendChild(metrics);
+  bar.appendChild(actions);
+  return bar;
+}
+
+function renderTagsSubviewTabs(snapshot: Snapshot, view: string) {
+  const tabs = el("div", "tags-subview-tabs");
+  tabs.setAttribute("role", "tablist");
+  const vocabulary = makeLocalButton(
+    `Vocabulary (${snapshot.tags.rows.length})`,
+    () => sendAction("setFilters", { tags: { view: "vocabulary" } }),
+    view === "vocabulary",
+  );
+  vocabulary.setAttribute("role", "tab");
+  vocabulary.setAttribute("aria-selected", String(view === "vocabulary"));
+  const staged = makeLocalButton(
+    `Staged (${snapshot.tags.stagedCount || 0})`,
+    () => sendAction("setFilters", { tags: { view: "staged" } }),
+    view === "staged",
+  );
+  staged.setAttribute("role", "tab");
+  staged.setAttribute("aria-selected", String(view === "staged"));
+  tabs.appendChild(vocabulary);
+  tabs.appendChild(staged);
+  return tabs;
+}
+
+function renderTagsTable(args: {
+  className: string;
+  headers: string[];
+  rows: Array<Record<string, unknown>>;
+  mapRow: (row: Record<string, unknown>) => Array<Node | unknown>;
+  expandedRow?: (row: Record<string, unknown>) => HTMLElement | null;
+  emptyState: HTMLElement;
+}) {
+  if (!args.rows.length) {
+    return args.emptyState;
+  }
+  const wrap = el("div", `tags-table-wrap ${args.className}`);
+  const table = el("table", "tags-table");
+  const thead = el("thead");
+  const tr = el("tr");
+  args.headers.forEach((header) => tr.appendChild(el("th", "", header)));
+  thead.appendChild(tr);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  args.rows.forEach((row) => {
+    const rowNode = el("tr");
+    args.mapRow(row).forEach((cell) => {
+      const td = el("td");
+      if (cell instanceof Node) {
+        td.appendChild(cell);
+      } else {
+        td.textContent = String(cell ?? "");
+      }
+      rowNode.appendChild(td);
+    });
+    tbody.appendChild(rowNode);
+    const expanded = args.expandedRow?.(row);
+    if (expanded) {
+      const detailRow = el("tr", "tags-expanded-row");
+      const detailCell = el("td");
+      detailCell.colSpan = args.headers.length;
+      detailCell.appendChild(expanded);
+      detailRow.appendChild(detailCell);
+      tbody.appendChild(detailRow);
+    }
   });
-  filters.appendChild(importToggle);
-  panel.appendChild(renderPanelToolbar(filters));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function expandedRowKey(kind: string, tag: unknown) {
+  return `${kind}:${textValue(tag)}`;
+}
+
+function isTagRowExpanded(snapshot: Snapshot, key: string) {
+  const expandedRows = recordValue(snapshot.tags.filters.expandedRows);
+  return expandedRows[key] === true;
+}
+
+function toggleTagExpandedRow(snapshot: Snapshot, key: string) {
+  const expandedRows = {
+    ...recordValue(snapshot.tags.filters.expandedRows),
+  } as Record<string, boolean>;
+  if (expandedRows[key]) {
+    delete expandedRows[key];
+  } else {
+    expandedRows[key] = true;
+  }
+  sendAction("setFilters", { tags: { expandedRows } });
+}
+
+function toggleTagSelection(
+  snapshot: Snapshot,
+  key: "selectedStagedTags" | "selectedVocabularyTags",
+  tag: string,
+  checked: boolean,
+) {
+  const selected = new Set(
+    Array.isArray(snapshot.tags.filters[key])
+      ? (snapshot.tags.filters[key] as string[])
+      : [],
+  );
+  if (checked) {
+    selected.add(tag);
+  } else {
+    selected.delete(tag);
+  }
+  sendAction("setFilters", { tags: { [key]: Array.from(selected).sort() } });
+}
+
+function setAllTagSelection(
+  key: "selectedStagedTags" | "selectedVocabularyTags",
+  tags: string[],
+  checked: boolean,
+) {
+  sendAction("setFilters", { tags: { [key]: checked ? [...tags].sort() : [] } });
+}
+
+function selectedTagList(
+  snapshot: Snapshot,
+  key: "selectedStagedTags" | "selectedVocabularyTags",
+) {
+  return Array.isArray(snapshot.tags.filters[key])
+    ? ((snapshot.tags.filters[key] as string[]).filter(Boolean) as string[])
+    : [];
+}
+
+function stagedEditingState(snapshot: Snapshot): TagsEditingState | undefined {
+  const value = snapshot.tags.filters.editingStagedTag;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as TagsEditingState)
+    : undefined;
+}
+
+function renderCompactText(value: unknown, className = "tags-cell-text") {
+  const text = textValue(value, "-");
+  const node = el("span", className, text || "-");
+  node.title = text;
+  return node;
+}
+
+function renderListCell(values: unknown, empty = "-") {
+  const items = Array.isArray(values)
+    ? values.map((entry) => textValue(entry)).filter(Boolean)
+    : [];
+  return renderCompactText(items.length ? items.join(", ") : empty);
+}
+
+function renderRowExpandButton(snapshot: Snapshot, key: string) {
+  const expanded = isTagRowExpanded(snapshot, key);
+  const button = makeLocalButton(expanded ? "Hide" : "Details", () =>
+    toggleTagExpandedRow(snapshot, key),
+  );
+  button.classList.add("tags-expand-button");
+  button.setAttribute("aria-expanded", String(expanded));
+  return button;
+}
+
+function renderVocabularySubview(snapshot: Snapshot) {
+  const panel = el("div", "tags-subview");
+  const vocabularyFilters = el("div", "filters");
+  const search = el("input");
+  search.dataset.synthesisControlKey = "tags.search";
+  search.placeholder = "Search tags";
+  search.value = textValue(snapshot.tags.filters.search);
+  search.addEventListener("input", () =>
+    sendAction("setFilters", { tags: { search: search.value } }),
+  );
+  vocabularyFilters.appendChild(search);
+  vocabularyFilters.appendChild(
+    selectControl(
+      ["all", ...snapshot.tags.facets],
+      textValue(snapshot.tags.filters.facet, "all"),
+      (value) => sendAction("setFilters", { tags: { facet: value } }),
+    ),
+  );
+  vocabularyFilters.appendChild(
+    selectControl(
+      ["all", "active", "deprecated", "warning"],
+      textValue(snapshot.tags.filters.status, "all"),
+      (value) => sendAction("setFilters", { tags: { status: value } }),
+    ),
+  );
+  vocabularyFilters.appendChild(
+    selectControl(
+      ["compact", "comfortable"],
+      textValue(snapshot.tags.filters.density, "compact"),
+      (value) => sendAction("setFilters", { tags: { density: value } }),
+    ),
+  );
+  panel.appendChild(renderPanelToolbar(vocabularyFilters));
+  const visibleVocabularyTags = snapshot.tags.visibleRows.map((row) =>
+    textValue(row.tag),
+  );
+  const selectedVocabularyTags = selectedTagList(
+    snapshot,
+    "selectedVocabularyTags",
+  ).filter((tag) => visibleVocabularyTags.includes(tag));
+  if (snapshot.tags.visibleRows.length) {
+    const vocabularyBulk = el("div", "tags-bulk-bar tags-bulk-bar-passive");
+    const allSelected =
+      selectedVocabularyTags.length === visibleVocabularyTags.length;
+    const checkbox = el("input") as HTMLInputElement;
+    checkbox.type = "checkbox";
+    checkbox.checked = allSelected;
+    checkbox.setAttribute("aria-label", "Select all visible vocabulary tags");
+    checkbox.addEventListener("change", () =>
+      setAllTagSelection(
+        "selectedVocabularyTags",
+        visibleVocabularyTags,
+        checkbox.checked,
+      ),
+    );
+    vocabularyBulk.appendChild(checkbox);
+    vocabularyBulk.appendChild(
+      el(
+        "span",
+        "muted",
+        selectedVocabularyTags.length
+          ? `${selectedVocabularyTags.length} vocabulary tag(s) selected`
+          : "Vocabulary selection is visual only",
+      ),
+    );
+    panel.appendChild(vocabularyBulk);
+  }
   const status = el("div", "details");
   status.appendChild(
     badge(
@@ -6854,27 +7194,98 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
   );
   panel.appendChild(status);
   panel.appendChild(
-    tableView(
-      ["Tag", "Facet", "Aliases", "Abbrev", "Status", "Usage"],
-      snapshot.tags.visibleRows,
-      (row) => [
-        makeButton(String(row.tag || ""), "selectTag", { tag: row.tag }),
-        row.facet || "-",
-        Array.isArray(row.aliases) && row.aliases.length
-          ? row.aliases.join(", ")
-          : "-",
-        Array.isArray(row.abbrev) && row.abbrev.length
-          ? row.abbrev.join(", ")
-          : "-",
-        tagWarningsFor(row).length
+    renderTagsTable({
+      className: "tags-vocabulary-table",
+      headers: [
+        "",
+        "Tag",
+        "Facet",
+        "Status",
+        "Usage",
+        "Source",
+        "Note",
+        "Aliases",
+        "Abbrev",
+        "Warnings",
+        "",
+      ],
+      rows: snapshot.tags.visibleRows,
+      mapRow: (row) => {
+        const tag = textValue(row.tag);
+        const selected = selectedVocabularyTags.includes(tag);
+        const checkbox = el("input") as HTMLInputElement;
+        checkbox.type = "checkbox";
+        checkbox.checked = selected;
+        checkbox.setAttribute("aria-label", `Select ${tag}`);
+        checkbox.addEventListener("change", () =>
+          toggleTagSelection(
+            snapshot,
+            "selectedVocabularyTags",
+            tag,
+            checkbox.checked,
+          ),
+        );
+        const statusBadge = tagWarningsFor(row).length
           ? badge("warning", "warn")
           : badge(
               row.deprecated ? "deprecated" : "active",
               row.deprecated ? "danger" : "ok",
+            );
+        const warnings = tagWarningsFor(row);
+        const key = expandedRowKey("vocabulary", tag);
+        return [
+          checkbox,
+          renderCompactText(tag),
+          row.facet || "-",
+          statusBadge,
+          row.usage_count || 0,
+          renderCompactText(row.source || "-"),
+          renderCompactText(row.note || "-"),
+          renderListCell(row.aliases),
+          renderListCell(row.abbrev),
+          warnings.length ? badge(warnings.length, "warn") : "-",
+          renderRowExpandButton(snapshot, key),
+        ];
+      },
+      expandedRow: (row) => {
+        const key = expandedRowKey("vocabulary", row.tag);
+        if (!isTagRowExpanded(snapshot, key)) {
+          return null;
+        }
+        const warnings = tagWarningsFor(row);
+        const details = el("div", "tags-expanded-content");
+        details.appendChild(renderDetailList([
+          ["note", row.note || "-"],
+          [
+            "aliases",
+            Array.isArray(row.aliases) && row.aliases.length
+              ? row.aliases.join(", ")
+              : "-",
+          ],
+          [
+            "abbrev",
+            Array.isArray(row.abbrev) && row.abbrev.length
+              ? row.abbrev.join(", ")
+              : "-",
+          ],
+          ["replacement", row.replacement || "-"],
+          ["last synced", row.last_synced_at || "-"],
+        ]));
+        if (warnings.length) {
+          const warningList = el("div", "tags-warning-list");
+          warnings.forEach((warning) =>
+            warningList.appendChild(
+              badge(
+                `${warning.code}: ${warning.message || ""}`,
+                warning.severity === "error" ? "danger" : "warn",
+              ),
             ),
-        row.usage_count || 0,
-      ],
-      renderEmptyState({
+          );
+          details.appendChild(warningList);
+        }
+        return details;
+      },
+      emptyState: renderEmptyState({
         title: snapshot.tags.rows.length
           ? "No tags match the current filters"
           : "No tag vocabulary indexed yet",
@@ -6883,15 +7294,331 @@ function renderTags(main: HTMLElement, snapshot: Snapshot) {
           : "Import tags to make them available here.",
         tone: snapshot.tags.rows.length ? "default" : "info",
       }),
-    ),
+    }),
   );
   const tagImportPanel = renderTagImportPanel(snapshot);
   if (tagImportPanel) {
     panel.appendChild(tagImportPanel);
   }
-  shell.appendChild(panel);
-  shell.appendChild(renderTagInspector(snapshot));
-  main.appendChild(shell);
+  return panel;
+}
+
+function stagedTagSuffix(row: Record<string, unknown>) {
+  const tag = textValue(row.tag);
+  const facet = textValue(row.facet);
+  const prefix = `${facet}:`;
+  return facet && tag.startsWith(prefix) ? tag.slice(prefix.length) : tag;
+}
+
+function currentStagedDraft(snapshot: Snapshot, row: Record<string, unknown>) {
+  const tag = textValue(row.tag);
+  const edit = stagedEditingState(snapshot);
+  if (edit?.originalTag === tag) {
+    return {
+      tag: textValue(edit.draftTag, stagedTagSuffix(row)),
+      note: textValue(edit.draftNote, textValue(row.note)),
+      status: textValue(edit.status, "idle"),
+      error: textValue(edit.error),
+    };
+  }
+  return {
+    tag: stagedTagSuffix(row),
+    note: textValue(row.note),
+    status: "idle",
+    error: "",
+  };
+}
+
+function persistStagedDraft(args: {
+  snapshot: Snapshot;
+  row: Record<string, unknown>;
+  tagValue: string;
+  noteValue: string;
+}) {
+  const tag = textValue(args.row.tag);
+  const facet = textValue(args.row.facet, "topic");
+  const suffix = textValue(args.tagValue);
+  const nextTag = suffix.includes(":") ? suffix : `${facet}:${suffix}`;
+  sendAction("setFilters", {
+    tags: {
+      editingStagedTag: {
+        originalTag: tag,
+        draftTag: suffix,
+        draftNote: args.noteValue,
+        status: "pending",
+      },
+    },
+  });
+  sendAction("hostCommand", {
+    command: "updateStagedTagSuggestion",
+    args: {
+      originalTag: tag,
+      tag: nextTag,
+      facet: nextTag.split(":")[0] || facet,
+      note: args.noteValue,
+      source_flow: textValue(args.row.source_flow),
+      parent_bindings: Array.isArray(args.row.parent_bindings)
+        ? args.row.parent_bindings
+        : [],
+    },
+  });
+}
+
+function renderStagedEditState(snapshot: Snapshot, row: Record<string, unknown>) {
+  const tag = textValue(row.tag);
+  const edit = stagedEditingState(snapshot);
+  const pending = isOperationPending("updateStagedTagSuggestion", {
+    originalTag: tag,
+  });
+  const failed =
+    snapshot.actions?.lastFailed?.key ===
+    operationKey("updateStagedTagSuggestion", { originalTag: tag });
+  const completed =
+    snapshot.actions?.lastCompleted?.key ===
+    operationKey("updateStagedTagSuggestion", { originalTag: tag });
+  const stateText = failed
+    ? "failed"
+    : pending || edit?.status === "pending"
+      ? "saving"
+      : completed || edit?.status === "saved"
+        ? "saved"
+        : "";
+  if (!stateText) {
+    return el("span", "staged-edit-state", "");
+  }
+  const node = el(
+    "span",
+    `staged-edit-state ${failed ? "failed" : pending ? "pending" : "saved"}`,
+    stateText,
+  );
+  if (failed && snapshot.actions?.lastFailed?.message) {
+    node.title = snapshot.actions.lastFailed.message;
+  }
+  return node;
+}
+
+function renderTagBulkActionBar(args: {
+  snapshot: Snapshot;
+  selectedTags: string[];
+  visibleTags: string[];
+}) {
+  const bar = el("div", "tags-bulk-bar");
+  const selectedCount = args.selectedTags.length;
+  if (args.visibleTags.length) {
+    const allSelected = selectedCount === args.visibleTags.length;
+    const checkbox = el("input") as HTMLInputElement;
+    checkbox.type = "checkbox";
+    checkbox.checked = allSelected;
+    checkbox.setAttribute("aria-label", "Select all visible staged suggestions");
+    checkbox.addEventListener("change", () =>
+      setAllTagSelection(
+        "selectedStagedTags",
+        args.visibleTags,
+        checkbox.checked,
+      ),
+    );
+    bar.appendChild(checkbox);
+  }
+  bar.appendChild(
+    el(
+      "span",
+      "muted",
+      selectedCount
+        ? `${selectedCount} staged suggestion(s) selected`
+        : "Select staged suggestions for bulk actions",
+    ),
+  );
+  const promote = makeButton(
+    "Promote selected",
+    "hostCommand",
+    {
+      command: "promoteStagedTagSuggestions",
+      args: { tags: args.selectedTags },
+    },
+    false,
+    selectedCount === 0,
+  );
+  const discard = makeButton(
+    "Discard selected",
+    "hostCommand",
+    {
+      command: "discardStagedTagSuggestions",
+      args: { tags: args.selectedTags },
+    },
+    false,
+    selectedCount === 0,
+  );
+  const clearSelection = makeLocalButton("Clear selection", () =>
+    setAllTagSelection("selectedStagedTags", [], false),
+  );
+  clearSelection.disabled = selectedCount === 0;
+  bar.appendChild(promote);
+  bar.appendChild(discard);
+  bar.appendChild(clearSelection);
+  return bar;
+}
+
+function renderStagedInboxSubview(snapshot: Snapshot) {
+  const panel = el("div", "tags-subview");
+  const filters = el("div", "filters");
+  const search = el("input");
+  search.dataset.synthesisControlKey = "tags.stagedSearch";
+  search.placeholder = "Search staged tags";
+  search.value = textValue(snapshot.tags.filters.stagedSearch);
+  search.addEventListener("input", () =>
+    sendAction("setFilters", { tags: { stagedSearch: search.value } }),
+  );
+  filters.appendChild(search);
+  filters.appendChild(
+    selectControl(
+      ["all", ...snapshot.tags.stagedFacets],
+      textValue(snapshot.tags.filters.stagedFacet, "all"),
+      (value) => sendAction("setFilters", { tags: { stagedFacet: value } }),
+    ),
+  );
+  const clearButton = makeLocalButton("Clear Staged", () => {
+    if (!window.confirm("Clear all staged tag suggestions?")) {
+      return;
+    }
+    sendAction("hostCommand", {
+      command: "clearStagedTagSuggestions",
+      args: {},
+    });
+  });
+  clearButton.disabled = !(snapshot.tags.stagedCount || 0);
+  filters.appendChild(clearButton);
+  panel.appendChild(renderPanelToolbar(filters));
+  const visibleTags = snapshot.tags.visibleStagedRows.map((row) =>
+    textValue(row.tag),
+  );
+  const selectedTags = selectedTagList(snapshot, "selectedStagedTags").filter(
+    (tag) => visibleTags.includes(tag),
+  );
+  panel.appendChild(
+    renderTagBulkActionBar({
+      snapshot,
+      selectedTags,
+      visibleTags,
+    }),
+  );
+  panel.appendChild(
+    renderTagsTable({
+      className: "tags-staged-table",
+      headers: [
+        "",
+        "Tag",
+        "Facet",
+        "Note",
+        "Parents",
+        "Source",
+        "Updated",
+        "Actions",
+        "",
+      ],
+      rows: snapshot.tags.visibleStagedRows,
+      mapRow: (row) => {
+        const tag = textValue(row.tag);
+        const facet = textValue(row.facet, "topic");
+        const draft = currentStagedDraft(snapshot, row);
+        const selected = selectedTags.includes(tag);
+        const checkbox = el("input") as HTMLInputElement;
+        checkbox.type = "checkbox";
+        checkbox.checked = selected;
+        checkbox.setAttribute("aria-label", `Select staged ${tag}`);
+        checkbox.addEventListener("change", () =>
+          toggleTagSelection(
+            snapshot,
+            "selectedStagedTags",
+            tag,
+            checkbox.checked,
+          ),
+        );
+        const tagInput = el("input");
+        tagInput.value = draft.tag;
+        tagInput.dataset.synthesisControlKey = `tags.staged.${tag}.tag`;
+        tagInput.addEventListener("change", () => {
+          persistStagedDraft({
+            snapshot,
+            row,
+            tagValue: tagInput.value,
+            noteValue: noteInput.value,
+          });
+        });
+        const noteInput = el("input");
+        noteInput.value = draft.note;
+        noteInput.dataset.synthesisControlKey = `tags.staged.${tag}.note`;
+        noteInput.addEventListener("change", () => {
+          persistStagedDraft({
+            snapshot,
+            row,
+            tagValue: tagInput.value,
+            noteValue: noteInput.value,
+          });
+        });
+        const actions = el("div", "row-actions");
+        actions.appendChild(
+          makeButton("Promote", "hostCommand", {
+            command: "promoteStagedTagSuggestions",
+            args: { tag, tags: [tag] },
+          }),
+        );
+        actions.appendChild(
+          makeButton("Discard", "hostCommand", {
+            command: "discardStagedTagSuggestions",
+            args: { tag, tags: [tag] },
+          }),
+        );
+        const key = expandedRowKey("staged", tag);
+        const editState = renderStagedEditState(snapshot, row);
+        const tagCell = el("div", "tags-inline-edit-cell");
+        tagCell.appendChild(tagInput);
+        tagCell.appendChild(editState);
+        return [
+          checkbox,
+          tagCell,
+          facet,
+          noteInput,
+          row.parent_count || 0,
+          renderCompactText(row.source_flow || "-"),
+          renderCompactText(row.updated_at || "-"),
+          actions,
+          renderRowExpandButton(snapshot, key),
+        ];
+      },
+      expandedRow: (row) => {
+        const key = expandedRowKey("staged", row.tag);
+        if (!isTagRowExpanded(snapshot, key)) {
+          return null;
+        }
+        const details = el("div", "tags-expanded-content");
+        details.appendChild(renderDetailList([
+          ["full tag", row.tag],
+          ["note", row.note || "-"],
+          [
+            "parent bindings",
+            Array.isArray(row.parent_bindings) && row.parent_bindings.length
+              ? row.parent_bindings.join(", ")
+              : "-",
+          ],
+          ["source flow", row.source_flow || "-"],
+          ["created", row.created_at || "-"],
+          ["updated", row.updated_at || "-"],
+        ]));
+        details.appendChild(renderStagedEditState(snapshot, row));
+        return details;
+      },
+      emptyState: renderEmptyState({
+        title: snapshot.tags.stagedCount
+          ? "No staged tags match the current filters"
+          : "No staged tag suggestions",
+        message: snapshot.tags.stagedCount
+          ? "Adjust the staged search or facet filter to show more suggestions."
+          : "Tag-regulator suggestions staged for review will appear here.",
+        tone: snapshot.tags.stagedCount ? "default" : "info",
+      }),
+    }),
+  );
+  return panel;
 }
 
 function tagImportPreviewSignature(snapshot: Snapshot) {

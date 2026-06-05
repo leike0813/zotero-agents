@@ -17,6 +17,7 @@ import {
 
 export type AcpSharedSkillCatalogEntry = {
   skillId: string;
+  description: string;
   sourceKind: PluginSkillRegistryEntry["sourceKind"];
   checksum: string;
   sourceDir: string;
@@ -110,6 +111,7 @@ export async function buildAcpSharedSkillCatalog(args: {
     const resourceManifest = await buildAcpSkillResourceManifest(catalogEntry);
     entries.push({
       skillId: entry.skillId,
+      description: entry.description,
       sourceKind: entry.sourceKind,
       checksum: entry.checksum,
       sourceDir: entry.sourceDir,
@@ -126,6 +128,7 @@ export async function buildAcpSharedSkillCatalog(args: {
     generatedAt: new Date().toISOString(),
     entries: entries.map((entry) => ({
       skillId: entry.skillId,
+      description: entry.description,
       sourceKind: entry.sourceKind,
       checksum: entry.checksum,
       sourceDir: entry.sourceDir,
@@ -136,7 +139,9 @@ export async function buildAcpSharedSkillCatalog(args: {
   await writeRuntimeTextFile(indexPath, JSON.stringify(index, null, 2));
   diagnostics.push({
     level: "info",
-    code: canReuse ? "acp_shared_skill_catalog_reused" : "acp_shared_skill_catalog_built",
+    code: canReuse
+      ? "acp_shared_skill_catalog_reused"
+      : "acp_shared_skill_catalog_built",
     message: `ACP shared skill catalog ${catalogId} contains ${entries.length} skill(s).`,
   });
   return {
@@ -144,7 +149,9 @@ export async function buildAcpSharedSkillCatalog(args: {
     catalogRoot,
     skillsRoot,
     entries,
-    entriesById: Object.fromEntries(entries.map((entry) => [entry.skillId, entry])),
+    entriesById: Object.fromEntries(
+      entries.map((entry) => [entry.skillId, entry]),
+    ),
     diagnostics,
   };
 }

@@ -1,0 +1,51 @@
+# Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation (2026)
+
+- Paper ref: 1:M68XPFA9
+- Title: Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation
+- Year: 2026
+
+## Filtered Digest
+
+#### TL;DR
+
+本文提出DINO-AugSeg，一种基于DINOv3自监督特征的少样本医学图像分割新框架。针对DINOv3在少样本场景下解码器泛化能力不足的问题，设计了频域小波特征增强模块WT-Aug和上下文引导特征融合模块CG-Fuse。
+
+在跨5种成像模态的6个公开基准上，DINO-AugSeg在少样本条件下均优于现有卷积、Transformer和自监督基线方法。消融实验验证了两个核心模块的独立与联合有效性，并揭示了输入分辨率对DINOv3编码器性能的重要影响。
+
+#### 研究问题与贡献
+
+- 研究问题：如何在少样本场景下有效利用DINOv3自监督特征进行鲁棒的医学图像分割，克服领域差异和解码器泛化瓶颈？
+
+- 提出WT-Aug：基于Haar小波变换的频域特征级增强方法，在保持结构信息的同时引入频率分量扰动
+
+- 设计CG-Fuse：基于多头交叉注意力的上下文引导特征融合模块，利用DINOv3高层语义指导解码器融合
+
+- 提出DINO-AugSeg框架，将WT-Aug与CG-Fuse集成于编码器-解码器架构中
+
+- 在6个跨5种模态的公开数据集上进行了全面的少样本分割实验验证
+
+#### 方法要点
+
+- 冻结DINOv3编码器提取多尺度特征，避免少样本场景下重新训练骨干网络
+
+- WT-Aug：Haar小波2分解为LL/LH/HL/HH四个子带，各子带与随机掩码逐元素相乘后逆变换重建
+
+- CG-Fuse：解码器特征作为Query，编码器增强特征作为Key和Value，通过多头交叉注意力实现语义引导融合
+
+- 整体架构包含DINOv3编码器→WT-Aug增强跳跃连接→CG-Fuse解码器→轻量分割头
+
+#### 关键结果
+
+- ACDC单样本：Dice 71.70%（最佳），HD95 23.69（最低）
+
+- ACDC七样本：Dice 81.85%，较SegDINO提升7.89个百分点
+
+- LA2018七样本：Dice 86.22%，较SegDINO提升2.64个百分点
+
+- Synapse七样本：Dice 71.19%，较Attention-Unet提升1.43个百分点
+
+- TN3K/Kvasir-SEG/ISIC2018二维数据集同样取得领先或接近领先的Dice分数
+
+- 消融实验：WT-Aug和CG-Fuse各自独立提升性能，组合效果最优
+
+- 输入分辨率从224×224提升至512×512可显著缓解DINOv3降采样导致的细节丢失

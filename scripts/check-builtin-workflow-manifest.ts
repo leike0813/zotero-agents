@@ -6,6 +6,8 @@ type BuiltinManifest = {
   files: string[];
 };
 
+const UNSHIPPED_BUILTIN_PATH_PREFIXES = ["tag-vocabulary-package/"];
+
 function normalizeRelativePath(input: string) {
   return String(input || "")
     .trim()
@@ -70,7 +72,13 @@ async function main() {
   const actualFileSet = new Set(actualFiles);
 
   const missingOnDisk = manifestFiles.filter((entry) => !actualFileSet.has(entry));
-  const missingInManifest = actualFiles.filter((entry) => !manifestFileSet.has(entry));
+  const missingInManifest = actualFiles.filter(
+    (entry) =>
+      !manifestFileSet.has(entry) &&
+      !UNSHIPPED_BUILTIN_PATH_PREFIXES.some((prefix) =>
+        entry.startsWith(prefix),
+      ),
+  );
 
   if (missingOnDisk.length || missingInManifest.length) {
     const chunks: string[] = ["[builtin-manifest-check] failed"];

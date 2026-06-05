@@ -32,6 +32,7 @@ import type {
 
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
+  resolveSynthesisService?: () => SynthesisMcpService;
 };
 
 export type HostBridgeCapabilityHandler = (
@@ -187,6 +188,258 @@ function debugEnvelope(
   };
 }
 
+const DEBUG_ZOTERO_EVAL_SCHEMA = "host_bridge.debug.zotero.eval.v1";
+const DEBUG_ZOTERO_EVAL_DEFAULT_TIMEOUT_MS = 5000;
+const DEBUG_ZOTERO_EVAL_MAX_TIMEOUT_MS = 30000;
+const DEBUG_ZOTERO_EVAL_DEFAULT_MAX_DEPTH = 4;
+const DEBUG_ZOTERO_EVAL_MAX_DEPTH = 8;
+const DEBUG_ZOTERO_EVAL_DEFAULT_MAX_ITEMS = 50;
+const DEBUG_ZOTERO_EVAL_MAX_ITEMS = 500;
+const DEBUG_ZOTERO_EVAL_DEFAULT_MAX_CHARS = 20000;
+const DEBUG_ZOTERO_EVAL_MAX_CHARS = 200000;
+const DEBUG_ZOTERO_EVAL_STRING_LIMIT = 4000;
+
+function clampDebugInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+) {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function debugZoteroEvalResultType(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (value instanceof Error) {
+    return "error";
+  }
+  return typeof value;
+}
+
+function truncateDebugString(
+  value: string,
+  maxChars: number,
+  truncated: { value: boolean },
+) {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  truncated.value = true;
+  return `${value.slice(0, Math.max(0, maxChars))}...[truncated]`;
+}
+
+function safeDebugEvalValue(
+  value: unknown,
+  options: {
+    depth: number;
+    maxDepth: number;
+    maxItems: number;
+    maxStringChars: number;
+    seen: WeakSet<object>;
+    truncated: { value: boolean };
+  },
+): unknown {
+  if (value === undefined) {
+    return "[Undefined]";
+  }
+  if (typeof value === "bigint") {
+    return `${value.toString()}n`;
+  }
+  if (typeof value === "symbol") {
+    return value.toString();
+  }
+  if (typeof value === "function") {
+    return `[Function${value.name ? `: ${value.name}` : ""}]`;
+  }
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return truncateDebugString(
+      value,
+      options.maxStringChars,
+      options.truncated,
+    );
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (value instanceof Error) {
+    const errorResult: Record<string, unknown> = {
+      name: value.name,
+      message: truncateDebugString(
+        value.message,
+        options.maxStringChars,
+        options.truncated,
+      ),
+    };
+    if (value.stack) {
+      errorResult.stack = truncateDebugString(
+        value.stack,
+        options.maxStringChars,
+        options.truncated,
+      );
+    }
+    return errorResult;
+  }
+  if (typeof value !== "object") {
+    return String(value);
+  }
+  if (options.seen.has(value)) {
+    options.truncated.value = true;
+    return "[Circular]";
+  }
+  if (options.depth >= options.maxDepth) {
+    options.truncated.value = true;
+    return "[MaxDepth]";
+  }
+  options.seen.add(value);
+  if (Array.isArray(value)) {
+    const items = value.slice(0, options.maxItems).map((entry) =>
+      safeDebugEvalValue(entry, {
+        ...options,
+        depth: options.depth + 1,
+      }),
+    );
+    if (value.length > options.maxItems) {
+      options.truncated.value = true;
+      items.push(`[${value.length - options.maxItems} more item(s)]`);
+    }
+    return items;
+  }
+  const output: Record<string, unknown> = {};
+  const entries = Object.entries(value).slice(0, options.maxItems);
+  for (const [key, entry] of entries) {
+    output[key] = safeDebugEvalValue(entry, {
+      ...options,
+      depth: options.depth + 1,
+    });
+  }
+  const totalEntries = Object.keys(value).length;
+  if (totalEntries > options.maxItems) {
+    options.truncated.value = true;
+    output.__truncatedKeys = totalEntries - options.maxItems;
+  }
+  return output;
+}
+
+function enforceDebugEvalJsonLimit(
+  value: unknown,
+  maxChars: number,
+  truncated: { value: boolean },
+) {
+  const serialized = JSON.stringify(value);
+  if (!serialized || serialized.length <= maxChars) {
+    return value;
+  }
+  truncated.value = true;
+  return {
+    summary: truncateDebugString(serialized, maxChars, truncated),
+  };
+}
+
+function timeoutPromise(timeoutMs: number) {
+  return new Promise<never>((_resolve, reject) => {
+    setTimeout(
+      () =>
+        reject(new Error(`debug.zotero.eval timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+}
+
+async function debugZoteroEval(rawInput: unknown) {
+  const input = asObject(rawInput);
+  const code = String(input.code || "").trim();
+  if (!code) {
+    throw new Error("debug.zotero.eval requires non-empty code");
+  }
+  const timeoutMs = clampDebugInteger(
+    input.timeoutMs,
+    DEBUG_ZOTERO_EVAL_DEFAULT_TIMEOUT_MS,
+    1,
+    DEBUG_ZOTERO_EVAL_MAX_TIMEOUT_MS,
+  );
+  const maxDepth = clampDebugInteger(
+    input.maxDepth,
+    DEBUG_ZOTERO_EVAL_DEFAULT_MAX_DEPTH,
+    1,
+    DEBUG_ZOTERO_EVAL_MAX_DEPTH,
+  );
+  const maxItems = clampDebugInteger(
+    input.maxItems,
+    DEBUG_ZOTERO_EVAL_DEFAULT_MAX_ITEMS,
+    1,
+    DEBUG_ZOTERO_EVAL_MAX_ITEMS,
+  );
+  const maxChars = clampDebugInteger(
+    input.maxChars,
+    DEBUG_ZOTERO_EVAL_DEFAULT_MAX_CHARS,
+    100,
+    DEBUG_ZOTERO_EVAL_MAX_CHARS,
+  );
+  const startedAt =
+    typeof performance !== "undefined" && performance.now
+      ? performance.now()
+      : Date.now();
+  const evaluator = new Function(
+    "Zotero",
+    "window",
+    "globalThis",
+    "input",
+    `"use strict"; return (async () => {\n${code}\n})();`,
+  ) as (
+    zotero: unknown,
+    win: unknown,
+    global: typeof globalThis,
+    input: unknown,
+  ) => Promise<unknown>;
+  const result = await Promise.race([
+    evaluator(
+      (globalThis as { Zotero?: unknown }).Zotero,
+      (globalThis as { window?: unknown }).window,
+      globalThis,
+      input.input,
+    ),
+    timeoutPromise(timeoutMs),
+  ]);
+  const endedAt =
+    typeof performance !== "undefined" && performance.now
+      ? performance.now()
+      : Date.now();
+  const truncated = { value: false };
+  const safeResult = safeDebugEvalValue(result, {
+    depth: 0,
+    maxDepth,
+    maxItems,
+    maxStringChars: Math.min(DEBUG_ZOTERO_EVAL_STRING_LIMIT, maxChars),
+    seen: new WeakSet<object>(),
+    truncated,
+  });
+  return {
+    schema: DEBUG_ZOTERO_EVAL_SCHEMA,
+    debugMode: true,
+    generatedAt: new Date().toISOString(),
+    elapsedMs: Math.max(0, Math.round(endedAt - startedAt)),
+    result: enforceDebugEvalJsonLimit(safeResult, maxChars, truncated),
+    resultType: debugZoteroEvalResultType(result),
+    truncated: truncated.value,
+  };
+}
+
 function redactLocalPaths(value: unknown, includeLocalPaths: boolean): unknown {
   if (includeLocalPaths) {
     return value;
@@ -305,9 +558,10 @@ function synthesisCapability(
     "synthesis",
     summary,
     { type: "object", required: false },
-    async (input) => {
+    async (input, context) => {
       const service =
-        getDefaultSynthesisService() as unknown as SynthesisMcpService;
+        context.resolveSynthesisService?.() ||
+        (getDefaultSynthesisService() as unknown as SynthesisMcpService);
       const method = service?.[methodName];
       if (typeof method !== "function") {
         throw new Error(
@@ -498,6 +752,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     },
   ),
   debugCapability(
+    "debug.zotero.eval",
+    "Debug-only operation: execute approved JavaScript in the Zotero host context.",
+    (input) => debugZoteroEval(input),
+  ),
+  debugCapability(
     "debug.synthesis.snapshot",
     "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
     (input) => callSynthesisDebugService("debugSynthesisSnapshot", input),
@@ -554,6 +813,16 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getSchemas",
   ),
   synthesisCapability(
+    "synthesis.query_concept_kb",
+    "Return bounded read-only Concept KB and alias-index candidates for topic synthesis KG enrichment.",
+    "queryConceptKb",
+  ),
+  synthesisCapability(
+    "synthesis.query_citation_graph_cluster",
+    "Return bounded read-only topic-scoped citation graph cluster data for synthesis statistics.",
+    "queryCitationGraphCluster",
+  ),
+  synthesisCapability(
     "synthesis.get_library_index",
     "Return paginated compact Synthesis sidecar cache pages derived from Zotero library facts.",
     "getLibraryIndex",
@@ -569,11 +838,6 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getReferenceSidecarIndex",
   ),
   synthesisCapability(
-    "synthesis.query_citation_graph",
-    "Query the read-only Synthesis citation graph projection with bounded maintenance diagnostics.",
-    "queryCitationGraph",
-  ),
-  synthesisCapability(
     "synthesis.get_citation_graph_slice",
     "Return a bounded read-only citation graph slice with freshness diagnostics for selected paper references.",
     "getCitationGraphSlice",
@@ -587,11 +851,6 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "synthesis.get_paper_artifact_manifest",
     "Return available Synthesis paper artifact descriptors for selected paper references.",
     "getPaperArtifactManifest",
-  ),
-  synthesisCapability(
-    "synthesis.read_paper_artifacts",
-    "Read bounded Synthesis paper artifacts for selected paper references.",
-    "readPaperArtifacts",
   ),
   synthesisCapability(
     "synthesis.export_filtered_paper_artifacts",

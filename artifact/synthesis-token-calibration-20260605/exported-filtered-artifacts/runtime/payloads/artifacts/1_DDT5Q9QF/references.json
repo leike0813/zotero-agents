@@ -1,0 +1,370 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2019",
+      "authors": "Jens Behley; Martin Garbade; et al.",
+      "title": "SemanticKITTI: A dataset for semantic scene understanding of lidar sequences"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "Jens Behley; Andres Milioto; et al.",
+      "title": "A Benchmark for LiDAR-based Panoptic Segmentation based on KITTI"
+    },
+    {
+      "id": "ref-3",
+      "year": "2018",
+      "authors": "Maxim Berman; Amal Rannen Triki; et al.",
+      "title": "The Lovasz-Softmax loss: A tractable surrogate´ for the optimization of the intersection-over-union measure in neural networks"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Alexey Bochkovskiy; Chien-Yao Wang; et al.",
+      "title": "Yolov4: Optimal speed and accuracy of object detection"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Holger Caesar; Varun Bankiti; et al.",
+      "title": "nuscenes: A multimodal dataset for autonomous driving"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Yifeng Chen; Guangchen Lin; et al.",
+      "title": "Banet: Bidirectional aggregation network with occlusion handling for panoptic segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2020",
+      "authors": "Bowen Cheng; Maxwell D Collins; et al.",
+      "title": "Panoptic-deeplab: A simple, strong, and fast baseline for bottom-up panoptic segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2020",
+      "authors": "Tiago Cortinhal; George Tzelepis; et al.",
+      "title": "Salsanext: Fast, uncertainty-aware semantic segmentation of lidar point clouds for autonomous driving"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "Bert De Brabandere; Davy Neven; et al.",
+      "title": "Semantic instance segmentation with a discriminative loss function"
+    },
+    {
+      "id": "ref-10",
+      "year": "2019",
+      "authors": "Naiyu Gao; Yanhu Shan; et al.",
+      "title": "Ssap: Single-shot instance segmentation with affinity pyramid"
+    },
+    {
+      "id": "ref-11",
+      "year": "2020",
+      "authors": "Stefano Gasperini; Mohammad-Ali Nikouei Mahani; et al.",
+      "title": "Panoster: End-to-end panoptic segmentation of lidar point clouds"
+    },
+    {
+      "id": "ref-12",
+      "year": "2012",
+      "authors": "Andreas Geiger; Philip Lenz; et al.",
+      "title": "Are we ready for autonomous driving? The KITTI vision benchmark suite"
+    },
+    {
+      "id": "ref-13",
+      "year": "2020",
+      "authors": "Jakob Geyer; Yohannes Kassahun; et al.",
+      "title": "A2d2: Audi autonomous driving dataset"
+    },
+    {
+      "id": "ref-14",
+      "year": "2018",
+      "authors": "Golnaz Ghiasi; Tsung-Yi Lin; et al.",
+      "title": "Dropblock: A regularization method for convolutional networks"
+    },
+    {
+      "id": "ref-15",
+      "year": "2020",
+      "authors": "Martin Hahner; Dengxin Dai; et al.",
+      "title": "Quantifying data augmentation for lidar based 3d object detection"
+    },
+    {
+      "id": "ref-16",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Peiyun Hu; Jason Ziglar; et al.",
+      "title": "What you see is what you get: Exploiting visibility for 3d object detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2020",
+      "authors": "Qingyong Hu; Bo Yang; et al.",
+      "title": "RandLA-Net: Efficient semantic segmentation of large-scale point clouds"
+    },
+    {
+      "id": "ref-19",
+      "year": "2020",
+      "authors": "Juana Valeria Hurtado; Rohit Mohan; et al.",
+      "title": "Mopt: Multi-object panoptic tracking"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Kaiming He; et al.",
+      "title": "Panoptic segmentation"
+    },
+    {
+      "id": "ref-21",
+      "year": "2020",
+      "authors": "Deyvid Kochanov; Fatemeh Karimi Nejadasl; et al.",
+      "title": "Kprnet: Improving projection-based lidar semantic segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2019",
+      "authors": "Jean Lahoud; Bernard Ghanem; et al.",
+      "title": "3d instance segmentation via multi-task metric learning"
+    },
+    {
+      "id": "ref-23",
+      "year": "2019",
+      "authors": "Alex H Lang; Sourabh Vora; et al.",
+      "title": "PointPillars: Fast encoders for object detection from point clouds"
+    },
+    {
+      "id": "ref-24",
+      "year": "2019",
+      "authors": "Yanwei Li; Xinze Chen; et al.",
+      "title": "Attention-guided unified network for panoptic segmentation"
+    },
+    {
+      "id": "ref-25",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-26",
+      "year": "2019",
+      "authors": "Huanyu Liu; Chao Peng; et al.",
+      "title": "An end-to-end network for panoptic segmentation"
+    },
+    {
+      "id": "ref-27",
+      "year": "2020",
+      "authors": "Jinxian Liu; Minghui Yu; et al.",
+      "title": "Selfprediction for joint instance and semantic segmentation of point clouds"
+    },
+    {
+      "id": "ref-28",
+      "year": "2015",
+      "authors": "Jonathan Long; Evan Shelhamer; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Andres Milioto; Jens Behley; et al.",
+      "title": "Lidar panoptic segmentation for autonomous driving"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Andres Milioto and C Stachniss",
+      "title": "RangeNet++: Fast and accurate LiDAR semantic segmentation"
+    },
+    {
+      "id": "ref-31",
+      "year": "2020",
+      "authors": "Rohit Mohan and Abhinav Valada",
+      "title": "Efficientps: Efficient panoptic segmentation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2019",
+      "authors": "Pavlo Molchanov; Arun Mallya; et al.",
+      "title": "Importance estimation for neural network pruning"
+    },
+    {
+      "id": "ref-33",
+      "year": "",
+      "authors": "Quang-Hieu Pham; Thanh Nguyen; et al.",
+      "title": "joint semantic-instance"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "segmentation of 3d point clouds with multi-task pointwise networks and multi-value conditional random fields",
+      "title": "In CVPR, 2019"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Lorenzo Porzi; Samuel Rota Bulo; et al.",
+      "title": "Seamless scene segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Charles R Qi; Or Litany; et al.",
+      "title": "Deep hough voting for 3d object detection in point clouds"
+    },
+    {
+      "id": "ref-37",
+      "year": "2018",
+      "authors": "Charles R Qi; Wei Liu; et al.",
+      "title": "Frustum pointnets for 3d object detection from rgb-d data"
+    },
+    {
+      "id": "ref-38",
+      "year": "2017",
+      "authors": "Charles R Qi; Hao Su; et al.",
+      "title": "Pointnet: Deep learning on point sets for 3d classification and segmentation"
+    },
+    {
+      "id": "ref-39",
+      "year": "2017",
+      "authors": "Charles Ruizhongtai Qi; Li Yi; et al.",
+      "title": "Pointnet++: Deep hierarchical feature learning on point sets in a metric space"
+    },
+    {
+      "id": "ref-40",
+      "year": "2015",
+      "authors": "Olaf Ronneberger; Philipp Fischer; et al.",
+      "title": "U-net: Convolutional networks for biomedical image segmentation"
+    },
+    {
+      "id": "ref-41",
+      "year": "2020",
+      "authors": "Shaoshuai Shi; Chaoxu Guo; et al.",
+      "title": "Pv-rcnn: Pointvoxel feature set abstraction for 3d object detection"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Shaoshuai Shi; Xiaogang Wang; et al.",
+      "title": "Pointrcnn: 3d object progposal generation and detection from point cloud"
+    },
+    {
+      "id": "ref-43",
+      "year": "2020",
+      "authors": "Pei Sun; Henrik Kretzschmar; et al.",
+      "title": "Scalability in perception for autonomous driving: Waymo open dataset"
+    },
+    {
+      "id": "ref-44",
+      "year": "2020",
+      "authors": "Haotian Tang; Zhijian Liu; et al.",
+      "title": "Searching efficient 3d architectures with sparse point-voxel convolution"
+    },
+    {
+      "id": "ref-45",
+      "year": "2020",
+      "authors": "OpenPCDet Development Team",
+      "title": "Openpcdet: An opensource toolbox for 3d object detection from point clouds"
+    },
+    {
+      "id": "ref-46",
+      "year": "2019",
+      "authors": "Hugues Thomas; Charles R",
+      "title": "Qi, Jean-Emmanuel Deschaud, Beatriz Marcotegui, Franc¸ois Goulette, and Leonidas J"
+    },
+    {
+      "id": "ref-47",
+      "year": "2019",
+      "authors": "Xinlong Wang; Shu Liu; et al.",
+      "title": "Associatively segmenting instances and semantics in point clouds"
+    },
+    {
+      "id": "ref-48",
+      "year": "2019",
+      "authors": "Yan Wang; Wei-Lun Chao; et al.",
+      "title": "Pseudo-lidar from visual depth estimation: Bridging the gap in 3d object detection for autonomous driving"
+    },
+    {
+      "id": "ref-49",
+      "year": "2018",
+      "authors": "Bichen Wu; Alvin Wan; et al.",
+      "title": "Squeezeseg: Convolutional neural nets with recurrent crf for real-time road-object segmentation from 3d lidar point cloud"
+    },
+    {
+      "id": "ref-50",
+      "year": "2019",
+      "authors": "Bichen Wu; Xuanyu Zhou; et al.",
+      "title": "Squeezesegv2: Improved model structure and unsupervised domain adaptation for road-object segmentation from a lidar point cloud"
+    },
+    {
+      "id": "ref-51",
+      "year": "2020",
+      "authors": "Yangxin Wu; Gengwei Zhang; et al.",
+      "title": "Bidirectional graph reasoning network for panoptic segmentation"
+    },
+    {
+      "id": "ref-52",
+      "year": "2019",
+      "authors": "Yuwen Xiong; Renjie Liao; et al.",
+      "title": "Upsnet: A unified panoptic segmentation network"
+    },
+    {
+      "id": "ref-53",
+      "year": "2018",
+      "authors": "Yan Yan; Yuxing Mao; et al.",
+      "title": "Second: Sparsely embedded convolutional detection"
+    },
+    {
+      "id": "ref-54",
+      "year": "2018",
+      "authors": "Bin Yang; Wenjie Luo; et al.",
+      "title": "Pixor: Realtime 3d object detection from point clouds"
+    },
+    {
+      "id": "ref-55",
+      "year": "2019",
+      "authors": "Tien-Ju Yang; Maxwell D Collins; et al.",
+      "title": "Deeperlab: Single-shot image parser"
+    },
+    {
+      "id": "ref-56",
+      "year": "2020",
+      "authors": "Tianwei Yin; Xingyi Zhou; et al.",
+      "title": "Center- ¨ based 3d object detection and tracking"
+    },
+    {
+      "id": "ref-57",
+      "year": "2020",
+      "authors": "Yang Zhang; Zixiang Zhou; et al.",
+      "title": "Polarnet: An improved grid representation for online lidar point clouds semantic segmentation"
+    },
+    {
+      "id": "ref-58",
+      "year": "2020",
+      "authors": "Dingfu Zhou; Jin Fang; et al.",
+      "title": "Joint 3d instance segmentation and object detection for autonomous driving"
+    },
+    {
+      "id": "ref-59",
+      "year": "2020",
+      "authors": "Yin Zhou; Pei Sun; et al.",
+      "title": "End-to-end multi-view fusion for 3d object detection in lidar point clouds"
+    },
+    {
+      "id": "ref-60",
+      "year": "2018",
+      "authors": "Yin Zhou and Oncel Tuzel",
+      "title": "Voxelnet: End-to-end learning for point cloud based 3d object detection"
+    },
+    {
+      "id": "ref-61",
+      "year": "2019",
+      "authors": "Benjin Zhu; Zhengkai Jiang; et al.",
+      "title": "Class-balanced grouping and sampling for point cloud 3d object detection"
+    }
+  ]
+}

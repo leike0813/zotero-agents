@@ -1,0 +1,1322 @@
+{
+  "ok": true,
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.export_filtered_paper_artifacts",
+    "data": {
+      "artifact_statuses": [
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:29IBKEUR",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:29IBKEUR",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:29IBKEUR",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:2KUGMFL2",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:2KUGMFL2",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:2KUGMFL2",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:3YG8UNCI",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:3YG8UNCI",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:3YG8UNCI",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:4DB3YS8Y",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:4DB3YS8Y",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:4DB3YS8Y",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:4FUJYLNY",
+          "payload_type": "digest-markdown",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:4FUJYLNY",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:4FUJYLNY",
+          "payload_type": "citation-analysis-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:4IUAXCCZ",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:4IUAXCCZ",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:4IUAXCCZ",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:53A2WXX8",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:53A2WXX8",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:53A2WXX8",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:76BD6UYE",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:76BD6UYE",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:76BD6UYE",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:7AERRYC7",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:7AERRYC7",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:7AERRYC7",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:7T29H6SR",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:7T29H6SR",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:7T29H6SR",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8838AH6P",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8838AH6P",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8838AH6P",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8AXAW2GX",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8AXAW2GX",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8AXAW2GX",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8DP4884A",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8DP4884A",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8DP4884A",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8PP8HQMY",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8PP8HQMY",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8PP8HQMY",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8WM66ZL3",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8WM66ZL3",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8WM66ZL3",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:8YS3DEMI",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:8YS3DEMI",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:8YS3DEMI",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:9CBBDH3Y",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:9CBBDH3Y",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:9CBBDH3Y",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:ABTG2CFC",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:ABTG2CFC",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:ABTG2CFC",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:AHF2RU48",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:AHF2RU48",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:AHF2RU48",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:BBIY57N3",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:BBIY57N3",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:BBIY57N3",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:CBJWE4JX",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:CBJWE4JX",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:CBJWE4JX",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:CGJBFE6C",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:CGJBFE6C",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:CGJBFE6C",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:CHPBJDLU",
+          "payload_type": "digest-markdown",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:CHPBJDLU",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:CHPBJDLU",
+          "payload_type": "citation-analysis-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:D6BUKS9Q",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:D6BUKS9Q",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:D6BUKS9Q",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:DBYQ4LWE",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:DBYQ4LWE",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:DBYQ4LWE",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:DDT5Q9QF",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:DDT5Q9QF",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:DDT5Q9QF",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:GHWYS7AF",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:GHWYS7AF",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:GHWYS7AF",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:HDDAIKQQ",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:HDDAIKQQ",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:HDDAIKQQ",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:I4ZU2PCY",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:I4ZU2PCY",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:I4ZU2PCY",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:IY3FMWQM",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:IY3FMWQM",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:IY3FMWQM",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:J6DSFFBH",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:J6DSFFBH",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:J6DSFFBH",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:JMWG9XVD",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:JMWG9XVD",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:JMWG9XVD",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:KSM65VAD",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:KSM65VAD",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:KSM65VAD",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:M3AU5AC9",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:M3AU5AC9",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:M3AU5AC9",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:M5KCQ9G3",
+          "payload_type": "digest-markdown",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:M5KCQ9G3",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:M5KCQ9G3",
+          "payload_type": "citation-analysis-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:M68XPFA9",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:M68XPFA9",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:M68XPFA9",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:MERSIDHN",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:MERSIDHN",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:MERSIDHN",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:NXLIGKF5",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:NXLIGKF5",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:NXLIGKF5",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:P5NLH47E",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:P5NLH47E",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:P5NLH47E",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:RPRBE2QN",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:RPRBE2QN",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:RPRBE2QN",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:S86GB385",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:S86GB385",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:S86GB385",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:TWR6CC4I",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:TWR6CC4I",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:TWR6CC4I",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:USRNFHXP",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:USRNFHXP",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:USRNFHXP",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:UVI9ULI2",
+          "payload_type": "digest-markdown",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:UVI9ULI2",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:UVI9ULI2",
+          "payload_type": "citation-analysis-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:UW8ZLVA6",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:UW8ZLVA6",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:UW8ZLVA6",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:VHBU3NI6",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:VHBU3NI6",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:VHBU3NI6",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:VI9JURUB",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:VI9JURUB",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:VI9JURUB",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:VQ2WLIDR",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:VQ2WLIDR",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:VQ2WLIDR",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:W4CDLU28",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:W4CDLU28",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:W4CDLU28",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:XKJFVI8H",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "payload_not_found",
+          "paper_ref": "1:XKJFVI8H",
+          "payload_type": "references-json",
+          "status": "missing"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:XKJFVI8H",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "missing_reason": "",
+          "paper_ref": "1:Z25GLKZV",
+          "payload_type": "digest-markdown",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "missing_reason": "",
+          "paper_ref": "1:Z25GLKZV",
+          "payload_type": "references-json",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "missing_reason": "",
+          "paper_ref": "1:Z25GLKZV",
+          "payload_type": "citation-analysis-json",
+          "status": "available"
+        }
+      ],
+      "diagnostics": [
+        "1:29IBKEUR:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:2KUGMFL2:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:3JUY9GBQ:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:3YG8UNCI:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:4DB3YS8Y:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:4FUJYLNY:probe:notes=0:payloads=none",
+        "1:4FUJYLNY:digest-markdown:missing",
+        "1:4FUJYLNY:references-json:missing",
+        "1:4FUJYLNY:citation-analysis-json:missing",
+        "1:4IUAXCCZ:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:53A2WXX8:probe:notes=4:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:5HBHAWIV:probe:notes=5:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:76BD6UYE:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:7AERRYC7:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:7T29H6SR:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:8838AH6P:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:8AXAW2GX:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:8DP4884A:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:8PP8HQMY:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:8WM66ZL3:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:8YS3DEMI:probe:notes=6:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:9CBBDH3Y:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:ABTG2CFC:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:AHF2RU48:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:BBIY57N3:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:CBJWE4JX:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:CGJBFE6C:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:CHPBJDLU:probe:notes=0:payloads=none",
+        "1:CHPBJDLU:digest-markdown:missing",
+        "1:CHPBJDLU:references-json:missing",
+        "1:CHPBJDLU:citation-analysis-json:missing",
+        "1:D6BUKS9Q:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:DBYQ4LWE:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:DDT5Q9QF:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:EIMSDEU3:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:GHWYS7AF:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:HDDAIKQQ:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:I4ZU2PCY:probe:notes=8:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:IY3FMWQM:probe:notes=6:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json",
+        "1:IY3FMWQM:references-json:missing",
+        "1:J6DSFFBH:probe:notes=4:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:JMWG9XVD:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:KSM65VAD:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:M3AU5AC9:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:M5KCQ9G3:probe:notes=0:payloads=none",
+        "1:M5KCQ9G3:digest-markdown:missing",
+        "1:M5KCQ9G3:references-json:missing",
+        "1:M5KCQ9G3:citation-analysis-json:missing",
+        "1:M68XPFA9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:MERSIDHN:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:NXLIGKF5:probe:notes=6:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:P5NLH47E:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:RPRBE2QN:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:S86GB385:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:TWR6CC4I:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:USRNFHXP:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:UVI9ULI2:probe:notes=0:payloads=none",
+        "1:UVI9ULI2:digest-markdown:missing",
+        "1:UVI9ULI2:references-json:missing",
+        "1:UVI9ULI2:citation-analysis-json:missing",
+        "1:UW8ZLVA6:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:VHBU3NI6:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:VI9JURUB:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:VQ2WLIDR:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:W4CDLU28:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:XKJFVI8H:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json",
+        "1:XKJFVI8H:references-json:missing",
+        "1:Z25GLKZV:probe:notes=3:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json"
+      ],
+      "manifest_file": "runtime/payloads/paper-artifacts-manifest.json",
+      "paper_refs": [
+        "1:29IBKEUR",
+        "1:2KUGMFL2",
+        "1:3JUY9GBQ",
+        "1:3YG8UNCI",
+        "1:4DB3YS8Y",
+        "1:4FUJYLNY",
+        "1:4IUAXCCZ",
+        "1:53A2WXX8",
+        "1:5HBHAWIV",
+        "1:76BD6UYE",
+        "1:7AERRYC7",
+        "1:7T29H6SR",
+        "1:8838AH6P",
+        "1:8AXAW2GX",
+        "1:8DP4884A",
+        "1:8PP8HQMY",
+        "1:8WM66ZL3",
+        "1:8YS3DEMI",
+        "1:9CBBDH3Y",
+        "1:ABTG2CFC",
+        "1:AHF2RU48",
+        "1:BBIY57N3",
+        "1:CBJWE4JX",
+        "1:CGJBFE6C",
+        "1:CHPBJDLU",
+        "1:D6BUKS9Q",
+        "1:DBYQ4LWE",
+        "1:DDT5Q9QF",
+        "1:EIMSDEU3",
+        "1:GHWYS7AF",
+        "1:HDDAIKQQ",
+        "1:HPLZ65Z2",
+        "1:I4ZU2PCY",
+        "1:IY3FMWQM",
+        "1:J6DSFFBH",
+        "1:JMWG9XVD",
+        "1:KSM65VAD",
+        "1:M3AU5AC9",
+        "1:M5KCQ9G3",
+        "1:M68XPFA9",
+        "1:MERSIDHN",
+        "1:NXLIGKF5",
+        "1:P5NLH47E",
+        "1:RPRBE2QN",
+        "1:S86GB385",
+        "1:SZ3GNWT9",
+        "1:TWR6CC4I",
+        "1:USRNFHXP",
+        "1:UVI9ULI2",
+        "1:UW8ZLVA6",
+        "1:VHBU3NI6",
+        "1:VI9JURUB",
+        "1:VQ2WLIDR",
+        "1:W4CDLU28",
+        "1:XKJFVI8H",
+        "1:Z25GLKZV"
+      ]
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

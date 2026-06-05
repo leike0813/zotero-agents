@@ -35,43 +35,44 @@ STAGES = (
     "stage_0_runtime_setup",
     "stage_1_topic_context",
     "stage_2_resolver_and_workset",
-    "stage_3_graph_metrics",
-    "stage_4_evidence_collection",
-    "stage_5_paper_units",
+    "stage_5_paper_triage",
     "stage_6_cross_paper_map",
-    "stage_7_route_timeline",
-    "stage_8_core_sections",
-    "stage_9_kg_proposals",
-    "stage_10_external_statistics_report",
+    "stage_7_cross_paper_evidence",
+    "stage_8_core_synthesis",
+    "stage_9_kg_enrichment",
+    "stage_10_summary_coverage",
     "stage_11_render_and_validate",
     "stage_12_completed",
 )
 
-LEGACY_STAGE_ALIASES = {
+STAGE_STATE_ALIASES = {
     "stage_0_bootstrap": "stage_0_runtime_setup",
     "stage_1_topic_intent": "stage_1_topic_context",
     "stage_2_resolver": "stage_2_resolver_and_workset",
     "stage_3_paper_workset": "stage_2_resolver_and_workset",
-    "stage_4_per_paper_analysis": "stage_5_paper_units",
+    "stage_4_per_paper_analysis": "stage_5_paper_triage",
     "stage_5_cross_paper_synthesis": "stage_6_cross_paper_map",
     "stage_6_render_and_validate": "stage_11_render_and_validate",
     "stage_7_completed": "stage_12_completed",
-    "stage_9_external_statistics_report": "stage_10_external_statistics_report",
+    "stage_5_paper_units": "stage_5_paper_triage",
+    "stage_7_route_timeline": "stage_7_cross_paper_evidence",
+    "stage_8_core_sections": "stage_8_core_synthesis",
+    "stage_9_kg_proposals": "stage_9_kg_enrichment",
+    "stage_9_external_statistics_report": "stage_10_summary_coverage",
+    "stage_10_external_statistics_report": "stage_10_summary_coverage",
     "stage_10_render_and_validate": "stage_11_render_and_validate",
     "stage_11_completed": "stage_12_completed",
 }
 
-ACTION_ALIASES = {
-    "persist_paper_analysis": "persist_paper_unit",
-    "persist_paper_analyses": "persist_paper_units",
-}
+ACTION_ALIASES = {}
+CASCADE_METRICS_ACTION = "resolver_cascade_citation_graph_metrics"
+CASCADE_ARTIFACTS_ACTION = "resolver_cascade_artifact_manifest"
 
 REQUIRED_FULL_SECTIONS = (
     "topic",
     "summary",
     "positioning",
     "taxonomy",
-    "comparison_matrix",
     "claims",
     "timeline_events",
     "paper_evidence",
@@ -286,7 +287,7 @@ def get_meta(conn: sqlite3.Connection, key: str, default: object = None) -> obje
 
 
 def set_stage_state(conn: sqlite3.Connection, stage: str, state: str, *, error: str = "") -> None:
-    stage = LEGACY_STAGE_ALIASES.get(stage, stage)
+    stage = STAGE_STATE_ALIASES.get(stage, stage)
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
     if state not in STAGE_STATES:
@@ -321,7 +322,7 @@ def clear_failed_retryable(conn: sqlite3.Connection, stage: str) -> None:
 
 
 def stage_state(conn: sqlite3.Connection, stage: str) -> str:
-    stage = LEGACY_STAGE_ALIASES.get(stage, stage)
+    stage = STAGE_STATE_ALIASES.get(stage, stage)
     row = conn.execute("select state from stages where stage = ?", (stage,)).fetchone()
     return row["state"] if row else "pending"
 
@@ -331,9 +332,9 @@ def completed_stages(conn: sqlite3.Connection) -> set[str]:
         row["stage"]
         for row in conn.execute("select stage from stages where state = 'completed'")
     }
-    for legacy, canonical in LEGACY_STAGE_ALIASES.items():
+    for alias, canonical in STAGE_STATE_ALIASES.items():
         if canonical in completed:
-            completed.add(legacy)
+            completed.add(alias)
     return completed
 
 
@@ -389,16 +390,112 @@ def record_action_receipt(
     return {"action_id": action_id, "input_hash": input_hash}
 
 
+def _clean_string_list(value: object, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{label} must be an array")
+    result: list[str] = []
+    seen: set[str] = set()
+    for entry in value:
+        text = _clean_text(entry)
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _topic_definition_from_update_context(context: dict) -> dict:
+    topic_id = _clean_text(context.get("topic_id") or context.get("topicId"))
+    definition = context.get("topic_definition")
+    if not isinstance(definition, dict):
+        for key in ("topic", "current_topic"):
+            candidate = context.get(key)
+            if isinstance(candidate, dict):
+                definition = candidate
+                break
+    if not isinstance(definition, dict):
+        for key in ("current_artifact", "artifact"):
+            candidate = context.get(key)
+            if isinstance(candidate, dict) and isinstance(candidate.get("topic"), dict):
+                definition = candidate["topic"]
+                break
+    if not isinstance(definition, dict):
+        definition = {}
+    definition = dict(definition)
+    topic_id = topic_id or _clean_text(definition.get("id"))
+    if not topic_id:
+        raise ValueError("update topic context payload requires topic_context.topic_id")
+    title = (
+        _clean_text(definition.get("title"))
+        or _clean_text(context.get("title"))
+        or topic_id
+    )
+    definition["id"] = topic_id
+    definition["title"] = title
+    return definition
+
+
+def normalize_update_topic_context_payload(conn: sqlite3.Connection, payload: dict) -> dict:
+    allowed_keys = {"topic_context", "update_assessment", "diagnostics"}
+    unknown = sorted(set(payload) - allowed_keys)
+    if unknown:
+        raise ValueError(
+            "update topic context payload contains runtime-owned or unknown fields: "
+            + ", ".join(unknown)
+        )
+    context = payload.get("topic_context")
+    if not isinstance(context, dict):
+        raise ValueError("update topic context payload requires topic_context")
+    update_assessment = payload.get("update_assessment")
+    if update_assessment is None:
+        update_assessment = {}
+    if not isinstance(update_assessment, dict):
+        raise ValueError("update_assessment must be an object")
+    operation = _clean_text(get_meta(conn, "operation", "update_full")) or "update_full"
+    if operation not in {"update_full", "update_patch"}:
+        raise ValueError("update operation must be update_full or update_patch")
+    topic_definition = _topic_definition_from_update_context(context)
+    base_hashes = context.get("current_hashes")
+    read_section_hashes = context.get("section_hashes")
+    recommended_update = context.get("recommended_update")
+    if not isinstance(base_hashes, dict):
+        raise ValueError("topic_context.current_hashes must be an object")
+    if not isinstance(read_section_hashes, dict):
+        raise ValueError("topic_context.section_hashes must be an object")
+    if not isinstance(recommended_update, dict):
+        recommended_update = {}
+    changed_sections = _clean_string_list(
+        update_assessment.get("changed_sections"), "update_assessment.changed_sections"
+    )
+    normalized = {
+        "topic_id": topic_definition["id"],
+        "topic_definition": topic_definition,
+        "current_context": context,
+        "base_hashes": base_hashes,
+        "read_section_hashes": read_section_hashes,
+        "recommended_update": recommended_update,
+        "update_assessment": update_assessment,
+        "diagnostics": payload.get("diagnostics", []),
+    }
+    if changed_sections:
+        normalized["changed_sections"] = changed_sections
+    return normalized
+
+
 def persist_topic_intent(conn: sqlite3.Connection, payload: dict) -> dict:
+    agent_payload = dict(payload)
+    payload = normalize_update_topic_context_payload(conn, payload)
     topic_definition = payload.get("topic_definition")
     if not isinstance(topic_definition, dict):
         raise ValueError(
-            "persist_topic_intent payload must contain topic_definition; map any legacy intent object to topic_definition"
+            "persist_topic_intent payload must contain topic_definition"
         )
     if not str(topic_definition.get("id") or "").strip():
         raise ValueError("persist_topic_intent topic_definition.id is required")
     if not str(topic_definition.get("title") or "").strip():
         raise ValueError("persist_topic_intent topic_definition.title is required")
+    put_key_value(conn, "topic_intent", "agent_payload", agent_payload)
     put_key_value(conn, "topic_intent", "payload", payload)
     for key in (
         "topic_id",
@@ -407,6 +504,7 @@ def persist_topic_intent(conn: sqlite3.Connection, payload: dict) -> dict:
         "recommended_update",
         "base_hashes",
         "read_section_hashes",
+        "changed_sections",
         "language",
         "operation",
     ):
@@ -416,7 +514,11 @@ def persist_topic_intent(conn: sqlite3.Connection, payload: dict) -> dict:
             else:
                 put_key_value(conn, "topic_intent", key, payload[key])
     conn.commit()
-    return {"stored_keys": sorted(payload.keys())}
+    return {
+        "stored_keys": sorted(payload.keys()),
+        "topic_id": topic_definition["id"],
+        "topic_title": topic_definition["title"],
+    }
 
 
 def persist_resolver(conn: sqlite3.Connection, payload: dict) -> dict:
@@ -579,7 +681,7 @@ def missing_paper_artifact_bundle_receipt_refs(conn: sqlite3.Connection) -> list
     bundled = set(artifact_bundle_refs(conn))
     receipted = action_receipt_paper_refs(
         conn,
-        ("persist_filtered_artifact_manifest",),
+        (CASCADE_ARTIFACTS_ACTION,),
     )
     return [ref for ref in paper_refs(conn) if ref not in bundled or ref not in receipted]
 
@@ -588,7 +690,7 @@ def missing_citation_graph_metric_receipt_refs(conn: sqlite3.Connection) -> list
     metric_refs = set(citation_graph_metric_refs(conn))
     receipted = action_receipt_paper_refs(
         conn,
-        ("persist_citation_graph_metrics",),
+        (CASCADE_METRICS_ACTION,),
     )
     return [ref for ref in paper_refs(conn) if ref not in metric_refs or ref not in receipted]
 
@@ -597,7 +699,7 @@ def missing_paper_analysis_receipt_refs(conn: sqlite3.Connection) -> list[str]:
     analyzed = set(analyzed_paper_refs(conn))
     receipted = action_receipt_paper_refs(
         conn,
-        ("persist_paper_unit", "persist_paper_units"),
+        ("persist_paper_triage",),
     )
     return [ref for ref in paper_refs(conn) if ref not in analyzed or ref not in receipted]
 
@@ -627,16 +729,16 @@ def audit_runtime_integrity(
         elif seen_unfinished and state == "completed":
             errors.append(f"runtime_integrity_non_monotonic_stage_state: {stage}=completed")
 
-    legacy_actions = sorted(ACTION_ALIASES)
-    placeholders = ",".join("?" for _ in legacy_actions)
+    aliased_actions = sorted(ACTION_ALIASES)
+    placeholders = ",".join("?" for _ in aliased_actions)
     if placeholders:
         rows = conn.execute(
             f"select action_name from action_receipts where action_name in ({placeholders})",
-            tuple(legacy_actions),
+            tuple(aliased_actions),
         ).fetchall()
         if rows:
             found = sorted({row["action_name"] for row in rows})
-            errors.append("runtime_integrity_legacy_action_receipts: " + ", ".join(found))
+            errors.append("runtime_integrity_noncanonical_action_receipts: " + ", ".join(found))
 
     rows = conn.execute("select action_name, result_json from action_receipts").fetchall()
     for row in rows:
@@ -673,15 +775,19 @@ def audit_runtime_integrity(
     return errors
 
 
-def require_stage4_action_receipts_complete(conn: sqlite3.Connection) -> None:
+def require_resolver_cascade_receipts_complete(
+    conn: sqlite3.Connection,
+    *,
+    include_paper_analysis: bool = True,
+) -> None:
     missing_metrics = missing_citation_graph_metric_receipt_refs(conn)
     missing_bundles = missing_paper_artifact_bundle_receipt_refs(conn)
-    missing_analysis = missing_paper_analysis_receipt_refs(conn)
+    missing_analysis = missing_paper_analysis_receipt_refs(conn) if include_paper_analysis else []
     errors: list[str] = []
     if missing_metrics:
-        errors.append("missing_citation_graph_metrics_action_receipts: " + ", ".join(missing_metrics))
+        errors.append("missing_resolver_cascade_metrics_receipts: " + ", ".join(missing_metrics))
     if missing_bundles:
-        errors.append("missing_paper_artifact_bundle_action_receipts: " + ", ".join(missing_bundles))
+        errors.append("missing_resolver_cascade_artifact_receipts: " + ", ".join(missing_bundles))
     if missing_analysis:
         errors.append("missing_paper_analysis_action_receipts: " + ", ".join(missing_analysis))
     if errors:
@@ -849,14 +955,14 @@ def _compact_metric_row(row: dict, status: str, diagnostics: object) -> dict:
     return value
 
 
-def persist_citation_graph_metrics(conn: sqlite3.Connection, payload: dict) -> dict:
+def persist_resolver_cascade_metrics(conn: sqlite3.Connection, payload: dict) -> dict:
     result = _metrics_result_from_payload(payload)
     if not isinstance(result, dict):
         raise ValueError("citation graph metrics payload must contain a metrics result object")
     requested_refs = _metric_payload_paper_refs(payload, result)
     known_refs = set(paper_refs(conn))
     if not requested_refs:
-        raise ValueError("persist_citation_graph_metrics requires paper_refs for the requested batch")
+        raise ValueError("resolver cascade metrics receipt requires paper_refs for the requested batch")
     for paper_ref in requested_refs:
         if paper_ref not in known_refs:
             raise ValueError(f"paper_ref is not in paper_workset: {paper_ref}")
@@ -910,7 +1016,7 @@ def _load_payload_entry(run_root: str | Path, entry: dict) -> tuple[str, dict]:
     return paper_ref, entry
 
 
-def persist_filtered_artifact_manifest(
+def persist_resolver_cascade_artifact_manifest(
     conn: sqlite3.Connection,
     payload: dict,
     *,
@@ -928,7 +1034,7 @@ def persist_filtered_artifact_manifest(
             raise ValueError(f"citation_graph_metrics receipt is required before artifact manifest: {paper_ref}")
         normalized.append(_normalize_artifact_manifest_entry(paper_ref, payload))
     if not normalized:
-        raise ValueError("persist_filtered_artifact_manifest requires at least one paper")
+        raise ValueError("resolver cascade artifact manifest requires at least one paper")
     now = now_iso()
     for bundle in normalized:
         conn.execute(
@@ -968,8 +1074,8 @@ def persist_paper_analysis(
         raise ValueError(f"payload paper_ref {payload_ref!r} does not match --paper-ref {paper_ref!r}")
     value = dict(payload)
     value["paper_ref"] = paper_ref
-    inject_digest_locator_from_bundle(conn, paper_ref, value)
     validate_paper_analysis_against_bundle(conn, paper_ref, value)
+    inject_digest_locator_from_bundle(conn, paper_ref, value)
     conn.execute(
         "insert or replace into paper_analysis(paper_ref, analysis_json) values (?, ?)",
         (paper_ref, json.dumps(value, ensure_ascii=False, sort_keys=True)),
@@ -997,8 +1103,8 @@ def _normalized_paper_analysis(conn: sqlite3.Connection, paper_ref: str, payload
         raise ValueError(f"payload paper_ref {payload_ref!r} does not match paper_ref {paper_ref!r}")
     value = dict(payload)
     value["paper_ref"] = paper_ref
-    inject_digest_locator_from_bundle(conn, paper_ref, value)
     validate_paper_analysis_against_bundle(conn, paper_ref, value)
+    inject_digest_locator_from_bundle(conn, paper_ref, value)
     return value
 
 
@@ -1014,7 +1120,7 @@ def persist_paper_analyses(
         paper_ref, value = _load_payload_entry(run_root, entry)
         normalized.append((paper_ref, _normalized_paper_analysis(conn, paper_ref, value)))
     if not normalized:
-        raise ValueError("persist_paper_units requires payload object with non-empty analyses[]")
+        raise ValueError("persist_paper_triage requires payload object with non-empty analyses[]")
     for paper_ref, value in normalized:
         conn.execute(
             "insert or replace into paper_analysis(paper_ref, analysis_json) values (?, ?)",
@@ -1077,56 +1183,23 @@ def validate_paper_analysis_against_bundle(
     paper_ref: str,
     analysis: dict,
 ) -> None:
-    """Stage 4 gate: single-paper analysis cannot invent unavailable artifacts."""
+    """Stage 5 gate: paper triage stays compact and paper-local."""
 
-    validate_paper_unit_contract(paper_ref, analysis)
-    bundle = paper_artifact_bundle_value(conn, paper_ref)
-    digest = _artifact_for_type(bundle, "digest")
-    references = _artifact_for_type(bundle, "references")
-    citation = _artifact_for_type(bundle, "citation_analysis")
-
-    digest_available = digest.get("status") == "available"
-    if digest_available:
-        if analysis.get("evidence_available") is not True:
-            raise ValueError(f"paper_analysis.evidence_available must be true when digest is available: {paper_ref}")
-        locator = analysis.get("digest_locator")
-        if not isinstance(locator, dict):
-            raise ValueError(f"paper_analysis.digest_locator is required when digest is available: {paper_ref}")
-        if locator.get("payload_type") != "digest-markdown":
-            raise ValueError(f"paper_analysis.digest_locator.payload_type must be digest-markdown: {paper_ref}")
-        if str(locator.get("payload_hash") or "").strip() != str(digest.get("payload_hash") or "").strip():
-            raise ValueError(f"paper_analysis.digest_locator.payload_hash mismatch: {paper_ref}")
-        assert_valid_sha256_hash(
-            str(locator.get("payload_hash") or "").strip(),
-            f"paper_analysis.digest_locator.payload_hash for {paper_ref}",
-        )
-    else:
-        if analysis.get("digest_locator"):
-            raise ValueError(f"paper_analysis must not include digest_locator when digest is missing: {paper_ref}")
-        if analysis.get("evidence_available") is not False:
-            raise ValueError(f"paper_analysis.evidence_available must be false when digest is missing: {paper_ref}")
-        if _has_non_empty_list(analysis, "claim_support_candidates"):
-            raise ValueError(f"paper_analysis must not include claim_support_candidates when digest is missing: {paper_ref}")
-        if _has_non_empty_list(analysis, "timeline_candidates"):
-            raise ValueError(f"paper_analysis must not include timeline_candidates when digest is missing: {paper_ref}")
-
-    if references.get("status") != "available" and _has_non_empty_list(analysis, "external_references"):
-        raise ValueError(f"paper_analysis must not include external_references when references-json is missing: {paper_ref}")
-    if citation.get("status") != "available" and _has_non_empty_list(analysis, "citation_contexts"):
-        raise ValueError(f"paper_analysis must not include citation_contexts when citation-analysis-json is missing: {paper_ref}")
+    validate_paper_triage_contract(paper_ref, analysis)
+    paper_artifact_bundle_value(conn, paper_ref)
 
 
 def _require_object(value: dict, key: str, paper_ref: str) -> dict:
     entry = value.get(key)
     if not isinstance(entry, dict):
-        raise ValueError(f"paper_analysis.{key} must be an object for {paper_ref}")
+        raise ValueError(f"paper_triage.{key} must be an object for {paper_ref}")
     return entry
 
 
 def _require_array(value: dict, key: str, paper_ref: str) -> list:
     entry = value.get(key)
     if not isinstance(entry, list):
-        raise ValueError(f"paper_analysis.{key} must be an array for {paper_ref}")
+        raise ValueError(f"paper_triage.{key} must be an array for {paper_ref}")
     return entry
 
 
@@ -1158,57 +1231,30 @@ def _contains_foreign_paper_ref(value: object, paper_ref: str) -> str:
     return ""
 
 
-def validate_paper_unit_contract(paper_ref: str, analysis: dict) -> None:
-    if "payload_hash" in analysis:
-        raise ValueError(f"paper_analysis.payload_hash is runtime-managed; remove payload_hash for {paper_ref}")
-    bibliographic = _require_object(analysis, "bibliographic", paper_ref)
-    _require_non_empty_text(bibliographic, "title", "paper_analysis.bibliographic", paper_ref)
-    if not str(bibliographic.get("year") or "").strip():
-        raise ValueError(f"paper_analysis.bibliographic.year must be a value or 'unknown' for {paper_ref}")
-    if not isinstance(bibliographic.get("authors"), list):
-        raise ValueError(f"paper_analysis.bibliographic.authors must be an array for {paper_ref}")
+def validate_paper_triage_contract(paper_ref: str, analysis: dict) -> None:
+    allowed = {
+        "paper_ref",
+        "topic_relevance",
+        "paper_quality",
+        "core_digest",
+        "caveats",
+        "diagnostics",
+    }
+    unknown = sorted(set(analysis) - allowed)
+    if unknown:
+        raise ValueError(f"paper_triage contains unknown fields for {paper_ref}: {', '.join(unknown)}")
     relevance = _require_object(analysis, "topic_relevance", paper_ref)
     if str(relevance.get("level") or "").strip() not in {"core", "related", "peripheral", "excluded"}:
-        raise ValueError(f"paper_analysis.topic_relevance.level is invalid for {paper_ref}")
-    _require_non_empty_text(relevance, "reason", "paper_analysis.topic_relevance", paper_ref)
-    research = _require_object(analysis, "research_problem", paper_ref)
-    _require_non_empty_text(research, "text", "paper_analysis.research_problem", paper_ref)
-    if "scope" not in research:
-        raise ValueError(f"paper_analysis.research_problem.scope is required for {paper_ref}")
-    method = _require_object(analysis, "method_contribution", paper_ref)
-    for key in ("route", "mechanism", "claimed_advantage", "target_bottleneck"):
-        if key not in method:
-            raise ValueError(f"paper_analysis.method_contribution.{key} is required for {paper_ref}")
-    evaluation = _require_object(analysis, "evaluation_context", paper_ref)
-    for key in ("datasets", "metrics", "baselines"):
-        if not isinstance(evaluation.get(key), list):
-            raise ValueError(f"paper_analysis.evaluation_context.{key} must be an array for {paper_ref}")
-    if "setting" not in evaluation:
-        raise ValueError(f"paper_analysis.evaluation_context.setting is required for {paper_ref}")
-    graph_interpretation = _require_object(analysis, "graph_metrics_interpretation", paper_ref)
-    _require_non_empty_text(
-        graph_interpretation,
-        "synthesis_use",
-        "paper_analysis.graph_metrics_interpretation",
-        paper_ref,
-    )
-    for key in (
-        "findings",
-        "limitations",
-        "taxonomy_hints",
-        "timeline_candidates",
-        "claim_support_candidates",
-        "comparison_facts",
-        "external_references",
-        "citation_contexts",
-        "missing_payloads",
-    ):
-        _require_array(analysis, key, paper_ref)
-    foreign_ref = _contains_foreign_paper_ref(analysis.get("comparison_facts", []), paper_ref)
-    if foreign_ref:
-        raise ValueError(
-            f"paper_analysis.comparison_facts must stay paper-local for {paper_ref}; found foreign paper_ref {foreign_ref}"
-        )
+        raise ValueError(f"paper_triage.topic_relevance.level is invalid for {paper_ref}")
+    _require_non_empty_text(relevance, "reason", "paper_triage.topic_relevance", paper_ref)
+    quality = _require_object(analysis, "paper_quality", paper_ref)
+    if str(quality.get("level") or "").strip() not in {"high", "medium", "low", "unknown"}:
+        raise ValueError(f"paper_triage.paper_quality.level is invalid for {paper_ref}")
+    _require_non_empty_text(quality, "reason", "paper_triage.paper_quality", paper_ref)
+    _require_non_empty_text(analysis, "core_digest", "paper_triage", paper_ref)
+    for key in ("caveats", "diagnostics"):
+        if key in analysis:
+            _require_array(analysis, key, paper_ref)
 
 
 def inject_digest_locator_from_bundle(
@@ -1220,7 +1266,7 @@ def inject_digest_locator_from_bundle(
     digest = _artifact_for_type(bundle, "digest")
     if analysis.get("digest_locator"):
         raise ValueError(
-            f"paper_analysis.digest_locator is runtime-managed; remove digest_locator from agent input for {paper_ref}"
+            f"paper_triage.digest_locator is runtime-managed for {paper_ref}"
         )
     if digest.get("status") != "available":
         return
@@ -1259,17 +1305,15 @@ def _compact_evidence_summary(value: object) -> str:
 
 def _paper_evidence_summary(analysis: dict, paper_ref: str) -> str:
     for key in (
+        "core_digest",
         "evidence_summary",
         "findings",
         "summary",
-        "research_problem",
-        "method_contribution",
-        "claim_support_candidates",
     ):
         summary = _compact_evidence_summary(analysis.get(key))
         if summary:
             return summary[:1200]
-    return f"Runtime-derived evidence entry for {paper_ref}; see validated paper_unit for detailed analysis."
+    return f"Runtime-derived evidence entry for {paper_ref}; see validated paper triage for detailed analysis."
 
 
 def derive_paper_evidence_section(conn: sqlite3.Connection) -> list[dict]:
@@ -1315,9 +1359,9 @@ def evidence_id_for_paper_ref(paper_ref: str) -> str:
     return f"pe:{safe or 'unknown'}"
 
 
-def paper_unit_id_for_paper_ref(paper_ref: str) -> str:
+def triage_candidate_id_for_paper_ref(paper_ref: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9]+", "_", str(paper_ref or "").strip()).strip("_").lower()
-    return f"pu:{safe or 'unknown'}"
+    return f"triage:{safe or 'unknown'}"
 
 
 def strip_runtime_managed_fields(value: object) -> object:
@@ -1339,13 +1383,13 @@ def write_cross_paper_evidence_index(
     root = Path(run_root)
     analyses = paper_analysis_values(conn)
     bundles_by_ref = {bundle.get("paper_ref"): bundle for bundle in paper_artifact_bundle_values(conn)}
-    units = []
+    triage_rows = []
     for analysis in analyses:
         paper_ref = str(analysis.get("paper_ref") or "").strip()
         bundle = bundles_by_ref.get(paper_ref, {"artifacts": []})
         artifacts = _artifact_map(bundle)
-        units.append({
-            "id": paper_unit_id_for_paper_ref(paper_ref),
+        triage_rows.append({
+            "id": triage_candidate_id_for_paper_ref(paper_ref),
             "paper_ref": paper_ref,
             "artifact_status": {
                 "digest": artifacts.get("digest", {}).get("status", "missing"),
@@ -1358,8 +1402,8 @@ def write_cross_paper_evidence_index(
         "schema_id": "synthesis.cross_paper_evidence_index",
         "schema_version": "1.0.0",
         "paper_count": len(paper_refs(conn)),
-        "paper_unit_count": len(units),
-        "paper_units": units,
+        "paper_triage_count": len(triage_rows),
+        "paper_triage_rows": triage_rows,
         "diagnostics": {
             "missing_paper_refs": missing_paper_analysis_refs(conn),
         },
@@ -1375,10 +1419,29 @@ def write_cross_paper_evidence_index(
         hash_value=hash_value,
         content_type="json",
         schema_id="synthesis.cross_paper_evidence_index",
-        stage="stage_5_paper_units",
+        stage="stage_5_paper_triage",
         validated=True,
     )
-    return {"path": relative_path, "hash": hash_value, "paper_unit_count": len(units)}
+    source_index_path = "runtime/views/source-paper-evidence-index.json"
+    source_index_target = root / source_index_path
+    source_index_target.write_text(pretty_json(index), encoding="utf-8")
+    source_index_hash = sha256_file(source_index_target)
+    register_artifact(
+        conn,
+        path=source_index_path,
+        hash_value=source_index_hash,
+        content_type="json",
+        schema_id="synthesis.source_paper_evidence_index",
+        stage="stage_5_paper_triage",
+        validated=True,
+    )
+    return {
+        "path": relative_path,
+        "hash": hash_value,
+        "source_paper_evidence_index_path": source_index_path,
+        "source_paper_evidence_index_hash": source_index_hash,
+        "paper_triage_count": len(triage_rows),
+    }
 
 
 def _timeline_events_rows(sections: dict) -> list:
@@ -1461,6 +1524,256 @@ def inject_paper_evidence_ids_and_refs(sections: dict) -> dict:
     return value
 
 
+def derive_timeline_markers(sections: dict) -> dict:
+    value = dict(sections)
+    timeline = value.get("timeline_events")
+    if not isinstance(timeline, dict):
+        return value
+    events = timeline.get("events")
+    if not isinstance(events, list):
+        return value
+    paper_evidence = value.get("paper_evidence")
+    evidence_rows = paper_evidence if isinstance(paper_evidence, list) else []
+    evidence_by_ref: dict[str, dict] = {}
+    for entry in evidence_rows:
+        if not isinstance(entry, dict):
+            continue
+        evidence_id = _clean_text(entry.get("id"))
+        paper_ref = _clean_text(entry.get("paper_ref"))
+        if evidence_id:
+            evidence_by_ref[evidence_id] = entry
+        if paper_ref:
+            evidence_by_ref[paper_ref] = entry
+
+    markers: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            continue
+        event_id = _clean_text(event.get("id")) or f"event:{index + 1}"
+        refs: list[str] = []
+        for key in ("source_paper_refs", "paper_refs", "evidence_refs", "paper_evidence_refs"):
+            row_refs = event.get(key)
+            if isinstance(row_refs, list):
+                refs.extend(_clean_text(ref) for ref in row_refs if _clean_text(ref))
+        for ref in refs:
+            evidence = evidence_by_ref.get(ref)
+            evidence_id = _clean_text(evidence.get("id")) if isinstance(evidence, dict) else ref
+            if not evidence_id:
+                continue
+            marker_key = (evidence_id, event_id)
+            if marker_key in seen:
+                continue
+            seen.add(marker_key)
+            year = _clean_text(event.get("year"))
+            if not year and isinstance(evidence, dict):
+                year = _clean_text(evidence.get("year"))
+            marker = {
+                "id": f"tm:{len(markers) + 1}",
+                "kind": "milestone",
+                "event_id": event_id,
+                "paper_evidence_id": evidence_id,
+                "label": (_clean_text(event.get("label") or event.get("title") or event_id))[:80],
+            }
+            if year:
+                marker["year"] = year
+            markers.append(marker)
+
+    next_timeline = dict(timeline)
+    next_timeline["markers"] = markers
+    value["timeline_events"] = next_timeline
+    return value
+
+
+def derive_semantic_evidence_map(sections: dict) -> dict:
+    value = dict(sections)
+    if isinstance(value.get("semantic_evidence_map"), dict):
+        return value
+    rows: list[dict] = []
+
+    def collect(section_name: str, entry: object) -> None:
+        if isinstance(entry, dict):
+            entry_id = _clean_text(
+                entry.get("id")
+                or entry.get("label")
+                or entry.get("title")
+                or entry.get("text")
+                or section_name
+            )
+            refs: list[str] = []
+            for key in ("source_paper_refs", "paper_refs", "evidence_refs", "paper_evidence_refs"):
+                raw_refs = entry.get(key)
+                if isinstance(raw_refs, list):
+                    refs.extend(_clean_text(ref) for ref in raw_refs if _clean_text(ref))
+            if refs:
+                evidence_refs = [
+                    ref if ref.startswith("pe:") or ref.startswith("paper:") else evidence_id_for_paper_ref(ref)
+                    for ref in refs
+                ]
+                rows.append(
+                    {
+                        "section": section_name,
+                        "entry_id": entry_id,
+                        "source_paper_refs": sorted(set(refs)),
+                        "evidence_refs": sorted(set(evidence_refs)),
+                    }
+                )
+            for child in entry.values():
+                collect(section_name, child)
+        elif isinstance(entry, list):
+            for child in entry:
+                collect(section_name, child)
+
+    for section_name in (
+        "taxonomy",
+        "timeline_events",
+        "claims",
+        "improvement_dimensions",
+        "debates",
+        "gaps",
+        "review_outline",
+    ):
+        collect(section_name, value.get(section_name))
+    value["semantic_evidence_map"] = {
+        "schema_id": "synthesis.semantic_evidence_map",
+        "schema_version": "1.0.0",
+        "entries": rows,
+        "entry_count": len(rows),
+    }
+    return value
+
+
+def derive_runtime_statistics_section(conn: sqlite3.Connection, sections: dict) -> dict:
+    metrics = citation_graph_metric_values(conn)
+    paper_refs_value = paper_refs(conn)
+    status_counts: dict[str, int] = {}
+    role_counts: dict[str, int] = {}
+    external_reference_count = 0
+    unresolved_reference_count = 0
+    for metric in metrics:
+        if not isinstance(metric, dict):
+            continue
+        status = _clean_text(metric.get("status")) or "missing"
+        status_counts[status] = status_counts.get(status, 0) + 1
+        for role in _metric_role_hints(metric):
+            role_counts[role] = role_counts.get(role, 0) + 1
+        try:
+            external_reference_count += int(metric.get("external_reference_count") or 0)
+            unresolved_reference_count += int(metric.get("unresolved_reference_count") or 0)
+        except Exception:
+            pass
+    years: list[int] = []
+    paper_evidence = sections.get("paper_evidence")
+    for entry in paper_evidence if isinstance(paper_evidence, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            year = int(entry.get("year"))
+            if year > 0:
+                years.append(year)
+        except Exception:
+            continue
+    taxonomy = sections.get("taxonomy")
+    route_count = 0
+    if isinstance(taxonomy, dict) and isinstance(taxonomy.get("nodes"), list):
+        route_count = len(taxonomy.get("nodes") or [])
+    graph_status = "ready" if status_counts.get("ready") else "missing_or_stale"
+    caveats = []
+    if status_counts.get("missing") or status_counts.get("missing_or_stale"):
+        caveats.append("Some citation graph metrics are missing or stale.")
+    if unresolved_reference_count:
+        caveats.append("Some citation graph references were unresolved.")
+    selection = runtime_paper_context_selection(conn)
+    external = sections.get("external_literature_analysis")
+    suggested_additions = external.get("suggested_additions") if isinstance(external, dict) else []
+    return {
+        "schema_id": "synthesis.runtime_statistics",
+        "schema_version": "1.0.0",
+        "paper_count": len(paper_refs_value),
+        "evidence_paper_count": len(paper_evidence) if isinstance(paper_evidence, list) else 0,
+        "time_span": {
+            "start_year": min(years) if years else "unknown",
+            "end_year": max(years) if years else "unknown",
+        },
+        "route_count": route_count,
+        "route_coverage": _first_text(sections.get("coverage", {}), ("route_coverage_summary", "summary")) or "Runtime-derived route coverage is based on validated taxonomy nodes.",
+        "coverage_verdict": _first_text(sections.get("coverage", {}), ("coverage_verdict",)) or "unknown",
+        "external_reference_count": external_reference_count,
+        "suggested_addition_count": len(suggested_additions) if isinstance(suggested_additions, list) else 0,
+        "unresolved_reference_count": unresolved_reference_count,
+        "citation_graph_role_counts": role_counts,
+        "graph_statistics": {
+            "status_counts": status_counts,
+            "graph_status": graph_status,
+            "selected_core_refs": selection.get("selected_core_refs", []),
+            "selected_external_refs": selection.get("selected_external_refs", []),
+        },
+        "graph_caveats": caveats,
+    }
+
+
+def _section_summary_text(value: object, *keys: str) -> str:
+    if isinstance(value, dict):
+        for key in keys:
+            entry = value.get(key)
+            if isinstance(entry, dict):
+                text = _first_text(entry, ("text", "analysis", "overview", "summary"))
+                if text:
+                    return text
+            if isinstance(entry, str) and entry.strip():
+                return entry.strip()
+    return ""
+
+
+def render_runtime_synthesis_report(sections: dict, *, language: str) -> dict:
+    topic = sections.get("topic") if isinstance(sections.get("topic"), dict) else {}
+    title = _first_text(topic, ("title", "label", "id")) or "Topic Synthesis"
+    definition = _first_text(topic, ("definition", "scope", "description"))
+    taxonomy_text = _section_summary_text(sections.get("taxonomy"), "summary")
+    timeline_text = _section_summary_text(sections.get("timeline_events"), "summary")
+    summary_text = _section_summary_text(sections.get("summary"), "overview", "brief", "text")
+    coverage = sections.get("coverage") if isinstance(sections.get("coverage"), dict) else {}
+    coverage_text = _first_text(
+        coverage,
+        ("route_coverage_summary", "claim_coverage_summary", "timeline_coverage_summary", "coverage_reason"),
+    )
+    external = sections.get("external_literature_analysis") if isinstance(sections.get("external_literature_analysis"), dict) else {}
+    external_text = _first_text(external, ("summary", "coverage_reason", "contribution_to_topic"))
+    claims = sections.get("claims") if isinstance(sections.get("claims"), list) else []
+    dimensions = sections.get("improvement_dimensions") if isinstance(sections.get("improvement_dimensions"), list) else []
+    debates = sections.get("debates") if isinstance(sections.get("debates"), list) else []
+    gaps = sections.get("gaps") if isinstance(sections.get("gaps"), list) else []
+    statistics = sections.get("statistics") if isinstance(sections.get("statistics"), dict) else {}
+    body = "\n\n".join([
+        f"{title} is synthesized as a structured research topic. {definition or summary_text or 'The topic definition is taken from the validated topic section.'} The runtime report is rendered from validated JSON sections rather than agent-authored prose, so the persisted artifact keeps a stable relationship between the report and its source sections.",
+        f"Research routes are grounded in taxonomy.summary: {taxonomy_text or 'the validated taxonomy section defines the route map and route boundaries.'} Historical progression is grounded in timeline_events.summary: {timeline_text or 'the validated timeline section defines milestones and progression logic.'}",
+        f"Core findings are represented by {len(claims)} validated claims and {len(dimensions)} improvement dimensions, with {len(debates)} debates and {len(gaps)} gaps. These sections preserve paper evidence references and semantic evidence-map entries, allowing the UI and downstream writing workflows to trace each synthesis point back to library papers.",
+        f"Coverage and external-literature interpretation are runtime-bound to validated sections. {coverage_text or 'Coverage caveats are recorded in the coverage section.'} {external_text or 'External literature guidance is recorded in external_literature_analysis.'} Runtime statistics report {statistics.get('paper_count', 0)} papers, graph status counts {json.dumps(statistics.get('graph_statistics', {}).get('status_counts', {}), ensure_ascii=False, sort_keys=True)}, and graph caveats {json.dumps(statistics.get('graph_caveats', []), ensure_ascii=False)}.",
+    ])
+    return {
+        "title": title,
+        "language": language,
+        "source_section_chapters": {
+            "research_routes": "taxonomy.summary",
+            "historical_progression": "timeline_events.summary",
+        },
+        "template_id": "runtime-fixed-topic-synthesis-report-v1",
+        "body": body,
+    }
+
+
+def materialize_runtime_owned_final_sections(
+    conn: sqlite3.Connection,
+    sections: dict,
+    *,
+    language: str,
+) -> dict:
+    value = dict(sections)
+    value["statistics"] = derive_runtime_statistics_section(conn, value)
+    value["synthesis_report"] = render_runtime_synthesis_report(value, language=language)
+    return value
+
+
 def inject_paper_evidence_digest_refs(conn: sqlite3.Connection, paper_evidence: object) -> object:
     if not isinstance(paper_evidence, list):
         return paper_evidence
@@ -1494,6 +1807,8 @@ def inject_section_digest_refs(conn: sqlite3.Connection, sections: dict) -> dict
     value = inject_paper_evidence_ids_and_refs(sections)
     if "paper_evidence" in value:
         value["paper_evidence"] = inject_paper_evidence_digest_refs(conn, value["paper_evidence"])
+    value = derive_timeline_markers(value)
+    value = derive_semantic_evidence_map(value)
     return value
 
 
@@ -1558,7 +1873,7 @@ def _validate_unit_refs(
             raise ValueError(f"cross_paper_evidence_map.{label}.{row_id}.{key} must not be empty")
         for ref in cleaned:
             if ref not in known_units:
-                raise ValueError(f"cross_paper_evidence_map.{label}.{row_id} references unknown paper unit {ref}")
+                raise ValueError(f"cross_paper_evidence_map.{label}.{row_id} references unknown triage ref {ref}")
 
 
 def validate_cross_paper_evidence_map(
@@ -1571,7 +1886,7 @@ def validate_cross_paper_evidence_map(
         "schema_version",
         "evidence_limits",
         "taxonomy_candidates",
-        "comparison_dimensions",
+        "improvement_dimension_candidates",
         "claim_candidates",
         "debate_candidates",
         "gap_candidates",
@@ -1581,26 +1896,26 @@ def validate_cross_paper_evidence_map(
     for key in required:
         if key not in evidence_map:
             raise ValueError(f"cross_paper_evidence_map.{key} is required")
-    known_units = {paper_unit_id_for_paper_ref(ref) for ref in paper_refs(conn)}
+    known_units = {triage_candidate_id_for_paper_ref(ref) for ref in paper_refs(conn)}
     _validate_unit_refs(
         evidence_map.get("taxonomy_candidates"),
-        key="paper_unit_refs",
+        key="triage_refs",
         known_units=known_units,
         label="taxonomy_candidates",
         require_non_empty=True,
     )
     _validate_unit_refs(
         evidence_map.get("claim_candidates"),
-        key="supporting_paper_unit_refs",
+        key="supporting_triage_refs",
         known_units=known_units,
         label="claim_candidates",
         require_non_empty=True,
     )
     _validate_unit_refs(
-        evidence_map.get("comparison_dimensions"),
+        evidence_map.get("improvement_dimension_candidates"),
         key="coverage_refs",
         known_units=known_units,
-        label="comparison_dimensions",
+        label="improvement_dimension_candidates",
         require_non_empty=False,
     )
     debates = evidence_map.get("debate_candidates")
@@ -1623,7 +1938,7 @@ def validate_cross_paper_evidence_map(
     for key in (
         "taxonomy_candidates",
         "claim_candidates",
-        "comparison_dimensions",
+        "improvement_dimension_candidates",
         "debate_candidates",
         "gap_candidates",
         "review_outline_seeds",
@@ -1637,7 +1952,7 @@ def validate_cross_paper_evidence_map(
             key: len(evidence_map.get(key, [])) if isinstance(evidence_map.get(key), list) else 0
             for key in (
                 "taxonomy_candidates",
-                "comparison_dimensions",
+                "improvement_dimension_candidates",
                 "claim_candidates",
                 "debate_candidates",
                 "gap_candidates",
@@ -1685,7 +2000,7 @@ def derive_cross_paper_evidence_map(
     *,
     run_root: str | Path = ".",
 ) -> dict:
-    """Derive a minimal provenance map from validated paper units.
+    """Derive a minimal provenance map from validated paper triage rows.
 
     The derived map keeps the final artifact's evidence-map audit contract while
     removing the need for agents to invent cross-step candidate ids.
@@ -1696,20 +2011,21 @@ def derive_cross_paper_evidence_map(
         "schema_id": "synthesis.cross_paper_evidence_map",
         "schema_version": "1.0.0",
         "evidence_limits": {
-            "known_paper_unit_refs": [paper_unit_id_for_paper_ref(ref) for ref in refs],
-            "caveat": "Runtime-derived provenance map from validated paper units.",
+            "known_triage_refs": [triage_candidate_id_for_paper_ref(ref) for ref in refs],
+            "caveat": "Runtime-derived provenance map from validated paper triage rows.",
         },
         "taxonomy_candidates": [
             {
-                "id": paper_unit_id_for_paper_ref(ref),
+                "id": triage_candidate_id_for_paper_ref(ref),
                 "label": ref,
-                "paper_unit_refs": [paper_unit_id_for_paper_ref(ref)],
+                "triage_refs": [triage_candidate_id_for_paper_ref(ref)],
                 "analysis": "Runtime-derived source-paper provenance candidate.",
                 "downstream_use": [
                     "taxonomy",
                     "timeline_events",
                     "claims",
-                    "comparison_matrix",
+                    "improvement_dimension_summary",
+                    "improvement_dimensions",
                     "debates",
                     "gaps",
                     "review_outline",
@@ -1717,22 +2033,22 @@ def derive_cross_paper_evidence_map(
             }
             for ref in refs
         ],
-        "comparison_dimensions": [
+        "improvement_dimension_candidates": [
             {
-                "id": paper_unit_id_for_paper_ref(ref),
+                "id": triage_candidate_id_for_paper_ref(ref),
                 "label": ref,
-                "coverage_refs": [paper_unit_id_for_paper_ref(ref)],
+                "coverage_refs": [triage_candidate_id_for_paper_ref(ref)],
                 "rationale": "Runtime-derived source-paper coverage candidate.",
             }
             for ref in refs
         ],
         "claim_candidates": [
             {
-                "id": paper_unit_id_for_paper_ref(ref),
-                "supporting_paper_unit_refs": [paper_unit_id_for_paper_ref(ref)],
+                "id": triage_candidate_id_for_paper_ref(ref),
+                "supporting_triage_refs": [triage_candidate_id_for_paper_ref(ref)],
                 "claim": "Runtime-derived source-paper support candidate.",
                 "scope": "Provenance only; semantic claim text is authored in final sections.",
-                "limitations": "Derived candidate does not add semantic evidence beyond the paper unit.",
+                "limitations": "Derived candidate does not add semantic evidence beyond the paper triage row.",
             }
             for ref in refs
         ],
@@ -2022,11 +2338,11 @@ def _report_dimension_errors(sections: dict) -> list[str]:
     if not isinstance(claims, list) or not claims:
         errors.append("core findings")
 
-    comparison = sections.get("comparison_matrix", {})
+    improvement_dimensions = sections.get("improvement_dimensions", [])
+    improvement_rows = improvement_dimensions if isinstance(improvement_dimensions, list) else []
     debates = sections.get("debates", [])
-    comparison_rows = comparison.get("rows") if isinstance(comparison, dict) else None
-    if not ((isinstance(comparison_rows, list) and comparison_rows) or (isinstance(debates, list) and debates)):
-        errors.append("comparison/debates")
+    if not (improvement_rows or (isinstance(debates, list) and debates)):
+        errors.append("improvement dimensions/debates")
 
     coverage = sections.get("coverage", {})
     if not isinstance(coverage, dict) or not (
@@ -2178,6 +2494,12 @@ def validate_topic_section_contract(
         missing = [name for name in REQUIRED_FULL_SECTIONS if name not in sections]
         if missing:
             raise ValueError("missing_required_sections: " + ", ".join(missing))
+        has_improvement_dimensions = (
+            isinstance(sections.get("improvement_dimensions"), list)
+            and bool(sections.get("improvement_dimensions"))
+        )
+        if not has_improvement_dimensions:
+            raise ValueError("missing_required_sections: improvement_dimensions")
         if not _evidence_map_candidate_ids(conn):
             raise ValueError("cross_paper_evidence_map must be validated before final sections")
         _validate_content_depth(sections)
@@ -2255,7 +2577,8 @@ def validate_topic_section_contract(
         _validate_evidence_map_refs("claims", sections.get("claims", []), final_candidates)
         _validate_evidence_map_refs("timeline_events", _timeline_events_rows(sections), final_candidates)
         _validate_nested_evidence_map_refs("taxonomy", sections.get("taxonomy", {}), final_candidates)
-        _validate_nested_evidence_map_refs("comparison_matrix", sections.get("comparison_matrix", {}), final_candidates)
+        if isinstance(sections.get("improvement_dimensions"), list):
+            _validate_evidence_map_refs("improvement_dimensions", sections.get("improvement_dimensions", []), final_candidates)
         _validate_evidence_map_refs("debates", sections.get("debates", []), final_candidates)
         _validate_evidence_map_refs("gaps", sections.get("gaps", []), final_candidates)
         _validate_nested_evidence_map_refs("review_outline", sections.get("review_outline", {}), final_candidates)
@@ -2403,23 +2726,12 @@ def _citation_report_md(run_root: str | Path, artifact: dict) -> str:
 
 def _analysis_markdown(analysis: dict) -> str:
     lines = [
-        "### Per-Paper Analysis",
+        "### Paper Triage",
         f"- Topic relevance: {_clean_text(analysis.get('topic_relevance')) or 'unknown'}",
-        f"- Method contribution: {_clean_text(analysis.get('method_contribution')) or 'unknown'}",
-        f"- Evidence available: {str(bool(analysis.get('evidence_available'))).lower()}",
+        f"- Paper quality: {_clean_text(analysis.get('paper_quality')) or 'unknown'}",
+        f"- Core digest: {_clean_text(analysis.get('core_digest')) or 'unknown'}",
     ]
-    graph_interpretation = analysis.get("graph_metrics_interpretation")
-    if isinstance(graph_interpretation, dict):
-        synthesis_use = _clean_text(graph_interpretation.get("synthesis_use"))
-        caveat = _clean_text(graph_interpretation.get("caveat"))
-        if synthesis_use:
-            lines.append(f"- Graph metrics use: {synthesis_use}")
-        if caveat:
-            lines.append(f"- Graph metrics caveat: {caveat}")
-    for label, key in (
-        ("Findings", "findings"),
-        ("Limitations", "limitations"),
-    ):
+    for label, key in (("Caveats", "caveats"), ("Diagnostics", "diagnostics")):
         value = _clean_text(analysis.get(key))
         if value:
             lines.append(f"- {label}: {value}")
@@ -2430,6 +2742,149 @@ def _paper_heading(paper_ref: str, title: str, year: str) -> str:
     suffix = f" — {title}" if title else ""
     year_part = f" ({year})" if year else ""
     return f"## Paper {paper_ref}{year_part}{suffix}"
+
+
+CONTEXT_SELECTION_CONSTANTS = {
+    "core_analysis_basis_quantile": "p90",
+    "external_literature_basis_quantile": "p75",
+    "core_analysis_full_context_tokens_per_paper": 1500,
+    "external_literature_full_context_tokens_per_paper": 7750,
+    "core_analysis_budget_tokens": 200000,
+    "external_literature_budget_tokens": 200000,
+    "safety_margin_ratio": 0.10,
+    "usable_budget_tokens": 180000,
+    "core_analysis_full_context_slot_count": 120,
+    "external_literature_full_context_slot_count": 23,
+}
+
+RELEVANCE_WEIGHTS = {
+    "core": 1.0,
+    "related": 0.65,
+    "peripheral": 0.3,
+    "excluded": 0.0,
+}
+
+QUALITY_WEIGHTS = {
+    "high": 1.0,
+    "medium": 0.7,
+    "low": 0.35,
+    "unknown": 0.5,
+}
+
+
+def _nested_level(value: object, *keys: str) -> str:
+    if not isinstance(value, dict):
+        return ""
+    for key in keys:
+        entry = value.get(key)
+        if isinstance(entry, dict):
+            level = _clean_text(entry.get("level")).lower()
+            if level:
+                return level
+        elif isinstance(entry, str) and entry.strip():
+            return entry.strip().lower()
+    return ""
+
+
+def _metric_float(metric: dict, key: str) -> float:
+    try:
+        return float(metric.get(key) or 0)
+    except Exception:
+        return 0.0
+
+
+def _artifact_availability_score(artifacts: dict) -> float:
+    expected = ("digest", "references", "citation_analysis")
+    available = sum(1 for key in expected if artifacts.get(key, {}).get("status") == "available")
+    return available / len(expected)
+
+
+def runtime_paper_context_selection(conn: sqlite3.Connection) -> dict:
+    bundles_by_ref = {
+        str(bundle.get("paper_ref") or "").strip(): bundle
+        for bundle in paper_artifact_bundle_values(conn)
+        if isinstance(bundle, dict)
+    }
+    analyses_by_ref = {
+        str(row.get("paper_ref") or "").strip(): row
+        for row in paper_analysis_values(conn)
+        if isinstance(row, dict)
+    }
+    metrics_by_ref = {
+        str(row.get("paper_ref") or "").strip(): row
+        for row in citation_graph_metric_values(conn)
+        if isinstance(row, dict)
+    }
+    rows: list[dict] = []
+    for paper_ref in paper_refs(conn):
+        analysis = analyses_by_ref.get(paper_ref, {"paper_ref": paper_ref})
+        metric = metrics_by_ref.get(paper_ref, {"paper_ref": paper_ref, "status": "missing"})
+        artifacts = _artifact_map(bundles_by_ref.get(paper_ref, {"artifacts": []}))
+        relevance_level = _nested_level(analysis, "topic_relevance") or "unknown"
+        quality_level = _nested_level(analysis, "paper_quality", "quality") or "unknown"
+        relevance_score = RELEVANCE_WEIGHTS.get(relevance_level, 0.5)
+        quality_score = QUALITY_WEIGHTS.get(quality_level, 0.5)
+        graph_score = max(
+            _metric_float(metric, "foundation_score"),
+            _metric_float(metric, "frontier_score"),
+            _metric_float(metric, "internal_pagerank"),
+        )
+        artifact_score = _artifact_availability_score(artifacts)
+        external_signal = (
+            int(metric.get("external_reference_count") or 0)
+            + int(metric.get("unresolved_reference_count") or 0)
+        )
+        score = (
+            relevance_score * 0.45
+            + quality_score * 0.20
+            + artifact_score * 0.20
+            + min(graph_score, 1.0) * 0.15
+        )
+        rows.append(
+            {
+                "paper_ref": paper_ref,
+                "score": round(score, 6),
+                "topic_relevance": relevance_level,
+                "paper_quality": quality_level,
+                "artifact_availability_score": round(artifact_score, 6),
+                "graph_score": round(graph_score, 6),
+                "external_signal": external_signal,
+                "role_hints": _metric_role_hints(metric),
+            }
+        )
+    rows.sort(key=lambda row: (float(row.get("score") or 0), str(row.get("paper_ref") or "")), reverse=True)
+    core_limit = int(CONTEXT_SELECTION_CONSTANTS["core_analysis_full_context_slot_count"])
+    external_limit = int(CONTEXT_SELECTION_CONSTANTS["external_literature_full_context_slot_count"])
+    external_ranked = sorted(
+        rows,
+        key=lambda row: (
+            int(row.get("external_signal") or 0),
+            float(row.get("score") or 0),
+            str(row.get("paper_ref") or ""),
+        ),
+        reverse=True,
+    )
+    external_refs = {
+        str(row.get("paper_ref"))
+        for row in external_ranked[:external_limit]
+        if int(row.get("external_signal") or 0) > 0
+    }
+    for index, row in enumerate(rows):
+        row["rank"] = index + 1
+        row["core_full_context"] = index < core_limit and row.get("topic_relevance") != "excluded"
+        row["external_full_context"] = str(row.get("paper_ref")) in external_refs
+    return {
+        "schema_id": "synthesis.runtime_paper_context_selection",
+        "schema_version": "1.0.0",
+        "constants": CONTEXT_SELECTION_CONSTANTS,
+        "selected_core_refs": [row["paper_ref"] for row in rows if row.get("core_full_context")],
+        "selected_external_refs": [row["paper_ref"] for row in rows if row.get("external_full_context")],
+        "papers": rows,
+        "diagnostics": {
+            "paper_count": len(rows),
+            "selection_policy": "deterministic weighted relevance/quality/artifact/graph scoring",
+        },
+    }
 
 
 def _metric_number(value: object) -> str:
@@ -2495,7 +2950,7 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
     fields to the agent.
     """
 
-    require_stage4_action_receipts_complete(conn)
+    require_resolver_cascade_receipts_complete(conn)
     bundles = paper_artifact_bundle_values(conn)
     analyses = paper_analysis_values(conn)
     metrics = citation_graph_metric_values(conn)
@@ -2504,6 +2959,12 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
     analyses_by_ref = {analysis.get("paper_ref"): analysis for analysis in analyses}
     metrics_by_ref = {metric.get("paper_ref"): metric for metric in metrics}
     workset_by_ref = {row.get("paper_ref"): row for row in workset}
+    selection = runtime_paper_context_selection(conn)
+    selection_by_ref = {
+        row.get("paper_ref"): row
+        for row in selection.get("papers", [])
+        if isinstance(row, dict)
+    }
     paper_manifest: list[dict] = []
     main_lines = [
         "# Cross-Paper Synthesis Context",
@@ -2512,6 +2973,14 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
         "External references and citation reports are intentionally separated into external-literature-context.md.",
     ]
     main_lines.extend(_metrics_summary_markdown(metrics))
+    main_lines.extend([
+        "",
+        "## Runtime Context Selection",
+        "",
+        f"- Core full-context slots: {len(selection.get('selected_core_refs', []))}",
+        f"- External full-context slots: {len(selection.get('selected_external_refs', []))}",
+        "- Selection is deterministic from relevance, quality, artifact availability, and graph role hints.",
+    ])
     external_lines = [
         "# External Literature Context",
         "",
@@ -2528,6 +2997,7 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
         references = artifacts.get("references", {})
         citation = artifacts.get("citation_analysis", {})
         metric = metrics_by_ref.get(paper_ref, {"paper_ref": paper_ref, "status": "missing"})
+        selection_row = selection_by_ref.get(paper_ref, {})
 
         digest_markdown = _artifact_text_from_file(run_root, digest)
         digest_filter = {
@@ -2540,6 +3010,8 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             f"- Paper ref: {paper_ref}",
             f"- Title: {title or 'unknown'}",
             f"- Year: {year or 'unknown'}",
+            f"- Runtime context rank: {selection_row.get('rank', 'unranked')} score={selection_row.get('score', 'unknown')}",
+            f"- Core full context: {str(bool(selection_row.get('core_full_context'))).lower()}",
             "",
             "### Citation Graph Metrics",
             _metric_markdown(metric),
@@ -2547,7 +3019,9 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             _analysis_markdown(analysis),
             "",
             "### Filtered Digest",
-            digest_markdown or "_Digest artifact missing or empty._",
+            digest_markdown
+            if selection_row.get("core_full_context")
+            else "_Digest omitted by runtime context selection; use the triage digest and metadata for this paper._",
         ])
 
         refs = _artifact_references(run_root, references)
@@ -2559,6 +3033,7 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             f"- Paper ref: {paper_ref}",
             f"- Title: {title or 'unknown'}",
             f"- Year: {year or 'unknown'}",
+            f"- External full context: {str(bool(selection_row.get('external_full_context'))).lower()}",
             "",
         ])
         if metric.get("status") == "ready" and (
@@ -2573,18 +3048,22 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
                 "",
             ])
         external_lines.append("### Compact References")
-        if refs:
+        if refs and selection_row.get("external_full_context"):
             external_lines.extend([
                 "| id | year | authors | title |",
                 "| --- | --- | --- | --- |",
                 *[compact_reference_row(ref) for ref in refs],
             ])
+        elif refs:
+            external_lines.append("_References omitted by runtime external-context selection._")
         else:
             external_lines.append("_No references artifact rows available._")
         external_lines.extend([
             "",
             "### Citation Analysis Report",
-            report_md or "_No citation analysis report available._",
+            report_md
+            if selection_row.get("external_full_context")
+            else "_Citation analysis report omitted by runtime external-context selection._",
         ])
 
         paper_manifest.append({
@@ -2599,6 +3078,7 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             "digest_filter": digest_filter,
             "citation_graph_metrics_status": metric.get("status", "missing"),
             "citation_graph_role_hints": _metric_role_hints(metric),
+            "context_selection": selection_row,
         })
 
     manifest = {
@@ -2612,6 +3092,7 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             "main": "runtime/views/cross-paper-context.md",
             "external_literature": "runtime/views/external-literature-context.md",
             "manifest": "runtime/views/cross-paper-context.manifest.json",
+            "selection": "runtime/views/cross-paper-context.manifest.json#context_selection",
         },
         "filtering": {
             "digest": "Keep the first four top-level ## sections without truncation.",
@@ -2620,12 +3101,13 @@ def build_cross_paper_context_views(conn: sqlite3.Connection, run_root: str | Pa
             "security": "Expose only renderer allowlist fields; exclude raw note bodies and artifact internals.",
         },
         "papers": paper_manifest,
+        "context_selection": selection,
         "diagnostics": {
             "missing_bundle_refs": missing_paper_artifact_bundle_refs(conn),
             "missing_analysis_refs": missing_paper_analysis_refs(conn),
             "missing_citation_graph_metric_refs": missing_citation_graph_metric_refs(conn),
-            "missing_citation_graph_metric_action_receipt_refs": missing_citation_graph_metric_receipt_refs(conn),
-            "missing_bundle_action_receipt_refs": missing_paper_artifact_bundle_receipt_refs(conn),
+            "missing_resolver_cascade_metric_receipt_refs": missing_citation_graph_metric_receipt_refs(conn),
+            "missing_resolver_cascade_bundle_receipt_refs": missing_paper_artifact_bundle_receipt_refs(conn),
             "missing_analysis_action_receipt_refs": missing_paper_analysis_receipt_refs(conn),
         },
     }
@@ -2689,7 +3171,7 @@ def all_required_final_artifacts_registered(conn: sqlite3.Connection, *, operati
     )
     required = {
         manifest_path,
-        "result/result.json",
+        "result/final-output.candidate.json",
         "result/sidecars/topic-interest-metadata.json",
         "result/sidecars/concept-cards-proposal.json",
         "result/sidecars/topic-graph-relation-proposals.json",

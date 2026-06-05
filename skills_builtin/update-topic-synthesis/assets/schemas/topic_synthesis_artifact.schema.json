@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://zotero-skills.local/schemas/synthesis/topic_synthesis_artifact.schema.json",
   "title": "Topic Synthesis Structured Artifact",
-  "description": "Canonical product schema for the structured topic_synthesis artifact. Markdown exports are compatibility views and are not part of this SSOT artifact.",
+  "description": "Canonical product schema for the structured topic_synthesis artifact. Markdown exports are rendered views and are not part of this SSOT artifact.",
   "type": "object",
   "additionalProperties": true,
   "required": [
@@ -15,7 +15,8 @@
     "taxonomy",
     "timeline_events",
     "claims",
-    "comparison_matrix",
+    "improvement_dimension_summary",
+    "improvement_dimensions",
     "debates",
     "gaps",
     "external_literature_analysis",
@@ -42,7 +43,15 @@
       "minItems": 1,
       "items": { "$ref": "#/$defs/claim" }
     },
-    "comparison_matrix": { "$ref": "#/$defs/comparison_matrix" },
+    "improvement_dimension_summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "improvement_dimensions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/improvement_dimension" }
+    },
     "debates": {
       "type": "array",
       "items": { "$ref": "#/$defs/debate" }
@@ -71,10 +80,7 @@
     "diagnostics": { "$ref": "#/$defs/diagnostics" }
   },
   "not": {
-    "anyOf": [
-      { "required": ["markdown"] },
-      { "required": ["markdown_path"] }
-    ]
+    "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }]
   },
   "$defs": {
     "non_empty_string": {
@@ -90,7 +96,13 @@
       "items": { "$ref": "#/$defs/non_empty_string" }
     },
     "coverage_verdict": {
-      "enum": ["sufficient", "partial", "insufficient", "severely_missing", "unknown"]
+      "enum": [
+        "sufficient",
+        "partial",
+        "insufficient",
+        "severely_missing",
+        "unknown"
+      ]
     },
     "confidence": {
       "type": "number",
@@ -294,7 +306,24 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/timeline_event" }
+        },
+        "markers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/timeline_marker" }
         }
+      }
+    },
+    "timeline_marker": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "event_id", "paper_evidence_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/non_empty_string" },
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "event_id": { "$ref": "#/$defs/non_empty_string" },
+        "paper_evidence_id": { "$ref": "#/$defs/non_empty_string" },
+        "year": { "type": ["integer", "string"] },
+        "label": { "$ref": "#/$defs/non_empty_string" }
       }
     },
     "timeline_phase": {
@@ -379,37 +408,18 @@
         "review_usage": { "$ref": "#/$defs/non_empty_string" }
       }
     },
-    "comparison_matrix": {
+    "improvement_dimension": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["dimensions", "rows"],
-      "properties": {
-        "dimensions": {
-          "type": "array",
-          "minItems": 2,
-          "items": { "$ref": "#/$defs/non_empty_string" }
-        },
-        "rows": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/comparison_row" }
-        }
-      }
-    },
-    "comparison_row": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["id", "values", "evidence_map_refs"],
+      "required": ["id", "label", "analysis"],
       "properties": {
         "id": { "$ref": "#/$defs/non_empty_string" },
-        "route_ref": { "type": "string" },
-        "paper_ref": { "type": "string" },
-        "paper_refs": { "$ref": "#/$defs/ref_array" },
-        "values": {
-          "type": "object",
-          "minProperties": 1,
-          "additionalProperties": { "$ref": "#/$defs/non_empty_string" }
-        },
+        "label": { "$ref": "#/$defs/non_empty_string" },
+        "kind": { "$ref": "#/$defs/non_empty_string" },
+        "analysis": { "$ref": "#/$defs/non_empty_string" },
+        "trajectory": { "$ref": "#/$defs/non_empty_string" },
+        "source_paper_refs": { "$ref": "#/$defs/ref_array" },
+        "evidence_refs": { "$ref": "#/$defs/ref_array" },
         "evidence_map_refs": { "$ref": "#/$defs/ref_array" }
       }
     },
@@ -480,7 +490,9 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/non_empty_string" }
         },
-        "severity": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "severity": {
+          "enum": ["low", "medium", "high", "critical", "unknown"]
+        },
         "review_usage": { "type": "string" },
         "recommended_action": { "type": "string" },
         "not_field_wide_claim": { "type": "boolean" }
@@ -540,7 +552,13 @@
     "representative_reference": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["id", "title", "cited_by_papers", "why_relevant", "information_completeness"],
+      "required": [
+        "id",
+        "title",
+        "cited_by_papers",
+        "why_relevant",
+        "information_completeness"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/non_empty_string" },
         "title": { "$ref": "#/$defs/non_empty_string" },
@@ -704,7 +722,13 @@
     "paper_evidence": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["id", "paper_ref", "title", "evidence_summary", "digest_ref"],
+      "required": [
+        "id",
+        "paper_ref",
+        "title",
+        "evidence_summary",
+        "digest_ref"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/non_empty_string" },
         "paper_ref": { "$ref": "#/$defs/non_empty_string" },

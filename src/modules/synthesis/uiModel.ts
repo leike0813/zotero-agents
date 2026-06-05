@@ -211,6 +211,17 @@ export type SynthesisUiTagRow = {
   validation_warnings: SynthesisUiTagValidationWarning[];
 };
 
+export type SynthesisUiStagedTagRow = {
+  tag: string;
+  facet: string;
+  note?: string;
+  source_flow?: string;
+  parent_bindings: number[];
+  parent_count: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type SynthesisUiTagImportPreview = {
   additions: SynthesisUiTagRow[];
   unchanged: SynthesisUiTagRow[];
@@ -589,6 +600,20 @@ export type SynthesisUiState = {
     search: string;
     facet: "all" | string;
     status: "all" | "active" | "deprecated" | "warning";
+    view: "vocabulary" | "staged";
+    stagedSearch: string;
+    stagedFacet: "all" | string;
+    selectedStagedTags: string[];
+    selectedVocabularyTags: string[];
+    density: "compact" | "comfortable";
+    editingStagedTag?: {
+      originalTag: string;
+      draftTag: string;
+      draftNote: string;
+      status: "idle" | "pending" | "saved" | "failed";
+      error?: string;
+    };
+    expandedRows: Record<string, boolean>;
     selectedTag?: string;
     importDraft: string;
   };
@@ -657,6 +682,7 @@ export type SynthesisUiSnapshotInput = {
       last_rebuild_at?: string;
       diagnostics?: unknown[];
     };
+    staged?: Array<Partial<SynthesisUiStagedTagRow> & { tag?: string }>;
     importPreview?: unknown;
     importDraft?: string;
   };
@@ -745,6 +771,10 @@ export type SynthesisUiSnapshot = {
     facets: string[];
     rows: SynthesisUiTagRow[];
     visibleRows: SynthesisUiTagRow[];
+    stagedRows: SynthesisUiStagedTagRow[];
+    visibleStagedRows: SynthesisUiStagedTagRow[];
+    stagedCount: number;
+    stagedFacets: string[];
     selected?: SynthesisUiTagRow;
     validationWarnings: SynthesisUiTagValidationWarning[];
     projection: {
@@ -834,6 +864,10 @@ export type SynthesisUiHostCommandName =
   | "previewTagVocabularyImport"
   | "applyTagVocabularyImport"
   | "exportTagVocabulary"
+  | "updateStagedTagSuggestion"
+  | "promoteStagedTagSuggestions"
+  | "discardStagedTagSuggestions"
+  | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
   | "applyConceptReviewAction"
@@ -914,6 +948,10 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "previewTagVocabularyImport",
   "applyTagVocabularyImport",
   "exportTagVocabulary",
+  "updateStagedTagSuggestion",
+  "promoteStagedTagSuggestions",
+  "discardStagedTagSuggestions",
+  "clearStagedTagSuggestions",
   "rebuildTagVocabularyIndex",
   "rebuildConceptKbIndex",
   "applyConceptReviewAction",
@@ -959,6 +997,10 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   previewTagVocabularyImport: "Preview tag import",
   applyTagVocabularyImport: "Apply tag import",
   exportTagVocabulary: "Export tags",
+  updateStagedTagSuggestion: "Update staged tag",
+  promoteStagedTagSuggestions: "Promote staged tags",
+  discardStagedTagSuggestions: "Discard staged tags",
+  clearStagedTagSuggestions: "Clear staged tags",
   rebuildTagVocabularyIndex: "Rebuild tag index",
   rebuildConceptKbIndex: "Rebuild concept index",
   applyConceptReviewAction: "Apply concept review",
@@ -1026,6 +1068,11 @@ export function getSynthesisUiOperationKey(
       return `topicDiscoveryHint:${keyPart(args.hintId)}`;
     case "applyTagVocabularyImport":
       return `${command}:${keyPart(args.action)}`;
+    case "updateStagedTagSuggestion":
+      return `${command}:${keyPart(args.originalTag || args.tag)}`;
+    case "promoteStagedTagSuggestions":
+    case "discardStagedTagSuggestions":
+      return `${command}:${keyPart(args.tag || (Array.isArray(args.tags) ? args.tags.join("_") : ""))}`;
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
     case "openTopicArtifact":
@@ -1190,6 +1237,47 @@ function normalizeStringList(values: unknown) {
         : [],
     ),
   ).sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeExpandedRows(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const rows: Record<string, boolean> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, expanded]) => {
+    const normalizedKey = cleanString(key);
+    if (normalizedKey && expanded === true) {
+      rows[normalizedKey] = true;
+    }
+  });
+  return rows;
+}
+
+function normalizeEditingStagedTag(
+  value: unknown,
+): SynthesisUiState["tags"]["editingStagedTag"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const row = value as Record<string, unknown>;
+  const originalTag = cleanString(row.originalTag);
+  if (!originalTag) {
+    return undefined;
+  }
+  const status = cleanString(row.status);
+  const normalizedStatus: NonNullable<
+    SynthesisUiState["tags"]["editingStagedTag"]
+  >["status"] =
+    status === "pending" || status === "saved" || status === "failed"
+      ? status
+      : "idle";
+  return {
+    originalTag,
+    draftTag: cleanString(row.draftTag),
+    draftNote: cleanString(row.draftNote),
+    status: normalizedStatus,
+    error: cleanString(row.error) || undefined,
+  };
 }
 
 function normalizeSyncDiagnostics(values: unknown) {
@@ -1772,6 +1860,46 @@ function normalizeTagRows(
         usage_count: Math.max(0, Math.floor(cleanNumber(row.usage_count, 0))),
         last_synced_at: cleanString(row.last_synced_at) || undefined,
         validation_warnings: warningsByTag.get(tag) || [],
+      };
+    })
+    .filter((row) => row.tag)
+    .sort(
+      (left, right) =>
+        left.facet.localeCompare(right.facet) ||
+        left.tag.localeCompare(right.tag),
+    );
+}
+
+function normalizeNumberList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as number[];
+  }
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => Math.trunc(Number(entry)))
+        .filter((entry) => Number.isFinite(entry) && entry > 0),
+    ),
+  ).sort((left, right) => left - right);
+}
+
+function normalizeStagedTagRows(
+  rows: Array<Partial<SynthesisUiStagedTagRow> & { tag?: string }> | undefined,
+) {
+  return [...(rows || [])]
+    .map((row) => {
+      const tag = cleanString(row.tag);
+      const facet = cleanString(row.facet) || tag.split(":")[0] || "unknown";
+      const parentBindings = normalizeNumberList(row.parent_bindings);
+      return {
+        tag,
+        facet,
+        note: cleanString(row.note) || undefined,
+        source_flow: cleanString(row.source_flow) || undefined,
+        parent_bindings: parentBindings,
+        parent_count: parentBindings.length,
+        created_at: cleanString(row.created_at) || undefined,
+        updated_at: cleanString(row.updated_at) || undefined,
       };
     })
     .filter((row) => row.tag)
@@ -2486,6 +2614,13 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       search: "",
       facet: "all",
       status: "all",
+      view: "vocabulary",
+      stagedSearch: "",
+      stagedFacet: "all",
+      selectedStagedTags: [],
+      selectedVocabularyTags: [],
+      density: "compact",
+      expandedRows: {},
       importDraft: "",
     },
     topicGraph: {
@@ -2677,6 +2812,26 @@ function filterTags(
       return false;
     }
     if (filters.status === "warning" && row.validation_warnings.length === 0) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function filterStagedTags(
+  rows: SynthesisUiStagedTagRow[],
+  filters: SynthesisUiState["tags"],
+) {
+  return rows.filter((row) => {
+    if (
+      !includesText(
+        `${row.tag} ${row.facet} ${row.note || ""} ${row.source_flow || ""}`,
+        filters.stagedSearch,
+      )
+    ) {
+      return false;
+    }
+    if (filters.stagedFacet !== "all" && row.facet !== filters.stagedFacet) {
       return false;
     }
     return true;
@@ -2983,10 +3138,15 @@ export function buildSynthesisUiSnapshot(
   );
   const tagWarnings = normalizeTagWarnings(input.tags?.validationWarnings);
   const tagRows = normalizeTagRows(input.tags?.entries, tagWarnings);
+  const stagedTagRows = normalizeStagedTagRows(input.tags?.staged);
   const tagFacets = normalizeStringList(
     input.tags?.protocol?.facets || tagRows.map((row) => row.facet),
   );
+  const stagedTagFacets = normalizeStringList(
+    stagedTagRows.map((row) => row.facet),
+  );
   const visibleTagRows = filterTags(tagRows, state.tags);
+  const visibleStagedTagRows = filterStagedTags(stagedTagRows, state.tags);
   const selectedTag =
     tagRows.find((row) => row.tag === state.tags.selectedTag) ||
     visibleTagRows[0];
@@ -3131,6 +3291,10 @@ export function buildSynthesisUiSnapshot(
       facets: tagFacets,
       rows: tagRows,
       visibleRows: visibleTagRows,
+      stagedRows: stagedTagRows,
+      visibleStagedRows: visibleStagedTagRows,
+      stagedCount: stagedTagRows.length,
+      stagedFacets: stagedTagFacets,
       selected: selectedTag,
       validationWarnings: tagWarnings,
       projection: {
@@ -3438,6 +3602,39 @@ export function applySynthesisUiAction(
           status === "active" || status === "deprecated" || status === "warning"
             ? status
             : "all";
+      }
+      if ("view" in filters) {
+        const view = cleanString(filters.view);
+        next.tags.view = view === "staged" ? "staged" : "vocabulary";
+      }
+      if ("stagedSearch" in filters) {
+        next.tags.stagedSearch = cleanString(filters.stagedSearch);
+      }
+      if ("stagedFacet" in filters) {
+        next.tags.stagedFacet = cleanString(filters.stagedFacet) || "all";
+      }
+      if ("selectedStagedTags" in filters) {
+        next.tags.selectedStagedTags = normalizeStringList(
+          filters.selectedStagedTags,
+        );
+      }
+      if ("selectedVocabularyTags" in filters) {
+        next.tags.selectedVocabularyTags = normalizeStringList(
+          filters.selectedVocabularyTags,
+        );
+      }
+      if ("density" in filters) {
+        const density = cleanString(filters.density);
+        next.tags.density =
+          density === "comfortable" ? "comfortable" : "compact";
+      }
+      if ("editingStagedTag" in filters) {
+        next.tags.editingStagedTag = normalizeEditingStagedTag(
+          filters.editingStagedTag,
+        );
+      }
+      if ("expandedRows" in filters) {
+        next.tags.expandedRows = normalizeExpandedRows(filters.expandedRows);
       }
       if ("importDraft" in filters) {
         next.tags.importDraft = cleanString(filters.importDraft);

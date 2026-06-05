@@ -1,0 +1,706 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2001",
+      "authors": "Edward H Adelson",
+      "title": "On seeing stuff: the perception of materials by humans and machines"
+    },
+    {
+      "id": "ref-2",
+      "year": "2010",
+      "authors": "Thomas Deselaers, Bogdan Alexe; Vittorio Ferrari",
+      "title": "What is an object"
+    },
+    {
+      "id": "ref-3",
+      "year": "2010",
+      "authors": "Pablo Arbelaez; Michael Maire; et al.",
+      "title": "Contour detection and hierarchical image segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2016",
+      "authors": "Jamie Ryan Kiros, Jimmy Lei Ba; Geoffrey E Hinton",
+      "title": "Layer normalization"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Li Dong, Hangbo Bao; Furu Wei",
+      "title": "BEiT: BERT pre-training of image transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Dina Bashkirova; Mohamed Abdelfattah; et al.",
+      "title": "ZeroWaste dataset: Towards deformable object segmentation in cluttered scenes"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Stuart Berg; Dominik Kutra; et al.",
+      "title": "Straehle, Bernhard X. Kausler, Carsten Haubold, Martin Schiegg, Janez Ales, Thorsten Beier, Markus Rudy, Kemal Eren, Jaime I. Cervantes, Buote Xu, Fynn Beuttenmueller, Adrian Wolny, Chong Zhang, Ullrich Koethe, Fred A. Hamprecht, and Anna Kreshuk. ilastik: interactive machine learning for (bio)image analysis"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Rishi Bommasani, Drew A Hudson, Ehsan Adeli, Russ Altman, Simran Arora, Sydney von Arx, Michael S Bernstein, Jeannette Bohg, Antoine Bosselut, Emma Brunskill, et al",
+      "title": "On the opportunities and risks of foundation models"
+    },
+    {
+      "id": "ref-9",
+      "year": "2018",
+      "authors": "Christine Tanner, Gustav Bredell; Ender Konukoglu",
+      "title": "Iterative interaction training for segmentation editing networks"
+    },
+    {
+      "id": "ref-10",
+      "year": "2020",
+      "authors": "Tom Brown; Benjamin Mann; et al.",
+      "title": "Language models are few-shot learners"
+    },
+    {
+      "id": "ref-11",
+      "year": "2018",
+      "authors": "Zhaowei Cai; Nuno Vasconcelos",
+      "title": "Cascade R-CNN: Delving into high quality object detection"
+    },
+    {
+      "id": "ref-12",
+      "year": "2019",
+      "authors": "Juan C",
+      "title": "Caicedo, Allen Goodman, Kyle W. Karhohs, Beth A. Cimini, Jeanelle Ackerman, Marzieh Haghighi, CherKeng Heng, Tim Becker, Minh Doan, Claire McQuin, Mohammad Rohban, Shantanu Singh, and Anne E. Carpenter. Nucleus segmentation across imaging experiments: the 2018 data science bowl"
+    },
+    {
+      "id": "ref-13",
+      "year": "1986",
+      "authors": "John Canny",
+      "title": "A computational approach to edge detection"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with Transformers"
+    },
+    {
+      "id": "ref-15",
+      "year": "2008",
+      "authors": "Matthias Hofmann, Guillaume Charpiat; Bernhard Scholkopf.¨ Automatic image colorization via multimodal predictions",
+      "title": "Guillaume Charpiat, Matthias Hofmann, and Bernhard Scholkopf.¨ Automatic image colorization via multimodal predictions."
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "Neelima Chavali; Harsh Agrawal; et al.",
+      "title": "Object-proposal evaluation protocol is’ gameable’"
+    },
+    {
+      "id": "ref-17",
+      "year": "2022",
+      "authors": "Jiazhou Chen; Yanghui Xu; et al.",
+      "title": "3D instance segmentation of MVS buildings"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Xi Chen; Zhiyan Zhao; et al.",
+      "title": "FocalClick: towards practical interactive image segmentation"
+    },
+    {
+      "id": "ref-19",
+      "year": "2022",
+      "authors": "Bowen Cheng; Ishan Misra; et al.",
+      "title": "Masked-attention mask transformer for universal image segmentation"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Alex Schwing, Bowen Cheng; Alexander Kirillov",
+      "title": "Perpixel classification is not all you need for semantic segmentation"
+    },
+    {
+      "id": "ref-21",
+      "year": "2022",
+      "authors": "Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, et al",
+      "title": "PaLM: Scaling language modeling with pathways"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Luca Ciampi; Carlos Santiago; et al.",
+      "title": "Domain adaptation for traffic density estimation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Luca Ciampi; Carlos Santiago; et al.",
+      "title": "Night and day instance segmented park (NDIS-Park) dataset: a collection of images taken by day and by night for vehicle detection, segmentation and counting in parking areas"
+    },
+    {
+      "id": "ref-24",
+      "year": "2022",
+      "authors": "Yael Newman, Nadav Cohen; Ariel Shamir",
+      "title": "Semantic segmentation in art paintings"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Marius Cordts; Mohamed Omran; et al.",
+      "title": "The Cityscapes dataset for semantic urban scene understanding"
+    },
+    {
+      "id": "ref-26",
+      "year": "2012",
+      "authors": "George Konidaris, Bruno da Silva; Andrew Barto",
+      "title": "Learning parameterized skills"
+    },
+    {
+      "id": "ref-27",
+      "year": "2022",
+      "authors": "Dima Damen; Hazel Doughty; et al.",
+      "title": "Rescaling egocentric vision: Collection, pipeline and challenges for EPIC-KITCHENS-100"
+    },
+    {
+      "id": "ref-28",
+      "year": "2022",
+      "authors": "Ahmad Darkhalil; Dandan Shan; et al.",
+      "title": "EPIC-KITCHENS VISOR benchmark: Video segmentations and object relations"
+    },
+    {
+      "id": "ref-29",
+      "year": "2019",
+      "authors": "Terrance De Vries; Ishan Misra; et al.",
+      "title": "Does object recognition work for everyone"
+    },
+    {
+      "id": "ref-30",
+      "year": "2022",
+      "authors": "Mark D´ıaz; Ian Kivlichan; et al.",
+      "title": "Crowd-WorkSheets: Accounting for individual and collective identities underlying crowdsourced dataset annotation"
+    },
+    {
+      "id": "ref-31",
+      "year": "2020",
+      "authors": "Henghui Ding; Scott Cohen; et al.",
+      "title": "PhraseClick: toward achieving flexible interactive segmentation by phrase and click"
+    },
+    {
+      "id": "ref-32",
+      "year": "2014",
+      "authors": "Piotr Dollar; C Lawrence Zitnick",
+      "title": "Fast edge detection using ´ structured forests"
+    },
+    {
+      "id": "ref-33",
+      "year": "2021",
+      "authors": "Alexey Dosovitskiy; Lucas Beyer; et al.",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale"
+    },
+    {
+      "id": "ref-34",
+      "year": "2011",
+      "authors": "Xiaofeng Ren, Alireza Fathi; James M",
+      "title": "Rehg. Learning to recognize objects in egocentric activities"
+    },
+    {
+      "id": "ref-35",
+      "year": "2004",
+      "authors": "Pedro F Felzenszwalb; Daniel P Huttenlocher",
+      "title": "Efficient graphbased image segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "1988",
+      "authors": "Thomas B",
+      "title": "Fitzpatrick. The validity and practicality of sun-reactive skin types i through vi"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Marco Forte; Brian Price; et al.",
+      "title": "Marco Forte, Brian Price, Scott Cohen, Ning Xu, and Franc¸ois Pitie. Getting to 99% accuracy in interactive segmentation.´ arXiv:2003.07932, 2020. 5, 17"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Jean-Michel Fortin; Olivier Gamache; et al.",
+      "title": "Instance segmentation for au- \\` tonomous log grasping in forestry operations"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Timnit Gebru; Jamie Morgenstern; et al.",
+      "title": "Datasheets for datasets"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Golnaz Ghiasi; Yin Cui; et al.",
+      "title": "Simple copy-paste is a strong data augmentation method for instance segmentation"
+    },
+    {
+      "id": "ref-41",
+      "year": "2014",
+      "authors": "Ross Girshick; Jeff Donahue; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-42",
+      "year": "2017",
+      "authors": "Priya Goyal; Piotr Dollar; et al.",
+      "title": "Accurate, large minibatch SGD: Training ImageNet in 1 hour"
+    },
+    {
+      "id": "ref-43",
+      "year": "2022",
+      "authors": "Kristen Grauman; Andrew Westbury; et al.",
+      "title": "V. Jawahar, Hanbyul Joo, Kris Kitani, Haizhou Li, Richard Newcombe, Aude Oliva, Hyun Soo Park, James M. Rehg, Yoichi Sato, Jianbo Shi, Mike Zheng Shou, Antonio Torralba, Lorenzo Torresani, Mingfei Yan, and Jitendra Malik. Ego4D: Around the World in 3,000 Hours of Egocentric Video"
+    },
+    {
+      "id": "ref-44",
+      "year": "2019",
+      "authors": "Piotr Dollar, Agrim Gupta; Ross Girshick",
+      "title": "LVIS: A dataset for large vocabulary instance segmentation"
+    },
+    {
+      "id": "ref-45",
+      "year": "2012",
+      "authors": "Dhruv Batra, Abner Guzman-Rivera; Pushmeet Kohli",
+      "title": "Multiple choice learning: Learning to produce multiple structured outputs"
+    },
+    {
+      "id": "ref-46",
+      "year": "2022",
+      "authors": "Hjalmar S, Timm Haucke",
+      "title": "Kuhl, and Volker Steinhage. ¨ SOCRATES: Introducing depth in visual wildlife monitoring using stereo vision"
+    },
+    {
+      "id": "ref-47",
+      "year": "2022",
+      "authors": "Kaiming He; Xinlei Chen; et al.",
+      "title": "Masked autoencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-48",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Girshick.´ Mask R-CNN."
+    },
+    {
+      "id": "ref-49",
+      "year": "2016",
+      "authors": "Kaiming He; Xiangyu Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-50",
+      "year": "2016",
+      "authors": "Dan Hendrycks; Kevin Gimpel",
+      "title": "Gaussian error linear units (gelus)"
+    },
+    {
+      "id": "ref-51",
+      "year": "2022",
+      "authors": "Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al",
+      "title": "Training compute-optimal large language models"
+    },
+    {
+      "id": "ref-52",
+      "year": "2020",
+      "authors": "Michael Fulton, Jungseok Hong; Junaed Sattar",
+      "title": "TrashCan: A semantically-segmented dataset towards visual detection of marine debris"
+    },
+    {
+      "id": "ref-53",
+      "year": "2016",
+      "authors": "Gao Huang; Yu Sun; et al.",
+      "title": "Deep networks with stochastic depth"
+    },
+    {
+      "id": "ref-54",
+      "year": "2022",
+      "authors": "Jitesh Jain; Jiachen Li; et al.",
+      "title": "Oneformer: One transformer to rule universal image segmentation"
+    },
+    {
+      "id": "ref-55",
+      "year": "2021",
+      "authors": "Chao Jia; Yinfei Yang; et al.",
+      "title": "Scaling up visual and vision-language representation learning with noisy text supervision"
+    },
+    {
+      "id": "ref-56",
+      "year": "2020",
+      "authors": "Jared Kaplan; Sam McCandlish; et al.",
+      "title": "Scaling laws for neural language models"
+    },
+    {
+      "id": "ref-57",
+      "year": "1988",
+      "authors": "Andrew Witkin, Michael Kass; Demetri Terzopoulos",
+      "title": "Snakes: Active contour models"
+    },
+    {
+      "id": "ref-58",
+      "year": "2022",
+      "authors": "Dahun Kim; Tsung-Yi Lin; et al.",
+      "title": "Learning open-world object proposals without learning to classify"
+    },
+    {
+      "id": "ref-59",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Kaiming He; et al.",
+      "title": "Alexander Kirillov, Kaiming He, Ross Girshick, Carsten Rother, and Piotr Dollar. Panoptic segmentation.´"
+    },
+    {
+      "id": "ref-60",
+      "year": "2020",
+      "authors": "Alina Kuznetsova; Hassan Rom; et al.",
+      "title": "The open images dataset v4: Unified image classification, object detection, and visual relationship detection at scale"
+    },
+    {
+      "id": "ref-61",
+      "year": "2019",
+      "authors": "Alexandre Lacoste; Alexandra Luccioni; et al.",
+      "title": "Quantifying the carbon emissions of machine learning"
+    },
+    {
+      "id": "ref-62",
+      "year": "2022",
+      "authors": "Yanghao Li; Hanzi Mao; et al.",
+      "title": "Exploring plain vision transformer backbones for object detection"
+    },
+    {
+      "id": "ref-63",
+      "year": "2015",
+      "authors": "Zhefan Ye, Yin Li; James M",
+      "title": "Rehg. Delving into egocentric actions"
+    },
+    {
+      "id": "ref-64",
+      "year": "2018",
+      "authors": "Qifeng Chen, Zhuwen Li; Vladlen Koltun",
+      "title": "Interactive image segmentation with latent diversity"
+    },
+    {
+      "id": "ref-65",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-66",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Mi-´ crosoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-67",
+      "year": "2022",
+      "authors": "Qin Liu; Zhenlin Xu; et al.",
+      "title": "SimpleClick: Interactive image segmentation with simple vision transformers"
+    },
+    {
+      "id": "ref-68",
+      "year": "2019",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-69",
+      "year": "2014",
+      "authors": "Cathy H Lucas; Daniel OB Jones; et al.",
+      "title": "Gelatinous zooplankton biomass in the global oceans: geographic variation and environmental drivers"
+    },
+    {
+      "id": "ref-70",
+      "year": "2018",
+      "authors": "Paul Voigtlaender, Sabarinath Mahadevan; Bastian Leibe",
+      "title": "Iteratively trained interactive segmentation"
+    },
+    {
+      "id": "ref-71",
+      "year": "2018",
+      "authors": "Kevis-Kokitsi Maninis; Sergi Caelles; et al.",
+      "title": "Deep extreme cut: From extreme points to object segmentation"
+    },
+    {
+      "id": "ref-72",
+      "year": "2001",
+      "authors": "David Martin; Charless Fowlkes; et al.",
+      "title": "A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics"
+    },
+    {
+      "id": "ref-73",
+      "year": "2016",
+      "authors": "Nassir Navab, Fausto Milletari; Seyed-Ahmad Ahmadi",
+      "title": "V-Net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-74",
+      "year": "2016",
+      "authors": "Massimo Minervini; Andreas Fischbach; et al.",
+      "title": "Tsaftaris. Finely-grained annotated datasets for imagebased plant phenotyping"
+    },
+    {
+      "id": "ref-75",
+      "year": "2019",
+      "authors": "Margaret Mitchell; Simone Wu; et al.",
+      "title": "Model cards for model reporting"
+    },
+    {
+      "id": "ref-76",
+      "year": "2017",
+      "authors": "Dim P Papadopoulos; Jasper RR Uijlings; et al.",
+      "title": "Extreme clicking for efficient object annotation"
+    },
+    {
+      "id": "ref-77",
+      "year": "2021",
+      "authors": "David Patterson; Joseph Gonzalez; et al.",
+      "title": "Carbon emissions and large neural network training"
+    },
+    {
+      "id": "ref-78",
+      "year": "2017",
+      "authors": "Matthew E Peters; Waleed Ammar; et al.",
+      "title": "Semi-supervised sequence tagging with bidirectional language models"
+    },
+    {
+      "id": "ref-79",
+      "year": "2022",
+      "authors": "Mengyang Pu; Yaping Huang; et al.",
+      "title": "EDTER: Edge detection with transformer"
+    },
+    {
+      "id": "ref-80",
+      "year": "2022",
+      "authors": "Mattia Pugliatti; Francesco Topputo",
+      "title": "DOORS: Dataset fOr bOuldeRs Segmentation"
+    },
+    {
+      "id": "ref-81",
+      "year": "2022",
+      "authors": "Jiyang Qi; Yan Gao; et al.",
+      "title": "Occluded video instance segmentation: A benchmark"
+    },
+    {
+      "id": "ref-82",
+      "year": "2021",
+      "authors": "Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al",
+      "title": "Learning transferable visual models from natural language supervision"
+    },
+    {
+      "id": "ref-83",
+      "year": "2021",
+      "authors": "Aditya Ramesh; Mikhail Pavlov; et al.",
+      "title": "Zero-shot textto-image generation"
+    },
+    {
+      "id": "ref-84",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-85",
+      "year": "2003",
+      "authors": "Xiaofeng Ren; Jitendra Malik",
+      "title": "Learning a classification model for segmentation"
+    },
+    {
+      "id": "ref-86",
+      "year": "2021",
+      "authors": "Mike Roberts; Jason Ramapuram; et al.",
+      "title": "Susskind. Hypersim: A photorealistic synthetic dataset for holistic indoor scene understanding"
+    },
+    {
+      "id": "ref-87",
+      "year": "2021",
+      "authors": "Candice Schumann; Susanna Ricco; et al.",
+      "title": "A step toward more inclusive people annotations for fairness"
+    },
+    {
+      "id": "ref-88",
+      "year": "2020",
+      "authors": "Sefik Ilkin Serengil; Alper Ozpinar",
+      "title": "LightFace: A hybrid deep face recognition framework"
+    },
+    {
+      "id": "ref-89",
+      "year": "2021",
+      "authors": "Sefik Ilkin Serengil; Alper Ozpinar",
+      "title": "HyperExtended LightFace: A facial attribute analysis framework"
+    },
+    {
+      "id": "ref-90",
+      "year": "2006",
+      "authors": "Jamie Shotton; John Winn; et al.",
+      "title": "TextonBoost: Joint appearance, shape and context modeling for mulit-class object recognition and segmentation"
+    },
+    {
+      "id": "ref-91",
+      "year": "2019",
+      "authors": "Corey Snyder; Minh Do",
+      "title": "STREETS: A novel camera network dataset for traffic flow"
+    },
+    {
+      "id": "ref-92",
+      "year": "2022",
+      "authors": "Ilya A Petrov, Konstantin Sofiiuk; Anton Konushin",
+      "title": "Reviving iterative training with mask guidance for interactive segmentation"
+    },
+    {
+      "id": "ref-93",
+      "year": "2014",
+      "authors": "Nitish Srivastava; Geoffrey Hinton; et al.",
+      "title": "Dropout: A simple way to prevent neural networks from overfitting"
+    },
+    {
+      "id": "ref-94",
+      "year": "1999",
+      "authors": "Chris Stauffer; W Eric L Grimson",
+      "title": "Adaptive background mixture models for real-time tracking"
+    },
+    {
+      "id": "ref-95",
+      "year": "2020",
+      "authors": "Matthew Tancik; Pratul Srinivasan; et al.",
+      "title": "Fourier features let networks learn high frequency functions in low dimensional domains"
+    },
+    {
+      "id": "ref-96",
+      "year": "2017",
+      "authors": "Yansong Tang; Yi Tian; et al.",
+      "title": "Action recognition in RGB-D egocentric videos"
+    },
+    {
+      "id": "ref-97",
+      "year": "2019",
+      "authors": "Yansong Tang; Zian Wang; et al.",
+      "title": "Multi-stream deep neural networks for RGB-D egocentric action recognition"
+    },
+    {
+      "id": "ref-98",
+      "year": "2022",
+      "authors": "The World Bank",
+      "title": "The World Bank."
+    },
+    {
+      "id": "ref-99",
+      "year": "1995",
+      "authors": "Sebastian Thrun",
+      "title": "Is learning the n-th thing any easier than learning the first"
+    },
+    {
+      "id": "ref-100",
+      "year": "2020",
+      "authors": "Cameron Trotter; Georgia Atkinson; et al.",
+      "title": "Stephen McGough, Nick Wright, Ben Burville, and Per Berggren. NDD20: A large-scale few-shot dolphin dataset for coarse and fine-grained categorisation"
+    },
+    {
+      "id": "ref-101",
+      "year": "2022",
+      "authors": "United States Environmental Protection Agency",
+      "title": "Greenhouse Gas Equivalencies Calculator"
+    },
+    {
+      "id": "ref-102",
+      "year": "2011",
+      "authors": "Koen EA van de Sande; Jasper RR Uijlings; et al.",
+      "title": "Segmentation as selective search for object recognition"
+    },
+    {
+      "id": "ref-103",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-104",
+      "year": "2021",
+      "authors": "Boying Wang; Libo Zhang; et al.",
+      "title": "Towards real-world prohibited item detection: A largescale x-ray benchmark"
+    },
+    {
+      "id": "ref-105",
+      "year": "2022",
+      "authors": "Weiyao Wang; Matt Feiszli; et al.",
+      "title": "Open-world instance segmentation: Exploiting pseudo ground truth from learned pairwise affinity"
+    },
+    {
+      "id": "ref-106",
+      "year": "2023",
+      "authors": "Chao-Yuan Wu; Justin Johnson; et al.",
+      "title": "Multiview compressive coding for 3D reconstruction"
+    },
+    {
+      "id": "ref-107",
+      "year": "2010",
+      "authors": "Jianxiong Xiao; James Hays; et al.",
+      "title": "SUN database: Large-scale scene recognition from abbey to zoo"
+    },
+    {
+      "id": "ref-108",
+      "year": "2015",
+      "authors": "Saining Xie; Zhuowen Tu",
+      "title": "Holistically-nested edge detection"
+    },
+    {
+      "id": "ref-109",
+      "year": "2016",
+      "authors": "Ning Xu; Brian Price; et al.",
+      "title": "Deep interactive object selection"
+    },
+    {
+      "id": "ref-110",
+      "year": "2020",
+      "authors": "Kaiyu Yang; Klint Qinami; et al.",
+      "title": "Towards fairer datasets: Filtering and balancing the distribution of the people subtree in the imagenet hierarchy"
+    },
+    {
+      "id": "ref-111",
+      "year": "2021",
+      "authors": "Lei Yang; Yan Zi Wei; et al.",
+      "title": "iShape: A first step towards irregular shape instance segmentation"
+    },
+    {
+      "id": "ref-112",
+      "year": "2019",
+      "authors": "Senthil Yogamani, Ciaran Hughes, Jonathan Horgan, Ganesh Sistu, ´ Padraig Varley, Derek O’Dea, Michal Uricar, Stefan Milz, Mar- ´ tin Simon, Karl Amende, et al",
+      "title": "WoodScape: A multi-task, multicamera fisheye dataset for autonomous driving"
+    },
+    {
+      "id": "ref-113",
+      "year": "2022",
+      "authors": "Lingzhi Zhang; Shenghao Zhou; et al.",
+      "title": "Finegrained egocentric hand-object segmentation: Dataset, model, and applications"
+    },
+    {
+      "id": "ref-114",
+      "year": "2021",
+      "authors": "Wenwei Zhang; Jiangmiao Pang; et al.",
+      "title": "K-Net: Towards unified image segmentation"
+    },
+    {
+      "id": "ref-115",
+      "year": "2017",
+      "authors": "Jieyu Zhao; Tianlu Wang; et al.",
+      "title": "Men also like shopping: Reducing gender bias amplification using corpus-level constraints"
+    },
+    {
+      "id": "ref-116",
+      "year": "2017",
+      "authors": "Bolei Zhou; Agata Lapedriza; et al.",
+      "title": "Places: A 10 million image database for scene recognition"
+    },
+    {
+      "id": "ref-117",
+      "year": "2019",
+      "authors": "Bolei Zhou; Hang Zhao; et al.",
+      "title": "Semantic understanding of scenes through the ADE20K dataset"
+    }
+  ]
+}

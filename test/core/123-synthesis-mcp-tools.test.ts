@@ -58,6 +58,8 @@ describe("Synthesis MCP tools", function () {
       "synthesis.export_filtered_paper_artifacts",
       "synthesis.resolve_topic_paper_digest",
       "synthesis.get_review_input",
+      "synthesis.query_concept_kb",
+      "synthesis.query_citation_graph_cluster",
     ]);
     assert.notInclude(names, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(names, "synthesis.query_citation_graph");
@@ -230,6 +232,25 @@ describe("Synthesis MCP tools", function () {
           },
         };
       },
+      queryConceptKb(args) {
+        return {
+          ok: true,
+          labels: args.concept_candidate_labels,
+          matches: [{ label: "DETR", exact_matches: [] }],
+          diagnostics: [],
+        };
+      },
+      queryCitationGraphCluster(args) {
+        return {
+          ok: true,
+          source_paper_refs: args.source_paper_refs,
+          cluster_policy: "bounded_external",
+          nodes: [{ node_id: "zotero:item:ABCD1234" }],
+          edges: [],
+          summaries: { cluster_node_count: 1 },
+          diagnostics: { bounded: true, side_effect_free: true },
+        };
+      },
     };
 
     for (const [id, name, args] of [
@@ -243,6 +264,12 @@ describe("Synthesis MCP tools", function () {
         3,
         "synthesis.get_citation_graph_metrics",
         { paperRefs: ["1:ABCD1234"] },
+      ],
+      [4, "synthesis.query_concept_kb", { concept_candidate_labels: ["DETR"] }],
+      [
+        5,
+        "synthesis.query_citation_graph_cluster",
+        { source_paper_refs: ["1:ABCD1234"] },
       ],
     ] as const) {
       const response: any = await handleZoteroMcpRequestForTests(
@@ -802,9 +829,17 @@ describe("Synthesis MCP tools", function () {
     const compactResult = compact.result.structuredContent.result;
     const expandedResult = expanded.result.structuredContent.result;
     assert.lengthOf(compactResult.papers, 1);
+    assert.deepInclude(compactResult.papers[0], {
+      title: "Alpha",
+    });
+    assert.deepEqual(compactResult.papers[0].tags, ["topic:x"]);
     assert.notProperty(compactResult, "tags");
     assert.notProperty(compactResult, "registry");
     assert.isArray(expandedResult.tags);
+    assert.includeMembers(
+      expandedResult.tags.map((entry: any) => entry.tag),
+      ["topic:x", "topic:y"],
+    );
     assert.isArray(expandedResult.registry);
   });
 

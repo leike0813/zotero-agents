@@ -1,0 +1,472 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2023",
+      "authors": "et al.",
+      "title": "Improving DETR with simple IoU-aware BCE loss"
+    },
+    {
+      "id": "ref-2",
+      "year": "2022",
+      "authors": "Cao, X.; Yuan, P.; et al.",
+      "title": "CF-DETR: Coarse-to-fine transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Chen, K.; Lin, W.; et al.",
+      "title": "AP-loss for accurate one-stage object detection"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Chen, X.; Yan, B.; et al.",
+      "title": "Transformer tracking"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Cheng, B.; Misra, I.; et al.",
+      "title": "Masked-attention mask transformer for universal image segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Dai, X.; Chen, Y.; et al.",
+      "title": "Dynamic DETR: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Dong, B.; Zeng, F.; et al.",
+      "title": "SOLQ: Segmenting objects by learning queries"
+    },
+    {
+      "id": "ref-9",
+      "year": "2021",
+      "authors": "Fang, Y.; Yang, S.; et al.",
+      "title": "Instances as queries"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Feng, C.; Zhong, Y.; et al.",
+      "title": "TOOD: Task-aligned one-stage object detection"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Gao, P.; Zheng, M.; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-12",
+      "year": "2022",
+      "authors": "Gao, Z.; Wang, L.; et al.",
+      "title": "Adamixer: A fast-converging query-based object detector"
+    },
+    {
+      "id": "ref-13",
+      "year": "2023",
+      "authors": "Guo, J.; Wang, C.; et al.",
+      "title": "Zero-shot generative model adaptation via image-specific prompt learning"
+    },
+    {
+      "id": "ref-14",
+      "year": "2023",
+      "authors": "Han, Y.; Han, D.; et al.",
+      "title": "Dynamic perceiver for efficient visual recognition"
+    },
+    {
+      "id": "ref-15",
+      "year": "2021",
+      "authors": "Han, Y.; Huang, G.; et al.",
+      "title": "Dynamic neural networks: A survey"
+    },
+    {
+      "id": "ref-16",
+      "year": "2021",
+      "authors": "Han, Y.; Huang, G.; et al.",
+      "title": "Spatially adaptive feature refinement for efficient inference"
+    },
+    {
+      "id": "ref-17",
+      "year": "2023",
+      "authors": "Han, Y.; Liu, Z.; et al.",
+      "title": "Latency-aware unified dynamic networks for efficient image recognition"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Han, Y.; Pu, Y.; et al.",
+      "title": "Learning to weight samples for dynamic early-exiting networks"
+    },
+    {
+      "id": "ref-19",
+      "year": "2022",
+      "authors": "Han, Y.; Yuan, Z.; et al.",
+      "title": "Latency-aware spatial-wise dynamic networks"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Hansen, C.; Hansen, C.; et al.",
+      "title": "Neural speed reading with structural-jump-lstm"
+    },
+    {
+      "id": "ref-21",
+      "year": "2023",
+      "authors": "He, C.; Li, K.; et al.",
+      "title": "Hqg-net: Unpaired medical image enhancement with high-quality guidance"
+    },
+    {
+      "id": "ref-22",
+      "year": "2023",
+      "authors": "He, C.; Li, K.; et al.",
+      "title": "Degradation-resistant unfolding network for heterogeneous image fusion"
+    },
+    {
+      "id": "ref-23",
+      "year": "2023",
+      "authors": "He, C.; Li, K.; et al.",
+      "title": "Camouflaged object detection with feature decomposition and edge reconstruction"
+    },
+    {
+      "id": "ref-24",
+      "year": "2023",
+      "authors": "He, C.; Li, K.; et al.",
+      "title": "Weakly-supervised concealed object segmentation with sam-based pseudo labeling and multi-scale feature grouping"
+    },
+    {
+      "id": "ref-25",
+      "year": "2023",
+      "authors": "He, C.; Li, K.; et al.",
+      "title": "Strategic preys make acute predators: Enhancing camouflaged object detectors by generating camouflaged objects"
+    },
+    {
+      "id": "ref-26",
+      "year": "2022",
+      "authors": "He, H.; Yuan, Y.; et al.",
+      "title": "RankSeg: Adaptive pixel classification with image category ranking for segmentation"
+    },
+    {
+      "id": "ref-27",
+      "year": "2018",
+      "authors": "Huang, G.; Chen, D.; et al.",
+      "title": "Multi-scale dense networks for resource efficient image classification"
+    },
+    {
+      "id": "ref-28",
+      "year": "2022",
+      "authors": "Huang, G.; Wang, Y.; et al.",
+      "title": "Glance and focus networks for dynamic visual recognition"
+    },
+    {
+      "id": "ref-29",
+      "year": "2023",
+      "authors": "Huang, R.; Pan, X.; et al.",
+      "title": "Joint representation learning for text and 3d point cloud"
+    },
+    {
+      "id": "ref-30",
+      "year": "2023",
+      "authors": "Jia, D.; Yuan, Y.; et al.",
+      "title": "DETRs with hybrid matching"
+    },
+    {
+      "id": "ref-31",
+      "year": "2018",
+      "authors": "Jiang, B.; Luo, R.; et al.",
+      "title": "Acquisition of localization confidence for accurate object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2023",
+      "authors": "Kahraman, F.; Oksuz, K.; et al.",
+      "title": "Correlation loss: Enforcing correlation between classification and localization"
+    },
+    {
+      "id": "ref-33",
+      "year": "2023",
+      "authors": "Lai, X.; Yuan, Y.; et al.",
+      "title": "Mask frozen-detr: High quality instance segmentation with one gpu"
+    },
+    {
+      "id": "ref-34",
+      "year": "2022",
+      "authors": "Li, F.; Zhang, H.; et al.",
+      "title": "DN-DETR: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-35",
+      "year": "2023",
+      "authors": "Li, F.; Zhang, H.; et al.",
+      "title": "Mask DINO: Towards a unified transformer-based framework for object detection and segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2021",
+      "authors": "Li, K.; Wang, S.; et al.",
+      "title": "Pose recognition with cascade transformers"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Li, X.; Wang, W.; et al.",
+      "title": "Generalized focal loss: Learning qualified and distributed bounding boxes for dense object detection"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Li, Z.; Wang, W.; et al.",
+      "title": "Panoptic segformer: Delving deeper into panoptic segmentation with transformers"
+    },
+    {
+      "id": "ref-39",
+      "year": "2023",
+      "authors": "Liang, Z.; Yuan, Y.",
+      "title": "Mask frozen-detr: High quality instance segmentation with one gpu"
+    },
+    {
+      "id": "ref-40",
+      "year": "2020",
+      "authors": "Lin, M.; Li, C.; et al.",
+      "title": "DETR for crowd pedestrian detection"
+    },
+    {
+      "id": "ref-41",
+      "year": "2017",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-42",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft COCO: Common Objects in Context"
+    },
+    {
+      "id": "ref-43",
+      "year": "2023",
+      "authors": "Lin, Y.; Yuan, Y.; et al.",
+      "title": "Detr does not need multi-scale or locality design"
+    },
+    {
+      "id": "ref-44",
+      "year": "2022",
+      "authors": "Liu, S.; Li, F.; et al.",
+      "title": "DAB-DETR: Dynamic anchor boxes are better queries for DETR"
+    },
+    {
+      "id": "ref-45",
+      "year": "2023",
+      "authors": "Liu, S.; Ren, T.; et al.",
+      "title": "Detection transformer with stable matching"
+    },
+    {
+      "id": "ref-46",
+      "year": "2023",
+      "authors": "Ma, Y.; Liang, W.; et al.",
+      "title": "Revisiting detr pre-training for object detection"
+    },
+    {
+      "id": "ref-47",
+      "year": "2022",
+      "authors": "Meinhardt, T.; Kirillov, A.; et al.",
+      "title": "Trackformer: Multi-object tracking with transformers"
+    },
+    {
+      "id": "ref-48",
+      "year": "2021",
+      "authors": "Meng, D.; Chen, X.; et al.",
+      "title": "Conditional DETR for fast training convergence"
+    },
+    {
+      "id": "ref-49",
+      "year": "2020",
+      "authors": "Oksuz, K.; Cam, B.C.; et al.",
+      "title": "A ranking-based, balanced loss function unifying classification and localisation in object detection"
+    },
+    {
+      "id": "ref-50",
+      "year": "2021",
+      "authors": "Oksuz, K.; Cam, B.C.; et al.",
+      "title": "Rank & sort loss for object detection and instance segmentation"
+    },
+    {
+      "id": "ref-51",
+      "year": "2023",
+      "authors": "Pu, Y.; Han, Y.; et al.",
+      "title": "Fine-grained recognition with learnable semantic data augmentation"
+    },
+    {
+      "id": "ref-52",
+      "year": "2023",
+      "authors": "Pu, Y.; Wang, Y.; et al.",
+      "title": "Adaptive rotated convolution for rotated object detection"
+    },
+    {
+      "id": "ref-53",
+      "year": "2020",
+      "authors": "Qian, Q.; Chen, L.; et al.",
+      "title": "DR loss: Improving object detection by distributional ranking"
+    },
+    {
+      "id": "ref-54",
+      "year": "2023",
+      "authors": "Ren, T.; Liu, S.; et al.",
+      "title": "detrex: Benchmarking detection transformers"
+    },
+    {
+      "id": "ref-55",
+      "year": "2023",
+      "authors": "Shen, Y.; Geng, Z.; et al.",
+      "title": "V-detr: Detr with vertex relative position encoding for 3d object detection"
+    },
+    {
+      "id": "ref-56",
+      "year": "2022",
+      "authors": "Shi, D.; Wei, X.; et al.",
+      "title": "End-to-end multi-person pose estimation with transformers"
+    },
+    {
+      "id": "ref-57",
+      "year": "2021",
+      "authors": "Stoffl, L.; Vidal, M.; et al.",
+      "title": "End-to-end trainable multi-instance pose estimation with transformers"
+    },
+    {
+      "id": "ref-58",
+      "year": "2020",
+      "authors": "Sun, P.; Cao, J.; et al.",
+      "title": "Transtrack: Multiple object tracking with transformer"
+    },
+    {
+      "id": "ref-59",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-60",
+      "year": "2022",
+      "authors": "Yang, Q.; Wang, S.; et al.",
+      "title": "Efficient knowledge distillation from model checkpoints"
+    },
+    {
+      "id": "ref-61",
+      "year": "2021",
+      "authors": "Wang, H.; Zhu, Y.; et al.",
+      "title": "Max-deeplab: End-to-end panoptic segmentation with mask transformers"
+    },
+    {
+      "id": "ref-62",
+      "year": "2021",
+      "authors": "Wang, S.; Wu, L.; et al.",
+      "title": "Glancing at the patch: Anomaly localization with global and local feature comparison"
+    },
+    {
+      "id": "ref-63",
+      "year": "2022",
+      "authors": "Wang, Y.; Zhang, X.; et al.",
+      "title": "Anchor DETR: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-64",
+      "year": "2021",
+      "authors": "Wang, Y.; Chen, Z.; et al.",
+      "title": "Adaptive focus for efficient video recognition"
+    },
+    {
+      "id": "ref-65",
+      "year": "2023",
+      "authors": "Wang, Y.; Han, Y.; et al.",
+      "title": "Computation-efficient deep learning for computer vision: A survey"
+    },
+    {
+      "id": "ref-66",
+      "year": "2021",
+      "authors": "Wang, Y.; Han, Y.; et al.",
+      "title": "Not all images are worth 16x16 words: Dynamic transformers for efficient image recognition"
+    },
+    {
+      "id": "ref-67",
+      "year": "2023",
+      "authors": "Yang, Q.; Wang, S.; et al.",
+      "title": "Boosting offline reinforcement learning with action preference query"
+    },
+    {
+      "id": "ref-68",
+      "year": "2023",
+      "authors": "Yang, Q.; Wang, S.; et al.",
+      "title": "Hundreds guide millions: Adaptive offline reinforcement learning with expert guidance"
+    },
+    {
+      "id": "ref-69",
+      "year": "2022",
+      "authors": "Yu, Q.; Wang, H.; et al.",
+      "title": "CMT-DeepLab: Clustering mask transformers for panoptic segmentation"
+    },
+    {
+      "id": "ref-70",
+      "year": "2022",
+      "authors": "Yu, X.; Shi, D.; et al.",
+      "title": "SOIT: Segmenting objects with instance-aware transformers"
+    },
+    {
+      "id": "ref-71",
+      "year": "2020",
+      "authors": "Yuan, Y.; Chen, X.; et al.",
+      "title": "Object-contextual representations for semantic segmentation"
+    },
+    {
+      "id": "ref-72",
+      "year": "2023",
+      "authors": "Yue, Y.; Kang, B.; et al.",
+      "title": "Offline prioritized experience replay"
+    },
+    {
+      "id": "ref-73",
+      "year": "2023",
+      "authors": "Yue, Y.; Kang, B.; et al.",
+      "title": "Value-consistent representation learning for data-efficient reinforcement learning"
+    },
+    {
+      "id": "ref-74",
+      "year": "2022",
+      "authors": "Zhang, G.; Luo, Z.; et al.",
+      "title": "Accelerating DETR convergence via semantic-aligned matching"
+    },
+    {
+      "id": "ref-75",
+      "year": "2023",
+      "authors": "Zhang, H.; Li, F.; et al.",
+      "title": "DINO: DETR with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-76",
+      "year": "2021",
+      "authors": "Zhang, H.; Wang, Y.; et al.",
+      "title": "VarifocalNet: An iou-aware dense object detector"
+    },
+    {
+      "id": "ref-77",
+      "year": "2020",
+      "authors": "Zhang, S.; Chi, C.; et al.",
+      "title": "Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection"
+    },
+    {
+      "id": "ref-78",
+      "year": "2021",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable DETR: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

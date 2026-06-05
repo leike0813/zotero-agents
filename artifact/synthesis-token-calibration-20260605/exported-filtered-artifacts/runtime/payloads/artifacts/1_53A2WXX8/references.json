@@ -1,0 +1,400 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2014",
+      "authors": "Pablo Arbelaez; Jordi Pont-Tuset; et al.",
+      "title": "Multiscale combinatorial grouping"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "Hangbo Bao; Li Dong; et al.",
+      "title": "BEiT: BERT pretraining of image transformers"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Daniel Bolya; Chong Zhou; et al.",
+      "title": "YOLACT++: Better real-time instance segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2018",
+      "authors": "Zhaowei Cai; Nuno Vasconcelos",
+      "title": "Cascade R-CNN: Delving into high quality object detection"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2019",
+      "authors": "Kai Chen; Jiangmiao Pang; et al.",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2018",
+      "authors": "Liang-Chieh Chen; George Papandreou; et al.",
+      "title": "DeepLab: Semantic image segmentation with deep convolutional nets, atrous convolution, and fully connected CRFs"
+    },
+    {
+      "id": "ref-8",
+      "year": "2017",
+      "authors": "Liang-Chieh Chen; George Papandreou; et al.",
+      "title": "Rethinking atrous convolution for semantic image segmentation"
+    },
+    {
+      "id": "ref-9",
+      "year": "2020",
+      "authors": "Liang-Chieh Chen; Huiyu Wang; et al.",
+      "title": "Scaling wide residual networks for panoptic segmentation"
+    },
+    {
+      "id": "ref-10",
+      "year": "2018",
+      "authors": "Liang-Chieh Chen; Yukun Zhu; et al.",
+      "title": "Encoder-decoder with atrous separable convolution for semantic image segmentation"
+    },
+    {
+      "id": "ref-11",
+      "year": "2020",
+      "authors": "Bowen Cheng; Maxwell D Collins; et al.",
+      "title": "Panoptic-DeepLab: A simple, strong, and fast baseline for bottom-up panoptic segmentation"
+    },
+    {
+      "id": "ref-12",
+      "year": "2021",
+      "authors": "Bowen Cheng; Ross Girshick; et al.",
+      "title": "Boundary iou: Improving object-centric image segmentation evaluation"
+    },
+    {
+      "id": "ref-13",
+      "year": "2021",
+      "authors": "Bowen Cheng; Omkar Parkhi; et al.",
+      "title": "Pointly-supervised instance segmentation"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Bowen Cheng; Alexander G",
+      "title": "Schwing, and Alexander Kirillov"
+    },
+    {
+      "id": "ref-15",
+      "year": "2017",
+      "authors": "Franc¸ois Chollet",
+      "title": "Xception: Deep learning with depthwise separable convolutions"
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "Marius Cordts; Mohamed Omran; et al.",
+      "title": "The Cityscapes dataset for semantic urban scene understanding"
+    },
+    {
+      "id": "ref-17",
+      "year": "2021",
+      "authors": "Alexey Dosovitskiy; Lucas Beyer; et al.",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale"
+    },
+    {
+      "id": "ref-18",
+      "year": "2021",
+      "authors": "Xianzhi Du; Barret Zoph; et al.",
+      "title": "Simple training strategies and model scaling for object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2015",
+      "authors": "Mark Everingham; SM Ali Eslami; et al.",
+      "title": "The PASCAL visual object classes challenge: A retrospective"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Yuxin Fang; Shusheng Yang; et al.",
+      "title": "Instances as queries"
+    },
+    {
+      "id": "ref-21",
+      "year": "2019",
+      "authors": "Jun Fu; Jing Liu; et al.",
+      "title": "Dual attention network for scene segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Peng Gao; Minghang Zheng; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-23",
+      "year": "2021",
+      "authors": "Golnaz Ghiasi; Yin Cui; et al.",
+      "title": "Simple copy-paste is a strong data augmentation method for instance segmentation"
+    },
+    {
+      "id": "ref-24",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask R-CNN"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Kaiming He; Xiangyu Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-26",
+      "year": "2019",
+      "authors": "Zilong Huang; Xinggang Wang; et al.",
+      "title": "CCNet: Criss-cross attention for semantic segmentation"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Ross Girshick; et al.",
+      "title": "Panoptic feature pyramid networks"
+    },
+    {
+      "id": "ref-28",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Kaiming He; et al.",
+      "title": "Panoptic segmentation"
+    },
+    {
+      "id": "ref-29",
+      "year": "2017",
+      "authors": "Alexander Kirillov; Evgeny Levinkov; et al.",
+      "title": "InstanceCut: from edges to instances with multicut"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Alexander Kirillov; Yuxin Wu; et al.",
+      "title": "PointRend: Image segmentation as rendering"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Yanwei Li; Hengshuang Zhao; et al.",
+      "title": "Fully convolutional networks for panoptic segmentation with point-based supervision"
+    },
+    {
+      "id": "ref-32",
+      "year": "2021",
+      "authors": "Zhiqi Li; Wenhai Wang; et al.",
+      "title": "Panoptic segformer"
+    },
+    {
+      "id": "ref-33",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Piotr Dollar; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-35",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-36",
+      "year": "2021",
+      "authors": "Ze Liu; Yutong Lin; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-37",
+      "year": "2015",
+      "authors": "Jonathan Long; Evan Shelhamer; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Shihua Huang Zhichao Lu; Ran Cheng; et al.",
+      "title": "Fapn: Feature-aligned pyramid network for dense image prediction"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Depu Meng; Xiaokang Chen; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-41",
+      "year": "2016",
+      "authors": "Fausto Milletari; Nassir Navab; et al.",
+      "title": "V-Net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-42",
+      "year": "2017",
+      "authors": "Gerhard Neuhold; Tobias Ollmann; et al.",
+      "title": "The mapillary vistas dataset for semantic understanding of street scenes"
+    },
+    {
+      "id": "ref-43",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-44",
+      "year": "2015",
+      "authors": "Olga Russakovsky; Jia Deng; et al.",
+      "title": "Berg, and Li Fei-Fei"
+    },
+    {
+      "id": "ref-45",
+      "year": "2021",
+      "authors": "Robin Strudel; Ricardo Garcia; et al.",
+      "title": "Segmenter: Transformer for semantic segmentation"
+    },
+    {
+      "id": "ref-46",
+      "year": "2021",
+      "authors": "Zhiqing Sun; Shengcao Cao; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-47",
+      "year": "2020",
+      "authors": "Mingxing Tan; Ruoming Pang; et al.",
+      "title": "Efficientdet: Scalable and efficient object detection"
+    },
+    {
+      "id": "ref-48",
+      "year": "2020",
+      "authors": "Andrew Tao; Karan Sapra; et al.",
+      "title": "Hierarchical multi-scale attention for semantic segmentation"
+    },
+    {
+      "id": "ref-49",
+      "year": "2020",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "Conditional convolutions for instance segmentation"
+    },
+    {
+      "id": "ref-50",
+      "year": "2013",
+      "authors": "Jasper RR Uijlings; Koen EA Van De Sande; et al.",
+      "title": "Selective search for object recognition"
+    },
+    {
+      "id": "ref-51",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-52",
+      "year": "2021",
+      "authors": "Huiyu Wang; Yukun Zhu; et al.",
+      "title": "MaX-DeepLab: End-to-end panoptic segmentation with mask transformers"
+    },
+    {
+      "id": "ref-53",
+      "year": "2019",
+      "authors": "Jingdong Wang; Ke Sun; et al.",
+      "title": "Deep high-resolution representation learning for visual recognition"
+    },
+    {
+      "id": "ref-54",
+      "year": "2021",
+      "authors": "Wenhai Wang; Enze Xie; et al.",
+      "title": "Pvtv2: Improved baselines with pyramid vision transformer"
+    },
+    {
+      "id": "ref-55",
+      "year": "2018",
+      "authors": "Xiaolong Wang; Ross Girshick; et al.",
+      "title": "Non-local neural networks"
+    },
+    {
+      "id": "ref-56",
+      "year": "2020",
+      "authors": "Xinlong Wang; Rufeng Zhang; et al.",
+      "title": "SOLOv2: Dynamic and fast instance segmentation"
+    },
+    {
+      "id": "ref-57",
+      "year": "2019",
+      "authors": "Yuxin Wu; Alexander Kirillov; et al.",
+      "title": "Detectron2"
+    },
+    {
+      "id": "ref-58",
+      "year": "2018",
+      "authors": "Tete Xiao; Yingcheng Liu; et al.",
+      "title": "Unified perceptual parsing for scene understanding"
+    },
+    {
+      "id": "ref-59",
+      "year": "2021",
+      "authors": "Enze Xie; Wenhai Wang; et al.",
+      "title": "Segformer: Simple and efficient design for semantic segmentation with transformers"
+    },
+    {
+      "id": "ref-60",
+      "year": "2019",
+      "authors": "Yuwen Xiong; Renjie Liao; et al.",
+      "title": "Upsnet: A unified panoptic segmentation network"
+    },
+    {
+      "id": "ref-61",
+      "year": "2021",
+      "authors": "Yuhui Yuan; Lang Huang; et al.",
+      "title": "OCNet: Object context for semantic segmentation"
+    },
+    {
+      "id": "ref-62",
+      "year": "2021",
+      "authors": "Wenwei Zhang; Jiangmiao Pang; et al.",
+      "title": "K-net: Towards unified image segmentation"
+    },
+    {
+      "id": "ref-63",
+      "year": "2017",
+      "authors": "Hengshuang Zhao; Jianping Shi; et al.",
+      "title": "Pyramid scene parsing network"
+    },
+    {
+      "id": "ref-64",
+      "year": "2021",
+      "authors": "Sixiao Zheng; Jiachen Lu; et al.",
+      "title": "Rethinking semantic segmentation from a sequence-to-sequence perspective with transformers"
+    },
+    {
+      "id": "ref-65",
+      "year": "2017",
+      "authors": "Bolei Zhou; Hang Zhao; et al.",
+      "title": "Scene parsing through ADE20K dataset"
+    },
+    {
+      "id": "ref-66",
+      "year": "2021",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

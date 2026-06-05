@@ -1,0 +1,274 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Xinlong Wang; Tao Kong; et al.",
+      "title": "SOLO: Segmenting objects by locations"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Daniel Bolya; Chong Zhou; et al.",
+      "title": "YOLACT: Real-time instance segmentation"
+    },
+    {
+      "id": "ref-3",
+      "year": "2017",
+      "authors": "Yi Li; Haozhi Qi; et al.",
+      "title": "Fully convolutional instance-aware semantic segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Girshick"
+    },
+    {
+      "id": "ref-5",
+      "year": "2018",
+      "authors": "Shu Liu; Lu Qi; et al.",
+      "title": "Path aggregation network for instance segmentation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2019",
+      "authors": "Zhaojin Huang; Lichao Huang; et al.",
+      "title": "Mask scoring R-CNN"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Xinlei Chen; Ross Girshick; et al.",
+      "title": "TensorMask: A foundation for dense object segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2020",
+      "authors": "Hao Chen; Kunyang Sun; et al.",
+      "title": "BlendMask: Top-down meets bottom-up for instance segmentation"
+    },
+    {
+      "id": "ref-9",
+      "year": "2020",
+      "authors": "Rufeng Zhang; Zhi Tian; et al.",
+      "title": "Mask encoding for single shot instance segmentation"
+    },
+    {
+      "id": "ref-10",
+      "year": "2020",
+      "authors": "Enze Xie; Peize Sun; et al.",
+      "title": "PolarMask: Single shot instance segmentation with polar representation"
+    },
+    {
+      "id": "ref-11",
+      "year": "2019",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-12",
+      "year": "2017",
+      "authors": "Alejandro Newell; Zhiao Huang; et al.",
+      "title": "Associative embedding: End-to-end learning for joint detection and grouping"
+    },
+    {
+      "id": "ref-13",
+      "year": "2017",
+      "authors": "Bert De Brabandere; Davy Neven; et al.",
+      "title": "Semantic instance segmentation with a discriminative loss function"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "Shu Liu; Jiaya Jia; et al.",
+      "title": "Sequential grouping networks for instance segmentation"
+    },
+    {
+      "id": "ref-15",
+      "year": "2019",
+      "authors": "Naiyu Gao; Yanhu Shan; et al.",
+      "title": "SSAP: Single-shot instance segmentation with affinity pyramid"
+    },
+    {
+      "id": "ref-16",
+      "year": "2015",
+      "authors": "Max Jaderberg; Karen Simonyan; et al.",
+      "title": "Spatial transformer networks"
+    },
+    {
+      "id": "ref-17",
+      "year": "2016",
+      "authors": "Xu Jia; Bert De Brabandere; et al.",
+      "title": "Dynamic filter networks"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "Jifeng Dai; Haozhi Qi; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-19",
+      "year": "2018",
+      "authors": "Linjie Yang; Yanran Wang; et al.",
+      "title": "Katsaggelos"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Konstantin Sofiiuk; Olga Barinova; et al.",
+      "title": "AdaptIS: Adaptive instance selection network"
+    },
+    {
+      "id": "ref-21",
+      "year": "2020",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "Conditional convolutions for instance segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Navaneeth Bodla; Bharat Singh; et al.",
+      "title": "Soft-NMS: improving object detection with one line of code"
+    },
+    {
+      "id": "ref-23",
+      "year": "2019",
+      "authors": "Songtao Liu; Di Huang; et al.",
+      "title": "Adaptive NMS: Refining pedestrian detection in a crowd"
+    },
+    {
+      "id": "ref-24",
+      "year": "2019",
+      "authors": "Yihui He; Chenchen Zhu; et al.",
+      "title": "Bounding box regression with uncertainty for accurate object detection"
+    },
+    {
+      "id": "ref-25",
+      "year": "2019",
+      "authors": "Lile Cai; Bin Zhao; et al.",
+      "title": "Sabry Aly, and Vijay Chandrasekhar"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Rosanne Liu; Joel Lehman; et al.",
+      "title": "An intriguing failing of convolutional neural networks and the coordconv solution"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Ross Girshick; et al.",
+      "title": "Panoptic feature pyramid networks"
+    },
+    {
+      "id": "ref-28",
+      "year": "2018",
+      "authors": "Yuxin Wu; Kaiming He",
+      "title": "Group normalization"
+    },
+    {
+      "id": "ref-29",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2018",
+      "authors": "Liang-Chieh Chen; Alexander Hermans; et al.",
+      "title": "Masklab: Instance segmentation by refining object detection with semantic and direction features"
+    },
+    {
+      "id": "ref-31",
+      "year": "2020",
+      "authors": "Yuqing Wang; Zhaoliang Xu; et al.",
+      "title": "Centermask: single shot instance segmentation with point representation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Agrim Gupta; Piotr Dollar; et al.",
+      "title": "LVIS: A dataset for large vocabulary instance segmentation"
+    },
+    {
+      "id": "ref-34",
+      "year": "2020",
+      "authors": "Md Amirul Islam; Sen Jia; et al.",
+      "title": "B"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Yanwei Li; Xinze Chen; et al.",
+      "title": "Attentionguided unified network for panoptic segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Yuwen Xiong; Renjie Liao; et al.",
+      "title": "UPSNet: A unified panoptic segmentation network"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Bowen Cheng; Maxwell Collins; et al.",
+      "title": "Panoptic-deeplab: A simple, strong, and fast baseline for bottom-up panoptic segmentation"
+    },
+    {
+      "id": "ref-38",
+      "year": "2018",
+      "authors": "Joseph Redmon; Ali Farhadi",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-39",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-40",
+      "year": "2018",
+      "authors": "Shifeng Zhang; Longyin Wen; et al.",
+      "title": "Single-shot refinement neural network for object detection"
+    },
+    {
+      "id": "ref-41",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Piotr Dollár; et al.",
+      "title": "Girshick, Kaiming He, Bharath Hariharan, and Serge J"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Tao Kong; Fuchun Sun; et al.",
+      "title": "Foveabox: Beyond anchor-based object detector"
+    },
+    {
+      "id": "ref-43",
+      "year": "2019",
+      "authors": "Ze Yang; Shaohui Liu; et al.",
+      "title": "Reppoints: Point set representation for object detection"
+    },
+    {
+      "id": "ref-44",
+      "year": "2019",
+      "authors": "Xingyi Zhou; Dequan Wang; et al.",
+      "title": "Objects as points"
+    },
+    {
+      "id": "ref-45",
+      "year": "2019",
+      "authors": "Kai Chen; Jiaqi Wang; et al.",
+      "title": "MMDetection: Open mmlab detection toolbox and benchmark"
+    }
+  ]
+}

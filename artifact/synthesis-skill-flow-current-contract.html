@@ -1,0 +1,1838 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topic Synthesis Skill 当前合同流程</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-soft: #f8fafb;
+      --ink: #1e262d;
+      --muted: #63717b;
+      --line: #d9e0e6;
+      --accent: #1f6f72;
+      --accent-2: #7a5b22;
+      --accent-3: #365f9d;
+      --ok: #23724b;
+      --warn: #9a6a18;
+      --risk: #a13b3b;
+      --shadow: 0 16px 40px rgba(31, 44, 53, 0.09);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.48;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(244, 246, 248, 0.94);
+      backdrop-filter: blur(10px);
+    }
+
+    .topbar {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 18px 24px 14px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: end;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 27px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 980px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    button, input { font: inherit; }
+
+    .seg {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 2px 8px rgba(31, 44, 53, 0.04);
+    }
+
+    .seg button, .tool-btn {
+      border: 0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .seg button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .tool-btn {
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .tool-btn.active {
+      border-color: #9cc7c5;
+      background: #e6f1f1;
+      color: var(--accent);
+    }
+
+    main {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 18px 24px 34px;
+      display: grid;
+      grid-template-columns: 310px minmax(0, 1fr) 330px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    aside, .panel, .stage-card, .flow-tile, .note-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    aside {
+      position: sticky;
+      top: 95px;
+      max-height: calc(100vh - 118px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .side-head {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .search {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .stage-list {
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .stage-btn {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 10px 9px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 8px;
+      background: transparent;
+      text-align: left;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .stage-btn:hover { background: #eef3f4; }
+    .stage-btn.active {
+      border-color: #a8cbca;
+      background: #e5f1f1;
+    }
+
+    .stage-no {
+      padding-top: 2px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+    }
+
+    .stage-title {
+      font-weight: 660;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+
+    .stage-action {
+      margin-top: 3px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .panel { overflow: hidden; }
+
+    .tabs {
+      display: flex;
+      overflow-x: auto;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .tabs button {
+      border: 0;
+      border-right: 1px solid var(--line);
+      padding: 13px 16px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .tabs button.active {
+      background: var(--panel);
+      color: var(--accent);
+      box-shadow: inset 0 -3px 0 var(--accent);
+    }
+
+    .view { padding: 18px; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    .stage-card {
+      box-shadow: none;
+      padding: 16px;
+    }
+
+    h2, h3 {
+      margin: 0 0 10px;
+      line-height: 1.24;
+      letter-spacing: 0;
+    }
+
+    h2 { font-size: 21px; }
+    h3 { font-size: 16px; }
+    p { margin: 0 0 10px; }
+
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 10px 0 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 9px;
+      background: #f7faf9;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .badge.ok {
+      border-color: #b8dac9;
+      background: #eaf6ef;
+      color: var(--ok);
+    }
+
+    .badge.warn {
+      border-color: #e7ce9d;
+      background: #fff7df;
+      color: var(--warn);
+    }
+
+    .badge.risk {
+      border-color: #e1b2b2;
+      background: #fff0f0;
+      color: var(--risk);
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .flow-tile {
+      min-height: 104px;
+      box-shadow: none;
+      padding: 13px;
+      background: linear-gradient(180deg, #fff, #f9fbfb);
+    }
+
+    .flow-tile .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .flow-tile .value {
+      margin-top: 7px;
+      font-family: var(--mono);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .lane {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+      margin: 14px 0;
+    }
+
+    .lane-row {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      border-bottom: 1px solid var(--line);
+      min-height: 44px;
+    }
+
+    .lane-row:last-child { border-bottom: 0; }
+
+    .lane-label {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      background: var(--panel-soft);
+      border-right: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .lane-body {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: #edf4f8;
+      color: #335d75;
+      font-size: 12px;
+      border: 1px solid #c9dce7;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      max-height: 390px;
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid #cfd8df;
+      background: #172126;
+      color: #dce7e9;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    li { margin: 6px 0; }
+
+    .right-rail {
+      position: sticky;
+      top: 95px;
+      max-height: calc(100vh - 118px);
+      overflow: auto;
+      display: grid;
+      gap: 12px;
+    }
+
+    .note-card {
+      box-shadow: none;
+      padding: 14px;
+    }
+
+    .note-card h3 {
+      font-size: 15px;
+      margin-bottom: 8px;
+    }
+
+    .note-meta {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .mini-table th, .mini-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    .mini-table th {
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .mini-table tr:last-child td { border-bottom: 0; }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 1180px) {
+      main {
+        grid-template-columns: 280px minmax(0, 1fr);
+      }
+      .right-rail {
+        grid-column: 1 / -1;
+        position: static;
+        max-height: none;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .topbar, main {
+        grid-template-columns: 1fr;
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+      aside {
+        position: static;
+        max-height: 320px;
+      }
+      .hero-grid, .two-col, .flow-grid {
+        grid-template-columns: 1fr;
+      }
+      .lane-row {
+        grid-template-columns: 1fr;
+      }
+      .lane-label {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div>
+        <h1>Topic Synthesis Skill 当前合同流程</h1>
+        <div class="subtitle">
+          基于 create/update topic synthesis 最新 SKILL、gate、schema 和 runtime 实现整理。页面同时记录与
+          <span class="mono">artifact/synthesis-agent-payload-simplification-notes.md</span>
+          的对齐状态。
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="seg" aria-label="operation mode">
+          <button id="modeCreate" class="active" type="button">Create</button>
+          <button id="modeUpdate" type="button">Update</button>
+        </div>
+        <button id="showNotes" class="tool-btn active" type="button">对照 notes</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <div class="side-head">
+        <input id="stageSearch" class="search" type="search" placeholder="筛选 stage / action / payload">
+      </div>
+      <div id="stageList" class="stage-list"></div>
+    </aside>
+
+    <section class="panel">
+      <div class="tabs">
+        <button data-tab="flow" class="active" type="button">流程</button>
+        <button data-tab="gateSchema" type="button">Gate + Schema</button>
+        <button data-tab="payload" type="button">Payload</button>
+        <button data-tab="runtime" type="button">Runtime</button>
+        <button data-tab="output" type="button">最终输出</button>
+        <button data-tab="alignment" type="button">实现对照</button>
+      </div>
+      <div id="content" class="view"></div>
+    </section>
+
+    <section id="rightRail" class="right-rail"></section>
+  </main>
+
+  <script>
+    const commonStages = [
+      {
+        no: 0,
+        stage: "stage_0_runtime_setup",
+        action: "confirm_runtime_setup",
+        title: "初始化 run-local SQLite",
+        owner: "runtime",
+        status: "aligned",
+        reads: ["operation", "language", "run root"],
+        writes: ["runtime/topic-synthesis.sqlite", "stage_1_topic_context"],
+        agent: "只运行 gate 返回的 setup 命令，不写语义 payload。",
+        runtime: "初始化 SQLite、固定 operation/language/run_root，并建立 stage/action receipt 轨道。",
+        payload: `{
+  "action": "confirm_runtime_setup",
+  "operation": "create | update_full | update_patch",
+  "language": "zh-CN"
+}`,
+        notes: ["notes 未特别要求变更。", "当前实现与“runtime owning state”原则一致。"]
+      },
+      {
+        no: 5,
+        stage: "stage_5_paper_triage",
+        action: "persist_paper_triage",
+        title: "轻量 paper triage",
+        owner: "agent semantic",
+        status: "partial",
+        reads: ["filtered content files", "paper_workset", "artifact bundle receipts"],
+        writes: ["runtime/payloads/paper-triage-batch.json", "paper_analysis rows", "cross-paper evidence index"],
+        agent: "每篇论文只判断 topic relevance、paper quality，并写一到两句 core_digest；不做路线、claim、timeline、gap 或 external 综合。",
+        runtime: "校验 paper_ref 属于 workset，补 digest locator / availability / receipt，并导出 cross-paper evidence index。",
+        payload: `{
+  "analyses": [
+    {
+      "paper_ref": "1:ABC",
+      "topic_relevance": {
+        "level": "core",
+        "reason": "..."
+      },
+      "paper_quality": {
+        "level": "high",
+        "reason": "..."
+      },
+      "core_digest": "...",
+      "caveats": [],
+      "diagnostics": []
+    }
+  ]
+}`,
+        notes: ["语义职责与 notes 对齐：轻量 triage。", "shape 未完全按 notes 扁平化；notes 建议 assessments[] + relevance_level/paper_quality_level。", "当前 schema 使用 analyses[] 和 nested topic_relevance / paper_quality。"]
+      },
+      {
+        no: 6,
+        stage: "stage_6_cross_paper_map",
+        action: "export_cross_paper_context / derive_cross_paper_evidence_map",
+        title: "导出上下文与 runtime evidence map",
+        owner: "runtime",
+        status: "partial",
+        reads: ["paper triage rows", "artifact bundles", "citation graph metrics", "paper_workset"],
+        writes: ["runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md", "runtime/payloads/cross-paper-evidence-map.json"],
+        agent: "读取 runtime 导出的 context views；不手写 cross-paper evidence map、candidate ids 或 evidence_map_refs。",
+        runtime: "生成 context markdown、manifest、triage refs、candidate id 空间，并维护最终 provenance/evidence closure。",
+        payload: `{
+  "schema_id": "synthesis.cross_paper_evidence_map",
+  "evidence_limits": {
+    "known_triage_refs": ["triage:..."]
+  },
+  "taxonomy_candidates": [],
+  "improvement_dimension_candidates": [],
+  "claim_candidates": [],
+  "debate_candidates": [],
+  "gap_candidates": [],
+  "review_outline_seeds": [],
+  "diagnostics": []
+}`,
+        notes: ["agent 不写 map 已对齐。", "notes 建议改名 prepare_cross_paper_context / provenance_index；最新实现仍使用 stage_6_cross_paper_map 与 cross_paper_evidence_map。", "notes 建议双 context selection 与 score 阈值；当前实现导出双 view，但未把 notes 中的 paper_scores/context_selection 作为 agent-visible合同。"]
+      },
+      {
+        no: 7,
+        stage: "stage_8_core_synthesis",
+        action: "persist_core_synthesis",
+        title: "单一核心综合 payload",
+        owner: "agent semantic",
+        status: "aligned",
+        reads: ["references/step_08_core_synthesis.md", "cross-paper context", "evidence map"],
+        writes: ["runtime/payloads/core-analytical-sections.json", "result/sections core files"],
+        agent: "一次写完 taxonomy、timeline、positioning、claims、improvement dimensions、debates、gaps、review outline 和 concept labels。",
+        runtime: "校验 required sections、source_paper_refs、evidence_map refs，并注册核心 section artifact。",
+        payload: `{
+  "taxonomy": { "summary": {}, "nodes": [] },
+  "timeline_events": { "summary": {}, "events": [] },
+  "positioning": {},
+  "claims": [],
+  "improvement_dimension_summary": {},
+  "improvement_dimensions": [],
+  "concept_candidate_labels": [],
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}`,
+        notes: ["Stage 7/8 合并已落地。", "comparison_matrix 已从 agent-facing shape 移除。", "notes 建议 runtime 派生所有内部 id；当前 schema 不要求 agent 写 id，但 additionalProperties 仍允许 section 内有 id。"]
+      },
+      {
+        no: 8,
+        stage: "stage_9_kg_enrichment",
+        action: "persist_kg_enrichment",
+        title: "KG enrichment payload",
+        owner: "agent semantic + runtime sidecars",
+        status: "partial",
+        reads: ["references/step_09_kg_enrichment.md", "validated core synthesis", "context views", "evidence map"],
+        writes: ["runtime/payloads/kg-enrichment.json", "result/sidecars/concept-cards-proposal.json", "result/sidecars/topic-graph-relation-proposals.json", "result/sidecars/topic-interest-metadata.json"],
+        agent: "补 concept_details[]、topic_relation_candidates[] 和 topic_matching_terms；不写 sidecar wrapper、canonical ids、topic id、seed literature ids 或 SQLite 数据。",
+        runtime: "校验 enrichment payload，并物化 concept proposal、topic relation proposal、topic interest metadata 三个 sidecars。",
+        payload: `{
+  "schema_id": "synthesis.topic_synthesis_kg_enrichment",
+  "schema_version": "1.0.0",
+  "concept_details": [],
+  "topic_relation_candidates": [],
+  "topic_matching_terms": {
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "diagnostics": []
+  },
+  "diagnostics": []
+}`,
+        notes: ["从 kg proposals 改为 kg enrichment 已落地。", "notes 建议 topic_matching_terms.method_terms；最新实现使用 methods。", "notes 中 topic_relation_candidates 建议 source_section_refs/source_paper_refs/confidence；最新 reference 使用 evidence/caveat 作为建议字段。"]
+      },
+      {
+        no: 9,
+        stage: "stage_10_summary_coverage",
+        action: "finalize_summary_coverage",
+        title: "总结、覆盖与可靠性收尾",
+        owner: "agent summary + runtime materialization",
+        status: "partial",
+        reads: ["references/step_10_summary_coverage.md", "validated core synthesis", "KG sidecars", "runtime context"],
+        writes: ["runtime/payloads/external-statistics-report.json", "result/sections/*.json", "runtime-rendered synthesis_report"],
+        agent: "只写 summary prose、coverage verdict/reason、reliability caveats、external context summary、collection suggestions。",
+        runtime: "合并核心综合，派生 statistics、source_artifacts、external_literature_analysis structure、paper_evidence、evidence_map，并渲染 synthesis_report。",
+        payload: `{
+  "summary": { "text": "" },
+  "coverage": {
+    "coverage_verdict": "partial",
+    "reason": ""
+  },
+  "reliability_caveats": [],
+  "external_context_summary": { "summary": "" },
+  "collection_suggestions": [],
+  "diagnostics": []
+}`,
+        notes: ["语义职责与 notes 对齐。", "shape 与 notes 不完全一致；notes 建议 summary_brief/summary_overview/key_takeaways 等扁平字段。", "payload 文件名仍为 external-statistics-report.json，action 已改为 finalize_summary_coverage。"]
+      },
+      {
+        no: 11,
+        stage: "stage_11_render_and_validate",
+        action: "validate_final_artifacts",
+        title: "渲染并校验最终业务 JSON",
+        owner: "runtime",
+        status: "aligned",
+        reads: ["result/sections/*.json", "artifact registry", "sidecars", "operation CAS state"],
+        writes: ["result/topic-analysis.json 或 result/topic-analysis.patch.json", "result/final-output.candidate.json", "sidecar manifest entries"],
+        agent: "只运行 gate 命令并读取最终 business JSON；不得手写 result/final-output.candidate.json。",
+        runtime: "校验 schema、evidence closure、hash/manifest/sidecar registry，并生成唯一 final-output candidate。",
+        payload: `{
+  "kind": "topic_synthesis",
+  "operation": "create | update_full | update_patch",
+  "analysis_manifest_path": "result/topic-analysis.json"
+}`,
+        notes: ["validate_final_artifacts 是唯一 final-output.candidate.json 路径，已对齐。", "notes 中旧 result/result.json 说法已由最新实现替换。"]
+      },
+      {
+        no: 12,
+        stage: "stage_12_completed",
+        action: "emit_final_json",
+        title: "输出最终 JSON",
+        owner: "agent output",
+        status: "aligned",
+        reads: ["result/final-output.candidate.json"],
+        writes: ["assistant final JSON only"],
+        agent: "最终响应只输出 runtime 生成的合法业务 JSON object，不追加解释。",
+        runtime: "无新增语义内容；只保证最终 artifact 已登记。",
+        payload: `Get-Content -Encoding UTF8 "result/final-output.candidate.json"`,
+        notes: ["当前实现与 final stdout 合同一致。"]
+      }
+    ];
+
+    const createSpecific = [
+      {
+        no: 1,
+        stage: "stage_1_topic_context",
+        action: "persist_topic_context",
+        title: "定义 topic 与 duplicate check",
+        owner: "agent semantic",
+        status: "aligned",
+        reads: ["topicSeed", "language", "zotero-bridge synthesis list-topics"],
+        writes: ["runtime/payloads/topic-context.json", "topic_intent"],
+        agent: "把 seed 转成 topic_title、definition、scope 和 duplicate_status；不写 runtime 派生字段。",
+        runtime: "根据扁平 topic payload 派生 topic definition/key，登记 topic intent；create apply 检查目标 topic 当前不存在。",
+        payload: `{
+  "topic_title": "Topic Title",
+  "aliases": [],
+  "definition": "",
+  "scope_include": [],
+  "scope_exclude": [],
+  "duplicate_status": "none",
+  "duplicate_candidate_ids": [],
+  "duplicate_reason": "",
+  "diagnostics": []
+}`,
+        notes: ["agent 不再看到或书写 topic_definition.id/hash/locator 等 runtime 字段。"]
+      },
+      {
+        no: 2,
+        stage: "stage_2_resolver_and_workset",
+        action: "persist_resolver",
+        title: "resolver proposal 与 runtime cascade",
+        owner: "agent semantic + runtime cascade",
+        status: "aligned",
+        reads: ["zotero-bridge synthesis get-library-index as context", "topic boundary"],
+        writes: ["runtime/payloads/resolver-proposal.json", "runtime/payloads/resolver.json", "paper_workset", "resolver cascade receipts"],
+        agent: "只写 resolver proposal；library index 只读用于设计 resolver，不保存为 agent payload。",
+        runtime: "编译 proposal，调用 resolve-resolver，派生 paper_workset，查询 citation graph metrics，导出 filtered paper artifacts，并写入 cascade receipts。",
+        payload: `{
+  "resolver": {
+    "mode": "tag_query",
+    "query": {
+      "and": ["object-detection", "detr"]
+    }
+  },
+  "resolver_reasoning": "",
+  "operation_intent": "create",
+  "diagnostics": []
+}`,
+        notes: ["Stage 3 graph metrics 与 Stage 4 filtered artifact export 已硬合并进 Stage 2。", "不保留独立 gate action 或 agent-facing schema。"]
+      }
+    ];
+
+    const updateSpecific = [
+      {
+        no: 1,
+        stage: "stage_1_topic_context",
+        action: "persist_topic_context",
+        title: "读取 current topic context",
+        owner: "agent bridge + runtime",
+        status: "partial",
+        reads: ["zotero-bridge synthesis get-topic-context", "topicId", "updateMode"],
+        writes: ["runtime/payloads/topic-context.json", "base/read hashes"],
+        agent: "把 host 返回对象放入 topic_context，并只在 update_assessment 中写轻量判断。",
+        runtime: "登记 current_context、base_hashes、read_section_hashes、recommended_update，作为 update_full/update_patch 冲突检测真源。",
+        payload: `{
+  "topic_context": {
+    "topic_id": "existing-topic-id",
+    "topic_definition": {},
+    "current_hashes": {},
+    "section_hashes": {},
+    "recommended_update": {}
+  },
+  "update_assessment": {
+    "operation": "update_full",
+    "changed_sections": [],
+    "reason": ""
+  },
+  "diagnostics": []
+}`,
+        notes: ["update CAS 语义与 notes 对齐；agent 不手写 base_hashes/read_section_hashes 顶层结构。"]
+      },
+      {
+        no: 2,
+        stage: "stage_2_resolver_and_workset",
+        action: "persist_resolver",
+        title: "复核或重建 resolver proposal",
+        owner: "agent semantic + runtime cascade",
+        status: "aligned",
+        reads: ["current topic context", "recommended_update", "必要时 get-library-index"],
+        writes: ["runtime/payloads/resolver-proposal.json", "runtime/payloads/resolver.json", "paper_workset", "resolver cascade receipts"],
+        agent: "根据 recommended_update 写 resolver proposal；update_patch 不跳过 resolver，但不提交 resolved_paper_set 或 host receipts。",
+        runtime: "编译 proposal，执行 resolver，派生 paper workset，级联 graph metrics 与 filtered artifact export，并记录 CAS diagnostics。",
+        payload: `{
+  "resolver": {},
+  "resolver_reasoning": "",
+  "operation_intent": "update_full | update_patch",
+  "diagnostics": []
+}`,
+        notes: ["CAS 与 resolver 必跑规则已对齐。", "resolver result、graph metrics 和 artifact export 都由 runtime/host 持有。"]
+      }
+    ];
+
+    const outputContracts = {
+      create: `{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "topic-id",
+    "title": "Topic Title"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json"
+}
+
+create stdout 不包含 base_hashes；host apply 检查目标 topic 不存在。`,
+      update_full: `{
+  "kind": "topic_synthesis",
+  "operation": "update_full",
+  "language": "zh-CN",
+  "base_hashes": {
+    "manifest": "sha256:...",
+    "artifact": "sha256:...",
+    "export": "sha256:...",
+    "metadata": "sha256:...",
+    "index": "sha256:..."
+  },
+  "topic_definition": {
+    "id": "topic-id",
+    "title": "Topic Title"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json"
+}
+
+update_full 必须包含 base_hashes；host apply 校验 current hashes 未变化。`,
+      update_patch: `{
+  "kind": "topic_synthesis",
+  "operation": "update_patch",
+  "language": "zh-CN",
+  "read_section_hashes": {
+    "claims": "sha256:..."
+  },
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.patch.json"
+}
+
+update_patch 必须包含 read_section_hashes；不要求也不使用 base_hashes。`
+    };
+
+    const gateSchemaDetails = {
+      common: {
+        0: {
+          gate: [
+            {
+              action: "confirm_runtime_setup",
+              note: "Initialize run-local SQLite metadata and lock operation/language before semantic work.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation "<operation>" --language "<language>" --action confirm_runtime_setup',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 0. confirm_runtime_setup"],
+              schemaRefs: [],
+              reads: ["current working directory", "input topicSeed/topicId/update mode/language"],
+              writes: ["runtime/topic-synthesis.sqlite runtime metadata"]
+            }
+          ],
+          instructionSchema: `// SKILL.md 没有 JSON payload skeleton
+// gate command args:
+--operation create | update_full | update_patch
+--language <language>`,
+          acceptedSchema: `stage_runtime accepts command args only:
+{
+  "action": "confirm_runtime_setup",
+  "operation": "create | update_full | update_patch",
+  "language": "non-empty string"
+}
+
+Runtime derives run_root from the DB path, writes SQLite metadata, and initializes stage rows.
+No semantic JSON payload is accepted for this action.`,
+          delta: "指令与实际接受形状一致；该阶段无 agent-authored JSON。"
+        },
+        2: {
+          gate: [
+            {
+              action: "persist_resolver",
+              note:
+                "Persist the agent-authored resolver proposal. Runtime compiles it, executes the resolver, derives paper_workset, collects citation graph metrics, and exports filtered paper artifacts in the same action.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_resolver --payload-file "runtime/payloads/resolver-proposal.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 2. persist_resolver"],
+              schemaRefs: ["assets/schemas/resolver_proposal.schema.json"],
+              reads: ["topic_intent/current_context", "optional get-library-index context"],
+              writes: ["runtime/payloads/resolver.json", "paper_workset rows", "citation_graph_metrics rows", "artifact bundle rows", "resolver cascade receipts"]
+            }
+          ],
+          instructionSchema: `{
+  "resolver": {
+    "mode": "tag_query",
+    "query": {}
+  },
+  "resolver_reasoning": "",
+  "operation_intent": "create | update_full | update_patch",
+  "diagnostics": []
+}`,
+          acceptedSchema: `stage_runtime persist_resolver accepts resolver proposal only:
+{
+  "resolver": "required host canonical resolver object",
+  "resolver_reasoning": "optional string",
+  "operation_intent": "optional operation label",
+  "diagnostics": "optional string[]"
+}
+
+Hard checks:
+- payload must not include resolver execution results, paper_workset, citation graph metrics, artifact manifest, hash, locator, or host receipts
+- runtime derives locked run_root from SQLite metadata
+- runtime invokes Host Bridge from locked run_root/.zotero-bridge/bin
+- Stage 3/4 are not valid gate stages or public actions`,
+          delta: "已按 notes 硬合并 Stage 2/3/4。agent 只写 resolver proposal；resolver result、graph metrics 与 filtered artifact export 都由 runtime/host 持有。"
+        },
+        5: {
+          gate: [
+            {
+              action: "persist_paper_triage",
+              note:
+                "Use persisted host artifact bundle receipts; read filtered artifacts; write one LLM-authored paper triage row per paper. Do not create scripts that generate semantic analysis.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_paper_triage --payload-file "runtime/payloads/paper-triage-batch.json"',
+              instructionRefs: ["references/step_05_paper_triage.md"],
+              schemaRefs: ["assets/schemas/paper_analysis_row.schema.json"],
+              reads: ["paper_workset batch", "paper_artifact_bundle receipts"],
+              writes: ["runtime/payloads/paper-triage-batch.json", "runtime/views/cross-paper-evidence-index.json", "paper triage rows"]
+            }
+          ],
+          instructionSchema: `{
+  "analyses": [
+    {
+      "paper_ref": "1:ABC",
+      "topic_relevance": { "level": "core", "reason": "" },
+      "paper_quality": { "level": "high", "reason": "" },
+      "core_digest": "",
+      "caveats": [],
+      "diagnostics": []
+    }
+  ]
+}`,
+          acceptedSchema: `stage_runtime action accepts batch wrapper:
+{
+  "analyses": [paper_triage_row],
+  "analysis": paper_triage_row,
+  "rows": [paper_triage_row],
+  "items": [paper_triage_row]
+}
+
+paper_triage_row actual schema:
+{
+  "paper_ref": "required workset ref",
+  "topic_relevance": {
+    "level": "core | related | peripheral | excluded",
+    "reason": "non-empty string"
+  },
+  "paper_quality": {
+    "level": "high | medium | low | unknown",
+    "reason": "non-empty string"
+  },
+  "core_digest": "non-empty string",
+  "caveats": ["optional strings"],
+  "diagnostics": ["optional strings"]
+}
+
+Hard checks:
+- additionalProperties=false inside paper row schema
+- paper_ref must be in workset
+- artifact bundle receipt must exist before triage
+- runtime injects digest_locator from bundle; agent must not write locators/hash
+- empty batch raises: persist_paper_triage requires payload object with non-empty analyses[]`,
+          delta: "gate/SKILL 示例使用 analyses[]；实际 runtime 还接受 rows/items/analysis wrappers。notes 建议 assessments[] 和扁平字段，未落地。"
+        },
+        6: {
+          gate: [
+            {
+              action: "export_cross_paper_context",
+              note:
+                "Export deterministic cross-paper context from SQLite before synthesis. Read only runtime/views/cross-paper-context.md and external-literature-context.md as LLM context.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action export_cross_paper_context',
+              instructionRefs: ["references/step_06_cross_paper_map.md"],
+              schemaRefs: [],
+              reads: ["paper_workset rows", "paper_artifact_bundles rows", "paper triage rows"],
+              writes: ["runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md", "runtime/views/cross-paper-context.manifest.json", "artifact_registry context hashes"]
+            },
+            {
+              action: "derive_cross_paper_evidence_map",
+              note:
+                "Derive cross-paper evidence map from validated paper triage rows. This is runtime-maintained provenance; do not ask the agent to author candidate ids or evidence_map_refs.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action derive_cross_paper_evidence_map',
+              instructionRefs: ["references/step_06_cross_paper_map.md"],
+              schemaRefs: [],
+              reads: ["runtime/views/cross-paper-context.manifest.json", "runtime/views/cross-paper-evidence-index.json"],
+              writes: ["runtime/payloads/cross-paper-evidence-map.json", "runtime-derived cross-paper evidence map receipt"]
+            }
+          ],
+          instructionSchema: `// No agent-authored schema.
+// Agent reads:
+runtime/views/cross-paper-context.md
+runtime/views/external-literature-context.md
+
+// Runtime writes:
+runtime/payloads/cross-paper-evidence-map.json`,
+          acceptedSchema: `export_cross_paper_context accepts no JSON payload.
+
+derive_cross_paper_evidence_map accepts no agent JSON payload and derives:
+{
+  "schema_id": "synthesis.cross_paper_evidence_map",
+  "evidence_limits": {
+    "known_triage_refs": ["triage:<paper-ref>"]
+  },
+  "taxonomy_candidates": [{ "id": "tax:<...>", "triage_refs": [] }],
+  "improvement_dimension_candidates": [{ "id": "dim:<...>", "coverage_refs": [] }],
+  "claim_candidates": [{ "id": "claim:<...>", "supporting_triage_refs": [] }],
+  "debate_candidates": [],
+  "gap_candidates": [],
+  "review_outline_seeds": [],
+  "diagnostics": []
+}
+
+validate_cross_paper_evidence_map requires all candidate arrays and validates triage refs against known runtime triage ids.`,
+          delta: "agent 不写 map 已落地。命名仍是 cross_paper_evidence_map，而 notes 建议 provenance/context preparation 命名。"
+        },
+        7: {
+          gate: [
+            {
+              action: "persist_core_synthesis",
+              note:
+                "Draft one core synthesis payload with taxonomy, timeline_events, positioning, claims, improvement_dimension_summary, improvement_dimensions, debates, gaps, review_outline, and concept_candidate_labels. Use source_paper_refs where evidence is needed.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_core_synthesis --payload-file "runtime/payloads/core-analytical-sections.json"',
+              instructionRefs: ["references/step_08_core_synthesis.md"],
+              schemaRefs: ["assets/schemas/core_analytical_sections.schema.json"],
+              reads: ["references/step_08_core_synthesis.md", "runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md", "runtime/payloads/cross-paper-evidence-map.json"],
+              writes: ["runtime/payloads/core-analytical-sections.json", "validated core analytical sections receipt"]
+            }
+          ],
+          instructionSchema: `{
+  "taxonomy": { "summary": {}, "nodes": [] },
+  "timeline_events": { "summary": {}, "events": [] },
+  "positioning": {},
+  "claims": [],
+  "improvement_dimension_summary": {},
+  "improvement_dimensions": [],
+  "concept_candidate_labels": [],
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}`,
+          acceptedSchema: `JSON schema requires:
+- taxonomy object
+- timeline_events object
+- positioning object
+- claims[] minItems 1
+- improvement_dimension_summary object
+- improvement_dimensions[] minItems 1
+- concept_candidate_labels[] strings
+- debates[] minItems 1
+- gaps[] minItems 1
+- review_outline object
+
+stage_runtime extra depth checks:
+- taxonomy.summary must contain text/analysis/overview
+- taxonomy.nodes must be a list
+- timeline_events.summary must contain text/analysis/overview
+- timeline_events.events must be a list
+- claims/debates/gaps must be non-empty arrays
+- review_outline must contain introduction_logic, related_work_logic, or body_sections
+- evidence_map_refs/source_paper_refs are normalized/validated against runtime evidence candidates`,
+          delta: "指令 schema 与实际接受形状基本一致；实际 runtime 比 JSON schema 更严格。comparison_matrix 不再接受为 agent-facing shape。"
+        },
+        8: {
+          gate: [
+            {
+              action: "persist_kg_enrichment",
+              note:
+                "Draft KG enrichment after core synthesis. Payload contains concept_details[], topic_relation_candidates[], topic_matching_terms, and optional diagnostics[].",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_kg_enrichment --payload-file "runtime/payloads/kg-enrichment.json"',
+              instructionRefs: ["references/step_09_kg_enrichment.md"],
+              schemaRefs: ["assets/schemas/kg_enrichment.schema.json"],
+              reads: ["references/step_09_kg_enrichment.md", "runtime/payloads/core-analytical-sections.json", "runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md"],
+              writes: ["runtime/payloads/kg-enrichment.json", "result/sidecars/concept-cards-proposal.json", "result/sidecars/topic-graph-relation-proposals.json", "validated KG enrichment receipt"]
+            }
+          ],
+          instructionSchema: `{
+  "schema_id": "synthesis.topic_synthesis_kg_enrichment",
+  "schema_version": "1.0.0",
+  "concept_details": [],
+  "topic_relation_candidates": [],
+  "topic_matching_terms": {
+    "include_terms": [],
+    "must_have_terms": [],
+    "methods": [],
+    "exclude_terms": [],
+    "diagnostics": []
+  },
+  "diagnostics": []
+}`,
+          acceptedSchema: `kg_enrichment.schema.json:
+- additionalProperties=false at top level
+- required: concept_details[], topic_relation_candidates[], topic_matching_terms{}
+- schema_id const if present: synthesis.topic_synthesis_kg_enrichment
+
+stage_runtime _normalize_kg_enrichment_payload:
+- concept_details must be array
+- every concept_details entry must be object with non-empty label
+- topic_relation_candidates must be array of objects
+- topic_matching_terms must be object
+- diagnostics must be array if present
+- forbidden recursively in concept/topic/matching payload:
+  canonical_concept_id, canonical_topic_id, canonical_edge_id,
+  local_id, topic_id, source_topic_id, seed_literature_item_ids,
+  seed_paper_refs, sidecar_schema_id
+
+Runtime materializes:
+- concept_cards_proposal.cards with proposal_id
+- topic_graph_relation_proposals.proposals with proposal_id
+- topic_interest_metadata wrapper`,
+          delta: "gate/schema/ref 已使用 KG enrichment。实际 runtime 要求 concept label，JSON schema 只要求 object。topic_matching_terms 使用 methods，不是 notes 的 method_terms。"
+        },
+        9: {
+          gate: [
+            {
+              action: "finalize_summary_coverage",
+              note:
+                "Write final summary coverage payload. It contains summary, coverage, reliability_caveats, external_context_summary, collection_suggestions, and optional diagnostics.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation "<operation>" --language "<language>" --action finalize_summary_coverage --payload-file "runtime/payloads/external-statistics-report.json"',
+              instructionRefs: ["references/step_10_summary_coverage.md"],
+              schemaRefs: ["assets/schemas/topic_synthesis_artifact.schema.json"],
+              reads: ["references/step_10_summary_coverage.md", "references/section_examples.md", "runtime/payloads/core-analytical-sections.json", "runtime/views/cross-paper-context.md", "runtime/views/external-literature-context.md", "runtime/views/cross-paper-evidence-index.json", "topic_intent", "topic_resolver"],
+              writes: ["runtime/payloads/external-statistics-report.json", "prevalidated Stage 10 sections", "runtime-materialized result/sections/*.json"]
+            }
+          ],
+          instructionSchema: `{
+  "summary": { "text": "" },
+  "coverage": {
+    "coverage_verdict": "partial",
+    "reason": ""
+  },
+  "reliability_caveats": [],
+  "external_context_summary": { "summary": "" },
+  "collection_suggestions": [],
+  "diagnostics": []
+}`,
+          acceptedSchema: `_finalize_summary_coverage_sections accepts exactly these top-level keys:
+- summary: string or object, must contain prose
+- coverage: object; coverage_verdict/verdict normalized
+- reliability_caveats: array optional
+- external_context_summary: object/string-ish summary optional
+- collection_suggestions: array optional
+- diagnostics: array optional
+
+Unknown top-level keys are rejected.
+
+Runtime then materializes/derives:
+- topic
+- summary
+- external_literature_analysis
+- coverage with paper_count and artifact coverage
+- source_artifacts
+- diagnostics
+- paper_evidence
+- evidence_map
+- statistics
+- synthesis_report`,
+          delta: "指令 schema 与实际接受 keys 一致。schema_refs 指向 final artifact schema，因为 runtime materializes final sections; agent payload 本身没有独立 JSON schema asset。"
+        },
+        11: {
+          gate: [
+            {
+              action: "validate_final_artifacts",
+              note:
+                "Validate result/sections JSON files, generate structured manifest/result bundle, and register artifact_registry. Host apply performs canonical export after structured persistence.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation "<operation>" --language "<language>" --action validate_final_artifacts',
+              instructionRefs: ["references/step_11_render_validate.md"],
+              schemaRefs: ["assets/schemas/topic_synthesis_artifact.schema.json", "assets/schemas/topic_interest_metadata.schema.json"],
+              reads: ["result/sections/*.json", "paper triage rows", "artifact metadata"],
+              writes: ["result/sections/*.json", "result/topic-analysis.json or result/topic-analysis.patch.json", "result/sidecars/topic-interest-metadata.json", "result/final-output.candidate.json"]
+            },
+            {
+              action: "repair_resolver_cascade_or_paper_triage_before_render",
+              note:
+                "Render is blocked if resolver cascade rows or paper triage rows are not backed by package-local action receipts.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action audit_runtime_integrity',
+              instructionRefs: ["references/step_11_render_validate.md"],
+              schemaRefs: [],
+              reads: ["action_receipts", "paper_artifact_bundles", "paper_analysis"],
+              writes: []
+            }
+          ],
+          instructionSchema: `// No new agent semantic payload.
+// Runtime validates canonical section files:
+result/sections/topic.json
+result/sections/summary.json
+result/sections/taxonomy.json
+...
+result/sections/diagnostics.json`,
+          acceptedSchema: `validate_final_artifacts accepts command args only.
+
+For create/update_full it requires full section set:
+topic, summary, positioning, taxonomy, claims, timeline_events,
+paper_evidence, external_literature_analysis, debates, coverage,
+gaps, review_outline, statistics, synthesis_report, evidence_map,
+source_artifacts, diagnostics
+
+It validates:
+- topic_synthesis_artifact schema
+- evidence_refs against paper_evidence/external context rules
+- digest_ref payload_hash against artifact bundles
+- sidecar files and artifact_registry hashes
+- operation-specific manifest / patch manifest
+
+It writes result/final-output.candidate.json; agent must not author it.`,
+          delta: "指令与实际一致；final-output candidate 只有该 action 生成。"
+        },
+        12: {
+          gate: [
+            {
+              action: "complete",
+              note: "Artifacts are registered; emit the generated business JSON and stop.",
+              command: 'Get-Content -Encoding UTF8 "result/final-output.candidate.json"',
+              instructionRefs: [],
+              schemaRefs: [],
+              reads: ["result/final-output.candidate.json"],
+              writes: ["assistant final JSON only"]
+            }
+          ],
+          instructionSchema: `// stdout is exactly the business JSON object from:
+result/final-output.candidate.json`,
+          acceptedSchema: `No stage_runtime payload.
+Final business JSON must be one of:
+- topic_synthesis create
+- topic_synthesis update_full
+- topic_synthesis update_patch
+- topic_synthesis_canceled
+
+No markdown fence, explanation, or rewritten payload.`,
+          delta: "指令与实际一致。"
+        }
+      },
+      create: {
+        1: {
+          gate: [
+            {
+              action: "persist_topic_context",
+              note:
+                "Do duplicate check with zotero-bridge synthesis list-topics, define topic intent, then persist it. Do not hand-edit SQLite.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
+              schemaRefs: ["assets/schemas/topic_context_payload.schema.json"],
+              reads: ["topicSeed", "language", "zotero-bridge synthesis list-topics"],
+              writes: ["runtime/payloads/topic-context.json", "topic_intent rows"]
+            },
+            {
+              action: "repair_topic_context_payload",
+              note:
+                "Stage 1 is incomplete if topic_title or duplicate_status is missing. Repair only the flat topic payload and rerun persist_topic_context.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
+              schemaRefs: ["assets/schemas/topic_context_payload.schema.json"],
+              reads: ["runtime/payloads/topic-context.json", "topic_intent rows"],
+              writes: ["topic_title", "duplicate_status"]
+            }
+          ],
+          instructionSchema: `{
+  "topic_title": "Topic Title",
+  "aliases": [],
+  "definition": "",
+  "scope_include": [],
+  "scope_exclude": [],
+  "duplicate_status": "none",
+  "duplicate_candidate_ids": [],
+  "duplicate_reason": "",
+  "diagnostics": []
+}`,
+          acceptedSchema: `topic_context_payload.schema.json requires:
+{
+  "topic_title": "non-empty string",
+  "duplicate_status": "none | possible_duplicate | duplicate | needs_user_confirmation"
+}
+
+Runtime derives topic_definition/key and duplicate_check records from this flat payload.
+Agent does not write topic_definition, hash, locator, or nested duplicate_check.`,
+          delta: "Stage 1 create payload已扁平化；runtime-owned fields 不再暴露为 agent-authored schema。"
+        },
+        2: {
+          gate: [
+            {
+              action: "persist_resolver",
+              note:
+                "Use get-library-index only as optional context, then persist the resolver proposal. Runtime executes resolver, graph metrics, and filtered artifact export as one cascade.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_resolver --payload-file "runtime/payloads/resolver-proposal.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 2. persist_resolver"],
+              schemaRefs: ["assets/schemas/resolver_proposal.schema.json"],
+              reads: ["topic_intent", "optional get-library-index context"],
+              writes: ["runtime/payloads/resolver.json", "paper_workset", "citation_graph_metrics rows", "artifact bundle rows", "resolver cascade receipts"]
+            }
+          ],
+          instructionSchema: `resolver proposal:
+{
+  "resolver": { "mode": "tag_query", "query": {} },
+  "resolver_reasoning": "",
+  "operation_intent": "create",
+  "diagnostics": []
+}`,
+          acceptedSchema: `persist_resolver accepts resolver proposal only:
+{
+  "resolver": {},
+  "resolver_reasoning": "",
+  "operation_intent": "",
+  "diagnostics": []
+}
+
+Runtime rejects agent-authored resolver execution results, paper workset, metrics, artifact manifests, hashes, locators, or host receipts.
+Hard check: runtime cascade must derive a non-empty paper_workset.`,
+          delta: "已硬切：library index 不再持久化为 agent payload；resolver result 和 Stage 3/4 host facts 不再暴露为 agent action。"
+        }
+      },
+      update: {
+        1: {
+          gate: [
+            {
+              action: "persist_topic_context",
+              note:
+                "Run zotero-bridge synthesis get-topic-context with includeArtifact/includeManifest; store current context, recommended_update, current_hashes as base hashes, read section hashes, and initial operation decision.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
+              schemaRefs: ["assets/schemas/topic_context_payload.schema.json"],
+              reads: ["topicId", "updateScope", "updateMode", "zotero-bridge synthesis get-topic-context"],
+              writes: ["runtime/payloads/topic-context.json", "topic_intent rows"]
+            },
+            {
+              action: "repair_topic_context_payload",
+              note:
+                "Stage 1 is incomplete if topic_context or update_assessment is missing. Repair only the Stage 1 payload and rerun persist_topic_context.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_topic_context --payload-file "runtime/payloads/topic-context.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
+              schemaRefs: ["assets/schemas/topic_context_payload.schema.json"],
+              reads: ["runtime/payloads/topic-context.json", "topic_intent rows"],
+              writes: ["topic_context", "update_assessment"]
+            }
+          ],
+          instructionSchema: `{
+  "topic_context": {
+    "topic_id": "existing-topic-id",
+    "topic_definition": {},
+    "current_hashes": {},
+    "section_hashes": {},
+    "recommended_update": {}
+  },
+  "update_assessment": {
+    "operation": "update_full",
+    "changed_sections": [],
+    "reason": ""
+  },
+  "diagnostics": []
+}`,
+          acceptedSchema: `update Stage 1 accepts:
+{
+  "topic_context": "host get-topic-context result object",
+  "update_assessment": {
+    "operation": "update_full | update_patch",
+    "changed_sections": [],
+    "reason": "string"
+  },
+  "diagnostics": []
+}
+
+runtime stores update CAS truth:
+- base_hashes/current_hashes for update_full
+- read_section_hashes/section_hashes for update_patch
+- recommended_update and operation decision metadata when present`,
+          delta: "update CAS collection is runtime-owned; agent only preserves host context and writes a small assessment."
+        },
+        2: {
+          gate: [
+            {
+              action: "persist_resolver",
+              note:
+                "Choose update_full or update_patch, then persist the resolver proposal. Runtime executes resolver, graph metrics, and filtered artifact export as one cascade.",
+              command:
+                'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action persist_resolver --payload-file "runtime/payloads/resolver-proposal.json"',
+              instructionRefs: ["SKILL.md#最小执行主路径 / 2. persist_resolver"],
+              schemaRefs: ["assets/schemas/resolver_proposal.schema.json"],
+              reads: ["recommended_update", "current topic context", "optional get-library-index context"],
+              writes: ["runtime/payloads/resolver.json", "paper_workset", "citation_graph_metrics rows", "artifact bundle rows", "resolver cascade receipts"]
+            }
+          ],
+          instructionSchema: `{
+  "resolver": {},
+  "resolver_reasoning": "",
+  "operation_intent": "update_full | update_patch",
+  "diagnostics": []
+}`,
+          acceptedSchema: `update persist_resolver accepts resolver proposal only:
+{
+  "resolver": {},
+  "resolver_reasoning": "",
+  "operation_intent": "",
+  "diagnostics": []
+}
+
+Runtime rejects agent-authored resolver execution results, paper workset, metrics, artifact manifests, hashes, locators, or host receipts.
+Hard check: paper_workset must become non-empty.`,
+          delta: "update Stage 2 now matches create: proposal-only input, runtime-owned resolver result and cascade receipts."
+        }
+      }
+    };
+
+    const implementationNotes = [
+      {
+        status: "aligned",
+        title: "Stage 1 topic payload 已扁平化",
+        current: "create 只要求 topic_title 与 duplicate_status；update 保留 host topic_context 并允许轻量 update_assessment。",
+        notes: "agent 不写 topic_definition.id、hash、locator 或 nested duplicate_check。",
+        impact: "runtime/host 负责 canonical identity、CAS truth 和内部 provenance。"
+      },
+      {
+        status: "aligned",
+        title: "Stage 2/3/4 已硬合并为 resolver cascade",
+        current: "agent 只写 resolver proposal；runtime 同一 action 完成 resolver、paper_workset、citation graph metrics 和 filtered artifact export。",
+        notes: "不保留独立 Stage 3/4 gate、agent action 或 agent-facing schema。",
+        impact: "host/runtime facts 不再作为 agent-authored payload 出现。"
+      },
+      {
+        status: "partial",
+        title: "Stage 5 语义对齐，payload shape 未按 notes 扁平化",
+        current: "当前为 analyses[] + topic_relevance{level,reason} + paper_quality{level,reason}。",
+        notes: "notes 建议 assessments[] + relevance_level / paper_quality_level 等扁平字段。",
+        impact: "核心职责已经轻量化；字段形状仍与 notes 示例不同。"
+      },
+      {
+        status: "partial",
+        title: "Stage 6 名称与产物仍使用 cross_paper_evidence_map",
+        current: "gate/stage 仍是 stage_6_cross_paper_map，runtime payload 仍是 cross-paper-evidence-map.json。",
+        notes: "notes 建议 prepare_cross_paper_context + source_paper_evidence_index / provenance_index。",
+        impact: "agent 不再手写 map，风险已降低；命名仍可能让维护者误读为语义 map。"
+      },
+      {
+        status: "aligned",
+        title: "核心综合合并与 comparison_matrix 移除已落地",
+        current: "persist_core_synthesis 要求 taxonomy、timeline_events、claims、improvement_dimension_summary、improvement_dimensions 等。",
+        notes: "notes 要求 Stage 7/8 合并并弃用 agent-facing comparison_matrix。",
+        impact: "当前合同与目标一致。"
+      },
+      {
+        status: "partial",
+        title: "KG enrichment 已落地，但字段名与 notes 示例略不同",
+        current: "topic_matching_terms 使用 methods；reference 对 topic_relation_candidates 建议 evidence/caveat。",
+        notes: "notes 示例为 method_terms，并保留 source_section_refs/source_paper_refs/confidence。",
+        impact: "语义边界一致，具体字段形状需要后续确认是否收敛。"
+      },
+      {
+        status: "partial",
+        title: "Stage 10 职责对齐，shape 与文件名仍沿用部分旧上下文",
+        current: "payload path 仍为 runtime/payloads/external-statistics-report.json；payload 使用 nested summary/coverage。",
+        notes: "notes 建议 flat summary_brief/summary_overview/key_takeaways 等字段。",
+        impact: "agent 不再写 statistics/source_artifacts/report 正文；残留主要是命名和 shape。"
+      }
+    ];
+
+    let mode = "create";
+    let activeNo = 0;
+    let activeTab = "flow";
+    let query = "";
+    let notesVisible = true;
+
+    function stagesForMode() {
+      const specifics = mode === "create" ? createSpecific : updateSpecific;
+      const merged = [...commonStages, ...specifics].sort((a, b) => a.no - b.no);
+      return merged;
+    }
+
+    function filteredStages() {
+      const q = query.trim().toLowerCase();
+      if (!q) return stagesForMode();
+      return stagesForMode().filter((stage) => {
+        return [stage.stage, stage.action, stage.title, stage.agent, stage.runtime, stage.payload]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      });
+    }
+
+    function currentStage() {
+      return stagesForMode().find((stage) => stage.no === activeNo) || stagesForMode()[0];
+    }
+
+    function statusBadge(status) {
+      if (status === "aligned") return '<span class="badge ok">已对齐</span>';
+      if (status === "partial") return '<span class="badge warn">部分对齐</span>';
+      return '<span class="badge risk">未完全落地</span>';
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function renderStageList() {
+      const list = document.getElementById("stageList");
+      list.innerHTML = "";
+      const stages = filteredStages();
+      for (const stage of stages) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "stage-btn" + (stage.no === activeNo ? " active" : "");
+        button.innerHTML = `
+          <div class="stage-no">${stage.no}</div>
+          <div>
+            <div class="stage-title">${escapeHtml(stage.title)}</div>
+            <div class="stage-action">${escapeHtml(stage.action)}</div>
+          </div>
+        `;
+        button.addEventListener("click", () => {
+          activeNo = stage.no;
+          render();
+        });
+        list.appendChild(button);
+      }
+    }
+
+    function renderFlow(stage) {
+      return `
+        <div class="hero-grid">
+          <div class="stage-card">
+            <h2>${escapeHtml(stage.title)}</h2>
+            <p class="muted"><span class="mono">${escapeHtml(stage.stage)}</span> / <span class="mono">${escapeHtml(stage.action)}</span></p>
+            <div class="badge-row">
+              <span class="badge">${escapeHtml(stage.owner)}</span>
+              ${statusBadge(stage.status)}
+              <span class="badge">${mode === "create" ? "create skill" : "update skill"}</span>
+            </div>
+          </div>
+          <div class="stage-card">
+            <h3>当前原则</h3>
+            <p>${escapeHtml(stage.agent)}</p>
+          </div>
+        </div>
+        <div class="flow-grid">
+          <div class="flow-tile">
+            <div class="label">Reads</div>
+            <div class="value">${stage.reads.map(escapeHtml).join("<br>")}</div>
+          </div>
+          <div class="flow-tile">
+            <div class="label">Writes</div>
+            <div class="value">${stage.writes.map(escapeHtml).join("<br>")}</div>
+          </div>
+          <div class="flow-tile">
+            <div class="label">Agent owns</div>
+            <div class="value">${escapeHtml(stage.agent)}</div>
+          </div>
+          <div class="flow-tile">
+            <div class="label">Runtime owns</div>
+            <div class="value">${escapeHtml(stage.runtime)}</div>
+          </div>
+        </div>
+        <div class="lane">
+          <div class="lane-row">
+            <div class="lane-label">Agent payload</div>
+            <div class="lane-body"><span class="pill">${escapeHtml(stage.action)}</span><span class="muted">只写当前合同字段</span></div>
+          </div>
+          <div class="lane-row">
+            <div class="lane-label">Runtime state</div>
+            <div class="lane-body"><span class="pill">SQLite receipt</span><span class="pill">artifact registry</span><span class="pill">hash / locator</span></div>
+          </div>
+          <div class="lane-row">
+            <div class="lane-label">Host apply</div>
+            <div class="lane-body"><span class="pill">manifest path required</span><span class="pill">CAS by operation</span><span class="pill">canonical persistence</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPayload(stage) {
+      return `
+        <div class="stage-card">
+          <h2>Payload / Command Shape</h2>
+          <p class="muted">以下为当前实现的 agent-facing 或 gate-facing shape；runtime-owned 字段不要求 agent 填写。</p>
+          <pre>${escapeHtml(stage.payload)}</pre>
+        </div>
+      `;
+    }
+
+    function renderRuntime(stage) {
+      return `
+        <div class="two-col">
+          <div class="stage-card">
+            <h2>Agent Boundary</h2>
+            <p>${escapeHtml(stage.agent)}</p>
+            <ul>
+              <li>不手写 SQLite。</li>
+              <li>不复制、伪造或推断 hash / locator。</li>
+              <li>不写 runtime materialized sidecar wrapper。</li>
+            </ul>
+          </div>
+          <div class="stage-card">
+            <h2>Runtime / Host Boundary</h2>
+            <p>${escapeHtml(stage.runtime)}</p>
+            <ul>
+              <li>负责 action receipt、stage state 和 artifact registry。</li>
+              <li>负责 source refs 校验、evidence refs 派生与 final validation。</li>
+              <li>负责 final-output candidate 的唯一生成路径。</li>
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    function detailForStage(stage) {
+      return (
+        (gateSchemaDetails[mode] && gateSchemaDetails[mode][stage.no]) ||
+        gateSchemaDetails.common[stage.no] || {
+          gate: [],
+          instructionSchema: stage.payload,
+          acceptedSchema: stage.payload,
+          delta: "未登记额外差异。"
+        }
+      );
+    }
+
+    function renderGateVariant(variant, index) {
+      return `
+        <div class="stage-card">
+          <h3>Gate 指示 ${index + 1}: <span class="mono">${escapeHtml(variant.action)}</span></h3>
+          <p>${escapeHtml(variant.note)}</p>
+          <div class="lane">
+            <div class="lane-row">
+              <div class="lane-label">command</div>
+              <div class="lane-body"><span class="mono">${escapeHtml(variant.command)}</span></div>
+            </div>
+            <div class="lane-row">
+              <div class="lane-label">instruction_refs</div>
+              <div class="lane-body">${variant.instructionRefs.map((entry) => `<span class="pill">${escapeHtml(entry)}</span>`).join("") || '<span class="muted">none</span>'}</div>
+            </div>
+            <div class="lane-row">
+              <div class="lane-label">schema_refs</div>
+              <div class="lane-body">${variant.schemaRefs.map((entry) => `<span class="pill">${escapeHtml(entry)}</span>`).join("") || '<span class="muted">none</span>'}</div>
+            </div>
+            <div class="lane-row">
+              <div class="lane-label">required_reads</div>
+              <div class="lane-body">${variant.reads.map((entry) => `<span class="pill">${escapeHtml(entry)}</span>`).join("")}</div>
+            </div>
+            <div class="lane-row">
+              <div class="lane-label">required_writes</div>
+              <div class="lane-body">${variant.writes.map((entry) => `<span class="pill">${escapeHtml(entry)}</span>`).join("") || '<span class="muted">none</span>'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderGateSchema(stage) {
+      const detail = detailForStage(stage);
+      return `
+        <div class="stage-card">
+          <h2>${escapeHtml(stage.title)}：Gate + Schema 矩阵</h2>
+          <p class="muted">按当前 ${mode === "create" ? "create" : "update"} skill 展示 gate 返回给 agent 的指令、SKILL/reference 中写出的 schema 示例，以及 stage_runtime / JSON schema 实际接受的形状。</p>
+          <div class="badge-row">
+            <span class="badge">${escapeHtml(stage.stage)}</span>
+            <span class="badge">${escapeHtml(stage.action)}</span>
+            ${statusBadge(stage.status)}
+          </div>
+        </div>
+        <div style="display:grid; gap:12px; margin-top:12px">
+          ${detail.gate.map(renderGateVariant).join("")}
+          <div class="two-col">
+            <div class="stage-card">
+              <h3>指令中写的 schema / skeleton</h3>
+              <pre>${escapeHtml(detail.instructionSchema)}</pre>
+            </div>
+            <div class="stage-card">
+              <h3>脚本实际接受 / 校验的 schema</h3>
+              <pre>${escapeHtml(detail.acceptedSchema)}</pre>
+            </div>
+          </div>
+          <div class="stage-card">
+            <h3>差异与结论</h3>
+            <p>${escapeHtml(detail.delta)}</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderOutput() {
+      return `
+        <div class="stage-card">
+          <h2>${mode === "create" ? "Create final stdout" : "Update final stdout"}</h2>
+          <p class="muted">最终 JSON 由 validate_final_artifacts 生成，agent 只读取并输出。</p>
+          <pre>${escapeHtml(mode === "create" ? outputContracts.create : outputContracts.update_full + "\n\n" + outputContracts.update_patch)}</pre>
+        </div>
+      `;
+    }
+
+    function renderAlignment(stage) {
+      const rows = stage.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("");
+      return `
+        <div class="stage-card">
+          <h2>与 notes 的对照</h2>
+          <div class="badge-row">${statusBadge(stage.status)}</div>
+          <ul>${rows}</ul>
+        </div>
+        <div class="stage-card" style="margin-top:12px">
+          <h2>偏差清单</h2>
+          <table class="mini-table">
+            <thead><tr><th>状态</th><th>事项</th><th>影响</th></tr></thead>
+            <tbody>
+              ${implementationNotes.map((item) => `
+                <tr>
+                  <td>${statusBadge(item.status)}</td>
+                  <td><strong>${escapeHtml(item.title)}</strong><br><span class="muted">${escapeHtml(item.current)}</span><br><span class="muted">${escapeHtml(item.notes)}</span></td>
+                  <td>${escapeHtml(item.impact)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderContent() {
+      const stage = currentStage();
+      const content = document.getElementById("content");
+      if (activeTab === "flow") content.innerHTML = renderFlow(stage);
+      if (activeTab === "gateSchema") content.innerHTML = renderGateSchema(stage);
+      if (activeTab === "payload") content.innerHTML = renderPayload(stage);
+      if (activeTab === "runtime") content.innerHTML = renderRuntime(stage);
+      if (activeTab === "output") content.innerHTML = renderOutput();
+      if (activeTab === "alignment") content.innerHTML = renderAlignment(stage);
+    }
+
+    function renderRail() {
+      const rail = document.getElementById("rightRail");
+      rail.classList.toggle("hidden", !notesVisible);
+      if (!notesVisible) return;
+      rail.innerHTML = `
+        <div class="note-card">
+          <h3>最新合同摘要</h3>
+          <div class="note-meta">
+            <span class="badge ok">triage</span>
+            <span class="badge ok">core synthesis</span>
+            <span class="badge ok">KG enrichment</span>
+            <span class="badge ok">summary coverage</span>
+          </div>
+          <p class="muted">agent 只写语义 payload；runtime/host 负责 hash、locator、sidecar wrapper、statistics、source artifacts 和 final report materialization。</p>
+        </div>
+        ${implementationNotes.map((item) => `
+          <div class="note-card">
+            <h3>${escapeHtml(item.title)}</h3>
+            <div class="note-meta">${statusBadge(item.status)}</div>
+            <p><strong>实现：</strong>${escapeHtml(item.current)}</p>
+            <p><strong>notes：</strong>${escapeHtml(item.notes)}</p>
+            <p class="muted">${escapeHtml(item.impact)}</p>
+          </div>
+        `).join("")}
+      `;
+    }
+
+    function renderTabs() {
+      document.querySelectorAll(".tabs button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.tab === activeTab);
+      });
+    }
+
+    function render() {
+      if (!stagesForMode().some((stage) => stage.no === activeNo)) {
+        activeNo = stagesForMode()[0].no;
+      }
+      renderStageList();
+      renderTabs();
+      renderContent();
+      renderRail();
+    }
+
+    document.getElementById("modeCreate").addEventListener("click", () => {
+      mode = "create";
+      document.getElementById("modeCreate").classList.add("active");
+      document.getElementById("modeUpdate").classList.remove("active");
+      render();
+    });
+
+    document.getElementById("modeUpdate").addEventListener("click", () => {
+      mode = "update";
+      document.getElementById("modeUpdate").classList.add("active");
+      document.getElementById("modeCreate").classList.remove("active");
+      render();
+    });
+
+    document.querySelectorAll(".tabs button").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeTab = button.dataset.tab;
+        render();
+      });
+    });
+
+    document.getElementById("stageSearch").addEventListener("input", (event) => {
+      query = event.target.value;
+      renderStageList();
+    });
+
+    document.getElementById("showNotes").addEventListener("click", () => {
+      notesVisible = !notesVisible;
+      document.getElementById("showNotes").classList.toggle("active", notesVisible);
+      renderRail();
+    });
+
+    render();
+  </script>
+</body>
+</html>

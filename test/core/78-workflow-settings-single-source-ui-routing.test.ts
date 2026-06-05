@@ -134,6 +134,32 @@ describe("workflow settings single-source routing", function () {
     assert.include(js, "changedKey:");
   });
 
+  it("marks ACP permission auto-approval option with warning label styling", async function () {
+    const dashboardJs = await readProjectFile("addon/content/dashboard/app.js");
+    const dialogJs = await readProjectFile(
+      "addon/content/dashboard/workflow-settings-dialog.js",
+    );
+    const dashboardCss = await readProjectFile(
+      "addon/content/dashboard/styles.css",
+    );
+    const dialogCss = await readProjectFile(
+      "addon/content/dashboard/workflow-settings-dialog.css",
+    );
+    const legacyDialogTs = await readProjectFile(
+      "src/modules/workflowSettingsDialog.ts",
+    );
+
+    assert.include(dashboardJs, "autoApproveAcpPermissions");
+    assert.include(dialogJs, "autoApproveAcpPermissions");
+    assert.include(legacyDialogTs, "autoApproveAcpPermissions");
+    assert.include(dashboardCss, ".workflow-settings-field-label-warning");
+    assert.include(dialogCss, ".field-label-warning");
+    assert.include(dashboardCss, "font-weight: 700");
+    assert.include(dialogCss, "font-weight: 700");
+    assert.include(dashboardCss, "color: var(--danger)");
+    assert.include(dialogCss, "color: var(--danger)");
+  });
+
   it("keeps workflow-options field updates input-first but host-sync on change/blur", async function () {
     const js = await readProjectFile("addon/content/dashboard/app.js");
     assert.include(js, 'control.addEventListener("input"');

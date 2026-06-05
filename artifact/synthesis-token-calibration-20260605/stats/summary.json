@@ -1,0 +1,183 @@
+{
+  "schema_id": "synthesis.cross_paper_context_token_calibration",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-04T17:45:31.920928+00:00",
+  "host_run_root": "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data\\zotero-agents\\runtime\\acp\\skill-runs\\acp-skill-synthesis-token-calibration-20260605",
+  "project_output_dir": "D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\artifact\\synthesis-token-calibration-20260605",
+  "paper_count": 56,
+  "library_index_paper_count": 56,
+  "sample_counts": {
+    "core_analysis_digest_available": 52,
+    "external_literature_refs_or_citation_available": 52,
+    "all_three_artifacts_available": 50
+  },
+  "artifact_status_counts": {
+    "digest": {
+      "available": 52,
+      "missing": 4
+    },
+    "references": {
+      "available": 50,
+      "missing": 6
+    },
+    "citation_analysis": {
+      "available": 52,
+      "missing": 4
+    }
+  },
+  "filtering_rules": {
+    "host_export_digest": "Keep first four top-level ## sections and demote headings.",
+    "host_export_references": "Keep only id/year/authors/title.",
+    "host_export_citation_analysis": "Keep report_md body, remove wrapper heading and trailing section, demote headings.",
+    "calibration_core_analysis": "Keep metadata + filtered digest; drop references and citation-analysis report.",
+    "calibration_external_literature": "Keep metadata + compact references table + citation-analysis report; drop digest."
+  },
+  "token_counter": "o200k_base",
+  "char_stats": {
+    "digest": {
+      "count": 52,
+      "min": 733,
+      "p25": 1164,
+      "median": 1375,
+      "mean": 1663,
+      "p75": 2092,
+      "p90": 2450,
+      "p95": 3171,
+      "max": 3665,
+      "total": 86470,
+      "stddev": 706
+    },
+    "references_markdown": {
+      "count": 46,
+      "min": 193,
+      "p25": 4384,
+      "median": 5486,
+      "mean": 6590,
+      "p75": 8174,
+      "p90": 10102,
+      "p95": 14061,
+      "max": 23816,
+      "total": 303120,
+      "stddev": 3949
+    },
+    "citation_report": {
+      "count": 52,
+      "min": 1,
+      "p25": 1811,
+      "median": 7886,
+      "mean": 9245,
+      "p75": 14111,
+      "p90": 17223,
+      "p95": 19937,
+      "max": 48907,
+      "total": 480746,
+      "stddev": 8493
+    },
+    "core_full_context": {
+      "count": 52,
+      "min": 960,
+      "p25": 1348,
+      "median": 1582,
+      "mean": 1871,
+      "p75": 2320,
+      "p90": 2676,
+      "p95": 3398,
+      "max": 3920,
+      "total": 97294,
+      "stddev": 716
+    },
+    "external_full_context": {
+      "count": 52,
+      "min": 332,
+      "p25": 6572,
+      "median": 13474,
+      "mean": 15322,
+      "p75": 22550,
+      "p90": 26881,
+      "p95": 30852,
+      "max": 64297,
+      "total": 796738,
+      "stddev": 11489
+    }
+  },
+  "token_stats": {
+    "digest": {
+      "count": 52,
+      "min": 508,
+      "p25": 747,
+      "median": 894,
+      "mean": 995,
+      "p75": 1236,
+      "p90": 1424,
+      "p95": 1578,
+      "max": 1715,
+      "total": 51727,
+      "stddev": 323
+    },
+    "references_markdown": {
+      "count": 46,
+      "min": 58,
+      "p25": 1351,
+      "median": 1666,
+      "mean": 1966,
+      "p75": 2360,
+      "p90": 2936,
+      "p95": 4114,
+      "max": 6773,
+      "total": 90418,
+      "stddev": 1110
+    },
+    "citation_report": {
+      "count": 52,
+      "min": 1,
+      "p25": 874,
+      "median": 3064,
+      "mean": 3459,
+      "p75": 5236,
+      "p90": 6560,
+      "p95": 7339,
+      "max": 14334,
+      "total": 179874,
+      "stddev": 2767
+    },
+    "core_full_context": {
+      "count": 52,
+      "min": 553,
+      "p25": 800,
+      "median": 967,
+      "mean": 1055,
+      "p75": 1300,
+      "p90": 1476,
+      "p95": 1639,
+      "max": 1768,
+      "total": 54861,
+      "stddev": 323
+    },
+    "external_full_context": {
+      "count": 52,
+      "min": 76,
+      "p25": 2414,
+      "median": 4895,
+      "mean": 5263,
+      "p75": 7566,
+      "p90": 9854,
+      "p95": 10260,
+      "max": 18751,
+      "total": 273675,
+      "stddev": 3616
+    }
+  },
+  "recommended_constants": {
+    "basis": "core uses p90 full-context tokens; external_literature uses p75 full-context tokens because external context has high-tail variance; both measured with o200k_base and rounded up to nearest 250 tokens",
+    "core_analysis_basis_quantile": "p90",
+    "external_literature_basis_quantile": "p75",
+    "core_analysis_full_context_tokens_per_paper": 1500,
+    "external_literature_full_context_tokens_per_paper": 7750,
+    "core_analysis_budget_tokens": 200000,
+    "external_literature_budget_tokens": 200000,
+    "safety_margin_ratio": 0.1,
+    "usable_budget_tokens": 180000,
+    "core_analysis_full_context_slot_count": 120,
+    "external_literature_full_context_slot_count": 23
+  }
+}

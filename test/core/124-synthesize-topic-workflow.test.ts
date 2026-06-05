@@ -11,41 +11,6 @@ import {
   validateSynthesisResultBundle,
 } from "../../src/modules/synthesis/workflow";
 
-function validBundle() {
-  return {
-    kind: "topic_synthesis",
-    mode: "create",
-    base_hashes: {
-      artifact: "sha256:a",
-      metadata: "sha256:b",
-      index: "sha256:c",
-    },
-    topic_definition: {
-      id: "topic:test",
-      title: "Test Topic",
-      description: "A topic",
-    },
-    topic_resolver: {
-      mode: "tag_query",
-      query: "topic:test",
-    },
-    resolved_paper_set: {
-      papers: ["1:ABCD1234"],
-    },
-    resolver_diagnostics: {
-      final_count: 1,
-    },
-    artifact_metadata: {
-      depends_on: {
-        papers: ["1:ABCD1234"],
-        artifacts: [],
-      },
-    },
-    markdown: "# Test Topic\n\nBody",
-    timeline: "2024: topic begins",
-  };
-}
-
 function validSkillOutputBundle() {
   return v2CompleteBundle();
 }
@@ -379,16 +344,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "ACP interactive confirmation");
     assert.include(skillText, "analysis_manifest_path");
     assert.include(skillText, "result/topic-analysis.json");
-    assert.include(
-      skillText,
-      "zotero-bridge synthesis get-citation-graph-metrics",
-    );
-    assert.include(skillText, "persist_citation_graph_metrics");
-    assert.include(
-      skillText,
-      "zotero-bridge synthesis export-filtered-paper-artifacts",
-    );
-    assert.include(skillText, "persist_filtered_artifact_manifest");
+    assert.include(skillText, "resolver cascade");
+    assert.include(skillText, "查询 citation graph metrics");
+    assert.include(skillText, "导出 filtered paper artifacts");
+    assert.notInclude(skillText, "persist_citation_graph_metrics");
+    assert.notInclude(skillText, "persist_filtered_artifact_manifest");
     assert.include(skillText, "export_cross_paper_context");
     assert.include(skillText, "cross-paper-context.md");
     assert.include(skillText, "external-literature-context.md");
@@ -401,7 +361,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "digest-markdown");
     assert.include(skillText, "references-json");
     assert.include(skillText, "citation-analysis-json");
-    assert.include(skillText, "graph_metrics_interpretation");
+    assert.include(skillText, "resolver_cascade");
     assert.include(skillText, "不能替代 digest evidence");
     assert.include(skillText, "bounded");
     assert.notInclude(skillText, "synthesis.validate_resolver");
@@ -464,21 +424,20 @@ describe("Synthesize topic workflow contract", function () {
       "scripts/gate_runtime.py",
       "scripts/stage_runtime.py",
       "scripts/runtime_db.py",
-      "references/step_05_paper_units.md",
+      "references/step_05_paper_triage.md",
       "references/step_06_cross_paper_map.md",
       "references/step_07_taxonomy_timeline.md",
-      "references/step_08_core_sections.md",
-      "references/step_09_kg_proposals.md",
-      "references/step_10_external_statistics_report.md",
+      "references/step_08_core_synthesis.md",
+      "references/step_09_kg_enrichment.md",
+      "references/step_10_summary_coverage.md",
       "references/step_11_render_validate.md",
       "references/topic_synthesis_content_contract.md",
       "references/section_examples.md",
       "assets/schemas/topic_context_payload.schema.json",
+      "assets/schemas/resolver_proposal.schema.json",
       "assets/schemas/resolver_manifest.schema.json",
-      "assets/schemas/citation_graph_metrics_receipt.schema.json",
-      "assets/schemas/filtered_artifact_manifest.schema.json",
-      "assets/schemas/route_timeline_synthesis.schema.json",
       "assets/schemas/core_analytical_sections.schema.json",
+      "assets/schemas/kg_enrichment.schema.json",
       "assets/schemas/topic_analysis_manifest.schema.json",
       "assets/schemas/topic_section_patch_manifest.schema.json",
       "assets/schemas/topic_synthesis_artifact.schema.json",
@@ -554,25 +513,23 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "stage_12_completed");
       assert.include(skillText, "artifact_registry");
       assert.include(skillText, "只执行 gate 返回的 `next_action`");
-      assert.include(
-        skillText,
-        "zotero-bridge synthesis get-citation-graph-metrics",
-      );
-      assert.include(skillText, "persist_citation_graph_metrics");
-      assert.include(skillText, "graph_metrics_interpretation");
+      assert.include(skillText, "resolver cascade");
+      assert.notInclude(skillText, "persist_citation_graph_metrics");
+      assert.notInclude(skillText, "persist_filtered_artifact_manifest");
+      assert.include(skillText, "resolver_cascade");
       assert.include(skillText, "Topic Synthesis 内容合同");
       assert.include(skillText, "synthesis_report");
       assert.include(skillText, "语义目标");
-      assert.include(skillText, "提供可组合证据");
+      assert.include(skillText, "避免 agent 手工维护跨步骤 evidence map");
       assert.include(skillText, "候选 id 空间");
       assert.include(skillText, "source_paper_refs");
-      assert.include(skillText, "连续知识报告");
+      assert.include(skillText, "result/sections/*.json");
       assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
-      assert.include(skillText, "references/step_05_paper_units.md");
+      assert.include(skillText, "references/step_05_paper_triage.md");
       assert.include(skillText, "sidecars");
-      assert.include(skillText, "concept_cards_proposal");
-      assert.include(skillText, "topic_graph_relation_proposals");
+      assert.include(skillText, "concept-cards-proposal");
+      assert.include(skillText, "topic-graph-relation-proposals");
       assert.include(
         skillText,
         "references/topic_synthesis_content_contract.md",
@@ -592,16 +549,16 @@ describe("Synthesize topic workflow contract", function () {
       createSkill,
       "zotero-bridge synthesis get-citation-graph-metrics",
     );
-    assert.include(createSkill, "persist_library_index_page");
+    assert.include(createSkill, "这些读取只作为上下文，不写入");
     assert.include(createSkill, "has_more");
-    assert.include(createSkill, "index_hash");
+    assert.include(createSkill, "顶层 `tags[]`");
     assert.include(createSkill, "duplicate check");
     assert.include(createSkill, "不要用全文相似度臆断重复");
     assert.notInclude(createSkill, "update_full");
     assert.notInclude(createSkill, "update_patch");
     assert.include(
       createSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation create --language "zh-CN" --action validate_final_artifacts',
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation create --language "zh-CN" --action validate_final_artifacts',
     );
 
     assert.include(updateSkill, "topicId");
@@ -616,11 +573,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.notInclude(updateSkill, "duplicate check。写");
     assert.include(
       updateSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_full --language "zh-CN" --action validate_final_artifacts',
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation update_full --language "zh-CN" --action validate_final_artifacts',
     );
     assert.include(
       updateSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --operation update_patch --language "zh-CN" --action validate_final_artifacts',
+      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation update_patch --language "zh-CN" --action validate_final_artifacts',
     );
   });
 
@@ -685,11 +642,14 @@ describe("Synthesize topic workflow contract", function () {
     });
 
     assert.isFalse(validation.ok);
-    assert.match(validation.errors.join("\n"), /base_hashes|must NOT be valid/i);
+    assert.match(
+      validation.errors.join("\n"),
+      /base_hashes|must NOT be valid/i,
+    );
   });
 
   it("accepts valid topic synthesis result bundles", function () {
-    const result = validateSynthesisResultBundle(validBundle());
+    const result = validateSynthesisResultBundle(v2CompleteBundle());
 
     assert.isTrue(result.ok);
     assert.equal(result.bundle.kind, "topic_synthesis");
@@ -699,7 +659,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.throws(
       () =>
         validateSynthesisResultBundle({
-          ...validBundle(),
+          ...v2CompleteBundle(),
           kind: "method_synthesis",
         }),
       /topic_synthesis/i,
@@ -710,7 +670,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.throws(
       () =>
         validateSynthesisResultBundle({
-          ...validBundle(),
+          ...v2CompleteBundle(),
           write_zotero_raw_source: true,
         }),
       /direct write/i,
@@ -719,7 +679,14 @@ describe("Synthesize topic workflow contract", function () {
 
   it("allows apply when base hashes match", function () {
     const decision = decideSynthesisApply({
-      bundle: validBundle(),
+      bundle: v2CompleteBundle({
+        operation: "update_full",
+        base_hashes: {
+          artifact: "sha256:a",
+          metadata: "sha256:b",
+          index: "sha256:c",
+        },
+      }),
       currentHashes: {
         artifact: "sha256:a",
         metadata: "sha256:b",
@@ -733,8 +700,7 @@ describe("Synthesize topic workflow contract", function () {
   it("allows create when only the aggregate index hash changed", function () {
     const decision = decideSynthesisApply({
       bundle: {
-        ...validBundle(),
-        mode: "create",
+        ...v2CompleteBundle(),
         base_hashes: {
           artifact: "",
           metadata: "",
@@ -753,7 +719,14 @@ describe("Synthesize topic workflow contract", function () {
 
   it("returns conflict when base hashes mismatch", function () {
     const decision = decideSynthesisApply({
-      bundle: validBundle(),
+      bundle: v2CompleteBundle({
+        operation: "update_full",
+        base_hashes: {
+          artifact: "sha256:a",
+          metadata: "sha256:b",
+          index: "sha256:c",
+        },
+      }),
       currentHashes: {
         artifact: "sha256:changed",
         metadata: "sha256:b",
@@ -891,7 +864,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
 
     assert.isTrue(result.ok);
     assert.notProperty(result.bundle, "base_hashes");
-    assert.equal(result.bundle.legacy_create_base_hashes_ignored, true);
+    assert.equal(result.bundle.create_base_hashes_ignored, true);
   });
 
   it("requires base hashes for full updates", function () {
@@ -1051,7 +1024,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     assert.equal(updateWorkflow.hooks?.buildRequest, "hooks/buildRequest.mjs");
   });
 
-  it("documents and packages required KG proposal sidecars", async function () {
+  it("documents and packages required KG enrichment sidecars", async function () {
     const createSkill = await fs.readFile(
       "skills_builtin/create-topic-synthesis/SKILL.md",
       "utf8",
@@ -1072,36 +1045,36 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
     const createKgSchema = JSON.parse(
       await fs.readFile(
-        "skills_builtin/create-topic-synthesis/assets/schemas/kg_proposals.schema.json",
+        "skills_builtin/create-topic-synthesis/assets/schemas/kg_enrichment.schema.json",
         "utf8",
       ),
     );
     const updateKgSchema = JSON.parse(
       await fs.readFile(
-        "skills_builtin/update-topic-synthesis/assets/schemas/kg_proposals.schema.json",
+        "skills_builtin/update-topic-synthesis/assets/schemas/kg_enrichment.schema.json",
         "utf8",
       ),
     );
 
-    assert.include(createSkill, "persist_kg_proposals");
+    assert.include(createSkill, "persist_kg_enrichment");
     assert.include(createSkill, "result/sidecars/concept-cards-proposal.json");
     assert.include(
       createSkill,
       "result/sidecars/topic-graph-relation-proposals.json",
     );
-    assert.include(createSkill, "topic_interest_metadata");
+    assert.include(createSkill, "topic_matching_terms");
     assert.include(createSkill, "result/sidecars/topic-interest-metadata.json");
-    assert.include(updateSkill, "topic_interest_metadata");
+    assert.include(updateSkill, "topic_matching_terms");
     assert.include(updateSkill, "result/sidecars/topic-interest-metadata.json");
     assert.notInclude(createSkill, "stage_5_6_topic_graph_relation_proposals");
     assert.notInclude(createSkill, "stage_5_5_concept_cards");
     assert.include(createSkill, "sidecars");
     assert.include(updateSkill, "broader_topic_candidate");
-    assert.include(updateSkill, "canonical concept");
+    assert.include(updateSkill, "concept_details");
     assert.include(createRuntime, "topic_graph_relation_proposals_path");
     assert.include(createRuntime, "topic_interest_metadata_path");
     assert.include(createRuntime, "concept_cards_proposal_path");
-    assert.include(createRuntime, "persist_kg_proposals");
+    assert.include(createRuntime, "persist_kg_enrichment");
     assert.notInclude(
       JSON.stringify(createSchema),
       "topic_graph_relation_proposals_path",
@@ -1114,7 +1087,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       JSON.stringify(createSchema),
       "concept_cards_proposal_path",
     );
-    assert.include(JSON.stringify(createKgSchema), "topic_interest_metadata");
-    assert.include(JSON.stringify(updateKgSchema), "topic_interest_metadata");
+    assert.include(JSON.stringify(createKgSchema), "topic_matching_terms");
+    assert.include(JSON.stringify(updateKgSchema), "topic_matching_terms");
   });
 });

@@ -53,6 +53,10 @@
     return toText(section).trim() + "." + toText(key).trim();
   }
 
+  function isWarningProviderOptionKey(key) {
+    return key === "autoApproveAcpPermissions";
+  }
+
   function formStructureSignature(snapshot) {
     const form = snapshot && snapshot.form ? snapshot.form : {};
     const workflow = snapshot && snapshot.workflow ? snapshot.workflow : {};
@@ -63,7 +67,9 @@
           type: toText(entry && entry.type),
           allowCustom: entry && entry.allowCustom === true,
           disabled: entry && entry.disabled === true,
-          enumValues: Array.isArray(entry && entry.enumValues) ? entry.enumValues : [],
+          enumValues: Array.isArray(entry && entry.enumValues)
+            ? entry.enumValues
+            : [],
           options: Array.isArray(entry && entry.options)
             ? entry.options.map(function (option) {
                 return {
@@ -76,7 +82,9 @@
       });
     };
     return JSON.stringify({
-      workflowId: toText(workflow.id || workflow.workflowId || workflow.key || workflow.label),
+      workflowId: toText(
+        workflow.id || workflow.workflowId || workflow.key || workflow.label,
+      ),
       providerId: toText(workflow.providerId),
       requiresBackendProfile: form.requiresBackendProfile === true,
       profileEditable: form.profileEditable === true,
@@ -112,20 +120,28 @@
       active.closest && active.closest("[data-workflow-settings-control-key]")
         ? active.closest("[data-workflow-settings-control-key]")
         : active;
-    const key = control.getAttribute && control.getAttribute("data-workflow-settings-control-key");
+    const key =
+      control.getAttribute &&
+      control.getAttribute("data-workflow-settings-control-key");
     if (!key) return result;
     result.activeControlKey = key;
     result.value = typeof control.value === "string" ? control.value : "";
     result.checked = control.checked === true;
-    result.selectionStart = typeof control.selectionStart === "number" ? control.selectionStart : null;
-    result.selectionEnd = typeof control.selectionEnd === "number" ? control.selectionEnd : null;
+    result.selectionStart =
+      typeof control.selectionStart === "number"
+        ? control.selectionStart
+        : null;
+    result.selectionEnd =
+      typeof control.selectionEnd === "number" ? control.selectionEnd : null;
     return result;
   }
 
   function restoreActiveFormState(root, preservedState) {
     const key = preservedState && preservedState.activeControlKey;
     if (!key || !root) return;
-    const control = root.querySelector('[data-workflow-settings-control-key="' + key + '"]');
+    const control = root.querySelector(
+      '[data-workflow-settings-control-key="' + key + '"]',
+    );
     if (!control) return;
     if (typeof control.value === "string") {
       control.value = preservedState.value || "";
@@ -141,12 +157,17 @@
       typeof preservedState.selectionStart === "number" &&
       typeof preservedState.selectionEnd === "number"
     ) {
-      control.setSelectionRange(preservedState.selectionStart, preservedState.selectionEnd);
+      control.setSelectionRange(
+        preservedState.selectionStart,
+        preservedState.selectionEnd,
+      );
     }
   }
 
   function isPositiveIntegerField(entry) {
-    const key = toText(entry && entry.key).trim().toLowerCase();
+    const key = toText(entry && entry.key)
+      .trim()
+      .toLowerCase();
     if (!key) {
       return false;
     }
@@ -184,8 +205,7 @@
   }
 
   function updateDraft(patch, changeMeta) {
-    const meta =
-      changeMeta && typeof changeMeta === "object" ? changeMeta : {};
+    const meta = changeMeta && typeof changeMeta === "object" ? changeMeta : {};
     state.draft = {
       backendId: toText(patch.backendId || "").trim(),
       workflowParams: cloneRecord(patch.workflowParams),
@@ -243,6 +263,9 @@
     wrap.className = "field-row";
     const label = document.createElement("div");
     label.className = "field-label";
+    if (isWarningProviderOptionKey(args.entry.key)) {
+      label.className += " field-label-warning";
+    }
     label.textContent = args.entry.title || args.entry.key;
     wrap.appendChild(label);
     const controlWrap = document.createElement("div");
@@ -250,7 +273,10 @@
     let control;
     let controlNode;
     const controlKey = fieldControlKey(args.section, args.entry.key);
-    const currentValue = Object.prototype.hasOwnProperty.call(args.values, args.entry.key)
+    const currentValue = Object.prototype.hasOwnProperty.call(
+      args.values,
+      args.entry.key,
+    )
       ? args.values[args.entry.key]
       : args.entry.defaultValue;
     if (args.entry.type === "boolean") {
@@ -280,7 +306,9 @@
       : [];
     const structuredOptions = Array.isArray(args.entry.options)
       ? args.entry.options
-          .filter(function (entry) { return entry && typeof entry === "object"; })
+          .filter(function (entry) {
+            return entry && typeof entry === "object";
+          })
           .map(function (entry) {
             return {
               value: toText(entry.value),
@@ -289,20 +317,30 @@
             };
           })
       : [];
-    const optionEntries = structuredOptions.length > 0
-      ? structuredOptions
-      : enumValues.map(function(val) { return { value: toText(val), label: toText(val) }; });
+    const optionEntries =
+      structuredOptions.length > 0
+        ? structuredOptions
+        : enumValues.map(function (val) {
+            return { value: toText(val), label: toText(val) };
+          });
     if (optionEntries.length > 0 && args.entry.allowCustom !== true) {
       let selectedValue = toText(currentValue || optionEntries[0].value || "");
-      const customSelect = window.createCustomSelect(optionEntries, selectedValue, function(newValue) {
-        selectedValue = toText(newValue);
-        args.values[args.entry.key] = selectedValue;
-        args.onChange({
-          changedSection: args.section,
-          changedKey: args.entry.key,
-        });
-      });
-      customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey);
+      const customSelect = window.createCustomSelect(
+        optionEntries,
+        selectedValue,
+        function (newValue) {
+          selectedValue = toText(newValue);
+          args.values[args.entry.key] = selectedValue;
+          args.onChange({
+            changedSection: args.section,
+            changedKey: args.entry.key,
+          });
+        },
+      );
+      customSelect.element.setAttribute(
+        "data-workflow-settings-control-key",
+        controlKey,
+      );
       if (args.entry.disabled === true) {
         markCustomSelectDisabled(customSelect.element);
       }
@@ -319,15 +357,22 @@
       combo.style.alignItems = "center";
       combo.style.gap = "8px";
       const currentText = toText(currentValue == null ? "" : currentValue);
-      const customSelect = window.createCustomSelect(optionEntries, currentText, function(newValue) {
-        control.value = toText(newValue);
-        args.values[args.entry.key] = control.value;
-        args.onChange({
-          changedSection: args.section,
-          changedKey: args.entry.key,
-        });
-      });
-      customSelect.element.setAttribute("data-workflow-settings-control-key", controlKey + ".recommendation");
+      const customSelect = window.createCustomSelect(
+        optionEntries,
+        currentText,
+        function (newValue) {
+          control.value = toText(newValue);
+          args.values[args.entry.key] = control.value;
+          args.onChange({
+            changedSection: args.section,
+            changedKey: args.entry.key,
+          });
+        },
+      );
+      customSelect.element.setAttribute(
+        "data-workflow-settings-control-key",
+        controlKey + ".recommendation",
+      );
       customSelect.element.style.flex = "1 1 55%";
       if (args.entry.disabled === true) {
         markCustomSelectDisabled(customSelect.element);
@@ -401,7 +446,10 @@
         }
         setFieldError("");
         if (validation.remove) {
-          changed = Object.prototype.hasOwnProperty.call(args.values, args.entry.key);
+          changed = Object.prototype.hasOwnProperty.call(
+            args.values,
+            args.entry.key,
+          );
           delete args.values[args.entry.key];
         } else {
           changed = args.values[args.entry.key] !== validation.value;
@@ -411,7 +459,10 @@
         setFieldError("");
         const nextValue = normalizeTypeValue(args.entry.type, rawValue);
         if (typeof nextValue === "undefined") {
-          changed = Object.prototype.hasOwnProperty.call(args.values, args.entry.key);
+          changed = Object.prototype.hasOwnProperty.call(
+            args.values,
+            args.entry.key,
+          );
           delete args.values[args.entry.key];
         } else {
           changed = args.values[args.entry.key] !== nextValue;
@@ -514,24 +565,32 @@
       profileTitle.textContent = snapshot.labels.profileLabel;
       profileWrap.appendChild(profileTitle);
       if (form.profileEditable === true) {
-        const options = (form.profiles || []).map(function(profile) {
+        const options = (form.profiles || []).map(function (profile) {
           return { value: profile.id, label: profile.label };
         });
-        const currentProfileId = toText(state.draft.backendId || form.selectedProfile || "").trim();
-        const customSelect = createCustomSelect(options, currentProfileId, function(newValue) {
-          state.draft.backendId = toText(newValue || "").trim();
-          updateDraft(state.draft, {
-            changedSection: "backend",
-            changedKey: "backendId",
-          });
-        });
+        const currentProfileId = toText(
+          state.draft.backendId || form.selectedProfile || "",
+        ).trim();
+        const customSelect = createCustomSelect(
+          options,
+          currentProfileId,
+          function (newValue) {
+            state.draft.backendId = toText(newValue || "").trim();
+            updateDraft(state.draft, {
+              changedSection: "backend",
+              changedKey: "backendId",
+            });
+          },
+        );
         customSelect.element.classList.add("settings-banner-profile-select");
         profileWrap.appendChild(customSelect.element);
       } else {
         const fixed = document.createElement("div");
         fixed.className = "settings-empty";
         const profileMatch = (form.profiles || []).find(function (entry) {
-          return toText(entry.id).trim() === toText(form.selectedProfile).trim();
+          return (
+            toText(entry.id).trim() === toText(form.selectedProfile).trim()
+          );
         });
         fixed.textContent = profileMatch
           ? profileMatch.label
@@ -682,7 +741,8 @@
     const nextSnapshot = data.payload || null;
     const resetDraft = shouldResetDraftForSnapshot(nextSnapshot);
     state.snapshot = nextSnapshot;
-    const form = state.snapshot && state.snapshot.form ? state.snapshot.form : {};
+    const form =
+      state.snapshot && state.snapshot.form ? state.snapshot.form : {};
     if (resetDraft) {
       state.draft = {
         backendId: toText(form.selectedProfile || "").trim(),

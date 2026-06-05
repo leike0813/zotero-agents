@@ -59,7 +59,11 @@ describe("skillrunner model catalog", function () {
   it("provides engine/model enum values via provider runtime schema hooks", function () {
     const provider = resolveProviderById("skillrunner");
     const schema = provider.getRuntimeOptionSchema?.() || {};
-    assert.includeMembers(schema.engine?.enum || [], ["codex", "gemini", "iflow"]);
+    assert.includeMembers(schema.engine?.enum || [], [
+      "codex",
+      "gemini",
+      "iflow",
+    ]);
     assert.equal(schema.effort?.default, "default");
 
     const modelEnum = provider.getRuntimeOptionEnumValues?.({
@@ -85,6 +89,29 @@ describe("skillrunner model catalog", function () {
       "high",
       "xhigh",
     ]);
+  });
+
+  it("exposes ACP permission auto-approval as a default-off runtime option", function () {
+    const provider = resolveProviderById("acp");
+    const schema = provider.getRuntimeOptionSchema?.() || {};
+    assert.equal(schema.autoApproveAcpPermissions?.type, "boolean");
+    assert.isFalse(schema.autoApproveAcpPermissions?.default as boolean);
+
+    const normalizedWithoutCache = provider.normalizeRuntimeOptions?.(
+      {
+        acpModeId: "ignored-without-cache",
+        autoApproveAcpPermissions: true,
+      },
+      {
+        id: "acp-no-cache",
+        type: "acp",
+        baseUrl: "local://acp-no-cache",
+        auth: { kind: "none" },
+      } as any,
+    );
+    assert.deepEqual(normalizedWithoutCache, {
+      autoApproveAcpPermissions: true,
+    });
   });
 
   it("prefers backend-scoped model cache when available", function () {
@@ -124,7 +151,10 @@ describe("skillrunner model catalog", function () {
       backendId: "skillrunner-local",
       baseUrl: "http://127.0.0.1:8030",
     }).map((entry) => entry.value);
-    assert.includeMembers(modelEnum, ["openai/gpt-5", "anthropic/claude-sonnet-4"]);
+    assert.includeMembers(modelEnum, [
+      "openai/gpt-5",
+      "anthropic/claude-sonnet-4",
+    ]);
 
     const providers = listSkillRunnerModelProviders("opencode", {
       backendId: "skillrunner-local",

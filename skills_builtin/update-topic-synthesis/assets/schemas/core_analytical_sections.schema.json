@@ -2,12 +2,38 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "synthesis.core_analytical_sections",
   "type": "object",
-  "required": ["positioning", "claims", "comparison_matrix", "debates", "gaps", "review_outline"],
+  "required": [
+    "taxonomy",
+    "timeline_events",
+    "positioning",
+    "claims",
+    "improvement_dimension_summary",
+    "improvement_dimensions",
+    "concept_candidate_labels",
+    "debates",
+    "gaps",
+    "review_outline"
+  ],
   "properties": {
+    "taxonomy": { "type": "object" },
+    "timeline_events": { "type": "object" },
     "positioning": { "type": "object" },
     "claims": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
-    "comparison_matrix": { "type": "object" },
-    "debates": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+    "improvement_dimension_summary": { "type": "object" },
+    "improvement_dimensions": {
+      "type": "array",
+      "items": { "type": "object" },
+      "minItems": 1
+    },
+    "concept_candidate_labels": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "debates": {
+      "type": "array",
+      "items": { "type": "object" },
+      "minItems": 1
+    },
     "gaps": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
     "review_outline": { "type": "object" }
   },

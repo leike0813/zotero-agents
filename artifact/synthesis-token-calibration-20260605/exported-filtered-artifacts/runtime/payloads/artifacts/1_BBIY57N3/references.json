@@ -1,0 +1,274 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "Yuanfeng Ji; Haotian Bai; et al.",
+      "title": "Amos: A large-scale abdominal multi-organ benchmark for versatile medical image segmentation"
+    },
+    {
+      "id": "ref-2",
+      "year": "2025",
+      "authors": "Yuheng Li; Jacob F Wynne; et al.",
+      "title": "Automatic medical imaging segmentation via self-supervising large-scale convolutional neural networks"
+    },
+    {
+      "id": "ref-3",
+      "year": "2022",
+      "authors": "Yucheng Tang; Dong Yang; et al.",
+      "title": "Self-supervised pre-training of swinunetr for 3d medical image analysis"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Fabian Isensee; Paul F Jaeger; et al.",
+      "title": "nnu-net: a self-adapting framework for u-net-based medical image segmentation"
+    },
+    {
+      "id": "ref-5",
+      "year": "2022",
+      "authors": "Ali Hatamizadeh; Vishwesh Nath; et al.",
+      "title": "Swin unetr: Swin transformers for semantic segmentation of brain tumors in mri images"
+    },
+    {
+      "id": "ref-6",
+      "year": "2023",
+      "authors": "Jun Ma; Bo Wang; et al.",
+      "title": "Segment anything in medical images"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Rishi Bommasani; Drew A Hudson; et al.",
+      "title": "On the opportunities and risks of foundation models"
+    },
+    {
+      "id": "ref-8",
+      "year": "2023",
+      "authors": "Xingyu Zhou; Zheng Zhang; et al.",
+      "title": "A comprehensive survey on pretraining-based foundation models: A history from bert to chatgpt"
+    },
+    {
+      "id": "ref-9",
+      "year": "2024",
+      "authors": "Yuheng Li; Mingzhe Hu,; et al.",
+      "title": "Polyp-sam: Transfer sam for polyp segmentation"
+    },
+    {
+      "id": "ref-10",
+      "year": "2025",
+      "authors": "Shansong Wang; Mojtaba Safari; et al.",
+      "title": "Dinov3 with test-time training for medical image registration"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Mathilde Caron; Hugo Touvron; et al.",
+      "title": "Emerging properties in self-supervised vision transformers"
+    },
+    {
+      "id": "ref-12",
+      "year": "2021",
+      "authors": "Alec Radford; Jong Wook Kim; et al.",
+      "title": "Learning transferable visual models from natural language supervision"
+    },
+    {
+      "id": "ref-13",
+      "year": "2025",
+      "authors": "Michael Tschannen; Xiaohua Zhai; et al.",
+      "title": "Siglip 2: Better, faster, stronger"
+    },
+    {
+      "id": "ref-14",
+      "year": "2023",
+      "authors": "Maxime Oquab; Timothée Darcet; et al.",
+      "title": "Dinov2: Learning robust visual features without supervision"
+    },
+    {
+      "id": "ref-15",
+      "year": "2025",
+      "authors": "Oriane Siméoni; Huy V Vo; et al.",
+      "title": "Dinov3: Advancing self-supervised learning at scale"
+    },
+    {
+      "id": "ref-16",
+      "year": "2024",
+      "authors": "Fabian Isensee; Tassilo Wald; et al.",
+      "title": "nnu-net revisited: A call for rigorous validation in 3d medical image segmentation"
+    },
+    {
+      "id": "ref-17",
+      "year": "2024",
+      "authors": "Mohammed Baharoon; Waseem Qureshi; et al.",
+      "title": "Evaluating general purpose vision foundation models for medical image analysis: An experimental study of dinov2 on radiology benchmarks"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Xiaohua Zhai; Alexander Kolesnikov; et al.",
+      "title": "Scaling vision transformers"
+    },
+    {
+      "id": "ref-19",
+      "year": "2023",
+      "authors": "Haotian Zhang; Xuanyu Dong; et al.",
+      "title": "Vit-adapter: Exploring efficient adaptation of vision transformers for dense predictions"
+    },
+    {
+      "id": "ref-20",
+      "year": "2022",
+      "authors": "Bowen Cheng; Alexander Schwing,; et al.",
+      "title": "Masked-attention mask transformer for universal image segmentation"
+    },
+    {
+      "id": "ref-21",
+      "year": "2022",
+      "authors": "Ali Hatamizadeh; Yucheng Tang; et al.",
+      "title": "Unetr: Transformers for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Yutong Xie; Jianpeng Zhang; et al.",
+      "title": "Cotr: Efficiently bridging cnn and transformer for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Yutong Xie; Jianpeng Zhang; et al.",
+      "title": "Unimiss: Universal medical self-supervised learning via breaking dimensionality barrier"
+    },
+    {
+      "id": "ref-24",
+      "year": "2021",
+      "authors": "Jieneng Chen; Yongyi Lu; et al.",
+      "title": "Transunet: Transformers make strong encoders for medical image segmentation"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "Hong-Yu Zhou; Jiansen Guo; et al.",
+      "title": "nnformer: Interleaved transformer for volumetric segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2025",
+      "authors": "Tassilo Wald; Saikat Roy; et al.",
+      "title": "Primus: Enforcing attention usage for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-27",
+      "year": "2025",
+      "authors": "Tommie Kerssies; Niccolò Cavagnero; et al.",
+      "title": "Your vit is secretly an image segmentation model"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Zongwei Zhou; Vatsal Sodha; et al.",
+      "title": "Models genesis"
+    },
+    {
+      "id": "ref-29",
+      "year": "2025",
+      "authors": "Tassilo Wald; Constantin Ulrich; et al.",
+      "title": "Revisiting mae pre-training for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2024",
+      "authors": "Yuheng Li; Tianyu Luan; et al.",
+      "title": "Anatomask: Enhancing medical image segmentation with reconstruction-guided self-masking"
+    },
+    {
+      "id": "ref-31",
+      "year": "2023",
+      "authors": "Guoping Xu; Xuan Zhang; et al.",
+      "title": "Levit-unet: Make faster encoders with transformer for medical image segmentation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2021",
+      "authors": "Yunhe Gao; Mu Zhou,; et al.",
+      "title": "Utnet: a hybrid transformer architecture for medical image segmentation"
+    },
+    {
+      "id": "ref-33",
+      "year": "2015",
+      "authors": "Bennett Landman; Zhoubing Xu; et al.",
+      "title": "Miccai multi-atlas labeling beyond the cranial vault–workshop and challenge"
+    },
+    {
+      "id": "ref-34",
+      "year": "2015",
+      "authors": "Holger R Roth; Le Lu; et al.",
+      "title": "Deeporgan: Multi-level deep convolutional networks for automated pancreas segmentation"
+    },
+    {
+      "id": "ref-35",
+      "year": "2021",
+      "authors": "A Emre Kavur; N Sinem Gezer; et al.",
+      "title": "Chaos challenge-combined (ct-mr) healthy abdominal organ segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2023",
+      "authors": "Patrick Bilic; Patrick Christ; et al.",
+      "title": "The liver tumor segmentation benchmark (lits)"
+    },
+    {
+      "id": "ref-37",
+      "year": "2023",
+      "authors": "Nicholas Heller; Fabian Isensee; et al.",
+      "title": "The kits21 challenge: Automatic segmentation of kidneys, renal tumors, and renal cysts in corticomedullary-phase ct"
+    },
+    {
+      "id": "ref-38",
+      "year": "2022",
+      "authors": "Xiangde Luo; Wenjun Liao; et al.",
+      "title": "Word: A large scale dataset, benchmark and clinical applicable study for abdominal organ segmentation from ct image"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Jun Ma; Yao Zhang; et al.",
+      "title": "Abdomenct-1k: Is abdominal organ segmentation a solved problem? IEEE Transactions on Pattern Analysis and Machine Intelligence, 44(10):6695–6714,"
+    },
+    {
+      "id": "ref-40",
+      "year": "2022",
+      "authors": "Michela Antonelli; Annika Reinke; et al.",
+      "title": "The medical segmentation decathlon"
+    },
+    {
+      "id": "ref-41",
+      "year": "2020",
+      "authors": "Blaine Rister; Darvin Yi; et al.",
+      "title": "Ct-org, a new dataset for multiple organ segmentation in computed tomography"
+    },
+    {
+      "id": "ref-42",
+      "year": "2023",
+      "authors": "Jakob Wasserthal; Hanns-Christian Breit; et al.",
+      "title": "Totalsegmentator: robust segmentation of 104 anatomic structures in ct images"
+    },
+    {
+      "id": "ref-43",
+      "year": "2025",
+      "authors": "Pedro RAS Bassi; Mehmet Can Yavuz; et al.",
+      "title": "Radgpt: Constructing 3d image-text tumor datasets"
+    },
+    {
+      "id": "ref-44",
+      "year": "2021",
+      "authors": "Enze Xie; Wenhai Wang; et al.",
+      "title": "Segformer: Simple and efficient design for semantic segmentation with transformers"
+    },
+    {
+      "id": "ref-45",
+      "year": "2025",
+      "authors": "Yifan Gao; Haoyue Li; et al.",
+      "title": "Dino u-net: Exploiting high-fidelity dense features from foundation models for medical image segmentation"
+    }
+  ]
+}

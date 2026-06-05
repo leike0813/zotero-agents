@@ -221,7 +221,10 @@ function buildRemoteEndpoint(port: number) {
 }
 
 function buildLocalProfileEndpoint(bindMode: HostBridgeBindMode, port: number) {
-  return buildEndpoint(bindMode === "lan" ? LOOPBACK_HOST : hostFromBindMode(bindMode), port);
+  return buildEndpoint(
+    bindMode === "lan" ? LOOPBACK_HOST : hostFromBindMode(bindMode),
+    port,
+  );
 }
 
 function buildLocalClientEndpoint(bindMode: HostBridgeBindMode, port: number) {
@@ -436,10 +439,14 @@ function parseHttpHeaders(head: string) {
 function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
   const splitIndex = findHeaderSeparator(raw);
   const headBytes = splitIndex >= 0 ? raw.slice(0, splitIndex) : raw;
-  const bodyBytes = splitIndex >= 0 ? raw.slice(splitIndex + 4) : new Uint8Array();
+  const bodyBytes =
+    splitIndex >= 0 ? raw.slice(splitIndex + 4) : new Uint8Array();
   const head = bytesToLatin1String(headBytes);
   const { method, parsedPath, headers } = parseHttpHeaders(head);
-  const contentLength = Math.max(0, Number(headers["content-length"] || bodyBytes.length));
+  const contentLength = Math.max(
+    0,
+    Number(headers["content-length"] || bodyBytes.length),
+  );
   const boundedBodyBytes =
     contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
   const body = decodeUtf8Body(boundedBodyBytes);
@@ -796,12 +803,39 @@ function buildMutationApprovalPrompt(input: unknown) {
   };
 }
 
+function compactApprovalText(value: unknown, limit: number) {
+  const text = String(value || "").trim();
+  if (text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, limit))}...[truncated]`;
+}
+
+function buildDebugZoteroEvalApprovalPrompt(input: unknown) {
+  const object = isRecord(input) ? input : {};
+  const codePreview = compactApprovalText(object.code, 500);
+  return {
+    title: "Approve Zotero debug eval?",
+    summary:
+      "Run an approved debug script with access to arbitrary Zotero APIs.",
+    detail: [
+      "Capability: debug.zotero.eval.",
+      "Risk: this code can read or modify Zotero state depending on what it does.",
+      "Source: zotero-bridge CLI.",
+      codePreview ? `Code preview:\n${codePreview}` : "Code preview: (empty)",
+    ].join("\n"),
+  };
+}
+
 function buildCapabilityApprovalPrompt(
   capability: NonNullable<ReturnType<typeof getHostBridgeCapability>>,
   input: unknown,
 ) {
   if (capability.name === "mutation.execute") {
     return buildMutationApprovalPrompt(input);
+  }
+  if (capability.name === "debug.zotero.eval") {
+    return buildDebugZoteroEvalApprovalPrompt(input);
   }
   return {
     title: "Approve Host Bridge action?",
@@ -1085,9 +1119,7 @@ function parseWorkflowTaskFilters(query: Record<string, string>) {
     filters.includeHistory = false;
     filters.activeOnly = true;
   }
-  const activeOnly = String(
-    query.activeOnly || query["active-only"] || "",
-  )
+  const activeOnly = String(query.activeOnly || query["active-only"] || "")
     .trim()
     .toLowerCase();
   if (activeOnly === "true" || activeOnly === "1" || activeOnly === "yes") {
@@ -1759,7 +1791,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
   rawRequestBytes?: Uint8Array;
 }) {
   if (args.rawRequestBytes) {
-    const raw = await handleHttpRequest(parseHttpRequestBytes(args.rawRequestBytes));
+    const raw = await handleHttpRequest(
+      parseHttpRequestBytes(args.rawRequestBytes),
+    );
     return typeof raw === "string" ? raw : raw.text;
   }
   const parsedPath = parseTestPath(args.path || "/");

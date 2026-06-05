@@ -1,0 +1,208 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Gompper G; Winkler R G; et al.",
+      "title": "Journal of Physics: Condensed Matter 32 193001"
+    },
+    {
+      "id": "ref-2",
+      "year": "2010",
+      "authors": "Ramaswamy S",
+      "title": "Annual Review of Condensed Matter Physics 1 323-345"
+    },
+    {
+      "id": "ref-3",
+      "year": "2013",
+      "authors": "Marchetti M C; Joanny J F; et al.",
+      "title": "Rev. Mod. Phys. 85(3) 1143-1189"
+    },
+    {
+      "id": "ref-4",
+      "year": "2016",
+      "authors": "Bechinger C; Di Leonardo R; et al.",
+      "title": "Reviews of Modern Physics 88 045006"
+    },
+    {
+      "id": "ref-5",
+      "year": "2019",
+      "authors": "Golestanian R",
+      "title": "Phoretic Active Matter"
+    },
+    {
+      "id": "ref-6",
+      "year": "2015",
+      "authors": "Cates M E; Tailleur J",
+      "title": "Annu. Rev. Condens. Matter Phys. 6 219-244"
+    },
+    {
+      "id": "ref-7",
+      "year": "2011",
+      "authors": "Henkes S; Fily Y; et al.",
+      "title": "Phys. Rev. E 84(4) 040301"
+    },
+    {
+      "id": "ref-8",
+      "year": "2013",
+      "authors": "Redner G S; Hagan M F; et al.",
+      "title": "Phys. Rev. Lett. 110(5) 055701"
+    },
+    {
+      "id": "ref-9",
+      "year": "2013",
+      "authors": "Buttinoni I; Bialke J; et al.",
+      "title": "Phys. Rev. Lett. 110(23) 238301"
+    },
+    {
+      "id": "ref-10",
+      "year": "2014",
+      "authors": "Soto R; Golestanian R",
+      "title": "Phys. Rev. E 89(1) 012706"
+    },
+    {
+      "id": "ref-11",
+      "year": "2016",
+      "authors": "Blaschke J; Maurer M; et al.",
+      "title": "Soft Matter 12 9821-9831"
+    },
+    {
+      "id": "ref-12",
+      "year": "2018",
+      "authors": "Digregorio P; Levis D; et al.",
+      "title": "Phys. Rev. Lett. 121(9) 098003"
+    },
+    {
+      "id": "ref-13",
+      "year": "2018",
+      "authors": "Abaurrea Velasco C; Abkenar M; et al.",
+      "title": "Phys. Rev. E 98(2) 022605"
+    },
+    {
+      "id": "ref-14",
+      "year": "2015",
+      "authors": "Solon A P; Chate H; et al.",
+      "title": "Phys. Rev. Lett. 114 068101"
+    },
+    {
+      "id": "ref-15",
+      "year": "2020",
+      "authors": "Chate H",
+      "title": "Annual Review of Condensed Matter Physics 11"
+    },
+    {
+      "id": "ref-16",
+      "year": "2012",
+      "authors": "Golestanian R",
+      "title": "Phys. Rev. Lett. 108(3) 038303"
+    },
+    {
+      "id": "ref-17",
+      "year": "2012",
+      "authors": "Taktikos J; Zaburdaev V; et al.",
+      "title": "Phys. Rev. E 85(5) 051901"
+    },
+    {
+      "id": "ref-18",
+      "year": "2014",
+      "authors": "Saha S; Golestanian R; et al.",
+      "title": "Phys. Rev. E 89(6) 062316"
+    },
+    {
+      "id": "ref-19",
+      "year": "2015",
+      "authors": "Liebchen B; Marenduzzo D; et al.",
+      "title": "Phys. Rev. Lett. 115(25) 258301"
+    },
+    {
+      "id": "ref-20",
+      "year": "2018",
+      "authors": "Varma A; Montenegro-Johnson T D; et al.",
+      "title": "Soft Matter 14(35) 7155-7173"
+    },
+    {
+      "id": "ref-21",
+      "year": "2019",
+      "authors": "Agudo-Canalejo J; Golestanian R",
+      "title": "Phys. Rev. Lett. 123(1) 018101"
+    },
+    {
+      "id": "ref-22",
+      "year": "2014",
+      "authors": "Zottl A; Stark H",
+      "title": "Phys. Rev. Lett. 112(11) 118101"
+    },
+    {
+      "id": "ref-23",
+      "year": "2016",
+      "authors": "Blaschke J; Maurer M; et al.",
+      "title": "Soft Matter 12(48) 9821-9831"
+    },
+    {
+      "id": "ref-24",
+      "year": "2005",
+      "authors": "Toner J; Tu Y; et al.",
+      "title": "Annals of Physics 318 170-244"
+    },
+    {
+      "id": "ref-25",
+      "year": "2019",
+      "authors": "Golestanian R",
+      "title": "Phys. Rev. E 100(1) 010601"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Tjhung E; Nardini C; et al.",
+      "title": "Phys. Rev. X 8(3) 031080"
+    },
+    {
+      "id": "ref-27",
+      "year": "2002",
+      "authors": "Golestanian R; Ajdari A",
+      "title": "EPL (Europhysics Letters) 59 800"
+    },
+    {
+      "id": "ref-28",
+      "year": "1977",
+      "authors": "Ziff R M; Uhlenbeck G E; et al.",
+      "title": "Physics Reports 32 169-248"
+    },
+    {
+      "id": "ref-29",
+      "year": "1987",
+      "authors": "Bagnato V; Pritchard D E; et al.",
+      "title": "Phys. Rev. A 35(10) 4354-4358"
+    },
+    {
+      "id": "ref-30",
+      "year": "1999",
+      "authors": "Dalfovo F; Giorgini S; et al.",
+      "title": "Rev. Mod. Phys. 71(3) 463-512"
+    },
+    {
+      "id": "ref-31",
+      "year": "2020",
+      "authors": "Mahault B; Golestanian R",
+      "title": "in preparation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2008",
+      "authors": "Chavanis P H",
+      "title": "The European Physical Journal B 62 179-208"
+    },
+    {
+      "id": "ref-33",
+      "year": "2005",
+      "authors": "Romero-Rochin V",
+      "title": "Phys. Rev. Lett. 94(13) 130601"
+    },
+    {
+      "id": "ref-34",
+      "year": "2015",
+      "authors": "Solon A P; Fily Y; et al.",
+      "title": "Nature Physics 11 673"
+    }
+  ]
+}

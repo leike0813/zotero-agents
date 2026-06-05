@@ -766,7 +766,7 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.registry.filters.reviewDrawerIndex, 2);
   });
 
-  it("renders Tags tab state with filters, inspector, actions, and import preview", function () {
+  it("renders Tags tab state with table workbench filters, selection, actions, and import preview", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setFilters",
       payload: {
@@ -774,6 +774,23 @@ describe("Synthesis tab UI model", function () {
           search: "detr",
           facet: "model",
           status: "warning",
+          view: "staged",
+          stagedSearch: "candidate",
+          stagedFacet: "topic",
+          selectedStagedTags: ["topic:candidate", "topic:missing"],
+          selectedVocabularyTags: ["model:detr"],
+          density: "comfortable",
+          editingStagedTag: {
+            originalTag: "topic:candidate",
+            draftTag: "candidate edited",
+            draftNote: "draft note",
+            status: "failed",
+            error: "save failed",
+          },
+          expandedRows: {
+            "vocabulary:model:detr": true,
+            "staged:topic:candidate": true,
+          },
           importDraft: '{"entries":[]}',
         },
       },
@@ -815,6 +832,21 @@ describe("Synthesis tab UI model", function () {
             stale: true,
             diagnostics: [],
           },
+          staged: [
+            {
+              tag: "topic:candidate",
+              facet: "topic",
+              note: "candidate note",
+              source_flow: "tag-regulator-suggest",
+              parent_bindings: [22, 11, 22],
+              updated_at: "2026-06-05T00:00:00.000Z",
+            },
+            {
+              tag: "field:hidden",
+              facet: "field",
+              note: "hidden",
+            },
+          ],
           importPreview: {
             additions: [],
             unchanged: [],
@@ -843,17 +875,63 @@ describe("Synthesis tab UI model", function () {
       ["model:detr"],
     );
     assert.equal(snapshot.tags.selected?.tag, "model:detr");
+    assert.equal(snapshot.tags.filters.view, "staged");
+    assert.equal(snapshot.tags.filters.density, "comfortable");
+    assert.deepEqual(snapshot.tags.filters.selectedStagedTags, [
+      "topic:candidate",
+      "topic:missing",
+    ]);
+    assert.deepEqual(snapshot.tags.filters.selectedVocabularyTags, ["model:detr"]);
+    assert.deepEqual(snapshot.tags.filters.editingStagedTag, {
+      originalTag: "topic:candidate",
+      draftTag: "candidate edited",
+      draftNote: "draft note",
+      status: "failed",
+      error: "save failed",
+    });
+    assert.deepEqual(snapshot.tags.filters.expandedRows, {
+      "staged:topic:candidate": true,
+      "vocabulary:model:detr": true,
+    });
+    assert.deepEqual(snapshot.tags.stagedFacets, ["field", "topic"]);
+    assert.equal(snapshot.tags.stagedCount, 2);
+    assert.deepEqual(
+      snapshot.tags.visibleStagedRows.map((row) => row.tag),
+      ["topic:candidate"],
+    );
+    assert.deepEqual(snapshot.tags.visibleStagedRows[0]?.parent_bindings, [
+      11,
+      22,
+    ]);
+    assert.equal(snapshot.tags.visibleStagedRows[0]?.parent_count, 2);
     assert.isTrue(snapshot.tags.projection.stale);
     assert.equal(snapshot.tags.importDraft, '{"entries":[]}');
     assert.lengthOf(snapshot.tags.importPreview?.conflicts || [], 1);
     assert.include(snapshot.hostCommands, "previewTagVocabularyImport");
     assert.include(snapshot.hostCommands, "applyTagVocabularyImport");
+    assert.include(snapshot.hostCommands, "updateStagedTagSuggestion");
+    assert.include(snapshot.hostCommands, "promoteStagedTagSuggestions");
+    assert.include(snapshot.hostCommands, "discardStagedTagSuggestions");
+    assert.include(snapshot.hostCommands, "clearStagedTagSuggestions");
 
     const command = applySynthesisUiAction(selectedState, {
       action: "hostCommand",
       payload: { command: "validateTagVocabulary" },
     });
     assert.equal(command.hostCommand?.command, "validateTagVocabulary");
+    assert.equal(
+      getSynthesisUiOperationKey("promoteStagedTagSuggestions", {
+        tags: ["topic:candidate"],
+      }),
+      "promoteStagedTagSuggestions:topic:candidate",
+    );
+    assert.equal(
+      getSynthesisUiOperationKey("updateStagedTagSuggestion", {
+        originalTag: "topic:candidate",
+        tag: "topic:candidate-edited",
+      }),
+      "updateStagedTagSuggestion:topic:candidate",
+    );
   });
 
   it("refreshes the Tags surface after tag import preview and apply commands", async function () {
@@ -862,6 +940,7 @@ describe("Synthesis tab UI model", function () {
       "utf8",
     );
     const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
     const invalidationBlock = extractFunctionBlock(
       host,
       "surfacesInvalidatedByCommand",
@@ -873,10 +952,72 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(previewImportBranch, 'command === "previewTagVocabularyImport"');
     assert.include(previewImportBranch, 'command === "applyTagVocabularyImport"');
+    assert.include(previewImportBranch, 'command === "promoteStagedTagSuggestions"');
+    assert.include(previewImportBranch, 'command === "clearStagedTagSuggestions"');
     assert.include(previewImportBranch, 'return ["tags"]');
     assert.include(app, "Review tag import preview");
     assert.include(app, "Merge Non-conflicting");
     assert.include(app, "Use Imported");
+    assert.include(app, "renderTagsWorkbenchShell");
+    assert.include(app, "renderTagsSummaryBar");
+    assert.include(app, "renderVocabularySubview");
+    assert.include(app, "renderStagedInboxSubview");
+    assert.include(app, "renderTagBulkActionBar");
+    assert.include(app, "tags-summary-bar");
+    assert.include(app, "tags-subview-tabs");
+    assert.include(app, "tags-bulk-bar");
+    assert.include(app, "staged-edit-state");
+    assert.include(app, "Staged (");
+    assert.include(app, "Clear Staged");
+    assert.include(app, "updateStagedTagSuggestion");
+    assert.notInclude(app, "renderTagInspector");
+    assert.notInclude(app, "Tag Inspector");
+    assert.notInclude(
+      extractFunctionBlock(app, "renderTagsSummaryBar"),
+      "rebuildTagVocabularyIndex",
+    );
+    assert.notInclude(
+      extractFunctionBlock(app, "renderTags"),
+      "rebuildTagVocabularyIndex",
+    );
+    assert.include(css, ".tags-workbench");
+    assert.include(css, ".tags-summary-bar");
+    assert.include(css, ".tags-subview-tabs");
+    assert.include(css, ".tags-table-wrap");
+    assert.include(css, ".tags-bulk-bar");
+    assert.include(css, ".staged-edit-state");
+  });
+
+  it("refreshes the Graph surface after reference refresh and advanced matching commands", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const invalidationBlock = extractFunctionBlock(
+      host,
+      "surfacesInvalidatedByCommand",
+    );
+    const referenceBranch = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "refreshReferenceSidecarNow"'),
+      invalidationBlock.indexOf(
+        'command === "applyReferenceMatchProposalAction"',
+      ),
+    );
+
+    assert.include(referenceBranch, 'command === "refreshReferenceSidecarNow"');
+    assert.include(
+      referenceBranch,
+      'command === "retryReferenceSidecarRefresh"',
+    );
+    assert.include(
+      referenceBranch,
+      'command === "runAdvancedReferenceMatchingNow"',
+    );
+    assert.include(
+      referenceBranch,
+      'command === "retryAdvancedReferenceMatching"',
+    );
+    assert.include(referenceBranch, 'return ["index", "review", "graph"]');
   });
 
   it("updates graph layout algorithm and selected element without recomputing layout", function () {
@@ -1456,6 +1597,11 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "firstText(event");
     assert.include(source, '"summary"');
     assert.include(source, "matrix.dimensions");
+    assert.include(source, "topicTimelineMarkers(detail)");
+    assert.include(source, "timeline.markers");
+    assert.include(source, "Improvement / Dimensions");
+    assert.include(source, "detail.improvement_dimensions");
+    assert.include(source, "detail.comparison_matrix || {}");
     assert.notInclude(source, "Library-paper evidence markers");
     assert.notInclude(source, 'badge("resizable"');
     assert.include(source, '["registry", "Index", "index"]');

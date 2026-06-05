@@ -6,6 +6,7 @@ export type AcpAgentFamily =
   | "claude-code"
   | "opencode"
   | "gemini-cli"
+  | "hermes"
   | "qwen-code"
   | "unknown";
 
@@ -25,7 +26,16 @@ function normalizeString(value: unknown) {
 
 function normalizeFamily(value: unknown): AcpAgentFamily {
   const normalized = normalizeString(value).toLowerCase();
-  if (["codex", "claude-code", "opencode", "gemini-cli", "qwen-code"].includes(normalized)) {
+  if (
+    [
+      "codex",
+      "claude-code",
+      "opencode",
+      "gemini-cli",
+      "hermes",
+      "qwen-code",
+    ].includes(normalized)
+  ) {
     return normalized as AcpAgentFamily;
   }
   if (normalized === "claude" || normalized === "claude_code") {
@@ -52,7 +62,9 @@ function haystackForBackend(backend: BackendInstance) {
     .join(" ");
 }
 
-export function resolveAcpAgentFamily(backend: BackendInstance): AcpAgentFamily {
+export function resolveAcpAgentFamily(
+  backend: BackendInstance,
+): AcpAgentFamily {
   const explicit = normalizeFamily(backend.acp?.agentFamily);
   if (explicit !== "unknown") {
     return explicit;
@@ -61,6 +73,9 @@ export function resolveAcpAgentFamily(backend: BackendInstance): AcpAgentFamily 
   const source = haystackForBackend(backend);
   if (/\bqwen(?:-code)?\b/.test(source)) {
     return "qwen-code";
+  }
+  if (/\bhermes\b/.test(source)) {
+    return "hermes";
   }
   if (/\bgemini(?:-cli)?\b/.test(source)) {
     return "gemini-cli";
@@ -89,6 +104,8 @@ export function defaultAcpSkillRootsForFamily(family: AcpAgentFamily) {
       return [".agents/skills", ".gemini/skills"];
     case "qwen-code":
       return [".qwen/skills"];
+    case "hermes":
+      return [];
     case "unknown":
     default:
       return [".agents/skills"];
@@ -101,12 +118,16 @@ export function buildAcpSkillInjectionPlan(args: {
 }): AcpSkillInjectionPlan {
   const family = resolveAcpAgentFamily(args.backend);
   const configuredRoots = Array.isArray(args.backend.acp?.skillRoots)
-    ? args.backend.acp!.skillRoots!
-        .map((entry) => normalizeString(entry).replace(/\\/g, "/"))
+    ? args.backend
+        .acp!.skillRoots!.map((entry) =>
+          normalizeString(entry).replace(/\\/g, "/"),
+        )
         .filter(Boolean)
     : [];
   const relativeRoots =
-    configuredRoots.length > 0 ? configuredRoots : defaultAcpSkillRootsForFamily(family);
+    configuredRoots.length > 0
+      ? configuredRoots
+      : defaultAcpSkillRootsForFamily(family);
   const skillRoots = Array.from(new Set(relativeRoots)).map((root) =>
     joinPath(args.workspaceDir, root),
   );
@@ -115,7 +136,8 @@ export function buildAcpSkillInjectionPlan(args: {
     diagnostics.push({
       level: "warning",
       code: "acp_agent_family_unknown",
-      message: "ACP agent family could not be inferred; using .agents/skills fallback",
+      message:
+        "ACP agent family could not be inferred; using .agents/skills fallback",
     });
   }
   if (configuredRoots.length > 0) {
@@ -131,4 +153,3 @@ export function buildAcpSkillInjectionPlan(args: {
     diagnostics,
   };
 }
-

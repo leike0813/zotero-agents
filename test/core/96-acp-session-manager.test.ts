@@ -1944,6 +1944,28 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.modeSelections, ["session-1:plan"]);
     assert.deepEqual(lastAdapter?.modelSelections, ["session-1:gpt-5.4-mini"]);
     assert.deepEqual(lastAdapter?.cancelSessionIds, ["session-1"]);
+    assert.equal(lastAdapter?.closeCalls, 0);
+  });
+
+  it("treats a close after prompt cancellation as a stopped prompt rather than a disconnect", async function () {
+    await sendAcpConversationPrompt({
+      message: "Cancelable turn",
+    });
+
+    await cancelAcpConversationPrompt();
+    lastAdapter?.emitClose({
+      message: "ACP connection closed after cancel",
+      stderrText: "cancelled by client",
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "connected");
+    assert.equal(snapshot.busy, false);
+    assert.equal(snapshot.lastStopReason, "cancelled");
+    assert.equal(snapshot.lastLifecycleEvent, "prompt_cancelled");
+    assert.equal(snapshot.lastError, "");
+    assert.equal(snapshot.stderrTail, "");
+    assert.equal(lastAdapter?.closeCalls, 0);
   });
 
   it("allows mode changes but rejects model and reasoning changes while a prompt is active", async function () {

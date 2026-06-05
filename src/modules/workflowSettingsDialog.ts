@@ -39,15 +39,15 @@ function applySelectVisualStyle(control: HTMLElement, width?: string) {
 }
 
 function getChoiceTrigger(control: Element) {
-  return control.querySelector("[data-zs-choice-trigger='1']") as
-    | HTMLButtonElement
-    | null;
+  return control.querySelector(
+    "[data-zs-choice-trigger='1']",
+  ) as HTMLButtonElement | null;
 }
 
 function getChoiceList(control: Element) {
-  return control.querySelector("[data-zs-choice-list='1']") as
-    | HTMLDivElement
-    | null;
+  return control.querySelector(
+    "[data-zs-choice-list='1']",
+  ) as HTMLDivElement | null;
 }
 
 function closeChoiceList(control: Element) {
@@ -102,7 +102,9 @@ function getElementValue(control: Element) {
   if (control.getAttribute("data-zs-choice-control") === "1") {
     return String(control.getAttribute("data-zs-choice-value") || "").trim();
   }
-  return String((control as HTMLInputElement | HTMLSelectElement).value || "").trim();
+  return String(
+    (control as HTMLInputElement | HTMLSelectElement).value || "",
+  ).trim();
 }
 
 function createChoiceControl(args: {
@@ -294,6 +296,10 @@ function coerceString(value: unknown, fallback: unknown) {
   return "";
 }
 
+function isWarningProviderOptionKey(key: string) {
+  return key === "autoApproveAcpPermissions";
+}
+
 function renderSchemaFields(args: {
   doc: Document;
   container: HTMLElement;
@@ -324,6 +330,10 @@ function renderSchemaFields(args: {
     label.setAttribute("for", controlId);
     label.style.display = "block";
     label.style.fontWeight = "600";
+    if (isWarningProviderOptionKey(entry.key)) {
+      label.style.color = "#b42318";
+      label.style.fontWeight = "700";
+    }
     row.appendChild(label);
 
     const rawValue = values[entry.key];
@@ -647,7 +657,8 @@ export async function openWorkflowSettingsDialog(args?: {
   const initialState = getWorkflowSettingsDialogInitialState(workflowId);
   const providerId = String(workflow.manifest.provider || "").trim();
   const isSkillRunnerCompatibleWorkflow =
-    String(workflow.manifest.request?.kind || "").trim() === "skillrunner.job.v1";
+    String(workflow.manifest.request?.kind || "").trim() ===
+    "skillrunner.job.v1";
   const resolveProviderIdForBackend = (
     backend: (typeof profiles)[number] | undefined,
   ) => {
@@ -720,7 +731,8 @@ export async function openWorkflowSettingsDialog(args?: {
       });
 
       const persistedProviderFields = createHtmlElement(doc, "div");
-      persistedProviderFields.id = "zs-workflow-settings-provider-options-fields";
+      persistedProviderFields.id =
+        "zs-workflow-settings-provider-options-fields";
       panel.appendChild(persistedProviderFields);
 
       appendSectionTitle(
@@ -729,7 +741,8 @@ export async function openWorkflowSettingsDialog(args?: {
         getString("workflow-settings-persisted-workflow-params-title" as any),
       );
       const persistedWorkflowFields = createHtmlElement(doc, "div");
-      persistedWorkflowFields.id = "zs-workflow-settings-workflow-params-fields";
+      persistedWorkflowFields.id =
+        "zs-workflow-settings-workflow-params-fields";
       panel.appendChild(persistedWorkflowFields);
 
       const divider = createHtmlElement(doc, "hr");
@@ -759,7 +772,8 @@ export async function openWorkflowSettingsDialog(args?: {
       });
 
       const onceProviderFields = createHtmlElement(doc, "div");
-      onceProviderFields.id = "zs-workflow-settings-once-provider-options-fields";
+      onceProviderFields.id =
+        "zs-workflow-settings-once-provider-options-fields";
       panel.appendChild(onceProviderFields);
 
       appendSectionTitle(
@@ -768,7 +782,8 @@ export async function openWorkflowSettingsDialog(args?: {
         getString("workflow-settings-run-once-workflow-params-title" as any),
       );
       const onceWorkflowFields = createHtmlElement(doc, "div");
-      onceWorkflowFields.id = "zs-workflow-settings-once-workflow-params-fields";
+      onceWorkflowFields.id =
+        "zs-workflow-settings-once-workflow-params-fields";
       panel.appendChild(onceWorkflowFields);
 
       root.appendChild(panel);
@@ -838,10 +853,11 @@ export async function openWorkflowSettingsDialog(args?: {
           emptyText: getString("workflow-settings-no-provider-options" as any),
         });
         const dynamicControls = ["engine", "provider_id", "model", "acpModelId"]
-          .map((key) =>
-            args.container.querySelector(
-              `[data-zs-option-key="${key}"]`,
-            ) as Element | null,
+          .map(
+            (key) =>
+              args.container.querySelector(
+                `[data-zs-option-key="${key}"]`,
+              ) as Element | null,
           )
           .filter(Boolean) as Element[];
         for (const control of dynamicControls) {
@@ -867,8 +883,9 @@ export async function openWorkflowSettingsDialog(args?: {
         const onceSelectedId = onceProfileSelect
           ? getControlValue(onceProfileSelect)
           : "";
-        const fallbackId =
-          profileSelect ? getControlValue(profileSelect) : renderModel.selectedProfile;
+        const fallbackId = profileSelect
+          ? getControlValue(profileSelect)
+          : renderModel.selectedProfile;
         return profileById.get(onceSelectedId || fallbackId);
       };
       renderProviderOptionsFields({
@@ -946,7 +963,9 @@ export async function openWorkflowSettingsDialog(args?: {
   try {
     const doc = dialogHelper.window?.document;
     if (!doc) {
-      throw new Error(getString("workflow-settings-error-window-unavailable" as any));
+      throw new Error(
+        getString("workflow-settings-error-window-unavailable" as any),
+      );
     }
     const persistedProfileControl = doc.getElementById(
       "zs-workflow-settings-profile",
@@ -979,7 +998,9 @@ export async function openWorkflowSettingsDialog(args?: {
       !onceWorkflowFields ||
       !onceProviderFields
     ) {
-      throw new Error(getString("workflow-settings-error-controls-unavailable" as any));
+      throw new Error(
+        getString("workflow-settings-error-controls-unavailable" as any),
+      );
     }
 
     const draft = buildWorkflowSettingsDialogDraft({

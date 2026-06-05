@@ -1,27 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "synthesis.topic_context_payload",
+  "$id": "synthesis.update_topic_context_payload",
   "type": "object",
-  "required": ["topic_definition"],
+  "required": ["topic_context"],
   "properties": {
-    "operation": { "type": "string" },
-    "language": { "type": "string" },
-    "topic_seed": { "type": "string" },
-    "topic_id": { "type": "string" },
-    "topic_definition": {
+    "topic_context": {
       "type": "object",
-      "required": ["id", "title"],
+      "required": ["topic_id"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "title": { "type": "string", "minLength": 1 }
+        "topic_id": { "type": "string", "minLength": 1 },
+        "topic_definition": { "type": "object" },
+        "current_hashes": { "type": "object" },
+        "section_hashes": { "type": "object" },
+        "recommended_update": { "type": "object" }
       },
       "additionalProperties": true
     },
-    "duplicate_check": { "type": "object" },
-    "current_context": { "type": "object" },
-    "base_hashes": { "type": "object" },
-    "read_section_hashes": { "type": "object" },
-    "recommended_update": { "type": "object" }
+    "update_assessment": {
+      "type": "object",
+      "properties": {
+        "operation": { "enum": ["update_full", "update_patch"] },
+        "changed_sections": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reason": { "type": "string" },
+        "diagnostics": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "diagnostics": { "type": "array", "default": [] }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

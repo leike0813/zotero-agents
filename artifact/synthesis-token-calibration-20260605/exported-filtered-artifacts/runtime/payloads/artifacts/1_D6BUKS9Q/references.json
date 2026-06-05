@@ -1,0 +1,538 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "Xuyang Bai; Zeyu Hu; et al.",
+      "title": "Transfusion: Robust lidar-camera fusion for 3d object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "Guillem Braso; Nikita Kister; et al.",
+      "title": "The ´ center of attention: Center-keypoint grouping via attention for multi-person pose estimation"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Holger Caesar; Varun Bankiti; et al.",
+      "title": "nuscenes: A multimodal dataset for autonomous driving"
+    },
+    {
+      "id": "ref-4",
+      "year": "2022",
+      "authors": "Xipeng Cao; Peng Yuan; et al.",
+      "title": "Cf-detr: Coarse-to-fine transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-toend object detection with transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Qiang Chen; Xiaokang Chen; et al.",
+      "title": "Group detr: Fast training convergence with decoupled one-to-many label assignment"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Xin Chen; Bin Yan; et al.",
+      "title": "Transformer tracking"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Bowen Cheng; Anwesa Choudhuri; et al.",
+      "title": "Mask2former for video instance segmentation"
+    },
+    {
+      "id": "ref-9",
+      "year": "2021",
+      "authors": "Bowen Cheng; Ishan Misra; et al.",
+      "title": "Maskedattention mask transformer for universal image segmentation"
+    },
+    {
+      "id": "ref-10",
+      "year": "2017",
+      "authors": "Angela Dai; Angel X Chang; et al.",
+      "title": "Scannet: Richly-annotated 3d reconstructions of indoor scenes"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Xiyang Dai; Yinpeng Chen; et al.",
+      "title": "Dynamic detr: End-toend object detection with dynamic attention"
+    },
+    {
+      "id": "ref-12",
+      "year": "2022",
+      "authors": "Tri Dao; Daniel Y",
+      "title": "Fu, Stefano Ermon, Atri Rudra, and Christopher Re. FlashAttention: Fast and memory-efficient ´ exact attention with IO-awareness"
+    },
+    {
+      "id": "ref-13",
+      "year": "2021",
+      "authors": "Bin Dong; Fangao Zeng; et al.",
+      "title": "Solq: Segmenting objects by learning queries. NeurIPS"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Yuxin Fang; Shusheng Yang; et al.",
+      "title": "Instances as queries"
+    },
+    {
+      "id": "ref-15",
+      "year": "2021",
+      "authors": "Peng Gao; Minghang Zheng; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-16",
+      "year": "2022",
+      "authors": "Ziteng Gao; Limin Wang; et al.",
+      "title": "Adamixer: A fast-converging query-based object detector"
+    },
+    {
+      "id": "ref-17",
+      "year": "2015",
+      "authors": "Ross Girshick",
+      "title": "Fast r-cnn"
+    },
+    {
+      "id": "ref-18",
+      "year": "2021",
+      "authors": "Brent A Griffin; Jason J Corso",
+      "title": "Depth from camera motion and object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2019",
+      "authors": "Agrim Gupta; Piotr Dollar; et al.",
+      "title": "Lvis: A dataset for large vocabulary instance segmentation"
+    },
+    {
+      "id": "ref-20",
+      "year": "2022",
+      "authors": "Junjie Huang; Guan Huang",
+      "title": "Bevdet4d: Exploit temporal cues in multi-camera 3d object detection"
+    },
+    {
+      "id": "ref-21",
+      "year": "2021",
+      "authors": "Junjie Huang; Guan Huang; et al.",
+      "title": "Bevdet: High-performance multi-camera 3d object detection in bird-eye-view"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Aishwarya Kamath; Mannat Singh; et al.",
+      "title": "Mdetrmodulated detection for end-to-end multi-modal understanding"
+    },
+    {
+      "id": "ref-23",
+      "year": "2020",
+      "authors": "Youngwan Lee; Jongyoul Park",
+      "title": "Centermask: Real-time anchor-free instance segmentation"
+    },
+    {
+      "id": "ref-24",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Dn-detr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-25",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Mask dino: Towards a unified transformer-based framework for object detection and segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2021",
+      "authors": "Ke Li; Shijie Wang; et al.",
+      "title": "Pose recognition with cascade transformers"
+    },
+    {
+      "id": "ref-27",
+      "year": "2021",
+      "authors": "Yanghao Li; Chao-Yuan Wu; et al.",
+      "title": "Improved multiscale vision transformers for classification and detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Yanjie Li; Shoukui Zhang; et al.",
+      "title": "Tokenpose: Learning keypoint tokens for human pose estimation"
+    },
+    {
+      "id": "ref-29",
+      "year": "2022",
+      "authors": "Zhenyu Li; Zehui Chen; et al.",
+      "title": "Depthformer: Exploiting long-range correlation and local information for accurate monocular depth estimation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2022",
+      "authors": "Zhiqi Li; Wenhai Wang; et al.",
+      "title": "Bevformer: Learning bird’s-eye-view representation from multi-camera images via spatiotemporal transformers"
+    },
+    {
+      "id": "ref-31",
+      "year": "2022",
+      "authors": "Zhiqi Li; Wenhai Wang; et al.",
+      "title": "Panoptic segformer: Delving deeper into panoptic segmentation with transformers"
+    },
+    {
+      "id": "ref-32",
+      "year": "2022",
+      "authors": "Zhenyu Li; Xuyang Wang; et al.",
+      "title": "Binsformer: Revisiting adaptive bins for monocular depth estimation"
+    },
+    {
+      "id": "ref-33",
+      "year": "2022",
+      "authors": "Tingting Liang; Xiaojie Chu; et al.",
+      "title": "Cbnet: A composite backbone network architecture for object detection. TIP"
+    },
+    {
+      "id": "ref-34",
+      "year": "2022",
+      "authors": "Tingting Liang; Hongwei Xie; et al.",
+      "title": "Bevfusion: A simple and robust lidar-camera fusion framework"
+    },
+    {
+      "id": "ref-35",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-36",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-37",
+      "year": "2022",
+      "authors": "Shilong Liu; Feng Li; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are better queries for detr"
+    },
+    {
+      "id": "ref-38",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-39",
+      "year": "2022",
+      "authors": "Yingfei Liu; Tiancai Wang; et al.",
+      "title": "Petr: Position embedding transformation for multi-view 3d object detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2022",
+      "authors": "Yingfei Liu; Junjie Yan; et al.",
+      "title": "Petrv2: A unified framework for 3d perception from multi-camera images"
+    },
+    {
+      "id": "ref-41",
+      "year": "2022",
+      "authors": "Ze Liu; Han Hu; et al.",
+      "title": "Swin transformer v2: Scaling up capacity and resolution"
+    },
+    {
+      "id": "ref-42",
+      "year": "2021",
+      "authors": "Ze Liu; Yutong Lin; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-43",
+      "year": "2022",
+      "authors": "Zhuang Liu; Hanzi Mao; et al.",
+      "title": "A convnet for the 2020s"
+    },
+    {
+      "id": "ref-44",
+      "year": "2022",
+      "authors": "Zhijian Liu; Haotian Tang; et al.",
+      "title": "Bevfusion: Multitask multi-sensor fusion with unified bird’s-eye view representation"
+    },
+    {
+      "id": "ref-45",
+      "year": "2021",
+      "authors": "Ze Liu; Zheng Zhang; et al.",
+      "title": "Group-free 3d object detection via transformers"
+    },
+    {
+      "id": "ref-46",
+      "year": "2022",
+      "authors": "Shangbang Long; Siyang Qin; et al.",
+      "title": "Towards endto-end unified scene text detection and layout analysis"
+    },
+    {
+      "id": "ref-47",
+      "year": "2022",
+      "authors": "Qian Lou; Yen-Chang Hsu; et al.",
+      "title": "Lite-mdetr: A lightweight multimodal detector"
+    },
+    {
+      "id": "ref-48",
+      "year": "2021",
+      "authors": "Weian Mao; Yongtao Ge; et al.",
+      "title": "Tfpose: Direct human pose estimation with transformers"
+    },
+    {
+      "id": "ref-49",
+      "year": "2022",
+      "authors": "Tim Meinhardt; Alexander Kirillov; et al.",
+      "title": "Trackformer: Multi-object tracking with transformers"
+    },
+    {
+      "id": "ref-50",
+      "year": "2021",
+      "authors": "Depu Meng; Xiaokang Chen; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-51",
+      "year": "2016",
+      "authors": "Anton Milan; Laura Leal-Taixe; et al.",
+      "title": "Mot16: A benchmark for multi-object tracking"
+    },
+    {
+      "id": "ref-52",
+      "year": "2021",
+      "authors": "Ishan Misra; Rohit Girdhar; et al.",
+      "title": "An endto-end transformer model for 3d object detection"
+    },
+    {
+      "id": "ref-53",
+      "year": "2006",
+      "authors": "Alexander Neubeck; Luc Van Gool",
+      "title": "Efficient nonmaximum suppression"
+    },
+    {
+      "id": "ref-54",
+      "year": "2021",
+      "authors": "Kemal Oksuz; Baris Can Cam; et al.",
+      "title": "One metric to measure them all: Localisation recall precision (lrp) for evaluating visual detection tasks. TPAMI"
+    },
+    {
+      "id": "ref-55",
+      "year": "2021",
+      "authors": "Zobeir Raisi; Mohamed A Naiel; et al.",
+      "title": "Transformer-based text detection in the wild"
+    },
+    {
+      "id": "ref-56",
+      "year": "2022",
+      "authors": "Zobeir Raisi; Georges Younes; et al.",
+      "title": "Arbitrary shape text detection using transformers"
+    },
+    {
+      "id": "ref-57",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks. NeurIPS"
+    },
+    {
+      "id": "ref-58",
+      "year": "2021",
+      "authors": "Byungseok Roh; JaeWoong Shin; et al.",
+      "title": "Sparse detr: Efficient end-to-end object detection with learnable sparsity"
+    },
+    {
+      "id": "ref-59",
+      "year": "2022",
+      "authors": "Dahu Shi; Xing Wei; et al.",
+      "title": "End-to-end multi-person pose estimation with transformers"
+    },
+    {
+      "id": "ref-60",
+      "year": "2021",
+      "authors": "Lucas Stoffl; Maxime Vidal; et al.",
+      "title": "End-toend trainable multi-instance pose estimation with transformers"
+    },
+    {
+      "id": "ref-61",
+      "year": "2020",
+      "authors": "Peize Sun; Jinkun Cao; et al.",
+      "title": "Transtrack: Multiple object tracking with transformer"
+    },
+    {
+      "id": "ref-62",
+      "year": "2019",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-63",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-64",
+      "year": "2021",
+      "authors": "Huiyu Wang; Yukun Zhu; et al.",
+      "title": "Max-deeplab: End-to-end panoptic segmentation with mask transformers"
+    },
+    {
+      "id": "ref-65",
+      "year": "2021",
+      "authors": "Jianfeng Wang; Lin Song; et al.",
+      "title": "End-to-end object detection with fully convolutional network"
+    },
+    {
+      "id": "ref-66",
+      "year": "2022",
+      "authors": "Wen Wang; Jing Zhang; et al.",
+      "title": "Towards data-efficient detection transformers"
+    },
+    {
+      "id": "ref-67",
+      "year": "2022",
+      "authors": "Yue Wang; Vitor Campagnolo Guizilini; et al.",
+      "title": "Detr3d: 3d object detection from multi-view images via 3d-to-2d queries"
+    },
+    {
+      "id": "ref-68",
+      "year": "2021",
+      "authors": "Yingming Wang; Xiangyu Zhang; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-69",
+      "year": "2022",
+      "authors": "Jiannan Wu; Yi Jiang; et al.",
+      "title": "Language as queries for referring video object segmentation"
+    },
+    {
+      "id": "ref-70",
+      "year": "2021",
+      "authors": "Junfeng Wu; Yi Jiang; et al.",
+      "title": "Seqformer: a frustratingly simple model for video instance segmentation"
+    },
+    {
+      "id": "ref-71",
+      "year": "2021",
+      "authors": "Yifan Xu; Weijian Xu; et al.",
+      "title": "Line segment detection using transformers without edges"
+    },
+    {
+      "id": "ref-72",
+      "year": "2021",
+      "authors": "Bin Yan; Houwen Peng; et al.",
+      "title": "Learning spatio-temporal transformer for visual tracking"
+    },
+    {
+      "id": "ref-73",
+      "year": "2022",
+      "authors": "Chenglin Yang; Siyuan Qiao; et al.",
+      "title": "Moat: Alternating mobile convolution and attention brings strong vision models"
+    },
+    {
+      "id": "ref-74",
+      "year": "2022",
+      "authors": "Zhao Yang; Jiaqi Wang; et al.",
+      "title": "Lavt: Language-aware vision transformer for referring image segmentation"
+    },
+    {
+      "id": "ref-75",
+      "year": "2022",
+      "authors": "Qihang Yu; Huiyu Wang; et al.",
+      "title": "Cmt-deeplab: Clustering mask transformers for panoptic segmentation"
+    },
+    {
+      "id": "ref-76",
+      "year": "2022",
+      "authors": "Qihang Yu; Huiyu Wang; et al.",
+      "title": "Cmt-deeplab: Clustering mask transformers for panoptic segmentation"
+    },
+    {
+      "id": "ref-77",
+      "year": "2022",
+      "authors": "Qihang Yu; Huiyu Wang; et al.",
+      "title": "k-means mask transformer"
+    },
+    {
+      "id": "ref-78",
+      "year": "2021",
+      "authors": "Xiaodong Yu; Dahu Shi; et al.",
+      "title": "Soit: Segmenting objects with instance-aware transformers"
+    },
+    {
+      "id": "ref-79",
+      "year": "2020",
+      "authors": "Yuhui Yuan; Xilin Chen; et al.",
+      "title": "Objectcontextual representations for semantic segmentation"
+    },
+    {
+      "id": "ref-80",
+      "year": "2021",
+      "authors": "Fangao Zeng; Bin Dong; et al.",
+      "title": "Motr: End-to-end multiple-object tracking with transformer"
+    },
+    {
+      "id": "ref-81",
+      "year": "2022",
+      "authors": "Gongjie Zhang; Zhipeng Luo; et al.",
+      "title": "Accelerating DETR convergence via semantic-aligned matching"
+    },
+    {
+      "id": "ref-82",
+      "year": "2022",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-83",
+      "year": "2021",
+      "authors": "Jianfeng Zhang; Yujun Cai; et al.",
+      "title": "Direct multi-view multi-person 3d pose estimation. NeurIPS"
+    },
+    {
+      "id": "ref-84",
+      "year": "2020",
+      "authors": "Shifeng Zhang; Cheng Chi; et al.",
+      "title": "Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection"
+    },
+    {
+      "id": "ref-85",
+      "year": "2022",
+      "authors": "Xiang Zhang; Yongwen Su; et al.",
+      "title": "Text spotting transformers"
+    },
+    {
+      "id": "ref-86",
+      "year": "2021",
+      "authors": "Moju Zhao; Kei Okada; et al.",
+      "title": "Trtr: Visual tracking with transformer"
+    },
+    {
+      "id": "ref-87",
+      "year": "2022",
+      "authors": "Xingyi Zhou; Rohit Girdhar; et al.",
+      "title": "Detecting twenty-thousand ¨ classes using image-level supervision"
+    },
+    {
+      "id": "ref-88",
+      "year": "2020",
+      "authors": "Benjin Zhu; Jianfeng Wang; et al.",
+      "title": "Autoassign: Differentiable label assignment for dense object detection"
+    },
+    {
+      "id": "ref-89",
+      "year": "2020",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

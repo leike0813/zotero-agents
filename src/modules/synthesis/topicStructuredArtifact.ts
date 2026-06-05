@@ -9,7 +9,8 @@ const COMPLETE_SECTIONS = [
   "summary",
   "positioning",
   "taxonomy",
-  "comparison_matrix",
+  "improvement_dimension_summary",
+  "improvement_dimensions",
   "claims",
   "timeline_events",
   "paper_evidence",
@@ -353,22 +354,18 @@ export function validateTopicSynthesisArtifact(
   if (!("summary" in external)) {
     errors.push("external_literature_analysis summary is required");
   }
-  const diagnostics = isObject(input.diagnostics) ? input.diagnostics : {};
-  const legacyFallback = Boolean(diagnostics.legacy_fallback);
-  if (!legacyFallback) {
-    errors.push(...validateContentDepth(input));
-  }
+  errors.push(...validateContentDepth(input));
   errors.push(
     ...validateNestedEvidenceMapRefs(
       "taxonomy",
       input.taxonomy,
       knownEvidenceMap,
     ),
-    ...validateNestedEvidenceMapRefs(
-      "comparison_matrix",
-      input.comparison_matrix,
+    ...validateEvidenceMapRefs({
+      label: "improvement_dimensions",
+      rows: input.improvement_dimensions,
       knownEvidenceMap,
-    ),
+    }),
     ...validateNestedEvidenceMapRefs(
       "review_outline",
       input.review_outline,
@@ -432,13 +429,12 @@ function reportDimensionErrors(artifact: Record<string, unknown>) {
     errors.push("core findings");
   }
 
-  const comparison = isObject(artifact.comparison_matrix)
-    ? artifact.comparison_matrix
-    : {};
-  const comparisonRows = Array.isArray(comparison.rows) ? comparison.rows : [];
+  const improvementDimensions = Array.isArray(artifact.improvement_dimensions)
+    ? artifact.improvement_dimensions
+    : [];
   const debates = Array.isArray(artifact.debates) ? artifact.debates : [];
-  if (!comparisonRows.length && !debates.length) {
-    errors.push("comparison/debates");
+  if (!improvementDimensions.length && !debates.length) {
+    errors.push("improvement dimensions/debates");
   }
 
   const coverage = isObject(artifact.coverage) ? artifact.coverage : {};
@@ -792,10 +788,6 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
   };
   const topic = isObject(artifact.topic) ? artifact.topic : {};
   const summary = isObject(artifact.summary) ? artifact.summary : {};
-  const diagnostics = isObject(artifact.diagnostics)
-    ? artifact.diagnostics
-    : {};
-  const legacyFallback = Boolean(diagnostics.legacy_fallback);
   const title =
     cleanString(topic.title) || cleanString(topic.id) || "Topic Synthesis";
   const lines = [`# ${title}`, ""];
@@ -814,7 +806,7 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
     lines.push("");
   }
   const taxonomy = isObject(artifact.taxonomy) ? artifact.taxonomy : {};
-  if (!legacyFallback && hasRenderableObjectContent(taxonomy)) {
+  if (hasRenderableObjectContent(taxonomy)) {
     lines.push(
       "## Taxonomy",
       "",
@@ -824,15 +816,15 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
       "",
     );
   }
-  const comparison = isObject(artifact.comparison_matrix)
-    ? artifact.comparison_matrix
-    : {};
-  if (hasRenderableObjectContent(comparison)) {
+  const improvementDimensions = Array.isArray(artifact.improvement_dimensions)
+    ? artifact.improvement_dimensions
+    : [];
+  if (improvementDimensions.length) {
     lines.push(
-      "## Comparison Matrix",
+      "## Improvement Dimensions",
       "",
       "```json",
-      canonicalizeJson(comparison),
+      canonicalizeJson(improvementDimensions),
       "```",
       "",
     );
@@ -884,7 +876,7 @@ export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
   const reportBody = cleanString(
     report.body || report.markdown || report.text || report.report,
   );
-  if (!legacyFallback && reportBody) {
+  if (reportBody) {
     lines.push("## Synthesis Report", "", reportBody, "");
   }
   return `${lines.join("\n").replace(/\n+$/g, "")}\n`;

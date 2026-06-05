@@ -1435,6 +1435,255 @@ th {
   font-weight: 650;
 }
 
+.tags-workbench {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tags-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel);
+}
+
+.tags-summary-metrics,
+.tags-summary-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tags-summary-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.tags-subview-tabs {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel-alt);
+}
+
+.tags-subview-tabs button {
+  min-width: 116px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tags-subview-tabs button.active {
+  border-color: var(--zs-border);
+  background: var(--zs-panel);
+  color: var(--zs-text);
+}
+
+.tags-subview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tags-workbench .filters {
+  width: 100%;
+}
+
+.tags-workbench .filters input,
+.tags-workbench .filters select {
+  min-width: 160px;
+}
+
+.tags-bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel-alt);
+}
+
+.tags-bulk-bar-passive {
+  background: transparent;
+}
+
+.tags-table-wrap {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--zs-border);
+  border-radius: 8px;
+  background: var(--zs-panel);
+}
+
+.tags-table {
+  min-width: 1080px;
+  table-layout: fixed;
+}
+
+.tags-table th,
+.tags-table td {
+  padding: 7px 8px;
+  vertical-align: middle;
+}
+
+.density-comfortable .tags-table th,
+.density-comfortable .tags-table td {
+  padding: 10px 10px;
+}
+
+.tags-table th:first-child,
+.tags-table td:first-child {
+  width: 36px;
+  text-align: center;
+}
+
+.tags-vocabulary-table th:nth-child(2),
+.tags-vocabulary-table td:nth-child(2) {
+  width: 230px;
+}
+
+.tags-vocabulary-table th:nth-child(3),
+.tags-vocabulary-table td:nth-child(3),
+.tags-vocabulary-table th:nth-child(4),
+.tags-vocabulary-table td:nth-child(4) {
+  width: 96px;
+}
+
+.tags-vocabulary-table th:nth-child(5),
+.tags-vocabulary-table td:nth-child(5) {
+  width: 72px;
+}
+
+.tags-vocabulary-table th:nth-child(6),
+.tags-vocabulary-table td:nth-child(6),
+.tags-vocabulary-table th:nth-child(8),
+.tags-vocabulary-table td:nth-child(8),
+.tags-vocabulary-table th:nth-child(9),
+.tags-vocabulary-table td:nth-child(9) {
+  width: 128px;
+}
+
+.tags-vocabulary-table th:nth-child(10),
+.tags-vocabulary-table td:nth-child(10),
+.tags-vocabulary-table th:nth-child(11),
+.tags-vocabulary-table td:nth-child(11) {
+  width: 92px;
+}
+
+.tags-staged-table th:nth-child(2),
+.tags-staged-table td:nth-child(2) {
+  width: 230px;
+}
+
+.tags-staged-table th:nth-child(3),
+.tags-staged-table td:nth-child(3),
+.tags-staged-table th:nth-child(5),
+.tags-staged-table td:nth-child(5) {
+  width: 88px;
+}
+
+.tags-staged-table th:nth-child(6),
+.tags-staged-table td:nth-child(6),
+.tags-staged-table th:nth-child(7),
+.tags-staged-table td:nth-child(7) {
+  width: 150px;
+}
+
+.tags-staged-table th:nth-child(8),
+.tags-staged-table td:nth-child(8) {
+  width: 164px;
+}
+
+.tags-staged-table th:nth-child(9),
+.tags-staged-table td:nth-child(9) {
+  width: 90px;
+}
+
+.tags-cell-text,
+.tags-inline-edit-cell input,
+.tags-staged-table td > input {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags-inline-edit-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tags-inline-edit-cell input,
+.tags-staged-table td > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.staged-edit-state {
+  min-width: 44px;
+  color: var(--zs-muted);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.staged-edit-state.pending {
+  color: var(--zs-accent-strong);
+}
+
+.staged-edit-state.saved {
+  color: var(--zs-success);
+}
+
+.staged-edit-state.failed {
+  color: var(--zs-danger);
+}
+
+.tags-expanded-row td {
+  padding: 0;
+  background: var(--zs-panel-alt);
+}
+
+.tags-expanded-content {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.tags-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tags-expand-button {
+  min-width: 70px;
+}
+
 .registry-table {
   table-layout: fixed;
 }

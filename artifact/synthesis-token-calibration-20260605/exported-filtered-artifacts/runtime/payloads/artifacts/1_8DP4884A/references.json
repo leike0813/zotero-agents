@@ -1,0 +1,292 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "",
+      "authors": "2D Semantic Labeling",
+      "title": "https://www.isprs.org/"
+    },
+    {
+      "id": "ref-2",
+      "year": "2024",
+      "authors": "Luca Barsellotti; Roberto Amoroso; et al.",
+      "title": "Training-Free Open-Vocabulary Segmentation with Offline Diffusion-Augmented Prototype Generation. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 3689–3698, 2024. 3"
+    },
+    {
+      "id": "ref-3",
+      "year": "2018",
+      "authors": "Holger Caesar; Jasper Uijlings; et al.",
+      "title": "Thing and stuff classes in context. In Computer Vision and Pattern Recognition (CVPR), 2018 IEEE Conference On. IEEE, 2018. 2, 5"
+    },
+    {
+      "id": "ref-4",
+      "year": "2025",
+      "authors": "Qinglong Cao; Yuntian Chen; et al.",
+      "title": "1–14, 2025. 3, 4, 7"
+    },
+    {
+      "id": "ref-5",
+      "year": "2018",
+      "authors": "Jia-Ren Chang; Yong-Sheng Chen",
+      "title": "Pyramid Stereo Matching Network. In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 5410–5418, 2018. 3"
+    },
+    {
+      "id": "ref-6",
+      "year": "2023",
+      "authors": "Mehdi Cherti; Romain Beaumont; et al.",
+      "title": "Reproducible scaling laws for contrastive language-image learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 2818–2829, 2023. 2"
+    },
+    {
+      "id": "ref-7",
+      "year": "2023",
+      "authors": "Seokju Cho; Sunghwan Hong; et al.",
+      "title": "Boosting cost aggregation with convolutions and transformers. IEEE Transactions on Pattern Analysis and Machine Intelligence, 45(6):7174–7194, 2023. 3"
+    },
+    {
+      "id": "ref-8",
+      "year": "2024",
+      "authors": "Seokju Cho; Heeseong Shin; et al.",
+      "title": "Cost Aggregation for Open-Vocabulary Semantic Segmentation. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 4113–4123, Seattle, WA, USA, 2024. IEEE. 3, 4, 6"
+    },
+    {
+      "id": "ref-9",
+      "year": "2025",
+      "authors": "Paul Couairon; Loick Chambon; et al.",
+      "title": "Jack up any feature at any resolution, 2025. 2, 3"
+    },
+    {
+      "id": "ref-10",
+      "year": "2022",
+      "authors": "Jian Ding; Nan Xue; et al.",
+      "title": "Decoupling Zero-Shot Semantic Segmentation. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 11573–11582, 2022. 3"
+    },
+    {
+      "id": "ref-11",
+      "year": "2020",
+      "authors": "Alexey Dosovitskiy; Lucas Beyer; et al.",
+      "title": "Transformers for Image Recognition at Scale. In International Conference on Learning Representations, 2020. 3"
+    },
+    {
+      "id": "ref-12",
+      "year": "2025",
+      "authors": "Saikat Dutta; Akhil Vasim; et al.",
+      "title": "Harnessing SAM for Open-Vocabulary Segmentation in Remote Sensing Images. In 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW), pages 2245–2255, Nashville, TN, USA, 2025. IEEE. 3"
+    },
+    {
+      "id": "ref-13",
+      "year": "2024",
+      "authors": "Stephanie Fu; Mark Hamilton; et al.",
+      "title": "A model-agnostic framework for features at any resolution. In The Twelfth International Conference on Learning Representations, 2024. 2, 3"
+    },
+    {
+      "id": "ref-14",
+      "year": "2022",
+      "authors": "Golnaz Ghiasi; Xiuye Gu; et al.",
+      "title": "Scaling Open-Vocabulary Image Segmentation with Image-Level Labels. In Computer Vision – ECCV 2022, pages 540–557. Springer Nature Switzerland, Cham, 2022. 3"
+    },
+    {
+      "id": "ref-15",
+      "year": "2019",
+      "authors": "Xiaoyang Guo; Kai Yang; et al.",
+      "title": "Group-Wise Correlation Stereo Network. In 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 3268–3277, Long Beach, CA, USA, 2019. IEEE. 3"
+    },
+    {
+      "id": "ref-16",
+      "year": "2024",
+      "authors": "Cijo Jose; Théo Moutakanni; et al.",
+      "title": "A unified framework for image- and pixel-level vision-language alignment, 2024. 1, 3"
+    },
+    {
+      "id": "ref-17",
+      "year": "2024",
+      "authors": "Dahyun Kang; Minsu Cho",
+      "title": "18th European Conference, Milan, Italy, September 29–October 4, 2024, Proceedings, Part XLI, pages 143–164, Berlin, Heidelberg, 2024. Springer-Verlag. 3"
+    },
+    {
+      "id": "ref-18",
+      "year": "2023",
+      "authors": "Alexandre Lacoste; Nils Lehmann; et al.",
+      "title": "Toward foundation models for earth monitoring. In Proceedings of the 37th International Conference on Neural Information Processing Systems, pages 51080–51093, Red Hook, NY, USA, 2023. Curran Associates Inc. 2, 3"
+    },
+    {
+      "id": "ref-19",
+      "year": "2024",
+      "authors": "Mengcheng Lan; Chaofeng Chen; et al.",
+      "title": "Proxy attention improves clip for open-vocabulary segmentation. In European Conference on Computer Vision, pages 70–88. Springer, 2024. 3"
+    },
+    {
+      "id": "ref-20",
+      "year": "2022",
+      "authors": "Boyi Li; Kilian Q Weinberger; et al.",
+      "title": "Language-driven semantic segmentation. In International Conference on Learning Representations, 2022. 3"
+    },
+    {
+      "id": "ref-21",
+      "year": "2022",
+      "authors": "Junnan Li; Dongxu Li; et al.",
+      "title": "Bootstrapping language-image pre-training for unified vision-language understanding and generation. In ICML, 2022. 2"
+    },
+    {
+      "id": "ref-22",
+      "year": "2023",
+      "authors": "Junnan Li; Dongxu Li; et al.",
+      "title": "Bootstrapping language-image pre-training with frozen image encoders and large language models. In Proceedings of the 40th International Conference on Machine Learning, pages 19730–19742, Honolulu, Hawaii, USA, 2023. JMLR.org. 2"
+    },
+    {
+      "id": "ref-23",
+      "year": "2025",
+      "authors": "Kaiyu Li; Ruixun Liu; et al.",
+      "title": "Segearth-ov: Towards training-free open-vocabulary segmentation for remote sensing images"
+    },
+    {
+      "id": "ref-24",
+      "year": "2025",
+      "authors": "training-free open-vocabulary segmentation for remote sensing images",
+      "title": "In Proceedings of the Computer Vision and Pattern Recognition Conference, pages 10545–10556, 2025. 3, 6, 7, 1"
+    },
+    {
+      "id": "ref-25",
+      "year": "2023",
+      "authors": "Feng Liang; Bichen Wu; et al.",
+      "title": "Open-vocabulary semantic segmentation with mask-adapted clip. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 7061–7070, 2023. 3"
+    },
+    {
+      "id": "ref-26",
+      "year": "2024",
+      "authors": "Yong Liu; Sule Bai; et al.",
+      "title": "Open-Vocabulary Segmentation with Semantic-Assisted Calibration. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 3491–3500, 2024. 3"
+    },
+    {
+      "id": "ref-27",
+      "year": "2021",
+      "authors": "Ze Liu; Yutong Lin; et al.",
+      "title": "Hierarchical Vision Transformer using Shifted Windows. In 2021 IEEE/CVF International Conference on Computer Vision (ICCV), pages 9992–10002, Montreal, QC, Canada, 2021. IEEE. 4"
+    },
+    {
+      "id": "ref-28",
+      "year": "2023",
+      "authors": "Jishnu Mukhoti; Tsung-Yu Lin; et al.",
+      "title": "Torr, and Ser-Nam Lim. Open Vocabulary Semantic Segmentation with Patch Aligned Contrastive Learning. In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 19413– 19423, 2023. 3"
+    },
+    {
+      "id": "ref-29",
+      "year": "2021",
+      "authors": "Alec Radford; Jong Wook Kim; et al.",
+      "title": "Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and I. Sutskever. Learning Transferable Visual Models From Natural Language Supervision. In International Conference on Machine Learning, 2021. 2"
+    },
+    {
+      "id": "ref-30",
+      "year": "2025",
+      "authors": "Tong Shao; Zhuotao Tian; et al.",
+      "title": "Explore the Potential of CLIP for Training-Free Open Vocabulary Semantic Segmentation. In Computer Vision – ECCV 2024, pages 139–156, Cham, 2025. Springer Nature Switzerland. 3"
+    },
+    {
+      "id": "ref-31",
+      "year": "2025",
+      "authors": "Oriane Siméoni; Huy V. Vo; et al.",
+      "title": "Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, Francisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timothée Darcet, Théo Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Hervé Jégou, Patrick Labatut, and Piotr Bojanowski. DINOv3, 2025. 1, 3, 7"
+    },
+    {
+      "id": "ref-32",
+      "year": "2024",
+      "authors": "Shuyang Sun; Runjia Li; et al.",
+      "title": "Segment countless visual concepts without training endeavor. In CVPR, 2024. 3"
+    },
+    {
+      "id": "ref-33",
+      "year": "2025",
+      "authors": "Saksham Suri; Matthew Walmer; et al.",
+      "title": "A surprisingly simple lightweight feature transform for dense ViT descriptors. In European Conference on Computer Vision, pages 110–128. Springer, 2025. 2, 3"
+    },
+    {
+      "id": "ref-34",
+      "year": "2024",
+      "authors": "Daniela Szwarcman; Sujit Roy; et al.",
+      "title": "A versatile multitemporal foundation model for earth observation applications. arXiv preprint arXiv:2412.02732, 2024. 2, 3"
+    },
+    {
+      "id": "ref-35",
+      "year": "2024",
+      "authors": "Jamie Tolan; Hung-I Yang; et al.",
+      "title": "113888, 2024. 3"
+    },
+    {
+      "id": "ref-36",
+      "year": "2025",
+      "authors": "Tobias Uelwer; Jan Robine; et al.",
+      "title": "111, 2025. 3"
+    },
+    {
+      "id": "ref-37",
+      "year": "2021",
+      "authors": "Junjue Wang; Zhuo Zheng; et al.",
+      "title": "LoveDA: A Remote Sensing Land-Cover Dataset for Domain Adaptive Semantic Segmentation"
+    },
+    {
+      "id": "ref-38",
+      "year": "2023",
+      "authors": "Jinglong Wang; Xiawei Li; et al.",
+      "title": "2309.02773, 2023. 3"
+    },
+    {
+      "id": "ref-39",
+      "year": "2025",
+      "authors": "Wenzhen Wang; Aoran Xiao; et al.",
+      "title": "1–17, 2025. 3"
+    },
+    {
+      "id": "ref-40",
+      "year": "2025",
+      "authors": "Thomas Wimmer; Prune Truong; et al.",
+      "title": "Universal feature upsampling. arXiv preprint arXiv:2510.12764, 2025. 2, 3"
+    },
+    {
+      "id": "ref-41",
+      "year": "2023",
+      "authors": "Junshi Xia; Naoto Yokoya; et al.",
+      "title": "A Benchmark Dataset for Global High-Resolution Land Cover Mapping. In 2023 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV), pages 6243–6253, 2023. 6"
+    },
+    {
+      "id": "ref-42",
+      "year": "2024",
+      "authors": "Zhitong Xiong; Yi Wang; et al.",
+      "title": "2403.15356, 2024. 3"
+    },
+    {
+      "id": "ref-43",
+      "year": "2025",
+      "authors": "Zhitong Xiong; Yi Wang; et al.",
+      "title": "Stewart, Joëlle Hanna, Damian Borth, Ioannis Papoutsis, Bertrand Le Saux, Gustau Camps-Valls, and Xiao Xiang Zhu. Neural Plasticity-Inspired Multimodal Foundation Model for Earth Observation, 2025. 2"
+    },
+    {
+      "id": "ref-44",
+      "year": "2023",
+      "authors": "Mengde Xu; Zheng Zhang; et al.",
+      "title": "Side adapter network for open-vocabulary semantic segmentation. IEEE Transactions on Pattern Analysis and Machine Intelligence, 45(12):15546–15561, 2023. 3"
+    },
+    {
+      "id": "ref-45",
+      "year": "2025",
+      "authors": "Chengyang Ye; Yunzhi Zhuge; et al.",
+      "title": "9436–9444, 2025. 3, 6, 7"
+    },
+    {
+      "id": "ref-46",
+      "year": "2022",
+      "authors": "Xiaohua Zhai; Xiao Wang; et al.",
+      "title": "Zero-Shot Transfer with Locked-image text Tuning. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 18102–18112, 2022. 3"
+    },
+    {
+      "id": "ref-47",
+      "year": "2024",
+      "authors": "Shijie Zhang; Bin Zhang; et al.",
+      "title": "Multimodal Visual-Language and Prompt Learning for High-Resolution Remote Sensing Semantic Segmentation. IEEE Transactions on Geoscience and Remote Sensing, 62:1–16, 2024. 3"
+    },
+    {
+      "id": "ref-48",
+      "year": "2024",
+      "authors": "Chaoyang Zhu; Long Chen",
+      "title": "Past, present, and future. IEEE Transactions on Pattern Analysis and Machine Intelligence, 46(12):8954–8975, 2024. 2"
+    }
+  ]
+}

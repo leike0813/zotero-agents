@@ -168,6 +168,14 @@ export function requireHostApi(runtime, message) {
   return hostApi;
 }
 
+export function requireHostPrefs(runtime, message) {
+  const prefs = requireHostApi(runtime, message).prefs;
+  if (!prefs || typeof prefs.get !== "function") {
+    throw createHostContractError(runtime, "host capability missing: prefs");
+  }
+  return prefs;
+}
+
 export function requireHostItems(runtime, message) {
   const items = requireHostApi(runtime, message).items;
   if (!items || typeof items.get !== "function") {
@@ -278,4 +286,18 @@ export function decodeRuntimeBase64Utf8(text, runtime) {
     throw createHostContractError(runtime, "runtime base64 decoder is unavailable");
   }
   return decodeURIComponent(escape(atobImpl(String(text || ""))));
+}
+
+export function appendWorkflowRuntimeLog(args) {
+  const runtime = args?.runtime;
+  const logging = requireHostApi(runtime).logging;
+  return logging.appendRuntimeLog(args);
+}
+
+export function showWorkflowToast(args) {
+  const notifications = requireHostApi(args?.runtime).notifications;
+  return notifications.toast({
+    text: String(args?.text || "").trim(),
+    type: args?.type || "default",
+  });
 }

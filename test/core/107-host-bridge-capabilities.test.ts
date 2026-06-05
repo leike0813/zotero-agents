@@ -307,10 +307,11 @@ describe("host bridge capability calls", function () {
       (capability: { name: string }) => capability.name,
     );
     assert.notInclude(names, "debug.status");
+    assert.notInclude(names, "debug.zotero.eval");
 
     const call = await callBridgeCapability({
       token,
-      capability: "debug.status",
+      capability: "debug.zotero.eval",
       input: {},
     });
     assert.strictEqual(call.status, 404);
@@ -338,6 +339,11 @@ describe("host bridge capability calls", function () {
     );
     assert.isObject(reapplyCapability);
     assert.strictEqual(reapplyCapability.approval, "none");
+    const evalCapability = manifest.json.result.capabilities.find(
+      (capability: { name: string }) => capability.name === "debug.zotero.eval",
+    );
+    assert.isObject(evalCapability);
+    assert.strictEqual(evalCapability.approval, "zotero-ui-required");
 
     const status = await callBridgeCapability({
       token,
@@ -378,6 +384,159 @@ describe("host bridge capability calls", function () {
     );
     assert.isArray(profiler.json.result.data.runs);
     assert.isArray(profiler.json.result.data.phases);
+  });
+
+  it("executes Zotero debug eval only after approval", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-zotero-eval-token",
+    });
+    const runtime = globalThis as { Zotero: Record<string, unknown> };
+    const zotero = runtime.Zotero;
+    zotero.__debugEvalProbe = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests(async () => ({
+      outcome: "denied",
+      requestId: "debug-zotero-eval-denied",
+      channel: "global",
+      reason: "Denied for test.",
+    }));
+
+    const denied = await callBridgeCapability({
+      token,
+      capability: "debug.zotero.eval",
+      input: {
+        code: "Zotero.__debugEvalProbe = 1; return Zotero.__debugEvalProbe;",
+      },
+    });
+
+    assert.strictEqual(denied.status, 403);
+    assert.strictEqual(denied.json.error.code, "permission_denied");
+    assert.strictEqual(zotero.__debugEvalProbe, 0);
+
+    configureHostBridgeGlobalApprovalHandlerForTests(async () => ({
+      outcome: "approved",
+      requestId: "debug-zotero-eval-approved",
+      channel: "global",
+    }));
+    const approved = await callBridgeCapability({
+      token,
+      capability: "debug.zotero.eval",
+      input: {
+        input: { increment: 2 },
+        code: [
+          "Zotero.__debugEvalProbe += input.increment;",
+          "return { value: Zotero.__debugEvalProbe, api: !!Zotero.Items };",
+        ].join("\n"),
+      },
+    });
+
+    assert.strictEqual(approved.status, 200);
+    assert.strictEqual(approved.json.result.approval, "zotero-ui-required");
+    assert.strictEqual(
+      approved.json.result.data.schema,
+      "host_bridge.debug.zotero.eval.v1",
+    );
+    assert.strictEqual(approved.json.result.data.result.value, 2);
+    assert.strictEqual(approved.json.result.data.result.api, true);
+    assert.strictEqual(approved.json.result.data.resultType, "object");
+  });
+
+  it("returns JSON-safe truncated Zotero debug eval values", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-zotero-eval-safe-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests(async () => ({
+      outcome: "approved",
+      requestId: "debug-zotero-eval-safe",
+      channel: "global",
+    }));
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "debug.zotero.eval",
+      input: {
+        maxDepth: 3,
+        maxItems: 4,
+        maxChars: 10000,
+        code: [
+          "const target = { long: 'x'.repeat(5000), fn() {}, nested: { value: 1 } };",
+          "target.self = target;",
+          "return { target, list: [1, 2, 3, 4, 5], missing: undefined, sym: Symbol('s') };",
+        ].join("\n"),
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.isTrue(parsed.json.result.data.truncated);
+    assert.strictEqual(
+      parsed.json.result.data.result.target.self,
+      "[Circular]",
+    );
+    assert.include(parsed.json.result.data.result.target.long, "[truncated]");
+    assert.include(parsed.json.result.data.result.target.fn, "[Function");
+    assert.strictEqual(
+      parsed.json.result.data.result.list[4],
+      "[1 more item(s)]",
+    );
+    assert.strictEqual(parsed.json.result.data.result.missing, "[Undefined]");
+    assert.strictEqual(parsed.json.result.data.result.sym, "Symbol(s)");
+  });
+
+  it("reports Zotero debug eval failures as capability failures", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-zotero-eval-error-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests(async () => ({
+      outcome: "approved",
+      requestId: "debug-zotero-eval-error",
+      channel: "global",
+    }));
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "debug.zotero.eval",
+      input: {
+        code: "throw new Error('eval exploded for test');",
+      },
+    });
+
+    assert.strictEqual(parsed.status, 500);
+    assert.strictEqual(parsed.json.error.code, "capability_failed");
+    assert.include(parsed.json.error.details.message, "eval exploded for test");
+  });
+
+  it("uses a bounded approval prompt for Zotero debug eval", async function () {
+    setDebugModeOverrideForTests(true);
+    const token = configureHostBridgeServerForTests({
+      token: "debug-zotero-eval-prompt-token",
+    });
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests(async (request) => {
+      approvalRequest = request;
+      return {
+        outcome: "approved",
+        requestId: "debug-zotero-eval-prompt",
+        channel: "global",
+      };
+    });
+    const longCode = `return "${"x".repeat(2000)}";`;
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "debug.zotero.eval",
+      input: {
+        code: longCode,
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.include(approvalRequest.title, "Zotero debug eval");
+    assert.include(approvalRequest.detail, "Capability: debug.zotero.eval");
+    assert.include(approvalRequest.detail, "Code preview:");
+    assert.include(approvalRequest.detail, "[truncated]");
+    assert.isBelow(approvalRequest.detail.length, 800);
   });
 
   it("keeps dangerous debug operations behind Host Bridge approval", async function () {

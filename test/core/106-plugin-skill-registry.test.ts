@@ -29,9 +29,15 @@ async function writeSkill(args: {
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
     args.skillMd ||
-      ["---", `name: ${args.skillId}`, "---", "", `# ${args.skillId}`, ""].join(
-        "\n",
-      ),
+      [
+        "---",
+        `name: ${args.skillId}`,
+        `description: ${args.skillId} description`,
+        "---",
+        "",
+        `# ${args.skillId}`,
+        "",
+      ].join("\n"),
     "utf8",
   );
   await fs.writeFile(
@@ -168,7 +174,28 @@ describe("plugin skill registry", function () {
     );
     assert.equal(registry.entriesById["builtin-demo"].sourceKind, "builtin");
     assert.equal(registry.entriesById["user-demo"].sourceKind, "user");
+    assert.equal(
+      registry.entriesById["user-demo"].description,
+      "user-demo description",
+    );
     assert.match(registry.entriesById["user-demo"].checksum, /^sha256:/);
+  });
+
+  it("keeps skills valid when frontmatter description is missing", async function () {
+    const userRoot = path.join(tempRoot, "skills");
+    await writeSkill({
+      root: userRoot,
+      dirName: "no-description",
+      skillId: "no-description",
+      skillMd: "---\nname: no-description\n---\n\n# no-description\n",
+    });
+
+    const registry = await scanPluginSkillRegistry({
+      builtinRoot: path.join(tempRoot, "skills_builtin"),
+      userRoot,
+    });
+
+    assert.equal(registry.entriesById["no-description"].description, "");
   });
 
   it("lets user skills override built-in skills with the same id", async function () {

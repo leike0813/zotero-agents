@@ -593,6 +593,16 @@ export type SynthesisTagValidationWarningRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisTagStagedSuggestionRecord = {
+  tag: string;
+  facet: string;
+  note?: string;
+  sourceFlow?: string;
+  parentBindingsJson?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type SynthesisDiscoveryMetadataStateReplacement = {
   literatureMatchingMetadata?: SynthesisLiteratureMatchingMetadataRecord[];
   topicInterestMetadata?: SynthesisTopicInterestMetadataRecord[];
@@ -632,6 +642,7 @@ export type SynthesisRepositoryTableName =
   | "synt_tag_abbrev"
   | "synt_tag_protocol"
   | "synt_tag_validation_warning"
+  | "synt_tag_staged_suggestion"
   | "synt_review_item"
   | "synt_operation";
 
@@ -665,6 +676,7 @@ const SYNTHESIS_RESET_TABLES: SynthesisRepositoryTableName[] = [
   "synt_tag_abbrev",
   "synt_tag_alias",
   "synt_tag_vocabulary_entry",
+  "synt_tag_staged_suggestion",
   "synt_citation_layout_state",
   "synt_citation_metrics_complex",
   "synt_citation_metrics_light",
@@ -715,6 +727,7 @@ export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
   "synt_tag_abbrev",
   "synt_tag_protocol",
   "synt_tag_validation_warning",
+  "synt_tag_staged_suggestion",
   "synt_review_item",
   "synt_operation",
 ];
@@ -1268,6 +1281,7 @@ type MemoryState = {
   tagAbbrevs: Map<string, Record<string, SqlPrimitive>>;
   tagProtocols: Map<string, Record<string, SqlPrimitive>>;
   tagValidationWarnings: Map<string, Record<string, SqlPrimitive>>;
+  tagStagedSuggestions: Map<string, Record<string, SqlPrimitive>>;
   reviewItems: Map<string, Record<string, SqlPrimitive>>;
   operations: Map<string, Record<string, SqlPrimitive>>;
   tables: Set<string>;
@@ -1313,6 +1327,7 @@ function cloneMemoryState(state: MemoryState): MemoryState {
     tagAbbrevs: cloneMemoryRows(state.tagAbbrevs),
     tagProtocols: cloneMemoryRows(state.tagProtocols),
     tagValidationWarnings: cloneMemoryRows(state.tagValidationWarnings),
+    tagStagedSuggestions: cloneMemoryRows(state.tagStagedSuggestions),
     reviewItems: cloneMemoryRows(state.reviewItems),
     operations: cloneMemoryRows(state.operations),
     tables: new Set(state.tables),
@@ -1361,6 +1376,7 @@ function createMemoryAdapter(): SqlAdapter {
     tagAbbrevs: new Map(),
     tagProtocols: new Map(),
     tagValidationWarnings: new Map(),
+    tagStagedSuggestions: new Map(),
     reviewItems: new Map(),
     operations: new Map(),
     tables: new Set(),
@@ -1602,6 +1618,14 @@ function createMemoryAdapter(): SqlAdapter {
       }
       if (normalized.startsWith("delete from synt_tag_vocabulary_entry")) {
         state.tagVocabularyEntries.clear();
+        return;
+      }
+      if (normalized.startsWith("delete from synt_tag_staged_suggestion")) {
+        if (cleanString(params.tag)) {
+          state.tagStagedSuggestions.delete(cleanString(params.tag));
+        } else {
+          state.tagStagedSuggestions.clear();
+        }
         return;
       }
       if (normalized.startsWith("delete from synt_review_item")) {
@@ -1897,6 +1921,17 @@ function createMemoryAdapter(): SqlAdapter {
         );
         return;
       }
+      if (
+        normalized.startsWith(
+          "insert or replace into synt_tag_staged_suggestion",
+        )
+      ) {
+        state.tagStagedSuggestions.set(
+          cleanString(params.tag),
+          memoryRow(params),
+        );
+        return;
+      }
       if (normalized.startsWith("insert or replace into synt_review_item")) {
         state.reviewItems.set(
           cleanString(params.review_item_id),
@@ -2121,6 +2156,11 @@ function createMemoryAdapter(): SqlAdapter {
           ...row,
         }));
       }
+      if (normalized.includes("from synt_tag_staged_suggestion")) {
+        return Array.from(state.tagStagedSuggestions.values()).map((row) => ({
+          ...row,
+        }));
+      }
       if (normalized.includes("from synt_concept")) {
         return Array.from(state.concepts.values()).map((row) => ({
           ...row,
@@ -2246,6 +2286,8 @@ function memoryTable(
       return state.tagProtocols;
     case "synt_tag_validation_warning":
       return state.tagValidationWarnings;
+    case "synt_tag_staged_suggestion":
+      return state.tagStagedSuggestions;
     case "synt_review_item":
       return state.reviewItems;
     case "synt_operation":
@@ -2783,6 +2825,17 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS synt_tag_staged_suggestion (
+      tag TEXT PRIMARY KEY,
+      facet TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      source_flow TEXT NOT NULL DEFAULT '',
+      parent_bindings_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS synt_review_item (
       review_item_id TEXT PRIMARY KEY,
       review_kind TEXT NOT NULL,
@@ -3060,6 +3113,10 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_tag_validation_severity
       ON synt_tag_validation_warning(severity, code);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_tag_staged_facet_updated
+      ON synt_tag_staged_suggestion(facet, updated_at DESC);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_review_item_priority_status
@@ -3727,6 +3784,20 @@ function rowToTagValidationWarning(
     severity: cleanString(row.severity) || "warning",
     tag: cleanString(row.tag) || undefined,
     message: cleanString(row.message),
+    createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToTagStagedSuggestion(
+  row: SqlRow,
+): SynthesisTagStagedSuggestionRecord {
+  return {
+    tag: cleanString(row.tag),
+    facet: cleanString(row.facet),
+    note: cleanString(row.note) || undefined,
+    sourceFlow: cleanString(row.source_flow) || undefined,
+    parentBindingsJson: cleanString(row.parent_bindings_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -8033,6 +8104,91 @@ export class SynthesisRepository {
           left.code.localeCompare(right.code) ||
           cleanString(left.tag).localeCompare(cleanString(right.tag)),
       );
+  }
+
+  upsertTagStagedSuggestion(record: SynthesisTagStagedSuggestionRecord) {
+    this.initialize();
+    const tag = cleanString(record.tag);
+    if (!tag) {
+      throw new Error("staged suggestion tag must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_tag_staged_suggestion (
+          tag,
+          facet,
+          note,
+          source_flow,
+          parent_bindings_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          @tag,
+          @facet,
+          @note,
+          @source_flow,
+          @parent_bindings_json,
+          @created_at,
+          @updated_at
+        )
+      `,
+      {
+        tag,
+        facet: cleanString(record.facet),
+        note: cleanString(record.note),
+        source_flow: cleanString(record.sourceFlow),
+        parent_bindings_json:
+          cleanString(record.parentBindingsJson) || "[]",
+        created_at: cleanString(record.createdAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  listTagStagedSuggestions(args: { tags?: string[] } = {}) {
+    this.initialize();
+    const tags = new Set(
+      (args.tags || []).map((entry) => cleanString(entry).toLowerCase()),
+    );
+    return this.db
+      .all("SELECT * FROM synt_tag_staged_suggestion")
+      .map(rowToTagStagedSuggestion)
+      .filter(
+        (row) => !tags.size || tags.has(cleanString(row.tag).toLowerCase()),
+      )
+      .sort(
+        (left, right) =>
+          left.facet.localeCompare(right.facet) ||
+          left.tag.localeCompare(right.tag, "en", { sensitivity: "base" }),
+      );
+  }
+
+  removeTagStagedSuggestions(tags: string[]) {
+    this.initialize();
+    const lowered = new Set(
+      (tags || []).map((entry) => cleanString(entry).toLowerCase()),
+    );
+    if (!lowered.size) {
+      return [];
+    }
+    const existing = this.listTagStagedSuggestions().filter((entry) =>
+      lowered.has(cleanString(entry.tag).toLowerCase()),
+    );
+    for (const entry of existing) {
+      this.db.run("DELETE FROM synt_tag_staged_suggestion WHERE tag = @tag", {
+        tag: entry.tag,
+      });
+    }
+    return existing;
+  }
+
+  clearTagStagedSuggestions() {
+    this.initialize();
+    const existing = this.listTagStagedSuggestions();
+    this.db.run("DELETE FROM synt_tag_staged_suggestion");
+    return existing;
   }
 
   listReviewItems(

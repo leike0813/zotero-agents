@@ -199,6 +199,42 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(input?.year, "2024");
   });
 
+  it("uses Zotero.Items.getAll(libraryId) for sparse high-ID registry candidates", async function () {
+    const item = new Zotero.Item("journalArticle");
+    item.id = 1892;
+    item.key = "SYNHIGH1";
+    item.libraryID = Zotero.Libraries.userLibraryID;
+    item.setField("title", "Synthesis Sparse High ID Paper");
+    item.setField("date", "2026");
+    item.setCreators?.([{ lastName: "Sparse" }]);
+    await item.saveTx();
+
+    const previousGet = Zotero.Items.get;
+    (Zotero.Items as any).get = (id: number) => {
+      throw new Error(`unexpected sparse item scan for ${id}`);
+    };
+
+    try {
+      const adapter = createZoteroSynthesisLibraryAdapter({
+        libraryId: Zotero.Libraries.userLibraryID,
+      });
+      const index = await adapter.getLibraryIndex();
+      const fingerprints =
+        (await adapter.getRegistryMetadataFingerprints?.()) || [];
+
+      assert.include(
+        index.papers.map((paper) => paper.item_key),
+        item.key,
+      );
+      assert.include(
+        fingerprints.map((entry) => entry.item_key),
+        item.key,
+      );
+    } finally {
+      (Zotero.Items as any).get = previousGet;
+    }
+  });
+
   it("builds library index and registry from mock Zotero metadata and child artifact notes", async function () {
     const collection = await createCollection("Topic Alpha");
     const alpha = await createPaper({

@@ -1,0 +1,286 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2002",
+      "authors": "Shivani Agarwal; Dan Roth",
+      "title": "Learning a sparse representation for object detection"
+    },
+    {
+      "id": "ref-2",
+      "year": "2015",
+      "authors": "Badrinarayanan, Alex Kendall",
+      "title": "Segnet: A deep convolutional encoder-decoder architecture for image segmentation"
+    },
+    {
+      "id": "ref-3",
+      "year": "2017",
+      "authors": "- [3] Min Bai; Raquel Urtasun",
+      "title": "Deep watershed transform for instance segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2018",
+      "authors": "Chen, Alexander Hermans; Papandreou, Florian Schroff",
+      "title": "Masklab: Instance segmentation by refining object detection with semantic and direction features"
+    },
+    {
+      "id": "ref-5",
+      "year": "2016",
+      "authors": "Cordts, Mohamed Omran; Ramos, Timo Rehfeld; et al.",
+      "title": "The cityscapes dataset for semantic urban scene understanding"
+    },
+    {
+      "id": "ref-6",
+      "year": "2016",
+      "authors": "Dai, Kaiming He; Li, Shaoqing Ren",
+      "title": "Instance-sensitive fully convolutional networks"
+    },
+    {
+      "id": "ref-7",
+      "year": "2016",
+      "authors": "Dai, Kaiming He",
+      "title": "Instance-aware semantic segmentation via multi-task network cascades"
+    },
+    {
+      "id": "ref-8",
+      "year": "2016",
+      "authors": "Dai, Yi Li",
+      "title": "R-fcn: Object detection via region-based fully convolutional networks"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "Brabandere, Davy Neven",
+      "title": "Semantic instance segmentation with a discriminative loss function"
+    },
+    {
+      "id": "ref-10",
+      "year": "2009",
+      "authors": "Deng, Wei Dong; Socher, Li-Jia Li",
+      "title": "Imagenet: A Large-Scale Hierarchical Image Database"
+    },
+    {
+      "id": "ref-11",
+      "year": "2017",
+      "authors": "Dvornik, Konstantin Shmelkov",
+      "title": "Blitznet: A real-time deep network for scene understanding"
+    },
+    {
+      "id": "ref-12",
+      "year": "2010",
+      "authors": "Everingham, Luc Van Gool; Williams, John Winn",
+      "title": "The pascal visual object classes (voc) challenge"
+    },
+    {
+      "id": "ref-13",
+      "year": "2017",
+      "authors": "Fathi, Zbigniew Wojna; Rathod, Peng Wang; et al.",
+      "title": "Se- - mantic instance segmentation via deep metric learning"
+    },
+    {
+      "id": "ref-14",
+      "year": "2019",
+      "authors": "Fu, Mykhailo Shvets",
+      "title": "Retinamask: Learning to predict masks improves stateof-the-art single-shot detection for free"
+    },
+    {
+      "id": "ref-15",
+      "year": "2012",
+      "authors": "Geiger, Philip Lenz",
+      "title": "Are we ready for autonomous driving? the kitti vision benchmark suite"
+    },
+    {
+      "id": "ref-16",
+      "year": "2011",
+      "authors": "Hariharan, Pablo Arbel; Bourdev, Subhransu Maji",
+      "title": "Semantic contours from inverse detectors"
+    },
+    {
+      "id": "ref-17",
+      "year": "2017",
+      "authors": "Harley, Konstantinos Derpanis",
+      "title": "Segmentation-aware convolutional networks using local attention masks"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "He, Georgia Gkioxari",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-19",
+      "year": "2016",
+      "authors": "He, Xiangyu Zhang",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Huang, Lichao Huang; Gong, Chang Huang",
+      "title": "Mask scoring r-cnn"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Jetley, Michael Sapienza",
+      "title": "Straight to shapes: real-time detection of encoded shapes"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Kirillov, Evgeny Levinkov; Andres, Bogdan Savchynskyy",
+      "title": "Instancecut: from edges to instances with multicut"
+    },
+    {
+      "id": "ref-23",
+      "year": "2001",
+      "authors": "- [23] Thomas Leung; Jitendra Malik",
+      "title": "Representing and recognizing the visual appearance of materials using threedimensional textons"
+    },
+    {
+      "id": "ref-24",
+      "year": "2017",
+      "authors": "Li, Haozhi Qi; Dai, Xiangyang Ji",
+      "title": "Fully convolutional instance-aware semantic segmentation"
+    },
+    {
+      "id": "ref-25",
+      "year": "2018",
+      "authors": "Liang, Liang Lin; Wei, Xiaohui Shen",
+      "title": "Proposal-free network for instance-level object segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2017",
+      "authors": "Lin, Piotr Doll; Girshick, Kaiming He",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Lin, Priya Goyal; Girshick, Kaiming He",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2014",
+      "authors": "Lin, Michael Maire; Belongie, James Hays; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-29",
+      "year": "2013",
+      "authors": "Zhang, Bernard Ghanem; Liu, Changsheng Xu",
+      "title": "Low-rank sparse coding for image classification"
+    },
+    {
+      "id": "ref-30",
+      "year": "2018",
+      "authors": "Zhao, Xiaojuan Qi; Shen, Jianping Shi",
+      "title": "Icnet for real-time semantic segmentation on high-resolution images"
+    },
+    {
+      "id": "ref-31",
+      "year": "2018",
+      "authors": "Liu, Lu Qi; Qin, Jianping Shi",
+      "title": "Path aggregation network for instance segmentation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2016",
+      "authors": "Liu, Dragomir Anguelov; Erhan, Christian Szegedy; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-33",
+      "year": "2015",
+      "authors": "Long, Evan Shelhamer",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Newell, Zhiao Huang",
+      "title": "Associative embedding: End-to-end learning for joint detection and grouping"
+    },
+    {
+      "id": "ref-35",
+      "year": "2016",
+      "authors": "Paszke, Abhishek Chaurasia",
+      "title": "Enet: A deep neural network architecture for real-time semantic segmentation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2016",
+      "authors": "Redmon, Santosh Divvala",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-37",
+      "year": "2017",
+      "authors": "- [35] Joseph Redmon; Ali Farhadi",
+      "title": "Yolo9000: Better, faster, stronger"
+    },
+    {
+      "id": "ref-38",
+      "year": "2018",
+      "authors": "- [36] Joseph Redmon; Ali Farhadi",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-39",
+      "year": "2015",
+      "authors": "Ren, Kaiming He",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-40",
+      "year": "2013",
+      "authors": "- [38] Xiaofeng Ren; Deva Ramanan",
+      "title": "Histograms of sparse codes for object detection"
+    },
+    {
+      "id": "ref-41",
+      "year": "2016",
+      "authors": "Shrivastava, Abhinav Gupta",
+      "title": "Training region-based object detectors with online hard example mining"
+    },
+    {
+      "id": "ref-42",
+      "year": "2003",
+      "authors": "- [40] Josef Sivic; Andrew Zisserman",
+      "title": "Video google: A text retrieval approach to object matching in videos"
+    },
+    {
+      "id": "ref-43",
+      "year": "2016",
+      "authors": "Treml, Jos; Arjona-Medina, Thomas Unterthiner; et al.",
+      "title": "Speeding up semantic segmentation for autonomous driving"
+    },
+    {
+      "id": "ref-44",
+      "year": "2018",
+      "authors": "Uhrig, Eike Rehder",
+      "title": "Box2pix: Single-shot instance segmentation by assigning pixels to object boxes"
+    },
+    {
+      "id": "ref-45",
+      "year": "2010",
+      "authors": "Wang, Jianchao Yang; Yu, Fengjun Lv",
+      "title": "Locality-constrained linear coding for image classification"
+    },
+    {
+      "id": "ref-46",
+      "year": "2010",
+      "authors": "Yang, John Wright",
+      "title": "Image super-resolution via sparse representation"
+    },
+    {
+      "id": "ref-47",
+      "year": "2007",
+      "authors": "Yu, Li Yi",
+      "title": "Object detection using shape codebook"
+    }
+  ]
+}

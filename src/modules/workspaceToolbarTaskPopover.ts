@@ -50,6 +50,9 @@ const OPEN_DELAY_MS = 150;
 const CLOSE_DELAY_MS = 250;
 const MAX_VISIBLE_TASKS = 6;
 const POPOVER_WIDTH = 580;
+const EMPTY_POPOVER_HEIGHT = 64;
+const RUNNING_POPOVER_CHROME_HEIGHT = 50;
+const RUNNING_POPOVER_TASK_ROW_HEIGHT = 32;
 const LED_CELL_WIDTH = 18;
 const TASK_NAME_WIDTH = 250;
 const WORKFLOW_LABEL_WIDTH = 144;
@@ -222,9 +225,12 @@ function resolveBackendLabel(row: ToolbarTaskRow) {
 
 function estimatePopoverHeight(rowCount: number) {
   if (rowCount <= 0) {
-    return 64;
+    return EMPTY_POPOVER_HEIGHT;
   }
-  return 34 + rowCount * 30;
+  return (
+    RUNNING_POPOVER_CHROME_HEIGHT +
+    Math.min(rowCount, MAX_VISIBLE_TASKS) * RUNNING_POPOVER_TASK_ROW_HEIGHT
+  );
 }
 
 function syncPopoverSize(popover: XulPanelElement, rowCount: number) {

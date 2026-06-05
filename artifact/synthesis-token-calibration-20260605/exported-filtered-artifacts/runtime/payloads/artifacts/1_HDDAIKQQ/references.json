@@ -1,0 +1,1036 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "United States Environmental Protection Agency",
+      "title": "Greenhouse gas equivalencies calculator"
+    },
+    {
+      "id": "ref-2",
+      "year": "2024",
+      "authors": "Xiang An; Kaicheng Yang; et al.",
+      "title": "Multi-label cluster discrimination for visual representation learning"
+    },
+    {
+      "id": "ref-3",
+      "year": "2023",
+      "authors": "Ali Athar; Jonathon Luiten; et al.",
+      "title": "Burst: A benchmark for unifying object recognition, segmentation and tracking in video"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Hexin Bai; Wensheng Cheng; et al.",
+      "title": "Gmot-40: A benchmark for generic multiple object tracking"
+    },
+    {
+      "id": "ref-5",
+      "year": "2025",
+      "authors": "Kevin Barnard; Elaine Liu; et al.",
+      "title": "DeepSea MOT: A benchmark dataset for multi-object tracking on deep-sea video"
+    },
+    {
+      "id": "ref-6",
+      "year": "2019",
+      "authors": "Philipp Bergmann; Tim Meinhardt,; et al.",
+      "title": "Tracking without bells and whistles"
+    },
+    {
+      "id": "ref-7",
+      "year": "2016",
+      "authors": "Alex Bewley; Zongyuan Ge; et al.",
+      "title": "Simple online and realtime tracking"
+    },
+    {
+      "id": "ref-8",
+      "year": "2024",
+      "authors": "Lucas Beyer; Andreas Steiner; et al.",
+      "title": "PaliGemma: A versatile 3B VLM for transfer"
+    },
+    {
+      "id": "ref-9",
+      "year": "2020",
+      "authors": "Alexey Bochkovskiy; Chien-Yao Wang,; et al.",
+      "title": "Yolov4: Optimal speed and accuracy of object detection"
+    },
+    {
+      "id": "ref-10",
+      "year": "2024",
+      "authors": "Daniel Bolya; Chaitanya Ryali; et al.",
+      "title": "Window attention is bugged: How not to interpolate position embeddings"
+    },
+    {
+      "id": "ref-11",
+      "year": "2025",
+      "authors": "Daniel Bolya; Po-Yao Huang; et al.",
+      "title": "Perception encoder: The best visual embeddings are not at the output of the network"
+    },
+    {
+      "id": "ref-12",
+      "year": "2024",
+      "authors": "Zhi Cai; Songtao Liu; et al.",
+      "title": "Align-detr: Enhancing end-to-end object detection with aligned loss"
+    },
+    {
+      "id": "ref-13",
+      "year": "2023",
+      "authors": "Jinkun Cao; Jiangmiao Pang; et al.",
+      "title": "Observation-centric sort: Rethinking sort for robust multi-object tracking"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-15",
+      "year": "2024",
+      "authors": "Qiang Chen; Xiangbo Su; et al.",
+      "title": "Lw-detr: A transformer replacement to yolo for real-time detection"
+    },
+    {
+      "id": "ref-16",
+      "year": "2024",
+      "authors": "Yi-Chia Chen; Wei-Hua Li; et al.",
+      "title": "Sam4mllm: Enhance multi-modal large language model for referring expression segmentation"
+    },
+    {
+      "id": "ref-17",
+      "year": "2025",
+      "authors": "Yuming Chen; Jiangyan Feng; et al.",
+      "title": "Re-aligning language to visual objects with an agentic workflow"
+    },
+    {
+      "id": "ref-18",
+      "year": "2021",
+      "authors": "Bowen Cheng; Alexander G",
+      "title": "Schwing, and Alexander Kirillov. Per-pixel classification is not all you need for semantic segmentation"
+    },
+    {
+      "id": "ref-19",
+      "year": "2025",
+      "authors": "Jang Hyun Cho; Andrea Madotto; et al.",
+      "title": "Perceptionlm: Open-access data and models for detailed visual understanding"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "Kevin Clark; Minh-Thang Luong; et al.",
+      "title": "ELECTRA: Pre-training text encoders as discriminators rather than generators"
+    },
+    {
+      "id": "ref-21",
+      "year": "2025",
+      "authors": "Gheorghe Comanici; Eric Bieber; et al.",
+      "title": "Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities"
+    },
+    {
+      "id": "ref-22",
+      "year": "2016",
+      "authors": "Marius Cordts; Mohamed Omran; et al.",
+      "title": "The cityscapes dataset for semantic urban scene understanding"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Achal Dave; Piotr Dollár; et al.",
+      "title": "Evaluating large-vocabulary object detectors: The devil is in the details"
+    },
+    {
+      "id": "ref-24",
+      "year": "2025",
+      "authors": "Matt Deitke; Christopher Clark; et al.",
+      "title": "Molmo and pixmo: Open weights and open data for state-of-the-art vision-language models"
+    },
+    {
+      "id": "ref-25",
+      "year": "2025",
+      "authors": "Henghui Ding; Kaining Ying; et al.",
+      "title": "Mosev2: A more challenging dataset for video object segmentation in complex scenes"
+    },
+    {
+      "id": "ref-26",
+      "year": "2023",
+      "authors": "Kexin Ding; Mu Zhou; et al.",
+      "title": "A large-scale synthetic pathological dataset for deep learning-enabled segmentation of breast cancer. Scientific Data, 10(1):231"
+    },
+    {
+      "id": "ref-27",
+      "year": "2024",
+      "authors": "Shuangrui Ding; Rui Qian; et al.",
+      "title": "Sam2long: Enhancing sam 2 for long video segmentation with a training-free memory tree"
+    },
+    {
+      "id": "ref-28",
+      "year": "2022",
+      "authors": "Zheng Ding; Jieke Wang,; et al.",
+      "title": "Open-vocabulary universal image segmentation with maskclip"
+    },
+    {
+      "id": "ref-29",
+      "year": "2022",
+      "authors": "Zi-Yi Dou; Aishwarya Kamath; et al.",
+      "title": "Coarse-to-fine vision-language pre-training with fusion in the backbone"
+    },
+    {
+      "id": "ref-30",
+      "year": "2024",
+      "authors": "Abhimanyu Dubey; Abhinav Jauhri; et al.",
+      "title": "The llama 3 herd of models"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Christoffer Edlund; Timothy R Jackson; et al.",
+      "title": "Livecell—a large-scale dataset for label-free live cell segmentation. Nature methods, 18(9):1038–1045"
+    },
+    {
+      "id": "ref-32",
+      "year": "2017",
+      "authors": "Christoph Feichtenhofer; Axel Pinz,; et al.",
+      "title": "Detect to track and track to detect"
+    },
+    {
+      "id": "ref-33",
+      "year": "",
+      "authors": "FFmpeg developers",
+      "title": "FFmpeg. https://ffmpeg.org/"
+    },
+    {
+      "id": "ref-34",
+      "year": "2025",
+      "authors": "Shenghao Fu; Qize Yang; et al.",
+      "title": "Llmdet: Learning strong open-vocabulary object detectors under the supervision of large language models"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Jevgenij Gamper; Navid Alemi Koohbanani; et al.",
+      "title": "Pannuke: an open pan-cancer histology dataset for nuclei instance segmentation and classification"
+    },
+    {
+      "id": "ref-36",
+      "year": "2020",
+      "authors": "Jevgenij Gamper; Navid Alemi Koohbanani; et al.",
+      "title": "Pannuke dataset extension, insights and baselines"
+    },
+    {
+      "id": "ref-37",
+      "year": "2022",
+      "authors": "Kristen Grauman; Andrew Westbury; et al.",
+      "title": "V. Jawahar, Hanbyul Joo, Kris Kitani, Haizhou Li, Richard Newcombe, Aude Oliva, Hyun Soo Park, James M. Rehg, Yoichi Sato, Jianbo Shi, Mike Zheng Shou, Antonio Torralba, Lorenzo Torresani, Mingfei Yan, and Jitendra Malik. Ego4d: Around the World in 3,000 Hours of Egocentric Video"
+    },
+    {
+      "id": "ref-38",
+      "year": "2021",
+      "authors": "Xiuye Gu; Tsung-Yi Lin; et al.",
+      "title": "Open-vocabulary object detection via vision and language knowledge distillation"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "Agrim Gupta; Piotr Dollar,; et al.",
+      "title": "Lvis: A dataset for large vocabulary instance segmentation"
+    },
+    {
+      "id": "ref-40",
+      "year": "2022",
+      "authors": "Kaiming He; Xinlei Chen; et al.",
+      "title": "Masked autoencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-41",
+      "year": "2024",
+      "authors": "Byeongho Heo; Song Park; et al.",
+      "title": "Rotary position embedding for vision transformer"
+    },
+    {
+      "id": "ref-42",
+      "year": "2025",
+      "authors": "Miran Heo; Sukjun Hwang; et al.",
+      "title": "Autoregressive universal video segmentation model"
+    },
+    {
+      "id": "ref-43",
+      "year": "2024",
+      "authors": "Lingyi Hong; Zhongying Liu; et al.",
+      "title": "Lvos: A benchmark for large-scale long-term video object segmentation"
+    },
+    {
+      "id": "ref-44",
+      "year": "2020",
+      "authors": "Matthew Honnibal; Ines Montani; et al.",
+      "title": "spaCy: Industrial-strength Natural Language Processing in Python. 2020. doi: 10.5281/zenodo.1212303"
+    },
+    {
+      "id": "ref-45",
+      "year": "2017",
+      "authors": "Grant Van Horn; Oisin Mac Aodha; et al.",
+      "title": "Belongie. The inaturalist challenge 2017 dataset. CoRR, abs/1707.06642"
+    },
+    {
+      "id": "ref-46",
+      "year": "2023",
+      "authors": "Zhengdong Hu; Yifan Sun; et al.",
+      "title": "DAC-DETR: Divide the attention layers and conquer"
+    },
+    {
+      "id": "ref-47",
+      "year": "2025",
+      "authors": "Jiaqi Huang; Zunnan Xu; et al.",
+      "title": "Densely connected parameterefficient tuning for referring image segmentation"
+    },
+    {
+      "id": "ref-48",
+      "year": "2022",
+      "authors": "Ding Jia; Yuhui Yuan; et al.",
+      "title": "Detrs with hybrid matching"
+    },
+    {
+      "id": "ref-49",
+      "year": "2020",
+      "authors": "Menglin Jia; Mengyun Shi; et al.",
+      "title": "Belongie. Fashionpedia: Ontology, segmentation, and an attribute localization dataset. CoRR, abs/2004.12276"
+    },
+    {
+      "id": "ref-50",
+      "year": "2025",
+      "authors": "Junjie Jiang; Zelin Wang; et al.",
+      "title": "Sam2mot: A novel paradigm of multi-object tracking by segmentation"
+    },
+    {
+      "id": "ref-51",
+      "year": "2024",
+      "authors": "Qing Jiang; Feng Li; et al.",
+      "title": "T-rex2: Towards generic object detection via text-visual prompt synergy"
+    },
+    {
+      "id": "ref-52",
+      "year": "2020",
+      "authors": "Arne Hoffhues Jonathon Luiten",
+      "title": "Trackeval. https://github.com/JonathonLuiten/TrackEval"
+    },
+    {
+      "id": "ref-53",
+      "year": "2021",
+      "authors": "Aishwarya Kamath; Mannat Singh; et al.",
+      "title": "Mdetr-modulated detection for end-to-end multi-modal understanding"
+    },
+    {
+      "id": "ref-54",
+      "year": "2025",
+      "authors": "Seil Kang; Jinyeong Kim; et al.",
+      "title": "Your large vision-language model only needs a few attention heads for visual grounding"
+    },
+    {
+      "id": "ref-55",
+      "year": "2021",
+      "authors": "Kakani Katija; Eric C",
+      "title": "Orenstein, Brian Schlining, Lonny Lundsten, Kevin Barnard, Giovanna Sainz, Oceane Boulais, Benjamin G. Woodward, and Katy Croff Bell. Fathomnet: A global underwater image training set for enabling artificial intelligence in the ocean. CoRR, abs/2109.14646"
+    },
+    {
+      "id": "ref-56",
+      "year": "2014",
+      "authors": "Sahar Kazemzadeh; Vicente Ordonez; et al.",
+      "title": "Referitgame: Referring to objects in photographs of natural scenes"
+    },
+    {
+      "id": "ref-57",
+      "year": "2022",
+      "authors": "Lei Ke; Henghui Ding; et al.",
+      "title": "Video mask transfiner for high-quality video instance segmentation"
+    },
+    {
+      "id": "ref-58",
+      "year": "2024",
+      "authors": "Alexander Khazatsky; Karl Pertsch; et al.",
+      "title": "Zhao, Christopher Agia, Rohan Baijal, Mateo Guaman Castro, Daphne Chen, Qiuyu Chen, Trinity Chung, Jaimyn Drake, Ethan Paul Foster, Jensen Gao, Vitor Guizilini, David Antonio Herrera, Minho Heo, Kyle Hsu, Jiaheng Hu, Muhammad Zubair Irshad, Donovon Jackson, Charlotte Le, Yunshuang Li, Kevin Lin, Roy Lin, Zehan Ma, Abhiram Maddukuri, Suvir Mirchandani, Daniel Morton, Tony Nguyen, Abigail O’Neill, Rosario Scalise, Derick Seale, Victor Son, Stephen Tian, Emi Tran, Andrew E. Wang, Yilin Wu, Annie Xie, Jingyun Yang, Patrick Yin, Yunchu Zhang, Osbert Bastani, Glen Berseth, Jeannette Bohg, Ken Goldberg, Abhinav Gupta, Abhishek Gupta, Dinesh Jayaraman, Joseph J Lim, Jitendra Malik, Roberto Martín-Martín, Subramanian Ramamoorthy, Dorsa Sadigh, Shuran Song, Jiajun Wu, Michael C. Yip, Yuke Zhu, Thomas Kollar, Sergey Levine"
+    },
+    {
+      "id": "ref-59",
+      "year": "2024",
+      "authors": "Rawal Khirodkar; Timur Bagautdinov; et al.",
+      "title": "Sapiens: Foundation for human vision models"
+    },
+    {
+      "id": "ref-60",
+      "year": "2023",
+      "authors": "Alexander Kirillov; Eric Mintun; et al.",
+      "title": "Segment anything"
+    },
+    {
+      "id": "ref-61",
+      "year": "2017",
+      "authors": "Ranjay Krishna; Yuke Zhu; et al.",
+      "title": "Visual genome: Connecting language and vision using crowdsourced dense image annotations. International journal of computer vision, 123(1):32–73"
+    },
+    {
+      "id": "ref-62",
+      "year": "2020",
+      "authors": "Alina Kuznetsova; Hassan Rom; et al.",
+      "title": "The open images dataset v4: Unified image classification, object detection, and visual relationship detection at scale. International journal of computer vision, 128(7):1956–1981"
+    },
+    {
+      "id": "ref-63",
+      "year": "2019",
+      "authors": "Alexandre Lacoste; Alexandra Luccioni; et al.",
+      "title": "Quantifying the carbon emissions of machine learning"
+    },
+    {
+      "id": "ref-64",
+      "year": "2024",
+      "authors": "Xin Lai; Zhuotao Tian; et al.",
+      "title": "Lisa: Reasoning segmentation via large language model"
+    },
+    {
+      "id": "ref-65",
+      "year": "2021",
+      "authors": "Hoang-An Le; Partha Das; et al.",
+      "title": "EDEN: Multimodal Synthetic Dataset of Enclosed garDEN Scenes"
+    },
+    {
+      "id": "ref-66",
+      "year": "2022",
+      "authors": "Chunyuan Li; Haotian Liu; et al.",
+      "title": "Elevater: A benchmark and toolkit for evaluating language-augmented visual models. Advances in Neural Information Processing Systems, 35:9287–9301"
+    },
+    {
+      "id": "ref-67",
+      "year": "2023",
+      "authors": "Feng Li; Qing Jiang; et al.",
+      "title": "Visual in-context prompting. 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 12861–12871"
+    },
+    {
+      "id": "ref-68",
+      "year": "2025",
+      "authors": "Jiachen Li; Qing Xie; et al.",
+      "title": "Lgd: Leveraging generative descriptions for zero-shot referring image segmentation"
+    },
+    {
+      "id": "ref-69",
+      "year": "2023",
+      "authors": "Junnan Li; Dongxu Li; et al.",
+      "title": "Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models"
+    },
+    {
+      "id": "ref-70",
+      "year": "2023",
+      "authors": "Liunian Li; Zi-Yi Dou; et al.",
+      "title": "Desco: Learning object recognition with rich language descriptions. Advances in Neural Information Processing Systems, 36:37511–37526"
+    },
+    {
+      "id": "ref-71",
+      "year": "2022",
+      "authors": "Liunian Harold Li; Pengchuan Zhang; et al.",
+      "title": "Grounded language-image pre-training"
+    },
+    {
+      "id": "ref-72",
+      "year": "2022",
+      "authors": "Siyuan Li; Martin Danelljan; et al.",
+      "title": "Tracking every thing in the wild"
+    },
+    {
+      "id": "ref-73",
+      "year": "2022",
+      "authors": "Yanghao Li; Hanzi Mao; et al.",
+      "title": "Exploring plain vision transformer backbones for object detection"
+    },
+    {
+      "id": "ref-74",
+      "year": "2023",
+      "authors": "Feng Liang; Bichen Wu; et al.",
+      "title": "Open-vocabulary semantic segmentation with mask-adapted clip"
+    },
+    {
+      "id": "ref-75",
+      "year": "",
+      "authors": "LILA BC",
+      "title": "WCS camera traps. URL https://lila.science/datasets/wcscameratraps"
+    },
+    {
+      "id": "ref-76",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-77",
+      "year": "2023",
+      "authors": "Yutong Lin; Yuhui Yuan; et al.",
+      "title": "Detr doesn’t need multi-scale or locality design"
+    },
+    {
+      "id": "ref-78",
+      "year": "2023",
+      "authors": "Shilong Liu; Zhaoyang Zeng; et al.",
+      "title": "Grounding dino: Marrying dino with grounded pre-training for open-set object detection"
+    },
+    {
+      "id": "ref-79",
+      "year": "2024",
+      "authors": "Shilong Liu; Zhaoyang Zeng; et al.",
+      "title": "Grounding dino: Marrying dino with grounded pre-training for open-set object detection"
+    },
+    {
+      "id": "ref-80",
+      "year": "2025",
+      "authors": "Ting Liu; Siyuan Li",
+      "title": "Hybrid global-local representation with augmented spatial guidance for zero-shot referring image segmentation"
+    },
+    {
+      "id": "ref-81",
+      "year": "2024",
+      "authors": "Yong Liu; Cairong Zhang; et al.",
+      "title": "Universal segmentation at arbitrary granularity with language instruction"
+    },
+    {
+      "id": "ref-82",
+      "year": "2025",
+      "authors": "Yuqi Liu; Bohao Peng; et al.",
+      "title": "Seg-zero: Reasoning-chain guided segmentation via cognitive reinforcement"
+    },
+    {
+      "id": "ref-83",
+      "year": "2022",
+      "authors": "Shangbang Long; Siyang Qin; et al.",
+      "title": "Towards end-to-end unified scene text detection and layout analysis"
+    },
+    {
+      "id": "ref-84",
+      "year": "2023",
+      "authors": "Shangbang Long; Siyang Qin; et al.",
+      "title": "Icdar 2023 competition on hierarchical text detection and recognition"
+    },
+    {
+      "id": "ref-85",
+      "year": "2019",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization. ICLR"
+    },
+    {
+      "id": "ref-86",
+      "year": "2025",
+      "authors": "Yi Lu; Jiawang Cao; et al.",
+      "title": "Rsvp: Reasoning segmentation via visual prompting and multi-modal chain-of-thought"
+    },
+    {
+      "id": "ref-87",
+      "year": "2021",
+      "authors": "Jonathon Luiten; Aljosa Osep; et al.",
+      "title": "Hota: A higher order metric for evaluating multi-object tracking. International Journal of Computer Vision, pp. 548–578"
+    },
+    {
+      "id": "ref-88",
+      "year": "2025",
+      "authors": "Jun Ma; Zongxin Yang; et al.",
+      "title": "Medsam2: Segment anything in 3d medical images and videos"
+    },
+    {
+      "id": "ref-89",
+      "year": "2016",
+      "authors": "Junhua Mao; Jonathan Huang; et al.",
+      "title": "Generation and comprehension of unambiguous object descriptions"
+    },
+    {
+      "id": "ref-90",
+      "year": "2023",
+      "authors": "Xiaofeng Mao; Yuefeng Chen; et al.",
+      "title": "Coco-o: A benchmark for object detectors under natural distribution shifts"
+    },
+    {
+      "id": "ref-91",
+      "year": "2022",
+      "authors": "Tim Meinhardt; Alexander Kirillov; et al.",
+      "title": "Trackformer: Multi-object tracking with transformers"
+    },
+    {
+      "id": "ref-92",
+      "year": "2022",
+      "authors": "Matthias Minderer; Alexey Gritsenko; et al.",
+      "title": "Simple open-vocabulary object detection"
+    },
+    {
+      "id": "ref-93",
+      "year": "2024",
+      "authors": "Matthias Minderer; Alexey Gritsenko,; et al.",
+      "title": "Scaling open-vocabulary object detection"
+    },
+    {
+      "id": "ref-94",
+      "year": "2023",
+      "authors": "Chaitanya Mitash; Fan Wang; et al.",
+      "title": "Armbench: An object-centric benchmark dataset for robotic manipulation"
+    },
+    {
+      "id": "ref-95",
+      "year": "2019",
+      "authors": "Margaret Mitchell; Simone Wu; et al.",
+      "title": "Model cards for model reporting"
+    },
+    {
+      "id": "ref-96",
+      "year": "2021",
+      "authors": "Sharada Prasanna Mohanty; Gaurav Singhal; et al.",
+      "title": "The food recognition benchmark: Using deeplearning to recognize food on images"
+    },
+    {
+      "id": "ref-97",
+      "year": "2014",
+      "authors": "Roozbeh Mottaghi; Xianjie Chen; et al.",
+      "title": "The role of context for object detection and semantic segmentation in the wild"
+    },
+    {
+      "id": "ref-98",
+      "year": "2022",
+      "authors": "Vishvak Murahari; Carlos Jimenez; et al.",
+      "title": "Datamux: Data multiplexing for neural networks. NeurIPS"
+    },
+    {
+      "id": "ref-99",
+      "year": "",
+      "authors": "National Gallery of Art",
+      "title": "Public domain collection dataset. URL https://www.nga.gov/artworks/ free-images-and-open-access"
+    },
+    {
+      "id": "ref-100",
+      "year": "2023",
+      "authors": "Minheng Ni; Yabo Zhang; et al.",
+      "title": "Ref-diff: Zero-shot referring image segmentation with generative models"
+    },
+    {
+      "id": "ref-101",
+      "year": "2024",
+      "authors": "Maxime Oquab; Timothée Darcet; et al.",
+      "title": "Dinov2: Learning robust visual features without supervision. Transactions on Machine Learning Research"
+    },
+    {
+      "id": "ref-102",
+      "year": "2023",
+      "authors": "Roni Paiss; Ariel Ephrat; et al.",
+      "title": "Teaching clip to count to ten"
+    },
+    {
+      "id": "ref-103",
+      "year": "2024",
+      "authors": "Kwanyong Park; Kuniaki Saito,; et al.",
+      "title": "Weak-to-strong compositional learning from generative models for language-based object detection"
+    },
+    {
+      "id": "ref-104",
+      "year": "2021",
+      "authors": "David Patterson; Joseph Gonzalez; et al.",
+      "title": "Carbon emissions and large neural network training"
+    },
+    {
+      "id": "ref-105",
+      "year": "2025",
+      "authors": "Paul Voigtlaender; Valentin Gabeur; et al.",
+      "title": "Conversational image segmentation with Gemini 2.5. https: //developers.googleblog.com/en/conversational-image-segmentation-gemini-2-5/"
+    },
+    {
+      "id": "ref-106",
+      "year": "2020",
+      "authors": "Bryan A Plummer; Kevin J Shih; et al.",
+      "title": "Revisiting image-language networks for open-ended phrase detection. IEEE transactions on pattern analysis and machine intelligence, 44(4):2155–2167"
+    },
+    {
+      "id": "ref-107",
+      "year": "2017",
+      "authors": "Jordi Pont-Tuset; Federico Perazzi; et al.",
+      "title": "The 2017 davis challenge on video object segmentation"
+    },
+    {
+      "id": "ref-108",
+      "year": "2017",
+      "authors": "Jordi Pont-Tuset; Federico Perazzi; et al.",
+      "title": "The 2017 davis challenge on video object segmentation"
+    },
+    {
+      "id": "ref-109",
+      "year": "",
+      "authors": "PySceneDetect Developers",
+      "title": "PySceneDetect. https://www.scenedetect.com/"
+    },
+    {
+      "id": "ref-110",
+      "year": "2022",
+      "authors": "Jiyang Qi; Yan Gao; et al.",
+      "title": "Occluded video instance segmentation: A benchmark. International Journal of Computer Vision"
+    },
+    {
+      "id": "ref-111",
+      "year": "2021",
+      "authors": "Alec Radford; Jong Wook Kim; et al.",
+      "title": "Learning transferable visual models from natural language supervision"
+    },
+    {
+      "id": "ref-112",
+      "year": "2023",
+      "authors": "Vikram V",
+      "title": "Ramaswamy, Sing Yu Lin, Dora Zhao, Aaron B. Adcock, Laurens van der Maaten, Deepti Ghadiyaram, and Olga Russakovsky. Geode: a geographically diverse evaluation dataset for object recognition"
+    },
+    {
+      "id": "ref-113",
+      "year": "2021",
+      "authors": "Viresh Ranjan; Udbhav Sharma; et al.",
+      "title": "Learning to count everything"
+    },
+    {
+      "id": "ref-114",
+      "year": "2024",
+      "authors": "Hanoona Rasheed; Muhammad Maaz; et al.",
+      "title": "Glamm: Pixel grounding large multimodal model"
+    },
+    {
+      "id": "ref-115",
+      "year": "2024",
+      "authors": "Nikhila Ravi; Valentin Gabeur; et al.",
+      "title": "SAM 2: Segment anything in images and videos"
+    },
+    {
+      "id": "ref-116",
+      "year": "2024",
+      "authors": "Tianhe Ren; Qing Jiang; et al.",
+      "title": "Grounding dino 1.5: Advance the\" edge\" of open-set object detection"
+    },
+    {
+      "id": "ref-117",
+      "year": "2024",
+      "authors": "Tianhe Ren; Shilong Liu; et al.",
+      "title": "Grounded sam: Assembling open-world models for diverse visual tasks"
+    },
+    {
+      "id": "ref-118",
+      "year": "2025",
+      "authors": "Tianhe Ren; Yihao Chen; et al.",
+      "title": "Dino-x: A unified vision model for open-world object detection and understanding"
+    },
+    {
+      "id": "ref-119",
+      "year": "2025",
+      "authors": "Peter Robicheaux; Matvei Popov; et al.",
+      "title": "Roboflow100-vl: A multi-domain object detection benchmark for vision-language models"
+    },
+    {
+      "id": "ref-120",
+      "year": "2015",
+      "authors": "Olga Russakovsky; Jia Deng; et al.",
+      "title": "Imagenet large scale visual recognition challenge. International journal of computer vision, 115(3):211–252"
+    },
+    {
+      "id": "ref-121",
+      "year": "2023",
+      "authors": "Chaitanya Ryali; Yuan-Ting Hu; et al.",
+      "title": "Hiera: A hierarchical vision transformer without the bells-and-whistles. ICML"
+    },
+    {
+      "id": "ref-122",
+      "year": "2019",
+      "authors": "Victor Sanh; Lysandre Debut; et al.",
+      "title": "Distilbert, a distilled version of bert: smaller, faster, cheaper and lighter. ArXiv, abs/1910.01108"
+    },
+    {
+      "id": "ref-123",
+      "year": "2023",
+      "authors": "Samuel Schulter; Yumin Suh; et al.",
+      "title": "Omnilabel: A challenging benchmark for language-based object detection"
+    },
+    {
+      "id": "ref-124",
+      "year": "2019",
+      "authors": "Shuai Shao; Zeming Li; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-125",
+      "year": "2024",
+      "authors": "Yunhang Shen; Chaoyou Fu; et al.",
+      "title": "Aligning and prompting everything all at once for universal visual perception"
+    },
+    {
+      "id": "ref-126",
+      "year": "2021",
+      "authors": "Jianlin Su; Yu Lu; et al.",
+      "title": "Roformer: Enhanced transformer with rotary position embedding"
+    },
+    {
+      "id": "ref-127",
+      "year": "2020",
+      "authors": "Peize Sun; Jinkun Cao; et al.",
+      "title": "Transtrack: Multiple object tracking with transformer"
+    },
+    {
+      "id": "ref-128",
+      "year": "2024",
+      "authors": "Shuyang Sun; Runjia Li; et al.",
+      "title": "Clip as rnn: Segment countless visual concepts without training endeavor"
+    },
+    {
+      "id": "ref-129",
+      "year": "2023",
+      "authors": "Yucheng Suo; Linchao Zhu,; et al.",
+      "title": "Text augmented spatial-aware zero-shot referring image segmentation"
+    },
+    {
+      "id": "ref-130",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-131",
+      "year": "2014",
+      "authors": "Denny Vrandečić; Markus Krötzsch",
+      "title": "Wikidata: a free collaborative knowledgebase. Commun. ACM, 57(10):78–85"
+    },
+    {
+      "id": "ref-132",
+      "year": "2025",
+      "authors": "Hao Wang; Limeng Qiao; et al.",
+      "title": "X-sam: From segment anything to any segmentation"
+    },
+    {
+      "id": "ref-133",
+      "year": "2023",
+      "authors": "Haochen Wang; Cilin Yan; et al.",
+      "title": "Towards open-vocabulary video instance segmentation"
+    },
+    {
+      "id": "ref-134",
+      "year": "2024",
+      "authors": "Peng Wang; Shuai Bai; et al.",
+      "title": "Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution"
+    },
+    {
+      "id": "ref-135",
+      "year": "2025",
+      "authors": "Shijie Wang; Dahun Kim; et al.",
+      "title": "Learning visual grounding from generative vision and language model"
+    },
+    {
+      "id": "ref-136",
+      "year": "2025",
+      "authors": "Yuji Wang; Jingchen Ni; et al.",
+      "title": "Iterprime: Zero-shot referring image segmentation with iterative grad-cam refinement and primary word emphasis"
+    },
+    {
+      "id": "ref-137",
+      "year": "2025",
+      "authors": "Dante Francisco Wasmuht; Otto Brookes; et al.",
+      "title": "The SA-FARI dataset: Segment anything in footage of animals for recognition and identification"
+    },
+    {
+      "id": "ref-138",
+      "year": "2024",
+      "authors": "Cong Wei; Yujie Zhong; et al.",
+      "title": "Hyperseg: Towards universal visual segmentation with large language model"
+    },
+    {
+      "id": "ref-139",
+      "year": "2017",
+      "authors": "Nicolai Wojke; Alex Bewley,; et al.",
+      "title": "Simple online and realtime tracking with a deep association metric"
+    },
+    {
+      "id": "ref-140",
+      "year": "2024",
+      "authors": "Junfeng Wu; Yi Jiang; et al.",
+      "title": "General object foundation model for images and videos at scale"
+    },
+    {
+      "id": "ref-141",
+      "year": "2024",
+      "authors": "Junfeng Wu; Yi Jiang; et al.",
+      "title": "General object foundation model for images and videos at scale"
+    },
+    {
+      "id": "ref-142",
+      "year": "2024",
+      "authors": "Zhuofan Xia; Dongchen Han; et al.",
+      "title": "Gsva: Generalized segmentation via multimodal large language models"
+    },
+    {
+      "id": "ref-143",
+      "year": "2025",
+      "authors": "Yin Xie; Kaicheng Yang; et al.",
+      "title": "Region-based cluster discrimination for visual representation learning"
+    },
+    {
+      "id": "ref-144",
+      "year": "2024",
+      "authors": "Hu Xu; Po-Yao Huang; et al.",
+      "title": "Altogether: Image captioning via re-aligning alt-text"
+    },
+    {
+      "id": "ref-145",
+      "year": "2024",
+      "authors": "Hu Xu; Saining Xie; et al.",
+      "title": "Demystifying clip data"
+    },
+    {
+      "id": "ref-146",
+      "year": "2018",
+      "authors": "N",
+      "title": "Xu, L. Yang, Yuchen Fan, Dingcheng Yue, Yuchen Liang, Jianchao Yang, and Thomas S. Huang. Youtube-vos: A large-scale video object segmentation benchmark. ArXiv, abs/1809.03327"
+    },
+    {
+      "id": "ref-147",
+      "year": "2023",
+      "authors": "Yifan Xu; Mengdan Zhang; et al.",
+      "title": "Multi-modal queried object detection in the wild. Advances in Neural Information Processing Systems, 36:4452–4469"
+    },
+    {
+      "id": "ref-148",
+      "year": "2024",
+      "authors": "Cheng-Yen Yang; Hsiang-Wei Huang; et al.",
+      "title": "Samurai: Adapting segment anything model for zero-shot visual tracking with motion-aware memory"
+    },
+    {
+      "id": "ref-149",
+      "year": "2023",
+      "authors": "Jianwei Yang; Hao Zhang; et al.",
+      "title": "Set-of-mark prompting unleashes extraordinary visual grounding in gpt-4v"
+    },
+    {
+      "id": "ref-150",
+      "year": "2022",
+      "authors": "Zongxin Yang; Yi Yang",
+      "title": "Decoupling features in hierarchical propagation for video object segmentation. Advances in Neural Information Processing Systems, 35:36324–36336"
+    },
+    {
+      "id": "ref-151",
+      "year": "2021",
+      "authors": "Zongxin Yang; Yunchao Wei,; et al.",
+      "title": "Associating objects with transformers for video object segmentation. NeurIPS"
+    },
+    {
+      "id": "ref-152",
+      "year": "2025",
+      "authors": "Heng Yin; Yuqiang Ren; et al.",
+      "title": "Rod-mllm: Towards more reliable object detection in multimodal large language models"
+    },
+    {
+      "id": "ref-153",
+      "year": "2023",
+      "authors": "En Yu; Tiancai Wang; et al.",
+      "title": "Motrv3: Release-fetch supervision for end-to-end multi-object tracking"
+    },
+    {
+      "id": "ref-154",
+      "year": "2020",
+      "authors": "Fisher Yu; Haofeng Chen; et al.",
+      "title": "Bdd100k: A diverse driving dataset for heterogeneous multitask learning"
+    },
+    {
+      "id": "ref-155",
+      "year": "2023",
+      "authors": "Seonghoon Yu; Paul Hongsuck Seo,; et al.",
+      "title": "Zero-shot referring image segmentation with global-local context features"
+    },
+    {
+      "id": "ref-156",
+      "year": "2024",
+      "authors": "Seonghoon Yu; Paul Hongsuck Seo,; et al.",
+      "title": "Pseudo-ris: Distinctive pseudo-supervision generation for referring image segmentation"
+    },
+    {
+      "id": "ref-157",
+      "year": "2022",
+      "authors": "Rowan Zellers; Jiasen Lu; et al.",
+      "title": "Merlot reserve: Multimodal neural script knowledge through vision and language and sound"
+    },
+    {
+      "id": "ref-158",
+      "year": "2022",
+      "authors": "Fangao Zeng; Bin Dong; et al.",
+      "title": "Motr: End-to-end multipleobject tracking with transformer"
+    },
+    {
+      "id": "ref-159",
+      "year": "2022",
+      "authors": "Xiaohua Zhai; Alexander Kolesnikov; et al.",
+      "title": "Scaling vision transformers"
+    },
+    {
+      "id": "ref-160",
+      "year": "2022",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-161",
+      "year": "2022",
+      "authors": "Haotian Zhang; Pengchuan Zhang; et al.",
+      "title": "Glipv2: Unifying localization and vision-language understanding. Advances in Neural Information Processing Systems, 35:36067–36080"
+    },
+    {
+      "id": "ref-162",
+      "year": "2024",
+      "authors": "Tao Zhang; Xiangtai Li; et al.",
+      "title": "Omg-llava: Bridging image-level, object-level, pixel-level reasoning and understanding. Advances in neural information processing systems, 37:71737–71767"
+    },
+    {
+      "id": "ref-163",
+      "year": "2022",
+      "authors": "Yifu Zhang; Peize Sun; et al.",
+      "title": "Bytetrack: Multi-object tracking by associating every detection box"
+    },
+    {
+      "id": "ref-164",
+      "year": "2024",
+      "authors": "Yuxuan Zhang; Tianheng Cheng; et al.",
+      "title": "Evf-sam: Early vision-language fusion for text-prompted segment anything model"
+    },
+    {
+      "id": "ref-165",
+      "year": "2024",
+      "authors": "Zheng Zhang; Yeyao Ma; et al.",
+      "title": "Psalm: Pixelwise segmentation with large multi-modal model"
+    },
+    {
+      "id": "ref-166",
+      "year": "2025",
+      "authors": "Zhixiong Zhang; Shuangrui Ding; et al.",
+      "title": "Sec: Advancing complex video object segmentation via progressive concept construction"
+    },
+    {
+      "id": "ref-167",
+      "year": "2024",
+      "authors": "Shiyu Zhao; Long Zhao; et al.",
+      "title": "Generating enhanced negatives for training language-based object detectors"
+    },
+    {
+      "id": "ref-168",
+      "year": "2019",
+      "authors": "Bolei Zhou; Hang Zhao; et al.",
+      "title": "Semantic understanding of scenes through the ade20k dataset. International Journal of Computer Vision, 127(3):302–321"
+    },
+    {
+      "id": "ref-169",
+      "year": "2025",
+      "authors": "Yang Zhou; Shiyu Zhao; et al.",
+      "title": "Led: Llm enhanced open-vocabulary object detection without human curated data generation"
+    },
+    {
+      "id": "ref-170",
+      "year": "2021",
+      "authors": "Pengfei Zhu; Longyin Wen; et al.",
+      "title": "Detection and tracking meet drones challenge. IEEE Transactions on Pattern Analysis and Machine Intelligence, 44(11):7380–7399"
+    },
+    {
+      "id": "ref-171",
+      "year": "2020",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-172",
+      "year": "2023",
+      "authors": "Xueyan Zou; Jianwei Yang; et al.",
+      "title": "Segment everything everywhere all at once. Advances in neural information processing systems, 36:19769–19782"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import type { RequestPermissionOutcome } from "./acpProtocol";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
-import { setAcpSkillRunPermissionRequest } from "./acpSkillRunStore";
+import { setAcpConversationHostBridgePermissionRequest } from "./acpConversationHostBridgePermissionRegistry";
 import type { HostBridgeApprovalRequirement } from "./hostBridgeProtocol";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
@@ -21,7 +21,7 @@ const NO_APPROVAL_CAPABILITIES = new Set([
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export type HostBridgePermissionScope = {
-  kind: "acp-skill-run" | "acp-run" | "global" | string;
+  kind: "acp-chat" | "acp-skill-run" | "acp-run" | "global" | string;
   requestId?: string;
   runId?: string;
   autoApproveWrites?: boolean;
@@ -41,12 +41,12 @@ export type HostBridgePermissionDecision =
   | {
       outcome: "approved";
       requestId: string;
-      channel: "acp-skill-run" | "global";
+      channel: "acp-chat" | "acp-skill-run" | "global";
     }
   | {
       outcome: "denied" | "timeout" | "ui_unavailable";
       requestId: string;
-      channel: "acp-skill-run" | "global";
+      channel: "acp-chat" | "acp-skill-run" | "global";
       reason: string;
     };
 
@@ -136,6 +136,14 @@ function acpRunRequestId(scope?: HostBridgePermissionScope | null) {
   return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
 }
 
+function acpChatConversationId(scope?: HostBridgePermissionScope | null) {
+  const kind = normalizeString(scope?.kind);
+  if (kind !== "acp-chat") {
+    return "";
+  }
+  return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
+}
+
 function requestGlobalPermissionWithPrompt(
   request: HostBridgePermissionRequest & { requestId: string },
 ): HostBridgePermissionDecision {
@@ -213,6 +221,8 @@ async function requestAcpRunScopedPermission(
   request: HostBridgePermissionRequest & { requestId: string },
   runRequestId: string,
 ): Promise<HostBridgePermissionDecision> {
+  const { setAcpSkillRunPermissionRequest } =
+    await import("./acpSkillRunStore");
   const outcomePromise = new Promise<HostBridgePermissionDecision>(
     (resolve) => {
       setAcpSkillRunPermissionRequest(runRequestId, {
@@ -258,11 +268,73 @@ async function requestAcpRunScopedPermission(
   });
 }
 
+async function requestAcpChatScopedPermission(
+  request: HostBridgePermissionRequest & { requestId: string },
+  conversationId: string,
+): Promise<HostBridgePermissionDecision> {
+  const outcomePromise = new Promise<HostBridgePermissionDecision>(
+    (resolve) => {
+      const registered = setAcpConversationHostBridgePermissionRequest(
+        conversationId,
+        {
+          requestId: request.requestId,
+          sessionId: "host-bridge",
+          toolCallId: request.requestId,
+          toolTitle: request.title,
+          source: request.source || "host-bridge-cli",
+          summary: request.summary,
+          detail: request.detail,
+          requestedAt: new Date().toISOString(),
+          options: permissionOptions(),
+          resolve: (outcome) => {
+            const parsed = parseAcpPermissionOutcome(outcome);
+            resolve(
+              parsed === "approved"
+                ? {
+                    outcome: "approved",
+                    requestId: request.requestId,
+                    channel: "acp-chat",
+                  }
+                : {
+                    outcome: "denied",
+                    requestId: request.requestId,
+                    channel: "acp-chat",
+                    reason: "User denied the requested Host Bridge operation.",
+                  },
+            );
+          },
+        },
+      );
+      if (!registered) {
+        resolve({
+          outcome: "ui_unavailable",
+          requestId: request.requestId,
+          channel: "acp-chat",
+          reason:
+            "ACP Chat approval UI is unavailable for this Host Bridge operation.",
+        });
+      }
+    },
+  );
+
+  return withTimeout({
+    promise: outcomePromise,
+    timeoutMs: request.timeoutMs || DEFAULT_APPROVAL_TIMEOUT_MS,
+    onTimeout: () => ({
+      outcome: "timeout",
+      requestId: request.requestId,
+      channel: "acp-chat",
+      reason: "Timed out waiting for ACP Chat approval.",
+    }),
+  });
+}
+
 export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
   if (
-    capability === "debug.synthesis.cleanInstallReset"
+    capability === "debug.synthesis.cleanInstallReset" ||
+    capability === "debug.zotero.eval"
   ) {
     return "zotero-ui-required";
   }
@@ -308,12 +380,15 @@ export async function requestHostBridgePermission(
     ...request,
     requestId: nextPermissionRequestId(),
   };
+  const chatConversationId = acpChatConversationId(request.scope);
   const runRequestId = acpRunRequestId(request.scope);
-  const decision = runRequestId
-    ? await requestAcpRunScopedPermission(requestWithId, runRequestId)
-    : await (
-        globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
-      )(requestWithId);
+  const decision = chatConversationId
+    ? await requestAcpChatScopedPermission(requestWithId, chatConversationId)
+    : runRequestId
+      ? await requestAcpRunScopedPermission(requestWithId, runRequestId)
+      : await (
+          globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
+        )(requestWithId);
   if (decision.outcome !== "approved") {
     throw new HostBridgePermissionError(decision);
   }

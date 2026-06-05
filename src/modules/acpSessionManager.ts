@@ -57,6 +57,10 @@ import {
   materializeHostBridgeCliRunInjection,
   summarizeHostBridgeCliRunInjection,
 } from "./hostBridgeCliInjection";
+import {
+  registerAcpConversationHostBridgePermissionHandler,
+  resetAcpConversationHostBridgePermissionHandlersForTests,
+} from "./acpConversationHostBridgePermissionRegistry";
 
 type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
@@ -69,8 +73,12 @@ export type AcpSessionSlot = {
   unsubscribeClose: (() => void) | null;
   unsubscribeDiagnostics: (() => void) | null;
   unsubscribePermission: (() => void) | null;
+  unsubscribeHostBridgePermission: (() => void) | null;
   hostBridgeCliPromptSnippet: string;
   suppressCloseEvent: boolean;
+  promptCancelInFlight: boolean;
+  promptCancelCloseExpected: boolean;
+  promptCancelCloseTimer: ReturnType<typeof setTimeout> | null;
   activeAssistantItemId: string;
   activeThoughtItemId: string;
   activePlanItemId: string;
@@ -149,6 +157,34 @@ function serializeRuntimeHost() {
     hasReadableStream: typeof runtime.ReadableStream === "function",
     hasWritableStream: typeof runtime.WritableStream === "function",
   };
+}
+
+function markPromptCancelled(slot: AcpSessionSlot) {
+  slot.snapshot.busy = false;
+  slot.snapshot.status = "connected";
+  slot.snapshot.lastStopReason = "cancelled";
+  slot.snapshot.pendingPermissionRequest = null;
+  finalizeStreamingItems(slot, "complete", "cancelled");
+}
+
+function clearPromptCancelCloseExpectation(slot: AcpSessionSlot) {
+  slot.promptCancelInFlight = false;
+  slot.promptCancelCloseExpected = false;
+  if (slot.promptCancelCloseTimer) {
+    clearTimeout(slot.promptCancelCloseTimer);
+    slot.promptCancelCloseTimer = null;
+  }
+}
+
+function expectPromptCancelClose(slot: AcpSessionSlot) {
+  slot.promptCancelCloseExpected = true;
+  if (slot.promptCancelCloseTimer) {
+    clearTimeout(slot.promptCancelCloseTimer);
+  }
+  slot.promptCancelCloseTimer = setTimeout(() => {
+    slot.promptCancelCloseExpected = false;
+    slot.promptCancelCloseTimer = null;
+  }, 1500);
 }
 
 function cloneSnapshotValue(value: AcpConversationSnapshot) {
@@ -272,8 +308,12 @@ function getOrCreateSlot(backendIdRaw?: string) {
     unsubscribeClose: null,
     unsubscribeDiagnostics: null,
     unsubscribePermission: null,
+    unsubscribeHostBridgePermission: null,
     hostBridgeCliPromptSnippet: "",
     suppressCloseEvent: false,
+    promptCancelInFlight: false,
+    promptCancelCloseExpected: false,
+    promptCancelCloseTimer: null,
     activeAssistantItemId: "",
     activeThoughtItemId: "",
     activePlanItemId: "",
@@ -284,6 +324,59 @@ function getOrCreateSlot(backendIdRaw?: string) {
   };
   slots.set(backendId, slot);
   return slot;
+}
+
+function setSlotPendingPermissionRequest(
+  slot: AcpSessionSlot,
+  request: {
+    requestId: string;
+    sessionId: string;
+    toolCallId: string;
+    toolTitle: string;
+    source?: string;
+    summary?: string;
+    detail?: string;
+    requestedAt: string;
+    options: Array<{
+      optionId: string;
+      kind: string;
+      name: string;
+      description?: string;
+    }>;
+    resolve: (outcome: RequestPermissionOutcome) => void;
+  },
+) {
+  slot.pendingPermissionResolver = request.resolve;
+  slot.snapshot.pendingPermissionRequest = {
+    requestId: request.requestId,
+    sessionId: request.sessionId,
+    toolCallId: request.toolCallId,
+    toolTitle: request.toolTitle,
+    source: request.source,
+    summary: request.summary,
+    detail: request.detail,
+    requestedAt: request.requestedAt,
+    options: request.options.map((entry) => ({ ...entry })),
+  };
+  slot.snapshot.status = "permission-required";
+  slot.snapshot.busy = true;
+  emitSlotSnapshot(slot);
+}
+
+function bindHostBridgePermissionForSlot(slot: AcpSessionSlot) {
+  const conversationId = String(slot.snapshot.conversationId || "").trim();
+  slot.unsubscribeHostBridgePermission?.();
+  slot.unsubscribeHostBridgePermission = null;
+  if (!conversationId) {
+    return;
+  }
+  slot.unsubscribeHostBridgePermission =
+    registerAcpConversationHostBridgePermissionHandler(
+      conversationId,
+      (request) => {
+        setSlotPendingPermissionRequest(slot, request);
+      },
+    );
 }
 
 function getActiveSlot() {
@@ -1422,8 +1515,18 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
     if (slot.suppressCloseEvent) {
       return;
     }
+    const cancelledPrompt =
+      slot.promptCancelInFlight === true ||
+      slot.promptCancelCloseExpected === true;
     slot.adapter = null;
     slot.pendingPermissionResolver = null;
+    if (cancelledPrompt) {
+      clearPromptCancelCloseExpectation(slot);
+      markPromptCancelled(slot);
+      slot.snapshot.lastLifecycleEvent = "prompt_cancelled";
+      emitSlotSnapshot(slot);
+      return;
+    }
     slot.snapshot.busy = false;
     slot.snapshot.pendingPermissionRequest = null;
     slot.snapshot.status = slot.snapshot.status === "idle" ? "idle" : "error";
@@ -1453,26 +1556,13 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
     });
   });
   slot.unsubscribePermission = nextAdapter.onPermissionRequest((request) => {
-    slot.pendingPermissionResolver = request.resolve;
-    slot.snapshot.pendingPermissionRequest = {
-      requestId: request.requestId,
-      sessionId: request.sessionId,
-      toolCallId: request.toolCallId,
-      toolTitle: request.toolTitle,
-      source: request.source,
-      summary: request.summary,
-      detail: request.detail,
-      requestedAt: request.requestedAt,
-      options: request.options.map((entry) => ({ ...entry })),
-    };
-    slot.snapshot.status = "permission-required";
-    slot.snapshot.busy = true;
-    emitSlotSnapshot(slot);
+    setSlotPendingPermissionRequest(slot, request);
   });
 }
 
 async function disconnectSlotAdapter(slot: AcpSessionSlot) {
   slot.pendingPermissionResolver = null;
+  clearPromptCancelCloseExpectation(slot);
   if (!slot.adapter) {
     return;
   }
@@ -1481,10 +1571,12 @@ async function disconnectSlotAdapter(slot: AcpSessionSlot) {
   slot.unsubscribeClose?.();
   slot.unsubscribeDiagnostics?.();
   slot.unsubscribePermission?.();
+  slot.unsubscribeHostBridgePermission?.();
   slot.unsubscribeUpdate = null;
   slot.unsubscribeClose = null;
   slot.unsubscribeDiagnostics = null;
   slot.unsubscribePermission = null;
+  slot.unsubscribeHostBridgePermission = null;
   const current = slot.adapter;
   slot.adapter = null;
   try {
@@ -1528,7 +1620,9 @@ async function ensureAdapter(backendId?: string) {
         slot.snapshot.workspaceDir ||
         slot.snapshot.sessionCwd,
       requestId: slot.snapshot.conversationId || nextOpaqueId("acp-chat"),
+      scopeKind: "acp-chat",
     });
+    bindHostBridgePermissionForSlot(slot);
     slot.hostBridgeCliPromptSnippet = hostBridgeCliInjection.promptSnippet;
     appendDiagnostic(slot, {
       id: nextOpaqueId("acp-diag"),
@@ -2103,14 +2197,16 @@ export async function cancelAcpConversationPrompt(args?: {
   if (!slot.adapter || !slot.snapshot.sessionId) {
     return;
   }
-  await slot.adapter.cancel({
-    sessionId: slot.snapshot.sessionId,
-  });
-  slot.snapshot.busy = false;
-  slot.snapshot.status = "connected";
-  slot.snapshot.lastStopReason = "cancelled";
-  slot.snapshot.pendingPermissionRequest = null;
-  finalizeStreamingItems(slot, "complete", "cancelled");
+  slot.promptCancelInFlight = true;
+  expectPromptCancelClose(slot);
+  try {
+    await slot.adapter.cancel({
+      sessionId: slot.snapshot.sessionId,
+    });
+  } finally {
+    slot.promptCancelInFlight = false;
+  }
+  markPromptCancelled(slot);
   emitSlotSnapshot(slot);
 }
 
@@ -2588,6 +2684,7 @@ export async function shutdownAcpSessionManager() {
   }
   await Promise.allSettled(pending);
   await shutdownZoteroMcpServer();
+  resetAcpConversationHostBridgePermissionHandlersForTests();
   slots.clear();
   listeners.clear();
   frontendListeners.clear();
@@ -2613,11 +2710,16 @@ export function resetAcpSessionManagerForTests() {
     if (slot.persistTimer) {
       clearTimeout(slot.persistTimer);
     }
+    if (slot.promptCancelCloseTimer) {
+      clearTimeout(slot.promptCancelCloseTimer);
+    }
     slot.unsubscribeUpdate?.();
     slot.unsubscribeClose?.();
     slot.unsubscribeDiagnostics?.();
     slot.unsubscribePermission?.();
+    slot.unsubscribeHostBridgePermission?.();
   }
+  resetAcpConversationHostBridgePermissionHandlersForTests();
   slots.clear();
   listeners.clear();
   frontendListeners.clear();

@@ -1,0 +1,61 @@
+# Conditional DETR for fast training convergence (2021)
+
+- Paper ref: 1:W4CDLU28
+- Title: Conditional DETR for fast training convergence
+- Year: 2021
+
+## Filtered Digest
+
+#### TL;DR
+
+本文针对 DETR（DEtection TRansformer）训练收敛速度慢的核心问题，提出了一种条件式交叉注意力机制（conditional cross-attention mechanism）。原始 DETR 使用 transformer 编解码器架构进行目标检测，但需要 500 个训练 epoch 才能达到良好性能，其根本原因在于交叉注意力中的空间查询（object query）仅给出通用注意力权重图，无法利用具体图像信息，导致模型高度依赖高质量的内容嵌入来定位目标的四个极值点并进行边界框回归，从而增加了训练难度。
+
+本文方法命名为 Conditional DETR，其核心创新是从解码器嵌入中学习一个条件空间查询（conditional spatial query），用于解码器多头交叉注意力。通过条件空间查询，每个交叉注意力头能够聚焦到包含不同区域的条带（band），例如目标的一个极值点或框内区域。这缩小了空间范围，降低了对内容嵌入的依赖，从而缓解了训练难度。
+
+实验结果表明，Conditional DETR 在 R50 和 R101 骨干网络上收敛速度提升 6.7 倍，在更强的 DC5-R50 和 DC5-R101 骨干网络上收敛速度提升 10 倍。50 个 epoch 训练的 Conditional DETR-DC5-R50 即达到 43.8 AP，超过了原始 DETR-R50 训练 500 个 epoch 的 42.0 AP。代码已开源：https://github.com/Atten4Vis/ConditionalDETR。
+
+#### 研究问题与贡献
+
+- 研究问题：如何在保持检测精度的前提下，解决 DETR 训练收敛速度慢的问题，减少对高质量内容嵌入的过度依赖？
+
+- 发现 DETR 训练收敛慢的根本原因：交叉注意力中空间查询仅给出通用权重图，内容嵌入需同时匹配内容键和空间键，双重角色增加了训练难度
+
+- 提出条件式交叉注意力机制，从解码器嵌入中学习条件空间查询，使每个注意力头能聚焦到目标极值点或框内特定区域
+
+- 将空间查询与内容查询通过拼接（而非相加）方式组合，分离两者的角色
+
+- 在 COCO 2017 上验证：R50/R101 收敛提速 6.7 倍，DC5-R50/DC5-R101 收敛提速 10 倍
+
+- 开源代码，架构与 DETR 几乎完全一致，仅修改交叉注意力部分
+
+#### 方法要点
+
+- 条件空间查询预测：从参考点 s 和解码器嵌入 f 共同计算条件空间查询 p_q = λ_q ⊙ p_s，其中 p_s 是参考点的正弦位置嵌入，λ_q 是从 f 映射得到的 256 维对角变换向量
+
+- 将空间查询与内容查询拼接（而非 DETR 中的相加）作为交叉注意力的查询/键，使空间注意力权重和内容注意力权重分别来自两个独立的点积
+
+- 多头注意力机制：8 个注意力头各自聚焦到不同区域——四个极值点（上下左右）和框内区域，实现定位任务的解耦
+
+- 参考点有两种选择：作为可学习参数或从 object query 通过 FFN 预测，后者性能更优（40.9 AP vs 40.7 AP）
+
+- 架构与 DETR 高度一致，仅修改交叉注意力的查询/键输入方式和组合方式，保持相同的 CNN 骨干、编码器、解码器层数和超参数
+
+- 损失函数沿用 DETR 的匈牙利匹配 + 分类损失（focal loss）+ 边界框回归损失（L1 + GIoU）
+
+#### 关键结果
+
+- Conditional DETR-R50 训练 50 epoch 达到 40.9 AP，接近原始 DETR-R50 训练 500 epoch 的 42.0 AP，收敛提速 6.67 倍
+
+- Conditional DETR-DC5-R50 训练 50 epoch 达到 43.8 AP，超过原始 DETR-DC5-R50 训练 500 epoch 的 43.3 AP，收敛提速 10 倍
+
+- Conditional DETR-DC5-R101 训练 108 epoch 达到 45.9 AP，超过原始 DETR-DC5-R101 训练 500 epoch 的 44.9 AP
+
+- 注意力可视化显示：每个头的空间注意力权重图能准确定位一个极值点或框内区域，形成与目标框边重叠的条带
+
+- 消融实验表明：仅使用位置嵌入（CSQ-P）得 37.8 AP，仅使用变换（CSQ-T）得 37.6 AP，两者结合（CSQ）得 40.9 AP，验证了参考点位置嵌入和变换信息缺一不可
+
+- 对角矩阵形式的变换 λ_q 与全矩阵、块对角矩阵性能相当（约 40.9 AP），但对角形式计算效率最高
+
+- focal loss + 偏移回归 + 条件空间查询三者叠加，带来最大的 AP 增益（从 34.9 提升至 40.9）
+
+- 与 deformable DETR-SS 相比：Conditional DETR-R50（40.9 AP）优于 deformable DETR-R50-SS（39.4 AP）

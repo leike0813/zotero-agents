@@ -17,11 +17,21 @@ The project MUST provide a standalone schema file that describes how users shoul
 ### Requirement: Schema contract SHALL align with current loader-visible constraints
 系统 MUST 使用单一 schema 校验 workflow manifest，确保作者声明与运行时消费一致。
 
-#### Scenario: declarative skillrunner upload selector compiles to input file path mapping
-- **WHEN** workflow uses declarative `request.kind=skillrunner.job.v1` and declares `request.input.upload.files[]`
-- **THEN** compiler SHALL generate `input.<key>` relative file path for each declared upload entry
-- **AND** generated request SHALL keep `upload_files[].key=<key>` as mapping key
-- **AND** resulting payload SHALL satisfy provider file-input contract without hook-side manual duplication
+#### Scenario: declarative skillrunner request defaults to local package source
+- **WHEN** workflow uses declarative `request.kind=skillrunner.job.v1` and declares `request.create.skill_id`
+- **AND** `request.create.skill_source` is omitted
+- **THEN** manifest schema validation SHALL accept the manifest
+- **AND** compiler output SHALL use `skill_source="local-package"`
+
+#### Scenario: author selects installed skillrunner source
+- **WHEN** workflow uses declarative `request.kind=skillrunner.job.v1`
+- **AND** `request.create.skill_source` is `"installed"`
+- **THEN** manifest schema validation SHALL accept the manifest
+- **AND** compiler output SHALL preserve `skill_source="installed"`
+
+#### Scenario: invalid skillrunner source is rejected
+- **WHEN** workflow declares `request.create.skill_source` with a value other than `"local-package"` or `"installed"`
+- **THEN** manifest schema validation SHALL reject the manifest with deterministic diagnostics
 
 ### Requirement: Runtime loader manifest validation SHALL use the standalone schema as SSOT
 The loader MUST validate workflow manifests against the standalone schema during workflow scan.
@@ -124,3 +134,4 @@ manifests to declare top-level `provider`, and it MUST NOT expose
 - **THEN** schema validation or runtime scan diagnostics SHALL reject the
   workflow as missing executable provider metadata
 - **AND** validation SHALL NOT recover by inspecting `request.kind`.
+

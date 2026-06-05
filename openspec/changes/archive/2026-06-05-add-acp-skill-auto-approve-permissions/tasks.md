@@ -1,0 +1,6 @@
+- [x] Add OpenSpec deltas for ACP Skill auto-approval and warning UI.
+- [x] Add ACP provider runtime option and normalization.
+- [x] Add ACP Skill runner auto-approval for approve/allow permission options.
+- [x] Render the option label as bold red text in settings UIs.
+- [x] Add focused tests for schema, normalization, UI warning style, and runtime permission behavior.
+- [x] Run OpenSpec validation and targeted verification.

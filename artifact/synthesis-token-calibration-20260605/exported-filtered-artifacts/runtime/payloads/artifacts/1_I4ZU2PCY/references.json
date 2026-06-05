@@ -1,0 +1,262 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "",
+      "authors": "Wikipedia",
+      "title": "Hungarian algorithm"
+    },
+    {
+      "id": "ref-2",
+      "year": "2017",
+      "authors": "Bodla, N.; Singh, B.; et al.",
+      "title": "Soft-nms–improving object detection with one line of code"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Cai, Z.; Vasconcelos, N.",
+      "title": "Cascade r-cnn: High quality object detection and instance segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Chi, C.; Zhang, S.; et al.",
+      "title": "Relational learning for joint head and human detection"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Chi, C.; Zhang, S.; et al.",
+      "title": "Pedhunter: Occlusion robust pedestrian detector in crowded scenes"
+    },
+    {
+      "id": "ref-7",
+      "year": "2017",
+      "authors": "Dai, J.; Qi, H.; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-8",
+      "year": "2011",
+      "authors": "Dollar, P.; Wojek, C.; et al.",
+      "title": "Pedestrian detection: An evaluation of the state of the art"
+    },
+    {
+      "id": "ref-9",
+      "year": "2019",
+      "authors": "Duan, K.; Bai, S.; et al.",
+      "title": "Centernet: Keypoint triplets for object detection"
+    },
+    {
+      "id": "ref-10",
+      "year": "2019",
+      "authors": "Ghiasi, G.; Lin, T.-Y.; et al.",
+      "title": "Nas-fpn: Learning scalable feature pyramid architecture for object detection"
+    },
+    {
+      "id": "ref-11",
+      "year": "2015",
+      "authors": "Girshick, R.",
+      "title": "Fast r-cnn"
+    },
+    {
+      "id": "ref-12",
+      "year": "2014",
+      "authors": "Girshick, R.; Donahue, J.; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-13",
+      "year": "2017",
+      "authors": "He, K.; Gkioxari, G.; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-14",
+      "year": "2015",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Spatial pyramid pooling in deep convolutional networks for visual recognition"
+    },
+    {
+      "id": "ref-15",
+      "year": "2018",
+      "authors": "He, Y.; Zhang, X.; et al.",
+      "title": "Softer-nms: Rethinking bounding box regression for accurate object detection"
+    },
+    {
+      "id": "ref-16",
+      "year": "2018",
+      "authors": "Hu, H.; Gu, J.; et al.",
+      "title": "Relation networks for object detection"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Huang, X.; Ge, Z.; et al.",
+      "title": "Nms by representative region: Towards crowded pedestrian detection by proposal pairing"
+    },
+    {
+      "id": "ref-18",
+      "year": "2019",
+      "authors": "Huang, Z.; Huang, L.; et al.",
+      "title": "Mask scoring r-cnn"
+    },
+    {
+      "id": "ref-19",
+      "year": "2018",
+      "authors": "Jiang, B.; Luo, R.; et al.",
+      "title": "Acquisition of localization confidence for accurate object detection"
+    },
+    {
+      "id": "ref-20",
+      "year": "2018",
+      "authors": "Li, B.; Liu, Y.; et al.",
+      "title": "Gradient harmonized single-stage detector"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Lin, T.-Y.; Dollar, P.; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-23",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-24",
+      "year": "2019",
+      "authors": "Liu, S.; Huang, D.; et al.",
+      "title": "Adaptive nms: Refining pedestrian detection in a crowd"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Liu, W.; Anguelov, D.; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Liu, W.; Liao, S.; et al.",
+      "title": "Learning efficient single-stage pedestrian detectors by asymptotic localization fitting"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Liu, W.; Liao, S.; et al.",
+      "title": "High-level semantic feature detection: A new perspective for pedestrian detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2019",
+      "authors": "Pang, Y.; Xie, J.; et al.",
+      "title": "Mask-guided attention network for occluded pedestrian detection"
+    },
+    {
+      "id": "ref-29",
+      "year": "2016",
+      "authors": "Redmon, J.; Divvala, S.; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-31",
+      "year": "2018",
+      "authors": "Shao, S.; Zhao, Z.; et al.",
+      "title": "Crowdhuman: A benchmark for detecting human in a crowd"
+    },
+    {
+      "id": "ref-32",
+      "year": "2018",
+      "authors": "Song, T.; Sun, L.; et al.",
+      "title": "Small-scale pedestrian detection based on topological line localization and temporal feature aggregation"
+    },
+    {
+      "id": "ref-33",
+      "year": "2016",
+      "authors": "Stewart, R.; Andriluka, M.; et al.",
+      "title": "End-to-end people detection in crowded scenes"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-35",
+      "year": "2017",
+      "authors": "Vaswani, A.; Shazeer, N.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-36",
+      "year": "2018",
+      "authors": "Wang, X.; Xiao, T.; et al.",
+      "title": "Repulsion loss: Detecting pedestrians in a crowd"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Xu, Z.; Li, B.; et al.",
+      "title": "Beta r-cnn: Looking into pedestrian detection from another perspective"
+    },
+    {
+      "id": "ref-38",
+      "year": "2016",
+      "authors": "Zhang, S.; Benenson, R.; et al.",
+      "title": "How far are we from solving pedestrian detection?"
+    },
+    {
+      "id": "ref-39",
+      "year": "2017",
+      "authors": "Zhang, S.; Benenson, R.; et al.",
+      "title": "Citypersons: A diverse dataset for pedestrian detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2018",
+      "authors": "Zhang, S.; Wen, L.; et al.",
+      "title": "Occlusion-aware r-cnn: detecting pedestrians in a crowd"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "Zhou, X.; Wang, D.; et al.",
+      "title": "Objects as points"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Zhu, X.; Hu, H.; et al.",
+      "title": "Deformable convnets v2: More deformable, better results"
+    },
+    {
+      "id": "ref-43",
+      "year": "2020",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

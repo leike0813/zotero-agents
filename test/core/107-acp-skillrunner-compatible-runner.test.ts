@@ -192,6 +192,7 @@ async function createSkill(
     skillDir,
     entry: {
       skillId: "demo-skill",
+      description: "Demo skill description",
       sourceKind: "user" as const,
       sourceDir: skillDir,
       skillMdPath: path.join(skillDir, "SKILL.md"),
@@ -366,6 +367,114 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
     assert.isUndefined(interruptedRun?.removedAt);
+  });
+
+  it("interrupts an active ACP skill prompt without closing the live adapter", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let resolvePromptStarted: () => void = () => undefined;
+    let rejectPrompt: ((error: Error) => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-interrupt" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "Working on the skill.",
+            },
+          },
+        });
+        return await new Promise<never>((_resolve, reject) => {
+          rejectPrompt = reject;
+          resolvePromptStarted();
+        });
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        rejectPrompt?.(new Error("prompt interrupted"));
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+
+    const runPromise = executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "result",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+    await promptStarted;
+
+    const requestId = listAcpSkillRuns()[0]?.requestId || "";
+    assert.isNotEmpty(requestId);
+    assert.equal(getAcpSkillRunRecord(requestId)?.activePrompt, true);
+
+    await interruptAcpSkillRunCurrentTurn(requestId);
+    const result = await runPromise;
+    const record = getAcpSkillRunRecord(requestId);
+
+    assert.equal(cancelCalls, 1);
+    assert.equal(closeCalls, 0);
+    assert.equal(result.status, "succeeded");
+    assert.deepInclude(result.responseJson as Record<string, unknown>, {
+      provider: "acp",
+      requestId,
+      status: "interrupted",
+    });
+    assert.equal(record?.status, "running");
+    assert.equal(record?.activePrompt, false);
+    assert.equal(record?.replyState, "idle");
+    assert.equal(record?.conversationState, "active");
+    assert.equal(record?.conversationRecoveryState, "connected");
+    assert.isUndefined(record?.removedAt);
   });
 
   it("builds Skill-Runner-aligned ACP repair prompts with target contract details", function () {
@@ -589,6 +698,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(injection.available);
     assert.isFalse(injection.autoApproveWrites);
     assert.strictEqual(profile.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
+    assert.strictEqual(profile.scope.kind, "acp-skill-run");
     assert.isUndefined(profile.scope.autoApproveWrites);
     assert.notInclude(JSON.stringify(profile), "secret-token");
     assert.include(readme, "zotero-bridge item search");
@@ -631,7 +741,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         backend: createBackend({ env: {} }),
         injection,
       });
-      assert.include(inheritedPathWrapped.env?.PATH || "", path.dirname(cliPath));
+      assert.include(
+        inheritedPathWrapped.env?.PATH || "",
+        path.dirname(cliPath),
+      );
       assert.include(inheritedPathWrapped.env?.PATH || "", "system-path");
       assert.strictEqual(
         inheritedPathWrapped.env?.Path,
@@ -684,7 +797,9 @@ describe("ACP SkillRunner-compatible runner", function () {
       }),
     });
 
-    const profile = JSON.parse(await fs.readFile(injection.profilePath, "utf8"));
+    const profile = JSON.parse(
+      await fs.readFile(injection.profilePath, "utf8"),
+    );
     const readme = await fs.readFile(injection.readmePath, "utf8");
 
     assert.strictEqual(profile.scope.requestId, "run-auto-approve-writes");
@@ -895,7 +1010,11 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("rejects literature-digest selected markdown representative image without markdown_src_hint", async function () {
-    const skillDir = path.join(process.cwd(), "skills_builtin", "literature-digest");
+    const skillDir = path.join(
+      process.cwd(),
+      "skills_builtin",
+      "literature-digest",
+    );
     const runnerJson = JSON.parse(
       await fs.readFile(path.join(skillDir, "assets", "runner.json"), "utf8"),
     );
@@ -973,7 +1092,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         request: {
           kind: ACP_SKILL_RUN_REQUEST_KIND,
           skill_id: "demo-skill",
-          input: { source_path: "inputs/source_path/paper.md", note: "inline note" },
+          input: {
+            source_path: "inputs/source_path/paper.md",
+            note: "inline note",
+          },
           parameter: { language: "zh-CN" },
         },
         runnerJson,
@@ -1171,7 +1293,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isFalse(
       run.events.some((event) => event.stage === "mcp-preflight-failed"),
     );
-    const hostAccess = run.events.find((event) => event.stage === "host-access-mode");
+    const hostAccess = run.events.find(
+      (event) => event.stage === "host-access-mode",
+    );
     assert.deepInclude(hostAccess?.details as any, {
       primary: "host_bridge_cli",
       mcpCompatibility: "disabled_by_default",
@@ -1388,7 +1512,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isFalse(mcpPreflightCalled);
     assert.deepEqual(order, ["prompt"]);
     assert.lengthOf(promptMessages, 1);
-    assert.notInclude(promptMessages[0], "The host has already completed MCP availability preflight");
+    assert.notInclude(
+      promptMessages[0],
+      "The host has already completed MCP availability preflight",
+    );
     assert.notInclude(promptMessages[0], "Do not search MCP configuration");
     assert.include(promptMessages[0], "demo-skill");
     assert.include(promptMessages[0], "[Zotero Host Bridge CLI]");
@@ -1407,14 +1534,21 @@ describe("ACP SkillRunner-compatible runner", function () {
         .length - 1,
       1,
     );
-    const run = listAcpSkillRuns().find((entry) => entry.requestId === result.requestId);
+    const run = listAcpSkillRuns().find(
+      (entry) => entry.requestId === result.requestId,
+    );
     assert.isTrue(run?.hostBridgeCli?.autoApproveWrites);
-    const hostAccess = run?.events.find((event) => event.stage === "host-access-mode");
+    const hostAccess = run?.events.find(
+      (event) => event.stage === "host-access-mode",
+    );
     assert.deepEqual((hostAccess?.details as any)?.requiredMcpTools, [
       "synthesis.list_topics",
       "synthesis.export_filtered_paper_artifacts",
     ]);
-    assert.equal((hostAccess?.details as any)?.mcpCompatibility, "disabled_by_default");
+    assert.equal(
+      (hostAccess?.details as any)?.mcpCompatibility,
+      "disabled_by_default",
+    );
   });
 
   it("skips Host Bridge materialization, env, prompt, and instruction snippet when Zotero host access is disabled", async function () {
@@ -1524,8 +1658,12 @@ describe("ACP SkillRunner-compatible runner", function () {
       runInstructions,
       "<!-- zotero-skills-zotero-host-access:start -->",
     );
-    const run = listAcpSkillRuns().find((entry) => entry.requestId === result.requestId);
-    const hostAccess = run?.events.find((event) => event.stage === "host-access-mode");
+    const run = listAcpSkillRuns().find(
+      (entry) => entry.requestId === result.requestId,
+    );
+    const hostAccess = run?.events.find(
+      (event) => event.stage === "host-access-mode",
+    );
     assert.equal((hostAccess?.details as any)?.status, "disabled");
     assert.isFalse((hostAccess?.details as any)?.zoteroHostAccess?.required);
   });
@@ -1830,6 +1968,176 @@ describe("ACP SkillRunner-compatible runner", function () {
           item.kind === "status" && item.label === "permission-resolved",
       ),
     );
+  });
+
+  it("auto-approves ACP tool permission requests when the runtime option is enabled", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    try {
+      async function runScenario(args: {
+        source?: string;
+        options: Array<{ optionId: string; kind: string; name: string }>;
+        expectedAutoOptionId?: string;
+      }) {
+        let updateListener: ((event: any) => void | Promise<void>) | null =
+          null;
+        let permissionListener:
+          | ((request: any) => void | Promise<void>)
+          | null = null;
+        let requestId = "";
+        let resolvedOutcome: unknown = null;
+        let pendingBeforeManualCancel: unknown = null;
+        const fakeAdapter: AcpConnectionAdapter = {
+          initialize: async () => ({
+            authMethods: [],
+            agentName: "fake",
+            agentVersion: "1",
+            commandLabel: "fake",
+            commandLine: "fake",
+            canLoadSession: false,
+            canResumeSession: false,
+            canUseHttpMcp: true,
+            canUseSseMcp: false,
+          }),
+          onUpdate: (listener: (event: any) => void | Promise<void>) => {
+            updateListener = listener;
+            return () => {
+              updateListener = null;
+            };
+          },
+          onClose: () => () => undefined,
+          onDiagnostics: () => () => undefined,
+          onPermissionRequest: (
+            listener: (request: any) => void | Promise<void>,
+          ) => {
+            permissionListener = listener;
+            return () => {
+              permissionListener = null;
+            };
+          },
+          newSession: async () => ({
+            sessionId: `session-${args.options[0].optionId}`,
+          }),
+          loadSession: async () => ({ sessionId: "loaded" }),
+          resumeSession: async () => ({ sessionId: "resumed" }),
+          prompt: async ({ sessionId }) => {
+            let resolvePermission: ((outcome: any) => void) | undefined;
+            const outcomePromise = new Promise((resolve) => {
+              resolvePermission = (outcome) => {
+                resolvedOutcome = outcome;
+                resolve(outcome);
+              };
+            });
+            await permissionListener?.({
+              requestId: `permission-${args.options[0].optionId}`,
+              sessionId,
+              toolCallId: "tool-1",
+              toolTitle: "Run tool",
+              source: args.source || "acp-tool-call",
+              summary: "Run tool with permission.",
+              requestedAt: "2026-06-05T00:00:00.000Z",
+              options: args.options,
+              resolve: resolvePermission,
+            });
+            if (args.expectedAutoOptionId) {
+              assert.deepEqual(await outcomePromise, {
+                outcome: "selected",
+                optionId: args.expectedAutoOptionId,
+              });
+            } else {
+              pendingBeforeManualCancel =
+                getAcpSkillRunRecord(requestId)?.pendingPermission || null;
+              resolvePermission?.({ outcome: "cancelled" });
+              await outcomePromise;
+            }
+            await updateListener?.({
+              sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: {
+                  type: "text",
+                  text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+                },
+              },
+            });
+            return { stopReason: "end_turn" };
+          },
+          cancel: async () => undefined,
+          setMode: async () => undefined,
+          setModel: async () => undefined,
+          authenticate: async () => undefined,
+          close: async () => undefined,
+        };
+
+        await executeAcpSkillRunnerJob({
+          requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+          backend: createBackend(),
+          request: {
+            kind: ACP_SKILL_RUN_REQUEST_KIND,
+            skill_id: "demo-skill",
+            fetch_type: "bundle",
+          },
+          providerOptions: {
+            autoApproveAcpPermissions: true,
+          },
+          dependencies: {
+            scanRegistry: async () => ({
+              entries: [entry],
+              entriesById: { "demo-skill": entry },
+              diagnostics: [],
+            }),
+            createWorkspace: async (workspaceArgs) => {
+              const workspace = await createAcpSkillRunnerWorkspace({
+                ...workspaceArgs,
+                rootDir: root,
+              });
+              requestId = workspace.requestId;
+              return workspace;
+            },
+            createAdapter: async () => fakeAdapter,
+            sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+          },
+        });
+
+        if (args.expectedAutoOptionId) {
+          assert.deepEqual(resolvedOutcome, {
+            outcome: "selected",
+            optionId: args.expectedAutoOptionId,
+          });
+          const permissionItems = (
+            buildAcpSkillRunPanelSnapshot({ selectedRequestId: requestId })
+              .selectedRun?.transcriptItems || []
+          ).filter((item: any) => item.kind === "permission");
+          assert.equal((permissionItems[0] as any)?.status, "approved");
+          assert.isNull(
+            getAcpSkillRunRecord(requestId)?.pendingPermission || null,
+          );
+        } else {
+          assert.isOk(pendingBeforeManualCancel);
+          assert.deepEqual(resolvedOutcome, { outcome: "cancelled" });
+        }
+      }
+
+      await runScenario({
+        options: [{ optionId: "approve", kind: "allow_once", name: "Approve" }],
+        expectedAutoOptionId: "approve",
+      });
+      await runScenario({
+        options: [
+          { optionId: "allow-once", kind: "allow_once", name: "Allow Once" },
+        ],
+        expectedAutoOptionId: "allow-once",
+      });
+      await runScenario({
+        options: [{ optionId: "deny", kind: "deny", name: "Deny" }],
+      });
+      await runScenario({
+        source: "zotero-mcp-write",
+        options: [{ optionId: "approve", kind: "allow_once", name: "Approve" }],
+      });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("clears restored ACP permission requests when their live resolver is gone", function () {

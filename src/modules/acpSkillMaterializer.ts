@@ -28,7 +28,10 @@ export type AcpSkillMaterializationResult = {
 };
 
 async function readJsonFile(filePath: string) {
-  return JSON.parse(await readRuntimeTextFile(filePath)) as Record<string, unknown>;
+  return JSON.parse(await readRuntimeTextFile(filePath)) as Record<
+    string,
+    unknown
+  >;
 }
 
 export async function materializeAcpSkill(args: {
@@ -49,15 +52,34 @@ export async function materializeAcpSkill(args: {
   if (!requested) {
     throw new Error(`Plugin-side skill not found: ${args.requestedSkillId}`);
   }
-  const proxy = await materializeAcpThinProxySkills({
-    catalog,
-    requestedSkillId: args.requestedSkillId,
-    injectionPlan: args.injectionPlan,
-    workspaceDir: args.workspaceDir,
-    resultJsonPath: args.resultJsonPath,
-    inputManifestPath: args.inputManifestPath,
-    executionMode: args.executionMode,
-  });
+  const proxy =
+    args.injectionPlan.family === "hermes"
+      ? {
+          materializedDirs: [],
+          requestedSkillProxyDirs: [],
+          requestedSkillProxyPath: undefined,
+          requestedOutputContractDetailsMarkdown: undefined,
+          proxySkillRoots: [],
+          proxySkillCount: 0,
+          resourceRewriteWarnings: [],
+          diagnostics: [
+            {
+              level: "info" as const,
+              code: "acp_hermes_proxy_skills_skipped",
+              message:
+                "Hermes ACP uses shared catalog instructions instead of run-local proxy skills.",
+            },
+          ],
+        }
+      : await materializeAcpThinProxySkills({
+          catalog,
+          requestedSkillId: args.requestedSkillId,
+          injectionPlan: args.injectionPlan,
+          workspaceDir: args.workspaceDir,
+          resultJsonPath: args.resultJsonPath,
+          inputManifestPath: args.inputManifestPath,
+          executionMode: args.executionMode,
+        });
   const runnerJson = await readJsonFile(requested.runnerJsonPath);
   return {
     skillId: args.requestedSkillId,

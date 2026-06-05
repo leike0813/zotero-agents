@@ -4,18 +4,22 @@ import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { measureAsyncTestPerformanceSpan } from "../../src/modules/testPerformanceProbeBridge";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
+import { syncBuiltinWorkflowsOnStartup } from "../../src/modules/builtinWorkflowSync";
 import type { RuntimeLogEntry } from "../../src/modules/runtimeLogManager";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { createHookHelpers } from "../../src/workflows/helpers";
-import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/hostApi";
+import {
+  createWorkflowHostApi,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
 import { resetRuntimeBridgeOverrideForTests } from "../../src/utils/runtimeBridge";
 import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
-import { __tagManagerTestOnly } from "../../workflows_builtin/tag-vocabulary-package/tag-manager/hooks/applyResult.mjs";
-import { __tagRegulatorApplyResultTestOnly } from "../../workflows_builtin/tag-vocabulary-package/tag-regulator/hooks/applyResult.mjs";
-import { __tagRegulatorBuildRequestTestOnly } from "../../workflows_builtin/tag-vocabulary-package/tag-regulator/hooks/buildRequest.mjs";
+import { __tagRegulatorApplyResultTestOnly } from "../../workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs";
+import { __tagRegulatorBuildRequestTestOnly } from "../../workflows_builtin/literature-workbench-package/tag-regulator/hooks/buildRequest.mjs";
+import { attachWorkbenchPayloadToNote } from "../../workflows_builtin/literature-workbench-package/lib/embeddedPayloadAttachments.mjs";
 import {
   installWorkflowFetchMockAcrossRuntimes,
   installTagVocabularyHostApiGlobals,
@@ -47,6 +51,11 @@ type PersistedTagEntry = {
   deprecated: boolean;
   parentBindings?: number[];
   publishState?: string;
+};
+
+type PersistedVocabularyState = {
+  corrupted: boolean;
+  entries: PersistedTagEntry[];
 };
 
 type TagRegulatorRequest = {
@@ -245,7 +254,152 @@ const TAG_VOCAB_REMOTE_PREF_KEY = `${config.prefsPrefix}.tagVocabularyRemoteComm
 const WORKFLOW_SETTINGS_PREF_KEY = `${config.prefsPrefix}.workflowSettingsJson`;
 const WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
 
+let synthesisVocabularyEntries: PersistedTagEntry[] = [];
+let synthesisStagedEntries: PersistedTagEntry[] = [];
+
+function clonePersistedTagEntry(entry: PersistedTagEntry): PersistedTagEntry {
+  return {
+    ...entry,
+    parentBindings: Array.isArray(entry.parentBindings)
+      ? [...entry.parentBindings]
+      : undefined,
+  };
+}
+
+function normalizePersistedTagEntry(entry: Partial<PersistedTagEntry>) {
+  const tag = String(entry.tag || "").trim();
+  const facet =
+    String(entry.facet || "").trim().toLowerCase() ||
+    String(tag.split(":")[0] || "topic").trim().toLowerCase();
+  return {
+    tag,
+    facet,
+    source: String(entry.source || "manual").trim() || "manual",
+    note: String(entry.note || "").trim(),
+    deprecated: Boolean(entry.deprecated),
+    parentBindings: Array.isArray(entry.parentBindings)
+      ? [...entry.parentBindings]
+      : undefined,
+    publishState: String(entry.publishState || "").trim(),
+  };
+}
+
+function toPersistedVocabularyState(
+  entries: PersistedTagEntry[],
+): PersistedVocabularyState {
+  return {
+    corrupted: false,
+    entries: entries.map(clonePersistedTagEntry),
+  };
+}
+
+function installSynthesisTagVocabularyHostApiGlobals() {
+  const baseHostApi = createWorkflowHostApi();
+  return installTagVocabularyHostApiGlobals({
+    hostApi: {
+      ...baseHostApi,
+      synthesis: {
+        ...(baseHostApi as any).synthesis,
+        async loadTagVocabulary() {
+          return {
+            protocol: {
+              schema_version: 1,
+            },
+            aliases: {},
+            abbrev: {},
+            entries: synthesisVocabularyEntries.map(clonePersistedTagEntry),
+          };
+        },
+        async saveTagVocabulary(args: { entries?: PersistedTagEntry[] }) {
+          synthesisVocabularyEntries = (Array.isArray(args?.entries)
+            ? args.entries
+            : []
+          )
+            .map(normalizePersistedTagEntry)
+            .filter((entry) => entry.tag);
+          return {
+            entries: synthesisVocabularyEntries.map(clonePersistedTagEntry),
+          };
+        },
+        async exportTagVocabularyForRegulator() {
+          return {
+            entries: synthesisVocabularyEntries
+              .filter((entry) => !entry.deprecated)
+              .map(clonePersistedTagEntry),
+          };
+        },
+        async listStagedTagSuggestions() {
+          return synthesisStagedEntries.map((entry) => ({
+            tag: entry.tag,
+            facet: entry.facet,
+            note: entry.note,
+            source_flow: entry.source || "tag-regulator-suggest",
+            parent_bindings: Array.isArray(entry.parentBindings)
+              ? [...entry.parentBindings]
+              : [],
+          }));
+        },
+        async stageTagSuggestions(args: { entries?: PersistedTagEntry[] }) {
+          for (const incoming of Array.isArray(args?.entries)
+            ? args.entries
+            : []) {
+            const normalized = normalizePersistedTagEntry({
+              ...incoming,
+              source: String((incoming as any).source_flow || incoming.source || "tag-regulator-suggest"),
+              parentBindings: Array.isArray((incoming as any).parent_bindings)
+                ? (incoming as any).parent_bindings
+                : incoming.parentBindings,
+            });
+            const existingIndex = synthesisStagedEntries.findIndex(
+              (entry) => entry.tag.toLowerCase() === normalized.tag.toLowerCase(),
+            );
+            if (existingIndex >= 0) {
+              const existing = synthesisStagedEntries[existingIndex];
+              synthesisStagedEntries[existingIndex] = {
+                ...existing,
+                ...normalized,
+                parentBindings: Array.from(
+                  new Set([
+                    ...(existing.parentBindings || []),
+                    ...(normalized.parentBindings || []),
+                  ]),
+                ).sort((left, right) => left - right),
+              };
+            } else if (normalized.tag) {
+              synthesisStagedEntries.push(normalized);
+            }
+          }
+          return {
+            entries: synthesisStagedEntries.map(clonePersistedTagEntry),
+          };
+        },
+        async discardStagedTagSuggestions(args?: { tags?: string[] }) {
+          const tags = new Set(
+            (Array.isArray(args?.tags) ? args!.tags : [])
+              .map((tag) => String(tag || "").trim().toLowerCase())
+              .filter(Boolean),
+          );
+          synthesisStagedEntries = synthesisStagedEntries.filter(
+            (entry) => !tags.has(entry.tag.toLowerCase()),
+          );
+          return {
+            removed: tags.size,
+          };
+        },
+        async clearStagedTagSuggestions() {
+          synthesisStagedEntries = [];
+          return {
+            removed: true,
+          };
+        },
+      },
+    },
+  });
+}
+
 function clearTagVocabularyState() {
+  synthesisVocabularyEntries = [];
+  synthesisStagedEntries = [];
   Zotero.Prefs.clear(TAG_VOCAB_PREF_KEY, true);
   Zotero.Prefs.clear(TAG_VOCAB_LOCAL_PREF_KEY, true);
   Zotero.Prefs.clear(TAG_VOCAB_STAGED_PREF_KEY, true);
@@ -260,6 +414,20 @@ function saveTagVocabularyState(entries: PersistedTagEntry[]) {
   });
   Zotero.Prefs.set(TAG_VOCAB_PREF_KEY, payload, true);
   Zotero.Prefs.set(TAG_VOCAB_LOCAL_PREF_KEY, payload, true);
+  synthesisVocabularyEntries = entries
+    .map(normalizePersistedTagEntry)
+    .filter((entry) => entry.tag);
+}
+
+function saveStagedTagVocabularyState(entries: PersistedTagEntry[]) {
+  const payload = JSON.stringify({
+    version: 1,
+    entries,
+  });
+  Zotero.Prefs.set(TAG_VOCAB_STAGED_PREF_KEY, payload, true);
+  synthesisStagedEntries = entries
+    .map(normalizePersistedTagEntry)
+    .filter((entry) => entry.tag);
 }
 
 function buildEmbeddedDigestPayloadBlob(content: string) {
@@ -315,6 +483,10 @@ function saveWorkflowSettingsState(
 }
 
 function loadTagVocabularyState() {
+  return toPersistedVocabularyState(synthesisVocabularyEntries);
+}
+
+function loadLegacyTagVocabularyState() {
   const raw = Zotero.Prefs.get(TAG_VOCAB_PREF_KEY, true);
   if (typeof raw !== "string" || !raw.trim()) {
     return {
@@ -339,6 +511,10 @@ function loadTagVocabularyState() {
 }
 
 function loadStagedTagVocabularyState() {
+  return toPersistedVocabularyState(synthesisStagedEntries);
+}
+
+function loadLegacyStagedTagVocabularyState() {
   const raw = Zotero.Prefs.get(TAG_VOCAB_STAGED_PREF_KEY, true);
   if (typeof raw !== "string" || !raw.trim()) {
     return {
@@ -415,6 +591,7 @@ let cachedTagRegulatorWorkflowPromise: Promise<any> | null = null;
 async function getTagRegulatorWorkflow() {
   if (!cachedTagRegulatorWorkflowPromise) {
     cachedTagRegulatorWorkflowPromise = (async () => {
+      await syncBuiltinWorkflowsOnStartup();
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
         (entry) => entry.manifest.id === "tag-regulator",
@@ -510,7 +687,7 @@ function setupTagRegulatorWorkflowSuite() {
   beforeEach(function () {
     clearTagVocabularyState();
     resetRuntimeBridgeOverrideForTests();
-    restoreHostApi = installTagVocabularyHostApiGlobals();
+    restoreHostApi = installSynthesisTagVocabularyHostApiGlobals();
   });
 
   afterEach(function () {
@@ -642,7 +819,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
 
   it("prefers Synthesis canonical vocabulary export when available", async function () {
     const tags =
-      await __tagRegulatorBuildRequestTestOnly.loadPreferredControlledVocabularyTags(
+      await __tagRegulatorBuildRequestTestOnly.loadSynthesisVocabularyTagsOrThrow(
         {
           hostApi: {
             synthesis: {
@@ -725,6 +902,70 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
   );
 
   itNodeOnly(
+    "adds digest markdown upload from Workbench embedded payload attachments",
+    async function () {
+      saveTagVocabularyState([
+        {
+          tag: "topic:tunnel",
+          facet: "topic",
+          source: "manual",
+          note: "",
+          deprecated: false,
+        },
+      ]);
+
+      const digestMarkdown = [
+        "# Digest",
+        "",
+        "This digest was stored through the Workbench payload attachment helper.",
+      ].join("\n");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Tag Regulator Parent With Workbench Digest" },
+      });
+      const note = await handlers.parent.addNote(parent, {
+        content:
+          '<div data-schema-version="9"><h1>Literature Digest</h1><p>Visible digest note</p></div>',
+      });
+      await attachWorkbenchPayloadToNote({
+        runtime: {
+          hostApi: createWorkflowHostApi(),
+          hostApiVersion: WORKFLOW_HOST_API_VERSION,
+          TextEncoder,
+          TextDecoder,
+          Buffer,
+        },
+        note,
+        noteKind: "digest",
+        payloadType: "digest-markdown",
+        payload: {
+          format: "markdown",
+          entry: "artifacts/digest.md",
+          content: digestMarkdown,
+        },
+      });
+
+      const workflow = await getTagRegulatorWorkflow();
+      const selectionContext = await buildSelectionContext([parent]);
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext,
+      })) as TagRegulatorRequest[];
+
+      assert.lengthOf(requests, 1);
+      assert.equal(
+        requests[0].input?.digest_markdown,
+        "inputs/digest_markdown/digest.md",
+      );
+      const digestUpload = requests[0].upload_files?.find(
+        (entry) => entry.key === "digest_markdown",
+      );
+      assert.isOk(digestUpload, "digest markdown upload should be present");
+      assert.equal(await readUtf8(String(digestUpload?.path || "")), digestMarkdown);
+    },
+  );
+
+  itNodeOnly(
     "does not add digest markdown input when embedded payload is absent",
     async function () {
       saveTagVocabularyState([
@@ -786,7 +1027,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       }
 
       assert.isOk(thrown, "expected build request to fail");
-      assert.match(String(thrown), /tag-regulator vocabulary missing/i);
+      assert.match(String(thrown), /synthesis vocabulary/i);
     },
   );
 
@@ -823,7 +1064,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
   );
 
   itNodeOnly(
-    "reads remote committed vocabulary in subscription mode when building valid_tags",
+    "ignores legacy tag-manager GitHub prefs and uses Synthesis vocabulary when building valid_tags",
     async function () {
       saveTagVocabularyState([
         {
@@ -871,13 +1112,13 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       assert.lengthOf(requests, 1);
       const yamlPath = String(requests[0].upload_files?.[0].path || "");
       const yamlText = await readUtf8(yamlPath);
-      assert.include(yamlText, "- topic:remote-only");
-      assert.notInclude(yamlText, "- topic:local-only");
+      assert.include(yamlText, "- topic:local-only");
+      assert.notInclude(yamlText, "- topic:remote-only");
     },
   );
 
   itNodeOnly(
-    "buildRequest keeps runtime-scoped prefs access when package runtime has no global Zotero fallback",
+    "buildRequest uses runtime-scoped Synthesis vocabulary when package runtime has no global Zotero fallback",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -888,35 +1129,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       const workflow = await getTagRegulatorWorkflow();
       const selectionContext = await buildSelectionContext([parent]);
       const prefsPrefix = `${config.prefsPrefix}.runtime-scope-${Date.now()}`;
-      const prefStore = new Map<string, string>();
-      prefStore.set(
-        `${prefsPrefix}.tagVocabularyRemoteCommittedJson`,
-        JSON.stringify({
-          version: 1,
-          entries: [
-            {
-              tag: "topic:runtime-only",
-              facet: "topic",
-              source: "remote",
-              note: "",
-              deprecated: false,
-            },
-          ],
-        }),
-      );
-      prefStore.set(
-        `${prefsPrefix}.workflowSettingsJson`,
-        JSON.stringify({
-          "tag-manager": {
-            workflowParams: {
-              github_owner: "demo-owner",
-              github_repo: "Zotero_TagVocab",
-              file_path: "tags/tags.json",
-              github_token: "secret-token",
-            },
-          },
-        }),
-      );
+      const baseHostApi = createWorkflowHostApi();
 
       const request = (await workflow.hooks.buildRequest?.({
         selectionContext,
@@ -930,17 +1143,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
           helpers: createHookHelpers(Zotero),
           hostApiVersion: WORKFLOW_HOST_API_VERSION,
           hostApi: {
-            prefs: {
-              get(key: string) {
-                return prefStore.get(String(key || "").trim()) || "";
-              },
-              set(key: string, value: unknown) {
-                prefStore.set(String(key || "").trim(), String(value ?? ""));
-              },
-              clear(key: string) {
-                prefStore.delete(String(key || "").trim());
-              },
-            },
+            ...baseHostApi,
             addon: {
               getConfig() {
                 return {
@@ -950,9 +1153,20 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
                 };
               },
             },
-            file: {
-              getTempDirectoryPath() {
-                return String(Zotero.getTempDirectory?.()?.path || "");
+            synthesis: {
+              ...(baseHostApi as any).synthesis,
+              async exportTagVocabularyForRegulator() {
+                return {
+                  entries: [
+                    {
+                      tag: "topic:runtime-only",
+                      facet: "topic",
+                      source: "synthesis",
+                      note: "",
+                      deprecated: false,
+                    },
+                  ],
+                };
               },
             },
           },
@@ -1326,26 +1540,16 @@ function registerTagRegulatorApplyIntakeSegment(
   itNodeOnly(
     "keeps staged suggest tags visible and merges current parent binding before dialog",
     async function () {
-      Zotero.Prefs.set(
-        TAG_VOCAB_STAGED_PREF_KEY,
-        JSON.stringify({
-          version: 1,
-          entries: [
-            {
-              tag: "topic:already-staged",
-              facet: "topic",
-              source: "agent-suggest",
-              note: "staged note",
-              deprecated: false,
-              createdAt: "2026-01-01T00:00:00.000Z",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              sourceFlow: "tag-regulator-suggest",
-              parentBindings: [999],
-            },
-          ],
-        }),
-        true,
-      );
+      saveStagedTagVocabularyState([
+        {
+          tag: "topic:already-staged",
+          facet: "topic",
+          source: "tag-regulator-suggest",
+          note: "staged note",
+          deprecated: false,
+          parentBindings: [999],
+        },
+      ]);
       const openCalls: SuggestTagsDialogOpenArgs[] = [];
       const restoreOpen = installSuggestTagsDialogMock(async (args) => {
         openCalls.push(args);
@@ -1515,7 +1719,106 @@ function registerTagRegulatorApplyIntakeSegment(
   );
 
   itNodeOnly(
-    "falls back to staged with toast when subscription-mode join publish fails without mutating parent tags",
+    "stages suggest tags through Synthesis upsert without clearing the staged inbox",
+    async function () {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Tag Regulator Synthesis Stage Upsert Parent" },
+      });
+      const baseHostApi = createWorkflowHostApi();
+      const stageCalls: Array<{ entries?: Array<Record<string, unknown>> }> =
+        [];
+      let clearCount = 0;
+      const restoreHostApi = installTagVocabularyHostApiGlobals({
+        hostApi: {
+          ...baseHostApi,
+          synthesis: {
+            ...(baseHostApi as any).synthesis,
+            async loadTagVocabulary() {
+              return { entries: [] };
+            },
+            async listStagedTagSuggestions() {
+              return [];
+            },
+            async stageTagSuggestions(args: {
+              entries?: Array<Record<string, unknown>>;
+            }) {
+              stageCalls.push({
+                entries: Array.isArray(args?.entries)
+                  ? args.entries.map((entry) => ({ ...entry }))
+                  : [],
+              });
+              return { staged: args?.entries || [] };
+            },
+            async clearStagedTagSuggestions() {
+              clearCount += 1;
+              return { discarded: [] };
+            },
+          },
+        },
+      });
+      const workflow = await getTagRegulatorWorkflow();
+      const restoreOpen = installSuggestTagsDialogMock(async () => ({
+        saved: false,
+        actionId: "stage-all",
+        result: {
+          suggestTagEntries: [{ tag: "topic:stage-upsert", note: "stage note" }],
+          rowErrors: {},
+          addedDirect: [],
+          staged: [],
+          rejected: [],
+          invalid: [],
+          skippedDirect: [],
+          stagedSkipped: [],
+          countdownSeconds: 5,
+          timedOut: false,
+          closePolicyApplied: false,
+        },
+      }));
+
+      try {
+        await executeApplyResult({
+          workflow,
+          parent,
+          bundleReader: {
+            readText: async () => "",
+          },
+          runResult: {
+            resultJson: {
+              result: {
+                status: "success",
+                data: {
+                  remove_tags: [],
+                  add_tags: [],
+                  suggest_tags: [
+                    { tag: "topic:stage-upsert", note: "stage note" },
+                  ],
+                  warnings: [],
+                  error: null,
+                },
+              },
+            },
+          },
+        });
+
+        assert.equal(clearCount, 0);
+        assert.lengthOf(stageCalls, 1);
+        assert.deepEqual(stageCalls[0].entries?.[0], {
+          tag: "topic:stage-upsert",
+          facet: "topic",
+          note: "stage note",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [parent.id],
+        });
+      } finally {
+        restoreOpen();
+        restoreHostApi();
+      }
+    },
+  );
+
+  itNodeOnly(
+    "joins suggest tags through Synthesis without legacy tag-manager publish fallback",
     async function () {
       saveRemoteCommittedVocabularyState([]);
       saveWorkflowSettingsState("tag-manager", {
@@ -1549,35 +1852,6 @@ function registerTagRegulatorApplyIntakeSegment(
           closePolicyApplied: false,
         },
       }));
-      const restoreFetch = installFetchMock(async (_input, init) => {
-        const method = String(init?.method || "GET").toUpperCase();
-        if (method === "GET") {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              sha: "sha-1",
-              content: toBase64(
-                JSON.stringify({
-                  version: "1.0.0",
-                  updated_at: "2026-04-02T00:00:00.000Z",
-                  facets: ["topic"],
-                  tags: [],
-                  abbrevs: {},
-                  tag_count: 0,
-                }),
-              ),
-            }),
-          };
-        }
-        return {
-          ok: false,
-          status: 500,
-          statusText: "Server Error",
-          json: async () => ({}),
-        };
-      });
-
       try {
         const applied = (await executeApplyResult({
           workflow,
@@ -1606,28 +1880,20 @@ function registerTagRegulatorApplyIntakeSegment(
             appliedToCurrentParent?: string[];
           };
         };
-        assert.deepEqual(applied.suggest_intake?.added || [], []);
-        assert.deepEqual(applied.suggest_intake?.staged || [], [
+        assert.deepEqual(applied.suggest_intake?.added || [], [
           "topic:join-fail",
         ]);
-        assert.deepEqual(
-          applied.suggest_intake?.appliedToCurrentParent || [],
-          [],
-        );
-        const staged = loadStagedTagVocabularyState().entries.find(
+        assert.deepEqual(applied.suggest_intake?.staged || [], []);
+        const committed = loadTagVocabularyState().entries.find(
           (entry) => entry.tag === "topic:join-fail",
         );
-        assert.isOk(staged);
-        assert.deepEqual(staged?.parentBindings || [], [parent.id]);
-        assert.deepEqual(listTags(parent), []);
-        assert.isTrue(
-          toasts.some(
-            (entry) =>
-              String(entry.type || "") === "error" &&
-              /publish failed/i.test(String(entry.text || "")),
-          ),
+        assert.isOk(committed);
+        assert.deepEqual(loadStagedTagVocabularyState().entries, []);
+        assert.deepEqual(listTags(parent), ["topic:join-fail"]);
+        assert.isFalse(
+          toasts.some((entry) => /publish failed/i.test(String(entry.text || ""))),
         );
-        assert.isTrue(
+        assert.isFalse(
           logs.some(
             (entry) =>
               String(entry.stage || "") ===
@@ -1635,7 +1901,6 @@ function registerTagRegulatorApplyIntakeSegment(
           ),
         );
       } finally {
-        restoreFetch();
         restoreOpen();
         restoreBridge();
       }
@@ -1654,25 +1919,15 @@ function registerTagRegulatorApplyIntakeSegment(
           deprecated: false,
         },
       ]);
-      Zotero.Prefs.set(
-        TAG_VOCAB_STAGED_PREF_KEY,
-        JSON.stringify({
-          version: 1,
-          entries: [
-            {
-              tag: "topic:already-staged",
-              facet: "topic",
-              source: "agent-suggest",
-              note: "staged note",
-              deprecated: false,
-              createdAt: "2026-01-01T00:00:00.000Z",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              sourceFlow: "tag-regulator-suggest",
-            },
-          ],
-        }),
-        true,
-      );
+      saveStagedTagVocabularyState([
+        {
+          tag: "topic:already-staged",
+          facet: "topic",
+          source: "tag-regulator-suggest",
+          note: "staged note",
+          deprecated: false,
+        },
+      ]);
       const openCalls: SuggestTagsDialogOpenArgs[] = [];
       const restoreOpen = installSuggestTagsDialogMock(async (args) => {
         openCalls.push(args);

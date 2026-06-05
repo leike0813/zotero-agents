@@ -1,0 +1,412 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2019",
+      "authors": "Mayank Bansal; Alex Krizhevsky; et al.",
+      "title": "Chauffeurnet: Learning to drive by imitating the best and synthesizing the worst"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Philipp Bergmann; Tim Meinhardt; et al.",
+      "title": "Tracking without bells and whistles"
+    },
+    {
+      "id": "ref-3",
+      "year": "",
+      "authors": "Keni Bernardin; Alexander Elbs; et al.",
+      "title": "Multiple object tracking performance metrics and evaluation in a smart room environment. Citeseer. 5"
+    },
+    {
+      "id": "ref-4",
+      "year": "2016",
+      "authors": "Alex Bewley; Zongyuan Ge; et al.",
+      "title": "Simple online and realtime tracking"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Alex Bewley; Pei Sun; et al.",
+      "title": "Range conditioned dilated convolutions for scale invariant 3d object detection"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Holger Caesar; Varun Bankiti; et al.",
+      "title": "nuscenes: A multimodal dataset for autonomous driving"
+    },
+    {
+      "id": "ref-7",
+      "year": "2020",
+      "authors": "Qi Chen; Lin Sun; et al.",
+      "title": "Every view counts: Cross-view consistency in 3d object detection with hybrid-cylindrical-spherical voxelization"
+    },
+    {
+      "id": "ref-8",
+      "year": "2020",
+      "authors": "Qi Chen; Lin Sun; et al.",
+      "title": "Object as hotspots: An anchor-free 3d object detection approach via firing of hotspots"
+    },
+    {
+      "id": "ref-9",
+      "year": "2019",
+      "authors": "Yilun Chen; Shu Liu; et al.",
+      "title": "Fast point r-cnn"
+    },
+    {
+      "id": "ref-10",
+      "year": "2020",
+      "authors": "Hsu-kuang Chiu; Antonio Prioletti; et al.",
+      "title": "Probabilistic 3d multi-object tracking for autonomous driving"
+    },
+    {
+      "id": "ref-11",
+      "year": "2017",
+      "authors": "Jifeng Dai; Haozhi Qi; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-12",
+      "year": "2017",
+      "authors": "Martin Engelcke; Dushyant Rao; et al.",
+      "title": "Vote3deep: Fast object detection in 3d point clouds using efficient convolutional neural networks"
+    },
+    {
+      "id": "ref-13",
+      "year": "2010",
+      "authors": "Mark Everingham; Luc Van Gool; et al.",
+      "title": "The pascal visual object classes (voc) challenge"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Runzhou Ge; Zhuangzhuang Ding; et al.",
+      "title": "Afdet: Anchor free one stage 3d object detection"
+    },
+    {
+      "id": "ref-15",
+      "year": "2012",
+      "authors": "Andreas Geiger; Philip Lenz; et al.",
+      "title": "Are we ready for autonomous driving? the kitti vision benchmark suite"
+    },
+    {
+      "id": "ref-16",
+      "year": "2015",
+      "authors": "Ross Girshick",
+      "title": "Fast r-cnn"
+    },
+    {
+      "id": "ref-17",
+      "year": "2014",
+      "authors": "Ross Girshick; Jeff Donahue; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-18",
+      "year": "2018",
+      "authors": "",
+      "title": "Benjamin Graham, Martin Engelcke, and Laurens van der Maaten. 3d semantic segmentation with submanifold sparse convolutional networks"
+    },
+    {
+      "id": "ref-19",
+      "year": "2018",
+      "authors": "Sylvain Gugger",
+      "title": "The 1cycle policy. https://sgugger. github.io/the-1cycle-policy.html"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "Chenhang He; Hui Zeng; et al.",
+      "title": "Structure aware single-stage 3d object detection from point cloud"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-22",
+      "year": "2012",
+      "authors": "Geoffrey E Hinton; Nitish Srivastava; et al.",
+      "title": "Improving neural networks by preventing co-adaptation of feature detectors"
+    },
+    {
+      "id": "ref-23",
+      "year": "2020",
+      "authors": "Peiyun Hu; Jason Ziglar; et al.",
+      "title": "What you see is what you get: Exploiting visibility for 3d object detection"
+    },
+    {
+      "id": "ref-24",
+      "year": "2020",
+      "authors": "",
+      "title": "Rui Huang, Wanyue Zhang, Abhijit Kundu, Caroline Pantofaru, David A Ross, Thomas Funkhouser, and Alireza Fathi. An lstm approach to temporal 3d object detection in lidar point clouds"
+    },
+    {
+      "id": "ref-25",
+      "year": "2015",
+      "authors": "Sergey Ioffe; Christian Szegedy",
+      "title": "Batch normalization: Accelerating deep network training by reducing internal covariate shift"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Borui Jiang; Ruixuan Luo; et al.",
+      "title": "Acquisition of localization confidence for accurate object detection"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "H. Karunasekera; H. Wang; et al.",
+      "title": "Zhang. Multiple object tracking with attention to appearance, structure, motion and size"
+    },
+    {
+      "id": "ref-28",
+      "year": "2019",
+      "authors": "Alex H. Lang; Sourabh Vora; et al.",
+      "title": "Pointpillars: Fast encoders for object detection from point clouds"
+    },
+    {
+      "id": "ref-29",
+      "year": "2018",
+      "authors": "Hei Law; Jia Deng",
+      "title": "Cornernet: Detecting objects as paired keypoints"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Buyu Li; Wanli Ouyang; et al.",
+      "title": "Gs3d: An efficient 3d object detection framework for autonomous driving"
+    },
+    {
+      "id": "ref-31",
+      "year": "2019",
+      "authors": "Ming Liang; Bin Yang; et al.",
+      "title": "Multi-task multi-sensor fusion for 3d object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-35",
+      "year": "2020",
+      "authors": "Mahyar Najibi; Guangda Lai; et al.",
+      "title": "Dops: Learning to detect 3d objects and predict their 3d shapes"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Jiquan Ngiam; Benjamin Caine; et al.",
+      "title": "Starnet: Targeted computation for object detection in point clouds"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Jonah Philion; Amlan Kar; et al.",
+      "title": "Learning to evaluate perception models using planner-centric metrics"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Charles R. Qi; Or Litany; et al.",
+      "title": "Deep hough voting for 3d object detection in point clouds"
+    },
+    {
+      "id": "ref-39",
+      "year": "2018",
+      "authors": "Charles R Qi; Wei Liu; et al.",
+      "title": "Frustum pointnets for 3d object detection from rgb-d data"
+    },
+    {
+      "id": "ref-40",
+      "year": "2017",
+      "authors": "Charles R Qi; Hao Su; et al.",
+      "title": "Pointnet: Deep learning on point sets for 3d classification and segmentation"
+    },
+    {
+      "id": "ref-41",
+      "year": "2017",
+      "authors": "Charles Ruizhongtai Qi; Li Yi; et al.",
+      "title": "Pointnet++: Deep hierarchical feature learning on point sets in a metric space"
+    },
+    {
+      "id": "ref-42",
+      "year": "2017",
+      "authors": "Joseph Redmon; Ali Farhadi",
+      "title": "Yolo9000: better, faster, stronger"
+    },
+    {
+      "id": "ref-43",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-44",
+      "year": "2020",
+      "authors": "Shaoshuai Shi; Chaoxu Guo; et al.",
+      "title": "Pv-rcnn: Pointvoxel feature set abstraction for 3d object detection"
+    },
+    {
+      "id": "ref-45",
+      "year": "2019",
+      "authors": "Shaoshuai Shi; Xiaogang Wang; et al.",
+      "title": "Pointrcnn: 3d object proposal generation and detection from point cloud"
+    },
+    {
+      "id": "ref-46",
+      "year": "2020",
+      "authors": "Shaoshuai Shi; Zhe Wang; et al.",
+      "title": "From points to parts: 3d object detection from point cloud with part-aware and part-aggregation network"
+    },
+    {
+      "id": "ref-47",
+      "year": "2018",
+      "authors": "Martin Simony; Stefan Milzy; et al.",
+      "title": "Complex-yolo: An euler-region-proposal for real-time 3d object detection on point clouds"
+    },
+    {
+      "id": "ref-48",
+      "year": "2020",
+      "authors": "Pei Sun; Henrik Kretzschmar; et al.",
+      "title": "Scalability in perception for autonomous driving: An open dataset benchmark"
+    },
+    {
+      "id": "ref-49",
+      "year": "2020",
+      "authors": "Sourabh Vora; Alex H Lang; et al.",
+      "title": "Pointpainting: Sequential fusion for 3d object detection"
+    },
+    {
+      "id": "ref-50",
+      "year": "2019",
+      "authors": "Dequan Wang; Coline Devin; et al.",
+      "title": "Monocular plan view networks for autonomous driving"
+    },
+    {
+      "id": "ref-51",
+      "year": "2015",
+      "authors": "Dominic Zeng Wang; Ingmar Posner",
+      "title": "Voting for voting in online point cloud object detection"
+    },
+    {
+      "id": "ref-52",
+      "year": "2020",
+      "authors": "Yue Wang; Alireza Fathi; et al.",
+      "title": "Pillarbased object detection for autonomous driving"
+    },
+    {
+      "id": "ref-53",
+      "year": "2020",
+      "authors": "",
+      "title": "Xinshuo Weng and Kris Kitani. A Baseline for 3D Multi-Object Tracking"
+    },
+    {
+      "id": "ref-54",
+      "year": "2017",
+      "authors": "Nicolai Wojke; Alex Bewley; et al.",
+      "title": "Simple online and realtime tracking with a deep association metric"
+    },
+    {
+      "id": "ref-55",
+      "year": "2019",
+      "authors": "Kelvin Wong; Shenlong Wang; et al.",
+      "title": "Identifying unknown instances for autonomous driving"
+    },
+    {
+      "id": "ref-56",
+      "year": "2018",
+      "authors": "Yan Yan; Yuxing Mao; et al.",
+      "title": "Second: Sparsely embedded convolutional detection"
+    },
+    {
+      "id": "ref-57",
+      "year": "2018",
+      "authors": "Bin Yang; Wenjie Luo; et al.",
+      "title": "Pixor: Real-time 3d object detection from point clouds"
+    },
+    {
+      "id": "ref-58",
+      "year": "2019",
+      "authors": "Xue Yang; Qingqing Liu; et al.",
+      "title": "R3det: Refined single-stage detector with feature refinement for rotating object"
+    },
+    {
+      "id": "ref-59",
+      "year": "2019",
+      "authors": "Xue Yang; Jirui Yang; et al.",
+      "title": "Scrdet: Towards more robust detection for small, cluttered and rotated objects"
+    },
+    {
+      "id": "ref-60",
+      "year": "2020",
+      "authors": "",
+      "title": "Zetong Yang, Yanan Sun, Shu Liu, and Jiaya Jia. 3dssd: Point-based 3d single stage object detector"
+    },
+    {
+      "id": "ref-61",
+      "year": "2019",
+      "authors": "Zetong Yang; Yanan Sun; et al.",
+      "title": "Std: Sparse-to-dense 3d object detector for point cloud"
+    },
+    {
+      "id": "ref-62",
+      "year": "2020",
+      "authors": "Junbo Yin; Jianbing Shen; et al.",
+      "title": "Lidar-based online 3d video object detection with graph-based message passing and spatiotemporal transformer attention"
+    },
+    {
+      "id": "ref-63",
+      "year": "2020",
+      "authors": "Xingyi Zhou; Vladlen Koltun; et al.",
+      "title": "Tracking objects as points"
+    },
+    {
+      "id": "ref-64",
+      "year": "2019",
+      "authors": "Xingyi Zhou; Dequan Wang; et al.",
+      "title": "Objects as points"
+    },
+    {
+      "id": "ref-65",
+      "year": "2019",
+      "authors": "Yin Zhou; Pei Sun; et al.",
+      "title": "End-to-end multi-view fusion for 3d object detection in lidar point clouds"
+    },
+    {
+      "id": "ref-66",
+      "year": "2018",
+      "authors": "Yin Zhou; Oncel Tuzel",
+      "title": "Voxelnet: End-to-end learning for point cloud based 3d object detection"
+    },
+    {
+      "id": "ref-67",
+      "year": "2019",
+      "authors": "Benjin Zhu; Zhengkai Jiang; et al.",
+      "title": "Class-balanced grouping and sampling for point cloud 3d object detection"
+    },
+    {
+      "id": "ref-68",
+      "year": "2020",
+      "authors": "Xinge Zhu; Yuexin Ma; et al.",
+      "title": "Ssn: Shape signature networks for multi-class object detection from point clouds"
+    }
+  ]
+}

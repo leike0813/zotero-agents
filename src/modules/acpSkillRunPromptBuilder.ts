@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import { joinPath } from "../utils/path";
 import type { AcpAgentFamily } from "./acpAgentFamilyResolver";
+import type { AcpSharedSkillCatalog } from "./acpSharedSkillCatalog";
 import {
   ACP_SKILL_PATCH_TEMPLATES_BY_MODULE,
   loadAcpSkillPatchTemplate,
@@ -17,12 +18,12 @@ type RunPromptContext = {
   proxySkillRoots: string[];
   requestedSkillProxyPath?: string;
   sharedSkillCatalogPath: string;
+  sharedSkillCatalog: AcpSharedSkillCatalog;
 };
 
 const ZOTERO_HOST_ACCESS_START =
   "<!-- zotero-skills-zotero-host-access:start -->";
-const ZOTERO_HOST_ACCESS_END =
-  "<!-- zotero-skills-zotero-host-access:end -->";
+const ZOTERO_HOST_ACCESS_END = "<!-- zotero-skills-zotero-host-access:end -->";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -54,6 +55,9 @@ function resolveEngineSkillsDir(family: AcpAgentFamily) {
 }
 
 function resolveInstructionFilename(family: AcpAgentFamily) {
+  if (family === "hermes") {
+    return "HERMES.md";
+  }
   if (family === "claude-code") {
     return "CLAUDE.md";
   }
@@ -61,6 +65,39 @@ function resolveInstructionFilename(family: AcpAgentFamily) {
     return "GEMINI.md";
   }
   return "AGENTS.md";
+}
+
+function renderHermesSkillList(context: RunPromptContext) {
+  if (context.agentFamily !== "hermes") {
+    return "";
+  }
+  const requested = context.sharedSkillCatalog.entriesById[context.skillId];
+  const lines = [
+    "",
+    "## Hermes Agent Skills",
+    "",
+    "Hermes does not consume run-local project skill roots for this ACP Skills run.",
+    "应按下方列表调用可用 Agent Skills。",
+    "",
+    "Current skill to execute:",
+    `- ID: ${context.skillId}`,
+    `- Description: ${requested?.description || ""}`,
+    `- Catalog skill root: ${toPortablePath(
+      requested?.catalogSkillRoot || "(unavailable)",
+    )}`,
+    `- SKILL.md: ${toPortablePath(requested?.skillMdPath || "(unavailable)")}`,
+    "",
+    "Available Agent Skills:",
+  ];
+  for (const entry of context.sharedSkillCatalog.entries) {
+    lines.push(
+      `- ID: ${entry.skillId}`,
+      `  Description: ${entry.description || ""}`,
+      `  Catalog skill root: ${toPortablePath(entry.catalogSkillRoot)}`,
+      `  SKILL.md: ${toPortablePath(entry.skillMdPath)}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function appendZoteroHostAccessSnippet(args: {
@@ -85,9 +122,6 @@ function resolveSkillInvokeLine(family: AcpAgentFamily, skillId: string) {
   if (family === "claude-code") {
     return `/${skillId}`;
   }
-  if (family === "opencode") {
-    return `/skills ${skillId}`;
-  }
   if (family === "gemini-cli") {
     return `/${skillId} invoke`;
   }
@@ -106,7 +140,10 @@ function renderKeyValueLines(value: unknown) {
     return "- (none)";
   }
   return entries
-    .map(([key, val]) => `- ${key}: ${typeof val === "string" ? val : JSON.stringify(val)}`)
+    .map(
+      ([key, val]) =>
+        `- ${key}: ${typeof val === "string" ? val : JSON.stringify(val)}`,
+    )
     .join("\n");
 }
 
@@ -116,7 +153,9 @@ function resolvePromptInputAndParameter(request: unknown) {
       ? (request as Record<string, unknown>)
       : {};
   const parameter =
-    payload.parameter && typeof payload.parameter === "object" && !Array.isArray(payload.parameter)
+    payload.parameter &&
+    typeof payload.parameter === "object" &&
+    !Array.isArray(payload.parameter)
       ? (payload.parameter as Record<string, unknown>)
       : {};
   return {
@@ -149,7 +188,9 @@ function resolveRunnerEntrypointPrompt(args: {
   const entrypoint = isRecord(args.runnerJson?.entrypoint)
     ? args.runnerJson?.entrypoint
     : undefined;
-  const prompts = isRecord(entrypoint?.prompts) ? entrypoint?.prompts : undefined;
+  const prompts = isRecord(entrypoint?.prompts)
+    ? entrypoint?.prompts
+    : undefined;
   const enginePrompt = prompts ? prompts[args.engineId] : undefined;
   if (typeof enginePrompt === "string" && enginePrompt.trim()) {
     return enginePrompt;
@@ -166,7 +207,10 @@ function resolveTemplateValue(path: string, context: Record<string, unknown>) {
   if (!normalized) {
     return "";
   }
-  const parts = normalized.split(".").map((entry) => entry.trim()).filter(Boolean);
+  const parts = normalized
+    .split(".")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
   let current: unknown = context;
   for (const part of parts) {
     if (!current || typeof current !== "object" || Array.isArray(current)) {
@@ -222,7 +266,7 @@ export async function materializeAcpRunExecutionInstructions(args: {
   await writeRuntimeTextFile(
     path,
     appendZoteroHostAccessSnippet({
-      renderedInstructions: rendered,
+      renderedInstructions: `${rendered}${renderHermesSkillList(args.context)}`,
       snippet: args.hostBridgeCliPromptSnippet,
     }),
   );
@@ -281,8 +325,22 @@ export async function buildAcpSkillRunPrompt(args: {
     "ACP run context:",
     `- Run workspace: ${toPortablePath(args.context.workspace.workspaceDir)}`,
     `- Input manifest: ${toPortablePath(args.context.workspace.inputManifestPath)}`,
-    `- Agent skill roots: ${args.context.proxySkillRoots.map(toPortablePath).join(", ")}`,
-    `- Requested skill proxy: ${toPortablePath(args.context.requestedSkillProxyPath || "(unavailable)")}`,
-    `- Shared skill catalog: ${toPortablePath(args.context.sharedSkillCatalogPath)}`,
+    ...(args.context.agentFamily === "hermes"
+      ? [
+          `- Requested catalog skill root: ${toPortablePath(
+            args.context.sharedSkillCatalog.entriesById[args.context.skillId]
+              ?.catalogSkillRoot || "(unavailable)",
+          )}`,
+          `- Shared skill catalog: ${toPortablePath(args.context.sharedSkillCatalogPath)}`,
+        ]
+      : [
+          `- Agent skill roots: ${args.context.proxySkillRoots
+            .map(toPortablePath)
+            .join(", ")}`,
+          `- Requested skill proxy: ${toPortablePath(
+            args.context.requestedSkillProxyPath || "(unavailable)",
+          )}`,
+          `- Shared skill catalog: ${toPortablePath(args.context.sharedSkillCatalogPath)}`,
+        ]),
   ].join("\n");
 }

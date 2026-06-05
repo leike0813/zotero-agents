@@ -30,18 +30,18 @@ workflow's provider-derived backend compatibility allows an ACP backend.
 ### Requirement: ACP runner SHALL materialize skills into agent-specific roots
 
 The ACP runner SHALL materialize plugin-side skills into run-local skill roots
-selected by ACP agent family.
+selected by ACP agent family, except for ACP families that use catalog-based
+instruction discovery.
 
-#### Scenario: Codex skill roots
-- **GIVEN** an ACP backend resolved as `codex`
-- **WHEN** the runner materializes a skill
-- **THEN** it SHALL mirror the skill into `.agents/skills/<skillId>` and
-  `.codex/skills/<skillId>` under the run workspace
+#### Scenario: Hermes uses catalog-based skill discovery
 
-#### Scenario: Explicit root override
-- **GIVEN** an ACP backend declares `acp.skillRoots`
-- **WHEN** the runner builds the injection plan
-- **THEN** those roots SHALL override the family defaults
+- **GIVEN** an ACP backend resolved as `hermes`
+- **WHEN** the runner prepares an ACP Skills run
+- **THEN** it SHALL build or reuse the shared skill catalog
+- **AND** it SHALL NOT materialize thin proxy skills into project-level skill
+  roots
+- **AND** it SHALL keep the requested skill's catalog root available for
+  execution and validation.
 
 ### Requirement: ACP runner SHALL wrap workflow launches with uv when needed
 
@@ -64,28 +64,17 @@ the materialized skill declares runtime Python dependencies.
 The ACP runner SHALL validate assistant turn output and issue bounded repair
 prompts when validation fails.
 
-#### Scenario: Initial Prompt Uses Run Execution Instructions
+#### Scenario: Hermes initial prompt uses HERMES instructions
 
 - **GIVEN** an ACP Skills run is created for a SkillRunner-compatible job
+- **AND** the ACP backend resolves as `hermes`
 - **WHEN** the run workspace is prepared
-- **THEN** ACP Skills SHALL materialize a run-level instruction file for the resolved agent family
-- **AND** the first prompt SHALL invoke the requested skill using the agent-family-specific skill syntax
-- **AND** the first prompt SHALL render Skill-Runner-style Inputs, Parameters, and task text
-- **AND** ACP workspace paths SHALL be included only as compact run context.
-
-#### Scenario: Repair limit reached
-
-- **GIVEN** the output remains invalid after three repair prompts
-- **WHEN** the runner finishes validation
-- **THEN** the provider result SHALL fail with validation diagnostics
-
-#### Scenario: Repair Prompt Uses Target Contract Details
-
-- **GIVEN** an ACP Skills output candidate fails validation
-- **WHEN** the runner builds a repair prompt
-- **THEN** the prompt SHALL state that the previous output did not satisfy the Skill Runner output contract
-- **AND** it SHALL include the previous candidate, validation errors, branch guidance, and target output contract details
-- **AND** it SHALL forbid explanations and Markdown fences.
+- **THEN** ACP Skills SHALL materialize `HERMES.md`
+- **AND** `HERMES.md` SHALL identify the current requested Agent Skill
+- **AND** `HERMES.md` SHALL list available Agent Skills with ID, description,
+  and catalog skill root
+- **AND** the first prompt SHALL include compact catalog context rather than
+  proxy skill roots.
 
 ### Requirement: ACP Skills Busy Composer SHALL Interrupt Current Turn Without Canceling Run
 
@@ -306,4 +295,37 @@ ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
 - **WHEN** final output contains schema fields annotated with `x-type=artifact` or `x-type=file`
 - **THEN** ACP SHALL NOT rewrite those fields to bundle-relative paths.
+
+### Requirement: ACP Skill runs SHALL optionally auto-approve ACP tool permissions
+
+ACP Skill runs SHALL automatically resolve ACP backend tool-call permission
+requests only when the run's frozen ACP provider options enable permission
+auto-approval.
+
+#### Scenario: Approve option is selected
+
+- **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
+- **WHEN** the backend requests permission with an `approve` option
+- **THEN** the run SHALL resolve the permission with that option
+- **AND** the transcript SHALL retain the normal permission audit item.
+
+#### Scenario: Allow option is selected
+
+- **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
+- **WHEN** the backend requests permission with an allow-style option
+- **THEN** the run SHALL resolve the permission with the first compatible
+  allow-style option.
+
+#### Scenario: Non-allow requests remain manual
+
+- **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
+- **WHEN** the backend requests permission without any approve or allow-style
+  option
+- **THEN** the run SHALL keep the permission pending for manual user action.
+
+#### Scenario: Other permission channels are unaffected
+
+- **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
+- **WHEN** a permission request source is not `acp-tool-call`
+- **THEN** the run SHALL NOT auto-approve that request.
 

@@ -41,7 +41,7 @@
   "result": {
     "fetch": { "type": "result" },
     "expects": {
-      "result_json": "result/result.json"
+      "result_json": "result/final-output.candidate.json"
     }
   },
   "hooks": {

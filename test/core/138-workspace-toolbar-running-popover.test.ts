@@ -121,6 +121,18 @@ describe("workspace toolbar running tasks popover", function () {
     assert.isBelow(emptyBranch, separator);
   });
 
+  it("sizes the running task popover with title and separator chrome included", async function () {
+    const popover = await readProjectFile(
+      "src/modules/workspaceToolbarTaskPopover.ts",
+    );
+
+    assert.include(popover, "EMPTY_POPOVER_HEIGHT");
+    assert.include(popover, "RUNNING_POPOVER_CHROME_HEIGHT");
+    assert.include(popover, "RUNNING_POPOVER_TASK_ROW_HEIGHT");
+    assert.include(popover, "Math.min(rowCount, MAX_VISIBLE_TASKS)");
+    assert.notInclude(popover, "return 34 + rowCount * 30");
+  });
+
   it("routes popover task clicks through the existing Assistant workspace entrypoints", async function () {
     const popover = await readProjectFile(
       "src/modules/workspaceToolbarTaskPopover.ts",

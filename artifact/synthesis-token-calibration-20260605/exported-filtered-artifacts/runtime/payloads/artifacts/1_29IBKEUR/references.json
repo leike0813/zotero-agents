@@ -1,0 +1,196 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2016",
+      "authors": "Ba, Lei Jimmy; Kiros, Jamie Ryan; et al.",
+      "title": "Layer normalization"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Baevski, Alexei; Auli, Michael A.",
+      "title": "Adaptive input representations for neural language modeling"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Carion, Nicolas; Massa, Francisco; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "Child, Rewon; Gray, Scott; et al.",
+      "title": "Generating long sequences with sparse transformers"
+    },
+    {
+      "id": "ref-5",
+      "year": "2019",
+      "authors": "Child, Rewon; Gray, Scott; et al.",
+      "title": "Generating long sequences with sparse transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2021",
+      "authors": "Choromanski, Krzysztof Marcin; Likhosherstov, Valerii; et al.",
+      "title": "Rethinking attention with performers"
+    },
+    {
+      "id": "ref-7",
+      "year": "2016",
+      "authors": "Dai, Jifeng; Li, Yi; et al.",
+      "title": "R-FCN: object detection via region-based fully convolutional networks"
+    },
+    {
+      "id": "ref-8",
+      "year": "2017",
+      "authors": "Dai, Jifeng; Qi, Haozhi; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-9",
+      "year": "2009",
+      "authors": "Deng, Jia; Dong, Wei; et al.",
+      "title": "Imagenet: A large-scale hierarchical image database"
+    },
+    {
+      "id": "ref-10",
+      "year": "2016",
+      "authors": "He, Kaiming; Zhang, Xiangyu; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-11",
+      "year": "2017",
+      "authors": "He, Kaiming; Gkioxari, Georgia; et al.",
+      "title": "Mask R-CNN"
+    },
+    {
+      "id": "ref-12",
+      "year": "2016",
+      "authors": "Hendrycks, Dan; Gimpel, Kevin",
+      "title": "Bridging nonlinearities and stochastic regularizers with gaussian error linear units"
+    },
+    {
+      "id": "ref-13",
+      "year": "2019",
+      "authors": "Ho, Jonathan; Kalchbrenner, Nal; et al.",
+      "title": "Axial attention in multidimensional transformers"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Katharopoulos, Angelos; Vyas, Apoorv; et al.",
+      "title": "Transformers are rnns: Fast autoregressive transformers with linear attention"
+    },
+    {
+      "id": "ref-15",
+      "year": "2020",
+      "authors": "Kitaev, Nikita; Kaiser, Lukasz; et al.",
+      "title": "Reformer: The efficient transformer"
+    },
+    {
+      "id": "ref-16",
+      "year": "2015",
+      "authors": "Lee, Chen-Yu; Xie, Saining; et al.",
+      "title": "Deeply-Supervised Nets"
+    },
+    {
+      "id": "ref-17",
+      "year": "2014",
+      "authors": "Lin, Tsung-Yi; Maire, Michael; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "Lin, Tsung-Yi; Dollar, Piotr; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2021",
+      "authors": "Liu, Ze; Lin, Yutong; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Pan, Bowen; Jiang, Yifan; et al.",
+      "title": "IA-RED2: Interpretability-aware redundancy reduction for vision transformers"
+    },
+    {
+      "id": "ref-21",
+      "year": "2018",
+      "authors": "Parmar, Niki; Vaswani, Ashish; et al.",
+      "title": "Image transformer"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Rao, Yongming; Zhao, Wenliang; et al.",
+      "title": "DynamicViT: efficient vision transformers with dynamic token sparsification"
+    },
+    {
+      "id": "ref-23",
+      "year": "2015",
+      "authors": "Ren, Shaoqing; He, Kaiming; et al.",
+      "title": "Faster R-CNN: towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-24",
+      "year": "2021",
+      "authors": "Roh, Byungseok; Shin, Wuhyun; et al.",
+      "title": "Spatially consistent representation learning"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "Sun, Peize; Jiang, Yi; et al.",
+      "title": "What makes for end-to-end object detection?"
+    },
+    {
+      "id": "ref-26",
+      "year": "2015",
+      "authors": "Szegedy, Christian; Liu, Wei; et al.",
+      "title": "Going deeper with convolutions"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Vaswani, Ashish; Shazeer, Noam; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-28",
+      "year": "2020",
+      "authors": "Wang, Huiyu; Zhu, Yukun; et al.",
+      "title": "Axial-deeplab: Stand-alone axial-attention for panoptic segmentation"
+    },
+    {
+      "id": "ref-29",
+      "year": "2019",
+      "authors": "Wang, Qiang; Li, Bei; et al.",
+      "title": "Learning deep transformer models for machine translation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2021",
+      "authors": "Wang, Tao; Yuan, Li; et al.",
+      "title": "PnP-DETR: towards efficient visual analysis with transformers"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Yao, Zhuyu; Ai, Jiangbo; et al.",
+      "title": "Efficient DETR: improving end-to-end object detector with dense prior"
+    },
+    {
+      "id": "ref-32",
+      "year": "2021",
+      "authors": "Zhu, Xizhou; Su, Weijie; et al.",
+      "title": "Deformable DETR: deformable transformers for end-to-end object detection"
+    }
+  ]
+}

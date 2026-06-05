@@ -41,6 +41,7 @@ export type PluginSkillRegistryDiagnostic = {
 
 export type PluginSkillRegistryEntry = {
   skillId: string;
+  description: string;
   sourceKind: PluginSkillSourceKind;
   sourceDir: string;
   skillMdPath: string;
@@ -174,15 +175,24 @@ async function readJsonFile(filePath: string) {
   return JSON.parse(text) as Record<string, unknown>;
 }
 
-async function readSkillFrontmatterName(skillMdPath: string) {
+async function readSkillFrontmatter(skillMdPath: string) {
   const content = await readRuntimeTextFile(skillMdPath);
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
   if (!match) {
-    return "";
+    return {
+      name: "",
+      description: "",
+    };
   }
   const body = match[1] || "";
   const nameMatch = body.match(/^name:\s*(.+?)\s*$/m);
-  return normalizeString(nameMatch?.[1]).replace(/^["']|["']$/g, "");
+  const descriptionMatch = body.match(/^description:\s*(.+?)\s*$/m);
+  const stripQuotes = (value: unknown) =>
+    normalizeString(value).replace(/^["']|["']$/g, "");
+  return {
+    name: stripQuotes(nameMatch?.[1]),
+    description: stripQuotes(descriptionMatch?.[1]),
+  };
 }
 
 function makeInvalidRunnerDiagnostic(args: {
@@ -379,11 +389,11 @@ async function inspectCandidate(
       reason: "missing_id",
     };
   }
-  const skillFrontmatterName = await readSkillFrontmatterName(skillMdPath);
+  const skillFrontmatter = await readSkillFrontmatter(skillMdPath);
   const runnerErrors = validateRunnerManifestShape({
     runnerJson,
     skillDirName: getBaseName(candidate.sourceDir),
-    skillFrontmatterName,
+    skillFrontmatterName: skillFrontmatter.name,
   });
   if (runnerErrors.length > 0) {
     return makeInvalidRunnerDiagnostic({
@@ -416,6 +426,7 @@ async function inspectCandidate(
 
   return {
     skillId,
+    description: skillFrontmatter.description,
     sourceKind: candidate.sourceKind,
     sourceDir: candidate.sourceDir,
     skillMdPath,

@@ -4,21 +4,94 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 
+type AnyModule = Record<string, any> & { __loadError?: unknown };
+
 const skillRuntimeRoots = [
   path.join("skills_builtin", "create-topic-synthesis"),
   path.join("skills_builtin", "update-topic-synthesis"),
 ];
+const createRuntimeRoot = path.join("skills_builtin", "create-topic-synthesis");
 
 const referenceFiles = [
-  "references/step_05_paper_units.md",
+  "references/step_05_paper_triage.md",
   "references/step_06_cross_paper_map.md",
   "references/step_07_taxonomy_timeline.md",
-  "references/step_08_core_sections.md",
-  "references/step_09_kg_proposals.md",
-  "references/step_10_external_statistics_report.md",
+  "references/step_08_core_synthesis.md",
+  "references/step_09_kg_enrichment.md",
+  "references/step_10_summary_coverage.md",
   "references/step_11_render_validate.md",
   "references/section_examples.md",
+  "references/topic_synthesis_content_contract.md",
 ];
+
+const schemaFiles = [
+  "assets/schemas/topic_analysis_manifest.schema.json",
+  "assets/schemas/topic_section_patch_manifest.schema.json",
+  "assets/schemas/topic_synthesis_artifact.schema.json",
+  "assets/schemas/topic_context_payload.schema.json",
+  "assets/schemas/resolver_proposal.schema.json",
+  "assets/schemas/resolver_manifest.schema.json",
+  "assets/schemas/paper_analysis_row.schema.json",
+  "assets/schemas/cross_paper_evidence_map.schema.json",
+  "assets/schemas/core_analytical_sections.schema.json",
+  "assets/schemas/kg_enrichment.schema.json",
+];
+
+function token(...parts: string[]) {
+  return parts.join("_");
+}
+
+const retiredContractFragments = [
+  token("comparison", "matrix"),
+  token("comparison", "dimensions"),
+  token("comparison", "matrix", "section"),
+  token("route", "timeline", "synthesis"),
+  token("persist", "paper", "units"),
+  token("persist", "route", "timeline", "synthesis"),
+  token("persist", "core", "sections"),
+  token("persist", "kg", "proposals"),
+  token("persist", "external", "statistics", "report"),
+  token("stage", "5", "paper", "units"),
+  token("stage", "7", "route", "timeline"),
+  token("stage", "8", "core", "sections"),
+  token("stage", "9", "kg", "proposals"),
+  token("stage", "10", "external", "statistics", "report"),
+  token("stage", "3", "graph", "metrics"),
+  token("stage", "4", "evidence", "collection"),
+  token("persist", "citation", "graph", "metrics"),
+  token("persist", "filtered", "artifact", "manifest"),
+  token("step", "05", "paper", "units"),
+  token("step", "08", "core", "sections"),
+  token("step", "09", "kg", "proposals"),
+  token("step", "10", "external", "statistics", "report"),
+  ["leg", "acy"].join(""),
+  ["fall", "back"].join(""),
+  ["com", "pat"].join(""),
+  "不" + "再接受",
+  "旧" + "字段",
+  "旧" + "协议",
+];
+
+async function importOptional(modulePath: string): Promise<AnyModule> {
+  try {
+    return (await import(modulePath)) as AnyModule;
+  } catch (error) {
+    return { __loadError: error };
+  }
+}
+
+function requireExport(module: AnyModule, exportName: string) {
+  assert.isUndefined(
+    module.__loadError,
+    `expected module to load before checking ${exportName}: ${
+      module.__loadError instanceof Error
+        ? module.__loadError.message
+        : String(module.__loadError)
+    }`,
+  );
+  assert.isFunction(module[exportName]);
+  return module[exportName] as (...args: any[]) => any;
+}
 
 async function readRequiredRuntimeFile(
   runtimeRoot: string,
@@ -29,7 +102,7 @@ async function readRequiredRuntimeFile(
     return await fs.readFile(fullPath, "utf8");
   } catch (error) {
     assert.fail(
-      `expected package-local Topic Synthesis Runtime file to exist: ${fullPath}; ${
+      `expected package-local topic synthesis runtime file to exist: ${fullPath}; ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -41,11 +114,158 @@ async function writeJsonFile(filePath: string, value: unknown) {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
 }
 
+async function createFakeZoteroBridge(
+  runRoot: string,
+  papers: Array<Record<string, unknown>>,
+) {
+  const binDir = path.join(runRoot, ".zotero-bridge", "bin");
+  await fs.mkdir(binDir, { recursive: true });
+  const fakeScript = path.join(binDir, "fake-zotero-bridge.cjs");
+  await fs.writeFile(
+    fakeScript,
+    [
+      "const fs = require('fs');",
+      "const path = require('path');",
+      "const args = process.argv.slice(2);",
+      "const inputIndex = args.indexOf('--input');",
+      "if (inputIndex < 0 || !args[inputIndex + 1]) {",
+      "  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'missing_input' } }));",
+      "  process.exit(2);",
+      "}",
+      "const inputArg = args[inputIndex + 1];",
+      "const inputText = inputArg.startsWith('@') ? fs.readFileSync(path.resolve(process.cwd(), inputArg.slice(1)), 'utf8') : inputArg;",
+      "const input = JSON.parse(inputText);",
+      "fs.mkdirSync(path.join(process.cwd(), 'runtime'), { recursive: true });",
+      "fs.mkdirSync(path.join(process.cwd(), 'runtime', 'payloads'), { recursive: true });",
+      "const command = args.slice(0, inputIndex).join(' ');",
+      "fs.appendFileSync(path.join(process.cwd(), 'runtime', 'host-bridge-inputs.jsonl'), JSON.stringify({ command, input }) + '\\n');",
+      "function send(data) {",
+      "  process.stdout.write(JSON.stringify({ ok: true, data, meta: { cli: 'zotero-bridge', schema: 'zotero-bridge.cli.v1' } }));",
+      "}",
+      "function missingArtifacts(paperRef) {",
+      "  return ['digest', 'references', 'citation_analysis'].map((artifactType) => ({",
+      "    paper_ref: paperRef,",
+      "    artifact_type: artifactType,",
+      "    status: 'missing',",
+      "    payload_type: artifactType === 'digest' ? 'digest-markdown' : artifactType === 'references' ? 'references-json' : 'citation-analysis-json',",
+      "    missing_reason: 'fixture_missing',",
+      "    payload_types_seen: []",
+      "  }));",
+      "}",
+      "if (command === 'synthesis resolve-resolver') {",
+      "  fs.appendFileSync(path.join(process.cwd(), 'runtime', 'host-resolver-inputs.jsonl'), JSON.stringify(input) + '\\n');",
+      "  send({",
+      "    ok: true,",
+      `    papers: ${JSON.stringify(papers)},`,
+      "    normalized_resolver: input.resolver,",
+      "    cursor: input.cursor || '0',",
+      "    next_cursor: '',",
+      "    has_more: false,",
+      `    returned: ${papers.length},`,
+      `    total_papers: ${papers.length},`,
+      "    diagnostics: {",
+      `      final_count: ${papers.length},`,
+      `      total_candidates: ${papers.length},`,
+      "      warnings: []",
+      "    }",
+      "  });",
+      "  process.exit(0);",
+      "}",
+      "if (command === 'synthesis get-citation-graph-metrics') {",
+      "  const refs = input.paperRefs || input.paper_refs || [];",
+      "  send({",
+      "    ok: true,",
+      "    status: 'ready',",
+      "    graph_hash: 'sha256:' + 'a'.repeat(64),",
+      "    metrics_hash: 'sha256:' + 'b'.repeat(64),",
+      "    items: refs.map((paper_ref) => ({ paper_ref, status: 'ready', internal_in_degree: 0 }))",
+      "  });",
+      "  process.exit(0);",
+      "}",
+      "if (command === 'synthesis export-filtered-paper-artifacts') {",
+      "  const refs = input.paper_refs || input.paperRefs || [];",
+      "  const manifest = {",
+      "    exported_by: 'synthesis.export_filtered_paper_artifacts',",
+      "    papers: refs.map((paper_ref) => ({ paper_ref, artifacts: missingArtifacts(paper_ref) }))",
+      "  };",
+      "  fs.writeFileSync(path.join(process.cwd(), 'runtime', 'payloads', 'paper-artifacts-manifest.json'), JSON.stringify(manifest, null, 2));",
+      "  send(manifest);",
+      "  process.exit(0);",
+      "}",
+      "process.stdout.write(JSON.stringify({ ok: false, error: { code: 'unsupported_command', command } }));",
+      "process.exit(2);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const shellShim = path.join(binDir, "zotero-bridge");
+  await fs.writeFile(
+    shellShim,
+    [
+      "#!/usr/bin/env sh",
+      'DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"',
+      'exec node "$DIR/fake-zotero-bridge.cjs" "$@"',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await fs.chmod(shellShim, 0o755);
+  await fs.writeFile(
+    path.join(binDir, "zotero-bridge.cmd"),
+    '@echo off\r\nnode "%~dp0\\fake-zotero-bridge.cjs" %*\r\n',
+    "utf8",
+  );
+}
+
+async function assertMissing(filePath: string) {
+  try {
+    await fs.access(filePath);
+    assert.fail(
+      `expected retired topic synthesis runtime file to be absent: ${filePath}`,
+    );
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function pythonCommand() {
+  return process.env.PYTHON || "python";
+}
+
 function runStageAction(runtimeRoot: string, runRoot: string, args: string[]) {
-  const python = process.env.PYTHON || "python";
   const output = execFileSync(
-    python,
+    pythonCommand(),
     [path.resolve(runtimeRoot, "scripts/stage_runtime.py"), ...args],
+    { cwd: runRoot, encoding: "utf8", stdio: "pipe" },
+  );
+  return JSON.parse(output);
+}
+
+function runStageActionFromCwd(
+  runtimeRoot: string,
+  cwd: string,
+  args: string[],
+) {
+  const output = execFileSync(
+    pythonCommand(),
+    [path.resolve(runtimeRoot, "scripts/stage_runtime.py"), ...args],
+    { cwd, encoding: "utf8", stdio: "pipe" },
+  );
+  return JSON.parse(output);
+}
+
+function runGate(runtimeRoot: string, runRoot: string, dbPath: string) {
+  const output = execFileSync(
+    pythonCommand(),
+    [path.resolve(runtimeRoot, "scripts/gate_runtime.py"), "--db", dbPath],
     { cwd: runRoot, encoding: "utf8", stdio: "pipe" },
   );
   return JSON.parse(output);
@@ -66,8 +286,6 @@ async function createMinimalRuntimeWorkspace(runtimeRoot: string) {
   runStageAction(runtimeRoot, runRoot, [
     "--db",
     dbPath,
-    "--run-root",
-    ".",
     "--operation",
     operation,
     "--language",
@@ -78,20 +296,52 @@ async function createMinimalRuntimeWorkspace(runtimeRoot: string) {
 
   await writeJsonFile(
     path.join(runRoot, "runtime/payloads/topic-context.json"),
-    {
-      topic_seed: "object detection",
-      language: "zh-CN",
-      operation,
-      topic_definition: { id: "object-detection", title: "Object Detection" },
-      duplicate_check: { status: "unique", candidates: [] },
-      base_hashes: {
-        manifest: "",
-        artifact: "",
-        export: "",
-        metadata: "",
-        index: "",
-      },
-    },
+    runtimeRoot.includes("update-topic-synthesis")
+      ? {
+          topic_context: {
+            topic_id: "object-detection",
+            language: "zh-CN",
+            topic_definition: {
+              title: "Object Detection",
+              aliases: ["DETR-style detection"],
+              scope_boundary: {
+                include: ["query-based object detection"],
+                exclude: ["generic image classification"],
+              },
+            },
+            current_hashes: {
+              manifest: hashA,
+              artifact: hashA,
+              export: hashA,
+              metadata: hashA,
+              index: hashA,
+            },
+            section_hashes: {
+              claims: hashB,
+            },
+            recommended_update: {
+              operation,
+              changed_sections: ["claims"],
+            },
+          },
+          update_assessment: {
+            operation,
+            changed_sections: ["claims"],
+            reason: "fixture update",
+          },
+          diagnostics: [],
+        }
+      : {
+          topic_title: "Object Detection",
+          aliases: ["DETR-style detection"],
+          definition: "Query-based object detection methods derived from DETR.",
+          scope_include: ["query-based object detection"],
+          scope_exclude: ["generic image classification"],
+          duplicate_status: "none",
+          duplicate_candidate_ids: [],
+          duplicate_reason: "",
+          diagnostics: [],
+        },
   );
   runStageAction(runtimeRoot, runRoot, [
     "--db",
@@ -102,1176 +352,701 @@ async function createMinimalRuntimeWorkspace(runtimeRoot: string) {
     "runtime/payloads/topic-context.json",
   ]);
 
+  await createFakeZoteroBridge(runRoot, [
+    { paper_ref: paperRef, item_key: "DETR", title: "DETR" },
+  ]);
   await writeJsonFile(
-    path.join(runRoot, "runtime/payloads/library-index-page-0.json"),
+    path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
     {
-      cursor: "0",
-      next_cursor: "",
-      has_more: false,
-      returned: 1,
-      total_papers: 1,
-      index_hash: hashA,
-      papers: [{ paper_ref: paperRef, item_key: "DETR", title: "DETR" }],
+      resolver: { mode: "explicit", paper_refs: [paperRef] },
+      resolver_reasoning:
+        "Fixture resolver selects the representative DETR paper.",
+      operation_intent: operation,
+      diagnostics: [],
     },
   );
-  runStageAction(runtimeRoot, runRoot, [
-    "--db",
-    dbPath,
-    "--action",
-    "persist_library_index_page",
-    "--payload-file",
-    "runtime/payloads/library-index-page-0.json",
-  ]);
-
-  await writeJsonFile(path.join(runRoot, "runtime/payloads/resolver.json"), {
-    operation,
-    topic_resolver: { mode: "explicit", paper_refs: [paperRef] },
-    resolved_paper_set: {
-      papers: [{ paper_ref: paperRef, item_key: "DETR", title: "DETR" }],
-    },
-    resolver_diagnostics: { final_count: 1, warnings: [] },
-    base_hashes: {
-      manifest: "",
-      artifact: "",
-      export: "",
-      metadata: "",
-      index: hashA,
-    },
-  });
   runStageAction(runtimeRoot, runRoot, [
     "--db",
     dbPath,
     "--action",
     "persist_resolver",
     "--payload-file",
-    "runtime/payloads/resolver.json",
+    "runtime/payloads/resolver-proposal.json",
   ]);
 
-  await writeJsonFile(
-    path.join(runRoot, "runtime/payloads/citation-graph-metrics-batch.json"),
-    {
-      paper_refs: [paperRef],
-      result: {
-        ok: true,
-        status: "ready",
-        graph_hash: hashA,
-        metrics_hash: hashB,
-        items: [
-          { paper_ref: paperRef, status: "ready", internal_in_degree: 0 },
-        ],
-      },
-    },
-  );
-  runStageAction(runtimeRoot, runRoot, [
-    "--db",
-    dbPath,
-    "--action",
-    "persist_citation_graph_metrics",
-    "--payload-file",
-    "runtime/payloads/citation-graph-metrics-batch.json",
-  ]);
-
-  await writeJsonFile(
-    path.join(runRoot, "runtime/payloads/paper-artifacts-manifest.json"),
-    {
-      exported_by: "synthesis.export_filtered_paper_artifacts",
-      papers: [
-        {
-          paper_ref: paperRef,
-          artifacts: [
-            {
-              paper_ref: paperRef,
-              artifact_type: "digest",
-              status: "missing",
-              payload_type: "digest-markdown",
-              missing_reason: "fixture_missing",
-              payload_types_seen: [],
-            },
-            {
-              paper_ref: paperRef,
-              artifact_type: "references",
-              status: "missing",
-              payload_type: "references-json",
-              missing_reason: "fixture_missing",
-              payload_types_seen: [],
-            },
-            {
-              paper_ref: paperRef,
-              artifact_type: "citation_analysis",
-              status: "missing",
-              payload_type: "citation-analysis-json",
-              missing_reason: "fixture_missing",
-              payload_types_seen: [],
-            },
-          ],
-        },
-      ],
-    },
-  );
-  runStageAction(runtimeRoot, runRoot, [
-    "--db",
-    dbPath,
-    "--run-root",
-    ".",
-    "--action",
-    "persist_filtered_artifact_manifest",
-    "--payload-file",
-    "runtime/payloads/paper-artifacts-manifest.json",
-  ]);
-
-  return { runRoot, dbPath };
+  return { runRoot, dbPath, paperRef };
 }
 
 describe("Topic synthesis runtime contract", function () {
-  it("ships package-local gated runtime resources in both create and update skills", async function () {
-    const commonRequiredPaths = [
+  this.timeout(30000);
+
+  it("ships current package-local runtime resources in both create and update skills", async function () {
+    const requiredPaths = [
+      "SKILL.md",
+      "assets/runner.json",
       "scripts/gate_runtime.py",
       "scripts/stage_runtime.py",
       "scripts/runtime_db.py",
-      "assets/schemas/topic_analysis_manifest.schema.json",
-      "assets/schemas/topic_section_patch_manifest.schema.json",
-      "assets/schemas/topic_synthesis_artifact.schema.json",
-      "assets/schemas/topic_context_payload.schema.json",
-      "assets/schemas/resolver_manifest.schema.json",
-      "assets/schemas/citation_graph_metrics_receipt.schema.json",
-      "assets/schemas/filtered_artifact_manifest.schema.json",
-      "assets/schemas/route_timeline_synthesis.schema.json",
-      "assets/schemas/core_analytical_sections.schema.json",
-      "references/topic_synthesis_content_contract.md",
       ...referenceFiles,
+      ...schemaFiles,
     ];
 
     for (const runtimeRoot of skillRuntimeRoots) {
-      for (const relativePath of commonRequiredPaths) {
+      for (const relativePath of requiredPaths) {
         await readRequiredRuntimeFile(runtimeRoot, relativePath);
       }
+
+      await assertMissing(
+        path.join(
+          runtimeRoot,
+          `assets/schemas/${token("route", "timeline", "synthesis")}.schema.json`,
+        ),
+      );
+      await assertMissing(
+        path.join(
+          runtimeRoot,
+          `assets/schemas/${token("comparison", "matrix", "section")}.schema.json`,
+        ),
+      );
     }
   });
 
-  it("does not reference the retired shared runtime package from skill entrypoints or runners", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-      const runnerText = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "assets/runner.json",
-      );
+  it("derives create Stage 1 topic definition from flat agent payload", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage1-create-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "create",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_title: "DETR-style Object Detection",
+        aliases: ["query detector"],
+        definition: "Query-based object detection methods derived from DETR.",
+        scope_include: ["DETR-style detection"],
+        scope_exclude: ["generic image classification"],
+        duplicate_status: "none",
+        duplicate_candidate_ids: [],
+        duplicate_reason: "",
+        diagnostics: [],
+      },
+    );
 
-      assert.notInclude(skillText, "topic-synthesis-runtime");
-      assert.notInclude(runnerText, "topic-synthesis-runtime");
-    }
+    const result = runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+
+    assert.equal(result.result.topic_id, "detr-style-object-detection");
+    assert.equal(result.result.topic_title, "DETR-style Object Detection");
+    assert.include(result.result.stored_keys, "topic_definition");
   });
 
-  it("defines create/update stage progression and gate-only next actions", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const gate = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/gate_runtime.py",
-      );
+  it("rejects legacy create Stage 1 payloads with agent-authored topic_definition", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage1-create-old-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "create",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_definition: {
+          id: "object-detection",
+          title: "Object Detection",
+        },
+        duplicate_check: { decision: "none" },
+      },
+    );
 
-      for (const stage of [
-        "stage_0_runtime_setup",
-        "stage_1_topic_context",
-        "stage_2_resolver_and_workset",
-        "stage_3_graph_metrics",
-        "stage_4_evidence_collection",
-        "stage_5_paper_units",
-        "stage_6_cross_paper_map",
-        "stage_7_route_timeline",
-        "stage_8_core_sections",
-        "stage_9_kg_proposals",
-        "stage_10_external_statistics_report",
-        "stage_11_render_and_validate",
-        "stage_12_completed",
-      ]) {
-        assert.include(gate, stage, `${runtimeRoot} should define ${stage}`);
-      }
-      assert.include(gate, "next_action");
-      assert.include(gate, "execution_note");
-      assert.include(gate, "command_example");
-      assert.include(gate, "required_reads");
-      assert.include(gate, "required_writes");
-      assert.include(gate, "core_instruction");
-      assert.include(gate, "semantic_goal");
-      assert.include(gate, "quality_focus");
-      assert.include(gate, "common_pitfalls");
-      assert.include(gate, "SEMANTIC_HINTS_BY_STAGE");
-      assert.include(gate, "ENUM_CONTRACTS_BY_STAGE");
-      assert.include(gate, "enum_contracts");
-      assert.include(gate, "instruction_refs");
-      assert.include(
-        gate,
-        "SKILL.md#最小执行主路径 / 0. confirm_runtime_setup",
-      );
-      assert.include(
-        gate,
-        "SKILL.md#最小执行主路径 / 1. persist_topic_context",
-      );
-      assert.include(
-        gate,
-        "SKILL.md#最小执行主路径 / 2. persist_library_index_page / persist_resolver",
-      );
-      assert.include(
-        gate,
-        "SKILL.md#最小执行主路径 / 3. persist_citation_graph_metrics",
-      );
-      assert.include(
-        gate,
-        "SKILL.md#最小执行主路径 / 4. persist_filtered_artifact_manifest",
-      );
-      assert.include(gate, "schema_refs");
-      assert.include(gate, "progress");
-      assert.include(gate, "paper_ref");
-      assert.match(gate, /resolver[\s\S]+paper artifact/i);
-      assert.match(gate, /paper workset[\s\S]+per-paper/i);
-    }
+    assert.throws(
+      () =>
+        runStageAction(createRuntimeRoot, runRoot, [
+          "--db",
+          dbPath,
+          "--action",
+          "persist_topic_context",
+          "--payload-file",
+          "runtime/payloads/topic-context.json",
+        ]),
+      /runtime-owned or unknown fields|topic_definition/i,
+    );
   });
 
-  it("documents enum contracts in static guidance and gate JIT hints", async function () {
-    const commonEnumSnippets = [
-      "artifact_type",
-      "digest",
-      "references",
-      "citation_analysis",
-      "payload_type",
-      "digest-markdown",
-      "references-json",
-      "citation-analysis-json",
-      "available",
-      "missing",
-      "decode_error",
-      "unsupported",
-      "topic_granularity",
-      "method_family",
-      "dataset_or_benchmark",
-      "topic_relevance.level",
-      "core",
-      "related",
-      "peripheral",
-      "excluded",
-      "coverage_verdict",
-      "sufficient",
-      "partial",
-      "insufficient",
-      "severely_missing",
-      "unknown",
-      "gaps[].gap_type",
-      "research_gap",
-      "library_coverage_gap",
-      "evidence_gap",
-      "evaluation_gap",
-      "gaps[].severity",
-      "critical",
-      "information_completeness",
-      "complete",
-      "minimal",
-      "suggested_additions[].priority",
-      "concept_type",
-      "evaluation_axis",
-      "training_signal",
-      "theoretical_construct",
-      "proposal_type",
-      "broader_topic_candidate",
-      "related_topic_candidate",
-      "overlap_topic_candidate",
-      "contrast_topic_candidate",
+  it("derives update Stage 1 topic state from host topic_context", async function () {
+    const runtimeRoot = path.join("skills_builtin", "update-topic-synthesis");
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage1-update-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    const hashA = "sha256:" + "a".repeat(64);
+    const hashB = "sha256:" + "b".repeat(64);
+    runStageAction(runtimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "update_patch",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_context: {
+          topic_id: "object-detection",
+          topic_definition: {
+            title: "Object Detection",
+            definition: "Existing topic definition from host.",
+          },
+          current_hashes: {
+            manifest: hashA,
+            artifact: hashA,
+            export: hashA,
+            metadata: hashA,
+            index: hashA,
+          },
+          section_hashes: {
+            claims: hashB,
+          },
+          recommended_update: {
+            operation: "update_patch",
+          },
+        },
+        update_assessment: {
+          operation: "update_patch",
+          changed_sections: ["claims"],
+          reason: "fixture patch",
+        },
+        diagnostics: [],
+      },
+    );
+
+    const result = runStageAction(runtimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+
+    assert.equal(result.result.topic_id, "object-detection");
+    assert.equal(result.result.topic_title, "Object Detection");
+    assert.include(result.result.stored_keys, "base_hashes");
+    assert.include(result.result.stored_keys, "read_section_hashes");
+    assert.include(result.result.stored_keys, "changed_sections");
+  });
+
+  it("exposes Stage 2 resolver proposal and materializes execution manifest via Host Bridge", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage2-create-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    const paperRef = "1:DETR";
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "create",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_title: "DETR-style Object Detection",
+        duplicate_status: "none",
+      },
+    );
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+
+    const gate = runGate(createRuntimeRoot, runRoot, dbPath);
+    assert.equal(gate.stage, "stage_2_resolver_and_workset");
+    assert.equal(gate.next_action, "persist_resolver");
+    assert.include(
+      JSON.stringify(gate.schema_refs),
+      "assets/schemas/resolver_proposal.schema.json",
+    );
+    assert.notInclude(JSON.stringify(gate.schema_refs), "resolver_manifest");
+    assert.include(gate.command_example, "resolver-proposal.json");
+
+    await createFakeZoteroBridge(runRoot, [
+      { paper_ref: paperRef, item_key: "DETR", title: "DETR" },
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
+      {
+        resolver: { mode: "explicit", paper_refs: [paperRef] },
+        resolver_reasoning: "Explicit fixture resolver.",
+        operation_intent: "create",
+        diagnostics: [],
+      },
+    );
+    const result = runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_resolver",
+      "--payload-file",
+      "runtime/payloads/resolver-proposal.json",
+    ]);
+
+    assert.deepEqual(result.result.paper_refs, [paperRef]);
+    assert.deepEqual(result.result.resolver_cascade, {
+      metrics_batches: 1,
+      artifact_batches: 1,
+    });
+    assert.equal(
+      result.result.resolver_manifest_path,
+      "runtime/payloads/resolver.json",
+    );
+    const manifestText = await fs.readFile(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
+      "utf8",
+    );
+    const manifest = JSON.parse(manifestText);
+    assert.deepEqual(
+      manifest.resolved_paper_set.papers.map((paper: any) => paper.paper_ref),
+      [paperRef],
+    );
+    const hostInputs = await fs.readFile(
+      path.join(runRoot, "runtime/host-resolver-inputs.jsonl"),
+      "utf8",
+    );
+    assert.include(hostInputs, '"resolver":{"mode":"explicit"');
+    await fs.access(
+      path.join(
+        runRoot,
+        "runtime/payloads/citation-graph-metrics-batch-1.json",
+      ),
+    );
+    await fs.access(
+      path.join(
+        runRoot,
+        "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+      ),
+    );
+    const nextGate = runGate(createRuntimeRoot, runRoot, dbPath);
+    assert.equal(nextGate.stage, "stage_5_paper_triage");
+    assert.equal(nextGate.next_action, "persist_paper_triage");
+    assert.notInclude(JSON.stringify(nextGate), "stage_3_graph_metrics");
+    assert.notInclude(JSON.stringify(nextGate), "stage_4_evidence_collection");
+  });
+
+  it("rejects legacy Stage 2 payloads with agent-authored resolver execution results", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage2-old-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "create",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_title: "Object Detection",
+        duplicate_status: "none",
+      },
+    );
+    runStageAction(createRuntimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
+      {
+        resolver: { mode: "explicit", paper_refs: ["1:DETR"] },
+        resolved_paper_set: { papers: [{ paper_ref: "1:DETR" }] },
+      },
+    );
+
+    assert.throws(
+      () =>
+        runStageAction(createRuntimeRoot, runRoot, [
+          "--db",
+          dbPath,
+          "--action",
+          "persist_resolver",
+          "--payload-file",
+          "runtime/payloads/resolver-proposal.json",
+        ]),
+      /runtime execution result fields|resolved_paper_set/i,
+    );
+  });
+
+  it("locks run_root at Stage 0 and resolves Host Bridge from that directory across cwd changes", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage2-cwd-"),
+    );
+    const otherCwd = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-other-cwd-"),
+    );
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const paperRef = "1:DETR";
+
+    runStageActionFromCwd(createRuntimeRoot, otherCwd, [
+      "--db",
+      dbPath,
+      "--operation",
+      "create",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_title: "DETR-style Object Detection",
+        duplicate_status: "none",
+      },
+    );
+    runStageActionFromCwd(createRuntimeRoot, otherCwd, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+    await createFakeZoteroBridge(runRoot, [
+      { paper_ref: paperRef, item_key: "DETR", title: "DETR" },
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
+      {
+        resolver: { mode: "explicit", paper_refs: [paperRef] },
+        resolver_reasoning: "Explicit fixture resolver.",
+        operation_intent: "create",
+        diagnostics: [],
+      },
+    );
+
+    const result = runStageActionFromCwd(createRuntimeRoot, otherCwd, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_resolver",
+      "--payload-file",
+      "runtime/payloads/resolver-proposal.json",
+    ]);
+
+    assert.deepEqual(result.result.paper_refs, [paperRef]);
+    await fs.access(
+      path.join(
+        runRoot,
+        "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+      ),
+    );
+  });
+
+  it("materializes update Stage 2 resolver manifest from proposal and host context hashes", async function () {
+    const runtimeRoot = path.join("skills_builtin", "update-topic-synthesis");
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-stage2-update-"),
+    );
+    const dbPath = path.join("runtime", "topic-synthesis.sqlite");
+    const hashA = "sha256:" + "a".repeat(64);
+    const hashB = "sha256:" + "b".repeat(64);
+    const paperRef = "1:DETR";
+    runStageAction(runtimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--operation",
+      "update_patch",
+      "--language",
+      "zh-CN",
+      "--action",
+      "confirm_runtime_setup",
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/topic-context.json"),
+      {
+        topic_context: {
+          topic_id: "object-detection",
+          topic_definition: { title: "Object Detection" },
+          current_hashes: {
+            manifest: hashA,
+            artifact: hashA,
+            export: hashA,
+            metadata: hashA,
+            index: hashA,
+          },
+          section_hashes: { claims: hashB },
+          recommended_update: { operation: "update_patch" },
+        },
+        update_assessment: {
+          operation: "update_patch",
+          changed_sections: ["claims"],
+          reason: "fixture patch",
+        },
+        diagnostics: [],
+      },
+    );
+    runStageAction(runtimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_topic_context",
+      "--payload-file",
+      "runtime/payloads/topic-context.json",
+    ]);
+    await createFakeZoteroBridge(runRoot, [
+      { paper_ref: paperRef, item_key: "DETR", title: "DETR" },
+    ]);
+    await writeJsonFile(
+      path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
+      {
+        resolver: { mode: "explicit", paper_refs: [paperRef] },
+        resolver_reasoning: "Reuse fixture paper set for patch.",
+        operation_intent: "update_patch",
+        diagnostics: [],
+      },
+    );
+
+    runStageAction(runtimeRoot, runRoot, [
+      "--db",
+      dbPath,
+      "--action",
+      "persist_resolver",
+      "--payload-file",
+      "runtime/payloads/resolver-proposal.json",
+    ]);
+    const manifest = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime/payloads/resolver.json"),
+        "utf8",
+      ),
+    );
+
+    assert.equal(manifest.operation, "update_patch");
+    assert.equal(manifest.base_hashes.manifest, hashA);
+    assert.equal(manifest.read_section_hashes.claims, hashB);
+    assert.deepEqual(
+      manifest.resolved_paper_set.papers.map((paper: any) => paper.paper_ref),
+      [paperRef],
+    );
+  });
+
+  it("keeps agent-facing instructions and schemas on the current contract", async function () {
+    const agentFacingPaths = [
+      "SKILL.md",
+      "assets/runner.json",
+      "scripts/gate_runtime.py",
+      "scripts/stage_runtime.py",
+      ...referenceFiles,
+      ...schemaFiles,
     ];
 
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-      const gate = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/gate_runtime.py",
-      );
-      const step08 = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_08_core_sections.md",
-      );
-      const step09 = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_09_kg_proposals.md",
-      );
-      const step10 = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_10_external_statistics_report.md",
-      );
-      const contentContract = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/topic_synthesis_content_contract.md",
-      );
-      const examples = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/section_examples.md",
-      );
-
-      for (const snippet of commonEnumSnippets) {
-        assert.include(
-          skillText,
-          snippet,
-          `${runtimeRoot}/SKILL.md should document enum ${snippet}`,
-        );
-        assert.include(
-          gate,
-          snippet,
-          `${runtimeRoot}/gate_runtime.py should expose enum ${snippet}`,
-        );
-      }
-
-      for (const snippet of [
-        "gaps[].gap_type",
-        "research_gap",
-        "evaluation_gap",
-        "gaps[].severity",
-        "critical",
-      ]) {
-        assert.include(step08, snippet);
-        assert.include(contentContract, snippet);
-        assert.include(examples, snippet);
-      }
-
-      for (const snippet of [
-        "concept_type",
-        "method_family",
-        "training_signal",
-        "proposal_type",
-        "broader_topic_candidate",
-        "contrast_topic_candidate",
-      ]) {
-        assert.include(step09, snippet);
-        assert.include(examples, snippet);
-      }
-
-      for (const snippet of [
-        "coverage_verdict",
-        "sufficient",
-        "severely_missing",
-        "information_completeness",
-        "complete",
-        "minimal",
-        "priority",
-        "high",
-        "low",
-      ]) {
-        assert.include(step10, snippet);
-        assert.include(contentContract, snippet);
-        assert.include(examples, snippet);
-      }
-
-      if (runtimeRoot.includes("create-topic-synthesis")) {
-        assert.include(skillText, "`operation`：create skill 只允许 `create`");
-        assert.include(gate, '"operation": ["create"]');
-      } else {
-        assert.include(skillText, "`operation`：update skill 只允许");
-        assert.include(skillText, "section_replace");
-        assert.include(skillText, "inherit_current");
-        assert.include(gate, "get-topic-context.mode");
-        assert.include(gate, "section_replace");
-        assert.include(gate, "inherit_current");
+    for (const runtimeRoot of [createRuntimeRoot]) {
+      for (const relativePath of agentFacingPaths) {
+        const text = await readRequiredRuntimeFile(runtimeRoot, relativePath);
+        for (const fragment of retiredContractFragments) {
+          assert.notInclude(
+            text,
+            fragment,
+            `${path.join(runtimeRoot, relativePath)} should not expose retired topic synthesis contract fragment`,
+          );
+        }
       }
     }
   });
 
-  it("persists failure, resume, cancellation, and schema mismatch states in SQLite", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const runtimeDb = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/runtime_db.py",
-      );
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
-
-      for (const state of [
-        "pending",
-        "running",
-        "completed",
-        "failed_retryable",
-        "failed_terminal",
-        "canceled",
-      ]) {
-        assert.include(runtimeDb, state);
-      }
-      assert.include(runtimeDb, "schema_version");
-      assert.include(stageRuntime, "resume");
-      assert.include(stageRuntime, "failed_retryable");
-      assert.include(stageRuntime, "failed_terminal");
-      assert.include(stageRuntime, "topic_synthesis_canceled");
-    }
-  });
-
-  it("uses deterministic action receipts for retried external actions", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const runtimeDb = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/runtime_db.py",
-      );
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
-
-      assert.include(runtimeDb, "action_receipts");
-      assert.match(stageRuntime, /deterministic.+action/i);
-      assert.match(stageRuntime, /idempotent|idempotency/i);
-    }
-  });
-
-  it("records external-action receipts before checking receipt-gated stage completion", async function () {
-    this.timeout(15000);
-    for (const runtimeRoot of [
-      path.join("skills_builtin", "create-topic-synthesis"),
-    ]) {
+  it("uses current stage names, actions, and instruction references in gate output", async function () {
+    for (const runtimeRoot of [createRuntimeRoot]) {
       const { runRoot, dbPath } =
         await createMinimalRuntimeWorkspace(runtimeRoot);
-      const audit = runStageAction(runtimeRoot, runRoot, [
-        "--db",
-        dbPath,
-        "--run-root",
-        ".",
-        "--action",
-        "audit_runtime_integrity",
-      ]);
-      assert.deepEqual(audit, { errors: [], ok: true });
+      const gate = runGate(runtimeRoot, runRoot, dbPath);
 
-      const gate = runStageAction(runtimeRoot, runRoot, [
-        "--db",
-        dbPath,
-        "--action",
-        "gate",
+      assert.equal(gate.stage, "stage_5_paper_triage");
+      assert.equal(gate.next_action, "persist_paper_triage");
+      assert.include(
+        JSON.stringify(gate.schema_refs),
+        "assets/schemas/paper_analysis_row.schema.json",
+      );
+      assert.includeMembers(gate.instruction_refs, [
+        "references/step_05_paper_triage.md",
       ]);
-      assert.equal(gate.status, "ready");
-      assert.equal(gate.stage, "stage_5_paper_units");
-      assert.equal(gate.next_action, "persist_paper_units");
+      assert.include(gate.execution_note, "paper triage row");
+      assert.notInclude(gate.execution_note, "paper unit");
     }
   });
 
-  it("rejects partial or unregistered section, manifest, and stdout files as final outputs", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const runtimeDb = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/runtime_db.py",
+  it("derives cross-paper evidence maps from triage rows and improvement dimensions", async function () {
+    for (const runtimeRoot of [createRuntimeRoot]) {
+      const { runRoot, dbPath, paperRef } =
+        await createMinimalRuntimeWorkspace(runtimeRoot);
+      await writeJsonFile(
+        path.join(runRoot, "runtime/payloads/paper-triage-batch.json"),
+        {
+          analyses: [
+            {
+              paper_ref: paperRef,
+              topic_relevance: {
+                level: "core",
+                reason: "Directly defines DETR-style object detection.",
+              },
+              paper_quality: {
+                level: "high",
+                reason: "Representative method paper in the fixture.",
+              },
+              core_digest:
+                "DETR formulates object detection as direct set prediction with object queries and bipartite matching.",
+            },
+          ],
+        },
       );
+
+      runStageAction(runtimeRoot, runRoot, [
+        "--db",
+        dbPath,
+        "--action",
+        "persist_paper_triage",
+        "--payload-file",
+        "runtime/payloads/paper-triage-batch.json",
+      ]);
+      runStageAction(runtimeRoot, runRoot, [
+        "--db",
+        dbPath,
+        "--action",
+        "export_cross_paper_context",
+      ]);
+      runStageAction(runtimeRoot, runRoot, [
+        "--db",
+        dbPath,
+        "--action",
+        "derive_cross_paper_evidence_map",
+      ]);
+
+      const evidenceMap = JSON.parse(
+        await fs.readFile(
+          path.join(runRoot, "runtime/payloads/cross-paper-evidence-map.json"),
+          "utf8",
+        ),
+      );
+
+      assert.isArray(evidenceMap.improvement_dimension_candidates);
+      assert.notProperty(evidenceMap, token("comparison", "dimensions"));
+      assert.match(
+        evidenceMap.taxonomy_candidates[0].triage_refs[0],
+        /^triage:/,
+      );
+      assert.match(
+        evidenceMap.evidence_limits.known_triage_refs[0],
+        /^triage:/,
+      );
+    }
+  });
+
+  it("exposes current runtime helper names for KG enrichment and summary coverage", async function () {
+    for (const runtimeRoot of skillRuntimeRoots) {
       const stageRuntime = await readRequiredRuntimeFile(
         runtimeRoot,
         "scripts/stage_runtime.py",
       );
-
-      assert.include(runtimeDb, "artifact_registry");
-      assert.include(stageRuntime, "stage_12_completed");
-      assert.match(stageRuntime, /registered[\s\S]+final stdout/i);
-      assert.match(stageRuntime, /partial[\s\S]+invalid/i);
-    }
-  });
-
-  it("validates section files, writes structured manifests, and leaves markdown export to the host", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
       const runtimeDb = await readRequiredRuntimeFile(
         runtimeRoot,
         "scripts/runtime_db.py",
       );
-      const outputSchema = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "assets/output.schema.json",
+      const evidenceMapSchema = JSON.parse(
+        await readRequiredRuntimeFile(
+          runtimeRoot,
+          "assets/schemas/cross_paper_evidence_map.schema.json",
+        ),
       );
 
-      assert.include(stageRuntime, "topic-analysis.json");
-      assert.include(stageRuntime, "topic-analysis.patch.json");
-      assert.include(stageRuntime, "paper_evidence");
-      assert.include(stageRuntime, "timeline_events");
-      assert.include(stageRuntime, "coverage");
-      assert.include(stageRuntime, "statistics");
-      assert.include(stageRuntime, "synthesis_report");
-      assert.include(stageRuntime, "manifest_path");
-      assert.include(stageRuntime, "result/result.json");
-      assert.notInclude(stageRuntime, "render_from_sqlite");
-      assert.notInclude(stageRuntime, "render_placeholder_outputs");
-      assert.notInclude(stageRuntime, "Pending Topic");
-      assert.notInclude(stageRuntime, "待生成的 topic synthesis summary");
-      assert.include(stageRuntime, "resolver_manifest_path");
-      assert.notInclude(stageRuntime, '"topic_resolver": topic_resolver');
+      assert.include(stageRuntime, "persist_kg_enrichment_payload");
+      assert.include(stageRuntime, "persist_summary_coverage_payload");
       assert.notInclude(
         stageRuntime,
-        '"resolved_paper_set": resolved_paper_set',
+        `${token("persist", "kg", "proposals")}_payload`,
       );
-      assert.include(runtimeDb, "topic_definition.id is required");
-      assert.include(runtimeDb, "topic_definition.title is required");
-      assert.include(runtimeDb, "isinstance(resolved, list)");
-      assert.include(runtimeDb, "non-empty resolved paper set");
-      assert.include(outputSchema, '"resolver_manifest_path"');
-      assert.include(outputSchema, '"required": ["id", "title"]');
-      assert.notMatch(
-        outputSchema,
-        /"required":\s*\[[\s\S]*"topic_resolver"[\s\S]*"resolved_paper_set"/,
-      );
-    }
-  });
-
-  it("provides formal stage write actions and forbids rendering before required sections exist", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const gate = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/gate_runtime.py",
-      );
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
-
-      for (const action of [
-        "persist_topic_context",
-        "persist_resolver",
-        "persist_citation_graph_metrics",
-        "persist_filtered_artifact_manifest",
-        "persist_paper_units",
-        "export_cross_paper_context",
-        "derive_cross_paper_evidence_map",
-        "persist_route_timeline",
-        "persist_core_sections",
-        "persist_kg_proposals",
-        "persist_external_statistics_report",
-        "validate_final_artifacts",
-        "cancel",
-      ]) {
-        assert.include(
-          stageRuntime,
-          action,
-          `${runtimeRoot} stage runtime should support ${action}`,
-        );
-        assert.include(
-          gate,
-          action,
-          `${runtimeRoot} gate should provide JIT command for ${action}`,
-        );
-      }
-      assert.notInclude(stageRuntime, "persist_paper_artifact_bundle");
-      assert.notInclude(stageRuntime, "persist_paper_artifact_bundles");
-      assert.notInclude(stageRuntime, "persist_paper_workset");
-      assert.notInclude(stageRuntime, "persist_cross_paper_synthesis");
-      assert.notInclude(gate, "persist_paper_artifact_bundle");
-      assert.notInclude(gate, "persist_paper_artifact_bundles");
-      assert.notInclude(gate, "persist_paper_workset");
-      assert.notInclude(gate, "persist_cross_paper_synthesis");
-      assert.include(stageRuntime, "--payload-file");
-      assert.include(stageRuntime, "--paper-ref");
-      if (runtimeRoot.includes("create-topic-synthesis")) {
-        assert.include(stageRuntime, "persist_library_index_page");
-        assert.include(gate, "persist_library_index_page");
-        assert.include(stageRuntime, "library_index_pages");
-        assert.match(stageRuntime, /complete paged library index receipt/i);
-        assert.match(
-          gate,
-          /persist_library_index_page[\s\S]+zotero-bridge synthesis get-library-index/,
-        );
-      }
-      assert.include(stageRuntime, "paper_artifact_bundles");
-      assert.include(stageRuntime, "citation_graph_metrics");
-      assert.include(stageRuntime, "persist_citation_graph_metrics");
-      assert.include(stageRuntime, "cross-paper-context.md");
-      assert.include(stageRuntime, "external-literature-context.md");
-      assert.include(stageRuntime, "cross-paper-context.manifest.json");
-      assert.include(stageRuntime, "missing_required_section_files");
-      assert.include(stageRuntime, "unknown_section_files");
-      assert.include(stageRuntime, "artifact_registry");
-      assert.match(stageRuntime, /hash[\s\S]+registry[\s\S]+mismatch/i);
-      assert.match(
-        gate,
-        /missing_required_section_files|blocker|validate_final_artifacts/i,
-      );
-    }
-  });
-
-  it("gates per-paper analysis on host artifact bundle receipts and cross-paper context export", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const gate = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/gate_runtime.py",
-      );
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
-      const runtimeDb = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/runtime_db.py",
-      );
-
-      assert.include(runtimeDb, "paper_artifact_bundles");
-      assert.include(runtimeDb, "citation_graph_metrics");
-      assert.include(runtimeDb, "persist_citation_graph_metrics");
-      assert.include(runtimeDb, "missing_citation_graph_metric_receipt_refs");
-      assert.include(
-        runtimeDb,
-        "missing_citation_graph_metrics_action_receipts",
-      );
-      assert.include(runtimeDb, "Citation Graph Metrics Summary");
-      assert.include(runtimeDb, "Citation Graph External Dependency Hint");
-      assert.include(runtimeDb, "graph_metrics_interpretation");
-      assert.notInclude(runtimeDb, "persist_paper_artifact_bundle");
-      assert.notInclude(runtimeDb, "persist_paper_artifact_bundles");
-      assert.include(runtimeDb, "persist_filtered_artifact_manifest");
-      assert.include(runtimeDb, "persist_paper_analyses");
-      assert.include(runtimeDb, "ACTION_ALIASES");
-      assert.include(
-        runtimeDb,
-        "persist_paper_units requires payload object with non-empty analyses[]",
-      );
-      assert.include(runtimeDb, "missing_paper_artifact_bundle_refs");
-      assert.include(runtimeDb, "missing_paper_artifact_bundle_receipt_refs");
-      assert.include(runtimeDb, "missing_paper_analysis_receipt_refs");
-      assert.include(runtimeDb, "audit_runtime_integrity");
-      assert.include(runtimeDb, "runtime_integrity_non_monotonic_stage_state");
-      assert.include(
-        runtimeDb,
-        "runtime_integrity_registered_file_hash_mismatch",
-      );
-      assert.include(runtimeDb, "require_stage4_action_receipts_complete");
-      assert.include(
-        runtimeDb,
-        "missing_paper_artifact_bundle_action_receipts",
-      );
-      assert.include(runtimeDb, "missing_paper_analysis_action_receipts");
-      assert.include(runtimeDb, "SHA256_HASH_RE");
-      assert.include(runtimeDb, "assert_valid_sha256_hash");
-      assert.match(runtimeDb, /sha256:\[a-f0-9\]\{64\}/);
-      assert.include(runtimeDb, "ARTIFACT_TYPE_ALIASES");
-      assert.include(runtimeDb, "synthesis.export_filtered_paper_artifacts");
-      assert.notInclude(runtimeDb, "synthesis.export_paper_artifact_bundle");
-      assert.include(runtimeDb, "inject_digest_locator_from_bundle");
-      assert.include(runtimeDb, "inject_section_digest_refs");
-      assert.include(runtimeDb, "evidence_id_for_paper_ref");
-      assert.include(runtimeDb, "inject_paper_evidence_ids_and_refs");
-      assert.include(runtimeDb, "strip_hash_fields");
-      assert.include(runtimeDb, "payload_types_seen");
-      assert.include(runtimeDb, "cannot be missing when host saw");
-      assert.include(runtimeDb, "export_cross_paper_context");
-      assert.include(runtimeDb, "build_cross_paper_context_views");
-      assert.include(runtimeDb, "validate_paper_unit_contract");
-      assert.include(runtimeDb, "write_cross_paper_evidence_index");
-      assert.include(runtimeDb, "cross-paper-evidence-index.json");
-      assert.include(runtimeDb, "derive_cross_paper_evidence_map");
-      assert.include(
-        runtimeDb,
-        "cross_paper_evidence_map must be validated before final sections",
-      );
-      assert.include(runtimeDb, "library_coverage_gap");
-      assert.include(runtimeDb, "_artifact_text_from_file");
-      assert.include(runtimeDb, "compact_reference_row");
-      assert.include(runtimeDb, "citation_analysis.report_md");
-      assert.include(runtimeDb, "source_context_hash");
-      assert.include(runtimeDb, "external_context_hash");
-      assert.match(
-        gate,
-        /persist_filtered_artifact_manifest[\s\S]+zotero-bridge synthesis export-filtered-paper-artifacts/,
-      );
-      assert.match(
-        gate,
-        /persist_citation_graph_metrics[\s\S]+zotero-bridge synthesis get-citation-graph-metrics/,
-      );
-      assert.include(gate, "BATCH_SIZE = 25");
-      assert.include(gate, "RULE_SUMMARY");
-      assert.include(gate, "audit_runtime_integrity");
-      assert.include(gate, "paper_refs");
-      assert.include(gate, "paper-artifacts-manifest.json");
-      assert.match(gate, /persist_paper_units[\s\S]+bundle receipt/i);
-      assert.match(gate, /persist_paper_units[\s\S]+enhanced paper-unit/i);
-      assert.match(gate, /derive_cross_paper_evidence_map/);
-      assert.match(gate, /persist_paper_units[\s\S]+analysis manifest/i);
-      assert.include(gate, "without sending hashes through LLM tokens");
-      assert.include(gate, "single-paper facts");
-      assert.include(gate, "historical progression");
-      assert.include(gate, "research route");
-      assert.include(gate, "continuous synthesis report");
-      assert.include(gate, "library coverage gaps");
-      assert.include(gate, "stage4_action_receipts_incomplete");
-      assert.include(gate, "direct SQLite rows are not valid state");
-      assert.match(
-        gate,
-        /export_cross_paper_context[\s\S]+derive_cross_paper_evidence_map/,
-      );
-      assert.include(gate, "derive_cross_paper_evidence_map");
-      assert.include(gate, "persist_route_timeline");
-      assert.include(gate, "persist_core_sections");
-      assert.include(gate, "persist_external_statistics_report");
-      assert.match(
+      assert.notInclude(
         stageRuntime,
-        /persist_paper_units[\s\S]+artifact bundle receipts/i,
+        `${token("persist", "external", "statistics", "report")}_payload`,
       );
-      assert.include(stageRuntime, "audit_runtime_integrity");
-      assert.include(stageRuntime, "persist_paper_unit");
-      assert.include(stageRuntime, "action_stage");
-      assert.include(stageRuntime, "clear_failed_retryable");
-      assert.include(stageRuntime, "direct SQLite rows are not valid state");
-      assert.include(stageRuntime, "require_stage4_action_receipts_complete");
-      assert.match(
-        stageRuntime,
-        /cross-paper-context\.md[\s\S]+external-literature-context\.md/,
-      );
-      assert.match(runtimeDb, /source_context_hash[\s\S]+mismatch/i);
-      assert.match(stageRuntime, /digest_ref[\s\S]+payload_hash/i);
-      assert.include(stageRuntime, "evidence_refs");
-      assert.include(runtimeDb, "validate_topic_section_contract");
-      assert.include(runtimeDb, "taxonomy route");
-      assert.include(runtimeDb, "taxonomy.summary is required");
-      assert.include(
+      assert.include(runtimeDb, "validate_paper_triage_contract");
+      assert.include(runtimeDb, "triage_candidate_id_for_paper_ref");
+      assert.notInclude(
         runtimeDb,
-        "timeline_events must be an object with summary and events",
-      );
-      assert.include(runtimeDb, "timeline_events.summary is required");
-      assert.include(
-        runtimeDb,
-        "external_literature_analysis coverage_verdict is required",
-      );
-      assert.include(runtimeDb, "statistics.");
-      assert.include(runtimeDb, "paper_count");
-      assert.include(runtimeDb, "synthesis_report.title is required");
-      assert.include(runtimeDb, "synthesis_report body must contain at least");
-      assert.include(
-        runtimeDb,
-        "paper_evidence.id is required after runtime evidence-id injection",
-      );
-      assert.include(runtimeDb, "references missing paper_evidence");
-      assert.include(
-        runtimeDb,
-        "external_literature_analysis summary is required",
-      );
-      assert.include(runtimeDb, "validate_paper_analysis_against_bundle");
-      assert.include(
-        runtimeDb,
-        "evidence_available must be false when digest is missing",
+        `${token("paper", "unit")}_id_for_paper_ref`,
       );
       assert.include(
-        runtimeDb,
-        "evidence_available must be true when digest is available",
+        evidenceMapSchema.required,
+        "improvement_dimension_candidates",
       );
-      assert.include(
-        runtimeDb,
-        "claim_support_candidates when digest is missing",
+      assert.notProperty(
+        evidenceMapSchema.properties,
+        token("comparison", "dimensions"),
       );
-      assert.include(
-        runtimeDb,
-        "external_references when references-json is missing",
-      );
-      assert.include(
-        runtimeDb,
-        "citation_contexts when citation-analysis-json is missing",
-      );
-      assert.notInclude(runtimeDb, "decoded_text");
-      assert.include(runtimeDb, "payload_hash");
-      assert.include(runtimeDb, "raw HTML");
     }
   });
 
-  it("exports filtered Markdown contexts instead of a full artifact JSON context", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const gate = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/gate_runtime.py",
-      );
-      const stageRuntime = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/stage_runtime.py",
-      );
-      const runtimeDb = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "scripts/runtime_db.py",
-      );
-
-      assert.include(runtimeDb, "build_cross_paper_context_views");
-      assert.include(runtimeDb, "cross-paper-context.md");
-      assert.include(runtimeDb, "external-literature-context.md");
-      assert.include(runtimeDb, "cross-paper-context.manifest.json");
-      assert.include(runtimeDb, "_artifact_text_from_file");
-      assert.include(runtimeDb, "Compact References");
-      assert.include(runtimeDb, "Citation Analysis Report");
-      assert.include(runtimeDb, "citation_analysis.report_md");
-      assert.include(runtimeDb, "references raw");
-      assert.notMatch(
-        runtimeDb,
-        /paper_artifact_bundles["']\s*:\s*strip_hash_fields\(bundles\)/,
-      );
-      assert.match(
-        gate,
-        /cross-paper-context\.md[\s\S]+external-literature-context\.md/,
-      );
-      assert.notMatch(
-        gate,
-        /use its source_context_hash in cross-paper payload/,
-      );
-      assert.include(stageRuntime, 'content_type="markdown"');
-      assert.include(stageRuntime, 'content_type="json"');
-    }
-  });
-
-  it("documents JIT gate-driven writes and per-paper analysis in the SKILL files", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-
-      assert.include(skillText, "command_example");
-      assert.include(skillText, "每一步看 gate");
-      assert.include(skillText, "persist_topic_context");
-      if (runtimeRoot.includes("create-topic-synthesis")) {
-        assert.include(skillText, "persist_library_index_page");
-        assert.include(skillText, "has_more");
-        assert.include(skillText, "index_hash");
-      }
-      assert.include(skillText, "persist_resolver");
-      assert.notInclude(skillText, "persist_paper_workset");
-      assert.include(skillText, "persist_citation_graph_metrics");
-      assert.include(skillText, "persist_filtered_artifact_manifest");
-      assert.notInclude(skillText, "persist_paper_artifact_bundles");
-      assert.notInclude(skillText, "persist_paper_analysis --paper-ref");
-      assert.include(skillText, "persist_paper_units");
-      assert.include(skillText, "paper unit");
-      assert.include(skillText, "derive_cross_paper_evidence_map");
-      assert.include(skillText, "source_paper_refs");
-      assert.include(skillText, "positioning");
-      assert.include(skillText, "taxonomy");
-      assert.include(skillText, "comparison_matrix");
-      assert.include(skillText, "evidence_map_refs");
-      assert.include(skillText, "Topic Synthesis 内容合同");
-      assert.include(skillText, "研究路线分析");
-      assert.include(skillText, "历史沿革分析");
-      assert.include(skillText, "coverage_verdict");
-      assert.include(skillText, "statistics");
-      assert.include(skillText, "synthesis_report");
-      assert.include(skillText, "信息密集型 topic 知识窗口");
-      assert.include(skillText, "不是字段填空");
-      assert.include(skillText, "支持综述写作");
-      assert.include(skillText, "语义目标");
-      assert.include(skillText, "提供可组合证据");
-      assert.include(skillText, "候选 id 空间");
-      assert.include(skillText, "连续知识报告");
-      assert.include(skillText, "concept card proposal 语义抽取");
-      assert.include(skillText, "topic graph relation proposal 语义判断");
-      assert.include(skillText, "export_cross_paper_context");
-      assert.notInclude(skillText, "persist_cross_paper_synthesis");
-      assert.include(skillText, "synthesis.export_filtered_paper_artifacts");
-      assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
-      assert.include(skillText, "批量");
-      assert.notInclude(skillText, "synthesis.read_paper_artifacts");
-      assert.include(skillText, "手写 `payload_hash`");
-      assert.include(skillText, "runtime 会注入");
-      assert.include(skillText, "paper_ref");
-      assert.include(skillText, "缺 artifact");
-      assert.include(skillText, "graph_metrics_interpretation");
-      assert.include(
-        skillText,
-        "不得把 metrics row 作为 claim/timeline evidence",
-      );
-      assert.include(skillText, "cross-paper-context.md");
-      assert.include(skillText, "external-literature-context.md");
-      assert.include(skillText, "--payload-file");
-      assert.match(skillText, /filtered artifact[\s\S]+manifest/i);
-      assert.notMatch(
-        skillText,
-        /真实语义内容必须由 agent 在渲染前整理到 run-local 结构中/,
-      );
-      assert.notMatch(skillText, /占位内容/);
-      assert.match(skillText, /bounded artifact probe|artifact probe/i);
-      assert.include(skillText, "final section JSON 写作");
-      assert.include(skillText, "validate_final_artifacts");
-      if (runtimeRoot.includes("create-topic-synthesis")) {
-        assert.include(skillText, "payload 必须包含 papers[]");
-        assert.include(skillText, '"papers"');
-      }
-    }
-  });
-
-  it("documents package-local script CLI support in the SKILL files", async function () {
-    const createSkill = await readRequiredRuntimeFile(
-      path.join("skills_builtin", "create-topic-synthesis"),
-      "SKILL.md",
+  it("rejects topic synthesis bundles without the current operation manifest contract", async function () {
+    const workflowModule = await importOptional(
+      "../../src/modules/synthesis/workflow",
     );
-    const updateSkill = await readRequiredRuntimeFile(
-      path.join("skills_builtin", "update-topic-synthesis"),
-      "SKILL.md",
+    const validateSynthesisResultBundle = requireExport(
+      workflowModule,
+      "validateSynthesisResultBundle",
     );
 
-    for (const skillText of [createSkill, updateSkill]) {
-      assert.include(skillText, "--action gate");
-      assert.include(skillText, "--action validate_final_artifacts");
-      assert.include(skillText, "--action cancel");
-      assert.include(skillText, "runtime_db.py");
-      assert.include(skillText, "没有独立 CLI");
-    }
-    assert.include(createSkill, "--operation create");
-    assert.include(updateSkill, "--operation update_full");
-    assert.include(updateSkill, "--operation update_patch");
-  });
-
-  it("documents runtime-required topic synthesis payload fields in skill guidance", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-      const step05 = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_05_paper_units.md",
-      );
-      const step06 = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_06_cross_paper_map.md",
-      );
-
-      for (const text of [skillText]) {
-        assert.include(text, "paper_refs");
-        assert.include(text, "payload_types_seen");
-      }
-      for (const text of [skillText, step05]) {
-        assert.include(text, "analyses");
-        assert.include(text, "evidence_available");
-        assert.include(text, "bibliographic.authors");
-        assert.include(text, "core");
-        assert.include(text, "related");
-        assert.include(text, "peripheral");
-        assert.include(text, "excluded");
-        assert.include(text, "digest_locator");
-      }
-      for (const text of [skillText, step06]) {
-        assert.include(text, "derive_cross_paper_evidence_map");
-        assert.include(text, "source_paper_refs");
-        assert.include(text, "evidence_refs");
-        assert.include(text, "evidence_map_refs");
-      }
-    }
-  });
-
-  it("keeps references Chinese, optional, and example-driven", async function () {
-    const createReferences = [...referenceFiles];
-    const updateReferences = [...referenceFiles];
-
-    for (const [runtimeRoot, refs] of [
-      [path.join("skills_builtin", "create-topic-synthesis"), createReferences],
-      [path.join("skills_builtin", "update-topic-synthesis"), updateReferences],
-    ] as const) {
-      for (const relativePath of refs) {
-        const text = await readRequiredRuntimeFile(runtimeRoot, relativePath);
-        assert.include(
-          text,
-          "可选扩展材料",
-          `${relativePath} should mark itself optional`,
-        );
-        assert.include(
-          text,
-          "硬约束以 `SKILL.md` 为准",
-          `${relativePath} should defer hard constraints`,
-        );
-        assert.match(
-          text,
-          /[\u4e00-\u9fff]/,
-          `${relativePath} should contain Chinese guidance`,
-        );
-        assert.match(
-          text,
-          /```(json|bash)[\s\S]+```/,
-          `${relativePath} should include concrete examples`,
-        );
-      }
-    }
-  });
-
-  it("keeps topic synthesis references focused on semantic analysis quality", async function () {
-    const semanticReferenceExpectations: Array<[string, string[]]> = [
-      [
-        "references/step_05_paper_units.md",
-        ["字段语义与写作标准", "合格内容示例", "不合格反例", "单篇事实"],
-      ],
-      [
-        "references/step_06_cross_paper_map.md",
-        ["当前主路径", "Agent 职责", "Runtime 职责", "derive_cross_paper_evidence_map"],
-      ],
-      [
-        "references/step_07_taxonomy_timeline.md",
-        [
-          "路线发现 heuristics",
-          "Event、Phase 与 Milestone",
-          "历史递进逻辑",
-          "不合格写法",
-        ],
-      ],
-      [
-        "references/step_08_core_sections.md",
-        [
-          "Claim 类型与深度",
-          "Comparison dimension",
-          "Debate 与 Gap 的区分",
-          "不合格反例",
-        ],
-      ],
-      [
-        "references/step_09_kg_proposals.md",
-        [
-          "Payload schema",
-          "concept_cards",
-          "concept_type",
-          "merge_hints",
-          "confidence",
-          "disambiguation",
-          "topic_relations",
-          "Topic Relations",
-          "broader_topic_candidate",
-          "related_topic_candidate",
-          "overlap_topic_candidate",
-          "contrast_topic_candidate",
-          "topic_interest",
-          "Topic Interest",
-          "include_terms",
-          "must_have_terms",
-          "methods",
-          "exclude_terms",
-          "seed_literature_item_ids",
-          "不发明",
-          "外部文献",
-          "citation metrics",
-          "空数组",
-          "不合格反例",
-        ],
-      ],
-      [
-        "references/step_10_external_statistics_report.md",
-        ["Coverage rubric", "Report 写作建议", "统计解读", "不合格反例"],
-      ],
-      [
-        "references/section_examples.md",
-        [
-          "合格内容示例",
-          "KG Proposal Sidecars",
-          "result/sidecars/concept-cards-proposal.json",
-          'cards": []',
-          'proposals": []',
-          "canonical_concept_id",
-          "canonical_edge_id",
-          "常见反例速查",
-          "研究路线边界",
-          "连续报告",
-        ],
-      ],
-    ];
-
-    for (const runtimeRoot of skillRuntimeRoots) {
-      for (const [relativePath, snippets] of semanticReferenceExpectations) {
-        const text = await readRequiredRuntimeFile(runtimeRoot, relativePath);
-        for (const snippet of snippets) {
-          assert.include(
-            text,
-            snippet,
-            `${runtimeRoot}/${relativePath} should include ${snippet}`,
-          );
-        }
-      }
-    }
-  });
-
-  it("keeps payload-writing guidance schema-first", async function () {
-    const schemaFirstReferences = [
-      "references/step_05_paper_units.md",
-      "references/step_06_cross_paper_map.md",
-      "references/step_07_taxonomy_timeline.md",
-      "references/step_08_core_sections.md",
-      "references/step_09_kg_proposals.md",
-      "references/step_10_external_statistics_report.md",
-      "references/step_11_render_validate.md",
-    ];
-
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-      assert.include(skillText, "Schema skeleton");
-      assert.include(skillText, "sidecars");
-
-      for (const relativePath of schemaFirstReferences) {
-        const text = await readRequiredRuntimeFile(runtimeRoot, relativePath);
-        const schemaIndex = Math.max(
-          text.indexOf("## Payload schema"),
-          text.indexOf("## Manifest / stdout schema"),
-        );
-        assert.isAtLeast(
-          schemaIndex,
-          0,
-          `${runtimeRoot}/${relativePath} should start from schema context`,
-        );
-        const semanticIndex = text.search(
-          /## (分析目标|目的|Taxonomy|输出范围|上下文使用原则|External Literature|最终动作)/,
-        );
-        if (semanticIndex >= 0) {
-          assert.isBelow(
-            schemaIndex,
-            semanticIndex,
-            `${runtimeRoot}/${relativePath} should show schema before semantic guidance`,
-          );
-        }
-      }
-    }
-  });
-
-  it("documents KG proposal sidecar boundaries in the content contract and examples", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const contract = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/topic_synthesis_content_contract.md",
-      );
-      const examples = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/section_examples.md",
-      );
-
-      for (const text of [contract, examples]) {
-        assert.include(text, "sidecars");
-        assert.include(text, "concept_cards_proposal");
-        assert.include(text, "topic_graph_relation_proposals");
-        assert.include(text, "result/sidecars/");
-      }
-
-      assert.include(contract, "persist_kg_proposals");
-      assert.include(contract, "Stage 9");
-      assert.include(contract, "Stage 10");
-      assert.include(contract, "Stage 11");
-      assert.include(contract, "不是 structured topic artifact 的正文 section");
-      assert.include(contract, "也不是 `synthesis_report` 的内容来源");
-
-      assert.include(examples, "KG Proposal Sidecars");
-      assert.include(examples, "必交可空");
-      assert.include(examples, '"cards": []');
-      assert.include(examples, '"proposals": []');
-      assert.include(examples, "canonical_concept_id");
-      assert.include(examples, "canonical_edge_id");
-    }
-  });
-
-  it("keeps KG proposal guidance context-preserving instead of forcing rereads", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const text = await readRequiredRuntimeFile(
-        runtimeRoot,
-        "references/step_09_kg_proposals.md",
-      );
-
-      assert.notInclude(text, "必须读取");
-      assert.include(text, "不要为了本步骤机械重读所有前序文件");
-      assert.include(text, "只核对缺口，不重新做前序分析");
-      assert.include(text, "不能跳过本步骤");
-    }
-  });
-
-  it("keeps runtime hard contract in SKILL files instead of references", async function () {
-    for (const runtimeRoot of skillRuntimeRoots) {
-      const skillText = await readRequiredRuntimeFile(runtimeRoot, "SKILL.md");
-
-      assert.include(skillText, "## 运行时硬合同");
-      assert.include(skillText, "failed_retryable");
-      assert.include(skillText, "failed_terminal");
-      assert.include(skillText, "canceled");
-      assert.include(skillText, "artifact_registry");
-      assert.include(skillText, "partial/unregistered output");
-      await fs
-        .access(path.join(runtimeRoot, "references", "runtime_contract.md"))
-        .then(
-          () =>
-            assert.fail(
-              `${runtimeRoot} must not keep runtime_contract.md in references`,
-            ),
-          () => undefined,
-        );
-    }
+    assert.throws(
+      () =>
+        validateSynthesisResultBundle({
+          kind: "topic_synthesis",
+          mode: "create",
+          language: "zh-CN",
+          topic_definition: { id: "object-detection" },
+          resolver_diagnostics: {},
+          artifact_metadata: {},
+          markdown: "# preview",
+        }),
+      /operation and analysis_manifest_path/,
+    );
   });
 });

@@ -71,6 +71,10 @@ export const ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS = "synthesis.list_topics";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT =
   "synthesis.get_topic_context";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS = "synthesis.get_schemas";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CONCEPT_KB =
+  "synthesis.query_concept_kb";
+export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH_CLUSTER =
+  "synthesis.query_citation_graph_cluster";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX =
   "synthesis.get_library_index";
 export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER =
@@ -2560,6 +2564,54 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CONCEPT_KB,
+    title: "Query Synthesis Concept KB",
+    description:
+      "Return bounded read-only exact, alias, and ambiguous Concept KB matches for topic synthesis KG enrichment. This tool never mutates review state.",
+    method: "queryConceptKb",
+    properties: {
+      concept_candidate_labels: { type: "array", maxItems: 100 },
+      conceptCandidateLabels: { type: "array", maxItems: 100 },
+      labels: { type: "array", maxItems: 100 },
+      label: { type: "string" },
+      query: { type: "string" },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH_CLUSTER,
+    title: "Query Synthesis citation graph cluster",
+    description:
+      "Return bounded read-only topic-scoped citation graph cluster counts and diagnostics for synthesis statistics. This tool never rebuilds or refreshes graph state.",
+    method: "queryCitationGraphCluster",
+    properties: {
+      source_paper_refs: { type: "array", maxItems: 250 },
+      sourcePaperRefs: { type: "array", maxItems: 250 },
+      paper_refs: { type: "array", maxItems: 250 },
+      paperRefs: { type: "array", maxItems: 250 },
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+      max_external_nodes: {
+        type: ["number", "string"],
+        minimum: 0,
+        maximum: 250,
+      },
+      maxExternalNodes: {
+        type: ["number", "string"],
+        minimum: 0,
+        maximum: 250,
+      },
+      cluster_policy: {
+        type: "string",
+        enum: ["source_only", "include_external", "bounded_external"],
+      },
+      clusterPolicy: {
+        type: "string",
+        enum: ["source_only", "include_external", "bounded_external"],
+      },
+    },
+  }),
+  synthesisTool({
     name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
     title: "Get Synthesis library index",
     description:
@@ -3021,6 +3073,10 @@ function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
   }));
 }
 
+const HOST_BRIDGE_MCP_ALLOWED_ARGS: Record<string, string[]> = {
+  "synthesis.get_schemas": ["kind"],
+};
+
 function summarizeHostBridgeCapabilityResult(
   capabilityName: string,
   data: unknown,
@@ -3138,12 +3194,17 @@ async function callHostBridgeCapabilityAsMcpTool(
       },
     });
   }
+  const allowedArgs = HOST_BRIDGE_MCP_ALLOWED_ARGS[capability.name];
+  if (allowedArgs) {
+    assertKnownArgs(capability.name, input, allowedArgs);
+  }
   const data = await capability.handler(input, {
     getStatus:
       context.options.resolveHostBridgeStatus ||
       (() =>
         (context.options.resolveMcpStatus?.() ||
           {}) as HostBridgeStatusSnapshot),
+    resolveSynthesisService: context.options.resolveSynthesisService,
   });
   return buildToolResult({
     tool: capability.name,
@@ -3152,6 +3213,7 @@ async function callHostBridgeCapabilityAsMcpTool(
       capability: capability.name,
       approval,
       data,
+      result: data,
     },
   });
 }

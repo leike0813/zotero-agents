@@ -1,0 +1,700 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "OpenAI",
+      "title": "Chatgpt"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "J. Kaplan; S. McCandlish; et al.",
+      "title": "Scaling laws for neural language models"
+    },
+    {
+      "id": "ref-3",
+      "year": "2022",
+      "authors": "I. M. Alabdulmohsin; B. Neyshabur; et al.",
+      "title": "Revisiting neural scaling laws in language and vision"
+    },
+    {
+      "id": "ref-4",
+      "year": "2023",
+      "authors": "Z. Xie; Z. Zhang; et al.",
+      "title": "On data scaling in masked image modeling"
+    },
+    {
+      "id": "ref-5",
+      "year": "2024",
+      "authors": "A. El-Nouby; M. Klein; et al.",
+      "title": "Scalable pre-training of large autoregressive image models"
+    },
+    {
+      "id": "ref-6",
+      "year": "2025",
+      "authors": "J. Pan; B. Jian; et al.",
+      "title": "Beyond benchmarks: Dynamic, automatic and systematic red-teaming agents for trustworthy medical language models"
+    },
+    {
+      "id": "ref-7",
+      "year": "2025",
+      "authors": "J. Pan; C. Liu; et al.",
+      "title": "Medvlm-r1: Incentivizing medical reasoning capability of vision-language models (vlms) via reinforcement learning"
+    },
+    {
+      "id": "ref-8",
+      "year": "2025",
+      "authors": "D. Fan; S. Tong; et al.",
+      "title": "Scaling language-free visual representation learning"
+    },
+    {
+      "id": "ref-9",
+      "year": "2023",
+      "authors": "M. Oquab; T. Darcet; et al.",
+      "title": "Dinov2: Learning robust visual features without supervision"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "M. Caron; H. Touvron; et al.",
+      "title": "Emerging properties in self-supervised vision transformers"
+    },
+    {
+      "id": "ref-11",
+      "year": "2025",
+      "authors": "O. Siméoni; H. V. Vo; et al.",
+      "title": "Dinov3"
+    },
+    {
+      "id": "ref-12",
+      "year": "2025",
+      "authors": "S. Yang; H. Wang; et al.",
+      "title": "Segdino: An efficient design for medical and natural image segmentation with dino-v3"
+    },
+    {
+      "id": "ref-13",
+      "year": "2025",
+      "authors": "Y. Li; Y. Wu; et al.",
+      "title": "Meddinov3: How to adapt vision foundation models for medical image segmentation?"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "X. Wang; Y. Peng; et al.",
+      "title": "Chestx-ray8: Hospital-scale chest x-ray database and benchmarks on weakly-supervised classification and localization of common thorax diseases"
+    },
+    {
+      "id": "ref-15",
+      "year": "2024",
+      "authors": "M. Y. Lu; B. Chen; et al.",
+      "title": "A visual-language foundation model for computational pathology"
+    },
+    {
+      "id": "ref-16",
+      "year": "2024",
+      "authors": "I. E. Hamamci; S. Er; et al.",
+      "title": "Developing generalist foundation models from a multimodal dataset for 3d computed tomography"
+    },
+    {
+      "id": "ref-17",
+      "year": "2023",
+      "authors": "S. Zhang; Y. Xu; et al.",
+      "title": "Largescale domain-specific pretraining for biomedical vision-language processing"
+    },
+    {
+      "id": "ref-18",
+      "year": "2018",
+      "authors": "A. Stein; C. Wu; et al.",
+      "title": "RSNA pneumonia detection challenge"
+    },
+    {
+      "id": "ref-19",
+      "year": "2022",
+      "authors": "F. Wang; Y. Zhou; et al.",
+      "title": "Multi-granularity cross-modal alignment for generalized medical visual representation learning"
+    },
+    {
+      "id": "ref-20",
+      "year": "2017",
+      "authors": "B. E. Bejnordi; M. Veta; et al.",
+      "title": "Diagnostic assessment of deep learning algorithms for detection of lymph node metastases in women with breast cancer"
+    },
+    {
+      "id": "ref-21",
+      "year": "2018",
+      "authors": "P. Bandi; O. Geessink; et al.",
+      "title": "From detection of individual metastases to classification of lymph node status at the patient level: the camelyon17 challenge"
+    },
+    {
+      "id": "ref-22",
+      "year": "2025",
+      "authors": "L. Cai; S. Huang; et al.",
+      "title": "Attrimil: Revisiting attention-based multiple instance learning for whole-slide pathological image classification from a perspective of instance attributes"
+    },
+    {
+      "id": "ref-23",
+      "year": "2021",
+      "authors": "F. Xu; C. Zhu; et al.",
+      "title": "Predicting axillary lymph node metastasis in early breast cancer using deep learning on primary tumor biopsy slides"
+    },
+    {
+      "id": "ref-24",
+      "year": "2021",
+      "authors": "M. Y. Lu; D. F. Williamson; et al.",
+      "title": "Data-efficient and weakly supervised computational pathology on whole-slide images"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "P. H. Smedsrud; V. Thambawita; et al.",
+      "title": "Kvasir-Capsule, a video capsule endoscopy dataset"
+    },
+    {
+      "id": "ref-26",
+      "year": "2022",
+      "authors": "Z. Wang; B. Lu; et al.",
+      "title": "Autolaparo: A new dataset of integrated multi-tasks for image-guided surgical automation in laparoscopic hysterectomy"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "S. Leclerc; E. Smistad; et al.",
+      "title": "Deep learning for segmentation using an open large-scale dataset in 2d echocardiography"
+    },
+    {
+      "id": "ref-28",
+      "year": "2020",
+      "authors": "M. Allan; S. Kondo; et al.",
+      "title": "2018 robotic scene segmentation challenge"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "C. González; L. Bravo-Sánchez; et al.",
+      "title": "Isinet: an instance-based approach for surgical instrument segmentation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "S. Ali; B. Braden; et al.",
+      "title": "Endoscopy disease detection and segmentation (edd2020)"
+    },
+    {
+      "id": "ref-31",
+      "year": "2025",
+      "authors": "G. Müller-Franzes; F. Khader; et al.",
+      "title": "Medical slice transformer for improved diagnosis and explainability on 3d medical images with dinov2"
+    },
+    {
+      "id": "ref-32",
+      "year": "2022",
+      "authors": "M. Antonelli; A. Reinke; et al.",
+      "title": "The medical segmentation decathlon"
+    },
+    {
+      "id": "ref-33",
+      "year": "2024",
+      "authors": "L. Wu; J. Zhuang; et al.",
+      "title": "Voco: A simple-yet-effective volume contrastive learning framework for 3d medical image analysis"
+    },
+    {
+      "id": "ref-34",
+      "year": "2016",
+      "authors": "CREMI",
+      "title": "Miccai challenge on circuit reconstruction from electron microscopy images"
+    },
+    {
+      "id": "ref-35",
+      "year": "2015",
+      "authors": "N. Kasthuri; K. J. Hayworth; et al.",
+      "title": "Saturated reconstruction of a volume of neocortex"
+    },
+    {
+      "id": "ref-36",
+      "year": "2022",
+      "authors": "K. T. Gatidis S",
+      "title": "A whole-body fdg-pet/ct dataset with manually annotated tumor lesions (fdg-pet-ct-lesions)"
+    },
+    {
+      "id": "ref-37",
+      "year": "2022",
+      "authors": "V. Oreiller; V. Andrearczyk; et al.",
+      "title": "Head and neck tumor segmentation in pet/ct: the hecktor challenge"
+    },
+    {
+      "id": "ref-38",
+      "year": "2018",
+      "authors": "O. Bernard; A. Lalande; et al.",
+      "title": "Deep learning techniques for automatic mri cardiac multi-structures segmentation and diagnosis: Is the problem solved?"
+    },
+    {
+      "id": "ref-39",
+      "year": "2018",
+      "authors": "M. Ilse; J. Tomczak; et al.",
+      "title": "Attention-based deep multiple instance learning"
+    },
+    {
+      "id": "ref-40",
+      "year": "2018",
+      "authors": "J. Funke; F. Tschopp; et al.",
+      "title": "Large scale image segmentation with structured loss based deep learning for connectome reconstruction"
+    },
+    {
+      "id": "ref-41",
+      "year": "2024",
+      "authors": "X. Song; X. Xu; et al.",
+      "title": "Dino-reg: General purpose image encoder for training-free multi-modal deformable medical image registration"
+    },
+    {
+      "id": "ref-42",
+      "year": "2013",
+      "authors": "J. Nunez-Iglesias; R. Kennedy; et al.",
+      "title": "Machine learning of hierarchical clustering to segment 2d and 3d images"
+    },
+    {
+      "id": "ref-43",
+      "year": "2015",
+      "authors": "I. Arganda-Carreras; S. C. Turaga; et al.",
+      "title": "Crowdsourcing the creation of image segmentation algorithms for connectomics"
+    },
+    {
+      "id": "ref-44",
+      "year": "2024",
+      "authors": "R. J. Chen; T. Ding; et al.",
+      "title": "Towards a general-purpose foundation model for computational pathology"
+    },
+    {
+      "id": "ref-45",
+      "year": "2016",
+      "authors": "K. He; X. Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-46",
+      "year": "2025",
+      "authors": "J. Joseph; S. N. George; et al.",
+      "title": "Vapcaps: A novel variance-based attention network with imbalance aware loss for better pathology detection in video capsule endoscopy"
+    },
+    {
+      "id": "ref-47",
+      "year": "2026",
+      "authors": "Y. Li; G. Zhao; et al.",
+      "title": "Stsanet: Spatial temporal-self-aggregation network for surgical phase recognition"
+    },
+    {
+      "id": "ref-48",
+      "year": "2022",
+      "authors": "A. Srivastava; S. Chanda; et al.",
+      "title": "Gmsrf-net: An improved generalizability with global multi-scale residual fusion network for polyp segmentation"
+    },
+    {
+      "id": "ref-49",
+      "year": "2022",
+      "authors": "A. Trockman; J. Kolter",
+      "title": "Patches are all you need?"
+    },
+    {
+      "id": "ref-50",
+      "year": "2022",
+      "authors": "S. d’Ascoli; H. Touvron; et al.",
+      "title": "Convit: Improving vision transformers with soft convolutional inductive biases"
+    },
+    {
+      "id": "ref-51",
+      "year": "2022",
+      "authors": "X. Dong; J. Bao; et al.",
+      "title": "Cswin transformer: A general vision transformer backbone with cross-shaped windows"
+    },
+    {
+      "id": "ref-52",
+      "year": "2022",
+      "authors": "A. Srivastava; N. Tomar; et al.",
+      "title": "Video capsule endoscopy classification using focal modulation guided convolutional neural network"
+    },
+    {
+      "id": "ref-53",
+      "year": "2021",
+      "authors": "A. Vats; M. Pedersen; et al.",
+      "title": "Learning more for free - a multi task learning approach for improved pathology classification in capsule endoscopy"
+    },
+    {
+      "id": "ref-54",
+      "year": "2021",
+      "authors": "O. Yet; T. Rassem; et al.",
+      "title": "Improved attentive pairwise interaction (api-net) for finegrained image classification"
+    },
+    {
+      "id": "ref-55",
+      "year": "2018",
+      "authors": "Y. Jin; Q. Dou; et al.",
+      "title": "Sv-rcnet: Workflow recognition from surgical videos using recurrent convolutional network"
+    },
+    {
+      "id": "ref-56",
+      "year": "2021",
+      "authors": "Y. Jin; Y. Long; et al.",
+      "title": "Temporal memory relation network for workflow recognition from surgical video"
+    },
+    {
+      "id": "ref-57",
+      "year": "2021",
+      "authors": "X. Gao; Y. Jin; et al.",
+      "title": "Trans-svnet: Accurate phase recognition from surgical videos via hybrid embedding aggregation transformer"
+    },
+    {
+      "id": "ref-58",
+      "year": "2025",
+      "authors": "Y. Liu; M. Boels; et al.",
+      "title": "Lovit: Long video transformer for surgical phase recognition"
+    },
+    {
+      "id": "ref-59",
+      "year": "2024",
+      "authors": "J. Yu; A. Wang; et al.",
+      "title": "Sam 2 in robotic surgery: An empirical evaluation for robustness and generalization in surgical video segmentation"
+    },
+    {
+      "id": "ref-60",
+      "year": "2015",
+      "authors": "O. Ronneberger; P. Fischer; et al.",
+      "title": "U-net: Convolutional networks for biomedical image segmentation"
+    },
+    {
+      "id": "ref-61",
+      "year": "2018",
+      "authors": "A. A. Shvets; A. Rakhlin; et al.",
+      "title": "Automatic instrument segmentation in robotassisted surgery using deep learning"
+    },
+    {
+      "id": "ref-62",
+      "year": "2019",
+      "authors": "Y. Jin; K. Cheng; et al.",
+      "title": "Incorporating temporal prior from motion flow for instrument segmentation in minimally invasive surgery video"
+    },
+    {
+      "id": "ref-63",
+      "year": "2022",
+      "authors": "A. Wang; M. Islam; et al.",
+      "title": "Rethinking surgical instrument segmentation: A background image can be all you need"
+    },
+    {
+      "id": "ref-64",
+      "year": "2021",
+      "authors": "M. Islam; V. Vibashan; et al.",
+      "title": "St-mtl: Spatio-temporal multitask learning model to predict scanpath while tracking instruments in robotic surgery"
+    },
+    {
+      "id": "ref-65",
+      "year": "2020",
+      "authors": "M. Islam; V. Vibashan; et al.",
+      "title": "Ap-mtl: Attention pruned multi-task learning model for real-time instrument detection and segmentation in robot-assisted surgery"
+    },
+    {
+      "id": "ref-66",
+      "year": "2022",
+      "authors": "L. Seenivasan; S. Mitheran; et al.",
+      "title": "Global-reasoned multi-task learning model for surgical scene understanding"
+    },
+    {
+      "id": "ref-67",
+      "year": "2022",
+      "authors": "Z. Zhao; Y. Jin; et al.",
+      "title": "Trasetr: track-to-segment transformer with contrastive query for instance-level instrument segmentation in robotic surgery"
+    },
+    {
+      "id": "ref-68",
+      "year": "2023",
+      "authors": "B. Baby; D. Thapar; et al.",
+      "title": "From forks to forceps: A new framework for instance segmentation of surgical instruments"
+    },
+    {
+      "id": "ref-69",
+      "year": "2023",
+      "authors": "A. Kirillov; E. Mintun; et al.",
+      "title": "Segment anything"
+    },
+    {
+      "id": "ref-70",
+      "year": "2024",
+      "authors": "N. Ravi; V. Gabeur; et al.",
+      "title": "Sam 2: Segment anything in images and videos"
+    },
+    {
+      "id": "ref-71",
+      "year": "2021",
+      "authors": "J. Chen; Y. Lu; et al.",
+      "title": "Transunet: Transformers make strong encoders for medical image segmentation"
+    },
+    {
+      "id": "ref-72",
+      "year": "2021",
+      "authors": "C.-H. Huang; H.-Y. Wu; et al.",
+      "title": "Hardnet-mseg: A simple encoder-decoder polyp segmentation neural network that achieves over 0.9 mean dice and 86 fps"
+    },
+    {
+      "id": "ref-73",
+      "year": "2022",
+      "authors": "A. Hatamizadeh; V. Nath; et al.",
+      "title": "Swin unetr: Swin transformers for semantic segmentation of brain tumors in mri images"
+    },
+    {
+      "id": "ref-74",
+      "year": "2023",
+      "authors": "Q. Chang; D. Ahmad; et al.",
+      "title": "Esfpnet: efficient deep learning architecture for real-time lesion segmentation in autofluorescence bronchoscopic video"
+    },
+    {
+      "id": "ref-75",
+      "year": "2022",
+      "authors": "F. Tang; Q. Huang; et al.",
+      "title": "Duat: Dual-aggregation transformer network for medical image segmentation"
+    },
+    {
+      "id": "ref-76",
+      "year": "2022",
+      "authors": "E. Sanderson; B. J. Matuszewski",
+      "title": "Fcn-transformer feature fusion for polyp segmentation"
+    },
+    {
+      "id": "ref-77",
+      "year": "2022",
+      "authors": "A. Srivastava; D. Jha; et al.",
+      "title": "Msrf-net: A multi-scale residual fusion network for biomedical image segmentation"
+    },
+    {
+      "id": "ref-78",
+      "year": "2021",
+      "authors": "A. Srivastava; S. Chanda; et al.",
+      "title": "Gmsrf-net: An improved generalizability with global multi-scale residual fusion network for polyp segmentation"
+    },
+    {
+      "id": "ref-79",
+      "year": "2023",
+      "authors": "D. Bo; W. Wenhai; et al.",
+      "title": "Polyp-pvt: Polyp segmentation with pyramidvision transformers"
+    },
+    {
+      "id": "ref-80",
+      "year": "2022",
+      "authors": "G.-P. Ji; G. Xiao; et al.",
+      "title": "Video polyp segmentation: A deep learning perspective"
+    },
+    {
+      "id": "ref-81",
+      "year": "2025",
+      "authors": "Y. Pang; Y. Long; et al.",
+      "title": "Endoscopic adaptive transformer for enhanced polyp segmentation in endoscopic imaging"
+    },
+    {
+      "id": "ref-82",
+      "year": "2024",
+      "authors": "I. E. Hamamci; S. Er; et al.",
+      "title": "Developing generalist foundation models from a multimodal dataset for 3d computed tomography"
+    },
+    {
+      "id": "ref-83",
+      "year": "2021",
+      "authors": "R. L. Draelos; D. Dov; et al.",
+      "title": "Machine-learning-based multiple abnormality prediction with large-scale chest computed tomography volumes"
+    },
+    {
+      "id": "ref-84",
+      "year": "2021",
+      "authors": "F. Isensee; P. F. Jaeger; et al.",
+      "title": "nnu-net: a self-configuring method for deep learning-based biomedical image segmentation"
+    },
+    {
+      "id": "ref-85",
+      "year": "2016",
+      "authors": "Ö. Çiçek; A. Abdulkadir; et al.",
+      "title": "3d u-net: learning dense volumetric segmentation from sparse annotation"
+    },
+    {
+      "id": "ref-86",
+      "year": "2016",
+      "authors": "F. Milletari; N. Navab; et al.",
+      "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-87",
+      "year": "2022",
+      "authors": "A. Hatamizadeh; Y. Tang; et al.",
+      "title": "Unetr: transformers for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-88",
+      "year": "2022",
+      "authors": "K. He; X. Chen; et al.",
+      "title": "Masked autoencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-89",
+      "year": "2020",
+      "authors": "T. Chen; S. Kornblith; et al.",
+      "title": "A simple framework for contrastive learning of visual representations"
+    },
+    {
+      "id": "ref-90",
+      "year": "2021",
+      "authors": "X. Chen; S. Xie; et al.",
+      "title": "An empirical study of training self-supervised vision transformers"
+    },
+    {
+      "id": "ref-91",
+      "year": "2020",
+      "authors": "M. Caron; I. Misra; et al.",
+      "title": "Unsupervised learning of visual features by contrasting cluster assignments"
+    },
+    {
+      "id": "ref-92",
+      "year": "2020",
+      "authors": "J.-B. Grill; F. Strub; et al.",
+      "title": "Bootstrap your own latent: A new approach to self-supervised learning"
+    },
+    {
+      "id": "ref-93",
+      "year": "2016",
+      "authors": "Ö. Çiçek; A. Abdulkadir; et al.",
+      "title": "3d u-net: learning dense volumetric segmentation from sparse annotation"
+    },
+    {
+      "id": "ref-94",
+      "year": "2016",
+      "authors": "F. Milletari; N. Navab; et al.",
+      "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-95",
+      "year": "2017",
+      "authors": "K. Lee; J. Zung; et al.",
+      "title": "Superhuman accuracy on the snemi3d connectomics challenge"
+    },
+    {
+      "id": "ref-96",
+      "year": "2022",
+      "authors": "W. Huang; S. Deng; et al.",
+      "title": "Learning to model pixel-embedded affinity for homogeneous instance segmentation"
+    },
+    {
+      "id": "ref-97",
+      "year": "2023",
+      "authors": "R. Sun; N. Luo; et al.",
+      "title": "Appearance prompt vision transformer for connectome reconstruction"
+    },
+    {
+      "id": "ref-98",
+      "year": "2023",
+      "authors": "A. Sheridan; T. M. Nguyen; et al.",
+      "title": "Local shape descriptors for neuron segmentation"
+    },
+    {
+      "id": "ref-99",
+      "year": "2024",
+      "authors": "X. Liu; M. Cai; et al.",
+      "title": "Cross-dimension affinity distillation for 3d em neuron segmentation"
+    },
+    {
+      "id": "ref-100",
+      "year": "2021",
+      "authors": "Y. Tang; D. Yang; et al.",
+      "title": "Self-supervised pre-training of swin transformers for 3d medical image analysis"
+    },
+    {
+      "id": "ref-101",
+      "year": "2024",
+      "authors": "T. Liu; Q. Bai; et al.",
+      "title": "Vsmtrans: A hybrid paradigm integrating self-attention and convolution for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-102",
+      "year": "2024",
+      "authors": "A. M. Shaker; M. Maaz; et al.",
+      "title": "Unetr++: delving into efficient and accurate 3d medical image segmentation"
+    },
+    {
+      "id": "ref-103",
+      "year": "2025",
+      "authors": "C. Li",
+      "title": "U-kan makes strong backbone for medical image segmentation and generation"
+    },
+    {
+      "id": "ref-104",
+      "year": "2022",
+      "authors": "Z. Xing; L. Yu; et al.",
+      "title": "Nestedformer: Nested modality-aware transformer for brain tumor segmentation"
+    },
+    {
+      "id": "ref-105",
+      "year": "2023",
+      "authors": "Z. Wang; Y. Hong",
+      "title": "A2fseg: Adaptive multi-modal fusion network for medical image segmentation"
+    },
+    {
+      "id": "ref-106",
+      "year": "2023",
+      "authors": "J. Shi",
+      "title": "H-denseformer: An efficient hybrid densely connected transformer for multimodal tumor segmentation"
+    },
+    {
+      "id": "ref-107",
+      "year": "2019",
+      "authors": "G. Balakrishnan; A. Zhao; et al.",
+      "title": "Voxelmorph: a learning framework for deformable medical image registration"
+    },
+    {
+      "id": "ref-108",
+      "year": "2021",
+      "authors": "H. Siebert; L. Hansen; et al.",
+      "title": "Fast 3d registration with accurate optimisation and little learning for learn2reg 2021"
+    },
+    {
+      "id": "ref-109",
+      "year": "2024",
+      "authors": "N. Dey; B. Billot; et al.",
+      "title": "Learning general-purpose biomedical volume representations using randomized synthesis"
+    },
+    {
+      "id": "ref-110",
+      "year": "2025",
+      "authors": "D. Bolya; P.-Y. Huang; et al.",
+      "title": "Perception encoder: The best visual embeddings are not at the output of the network"
+    },
+    {
+      "id": "ref-111",
+      "year": "2022",
+      "authors": "E. J. Hu; Y. Shen; et al.",
+      "title": "Lora: Low-rank adaptation of large language models"
+    },
+    {
+      "id": "ref-112",
+      "year": "2024",
+      "authors": "J. Ma; Y. He; et al.",
+      "title": "Segment anything in medical images"
+    },
+    {
+      "id": "ref-113",
+      "year": "2025",
+      "authors": "Y. Zhang; P. Hager; et al.",
+      "title": "Towards cardiac mri foundation models: Comprehensive visual-tabular representations for whole-heart assessment and beyond"
+    },
+    {
+      "id": "ref-114",
+      "year": "2024",
+      "authors": "Y. Zhang; C. Chen; et al.",
+      "title": "Whole heart 3d+ t representation learning through sparse 2d cardiac mr images"
+    },
+    {
+      "id": "ref-115",
+      "year": "2025",
+      "authors": "B. Jian; J. Pan; et al.",
+      "title": "Timeflow: Longitudinal brain image registration and aging progression analysis"
+    },
+    {
+      "id": "ref-116",
+      "year": "2025",
+      "authors": "N. Bubeck; S. Shit; et al.",
+      "title": "Latent interpolation learning using diffusion models for cardiac volume reconstruction"
+    }
+  ]
+}

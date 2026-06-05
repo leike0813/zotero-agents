@@ -1,0 +1,460 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2010",
+      "authors": "Anarew Aaams; jongmin Baek; et al.",
+      "title": "Fast high-dimensional filtering using the permutohedral lattice"
+    },
+    {
+      "id": "ref-2",
+      "year": "2016",
+      "authors": "Ba,Jamie Ryan Kiros",
+      "title": "Layer normalization"
+    },
+    {
+      "id": "ref-3",
+      "year": "2017",
+      "authors": "Boulch,Bertrand Le Saux",
+      "title": "Unstructured point cloud semantic labeling using deep segmentation networks"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Carion,Francisco Massa; Synnaeve,Nicolas Usunier",
+      "title": "End-toend object detection with transformers.In European Conference on Computer Vision,pages 213-229.Springer, 2020"
+    },
+    {
+      "id": "ref-6",
+      "year": "2017",
+      "authors": "Chen, Huimin Ma; Wan,Bo Li",
+      "title": "Multi-view 3d object detection network for autonomous driving"
+    },
+    {
+      "id": "ref-8",
+      "year": "1934",
+      "authors": "Boris Delaunay et al",
+      "title": "Sur la sphere vide"
+    },
+    {
+      "id": "ref-9",
+      "year": "2018",
+      "authors": "Devlin,Ming-Wei Chang",
+      "title": "Pre-training of deep bidirectional transformers for language understanding.arXiv preprint arXiv:1810.04805"
+    },
+    {
+      "id": "ref-10",
+      "year": "2020",
+      "authors": "Dosovitskiy,Lucas Beyer; Kolesnikov, Dirk Weissenborn; et al.",
+      "title": "An image is worth 16xl6 words: Transformers for image recognition at scale.arXiv preprint arXiv:2010.11929,2020"
+    },
+    {
+      "id": "ref-12",
+      "year": "2015",
+      "authors": "Ben Graham",
+      "title": "Sparse 3d convolutional neural networks"
+    },
+    {
+      "id": "ref-13",
+      "year": "2018",
+      "authors": "Groh,Patrick Wieschollek",
+      "title": "Flex-convolution.In Asian Conference on Computer Vision, pages 105-122"
+    },
+    {
+      "id": "ref-14",
+      "year": "2020",
+      "authors": "Gwak, Christopher B Choy",
+      "title": "Generative sparse detection networks for 3d single-shot object detection"
+    },
+    {
+      "id": "ref-15",
+      "year": "2018",
+      "authors": "Hermosilla,Tobias Ritschel",
+      "title": "Monte carlo convolution for learning on irregular grids"
+    },
+    {
+      "id": "ref-16",
+      "year": "2018",
+      "authors": "Hu, Jiayuan Gu; Zhang, Jifeng Dai",
+      "title": "Unknown title"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Hu, Bo Yang; Xie, Stefano Rosa; et al.",
+      "title": "Randla-net: Efficient semantic segmentation of large-scale point clouds"
+    },
+    {
+      "id": "ref-19",
+      "year": "2018",
+      "authors": "Asako Kanezaki，Yasuyuki Matsushita; and Yoshifumi Nishida",
+      "title": "Rotationnet: Joint object categorization and pose estimation using multiviews from unsupervised viewpoints"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Klein,Yoon Kim; Deng,Jean Senellart",
+      "title": "Opennmt: Open-source toolkit for neural machine translation.arXiv preprint arXiv:1701.02810,2017"
+    },
+    {
+      "id": "ref-22",
+      "year": "1955",
+      "authors": "Harold W Kuhn",
+      "title": "The hungarian method for the assignment problem"
+    },
+    {
+      "id": "ref-23",
+      "year": "2019",
+      "authors": "Lahoud, Bernard Ghanem",
+      "title": "3d instance segmentation via multi-task metric learning"
+    },
+    {
+      "id": "ref-24",
+      "year": "2018",
+      "authors": "Loic Landrieu; Martin Simonovsky",
+      "title": "Large-scale point cloud semantic segmentation with superpoint graphs"
+    },
+    {
+      "id": "ref-26",
+      "year": "2017",
+      "authors": "Danelljan,Patrik Tosteberg; Bhat, Fahad Shahbaz Khan",
+      "title": "Deep projective 3d semantic segmentation"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Li,Matthias Muller",
+      "title": "Deepgcns: Can gcns go as deep as cnns?In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 9267-9276,2019"
+    },
+    {
+      "id": "ref-28",
+      "year": "2018",
+      "authors": "Li, Rui Bu; Sun,Wei Wu",
+      "title": "Pointcnn: Convolution on x-transformed points"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Liu, Xin Zhao; Huang,Ruolan Hu",
+      "title": "Tanet: Robust 3d object detection from point clouds with triple attention"
+    },
+    {
+      "id": "ref-30",
+      "year": "2016",
+      "authors": "Ilya Loshchilov; Frank Hutter.Sgdr",
+      "title": "Stochastic gradient descent with warm restarts.arXiv preprint arXiv:1608.03983"
+    },
+    {
+      "id": "ref-31",
+      "year": "2017",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-32",
+      "year": "2019",
+      "authors": "Lu,Dhruv Batra",
+      "title": "Vilbert: Pretraining task-agnostic visiolinguistic representations forvision-and-language tasks.arXiv preprint arXiv:1908.02265,2019"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Beck,Kazuki Irie; Kitza, Wilfried Michel; et al.",
+      "title": "Rwth asr systems for librispeech: Hybrid vs attentionw/o data augmentation"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "Mao, Xiaogang Wang",
+      "title": "Interpolated convolutional networks for 3d point cloud understanding"
+    },
+    {
+      "id": "ref-35",
+      "year": "2015",
+      "authors": "Daniel Maturana; Sebastian Scherer",
+      "title": "Voxnet:A 3d convolutional neural network for real-time object recognition"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Paigwar, Ozgur Erkent",
+      "title": "Attentional pointnet for 3d-object detection in point clouds"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Pan, Zhuofan Xia; Song,Li Erran Li",
+      "title": "3d object detection with pointformer"
+    },
+    {
+      "id": "ref-38",
+      "year": "2018",
+      "authors": "Parmar,Ashish Vaswani; Uszkoreit,Lukasz Kaiser; et al.",
+      "title": "Image transformer"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "Paszke,Sam Gross; Massa,Adam Lerer; et al.",
+      "title": "Pytorch: An imperative style, high-performance deep learning library"
+    },
+    {
+      "id": "ref-41",
+      "year": "2016",
+      "authors": "TPham, Markus Eich",
+      "title": "Geometrically consistent plane extraction for dense indoor 3d maps segmentation"
+    },
+    {
+      "id": "ref-44",
+      "year": "2017",
+      "authors": "Qi,Hao Su",
+      "title": "Pointnet: Deep learning on point sets for 3d classification and segmentation.In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 652-660, 2017"
+    },
+    {
+      "id": "ref-45",
+      "year": "2017",
+      "authors": "Qi,Li Yi",
+      "title": "In Advances in neural information processing systems, pages 5099-5108,2017"
+    },
+    {
+      "id": "ref-46",
+      "year": "2018",
+      "authors": "Radford, Karthik Narasimhan",
+      "title": "Improving language understanding by generative pre-training"
+    },
+    {
+      "id": "ref-47",
+      "year": "2015",
+      "authors": "Ren, Kaiming He",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-48",
+      "year": "2019",
+      "authors": "Rezatofighi,Nathan Tsoi; Gwak,Amir Sadeghian",
+      "title": "Generalized intersection over union"
+    },
+    {
+      "id": "ref-49",
+      "year": "2017",
+      "authors": "Riegler,Ali Osman Ulusoy",
+      "title": "Octnet: Learning deep 3d representations at high resolutions"
+    },
+    {
+      "id": "ref-50",
+      "year": "2020",
+      "authors": "Shi, Chaoxu Guo; Jiang,Zhe Wang; et al.",
+      "title": "Pv-rcnn: Pointvoxel feature set abstraction for 3d object detection.In Proceedings of the IEEE/CVF Conference on Computer Vision and Patern Recognition, pages 10529-10538,2020"
+    },
+    {
+      "id": "ref-51",
+      "year": "2019",
+      "authors": "Shi, Xiaogang Wang",
+      "title": "Pointrcnn: 3d object proposal generation and detection from point cloud"
+    },
+    {
+      "id": "ref-52",
+      "year": "2018",
+      "authors": "Simony,Stefan Milzy",
+      "title": "Complex-yolo: An euler-region-proposal for real-time 3d object detection on point clouds"
+    },
+    {
+      "id": "ref-53",
+      "year": "2015",
+      "authors": "Song,Samuel P Lichtenberg",
+      "title": "Sun rgb-d: A rgb-d scene understanding benchmark suite.In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 567-576,2015"
+    },
+    {
+      "id": "ref-54",
+      "year": "2014",
+      "authors": "Shuran Song; Jianxiong Xiao",
+      "title": "Sliding shapes for 3d object detection in depth images"
+    },
+    {
+      "id": "ref-55",
+      "year": "2016",
+      "authors": "Shuran Song; Jianxiong Xiao",
+      "title": "Deep sliding shapes for amodal 3d object detection in rgb-d images.In The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2016"
+    },
+    {
+      "id": "ref-56",
+      "year": "2017",
+      "authors": "Song,Fisher Yu; Zeng,Angel X Chang",
+      "title": "Semantic scene completion from a single depth image"
+    },
+    {
+      "id": "ref-57",
+      "year": "2014",
+      "authors": "Srivastava, Geoffrey Hinton; Krizhevsky,Ilya Sutskever",
+      "title": "Dropout: a simple way to prevent neural networks from overfitting"
+    },
+    {
+      "id": "ref-58",
+      "year": "2016",
+      "authors": "Stewart,Mykhaylo Andriluka",
+      "title": "End-to-end people detection in crowded scenes.In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 2325-2333,2016"
+    },
+    {
+      "id": "ref-59",
+      "year": "2018",
+      "authors": "Su, Varun Jampani; Sun, Subhransu Maji; et al.",
+      "title": "Splatnet: Sparse lattice networks for point cloud processing"
+    },
+    {
+      "id": "ref-60",
+      "year": "2015",
+      "authors": "Su, Subhransu Maji",
+      "title": "Multi-view convolutional neural networks for 3d shape recognition"
+    },
+    {
+      "id": "ref-61",
+      "year": "2019",
+      "authors": "Su, Xizhou Zhu; Cao, Bin Li; et al.",
+      "title": "Vl-bert: Pre-training of generic visuallinguistic representations"
+    },
+    {
+      "id": "ref-62",
+      "year": "2019",
+      "authors": "Xu,Jacob Kahn; Likhomanenko, Edouard Grave; et al.",
+      "title": "End-to-end asr: from supervised to semi-supervised learning with modern architectures.arXiv preprint arXiv:1911.08460,2019"
+    },
+    {
+      "id": "ref-63",
+      "year": "2019",
+      "authors": "Hao Tan; Mohit Bansal.Lxmert",
+      "title": "Learning crossmodality encoder representations from transformers.arXiv preprint arXiv:1908.07490"
+    },
+    {
+      "id": "ref-65",
+      "year": "2018",
+      "authors": "Tatarchenko,Jaesik Park",
+      "title": "Tangent convolutions for dense prediction in 3d"
+    },
+    {
+      "id": "ref-66",
+      "year": "2017",
+      "authors": "Tchapmi, Christopher Choy; Armeni, JunYoung Gwak",
+      "title": "Segcloud: Semantic segmentation of 3d point clouds"
+    },
+    {
+      "id": "ref-68",
+      "year": "2017",
+      "authors": "Vaswani,Noam Shazeer; Parmar, Jakob Uszkoreit; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-69",
+      "year": "2018",
+      "authors": "Verma, Edmond Boyer",
+      "title": "Feastnet: Feature-steered graph convolutions for 3d shape analysis"
+    },
+    {
+      "id": "ref-71",
+      "year": "2018",
+      "authors": "Wang, Babak Samari",
+      "title": "Local spectral graph convolution for point set feature learning"
+    },
+    {
+      "id": "ref-72",
+      "year": "2015",
+      "authors": "Dominic Zeng Wang; Ingmar Posner",
+      "title": "Voting for voting in online point cloud object detection"
+    },
+    {
+      "id": "ref-75",
+      "year": "2019",
+      "authors": "Wang, Shu Liu; Shen, Chunhua Shen",
+      "title": "Associatively segmenting instances and semantics in point clouds.InProceedings of the IEEE Conference on Computer Vision and Pattern Recognition,pages 4096- 4105,2019"
+    },
+    {
+      "id": "ref-76",
+      "year": "2020",
+      "authors": "Wang,Alireza Fathi; Kundu, David Ross; et al.",
+      "title": "Pillar-based object detection for autonomous driving.arXiv preprint arXiv:2007.10323,2020"
+    },
+    {
+      "id": "ref-77",
+      "year": "2019",
+      "authors": "Sun, Ziwei Liu; Sarma, Michael M Bronstein",
+      "title": "Acm Transactions On Graphics (tog),38(5):1-12,2019"
+    },
+    {
+      "id": "ref-78",
+      "year": "2019",
+      "authors": "Wu, Zhongang Qi",
+      "title": "Pointconv: Deep convolutional networks on 3d point clouds"
+    },
+    {
+      "id": "ref-79",
+      "year": "2015",
+      "authors": "Wu, Shuran Song; Khosla,Fisher Yu",
+      "title": "A deep representation for volumetric shapes.In Proceedingsof the Conference on Computer Vision and Pattern Recognition (CVPR"
+    },
+    {
+      "id": "ref-80",
+      "year": "2018",
+      "authors": "Xu, Tianqi Fan; Xu,Long Zeng",
+      "title": "Spidercnn:Deep learning on point sets with parameterized convolutional filters"
+    },
+    {
+      "id": "ref-81",
+      "year": "2018",
+      "authors": "Yan, Yuxing Mao",
+      "title": "Second: Sparsely embedded convolutional detection"
+    },
+    {
+      "id": "ref-82",
+      "year": "2018",
+      "authors": "Yang,Wenjie Luo",
+      "title": "Pixor: Realtime 3d object detection from point clouds.In Proceedings of the IEEE conference on Computer Vision and Patern Recognition, pages 7652-7660,2018"
+    },
+    {
+      "id": "ref-84",
+      "year": "2020",
+      "authors": "Yang,Yanan Sun",
+      "title": "3dssd: Point-based 3d single stage object detector"
+    },
+    {
+      "id": "ref-86",
+      "year": "2020",
+      "authors": "Yin, Jianbing Shen; Guan,Dingfu Zhou",
+      "title": "Unknown title"
+    },
+    {
+      "id": "ref-87",
+      "year": "2019",
+      "authors": "Wenxiao Zhang; Chunxia Xiao",
+      "title": "Pcan: 3d attention map learning using contextual information for point cloud based retrieval"
+    },
+    {
+      "id": "ref-88",
+      "year": "2021",
+      "authors": "Zhang,Rohit Girdhar",
+      "title": "Self-supervised pretraining of 3d features on any point-cloud"
+    },
+    {
+      "id": "ref-89",
+      "year": "2020",
+      "authors": "Zhang,Bo Sun",
+      "title": "H3dnet: 3d object detection using hybrid geometric primitives.In Proceedings of the European Conference on Computer Vision (ECCV),2020"
+    },
+    {
+      "id": "ref-90",
+      "year": "2019",
+      "authors": "Zhao,Li Jiang",
+      "title": "Pointweb: Enhancing local neighborhood features for point cloud processing"
+    },
+    {
+      "id": "ref-91",
+      "year": "2020",
+      "authors": "Zhao,Li Jiang; Jia,Philip Torr",
+      "title": "Point transformer"
+    },
+    {
+      "id": "ref-93",
+      "year": "2020",
+      "authors": "Zhu, Yuexin Ma; Wang,Yan Xu",
+      "title": "Ssn: Shape signature networks for multi-class object detection from point clouds.In Proceedings of the European Conference on Computer Vision (ECCV),2020"
+    }
+  ]
+}

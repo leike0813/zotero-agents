@@ -86,6 +86,55 @@ runtime/host 负责物化：
 }
 ```
 
+## Update Stage 1: `persist_topic_context`
+
+### 原实现问题
+
+update skill 原来也要求 agent 在 Stage 1 写 `topic_definition.id/title`，并把
+`current_hashes` / `section_hashes` / `recommended_update` 从 host context 中手工抄到
+payload 顶层。这同样混合了三类职责：
+
+- topic identity 和 topic definition 是已存在 topic 的 host/runtime 事实。
+- current hashes 与 section hashes 是 CAS basis，不是 agent 语义判断。
+- `recommended_update` 是 host 根据 current state 生成的更新建议。
+
+### 共识
+
+Update Stage 1 的 agent-facing payload 应只保存 host 返回的 topic context，并可附加一个轻量
+update assessment。agent 不应在顶层重新手写 `topic_definition`、`base_hashes` 或
+`read_section_hashes`。
+
+### 建议 agent-facing payload
+
+```json
+{
+  "topic_context": {
+    "topic_id": "existing-topic-id",
+    "topic_definition": {},
+    "current_hashes": {},
+    "section_hashes": {},
+    "recommended_update": {}
+  },
+  "update_assessment": {
+    "operation": "update_patch",
+    "changed_sections": [],
+    "reason": ""
+  },
+  "diagnostics": []
+}
+```
+
+runtime 从 `topic_context` 派生并保存：
+
+```json
+{
+  "topic_definition": {},
+  "base_hashes": {},
+  "read_section_hashes": {},
+  "recommended_update": {}
+}
+```
+
 ## Create Stage 2: `resolver_and_workset`
 
 ### 当前问题
@@ -129,11 +178,24 @@ runtime/host 负责执行 resolver，并保存：
 }
 ```
 
-## Create Stage 3: `graph_metrics`
+### Implementation correction
+
+Stage 2 must use a three-layer contract:
+
+- agent-facing `resolver_proposal` payload with a top-level canonical
+  `resolver`, reasoning, operation intent, and diagnostics;
+- runtime-compiled Host Bridge `synthesis.resolve_resolver` input payload;
+- runtime-generated resolver execution manifest containing `topic_resolver`,
+  `resolved_paper_set`, and `resolver_diagnostics`.
+
+The Host Bridge capability schema remains the `{ "resolver": ... }` contract.
+It is not the agent-facing payload schema.
+
+## Create Stage 2 cascade: graph metrics
 
 ### 当前问题
 
-当前 stage 暴露的是工具回执：
+原 Stage 3 暴露的是工具回执：
 
 ```json
 {
@@ -144,13 +206,15 @@ runtime/host 负责执行 resolver，并保存：
 
 ### 共识
 
-这一步不需要 agent 参与生成 payload。
+这一步不需要 agent 参与生成 payload，也不应作为独立 gate stage 暴露。
 
 metrics 获取、receipt 保存、缺失 diagnostics 都应由 runtime/host 完成。agent 只在后续语义分析中读取 metrics 解释，不应整理或提交 metrics receipt。
 
 ### 建议
 
-Stage 3 改为 runtime-only action。
+把原 Stage 3 硬合并进 Stage 2 `persist_resolver` cascade：agent 写一次 resolver proposal 后，
+runtime 级联完成 resolver 编译、Host Bridge resolver 执行、paper workset 派生、graph metrics 查询与入库。
+不保留独立 Stage 3 gate、agent action 或 agent-facing schema。
 
 agent-facing contract 中只保留说明：
 
@@ -158,21 +222,23 @@ agent-facing contract 中只保留说明：
 - 不得把 metrics row 作为 claim/timeline evidence。
 - metrics 可用于排序、role hints、coverage/gaps 和 external-heavy 诊断。
 
-## Create Stage 4: `evidence_collection`
+## Create Stage 2 cascade: evidence collection
 
 ### 当前问题
 
-当前 stage 暴露 filtered artifact manifest。
+原 Stage 4 暴露 filtered artifact manifest。
 
 ### 共识
 
-这一步也不需要 agent 参与。
+这一步也不需要 agent 参与，也不应作为独立 gate stage 暴露。
 
-`filtered_artifact_manifest` 是 host export 的结果；agent 不应手写、不应修补，也不应维护 artifact availability。
+filtered artifact export manifest 是 host export 的结果；agent 不应手写、不应修补，也不应维护 artifact availability。
 
 ### 建议
 
-Stage 4 改为 runtime/host-only action。
+把原 Stage 4 硬合并进 Stage 2 `persist_resolver` cascade，在 graph metrics 完成后由 runtime 调用
+Host Bridge export filtered paper artifacts 并入库。Stage 2 成功后 gate 直接进入 Stage 5。
+不保留独立 Stage 4 gate、agent action 或 agent-facing schema。
 
 agent 的第一个实质语义 payload 应从 Stage 5 开始，但 Stage 5 不再做完整
 paper-level semantic analysis，而是做轻量 paper triage，为后续 runtime 组装
@@ -361,16 +427,30 @@ score 与 context selection。agent 不参与这些规则。
 
 两者使用的单篇 full context 内容可能不同，因此应分别计算 full context slot 和 score threshold。
 
-不需要每次动态估算单篇 full context token。可以从库内实际 digest / references /
-citation-analysis artifact 抽样，离线校准常量，例如：
+不需要每次动态估算单篇 full context token。应从库内实际 digest / references /
+citation-analysis artifact 抽样，离线校准常量。
+
+当前校准值基于 2026-06-05 从 Zotero 库内 56 篇 paper 导出的 filtered artifacts，
+使用 `o200k_base` tokenizer 实测：
+
+- `core_analysis` 使用 p90 full-context tokens，并向上取整到 250 tokens。
+- `external_literature` 篇幅高尾波动较大，使用 p75 full-context tokens，并向上取整到
+  250 tokens。
+- safety margin 为 `0.10`，即 200k token 预算中保留约 20k tokens 给 prompt、
+  instructions、低分 paper 的 `core_digest`、section scaffold 和运行时元数据。
 
 ```json
 {
-  "core_analysis_full_context_tokens_per_paper": 6500,
-  "external_literature_full_context_tokens_per_paper": 4200,
+  "core_analysis_basis_quantile": "p90",
+  "external_literature_basis_quantile": "p75",
+  "core_analysis_full_context_tokens_per_paper": 1500,
+  "external_literature_full_context_tokens_per_paper": 7750,
   "core_analysis_budget_tokens": 200000,
   "external_literature_budget_tokens": 200000,
-  "safety_margin_ratio": 0.15
+  "safety_margin_ratio": 0.10,
+  "usable_budget_tokens": 180000,
+  "core_analysis_full_context_slot_count": 120,
+  "external_literature_full_context_slot_count": 23
 }
 ```
 
@@ -429,8 +509,8 @@ artifact availability bonus 也只能作为小幅确定性调整。
 当前 Stage 6 名义上是 `cross_paper_map`，主路径执行：
 
 ```bash
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action export_cross_paper_context
-python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --run-root "." --action derive_cross_paper_evidence_map
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action export_cross_paper_context
+python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action derive_cross_paper_evidence_map
 ```
 
 现在已经不要求 agent 手写 `runtime/payloads/cross-paper-evidence-map.json`。
@@ -1489,9 +1569,8 @@ precondition 和 UI 读取边界重新切清楚。
 Create skill 的 stage payload 应调整为：
 
 - Stage 1：agent 只写 topic semantic definition，不写 `topic_definition.id`。
-- Stage 2：agent 只写 resolver proposal，不写 resolved paper set / workset / library index。
-- Stage 3：graph metrics 为 runtime-only，无 agent payload。
-- Stage 4：evidence collection / artifact availability 为 runtime-only，无 agent payload。
+- Stage 2：agent 只写 resolver proposal，不写 resolved paper set / workset / library index；
+  runtime 在同一 action 内级联完成 resolver、graph metrics 与 evidence collection。
 - Stage 5：agent 只写 `paper_ref`、relevance、quality、`core_digest`。
 - Stage 6：cross-paper context / provenance index 为 runtime-only，无 agent-authored semantic map。
 - Stage 7/8：合并为 `persist_core_synthesis`，agent 一次写 taxonomy、timeline semantic events、
@@ -1793,11 +1872,50 @@ orchestrator 应成为 accepted result 的唯一写入者。
 新流程：
 
 1. Stage 11 runtime 生成 `result/final-output.candidate.json`。
-2. Stage 12 agent 将 candidate JSON 作为 stdout 输出。
+2. Stage 12 agent 将 candidate envelope 作为 stdout 输出。
 3. Orchestrator 捕获 stdout。
 4. Orchestrator 使用 strict output schema 校验。
 5. Orchestrator 写 accepted `result/result.json`。
 6. Host apply 根据 operation 进入 create / update_full / update_patch precondition。
+
+`result/final-output.candidate.json` 应是 runner-facing envelope，而不是裸业务 bundle。
+
+也就是说 candidate 文件本身应包含：
+
+```json
+{
+  "__SKILL_DONE__": true,
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "runtime-derived-topic-id",
+    "title": "Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver-manifest.json",
+  "resolver_diagnostics": {},
+  "artifact_metadata": {},
+  "analysis_manifest_path": "result/topic-analysis.json",
+  "topic_interest_metadata_path": "result/sidecars/topic-interest-metadata.json",
+  "concept_cards_proposal_path": "result/sidecars/concept-cards-proposal.json",
+  "topic_graph_relation_proposals_path": "result/sidecars/topic-graph-relation-proposals.json"
+}
+```
+
+原因：
+
+- 当前 ACP SkillRunner 输出收敛协议要求 final assistant output 带 `__SKILL_DONE__: true`。
+- orchestrator 在验证通过后会剥离 `__SKILL_DONE__`，并把裸业务 JSON 写入 accepted
+  `result/result.json`。
+- 如果 Stage 12 直接输出裸业务 bundle，现有 runner 会把它判为 invalid output。
+
+因此 Stage 12 的命令仍可以保持简单：
+
+```powershell
+Get-Content -Encoding UTF8 "result/final-output.candidate.json"
+```
+
+但该 candidate 文件必须是 runner-facing envelope。
 
 Host apply 返回结构化状态：
 
@@ -1815,6 +1933,247 @@ warning 使用结构化 code：
 - `concept_cards_proposal_failed`
 - `topic_graph_relation_proposals_failed`
 - `topic_interest_metadata_failed`
+
+### 4.1 Host Bridge / CLI 能力补充
+
+现有 Host Bridge synthesis read capabilities 已能支撑 create/update 的大部分步骤：
+
+- list topics
+- get topic context
+- get library index
+- resolve resolver
+- get paper artifact manifest
+- read / export filtered paper artifacts
+- query citation graph
+- get citation graph metrics / slice
+- resolve topic paper digest
+
+但按本方案完整落地，还需要补三类能力。
+
+#### 4.1.1 Concept KB / alias index 查询能力
+
+Stage 9 的新流程要求 runtime/host 在 agent 填写 `concept_details[]` 前，先根据
+`concept_candidate_labels[]` 查询 Concept KB / alias index，并把可能已有的 concept candidates
+提供给 agent。
+
+因此 Host Bridge 需要新增 read-only capability，例如：
+
+```text
+synthesis.query_concept_kb
+```
+
+或：
+
+```text
+synthesis.get_concept_kb_matches
+```
+
+建议输入：
+
+```json
+{
+  "labels": ["Set prediction", "Hungarian matching"],
+  "aliases": [],
+  "topic_id": "object-detection",
+  "limit_per_label": 5
+}
+```
+
+建议输出：
+
+```json
+{
+  "matches": [
+    {
+      "input_label": "Set prediction",
+      "candidates": [
+        {
+          "concept_id": "concept:vision:set-prediction",
+          "label": "Set prediction",
+          "aliases": [],
+          "concept_type": "method_family",
+          "domain": "computer vision",
+          "definition_excerpt": "",
+          "match_reason": "label_exact",
+          "status": "active"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}
+```
+
+CLI 应补对应语义子命令：
+
+```text
+zotero-bridge synthesis query-concept-kb --input @runtime/payloads/concept-query.json
+```
+
+该能力只读，不执行 merge、review action 或 sidecar ingest。写入仍由 host apply 阶段摄取
+runtime 物化后的 `concept-cards-proposal.json` 完成。
+
+#### 4.1.2 Topic-scoped graph statistics / 集群查询能力
+
+Stage 10 的 statistics 不应由 agent 手填，应由 runtime 从 graph / canonical 层查询。
+
+现有 graph 能力能返回全局 overview、单 paper metrics 和 graph slice，但 topic synthesis 需要的是：
+
+- 针对本 topic resolved paper set 的去重统计。
+- 基于 source papers 的 citation/ref cluster。
+- 去重后的 canonical reference count。
+- topic 内部 / topic 外部 / unresolved reference 的分布。
+- year span、route count、artifact availability。
+- graph status / stale diagnostics。
+
+因此 Host Bridge 需要补一个更窄的 topic-scoped graph statistics 能力。建议命名：
+
+```text
+synthesis.get_topic_graph_statistics
+```
+
+或拆成更通用的集群查询：
+
+```text
+synthesis.query_citation_graph_cluster
+```
+
+建议优先补“集群查询能力”，再由 runtime 从 cluster result 派生 topic statistics。
+
+建议输入：
+
+```json
+{
+  "topic_id": "object-detection",
+  "paper_refs": ["1:ABC", "1:DEF"],
+  "include_external": true,
+  "include_unresolved": true,
+  "max_external_nodes": 500,
+  "cluster_policy": "topic_source_refs"
+}
+```
+
+`cluster_policy` 枚举：
+
+```text
+topic_source_refs / one_hop_references / shared_external / internal_only
+```
+
+建议输出：
+
+```json
+{
+  "cluster": {
+    "source_paper_count": 0,
+    "internal_edge_count": 0,
+    "external_reference_count": 0,
+    "canonical_reference_count": 0,
+    "unresolved_reference_count": 0,
+    "shared_external_reference_count": 0,
+    "year_span": {
+      "start_year": 2020,
+      "end_year": 2026
+    },
+    "artifact_availability": {
+      "digest": 0,
+      "references": 0,
+      "citation_analysis": 0
+    }
+  },
+  "graph_hash": "sha256:...",
+  "status": "ready",
+  "diagnostics": []
+}
+```
+
+`status` 枚举：
+
+```text
+ready / missing / stale / partial / error
+```
+
+CLI 应补对应语义子命令：
+
+```text
+zotero-bridge synthesis query-citation-graph-cluster --input @runtime/payloads/topic-cluster-query.json
+```
+
+runtime 再把 cluster result 确定性渲染为 final artifact 的：
+
+- `statistics.graph_statistics`
+- `coverage` 中的 graph caveat
+- `synthesis_report` 中的 coverage / reliability 章节
+
+#### 4.1.3 Schema 返回能力增强
+
+现有 `synthesis.get_schemas` 不应只返回 schema id。它应能返回：
+
+- final stdout output schema。
+- stage payload schema manifest。
+- artifact section schema summary。
+- enum definitions。
+- operation-specific CAS contract。
+
+建议输入：
+
+```json
+{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "include_schema": true,
+  "include_enums": true
+}
+```
+
+建议输出：
+
+```json
+{
+  "schemas": {
+    "output": {},
+    "stage_payloads": {},
+    "artifact_sections": {}
+  },
+  "enums": {},
+  "contracts": {
+    "create": {
+      "forbidden": ["base_hashes"],
+      "precondition": "topic_absent"
+    },
+    "update_full": {
+      "required": ["base_hashes"],
+      "precondition": "bundle_hashes_match"
+    },
+    "update_patch": {
+      "required": ["read_section_hashes"],
+      "precondition": "read_sections_match"
+    }
+  }
+}
+```
+
+#### 4.1.4 Apply failure 结构化透传
+
+Host apply 已能返回 `topic_exists`、`duplicate_topic`、`conflict`、`warnings` 等结构化状态。
+
+workflow applyResult hook 不应把这些全部压缩成普通 exception string。建议：
+
+- applyResult hook 返回结构化 failure result。
+- orchestrator / workbench 持久化 `applyResult` details。
+- UI 根据 status 显示：
+  - `topic_exists`：打开已有 topic / 改走 update / 取消。
+  - `conflict`：展示 mismatched hashes / affected sections / rerun update。
+  - warnings：展示 non-blocking warning chips。
+
+### 4.2 CLI 结论
+
+CLI 当前的 synthesis 子命令足够覆盖现有 host read path，但需要同步新增：
+
+- `synthesis query-concept-kb`
+- `synthesis query-citation-graph-cluster`
+
+debug 层已有 `debug.acpSkillRun.reapplyResult`，可以继续作为 applyResult 调试入口，但不应成为正式
+skill runtime 的正常写入路径。
 
 ### 5. 兼容和迁移策略
 
@@ -1844,7 +2203,7 @@ warning 使用结构化 code：
    contract 调整。
 2. Stage 1 增加 runtime title-to-topic-id 派生逻辑，并把 duplicate_check 展平。
 3. Stage 2 拆分 agent-authored resolver proposal 与 runtime resolver execution receipt。
-4. Stage 3 / Stage 4 从 agent 主路径移出，改为 runtime-only gate action。
+4. Stage 3 / Stage 4 从 agent 主路径硬切并吸收进 Stage 2 cascade，不保留独立 gate action。
 5. Stage 5 从复杂 paper unit analysis 改为轻量 paper triage，只要求 relevance、quality 和 `core_digest`。
 6. 在 gate instruction 中加入 subagent 委派建议和 prompt skeleton。
 7. Runtime 根据确定性 scoring rule 生成 `paper_scores` 与双 context `context_selection`。
@@ -1866,9 +2225,10 @@ warning 使用结构化 code：
     不让 agent 补数字。
 19. 最终 `synthesis_report` 由 runtime 使用固定模板从已验证 sections 确定性渲染，
     agent 不再手写 `synthesis_report_body`。
-20. Stage 11 不再写 `result/result.json`，改写 `result/final-output.candidate.json`。
-21. Stage 12 让 agent 读取 candidate JSON 并作为 stdout 输出；orchestrator 验证 stdout 后再写
-    `result/result.json`。
+20. Stage 11 不再写 accepted `result/result.json`，改写 runner-facing
+    `result/final-output.candidate.json`，且 candidate 必须包含 `__SKILL_DONE__: true`。
+21. Stage 12 让 agent 读取 candidate envelope 并作为 stdout 输出；orchestrator 验证并剥离
+    `__SKILL_DONE__` 后再写 accepted `result/result.json`。
 22. 修改 SKILL.md 和 demo，使 agent 明确知道：前四步主要是 runtime/host 准备，Stage 5 是轻量筛选，Stage 6 是 runtime context preparation，真正跨论文综合从 `persist_core_synthesis` 开始，KG 阶段只做 enrichment，Stage 10 只做解释性收尾，最终 accepted result 由编排器写入。
 23. 修改 final stdout output schema 为 operation-discriminated union：create 禁止
     `base_hashes`，update_full 必须 `base_hashes`，update_patch 必须 `read_section_hashes`。
@@ -1877,3 +2237,11 @@ warning 使用结构化 code：
 25. Topic Details timeline 优先读取 `timeline_events.markers`，旧 artifact fallback 到当前推导逻辑。
 26. Topic Details Compare tab 改为 Improvement / Dimensions 主视图，读取
     `improvement_dimensions[]`，旧 artifact fallback 到 `comparison_matrix`。
+27. Host Bridge / CLI 新增 read-only `synthesis query-concept-kb`，用于 Stage 9 根据
+    `concept_candidate_labels[]` 查询 Concept KB / alias index candidates。
+28. Host Bridge / CLI 新增 `synthesis query-citation-graph-cluster` 或等价 topic-scoped cluster
+    query，用于 Stage 10 从 graph / canonical 层确定性生成 topic statistics。
+29. 扩展 `synthesis.get_schemas`，返回实际 output schema、stage payload schema manifest、
+    artifact section schema 摘要、枚举定义和 operation-specific CAS contract。
+30. workflow applyResult 保留 host apply 的结构化失败结果，避免把 `topic_exists`、`conflict`
+    和 warnings 压缩成普通错误字符串。

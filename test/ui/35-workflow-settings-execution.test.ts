@@ -29,7 +29,8 @@ import {
 import { isFullTestMode } from "../zotero/testMode";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
-const itZoteroFullOrNode = isZoteroRuntime() && !isFullTestMode() ? it.skip : it;
+const itZoteroFullOrNode =
+  isZoteroRuntime() && !isFullTestMode() ? it.skip : it;
 
 async function ensureWorkflowRegistryLoaded() {
   await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
@@ -158,265 +159,292 @@ describe("workflow settings execution", function () {
     assert.equal(requests[0].runtime_options?.execution_mode, "auto");
     assert.equal(requests[0].fetch_type, "bundle");
     assert.equal(requests[0].upload_files?.[0].key, "source_path");
-    assert.match(String(requests[0].input?.source_path || ""), /^inputs\/source_path\//);
+    assert.match(
+      String(requests[0].input?.source_path || ""),
+      /^inputs\/source_path\//,
+    );
   });
 
-  itZoteroFullOrNode("applies per-submit execution overrides without mutating persisted settings", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      workflowParams: { language: "zh-CN" },
-      providerOptions: {
-        engine: "gemini",
-        model: "",
-        no_cache: false,
-      },
-    });
+  itZoteroFullOrNode(
+    "applies per-submit execution overrides without mutating persisted settings",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-primary",
+        workflowParams: { language: "zh-CN" },
+        providerOptions: {
+          engine: "gemini",
+          model: "",
+          no_cache: false,
+        },
+      });
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    const overridden = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-      executionOptionsOverride: {
-        backendId: "skillrunner-alt",
-        workflowParams: { language: "en-US" },
+      const overridden = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+        executionOptionsOverride: {
+          backendId: "skillrunner-alt",
+          workflowParams: { language: "en-US" },
+          providerOptions: {
+            engine: "gemini",
+            model: "gemini-2.5-flash",
+            no_cache: true,
+          },
+        },
+      });
+      assert.equal(overridden.backend.id, "skillrunner-alt");
+      assert.equal(overridden.workflowParams.language, "en-US");
+      assert.equal(overridden.providerOptions.engine, "gemini");
+      assert.equal(overridden.providerOptions.model, "gemini-2.5-flash");
+      assert.equal(overridden.providerOptions.provider_id, "google");
+      assert.equal(overridden.providerOptions.effort, "default");
+      assert.equal(overridden.providerOptions.no_cache, true);
+
+      const persisted = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(persisted.backend.id, "skillrunner-primary");
+      assert.equal(persisted.workflowParams.language, "zh-CN");
+      assert.equal(persisted.providerOptions.engine, "gemini");
+      assert.equal(persisted.providerOptions.model, "");
+      assert.equal(persisted.providerOptions.provider_id, "google");
+      assert.equal(persisted.providerOptions.effort, "default");
+      assert.equal(persisted.providerOptions.no_cache, false);
+    },
+  );
+
+  itZoteroFullOrNode(
+    "persists explicit A->B updates for default settings",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-primary",
+        workflowParams: { language: "zh-CN" },
         providerOptions: {
           engine: "gemini",
           model: "gemini-2.5-flash",
+          no_cache: false,
+        },
+      });
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-primary",
+        workflowParams: { language: "en-US" },
+        providerOptions: {
+          engine: "gemini",
+          model: "gemini-2.5-pro",
           no_cache: true,
         },
-      },
-    });
-    assert.equal(overridden.backend.id, "skillrunner-alt");
-    assert.equal(overridden.workflowParams.language, "en-US");
-    assert.equal(overridden.providerOptions.engine, "gemini");
-    assert.equal(overridden.providerOptions.model, "gemini-2.5-flash");
-    assert.equal(overridden.providerOptions.provider_id, "google");
-    assert.equal(overridden.providerOptions.effort, "default");
-    assert.equal(overridden.providerOptions.no_cache, true);
+      });
 
-    const persisted = await resolveWorkflowExecutionContext({ workflow: workflow! });
-    assert.equal(persisted.backend.id, "skillrunner-primary");
-    assert.equal(persisted.workflowParams.language, "zh-CN");
-    assert.equal(persisted.providerOptions.engine, "gemini");
-    assert.equal(persisted.providerOptions.model, "");
-    assert.equal(persisted.providerOptions.provider_id, "google");
-    assert.equal(persisted.providerOptions.effort, "default");
-    assert.equal(persisted.providerOptions.no_cache, false);
-  });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-  itZoteroFullOrNode("persists explicit A->B updates for default settings", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      workflowParams: { language: "zh-CN" },
-      providerOptions: {
-        engine: "gemini",
-        model: "gemini-2.5-flash",
-        no_cache: false,
-      },
-    });
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      workflowParams: { language: "en-US" },
-      providerOptions: {
-        engine: "gemini",
-        model: "gemini-2.5-pro",
-        no_cache: true,
-      },
-    });
+      const persisted = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(persisted.workflowParams.language, "en-US");
+      assert.equal(persisted.providerOptions.model, "gemini-2.5-pro");
+      assert.equal(persisted.providerOptions.no_cache, true);
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "enforces interactive-mode runtime options for interactive workflows",
+    async function () {
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          no_cache: true,
+          interactive_auto_reply: true,
+          hard_timeout_seconds: 900,
+        },
+      });
 
-    const persisted = await resolveWorkflowExecutionContext({ workflow: workflow! });
-    assert.equal(persisted.workflowParams.language, "en-US");
-    assert.equal(persisted.providerOptions.model, "gemini-2.5-pro");
-    assert.equal(persisted.providerOptions.no_cache, true);
-  });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
 
-  itNodeOnly("enforces interactive-mode runtime options for interactive workflows", async function () {
-    updateWorkflowSettings("literature-explainer", {
-      backendId: "skillrunner-alt",
-      providerOptions: {
-        engine: "gemini",
-        no_cache: true,
-        interactive_auto_reply: true,
-        hard_timeout_seconds: 900,
-      },
-    });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.isUndefined(context.providerOptions.no_cache);
+      assert.equal(context.providerOptions.interactive_auto_reply, true);
+      assert.equal(context.providerOptions.hard_timeout_seconds, 900);
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-explainer",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "enforces auto-mode runtime options for auto workflows",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          no_cache: true,
+          interactive_auto_reply: true,
+          hard_timeout_seconds: 1200,
+        },
+      });
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.isUndefined(context.providerOptions.no_cache);
-    assert.equal(context.providerOptions.interactive_auto_reply, true);
-    assert.equal(context.providerOptions.hard_timeout_seconds, 900);
-  });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-  itNodeOnly("enforces auto-mode runtime options for auto workflows", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-alt",
-      providerOptions: {
-        engine: "gemini",
-        no_cache: true,
-        interactive_auto_reply: true,
-        hard_timeout_seconds: 1200,
-      },
-    });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.no_cache, true);
+      assert.isUndefined(context.providerOptions.interactive_auto_reply);
+      assert.equal(context.providerOptions.hard_timeout_seconds, 1200);
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "normalizes opencode provider_id + model into separate execution fields",
+    async function () {
+      upsertSkillRunnerModelCacheEntry({
+        backendId: "skillrunner-alt",
+        baseUrl: "http://127.0.0.1:18030",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+        engines: ["opencode"],
+        modelsByEngine: {
+          opencode: [
+            {
+              id: "openai/gpt-5",
+              provider_id: "openai",
+              provider: "openai",
+              model: "gpt-5",
+              display_name: "OpenAI GPT-5",
+              deprecated: false,
+              supported_effort: ["default", "low", "medium", "high"],
+            },
+          ],
+        },
+      });
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.providerOptions.no_cache, true);
-    assert.isUndefined(context.providerOptions.interactive_auto_reply);
-    assert.equal(context.providerOptions.hard_timeout_seconds, 1200);
-  });
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "opencode",
+          provider_id: "openai",
+          model: "gpt-5",
+          effort: "high",
+          no_cache: false,
+        },
+      });
 
-  itNodeOnly("normalizes opencode provider_id + model into separate execution fields", async function () {
-    upsertSkillRunnerModelCacheEntry({
-      backendId: "skillrunner-alt",
-      baseUrl: "http://127.0.0.1:18030",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-      engines: ["opencode"],
-      modelsByEngine: {
-        opencode: [
-          {
-            id: "openai/gpt-5",
-            provider_id: "openai",
-            provider: "openai",
-            model: "gpt-5",
-            display_name: "OpenAI GPT-5",
-            deprecated: false,
-            supported_effort: ["default", "low", "medium", "high"],
-          },
-        ],
-      },
-    });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-alt",
-      providerOptions: {
-        engine: "opencode",
-        provider_id: "openai",
-        model: "gpt-5",
-        effort: "high",
-        no_cache: false,
-      },
-    });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.engine, "opencode");
+      assert.equal(context.providerOptions.provider_id, "openai");
+      assert.equal(context.providerOptions.model, "gpt-5");
+      assert.equal(context.providerOptions.effort, "high");
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "maps persisted opencode canonical model id to provider model name in settings descriptor",
+    async function () {
+      upsertSkillRunnerModelCacheEntry({
+        backendId: "skillrunner-alt",
+        baseUrl: "http://127.0.0.1:18030",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+        engines: ["opencode"],
+        modelsByEngine: {
+          opencode: [
+            {
+              id: "minimax-m2.5",
+              provider_id: "alibaba-coding-plan-cn",
+              provider: "alibaba-coding-plan-cn",
+              model: "minimax-m2.5",
+              display_name: "MiniMax M2.5",
+              deprecated: false,
+            },
+            {
+              id: "qwen-plus-latest",
+              provider_id: "alibaba-coding-plan-cn",
+              provider: "alibaba-coding-plan-cn",
+              model: "qwen-3.5-plus",
+              display_name: "Qwen 3.5 Plus",
+              deprecated: false,
+            },
+          ],
+        },
+      });
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.providerOptions.engine, "opencode");
-    assert.equal(context.providerOptions.provider_id, "openai");
-    assert.equal(context.providerOptions.model, "gpt-5");
-    assert.equal(context.providerOptions.effort, "high");
-  });
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "opencode",
+          provider_id: "alibaba-coding-plan-cn",
+          model: "qwen-3.5-plus",
+        },
+      });
 
-  itNodeOnly("maps persisted opencode canonical model id to provider model name in settings descriptor", async function () {
-    upsertSkillRunnerModelCacheEntry({
-      backendId: "skillrunner-alt",
-      baseUrl: "http://127.0.0.1:18030",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-      engines: ["opencode"],
-      modelsByEngine: {
-        opencode: [
-          {
-            id: "minimax-m2.5",
-            provider_id: "alibaba-coding-plan-cn",
-            provider: "alibaba-coding-plan-cn",
-            model: "minimax-m2.5",
-            display_name: "MiniMax M2.5",
-            deprecated: false,
-          },
-          {
-            id: "qwen-plus-latest",
-            provider_id: "alibaba-coding-plan-cn",
-            provider: "alibaba-coding-plan-cn",
-            model: "qwen-3.5-plus",
-            display_name: "Qwen 3.5 Plus",
-            deprecated: false,
-          },
-        ],
-      },
-    });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
 
-    updateWorkflowSettings("literature-explainer", {
-      backendId: "skillrunner-alt",
-      providerOptions: {
-        engine: "opencode",
-        provider_id: "alibaba-coding-plan-cn",
-        model: "qwen-3.5-plus",
-      },
-    });
+      const registry = await loadBackendsRegistry();
+      assert.isUndefined(registry.fatalError);
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-explainer",
-    );
-    assert.isOk(workflow);
+      assert.equal(descriptor.providerOptions.engine, "opencode");
+      assert.equal(
+        descriptor.providerOptions.provider_id,
+        "alibaba-coding-plan-cn",
+      );
+      assert.equal(descriptor.providerOptions.model, "qwen-3.5-plus");
+      assert.equal(descriptor.providerOptions.effort, "default");
+    },
+  );
 
-    const registry = await loadBackendsRegistry();
-    assert.isUndefined(registry.fatalError);
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: registry.backends,
-    });
+  itNodeOnly(
+    "keeps legacy opencode provider/model@effort string compatible",
+    async function () {
+      upsertSkillRunnerModelCacheEntry({
+        backendId: "skillrunner-alt",
+        baseUrl: "http://127.0.0.1:18030",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+        engines: ["opencode"],
+        modelsByEngine: {
+          opencode: [
+            {
+              id: "openai/gpt-5",
+              provider_id: "openai",
+              display_name: "OpenAI GPT-5",
+              deprecated: false,
+              supported_effort: ["default", "low", "medium", "high"],
+            },
+          ],
+        },
+      });
 
-    assert.equal(descriptor.providerOptions.engine, "opencode");
-    assert.equal(
-      descriptor.providerOptions.provider_id,
-      "alibaba-coding-plan-cn",
-    );
-    assert.equal(descriptor.providerOptions.model, "qwen-3.5-plus");
-    assert.equal(descriptor.providerOptions.effort, "default");
-  });
-
-  itNodeOnly("keeps legacy opencode provider/model@effort string compatible", async function () {
-    upsertSkillRunnerModelCacheEntry({
-      backendId: "skillrunner-alt",
-      baseUrl: "http://127.0.0.1:18030",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-      engines: ["opencode"],
-      modelsByEngine: {
-        opencode: [
-          {
-            id: "openai/gpt-5",
-            provider_id: "openai",
-            display_name: "OpenAI GPT-5",
-            deprecated: false,
-            supported_effort: ["default", "low", "medium", "high"],
-          },
-        ],
-      },
-    });
-
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-alt",
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-alt",
         providerOptions: {
           engine: "opencode",
           model: "openai/gpt-5@high",
@@ -424,425 +452,459 @@ describe("workflow settings execution", function () {
         },
       });
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.providerOptions.engine, "opencode");
-    assert.equal(context.providerOptions.provider_id, "openai");
-    assert.equal(context.providerOptions.model, "gpt-5");
-    assert.equal(context.providerOptions.effort, "high");
-  });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.engine, "opencode");
+      assert.equal(context.providerOptions.provider_id, "openai");
+      assert.equal(context.providerOptions.model, "gpt-5");
+      assert.equal(context.providerOptions.effort, "high");
+    },
+  );
 
-  itZoteroFullOrNode("shows provider-scoped qwen settings using provider_id + model", async function () {
-    upsertSkillRunnerModelCacheEntry({
-      backendId: "skillrunner-alt",
-      baseUrl: "http://127.0.0.1:18030",
-      updatedAt: "2026-04-05T00:00:00.000Z",
-      engines: ["qwen"],
-      modelsByEngine: {
-        qwen: [
-          {
-            id: "dashscope/qwen-max",
-            provider_id: "dashscope",
-            provider: "dashscope",
-            model: "qwen-max",
-            display_name: "Qwen Max",
-            supported_effort: ["default"],
+  itZoteroFullOrNode(
+    "shows provider-scoped qwen settings using provider_id + model",
+    async function () {
+      upsertSkillRunnerModelCacheEntry({
+        backendId: "skillrunner-alt",
+        baseUrl: "http://127.0.0.1:18030",
+        updatedAt: "2026-04-05T00:00:00.000Z",
+        engines: ["qwen"],
+        modelsByEngine: {
+          qwen: [
+            {
+              id: "dashscope/qwen-max",
+              provider_id: "dashscope",
+              provider: "dashscope",
+              model: "qwen-max",
+              display_name: "Qwen Max",
+              supported_effort: ["default"],
+            },
+            {
+              id: "coding-plan/qwen-plus",
+              provider_id: "coding-plan",
+              provider: "coding-plan",
+              model: "qwen-plus",
+              display_name: "Qwen Plus",
+              supported_effort: ["default", "low", "medium", "high"],
+            },
+          ],
+        },
+      });
+
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "qwen",
+          provider_id: "dashscope",
+          model: "qwen-max",
+          effort: "default",
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const registry = await loadBackendsRegistry();
+      assert.isUndefined(registry.fatalError);
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+
+      assert.equal(descriptor.providerOptions.engine, "qwen");
+      assert.equal(descriptor.providerOptions.provider_id, "dashscope");
+      assert.equal(descriptor.providerOptions.model, "qwen-max");
+      assert.equal(descriptor.providerOptions.effort, "default");
+      assert.includeMembers(
+        descriptor.providerSchemaEntries.map((entry) => entry.key),
+        ["provider_id", "model", "effort"],
+      );
+    },
+  );
+
+  itNodeOnly(
+    "hides provider_id for non provider-scoped engines but keeps canonical provider internally",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
+
+      const registry = await loadBackendsRegistry();
+      assert.isUndefined(registry.fatalError);
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: {
+          backendId: "skillrunner-primary",
+          providerOptions: {
+            engine: "gemini",
+            provider_id: "google",
+            model: "gemini-2.5-pro",
           },
-          {
-            id: "coding-plan/qwen-plus",
-            provider_id: "coding-plan",
-            provider: "coding-plan",
-            model: "qwen-plus",
-            display_name: "Qwen Plus",
-            supported_effort: ["default", "low", "medium", "high"],
-          },
-        ],
-      },
-    });
+        },
+        candidateBackends: registry.backends,
+      });
 
-    updateWorkflowSettings("literature-explainer", {
-      backendId: "skillrunner-alt",
-      providerOptions: {
-        engine: "qwen",
-        provider_id: "dashscope",
-        model: "qwen-max",
-        effort: "default",
-      },
-    });
+      assert.notInclude(
+        descriptor.providerSchemaEntries.map((entry) => entry.key),
+        "provider_id",
+      );
+      assert.equal(descriptor.providerOptions.provider_id, "google");
+      assert.equal(descriptor.providerOptions.effort, "default");
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-explainer",
-    );
-    assert.isOk(workflow);
-
-    const registry = await loadBackendsRegistry();
-    assert.isUndefined(registry.fatalError);
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: registry.backends,
-    });
-
-    assert.equal(descriptor.providerOptions.engine, "qwen");
-    assert.equal(descriptor.providerOptions.provider_id, "dashscope");
-    assert.equal(descriptor.providerOptions.model, "qwen-max");
-    assert.equal(descriptor.providerOptions.effort, "default");
-    assert.includeMembers(
-      descriptor.providerSchemaEntries.map((entry) => entry.key),
-      ["provider_id", "model", "effort"],
-    );
-  });
-
-  itNodeOnly("hides provider_id for non provider-scoped engines but keeps canonical provider internally", async function () {
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
-
-    const registry = await loadBackendsRegistry();
-    assert.isUndefined(registry.fatalError);
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      draft: {
+  itNodeOnly(
+    "normalizes legacy model@effort for single-provider engines",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
         backendId: "skillrunner-primary",
         providerOptions: {
-          engine: "gemini",
-          provider_id: "google",
-          model: "gemini-2.5-pro",
+          engine: "codex",
+          model: "gpt-5.2@high",
         },
-      },
-      candidateBackends: registry.backends,
-    });
+      });
 
-    assert.notInclude(
-      descriptor.providerSchemaEntries.map((entry) => entry.key),
-      "provider_id",
-    );
-    assert.equal(descriptor.providerOptions.provider_id, "google");
-    assert.equal(descriptor.providerOptions.effort, "default");
-  });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-  itNodeOnly("normalizes legacy model@effort for single-provider engines", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      providerOptions: {
-        engine: "codex",
-        model: "gpt-5.2@high",
-      },
-    });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.engine, "codex");
+      assert.equal(context.providerOptions.provider_id, "openai");
+      assert.equal(context.providerOptions.model, "gpt-5.2");
+      assert.equal(context.providerOptions.effort, "high");
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "returns persisted snapshot when settings page opens",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-primary",
+        workflowParams: { language: "zh-CN" },
+        providerOptions: {
+          engine: "gemini",
+          model: "",
+          no_cache: false,
+        },
+      });
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.providerOptions.engine, "codex");
-    assert.equal(context.providerOptions.provider_id, "openai");
-    assert.equal(context.providerOptions.model, "gpt-5.2");
-    assert.equal(context.providerOptions.effort, "high");
-  });
+      const defaults =
+        resetRunOnceOverridesForSettingsOpen("literature-digest");
+      assert.equal(defaults.backendId, "skillrunner-primary");
+      assert.equal(defaults.workflowParams?.language, "zh-CN");
+      assert.equal(defaults.providerOptions?.model, "");
+      assert.equal(defaults.providerOptions?.no_cache, false);
 
-  itNodeOnly("returns persisted snapshot when settings page opens", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      workflowParams: { language: "zh-CN" },
-      providerOptions: {
-        engine: "gemini",
-        model: "",
-        no_cache: false,
-      },
-    });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    const defaults = resetRunOnceOverridesForSettingsOpen("literature-digest");
-    assert.equal(defaults.backendId, "skillrunner-primary");
-    assert.equal(defaults.workflowParams?.language, "zh-CN");
-    assert.equal(defaults.providerOptions?.model, "");
-    assert.equal(defaults.providerOptions?.no_cache, false);
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "skillrunner-primary");
+      assert.equal(context.workflowParams.language, "zh-CN");
+      assert.equal(context.providerOptions.model, "");
+      assert.equal(context.providerOptions.no_cache, false);
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "lists ACP backends as compatible profiles for skillrunner job workflows",
+    async function () {
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.backend.id, "skillrunner-primary");
-    assert.equal(context.workflowParams.language, "zh-CN");
-    assert.equal(context.providerOptions.model, "");
-    assert.equal(context.providerOptions.no_cache, false);
-  });
+      const registry = await loadBackendsRegistry();
+      assert.isUndefined(registry.fatalError);
 
-  itNodeOnly("lists ACP backends as compatible profiles for skillrunner job workflows", async function () {
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
 
-    const registry = await loadBackendsRegistry();
-    assert.isUndefined(registry.fatalError);
+      const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
+      assert.includeMembers(profileIds, [
+        "acp-opencode",
+        "skillrunner-alt",
+        "skillrunner-primary",
+      ]);
+      assert.isFalse(profileIds.includes("generic-http-local"));
+    },
+  );
 
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: registry.backends,
-    });
-
-    const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
-    assert.includeMembers(profileIds, [
-      "acp-opencode",
-      "skillrunner-alt",
-      "skillrunner-primary",
-    ]);
-    assert.isFalse(profileIds.includes("generic-http-local"));
-  });
-
-  itNodeOnly("resolves skillrunner job workflows to ACP provider when an ACP backend is selected", async function () {
-    const acpBackend = {
-      id: "acp-opencode",
-      displayName: "OpenCode ACP",
-      type: "acp",
-      baseUrl: "local://acp-opencode",
-      command: "npx",
-      args: ["opencode-ai@latest", "acp"],
-    };
-    Zotero.Prefs.set(
-      backendsConfigPrefKey,
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
-          acpBackend,
-          {
-            id: "skillrunner-primary",
-            displayName: "skillrunner-primary",
-            type: "skillrunner",
-            baseUrl: "http://127.0.0.1:8030",
-            auth: { kind: "none" },
-          },
-        ].map((backend) =>
-          backend.id === "acp-opencode"
-            ? {
-                ...backend,
-                acp: {
-                  connectionTest: {
-                    status: "passed",
-                    testedAt: "2026-04-29T00:00:00.000Z",
-                    configFingerprint: computeAcpBackendConfigFingerprint(
-                      backend as any,
-                    ),
+  itNodeOnly(
+    "resolves skillrunner job workflows to ACP provider when an ACP backend is selected",
+    async function () {
+      const acpBackend = {
+        id: "acp-opencode",
+        displayName: "OpenCode ACP",
+        type: "acp",
+        baseUrl: "local://acp-opencode",
+        command: "npx",
+        args: ["opencode-ai@latest", "acp"],
+      };
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            acpBackend,
+            {
+              id: "skillrunner-primary",
+              displayName: "skillrunner-primary",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+              auth: { kind: "none" },
+            },
+          ].map((backend) =>
+            backend.id === "acp-opencode"
+              ? {
+                  ...backend,
+                  acp: {
+                    connectionTest: {
+                      status: "passed",
+                      testedAt: "2026-04-29T00:00:00.000Z",
+                      configFingerprint: computeAcpBackendConfigFingerprint(
+                        backend as any,
+                      ),
+                    },
+                    runtimeOptionsCache: {
+                      refreshedAt: "2026-04-29T00:00:00.000Z",
+                      modes: [{ id: "default", label: "Default" }],
+                      currentModeId: "default",
+                      rawModels: [{ id: "qwen3", label: "Qwen 3" }],
+                      currentRawModelId: "qwen3",
+                      displayModels: [{ id: "qwen3", label: "Qwen 3" }],
+                      currentDisplayModelId: "qwen3",
+                      reasoningEfforts: [{ id: "default", label: "Default" }],
+                      currentReasoningEffortId: "default",
+                    },
                   },
-                  runtimeOptionsCache: {
-                    refreshedAt: "2026-04-29T00:00:00.000Z",
-                    modes: [{ id: "default", label: "Default" }],
-                    currentModeId: "default",
-                    rawModels: [{ id: "qwen3", label: "Qwen 3" }],
-                    currentRawModelId: "qwen3",
-                    displayModels: [{ id: "qwen3", label: "Qwen 3" }],
-                    currentDisplayModelId: "qwen3",
-                    reasoningEfforts: [{ id: "default", label: "Default" }],
-                    currentReasoningEffortId: "default",
-                  },
-                },
-              }
-            : backend,
-        ),
-      }),
-      true,
-    );
-    updateWorkflowSettings("literature-digest", {
-      backendId: "acp-opencode",
-      providerOptions: {
-        engine: "gemini",
-        model: "gemini-2.5-flash",
-      },
-    });
+                }
+              : backend,
+          ),
+        }),
+        true,
+      );
+      updateWorkflowSettings("literature-digest", {
+        backendId: "acp-opencode",
+        providerOptions: {
+          engine: "gemini",
+          model: "gemini-2.5-flash",
+        },
+      });
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.equal(context.backend.id, "acp-opencode");
-    assert.equal(context.backend.type, "acp");
-    assert.equal(context.providerId, "acp");
-    assert.equal(context.requestKind, "acp.skill.run.v1");
-    assert.deepEqual(context.providerOptions, {
-      acpModeId: "default",
-      acpModelId: "qwen3",
-      acpReasoningEffort: "default",
-    });
-  });
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "acp-opencode");
+      assert.equal(context.backend.type, "acp");
+      assert.equal(context.providerId, "acp");
+      assert.equal(context.requestKind, "acp.skill.run.v1");
+      assert.deepEqual(context.providerOptions, {
+        acpModeId: "default",
+        acpModelId: "qwen3",
+        acpReasoningEffort: "default",
+      });
+    },
+  );
 
-  itNodeOnly("keeps ACP normal models selectable and disables reasoning dropdown when unsupported", async function () {
-    const acpBackend = {
-      id: "acp-normal-models",
-      displayName: "ACP Normal Models",
-      type: "acp",
-      baseUrl: "local://acp-normal-models",
-      command: "npx",
-      args: ["opencode-ai@latest", "acp"],
-    };
-    Zotero.Prefs.set(
-      backendsConfigPrefKey,
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
-          acpBackend,
-          {
-            id: "skillrunner-primary",
-            displayName: "skillrunner-primary",
-            type: "skillrunner",
-            baseUrl: "http://127.0.0.1:8030",
-            auth: { kind: "none" },
-          },
-        ].map((backend) =>
-          backend.id === "acp-normal-models"
-            ? {
-                ...backend,
-                acp: {
-                  connectionTest: {
-                    status: "passed",
-                    testedAt: "2026-04-29T00:00:00.000Z",
-                    configFingerprint: computeAcpBackendConfigFingerprint(
-                      backend as any,
-                    ),
+  itNodeOnly(
+    "keeps ACP normal models selectable and disables reasoning dropdown when unsupported",
+    async function () {
+      const acpBackend = {
+        id: "acp-normal-models",
+        displayName: "ACP Normal Models",
+        type: "acp",
+        baseUrl: "local://acp-normal-models",
+        command: "npx",
+        args: ["opencode-ai@latest", "acp"],
+      };
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            acpBackend,
+            {
+              id: "skillrunner-primary",
+              displayName: "skillrunner-primary",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+              auth: { kind: "none" },
+            },
+          ].map((backend) =>
+            backend.id === "acp-normal-models"
+              ? {
+                  ...backend,
+                  acp: {
+                    connectionTest: {
+                      status: "passed",
+                      testedAt: "2026-04-29T00:00:00.000Z",
+                      configFingerprint: computeAcpBackendConfigFingerprint(
+                        backend as any,
+                      ),
+                    },
+                    runtimeOptionsCache: {
+                      refreshedAt: "2026-04-29T00:00:00.000Z",
+                      modes: [{ id: "default", label: "Default" }],
+                      currentModeId: "default",
+                      rawModels: [
+                        { id: "sonnet", label: "Sonnet" },
+                        { id: "opus", label: "Opus" },
+                        { id: "gpt-5-high", label: "GPT 5 High" },
+                        { id: "gpt-5-low", label: "GPT 5 Low" },
+                      ],
+                      currentRawModelId: "sonnet",
+                      displayModels: [
+                        { id: "sonnet", label: "Sonnet" },
+                        { id: "opus", label: "Opus" },
+                        { id: "gpt-5", label: "GPT 5" },
+                      ],
+                      currentDisplayModelId: "sonnet",
+                      reasoningEfforts: [],
+                      currentReasoningEffortId: "",
+                    },
                   },
-                  runtimeOptionsCache: {
-                    refreshedAt: "2026-04-29T00:00:00.000Z",
-                    modes: [{ id: "default", label: "Default" }],
-                    currentModeId: "default",
-                    rawModels: [
-                      { id: "sonnet", label: "Sonnet" },
-                      { id: "opus", label: "Opus" },
-                      { id: "gpt-5-high", label: "GPT 5 High" },
-                      { id: "gpt-5-low", label: "GPT 5 Low" },
-                    ],
-                    currentRawModelId: "sonnet",
-                    displayModels: [
-                      { id: "sonnet", label: "Sonnet" },
-                      { id: "opus", label: "Opus" },
-                      { id: "gpt-5", label: "GPT 5" },
-                    ],
-                    currentDisplayModelId: "sonnet",
-                    reasoningEfforts: [],
-                    currentReasoningEffortId: "",
-                  },
-                },
-              }
-            : backend,
-        ),
-      }),
-      true,
-    );
-    updateWorkflowSettings("literature-digest", {
-      backendId: "acp-normal-models",
-      providerOptions: {
+                }
+              : backend,
+          ),
+        }),
+        true,
+      );
+      updateWorkflowSettings("literature-digest", {
+        backendId: "acp-normal-models",
+        providerOptions: {
+          acpModelId: "opus",
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
+
+      const registry = await loadBackendsRegistry();
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      const modelEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelId",
+      );
+      const effortEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpReasoningEffort",
+      );
+      const autoApprovePermissionsEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "autoApproveAcpPermissions",
+      );
+
+      assert.deepEqual(modelEntry?.enumValues, ["sonnet", "opus", "gpt-5"]);
+      assert.equal(descriptor.providerOptions.acpModelId, "opus");
+      assert.deepEqual(effortEntry?.enumValues, ["default"]);
+      assert.isTrue(effortEntry?.disabled);
+      assert.equal(autoApprovePermissionsEntry?.type, "boolean");
+      assert.isFalse(autoApprovePermissionsEntry?.defaultValue as boolean);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.deepEqual(context.providerOptions, {
+        acpModeId: "default",
         acpModelId: "opus",
-      },
-    });
+      });
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "drops incompatible persisted backendId when provider mismatches",
+    async function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "generic-http-local",
+      });
 
-    const registry = await loadBackendsRegistry();
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: registry.backends,
-    });
-    const modelEntry = descriptor.providerSchemaEntries.find(
-      (entry) => entry.key === "acpModelId",
-    );
-    const effortEntry = descriptor.providerSchemaEntries.find(
-      (entry) => entry.key === "acpReasoningEffort",
-    );
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
 
-    assert.deepEqual(modelEntry?.enumValues, ["sonnet", "opus", "gpt-5"]);
-    assert.equal(descriptor.providerOptions.acpModelId, "opus");
-    assert.deepEqual(effortEntry?.enumValues, ["default"]);
-    assert.isTrue(effortEntry?.disabled);
+      const registry = await loadBackendsRegistry();
+      assert.isUndefined(registry.fatalError);
 
-    const context = await resolveWorkflowExecutionContext({
-      workflow: workflow!,
-    });
-    assert.deepEqual(context.providerOptions, {
-      acpModeId: "default",
-      acpModelId: "opus",
-    });
-  });
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
 
-  itNodeOnly("drops incompatible persisted backendId when provider mismatches", async function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "generic-http-local",
-    });
+      assert.equal(descriptor.selectedProfile, "");
+      assert.isFalse(
+        descriptor.profiles.some((entry) => entry.id === "generic-http-local"),
+      );
+    },
+  );
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
-    );
-    assert.isOk(workflow);
+  itNodeOnly(
+    "uses latest persisted values for settings defaults after persistent update",
+    function () {
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-primary",
+        workflowParams: { language: "zh-CN" },
+        providerOptions: {
+          engine: "gemini",
+          model: "",
+          no_cache: false,
+        },
+      });
+      const first = resetRunOnceOverridesForSettingsOpen("literature-digest");
+      assert.equal(first.workflowParams?.language, "zh-CN");
 
-    const registry = await loadBackendsRegistry();
-    assert.isUndefined(registry.fatalError);
-
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      candidateBackends: registry.backends,
-    });
-
-    assert.equal(descriptor.selectedProfile, "");
-    assert.isFalse(
-      descriptor.profiles.some((entry) => entry.id === "generic-http-local"),
-    );
-  });
-
-  itNodeOnly("uses latest persisted values for settings defaults after persistent update", function () {
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-primary",
-      workflowParams: { language: "zh-CN" },
-      providerOptions: {
-        engine: "gemini",
-        model: "",
-        no_cache: false,
-      },
-    });
-    const first = resetRunOnceOverridesForSettingsOpen("literature-digest");
-    assert.equal(first.workflowParams?.language, "zh-CN");
-
-    updateWorkflowSettings("literature-digest", {
-      backendId: "skillrunner-alt",
-      workflowParams: { language: "en-US" },
-      providerOptions: {
-        engine: "gemini",
-        model: "gemini-2.5-flash",
-        no_cache: true,
-      },
-    });
-    const second = resetRunOnceOverridesForSettingsOpen("literature-digest");
-    assert.equal(second.backendId, "skillrunner-alt");
-    assert.equal(second.workflowParams?.language, "en-US");
-    assert.equal(second.providerOptions?.model, "gemini-2.5-flash");
-    assert.equal(second.providerOptions?.no_cache, true);
-  });
+      updateWorkflowSettings("literature-digest", {
+        backendId: "skillrunner-alt",
+        workflowParams: { language: "en-US" },
+        providerOptions: {
+          engine: "gemini",
+          model: "gemini-2.5-flash",
+          no_cache: true,
+        },
+      });
+      const second = resetRunOnceOverridesForSettingsOpen("literature-digest");
+      assert.equal(second.backendId, "skillrunner-alt");
+      assert.equal(second.workflowParams?.language, "en-US");
+      assert.equal(second.providerOptions?.model, "gemini-2.5-flash");
+      assert.equal(second.providerOptions?.no_cache, true);
+    },
+  );
 
   it("resolves local pass-through execution context without backend profile", async function () {
     const root = await mkTempDir("zotero-skills-pass-through");
@@ -902,43 +964,48 @@ describe("workflow settings execution", function () {
     assert.deepEqual(requests[0].parameter, { hello: "world" });
   });
 
-  itZoteroFullOrNode("does not load deprecated reference workflows as active built-ins", async function () {
-    await ensureWorkflowRegistryLoaded();
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflowIds = loaded.workflows.map((entry) => entry.manifest.id);
-    assert.notInclude(workflowIds, "reference-matching");
-    assert.notInclude(workflowIds, "reference-note-editor");
-  });
+  itZoteroFullOrNode(
+    "does not load deprecated reference workflows as active built-ins",
+    async function () {
+      await ensureWorkflowRegistryLoaded();
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflowIds = loaded.workflows.map((entry) => entry.manifest.id);
+      assert.notInclude(workflowIds, "reference-matching");
+      assert.notInclude(workflowIds, "reference-note-editor");
+    },
+  );
 
-  itNodeOnly("persists GitHub workflow params for tag-manager without requiring backend profile", async function () {
-    await ensureWorkflowRegistryLoaded();
-    updateWorkflowSettings("tag-manager", {
-      workflowParams: {
-        github_owner: "demo-owner",
-        github_repo: "Zotero_TagVocab",
-        file_path: "tags/tags.json",
-        github_token: "secret-token",
-      },
-    });
+  itNodeOnly(
+    "persists GitHub workflow params for tag-manager without requiring backend profile",
+    async function () {
+      await ensureWorkflowRegistryLoaded();
+      updateWorkflowSettings("tag-manager", {
+        workflowParams: {
+          github_owner: "demo-owner",
+          github_repo: "Zotero_TagVocab",
+          file_path: "tags/tags.json",
+          github_token: "secret-token",
+        },
+      });
 
-    const loaded = await loadWorkflowManifests(workflowsPath());
-    const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "tag-manager",
-    );
-    assert.isOk(workflow);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "tag-manager",
+      );
+      assert.isOk(workflow);
 
-    const descriptor = await buildWorkflowSettingsUiDescriptor({
-      workflow: workflow!,
-      autoSelectFallbackProfile: true,
-    });
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        autoSelectFallbackProfile: true,
+      });
 
-    assert.equal(descriptor.providerId, "pass-through");
-    assert.equal(descriptor.requiresBackendProfile, false);
-    assert.equal(descriptor.selectedProfile, "");
-    assert.equal(descriptor.workflowParams.github_owner, "demo-owner");
-    assert.equal(descriptor.workflowParams.github_repo, "Zotero_TagVocab");
-    assert.equal(descriptor.workflowParams.file_path, "tags/tags.json");
-    assert.equal(descriptor.workflowParams.github_token, "secret-token");
-  });
-
+      assert.equal(descriptor.providerId, "pass-through");
+      assert.equal(descriptor.requiresBackendProfile, false);
+      assert.equal(descriptor.selectedProfile, "");
+      assert.equal(descriptor.workflowParams.github_owner, "demo-owner");
+      assert.equal(descriptor.workflowParams.github_repo, "Zotero_TagVocab");
+      assert.equal(descriptor.workflowParams.file_path, "tags/tags.json");
+      assert.equal(descriptor.workflowParams.github_token, "secret-token");
+    },
+  );
 });

@@ -1,0 +1,382 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "",
+      "authors": "Luca Bertineto; Jack Valmadre; et al.",
+      "title": "Fully-convolutional siamese networks for object tracking"
+    },
+    {
+      "id": "ref-2",
+      "year": "",
+      "authors": "Zhaowei Cai and Nuno Vasconcelos",
+      "title": "Cascade R-CNN: Delving into high quality object detection"
+    },
+    {
+      "id": "ref-3",
+      "year": "",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-toend object detection with transformers"
+    },
+    {
+      "id": "ref-4",
+      "year": "",
+      "authors": "Xin Chen; Bin Yan; et al.",
+      "title": "Transformer tracking"
+    },
+    {
+      "id": "ref-5",
+      "year": "",
+      "authors": "Dahjung Chung; Khalid Tahboub; et al.",
+      "title": "A two stream siamese convolutional neural network for person re-identification"
+    },
+    {
+      "id": "ref-6",
+      "year": "",
+      "authors": "Zhigang Dai; Bolun Cai; et al.",
+      "title": "UP-DETR: Unsupervised pre-training for object detection with transformers"
+    },
+    {
+      "id": "ref-7",
+      "year": "",
+      "authors": "Jia Deng，Wei Dong; Richard Socher; et al.",
+      "title": "ImageNet: A large-scale hierarchical image database"
+    },
+    {
+      "id": "ref-8",
+      "year": "",
+      "authors": "Xingping Dong and Jianbing Shen",
+      "title": "Triplet loss in siamese network for object tracking"
+    },
+    {
+      "id": "ref-9",
+      "year": "",
+      "authors": "Qi Fan; Wei Zhuo; et al.",
+      "title": "Fewshot object detection with attention-RPN and multi-relation detector"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Peng Gao; Minghang Zheng; et al.",
+      "title": "Fast convergence of DETR with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-11",
+      "year": "",
+      "authors": "Anfeng He; Chong Luo; et al.",
+      "title": "A twofold siamese network for real-time object tracking"
+    },
+    {
+      "id": "ref-12",
+      "year": "",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask R-CNN"
+    },
+    {
+      "id": "ref-13",
+      "year": "",
+      "authors": "Kaiming He; Xiangyu Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-14",
+      "year": "",
+      "authors": "Shuting He; Hao Luo; et al.",
+      "title": "TransReID: Transformer-based object reidentification"
+    },
+    {
+      "id": "ref-15",
+      "year": "",
+      "authors": "Ting-I Hsieh; Yi-Chen Lo; et al.",
+      "title": "One-shot object detection with co-attention and co-excitation"
+    },
+    {
+      "id": "ref-16",
+      "year": "2018",
+      "authors": "Han Hu; Jiayuan Gu; et al.",
+      "title": "Relation networks for object detection"
+    },
+    {
+      "id": "ref-17",
+      "year": "",
+      "authors": "Bingyi Kang; Zhuang Liu; et al.",
+      "title": "Few-shot object detection via feature reweighting"
+    },
+    {
+      "id": "ref-18",
+      "year": "",
+      "authors": "Diederik P Kingma and Jimmy Ba",
+      "title": "Adam: A method for stochastic optimization"
+    },
+    {
+      "id": "ref-19",
+      "year": "",
+      "authors": "Gregory Koch; Richard Zemel; et al.",
+      "title": "Siamese neural networks for one-shot image recognition"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Bo Li; Wei Wu; et al.",
+      "title": "SiamRPN++: Evolution of siamese visual tracking with very deep networks"
+    },
+    {
+      "id": "ref-21",
+      "year": "",
+      "authors": "Bo Li; Junjie Yan; et al.",
+      "title": "High performance visual tracking with siamese region proposal network"
+    },
+    {
+      "id": "ref-22",
+      "year": "",
+      "authors": "YulinLi; Jianfeng He; et al.",
+      "title": "Diverse part discovery: Occluded person re-identification with part-aware transformer"
+    },
+    {
+      "id": "ref-23",
+      "year": "2021",
+      "authors": "Minghui Liao; Pengyuan Lyu; et al.",
+      "title": "Mask TextSpotter: An end-toend trainable neural network for spoting text with arbitrary shapes"
+    },
+    {
+      "id": "ref-24",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Piotr Dollar; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-25",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin; Priya Goyal; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-26",
+      "year": "",
+      "authors": "Tsung-YiLin; Michael Maire; et al.",
+      "title": "Belongie,Lubomir D. Bourdev,Ross B.Girshick, James Hays,Pietro Perona,Deva Ramanan,Piotr Dollar,and C.Lawrence Zitnick. Microsoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-27",
+      "year": "2020",
+      "authors": "Li Liu; Wanli Ouyang; et al.",
+      "title": "Deep learning for generic object detection: A survey"
+    },
+    {
+      "id": "ref-28",
+      "year": "",
+      "authors": "Songtao Liu; Di Huang; et al.",
+      "title": "Receptive field block net for accurate and fast object detection"
+    },
+    {
+      "id": "ref-29",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "SSD: Single shot multibox detector"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Ilya Loshchilov and Frank Huttr",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Depu Meng， Xiaokang Chen， Zejia Fan; Gang Zeng; et al.",
+      "title": "Conditional DETR for fast training convergence"
+    },
+    {
+      "id": "ref-32",
+      "year": "",
+      "authors": "Jiangmiao Pang; Kai Chen; et al.",
+      "title": "Libra R-CNN: Towards balanced learning for object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "",
+      "authors": "Juan-Manuel Perez-Rua; Xiatian Zhu， TimothyM Hospedales，and Tao Xiang",
+      "title": "Incremental few-shot object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "",
+      "authors": "Joseph Redmon and Ali Farhadi",
+      "title": "YOLO 9000: Better, faster, stronger"
+    },
+    {
+      "id": "ref-35",
+      "year": "",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-36",
+      "year": "2015",
+      "authors": "Florian Schroff; Dmitry Kalenichenko; et al.",
+      "title": "FaceNet: A unified embedding for face recognition and clustering"
+    },
+    {
+      "id": "ref-37",
+      "year": "2017",
+      "authors": "Yantao Shen; Tong Xiao; et al.",
+      "title": "Learning deep neural networks for vehicle Re-ID with visual-spatio-temporal path proposals"
+    },
+    {
+      "id": "ref-38",
+      "year": "",
+      "authors": "Jake Snell; Kevin Swersky; et al.",
+      "title": "Prototypical networks for few-shot learning"
+    },
+    {
+      "id": "ref-39",
+      "year": "",
+      "authors": "Lingxue Song; Dihong Gong; et al.",
+      "title": "Occlusion robust face recognition based on mask learning with pairwise differential siamese network"
+    },
+    {
+      "id": "ref-40",
+      "year": "",
+      "authors": "Flood Sung; Yongxin Yang; et al.",
+      "title": "Learning to compare: Relation network for few-shot learning"
+    },
+    {
+      "id": "ref-41",
+      "year": "",
+      "authors": "Ran Tao; Efstratios Gavves; et al.",
+      "title": "Siamese instance search for tracking"
+    },
+    {
+      "id": "ref-42",
+      "year": "",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-43",
+      "year": "",
+      "authors": "Lachlan Tychsen-Smith and Lars Petersson",
+      "title": "Improving object localization with fitness NMS and bounded IoU loss"
+    },
+    {
+      "id": "ref-44",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Gomez,L.Kaiser,and Illia Polosukhin. Attention is all you need.In NeurIPS,2017．2,3,"
+    },
+    {
+      "id": "ref-45",
+      "year": "2020",
+      "authors": "Paul Voigtlaender; Jonathon Luiten; et al.",
+      "title": "Siam R-CNN: Visual tracking by re-detection"
+    },
+    {
+      "id": "ref-46",
+      "year": "2021",
+      "authors": "Ning Wang，Wengang Zhou; Jie Wang; et al.",
+      "title": "Transformer meets tracker:Exploiting temporal context for robust visual tracking"
+    },
+    {
+      "id": "ref-47",
+      "year": "2018",
+      "authors": "Lin Wu; Yang Wang; et al.",
+      "title": "Where-andwhen to look:Deep siamese attention networks for videobased person re-identification"
+    },
+    {
+      "id": "ref-48",
+      "year": "",
+      "authors": "Yang Xiao and Renaud Marlet",
+      "title": "Few-shot object detection and viewpoint estimation for objects in the wild"
+    },
+    {
+      "id": "ref-49",
+      "year": "2021",
+      "authors": "Chuhui Xue; Shijian Lu; et al.",
+      "title": "I2C2W: Image-to-character-to-word transformers for accurate scene text recognition"
+    },
+    {
+      "id": "ref-50",
+      "year": "2019",
+      "authors": "Xiaopeng Yan; Ziliang Chen; et al.",
+      "title": "Meta R-CNN: Towards general solver for instance-level low-shot learning"
+    },
+    {
+      "id": "ref-51",
+      "year": "2021",
+      "authors": "Fangao Zeng; Bin Dong; et al.",
+      "title": "MOTR: End-to-end Multiple-Object tracking with TRansformer"
+    },
+    {
+      "id": "ref-52",
+      "year": "213",
+      "authors": "Gongjie Zhang; Kaiwen Cui; et al.",
+      "title": "PNPDet: Efficient few-shot detection without forgetting via plug-and-play sub-networks. In WACV,"
+    },
+    {
+      "id": "ref-53",
+      "year": "",
+      "authors": "Gongjie Zhang; Shijian Lu; et al.",
+      "title": "IEEE Transactions on Geoscience and Remote Sensing,57(12):10015-10024,"
+    },
+    {
+      "id": "ref-54",
+      "year": "",
+      "authors": "Gongjie Zhang; Zhipeng Luo; et al.",
+      "title": "Meta-DETR:Image-level few-shot object detection with inter-class correlation exploitation"
+    },
+    {
+      "id": "ref-55",
+      "year": "",
+      "authors": "Jingyi Zhang; Jiaxing Huang; et al.",
+      "title": "DA-DETR:Domain adaptive detection transformer by hybrid attention"
+    },
+    {
+      "id": "ref-56",
+      "year": "",
+      "authors": "Shifeng Zhang; Longyin Wen; et al.",
+      "title": "Single-shot refinement neural network for object detection"
+    },
+    {
+      "id": "ref-57",
+      "year": "",
+      "authors": "Zhipeng Zhang and Houwen Peng",
+      "title": "Deeper and wider siamese networks for real-time visual tracking．"
+    },
+    {
+      "id": "ref-58",
+      "year": "",
+      "authors": "Meng Zheng; Srikrishna Karanam; et al.",
+      "title": "Re-identification with consistent attentive siamese networks"
+    },
+    {
+      "id": "ref-59",
+      "year": "",
+      "authors": "Changqing Zhou; Zhipeng Luo; et al.",
+      "title": "PTTR: Relational 3D point cloud object tracking with transformer"
+    },
+    {
+      "id": "ref-60",
+      "year": "2019",
+      "authors": "Xingyi Zhou; Dequan Wang; et al.",
+      "title": "Objects as points"
+    },
+    {
+      "id": "ref-61",
+      "year": "",
+      "authors": "Xingyi Zhou; Jiacheng Zhuo; et al.",
+      "title": "Bottom-up object detection by grouping extreme and center points"
+    },
+    {
+      "id": "ref-62",
+      "year": "",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable DETR:Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-63",
+      "year": "",
+      "authors": "Zheng Zhu; Qiang Wang; et al.",
+      "title": "Distractor-aware siamese networks for visual object tracking"
+    }
+  ]
+}

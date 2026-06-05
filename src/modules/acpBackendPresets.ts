@@ -12,6 +12,7 @@ export type AcpBackendPresetId =
   | "codex"
   | "claude-code"
   | "gemini-cli"
+  | "hermes"
   | "qwen-code";
 
 export type AcpBackendPreset = {
@@ -57,6 +58,14 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     command: "npx",
     args: ["@google/gemini-cli@latest", "--experimental-acp"],
     agentFamily: "gemini-cli",
+  },
+  {
+    id: "hermes",
+    backendId: "acp-hermes",
+    displayName: "Hermes ACP",
+    command: "hermes",
+    args: ["acp"],
+    agentFamily: "hermes",
   },
   {
     id: "qwen-code",

@@ -2,6 +2,10 @@ export type SynthesisMcpService = {
   listTopics?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getTopicContext?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  queryConceptKb?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  queryCitationGraphCluster?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getLibraryIndex?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   resolveResolver?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getReferenceSidecarIndex?: (

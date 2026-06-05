@@ -127,9 +127,13 @@ export async function applyResult(args) {
   if (isObject(result) && result.ok === false) {
     const status = normalizeString(result.status) || "failed";
     const topicId = normalizeString(result.topicId);
-    throw new Error(
+    const error = new Error(
       `topic synthesis applyResult ${status}${topicId ? ` for ${topicId}` : ""}`,
     );
+    error.structuredResult = result;
+    error.code = status;
+    error.warnings = Array.isArray(result.warnings) ? result.warnings : [];
+    throw error;
   }
   return result;
 }

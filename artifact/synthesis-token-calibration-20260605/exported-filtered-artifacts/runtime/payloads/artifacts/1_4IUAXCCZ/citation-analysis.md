@@ -1,0 +1,50 @@
+#### 按功能归类
+- Background: [2] Neural machine translation by jointly learning to align and translate；[6] Imputer: sequence modelling via imputation and dynamic programming；[7] BERT: pre-training of deep bidirectional transformers for language understanding；[9] Mask-predict: parallel decoding of conditional masked language models；[11] Non-autoregressive neural machine translation；[26] RWTH ASR systems for LibriSpeech: hybrid vs attention - w/o data augmentation；[28] Parallel wavenet: fast high-fidelity speech synthesis；[30] Image transformer；[32] Elucidating image-to-set prediction: an analysis of models, losses and datasets；[33] Language models are unsupervised multitask learners；[39] Deepsetnet: predicting sets with deep neural networks；[44] End-to-end ASR: from supervised to semi-supervised learning with modern architectures
+- Baseline: [5] Cascade R-CNN: high quality object detection and instance segmentation；[22] Focal loss for dense object detection；[36] Faster R-CNN: towards real-time object detection with region proposal networks；[45] FCOS: fully convolutional one-stage object detection；[51] Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection；[52] Objects as points
+- Contrast: [4] Soft-NMS-improving object detection with one line of code；[8] Scalable object detection using deep neural networks；[15] Learning non-maximum suppression；[16] Relation networks for object detection；[24] SSD: single shot multibox detector；[29] Learning to decompose for object detection and instance segmentation；[34] You only look once: unified, real-time object detection；[35] End-to-end instance segmentation with recurrent attention；[38] Deep perm-set net: learn to predict sets with unknown permutation and cardinality using deep neural networks；[40] Recurrent instance segmentation；[41] Recurrent neural networks for semantic instance segmentation；[42] End-to-end people detection in crowded scenes
+- Component: [14] Deep residual learning for image recognition；[19] The Hungarian method for the assignment problem；[21] Feature pyramid networks for object detection；[46] Attention is all you need；[48] Non-local neural networks
+- Dataset: [23] Microsoft COCO: common objects in context
+- Tooling: 无
+- Historical: [18] Panoptic segmentation；[43] Sequence to sequence learning with neural networks；[47] Order matters: sequence to sequence for sets
+- Other: 无
+
+#### 按引用编号/作者-年份列举
+- [2] 本文把它作为注意力机制的早期代表，用来说明 self-attention 之前就已有“从全序列聚合信息”的建模思想。
+- [4] 本文把 Soft-NMS 视为改进重复框处理的代表方法，但强调这类方法仍在检测后处理阶段注入额外先验。
+- [5] 本文把 Cascade R-CNN 作为基于 proposals 的两阶段检测代表，用来说明主流检测通常绕经候选框代理任务。
+- [6] 本文引用该工作说明并行序列生成已扩展到语音识别，从而为 DETR 的并行解码提供跨领域背景。
+- [7] 本文把它与其他工作并列为非自回归/并行解码范式的先行研究，论证并行预测并不只适用于检测。
+- [8] 本文将其归为早期使用 bipartite matching 的检测器，但指出这类方法仍缺乏足够的全局关系建模，往往需要 NMS 补救。
+- [9] 本文把 Mask-Predict 作为并行解码代表，说明 DETR 借用的是一条已经在序列生成中验证过的技术路线。
+- [11] 本文把非自回归机器翻译作为 parallel decoding 代表，用来说明并行生成与 Transformer 可以结合。
+- [14] 本文把 ResNet 作为可直接复用的标准 backbone，强调 DETR 不需要特殊检测专用卷积结构。
+- [15] 本文将其与 Soft-NMS 一起视为 learnable NMS 路线，认为它们减少了后处理但仍引入额外设计先验。
+- [16] 本文把 Relation Networks 作为显式建模框间关系的代表，并以此反衬 DETR 希望在更少手工特征下学习关系。
+- [18] 本文把这篇工作当作 panoptic segmentation 任务定义，用来说明 DETR 可以扩展到更复杂的像素级统一识别任务。
+- [19] 本文把 Hungarian method 作为 permutation-invariant set loss 的算法基础，用来支撑一对一匹配训练目标。
+- [21] 本文引用 FPN 不是为了复用其结构，而是借其发展历程说明 small-object 问题仍可能通过后续多尺度设计改进。
+- [22] 本文把 Focal Loss/RetinaNet 所代表的 anchor-based 单阶段检测作为主流基线，对比 DETR 去掉 anchor 的设计。
+- [23] 本文把 COCO 作为核心检测基准和实验对象，用它来衡量 DETR 是否能与成熟检测器正面对比。
+- [24] 本文将 SSD 归为早期使用 bipartite matching 的检测器，但指出其关系建模仍然有限，不能替代真正的 set prediction。
+- [26] 本文用该工作说明 Transformer 已在语音处理场景替代 RNN，支撑作者选择统一注意力架构。
+- [28] 本文把 Parallel WaveNet 视为 parallel generation 的代表之一，用来说明并行预测在序列建模里已有成功经验。
+- [29] 本文把它归为端到端的直接集合预测/实例分割先行工作，但强调这类方法多依赖自回归 RNN 且验证规模有限。
+- [30] 本文把 Image Transformer 作为视觉领域采用 Transformer 的例子，说明该架构并非只能处理文本。
+- [32] 本文把它当作 image-to-set prediction 的背景综述，用来说明直接集合预测在视觉中已有明确问题设定。
+- [33] 本文将其作为 NLP 中 Transformer 成功应用的例子，服务于“Transformer 正在替代 RNN”的总论点。
+- [34] 本文把 YOLO 归入早期使用 bipartite matching 的检测器一类，但认为其仍缺乏足够的对象间关系建模。
+- [35] 本文把它归入基于 RNN 的端到端实例分割方法，并据此反衬 DETR 采用并行 decoder 的差异。
+- [36] 本文多次把 Faster R-CNN 作为最关键的强基线，同时也把 proposal assignment 作为传统检测 heuristics 的代表。
+- [38] 本文把 Deep Perm-Set Net 列为直接集合预测的先行尝试之一，但认为它尚未在困难检测基准上证明竞争力。
+- [39] 本文把 Deepsetnet 当作集合预测背景文献，用来说明多标签/集合输出问题已有相关建模探索。
+- [40] 本文把它归为 recurrent instance segmentation 路线，认为这类自回归方法与 DETR 的并行解码形成鲜明对比。
+- [41] 本文把该工作视为语义实例分割中的 RNN 式先行方法，说明早期端到端集合预测普遍依赖递归生成。
+- [42] 本文一方面把它列为先前直接检测尝试，另一方面在 related work 中将其归为 end-to-end recurrent detector 的代表。
+- [43] 本文把经典 seq2seq 作为自回归生成范式的来源，用来铺垫后文对 parallel decoding 的转向。
+- [44] 本文把它作为语音识别中现代 Transformer 架构成功应用的例子，强化跨模态可迁移性论证。
+- [45] 本文把 FCOS 作为基于中心点/网格的主流单阶段检测代表，对比 DETR 不依赖中心点启发。
+- [46] 这是本文最核心的架构参照。作者直接把原始 Transformer 视为 DETR encoder-decoder 的基础，并强调并行解码改造。
+- [47] 本文把 Order Matters 作为集合预测中的自回归序列化方案代表，用来说明以往 set prediction 常依赖 RNN/seq2seq。
+- [48] 本文用 Non-Local Neural Networks 类比 self-attention 的全局聚合特性，说明 Transformer 的全局计算适合检测。
+- [51] 本文引用 ATSS 用来证明 anchor/proposal/center 等初始猜测及其分配规则会显著影响检测性能。
+- [52] 本文把 Objects as Points 作为基于中心点的检测代表，同时也把它归入现代使用非唯一 assignment 的检测系统。

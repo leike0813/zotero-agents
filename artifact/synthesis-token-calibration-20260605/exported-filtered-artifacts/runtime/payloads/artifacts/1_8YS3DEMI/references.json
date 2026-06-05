@@ -1,0 +1,190 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2021",
+      "authors": "Cheng Cui; Ruoyu Guo; et al.",
+      "title": "Beyond self-supervision: A simple yet effective network distillation alternative to improve backbones"
+    },
+    {
+      "id": "ref-2",
+      "year": "2022",
+      "authors": "Tri Dao; Dan Fu; et al.",
+      "title": "Flashattention: Fast and memory-efficient exact attention with io-awareness"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Alexey Dosovitskiy; Lucas Beyer; et al.",
+      "title": "An image is worth 16x16 words: Transformers for image recognition at scale"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Golnaz Ghiasi; Yin Cui; et al.",
+      "title": "Simple copy-paste is a strong data augmentation method for instance segmentation"
+    },
+    {
+      "id": "ref-5",
+      "year": "2023",
+      "authors": "Glenn Jocher",
+      "title": "Yolov8"
+    },
+    {
+      "id": "ref-6",
+      "year": "2024",
+      "authors": "Glenn Jocher",
+      "title": "Yolo11"
+    },
+    {
+      "id": "ref-7",
+      "year": "2025",
+      "authors": "Shihua Huang; Zhichao Lu; et al.",
+      "title": "Deim: Detr with improved matching for fast convergence"
+    },
+    {
+      "id": "ref-8",
+      "year": "2023",
+      "authors": "Muhammad Hussain",
+      "title": "Yolo-v1 to yolo-v8, the rise of yolo and its complementary nature toward digital manufacturing and industrial defect detection"
+    },
+    {
+      "id": "ref-9",
+      "year": "2023",
+      "authors": "Chuyi Li; Lulu Li; et al.",
+      "title": "Yolov6 v3.0: A full-scale reloading"
+    },
+    {
+      "id": "ref-10",
+      "year": "2022",
+      "authors": "Yanghao Li; Hanzi Mao; et al.",
+      "title": "Exploring plain vision transformer backbones for object detection"
+    },
+    {
+      "id": "ref-11",
+      "year": "2022",
+      "authors": "Siyuan Liang; Hao Wu; et al.",
+      "title": "Edge yolo: Real-time intelligent object detection system based on edge-cloud cooperation in autonomous vehicles"
+    },
+    {
+      "id": "ref-12",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-13",
+      "year": "2020",
+      "authors": "Xiang Long; Kaipeng Deng; et al.",
+      "title": "Pp-yolo: An effective and efficient implementation of object detector"
+    },
+    {
+      "id": "ref-14",
+      "year": "2024",
+      "authors": "Wenyu Lv; Yian Zhao; et al.",
+      "title": "Rt-detrv2: Improved baseline with bag-of-freebies for real-time detection transformer"
+    },
+    {
+      "id": "ref-15",
+      "year": "2021",
+      "authors": "Rangi Lyu",
+      "title": "Nanodet-plus"
+    },
+    {
+      "id": "ref-16",
+      "year": "2024",
+      "authors": "Debapriya Maji; Soyeb Nagori; et al.",
+      "title": "Yolo-6d-pose: Enhancing yolo for single-stage monocular multi-object 6d pose estimation"
+    },
+    {
+      "id": "ref-17",
+      "year": "2024",
+      "authors": "Yansong Peng; Hebei Li; et al.",
+      "title": "D-fine: Redefine regression task in detrs as fine-grained distribution refinement"
+    },
+    {
+      "id": "ref-18",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Divvala; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2019",
+      "authors": "Hamid Rezatofighi; Nathan Tsoi; et al.",
+      "title": "Generalized intersection over union: A metric and a loss for bounding box regression"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "Noam Shazeer",
+      "title": "Glu variants improve transformer"
+    },
+    {
+      "id": "ref-21",
+      "year": "2025",
+      "authors": "Oriane Simeoni; Huy V Vo; et al.",
+      "title": "Dinov3"
+    },
+    {
+      "id": "ref-22",
+      "year": "2025",
+      "authors": "Yunjie Tian; Qixiang Ye; et al.",
+      "title": "Yolov12: Attention-centric real-time object detectors"
+    },
+    {
+      "id": "ref-23",
+      "year": "2024",
+      "authors": "Ao Wang; Hui Chen; et al.",
+      "title": "Yolov10: Real-time end-to-end object detection"
+    },
+    {
+      "id": "ref-24",
+      "year": "2023",
+      "authors": "Chengcheng Wang; Wei He; et al.",
+      "title": "Gold-yolo: Efficient object detector via gather-and-distribute mechanism"
+    },
+    {
+      "id": "ref-25",
+      "year": "2024",
+      "authors": "Chien-Yao Wang; I-Hau Yeh; et al.",
+      "title": "Yolov9: Learning what you want to learn using programmable gradient information"
+    },
+    {
+      "id": "ref-26",
+      "year": "2021",
+      "authors": "Guanghua Yu; Qinyao Chang; et al.",
+      "title": "Pp-picodet: A better real-time object detector on mobile devices"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "Biao Zhang; Rico Sennrich",
+      "title": "Root mean square layer normalization"
+    },
+    {
+      "id": "ref-28",
+      "year": "2017",
+      "authors": "Hongyi Zhang",
+      "title": "mixup: Beyond empirical risk minimization"
+    },
+    {
+      "id": "ref-29",
+      "year": "2024",
+      "authors": "Yian Zhao; Wenyu Lv; et al.",
+      "title": "Detrs beat yolos on real-time object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2021",
+      "authors": "Ge Zheng; Liu Songtao; et al.",
+      "title": "Yolox: Exceeding yolo series in 2021"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

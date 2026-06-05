@@ -27,6 +27,7 @@ export type BackendInstance = {
       | "claude-code"
       | "opencode"
       | "gemini-cli"
+      | "hermes"
       | "qwen-code"
       | "unknown";
     skillRoots?: string[];
@@ -42,9 +43,17 @@ export type BackendInstance = {
       currentModeId?: string;
       rawModels?: Array<{ id: string; label: string; description?: string }>;
       currentRawModelId?: string;
-      displayModels?: Array<{ id: string; label: string; description?: string }>;
+      displayModels?: Array<{
+        id: string;
+        label: string;
+        description?: string;
+      }>;
       currentDisplayModelId?: string;
-      reasoningEfforts?: Array<{ id: string; label: string; description?: string }>;
+      reasoningEfforts?: Array<{
+        id: string;
+        label: string;
+        description?: string;
+      }>;
       currentReasoningEffortId?: string;
     };
   };

@@ -1,0 +1,274 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2019",
+      "authors": "A. Paszke et al.",
+      "title": "PyTorch: An imperative style, high-performance deep learning library"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "Bian, J.W.; Zhan, H.; et al.",
+      "title": "Unsupervised depth learning in challenging indoor video: Weak rectification to rescue. arXiv preprint arXiv:2006.02708"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Bian, J.; Li, Z.; et al.",
+      "title": "Unsupervised scale-consistent depth and ego-motion learning from monocular video"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "Bolya, D.; Zhou, C.; et al.",
+      "title": "YOLACT: real-time instance segmentation"
+    },
+    {
+      "id": "ref-5",
+      "year": "2016",
+      "authors": "Boominathan, L.; Kruthiventi, S.; et al.",
+      "title": "Crowdnet: A deep convolutional network for dense crowd counting"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Chen, H.; Sun, K.; et al.",
+      "title": "Blendmask: Top-down meets bottom-up for instance segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Chen, K.; Pang, J.; et al.",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2017",
+      "authors": "Chen, L.C.; Papandreou, G.; et al.",
+      "title": "Deeplab: Semantic image segmentation with deep convolutional nets, atrous convolution, and fully connected CRFs"
+    },
+    {
+      "id": "ref-9",
+      "year": "2019",
+      "authors": "Chen, X.; Girshick, R.; et al.",
+      "title": "Tensormask: A foundation for dense object segmentation"
+    },
+    {
+      "id": "ref-10",
+      "year": "2016",
+      "authors": "Dai, J.; He, K.; et al.",
+      "title": "Instance-sensitive fully convolutional networks"
+    },
+    {
+      "id": "ref-11",
+      "year": "2009",
+      "authors": "Deng, J.; Dong, W.; et al.",
+      "title": "Imagenet: A large-scale hierarchical image database"
+    },
+    {
+      "id": "ref-12",
+      "year": "2017",
+      "authors": "Fathi, A.; Wojna, Z.; et al.",
+      "title": "Semantic instance segmentation via deep metric learning. arXiv: Comp. Res. Repository"
+    },
+    {
+      "id": "ref-13",
+      "year": "2019",
+      "authors": "He, K.; Girshick, R.",
+      "title": "Rethinking imagenet pre-training"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "He, K.; Gkioxari, G.; et al.",
+      "title": "Mask R-CNN"
+    },
+    {
+      "id": "ref-15",
+      "year": "2015",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Spatial pyramid pooling in deep convolutional networks for visual recognition"
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-17",
+      "year": "2019",
+      "authors": "He, T.; Shen, C.; et al.",
+      "title": "Knowledge adaptation for efficient semantic segmentation"
+    },
+    {
+      "id": "ref-18",
+      "year": "2019",
+      "authors": "Huang, Z.; Huang, L.; et al.",
+      "title": "Mask scoring r-cnn"
+    },
+    {
+      "id": "ref-19",
+      "year": "2015",
+      "authors": "Ioffe, S.; Szegedy, C.",
+      "title": "Batch normalization: Accelerating deep network training by reducing internal covariate shift. arXiv preprint arXiv:1502.03167"
+    },
+    {
+      "id": "ref-20",
+      "year": "2016",
+      "authors": "Jia, X.; Brabandere, B.; et al.",
+      "title": "Dynamic filter networks"
+    },
+    {
+      "id": "ref-21",
+      "year": "2017",
+      "authors": "Lin, T.Y.; Girshick, R.; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Lin, T.Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-23",
+      "year": "2014",
+      "authors": "Lin, T.Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-24",
+      "year": "2016",
+      "authors": "Liu, F.; Shen, C.; et al.",
+      "title": "Learning depth from single monocular images using deep convolutional neural fields"
+    },
+    {
+      "id": "ref-25",
+      "year": "2018",
+      "authors": "Liu, S.; Qi, L.; et al.",
+      "title": "Path aggregation network for instance segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2020",
+      "authors": "Liu, Y.; Shu, C.; et al.",
+      "title": "Structured knowledge distillation for dense prediction"
+    },
+    {
+      "id": "ref-27",
+      "year": "2015",
+      "authors": "Long, J.; Shelhamer, E.; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-28",
+      "year": "2016",
+      "authors": "M. Abadi et al.",
+      "title": "TensorFlow: A system for large-scale machine learning"
+    },
+    {
+      "id": "ref-29",
+      "year": "2016",
+      "authors": "Milletari, F.; Navab, N.; et al.",
+      "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Neven, D.; Brabandere, B.D.; et al.",
+      "title": "Instance segmentation by jointly optimizing spatial embeddings and clustering bandwidth"
+    },
+    {
+      "id": "ref-31",
+      "year": "2017",
+      "authors": "Newell, A.; Huang, Z.; et al.",
+      "title": "Associative embedding: End-to-end learning for joint detection and grouping"
+    },
+    {
+      "id": "ref-32",
+      "year": "2018",
+      "authors": "Novotny, D.; Albanie, S.; et al.",
+      "title": "Semi-convolutional operators for instance segmentation"
+    },
+    {
+      "id": "ref-33",
+      "year": "2018",
+      "authors": "Perez, E.; Strub, F.; et al.",
+      "title": "Film: Visual reasoning with a general conditioning layer"
+    },
+    {
+      "id": "ref-34",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Sofiiuk, K.; Barinova, O.; et al.",
+      "title": "Adaptis: Adaptive instance selection network"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Tian, Z.; He, T.; et al.",
+      "title": "Decoders matter for semantic segmentation: Data-dependent decoding enables flexible feature aggregation"
+    },
+    {
+      "id": "ref-37",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Wang, X.; Kong, T.; et al.",
+      "title": "SOLO: Segmenting objects by locations. arXiv: Comp. Res. Repository"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "Wu, Y.; Kirillov, A.; et al.",
+      "title": "Detectron2. https:// github.com/facebookresearch/detectron2"
+    },
+    {
+      "id": "ref-40",
+      "year": "2020",
+      "authors": "Xie, E.; Sun, P.; et al.",
+      "title": "PolarMask: Single shot instance segmentation with polar representation"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "Yang, B.; Bender, G.; et al.",
+      "title": "Condconv: Conditionally parameterized convolutions for efficient inference"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Yin, W.; Liu, Y.; et al.",
+      "title": "Enforcing geometric constraints of virtual normal for depth prediction"
+    },
+    {
+      "id": "ref-43",
+      "year": "2020",
+      "authors": "Yin, W.; Wang, X.; et al.",
+      "title": "Diversedepth: Affine-invariant depth prediction using diverse data. arXiv preprint arXiv:2002.00569"
+    },
+    {
+      "id": "ref-44",
+      "year": "2019",
+      "authors": "Ying, H.; Huang, Z.; et al.",
+      "title": "Embedmask: Embedding coupling for one-stage instance segmentation. arXiv preprint arXiv:1912.01954"
+    },
+    {
+      "id": "ref-45",
+      "year": "2019",
+      "authors": "Zhou, X.; Wang, D.",
+      "title": "Objects as points. arXiv: Comp. Res. Repository"
+    }
+  ]
+}

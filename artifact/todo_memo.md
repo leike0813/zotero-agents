@@ -87,7 +87,9 @@
 - [x] 常见 ACP backend 的快捷添加
 - [x] acp skills执行过程中点取消会显示“File Closed”，意义不明。继续发指令后提示区一直卡在这个状态
 - [ ] canonical_merge 事件的额外选项（例如手动选择匹配目标）
+- [ ] 有任务进入pending状态时，需要在主界面以某种更醒目的方式提示
 - [ ] Review 页面中的其他选项卡需要测试
+- [ ] reference artifact变化后，原来hash记录对应的raw应该标为stale，如果对应的canonical被redirect那么也应该级联stale，最后通过某种机制清除，否则references会无限膨胀
 - [ ] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
 - [ ] **初次启动时的使用指导demo**
 - [x] **文献搜索入库 workflow**

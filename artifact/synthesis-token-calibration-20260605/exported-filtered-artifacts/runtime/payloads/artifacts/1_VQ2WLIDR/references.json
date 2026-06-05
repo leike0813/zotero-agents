@@ -1,0 +1,214 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-toend object detection with transformers.In European conference on computer vision, pages 213-229"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Kai Chen; Jiangmiao Pang; et al.",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-3",
+      "year": "2022",
+      "authors": "Bowen Cheng; Ishan Misra; et al.",
+      "title": "Schwing,Alexander Kirillov,and Rohit Girdhar"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Bowen Cheng; Alexander G",
+      "title": "Schwing,and Alexander Kirillov.Per-Pixel Clasification is Not Al You Need for Semantic Segmentation"
+    },
+    {
+      "id": "ref-5",
+      "year": "2016",
+      "authors": "Marius Cordts; Mohamed Omran; et al.",
+      "title": "The cityscapes dataset for semantic urban scene understanding"
+    },
+    {
+      "id": "ref-6",
+      "year": "2021",
+      "authors": "Xianzhi Du; Barret Zoph; et al.",
+      "title": "Simple training strategies and model scaling for object detection. arXiv preprint arXiv:2107"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Yuxin Fang; Shusheng Yang; et al.",
+      "title": "Instances as queries"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Golnaz Ghiasi; Yin Cui; et al.",
+      "title": "Simple copy-paste is a strong data augmentation method for instance segmentation"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask r-cnn.In Proceedings of the IEEE international conference on computer vision,pages 2961-2969,"
+    },
+    {
+      "id": "ref-10",
+      "year": "2016",
+      "authors": "Kaiming He; Xiangyu Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-11",
+      "year": "2022",
+      "authors": "Jitesh Jain; Jiachen Li; et al.",
+      "title": "OneFormer: One Transformer to Rule Universal Image Segmentation.arXiv preprint arXiv:2211"
+    },
+    {
+      "id": "ref-12",
+      "year": "2021",
+      "authors": "Jitesh Jain; Anukriti Singh; et al.",
+      "title": "SeMask: Semantically Masked Transformers for Semantic Segmentation. arXiv preprint arXiv:2112"
+    },
+    {
+      "id": "ref-13",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Ross Girshick; et al.",
+      "title": "Panoptic feature pyramid networks.In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 6399-6408,"
+    },
+    {
+      "id": "ref-14",
+      "year": "2019",
+      "authors": "Alexander Kirillov; Kaiming He; et al.",
+      "title": "Panoptic segmentation"
+    },
+    {
+      "id": "ref-15",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "DN-DETR: Accelerate DETR Training by Introducing Query DeNoising. arXiv preprint arXiv:2203"
+    },
+    {
+      "id": "ref-16",
+      "year": "2021",
+      "authors": "Zhiqi Li; Wenhai Wang; et al.",
+      "title": "Panoptic SegFormer. arXiv preprint arXiv:2109"
+    },
+    {
+      "id": "ref-17",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Shilong Liu; Feng Li; et al.",
+      "title": "DAB-DETR: Dynamic Anchor Boxes are Better Queries for DETR. arXiv preprint arXiv:2201"
+    },
+    {
+      "id": "ref-19",
+      "year": "2021",
+      "authors": "Ze Liu; Han Hu; et al.",
+      "title": "Swin Transformer V2: Scaling Up Capacity and Resolution. arXiv preprint arXiv:2111"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Ze Liu; Yutong Lin; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-21",
+      "year": "2015",
+      "authors": "Jonathan Long; Evan Shelhamer; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "Depu Meng，Xiaokang Chen， Zejia Fan; Gang Zeng; et al.",
+      "title": "Conditional DETR for Fast Training Convergence. arXiv preprint arXiv:2108"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Zipeng Qin; Jianbo Liu; et al.",
+      "title": "Pyramid Fusion Transformer for Semantic Segmentation.arXiv preprint arXiv:2201"
+    },
+    {
+      "id": "ref-24",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-25",
+      "year": "2015",
+      "authors": "Olaf Ronneberger; Philipp Fischer; et al.",
+      "title": "U-net: Convolutional networks for biomedical image segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "",
+      "authors": "Shuai Shao; Zeming Li; et al.",
+      "title": "Objects365:A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Huiyu Wang; Yukun Zhu; et al.",
+      "title": "Max-deeplab: End-to-end panoptic segmentation with mask transformers"
+    },
+    {
+      "id": "ref-29",
+      "year": "2021",
+      "authors": "Yingming Wang; Xiangyu Zhang; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector. arXiv preprint arXiv:2109"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Yuwen Xiong; Renjie Liao; et al.",
+      "title": "[Unknown title]"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Mengde Xu; Zheng Zhang; et al.",
+      "title": "End-toend semi-supervised object detection with soft teacher"
+    },
+    {
+      "id": "ref-32",
+      "year": "2022",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "DINO: DETR withImproved DeNoising Anchor Boxes for End-to-End Ob-ject Detection. arXiv preprint arXiv:2203"
+    },
+    {
+      "id": "ref-33",
+      "year": "2021",
+      "authors": "Wenwei Zhang; Jiangmiao Pang; et al.",
+      "title": "K-net: Towards unified image segmentation"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Bolei Zhou; Hang Zhao; et al.",
+      "title": "Scene parsing through ade20k dataset"
+    },
+    {
+      "id": "ref-35",
+      "year": "2021",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr:Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

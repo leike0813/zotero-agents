@@ -1280,6 +1280,10 @@ describe("Synthesis Layer v1 integration service", function () {
       decisions: [{ proposalId: rejectedProposalId!, action: "accept" }],
     });
     assert.equal(acceptBatch.applied_count, 1);
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
     const acceptedProposal = repository.listReferenceMatchProposals({
       proposalIds: [rejectedProposalId!],
     })[0];
@@ -1289,11 +1293,26 @@ describe("Synthesis Layer v1 integration service", function () {
         .listReferenceBindings({ statuses: ["accepted"] })
         .some((binding) => binding.itemKey === acceptedProposal?.targetItemKey),
     );
+    assert.isTrue(
+      repository
+        .listCitationEdges({
+          sourceLiteratureItemIds: ["1:A"],
+          targetLiteratureItemIds: [
+            `1:${acceptedProposal?.targetItemKey || ""}`,
+          ],
+          statuses: ["accepted"],
+        })
+        .length > 0,
+    );
 
     await service.applyReferenceMatchProposalAction({
       proposalId: rejectedProposalId!,
       action: "reject",
     });
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
     assert.equal(
       repository.listReferenceMatchProposals({
         proposalIds: [rejectedProposalId!],
@@ -1304,6 +1323,14 @@ describe("Synthesis Layer v1 integration service", function () {
       repository
         .listReferenceBindings({ statuses: ["accepted"] })
         .some((binding) => binding.itemKey === acceptedProposal?.targetItemKey),
+    );
+    assert.lengthOf(
+      repository.listCitationEdges({
+        sourceLiteratureItemIds: ["1:A"],
+        targetLiteratureItemIds: [`1:${acceptedProposal?.targetItemKey || ""}`],
+        statuses: ["accepted"],
+      }),
+      0,
     );
 
     const deleteProposalId = openProposals.find(
@@ -1322,6 +1349,10 @@ describe("Synthesis Layer v1 integration service", function () {
       proposalId: deleteProposalId!,
       action: "delete",
     });
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
     assert.equal(
       repository.listReferenceMatchProposals({
         proposalIds: [deleteProposalId!],

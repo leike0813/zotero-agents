@@ -24,7 +24,6 @@ from runtime_db import (
     get_meta,
     missing_citation_graph_metric_receipt_refs,
     has_any_state,
-    library_index_status,
     missing_paper_artifact_bundle_receipt_refs,
     missing_paper_analysis_receipt_refs,
     paper_refs,
@@ -35,21 +34,18 @@ DB = "runtime/topic-synthesis.sqlite"
 BATCH_SIZE = 25
 RULE_SUMMARY = (
     "Hard rules: execute only this gate's next_action/command_example; do not hand-write SQLite; "
-    "do not use temporary scripts to generate semantic content; do not copy or author hashes; "
+    "do not use temporary scripts to generate semantic content; rely on runtime receipts for provenance metadata; "
     "if an action fails, repair the current stage only and rerun gate; final stdout must be a legal business JSON object."
 )
 STAGE_ORDER = (
     "stage_0_runtime_setup",
     "stage_1_topic_context",
     "stage_2_resolver_and_workset",
-    "stage_3_graph_metrics",
-    "stage_4_evidence_collection",
-    "stage_5_paper_units",
+    "stage_5_paper_triage",
     "stage_6_cross_paper_map",
-    "stage_7_route_timeline",
-    "stage_8_core_sections",
-    "stage_9_kg_proposals",
-    "stage_10_external_statistics_report",
+    "stage_8_core_synthesis",
+    "stage_9_kg_enrichment",
+    "stage_10_summary_coverage",
     "stage_11_render_and_validate",
     "stage_12_completed",
 )
@@ -61,33 +57,23 @@ ACTION_ALIASES: dict[str, str] = {}
 INSTRUCTION_REFS_BY_STAGE = {
     "stage_0_runtime_setup": ["SKILL.md#最小执行主路径 / 0. confirm_runtime_setup"],
     "stage_1_topic_context": ["SKILL.md#最小执行主路径 / 1. persist_topic_context"],
-    "stage_2_resolver_and_workset": [
-        "SKILL.md#最小执行主路径 / 2. persist_library_index_page / persist_resolver"
-    ],
-    "stage_3_graph_metrics": ["SKILL.md#最小执行主路径 / 3. persist_citation_graph_metrics"],
-    "stage_4_evidence_collection": [
-        "SKILL.md#最小执行主路径 / 4. persist_filtered_artifact_manifest"
-    ],
-    "stage_5_paper_units": ["references/step_05_paper_units.md"],
+    "stage_2_resolver_and_workset": ["SKILL.md#最小执行主路径 / 2. persist_resolver"],
+    "stage_5_paper_triage": ["references/step_05_paper_triage.md"],
     "stage_6_cross_paper_map": ["references/step_06_cross_paper_map.md"],
-    "stage_7_route_timeline": ["references/step_07_taxonomy_timeline.md"],
-    "stage_8_core_sections": ["references/step_08_core_sections.md"],
-    "stage_9_kg_proposals": ["references/step_09_kg_proposals.md"],
-    "stage_10_external_statistics_report": ["references/step_10_external_statistics_report.md"],
+    "stage_8_core_synthesis": ["references/step_08_core_synthesis.md"],
+    "stage_9_kg_enrichment": ["references/step_09_kg_enrichment.md"],
+    "stage_10_summary_coverage": ["references/step_10_summary_coverage.md"],
     "stage_11_render_and_validate": ["references/step_11_render_validate.md"],
 }
 
 SCHEMA_REFS_BY_ACTION = {
     "persist_topic_context": ["assets/schemas/topic_context_payload.schema.json"],
-    "persist_resolver": ["assets/schemas/resolver_manifest.schema.json"],
-    "persist_citation_graph_metrics": ["assets/schemas/citation_graph_metrics_receipt.schema.json"],
-    "persist_filtered_artifact_manifest": ["assets/schemas/filtered_artifact_manifest.schema.json"],
-    "persist_paper_units": ["assets/schemas/paper_analysis_row.schema.json"],
+    "persist_resolver": ["assets/schemas/resolver_proposal.schema.json"],
+    "persist_paper_triage": ["assets/schemas/paper_analysis_row.schema.json"],
     "persist_cross_paper_evidence_map": ["assets/schemas/cross_paper_evidence_map.schema.json"],
-    "persist_route_timeline": ["assets/schemas/route_timeline_synthesis.schema.json"],
-    "persist_core_sections": ["assets/schemas/core_analytical_sections.schema.json"],
-    "persist_kg_proposals": ["assets/schemas/kg_proposals.schema.json"],
-    "persist_external_statistics_report": ["assets/schemas/topic_synthesis_artifact.schema.json"],
+    "persist_core_synthesis": ["assets/schemas/core_analytical_sections.schema.json"],
+    "persist_kg_enrichment": ["assets/schemas/kg_enrichment.schema.json"],
+    "finalize_summary_coverage": ["assets/schemas/topic_synthesis_artifact.schema.json"],
     "validate_final_artifacts": [
         "assets/schemas/topic_synthesis_artifact.schema.json",
         "assets/schemas/topic_interest_metadata.schema.json",
@@ -96,54 +82,39 @@ SCHEMA_REFS_BY_ACTION = {
 
 SEMANTIC_HINTS_BY_STAGE = {
     "stage_1_topic_context": {
-        "semantic_goal": "Define the topic as a usable knowledge window: concept, scope, aliases, field position, and duplicate risk.",
-        "quality_focus": "Make the topic boundary specific enough to guide resolver design and later synthesis.",
-        "common_pitfalls": "Avoid treating the seed as a keyword string; explain what belongs inside and outside the topic.",
+        "semantic_goal": "Define the topic as a flat semantic payload: title, aliases, definition, scope, and duplicate risk.",
+        "quality_focus": "Make the topic boundary specific enough to guide resolver design.",
+        "common_pitfalls": "Keep the payload flat and schema-shaped; base duplicate risk on the topic list instead of broad similarity guesses.",
     },
     "stage_2_resolver_and_workset": {
-        "semantic_goal": "Convert topic intent into a reproducible paper workset that can support a dense synthesis.",
+        "semantic_goal": "Author a compact resolver proposal; runtime then resolves papers, collects graph metrics, and exports bounded paper artifacts in one cascade.",
         "quality_focus": "Resolver choices should match the topic boundary and preserve diagnostic reasons for included/excluded papers.",
         "common_pitfalls": "Do not optimize for maximum paper count; unresolved or borderline papers should be diagnosed, not silently absorbed.",
     },
-    "stage_3_graph_metrics": {
-        "semantic_goal": "Collect graph-derived role hints for ordering, coverage diagnosis, and external-heavy signals.",
-        "quality_focus": "Use metrics as auxiliary context for importance and topology, never as direct evidence for claims.",
-        "common_pitfalls": "Do not promote a paper to a milestone only because PageRank or in-degree is high.",
-    },
-    "stage_4_evidence_collection": {
-        "semantic_goal": "Export bounded digest/reference/citation artifacts so later semantic work is grounded in host-verified evidence.",
-        "quality_focus": "Missing artifacts are evidence availability facts; record them and adjust confidence later.",
-        "common_pitfalls": "Do not infer missing/available artifact status from memory or tool text; use the host-written manifest.",
-    },
-    "stage_5_paper_units": {
-        "semantic_goal": "Extract composable single-paper facts for routes, timeline, claims, comparison, debates, gaps, and external analysis.",
-        "quality_focus": "Stay paper-local: problem, method contribution, evaluation context, findings, limitations, and reusable candidates.",
-        "common_pitfalls": "Do not write cross-paper conclusions here; do not make claim/timeline candidates from papers without digest evidence.",
+    "stage_5_paper_triage": {
+        "semantic_goal": "Assess each paper's topic relevance, quality, and compact core digest.",
+        "quality_focus": "Stay paper-local and concise; write only fields in the triage schema.",
+        "common_pitfalls": "Do not write cross-paper conclusions or section candidates in paper triage.",
     },
     "stage_6_cross_paper_map": {
-        "semantic_goal": "Aggregate paper units into a candidate evidence network for taxonomy, timeline, claims, debates, gaps, and review outline.",
-        "quality_focus": "Group by shared problem, mechanism, evidence convergence, and tension; preserve candidate ids and paper-unit provenance.",
-        "common_pitfalls": "Do not copy paper-unit rows into lists; synthesize reusable candidates without writing final section prose.",
+        "semantic_goal": "Export runtime context and evidence-map provenance for taxonomy, timeline, claims, debates, gaps, and review outline.",
+        "quality_focus": "Use validated triage rows and host-verified artifacts as context; preserve runtime candidate ids when they are present.",
+        "common_pitfalls": "Do not author cross-paper candidate ids or evidence_map_refs by hand.",
     },
-    "stage_7_route_timeline": {
-        "semantic_goal": "Explain the topic through research routes and historical progression.",
-        "quality_focus": "Taxonomy must analyze route boundaries, mechanisms, trade-offs, maturity, and relations; timeline must explain milestones and progression logic.",
-        "common_pitfalls": "Avoid a label-only taxonomy or a year-sorted bibliography; every node/event needs analytical role and evidence.",
-    },
-    "stage_8_core_sections": {
-        "semantic_goal": "Turn route and timeline analysis into core synthesis findings, comparisons, debates, gaps, and writing outline.",
-        "quality_focus": "Claims are topic-level findings; comparison dimensions are explanatory; debates need positions and evaluation axes; gaps must separate research gaps from library coverage gaps.",
+    "stage_8_core_synthesis": {
+        "semantic_goal": "Submit taxonomy, timeline, positioning, claims, improvement dimensions, debates, gaps, outline, and concept labels in one core synthesis payload.",
+        "quality_focus": "Use source_paper_refs for evidence; improvement dimensions should explain method progress and tradeoffs.",
         "common_pitfalls": "Do not restate paper abstracts as claims; do not present weak local coverage as a field-wide research gap.",
     },
-    "stage_9_kg_proposals": {
-        "semantic_goal": "Draft KG proposal sidecars from validated topic synthesis context without writing canonical KG assets.",
-        "quality_focus": "Concept cards and relation proposals should be grounded in core sections; empty arrays are valid only with diagnostics.",
-        "common_pitfalls": "Do not skip the sidecars; do not write canonical concept ids, graph edge ids, SQLite rows, or Git metadata.",
+    "stage_9_kg_enrichment": {
+        "semantic_goal": "Provide concept details, topic relation candidates, and topic matching terms for runtime sidecar materialization.",
+        "quality_focus": "Ground enrichment in validated core synthesis and topic boundary.",
+        "common_pitfalls": "Do not write canonical KG assets, SQLite rows, or Git metadata.",
     },
-    "stage_10_external_statistics_report": {
-        "semantic_goal": "Finalize external literature, coverage/statistics interpretation, and a continuous synthesis report.",
-        "quality_focus": "External analysis must identify related outside concepts/methods, coverage verdict, and collection suggestions; report must connect topic definition, routes, history, findings, debates, gaps, and external literature.",
-        "common_pitfalls": "Do not write a brief summary; the report should be a dense reader-facing knowledge synthesis grounded in prior sections.",
+    "stage_10_summary_coverage": {
+        "semantic_goal": "Finalize summary, coverage interpretation, reliability caveats, external context summary, and collection suggestions.",
+        "quality_focus": "Keep the payload interpretive; runtime materializes statistics, source artifacts, and report.",
+        "common_pitfalls": "Do not duplicate core synthesis sections in the final summary coverage payload.",
     },
     "stage_11_render_and_validate": {
         "semantic_goal": "Validate that semantic sections form a coherent, evidence-closed topic synthesis artifact.",
@@ -165,17 +136,9 @@ ENUM_CONTRACTS_BY_STAGE = {
         ],
     },
     "stage_1_topic_context": {"operation": ["create"]},
-    "stage_4_evidence_collection": {
-        "artifact_type": ["digest", "references", "citation_analysis"],
-        "payload_type": {
-            "digest": "digest-markdown",
-            "references": "references-json",
-            "citation_analysis": "citation-analysis-json",
-        },
-        "artifact_status": ["available", "missing", "decode_error", "unsupported"],
-    },
-    "stage_5_paper_units": {
+    "stage_5_paper_triage": {
         "topic_relevance.level": ["core", "related", "peripheral", "excluded"],
+        "paper_quality.level": ["high", "medium", "low", "unknown"],
     },
     "stage_6_cross_paper_map": {
         "gap_candidates[].gap_type": [
@@ -186,7 +149,7 @@ ENUM_CONTRACTS_BY_STAGE = {
             "review_gap",
         ],
     },
-    "stage_8_core_sections": {
+    "stage_8_core_synthesis": {
         "gaps[].gap_type": [
             "research_gap",
             "library_coverage_gap",
@@ -195,8 +158,8 @@ ENUM_CONTRACTS_BY_STAGE = {
         ],
         "gaps[].severity": ["low", "medium", "high", "critical", "unknown"],
     },
-    "stage_9_kg_proposals": {
-        "concept_cards[].concept_type": [
+    "stage_9_kg_enrichment": {
+        "concept_details[].concept_type": [
             "method_family",
             "mechanism",
             "task",
@@ -206,14 +169,14 @@ ENUM_CONTRACTS_BY_STAGE = {
             "training_signal",
             "theoretical_construct",
         ],
-        "topic_relations[].proposal_type": [
+        "topic_relation_candidates[].relation_type": [
             "broader_topic_candidate",
             "related_topic_candidate",
             "overlap_topic_candidate",
             "contrast_topic_candidate",
         ],
     },
-    "stage_10_external_statistics_report": {
+    "stage_10_summary_coverage": {
         "topic.topic_granularity": [
             "method_family",
             "task",
@@ -317,7 +280,7 @@ def next_action(conn) -> dict:
             status="failed_terminal",
             stage="stage_12_completed",
             next_action="stop",
-            execution_note="A terminal failure is recorded. Stop or emit a schema-compatible canceled result.",
+            execution_note="A terminal failure is recorded. Stop or emit a schema-valid canceled result.",
             command="",
             required_reads=["runtime/topic-synthesis.sqlite"],
             required_writes=[],
@@ -331,7 +294,7 @@ def next_action(conn) -> dict:
                 "A retryable stage failure is recorded. Inspect the failed stage/error first, "
                 "then rerun the corresponding stage_runtime command with a corrected payload."
             ),
-            command=f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action audit_runtime_integrity',
+            command=f'python scripts/stage_runtime.py --db "{DB}" --action audit_runtime_integrity',
             required_reads=["stage error in SQLite"],
             required_writes=["repair command decision for the failed current stage"],
         )
@@ -346,7 +309,7 @@ def next_action(conn) -> dict:
                 "Runtime integrity audit failed. Inspect the structural violation and repair the current stage "
                 "through package-local stage_runtime actions; do not patch SQLite manually."
             ),
-            command=f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action audit_runtime_integrity',
+            command=f'python scripts/stage_runtime.py --db "{DB}" --action audit_runtime_integrity',
             required_reads=["runtime/topic-synthesis.sqlite", "artifact_registry", "action_receipts"],
             required_writes=[],
             progress={"integrity_errors": integrity_errors},
@@ -361,7 +324,7 @@ def next_action(conn) -> dict:
             next_action="confirm_runtime_setup",
             execution_note="Initialize run-local SQLite metadata and lock operation/language before semantic work.",
             command=(
-                f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                f'python scripts/stage_runtime.py --db "{DB}" '
                 f'--operation "{operation}" --language "{language}" --action confirm_runtime_setup'
             ),
             required_reads=["current working directory", "input topicSeed/language"],
@@ -374,15 +337,15 @@ def next_action(conn) -> dict:
             stage="stage_1_topic_context",
             next_action="persist_topic_context",
             execution_note=(
-                "Do duplicate check with `./.zotero-bridge/bin/zotero-bridge synthesis list-topics --input '{}'`, define topic intent, "
-                "then persist it with the payload-file command. Do not hand-edit SQLite."
+                "Do duplicate check with `./.zotero-bridge/bin/zotero-bridge synthesis list-topics --input '{}'`, write the flat topic context payload, "
+                "then persist it with the payload-file command. The title should be stable and specific; do not hand-edit SQLite."
             ),
             command=(
                 f'python scripts/stage_runtime.py --db "{DB}" --action persist_topic_context '
                 '--payload-file "runtime/payloads/topic-context.json"'
             ),
             required_reads=["topicSeed", "language", "zotero-bridge synthesis list-topics"],
-            required_writes=["runtime/payloads/topic-context.json", "topic_intent rows"],
+            required_writes=["runtime/payloads/topic-context.json", "runtime-derived topic_intent rows"],
             progress={"completed_stages": sorted(completed)},
         )
 
@@ -391,183 +354,100 @@ def next_action(conn) -> dict:
         return action_payload(
             status="blocked",
             stage="stage_1_topic_context",
-            next_action="repair_topic_definition",
+            next_action="repair_topic_context",
             execution_note=(
-                "Stage 1 is incomplete: runtime requires topic_definition.id and topic_definition.title. "
-                "Map any legacy intent payload to topic_definition and rerun persist_topic_context."
+                "Stage 1 is incomplete: the topic context payload is missing required topic fields. "
+                "Rerun persist_topic_context with a valid flat payload containing topic_title and duplicate_status."
             ),
             command=(
                 f'python scripts/stage_runtime.py --db "{DB}" --action persist_topic_context '
                 '--payload-file "runtime/payloads/topic-context.json"'
             ),
             required_reads=["runtime/payloads/topic-context.json", "topic_intent rows"],
-            required_writes=["topic_definition.id", "topic_definition.title"],
-            blocker="topic_definition_missing_id",
+            required_writes=["valid topic context payload", "persisted topic intent"],
+            blocker="topic_context_missing_required_fields",
         )
 
     if "stage_2_resolver_and_workset" not in completed:
-        index_status = library_index_status(conn)
-        if not index_status.get("complete"):
-            cursor = str(index_status.get("next_cursor") or "0")
-            safe_cursor = cursor.replace(":", "_").replace("/", "_").replace("\\", "_") or "0"
-            args_hint = '{"limit":100}' if cursor == "0" else '{"cursor":"' + cursor + '","limit":100}'
-            return action_payload(
-                status="ready",
-                stage="stage_2_resolver_and_workset",
-                next_action="persist_library_index_page",
-                execution_note=(
-                    "Read the next compact complete-library-index page with `./.zotero-bridge/bin/zotero-bridge synthesis get-library-index --input ...`, "
-                    "then persist the full page receipt. The payload file must contain the page's papers[] array, "
-                    "cursor/next_cursor, has_more, and index_hash; cursor/hash metadata alone is invalid. "
-                    "The limit is only page size; continue until has_more=false. Request includeTags/includeCollections "
-                    "only when resolver design needs global tag or collection statistics; do not routinely request includeItems."
-                ),
-                command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --action persist_library_index_page '
-                    f'--payload-file "runtime/payloads/library-index-page-{safe_cursor}.json"'
-                ),
-                required_reads=[
-                    f"./.zotero-bridge/bin/zotero-bridge synthesis get-library-index --input '{args_hint}'",
-                    "previous library_index_pages receipt chain",
-                ],
-                required_writes=[
-                    f"runtime/payloads/library-index-page-{safe_cursor}.json",
-                    "library_index_pages receipt",
-                ],
-                progress=index_status,
-            )
         return action_payload(
             status="ready",
             stage="stage_2_resolver_and_workset",
             next_action="persist_resolver",
             execution_note=(
-                "Build a reproducible resolver from the completed library index receipt, "
-                "run `./.zotero-bridge/bin/zotero-bridge synthesis resolve-resolver --input ...`, then persist resolver diagnostics and resolved_paper_set."
+                "Write a compact resolver proposal with top-level resolver, resolver_reasoning, and diagnostics. "
+                "The runtime compiles it to the Host Bridge resolver input, executes resolver, graph metrics collection, "
+                "and filtered artifact export, then writes runtime/payloads/resolver.json and derives the paper workset."
             ),
             command=(
                 f'python scripts/stage_runtime.py --db "{DB}" --action persist_resolver '
-                '--payload-file "runtime/payloads/resolver.json"'
+                '--payload-file "runtime/payloads/resolver-proposal.json"'
             ),
-            required_reads=["topic_intent", "complete library_index_pages receipt", "zotero-bridge synthesis resolve-resolver"],
-            required_writes=["runtime/payloads/resolver.json", "topic_resolver rows"],
+            required_reads=["topic_intent", "optional read-only library index context"],
+            required_writes=[
+                "runtime/payloads/resolver-proposal.json",
+                "runtime-generated runtime/payloads/resolver.json",
+                "paper_workset rows",
+                "resolver cascade receipts",
+            ],
             progress={"completed_stages": sorted(completed)},
         )
 
     missing_bundles = missing_paper_artifact_bundle_receipt_refs(conn)
     missing_metrics = missing_citation_graph_metric_receipt_refs(conn)
     missing = missing_paper_analysis_receipt_refs(conn)
-    if (
-        "stage_3_graph_metrics" not in completed
-        or "stage_4_evidence_collection" not in completed
-        or "stage_5_paper_units" not in completed
-    ):
-        if "stage_2_resolver_and_workset" not in completed:
-            return action_payload(
-                status="blocked",
-                stage="stage_2_resolver_and_workset",
-                next_action="persist_resolver",
-                execution_note="paper_workset is derived by persist_resolver; rerun resolver persistence if it is missing.",
-                command=f'python scripts/stage_runtime.py --db "{DB}" --action persist_resolver --payload-file "runtime/payloads/resolver.json"',
-                required_reads=["paper_workset"],
-                required_writes=["runtime/payloads/resolver.json", "paper_workset rows"],
-                blocker="paper_workset_not_completed",
-            )
-        if missing_metrics:
-            batch_refs = missing_metrics[:BATCH_SIZE]
-            refs_json = json.dumps(batch_refs, ensure_ascii=False)
-            return action_payload(
-                status="ready",
-                stage="stage_3_graph_metrics",
-                next_action="persist_citation_graph_metrics",
-                execution_note=(
-                    f"Call `./.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input ...` for the current paper_workset batch paperRefs={refs_json}; "
-                    "persist the returned bounded metrics summary before artifact export. Metrics are auxiliary graph-derived signals only: "
-                    "they can guide paper ordering, role hints, coverage/gaps, and external-heavy diagnostics, but never replace digest evidence."
-                ),
-                command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --action persist_citation_graph_metrics '
-                    '--payload-file "runtime/payloads/citation-graph-metrics-batch.json"'
-                ),
-                required_reads=[
-                    "paper_workset batch",
-                    './.zotero-bridge/bin/zotero-bridge synthesis get-citation-graph-metrics --input \'{"paperRefs":' + refs_json + ',"sortBy":"foundation","limit":' + str(len(batch_refs)) + "}\'",
-                ],
-                required_writes=[
-                    "runtime/payloads/citation-graph-metrics-batch.json",
-                    "citation_graph_metrics rows",
-                    "citation graph metrics action receipt",
-                ],
-                progress={
-                    "paper_refs": batch_refs,
-                    "batch_size": len(batch_refs),
-                    "paper_count": len(paper_refs(conn)),
-                    "metrics_receipt_count": len(paper_refs(conn)) - len(missing_metrics),
-                    "missing_metric_refs": missing_metrics,
-                },
-            )
-        if missing_bundles:
-            batch_refs = missing_bundles[:BATCH_SIZE]
-            refs_json = json.dumps(batch_refs, ensure_ascii=False)
-            return action_payload(
-                status="ready",
-                stage="stage_4_evidence_collection",
-                next_action="persist_filtered_artifact_manifest",
-                execution_note=(
-                    f"Call `./.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input ...` with run_root set to the absolute current ACP run workspace and paper_refs={refs_json}; "
-                    "the host writes runtime/payloads/paper-artifacts-manifest.json plus filtered content files. "
-                    "Then persist the manifest below. Do not hand-write artifact files or hashes."
-                ),
-                command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action persist_filtered_artifact_manifest '
-                    f'--payload-file "runtime/payloads/paper-artifacts-manifest.json"'
-                ),
-                required_reads=[
-                    "paper_workset batch",
-                    './.zotero-bridge/bin/zotero-bridge synthesis export-filtered-paper-artifacts --input \'{"run_root":"<absolute current run workspace>","paper_refs":' + refs_json + "}\'",
-                ],
-                required_writes=[
-                    "runtime/payloads/paper-artifacts-manifest.json",
-                    "runtime/payloads/artifacts/<safe-ref>/*",
-                    "filtered artifact manifest receipt",
-                ],
-                progress={
-                    "paper_refs": batch_refs,
-                    "batch_size": len(batch_refs),
-                    "paper_count": len(paper_refs(conn)),
-                    "bundle_receipt_count": len(paper_refs(conn)) - len(missing_bundles),
-                    "missing_bundle_refs": missing_bundles,
-                },
-            )
+    if missing_metrics or missing_bundles:
+        return action_payload(
+            status="ready",
+            stage="stage_2_resolver_and_workset",
+            next_action="persist_resolver",
+            execution_note=(
+                "Resolver cascade receipts are incomplete. Rerun the Stage 2 resolver proposal action; "
+                "runtime will re-execute resolver, graph metrics collection, and filtered artifact export from the locked run root."
+            ),
+            command=(
+                f'python scripts/stage_runtime.py --db "{DB}" --action persist_resolver '
+                '--payload-file "runtime/payloads/resolver-proposal.json"'
+            ),
+            required_reads=["runtime/payloads/resolver-proposal.json", "paper_workset rows"],
+            required_writes=[
+                "runtime/payloads/resolver.json",
+                "runtime/payloads/citation-graph-metrics-batch-*.json",
+                "runtime/payloads/paper-artifacts-manifest-batch-*.json",
+                "resolver cascade receipts",
+            ],
+            progress={
+                "paper_count": len(paper_refs(conn)),
+                "missing_metric_refs": missing_metrics,
+                "missing_bundle_refs": missing_bundles,
+            },
+            blocker="resolver_cascade_incomplete",
+        )
+    if "stage_5_paper_triage" not in completed:
         if missing:
             batch_refs = missing[:BATCH_SIZE]
             return action_payload(
                 status="ready",
-                stage="stage_5_paper_units",
-                next_action="persist_paper_units",
+                stage="stage_5_paper_triage",
+                next_action="persist_paper_triage",
                 execution_note=(
                     f"Use the persisted host artifact bundle receipts for paper_refs={json.dumps(batch_refs, ensure_ascii=False)}; "
-                    "read the filtered artifact content files, then write one LLM-authored enhanced paper-unit analysis row per paper into an analysis manifest. "
-                    "Stage 4 is the only paper-level extraction step: include bibliographic, topic_relevance, research_problem, method_contribution, "
-                    "evaluation_context, findings, limitations, taxonomy_hints, timeline_candidates, claim_support_candidates, comparison_facts, "
-                    "external_references, citation_contexts, and missing_payloads. "
-                    "Do not include payload_hash, digest_ref, or digest_locator; runtime injects digest locators without sending hashes through LLM tokens. "
+                    "read the filtered artifact content files, then write one LLM-authored paper triage row per paper. "
+                    "Each row contains paper_ref, topic_relevance, paper_quality, core_digest, and optional caveats/diagnostics. "
                     "Do not create scripts that generate semantic analysis. "
-                    "comparison_facts must stay paper-local and must not compare against other paper_refs. "
-                    "persist_paper_units will reject claim/timeline candidates if digest is missing, "
-                    "and external/citation rows if their source artifacts are missing."
+                    "Subagent batching is recommended when available; restrict each subagent to per-paper triage only."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action persist_paper_units '
-                    f'--payload-file "runtime/payloads/paper-units-batch.json"'
+                    f'python scripts/stage_runtime.py --db "{DB}" --action persist_paper_triage '
+                    f'--payload-file "runtime/payloads/paper-triage-batch.json"'
                 ),
                 required_reads=[
                     "paper_workset batch",
                     "paper_artifact_bundle receipts",
                 ],
                 required_writes=[
-                    "runtime/payloads/paper-units-batch.json",
+                    "runtime/payloads/paper-triage-batch.json",
                     "runtime/views/cross-paper-evidence-index.json",
-                    "paper_analysis rows",
+                    "paper triage rows",
                 ],
                 progress={
                     "paper_refs": batch_refs,
@@ -580,61 +460,60 @@ def next_action(conn) -> dict:
             )
         return action_payload(
             status="ready",
-            stage="stage_5_paper_units",
-            next_action="persist_paper_units",
+            stage="stage_5_paper_triage",
+            next_action="persist_paper_triage",
             execution_note=(
-                "paper_analysis rows exist but the canonical stage receipt/state is incomplete. "
-                "Rerun the batch paper-units persist action with the existing manifest to register the canonical receipt."
+                "Paper triage rows exist but the canonical stage receipt/state is incomplete. "
+                "Rerun the batch paper triage persist action with the existing manifest to register the canonical receipt."
             ),
             command=(
-                f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action persist_paper_units '
-                '--payload-file "runtime/payloads/paper-units-batch.json"'
+                f'python scripts/stage_runtime.py --db "{DB}" --action persist_paper_triage '
+                '--payload-file "runtime/payloads/paper-triage-batch.json"'
             ),
-            required_reads=["paper_analysis rows"],
-            required_writes=["canonical persist_paper_units receipt", "stage_5_paper_units completed"],
+            required_reads=["paper triage rows"],
+            required_writes=["canonical persist_paper_triage receipt", "stage_5_paper_triage completed"],
             progress={"paper_count": len(paper_refs(conn)), "analyzed_count": len(paper_refs(conn))},
         )
 
     if (
         "stage_6_cross_paper_map" not in completed
-        or "stage_7_route_timeline" not in completed
-        or "stage_8_core_sections" not in completed
-        or "stage_9_kg_proposals" not in completed
-        or "stage_10_external_statistics_report" not in completed
+        or "stage_8_core_synthesis" not in completed
+        or "stage_9_kg_enrichment" not in completed
+        or "stage_10_summary_coverage" not in completed
     ):
         if missing_bundles:
             return action_payload(
                 status="blocked",
-                stage="stage_4_evidence_collection",
-                next_action="persist_filtered_artifact_manifest",
+                stage="stage_2_resolver_and_workset",
+                next_action="persist_resolver",
                 execution_note=(
-                    "Every paper needs a host artifact bundle row and its matching "
-                    "persist_filtered_artifact_manifest action receipt before cross-paper synthesis."
+                    "Every paper needs a resolver-cascade artifact bundle receipt before cross-paper synthesis. "
+                    "Rerun Stage 2 to refresh the cascade."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action persist_filtered_artifact_manifest '
-                    '--payload-file "runtime/payloads/paper-artifacts-manifest.json"'
+                    f'python scripts/stage_runtime.py --db "{DB}" --action persist_resolver '
+                    '--payload-file "runtime/payloads/resolver-proposal.json"'
                 ),
-                required_reads=["paper_artifact_bundles"],
-                required_writes=["filtered artifact manifest receipt"],
+                required_reads=["runtime/payloads/resolver-proposal.json", "paper_artifact_bundles"],
+                required_writes=["resolver cascade artifact receipts"],
                 progress={"missing_bundle_refs": missing_bundles},
-                blocker="artifact_bundle_action_receipts_incomplete",
+                blocker="resolver_cascade_artifact_receipts_incomplete",
             )
         if missing:
             return action_payload(
                 status="blocked",
-                stage="stage_5_paper_units",
-                next_action="persist_paper_units",
+                stage="stage_5_paper_triage",
+                next_action="persist_paper_triage",
                 execution_note=(
-                    "Every paper_workset row needs one paper_analysis row and its matching "
-                    "persist_paper_units action receipt before cross-paper synthesis."
+                    "Every paper_workset row needs one paper triage row and its matching "
+                    "persist_paper_triage action receipt before cross-paper synthesis."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action persist_paper_units '
-                    '--payload-file "runtime/payloads/paper-units-batch.json"'
+                    f'python scripts/stage_runtime.py --db "{DB}" --action persist_paper_triage '
+                    '--payload-file "runtime/payloads/paper-triage-batch.json"'
                 ),
-                required_reads=["paper_analysis rows"],
-                required_writes=["runtime/payloads/paper-units-batch.json", "paper_analysis rows"],
+                required_reads=["paper triage rows"],
+                required_writes=["runtime/payloads/paper-triage-batch.json", "paper triage rows"],
                 progress={"missing_paper_refs": missing},
                 blocker="paper_analysis_action_receipts_incomplete",
             )
@@ -651,10 +530,10 @@ def next_action(conn) -> dict:
                     "Read only the markdown views as LLM context."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                    f'python scripts/stage_runtime.py --db "{DB}" '
                     '--action export_cross_paper_context'
                 ),
-                required_reads=["paper_workset rows", "paper_artifact_bundles rows", "paper_analysis rows"],
+                required_reads=["paper_workset rows", "paper_artifact_bundles rows", "paper triage rows"],
                 required_writes=[
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/external-literature-context.md",
@@ -671,12 +550,12 @@ def next_action(conn) -> dict:
                 stage="stage_6_cross_paper_map",
                 next_action="derive_cross_paper_evidence_map",
                 execution_note=(
-                    "Derive the cross-paper evidence map from validated paper units. "
+                    "Derive the cross-paper evidence map from validated paper triage rows. "
                     "This is runtime-maintained provenance; do not ask the agent to author "
                     "cross-paper candidate ids or evidence_map_refs."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                    f'python scripts/stage_runtime.py --db "{DB}" '
                     "--action derive_cross_paper_evidence_map"
                 ),
                 required_reads=[
@@ -689,53 +568,23 @@ def next_action(conn) -> dict:
                 ],
                 progress={"completed_stages": sorted(completed)},
             )
-        route_timeline_hash = str(get_meta(conn, "route_timeline_synthesis_hash", "") or "")
-        if not route_timeline_hash:
-            return action_payload(
-                status="ready",
-                stage="stage_7_route_timeline",
-                next_action="persist_route_timeline",
-                execution_note=(
-                    "Draft route/timeline synthesis before final section writing. "
-                    "Read step_07_taxonomy_timeline.md and section_examples.md. "
-                    "Payload must contain taxonomy.summary, taxonomy.nodes, timeline_events.summary, and timeline_events.events. "
-                    "timeline_events must be an object, not an array."
-                ),
-                command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
-                    '--action persist_route_timeline --payload-file "runtime/payloads/route-timeline-synthesis.json"'
-                ),
-                required_reads=[
-                    "references/step_07_taxonomy_timeline.md",
-                    "references/section_examples.md",
-                    "runtime/views/cross-paper-context.md",
-                    "runtime/views/cross-paper-evidence-index.json",
-                    "runtime/payloads/cross-paper-evidence-map.json",
-                ],
-                required_writes=[
-                    "runtime/payloads/route-timeline-synthesis.json",
-                    "validated route/timeline synthesis receipt",
-                ],
-                progress={"completed_stages": sorted(completed)},
-            )
         core_sections_hash = str(get_meta(conn, "core_analytical_sections_hash", "") or "")
         if not core_sections_hash:
             return action_payload(
                 status="ready",
-                stage="stage_8_core_sections",
-                next_action="persist_core_sections",
+                stage="stage_8_core_synthesis",
+                next_action="persist_core_synthesis",
                 execution_note=(
-                    "Draft claims, comparison, debates, gaps, review_outline, and positioning as a separate payload. "
-                    "Read step_08_core_sections.md and the validated route/timeline synthesis. "
-                    "Do not rewrite taxonomy/timeline here."
+                    "Draft one core synthesis payload with taxonomy, timeline_events, positioning, claims, "
+                    "improvement_dimension_summary, improvement_dimensions, debates, gaps, review_outline, "
+                    "and concept_candidate_labels. Use source_paper_refs where evidence is needed."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
-                    '--action persist_core_sections --payload-file "runtime/payloads/core-analytical-sections.json"'
+                    f'python scripts/stage_runtime.py --db "{DB}" '
+                    '--action persist_core_synthesis --payload-file "runtime/payloads/core-analytical-sections.json"'
                 ),
                 required_reads=[
-                    "references/step_08_core_sections.md",
-                    "runtime/payloads/route-timeline-synthesis.json",
+                    "references/step_08_core_synthesis.md",
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/external-literature-context.md",
                     "runtime/payloads/cross-paper-evidence-map.json",
@@ -751,55 +600,48 @@ def next_action(conn) -> dict:
         if not kg_concept_path or not kg_relation_path:
             return action_payload(
                 status="ready",
-                stage="stage_9_kg_proposals",
-                next_action="persist_kg_proposals",
+                stage="stage_9_kg_enrichment",
+                next_action="persist_kg_enrichment",
                 execution_note=(
-                    "Draft the required-form KG proposal payload after core sections. "
-                    "Read step_09_kg_proposals.md, validated route/timeline and core sections, both context markdown files, and the evidence map. "
-                    "The payload must contain flat concept_cards[], topic_relations[], topic_interest, and diagnostics[]. "
-                    "If no reliable proposals exist, write empty arrays with diagnostics; do not skip the sidecars and do not write canonical KG assets."
+                    "Draft KG enrichment after core synthesis. "
+                    "Read step_09_kg_enrichment.md, core synthesis, both context markdown files, and the evidence map. "
+                    "The payload contains concept_details[], topic_relation_candidates[], topic_matching_terms, and optional diagnostics[]."
                 ),
                 command=(
-                    f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
-                    '--action persist_kg_proposals --payload-file "runtime/payloads/kg-proposals.json"'
+                    f'python scripts/stage_runtime.py --db "{DB}" '
+                    '--action persist_kg_enrichment --payload-file "runtime/payloads/kg-enrichment.json"'
                 ),
                 required_reads=[
-                    "references/step_09_kg_proposals.md",
-                    "runtime/payloads/route-timeline-synthesis.json",
+                    "references/step_09_kg_enrichment.md",
                     "runtime/payloads/core-analytical-sections.json",
                     "runtime/views/cross-paper-context.md",
                     "runtime/views/external-literature-context.md",
                 ],
                 required_writes=[
-                    "runtime/payloads/kg-proposals.json",
+                    "runtime/payloads/kg-enrichment.json",
                     "result/sidecars/concept-cards-proposal.json",
                     "result/sidecars/topic-graph-relation-proposals.json",
-                    "validated KG proposal receipt",
+                    "validated KG enrichment receipt",
                 ],
                 progress={"completed_stages": sorted(completed)},
             )
         return action_payload(
             status="ready",
-            stage="stage_10_external_statistics_report",
-            next_action="persist_external_statistics_report",
-            execution_note=(
-                "Write the Stage 10 payload first; runtime will prevalidate and materialize result/sections/*.json only after the payload passes. "
-                "Read step_10_external_statistics_report.md, route-timeline synthesis, core analytical sections, both context markdown files, and the validated evidence map. "
-                "The payload must contain sections for topic, summary, external_literature_analysis, coverage, statistics, synthesis_report, source_artifacts, and diagnostics. "
-                "Do not write paper_evidence or evidence_map in this payload; runtime derives and merges them from validated paper units. "
-                "Do not include taxonomy, timeline_events, positioning, claims, comparison_matrix, debates, gaps, or review_outline in this payload; runtime preserves those from validated Stage 7/8 artifacts. "
-                "synthesis_report.source_section_chapters must bind research_routes to taxonomy.summary and historical_progression to timeline_events.summary. "
-                "synthesis_report is a continuous report, not a short summary: it must include a non-empty title and cover topic definition/scope, research routes, historical progression, core findings, comparison/debates, gaps/coverage, and external literature/collection suggestions."
+            stage="stage_10_summary_coverage",
+            next_action="finalize_summary_coverage",
+                execution_note=(
+                "Write the final summary coverage payload. "
+                "Read step_10_summary_coverage.md, core synthesis, both context markdown files, and the validated evidence map. "
+                "The payload contains summary, coverage, reliability_caveats, external_context_summary, collection_suggestions, and optional diagnostics."
             ),
             command=(
-                f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --operation "{operation}" '
-                f'--language "{language}" --action persist_external_statistics_report '
+                f'python scripts/stage_runtime.py --db "{DB}" --operation "{operation}" '
+                f'--language "{language}" --action finalize_summary_coverage '
                 '--payload-file "runtime/payloads/external-statistics-report.json"'
             ),
             required_reads=[
-                "references/step_10_external_statistics_report.md",
+                "references/step_10_summary_coverage.md",
                 "references/section_examples.md",
-                "runtime/payloads/route-timeline-synthesis.json",
                 "runtime/payloads/core-analytical-sections.json",
                 "runtime/views/cross-paper-context.md",
                 "runtime/views/external-literature-context.md",
@@ -819,20 +661,19 @@ def next_action(conn) -> dict:
         return action_payload(
             status="blocked",
             stage="stage_11_render_and_validate",
-            next_action="repair_stage4_action_receipts_before_render",
+            next_action="repair_resolver_cascade_or_paper_triage_before_render",
             execution_note=(
-                "Render is blocked because Stage 4 rows are not backed by package-local "
-                "stage action receipts. Re-run the gate-directed persist_filtered_artifact_manifest "
-                "and persist_paper_units actions; direct SQLite rows are not valid state."
+                "Render is blocked because resolver-cascade artifact receipts or paper triage receipts are incomplete. "
+                "Rerun the gate-directed Stage 2 cascade or paper triage action; direct SQLite rows are not valid state."
             ),
-            command=f'python scripts/stage_runtime.py --db "{DB}" --run-root "." --action audit_runtime_integrity',
+            command=f'python scripts/stage_runtime.py --db "{DB}" --action audit_runtime_integrity',
             required_reads=["action_receipts", "paper_artifact_bundles", "paper_analysis"],
             required_writes=[],
             progress={
-                "missing_bundle_action_receipt_refs": missing_bundles,
+                "missing_resolver_cascade_bundle_receipt_refs": missing_bundles,
                 "missing_analysis_action_receipt_refs": missing,
             },
-            blocker="stage4_action_receipts_incomplete",
+            blocker="resolver_cascade_or_paper_triage_receipts_incomplete",
         )
 
     if "stage_11_render_and_validate" not in completed:
@@ -845,15 +686,15 @@ def next_action(conn) -> dict:
                 "and register artifact_registry. Host apply performs any canonical export after structured persistence."
             ),
             command=(
-                f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                f'python scripts/stage_runtime.py --db "{DB}" '
                 f'--operation "{operation}" --language "{language}" --action validate_final_artifacts'
             ),
-            required_reads=["result/sections/*.json", "paper_analysis rows", "artifact metadata"],
+            required_reads=["result/sections/*.json", "paper triage rows", "artifact metadata"],
             required_writes=[
                 "result/sections/*.json",
                 "result/topic-analysis.json",
                 "result/sidecars/topic-interest-metadata.json",
-                "result/result.json",
+                "result/final-output.candidate.json",
             ],
             progress={"completed_stages": sorted(completed)},
         )
@@ -865,7 +706,7 @@ def next_action(conn) -> dict:
             next_action="register_validated_section_manifest_and_final_stdout",
             execution_note="Final manifest and stdout are not registered in artifact_registry.",
             command=(
-                f'python scripts/stage_runtime.py --db "{DB}" --run-root "." '
+                f'python scripts/stage_runtime.py --db "{DB}" '
                 f'--operation "{operation}" --language "{language}" --action validate_final_artifacts'
             ),
             required_reads=["artifact_registry"],
@@ -879,8 +720,8 @@ def next_action(conn) -> dict:
             stage="stage_12_completed",
             next_action="complete",
             execution_note="Artifacts are registered; emit the generated business JSON and stop.",
-            command='Get-Content -Encoding UTF8 "result/result.json"',
-            required_reads=["result/result.json"],
+            command='Get-Content -Encoding UTF8 "result/final-output.candidate.json"',
+            required_reads=["result/final-output.candidate.json"],
             required_writes=["assistant final JSON only"],
         )
 

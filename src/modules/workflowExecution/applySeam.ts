@@ -390,6 +390,10 @@ export async function runWorkflowApplySeam(args: {
     } catch (error) {
       failed += 1;
       const reason = resolved.normalizeErrorMessage(error, args.messageFormatter);
+      const structuredApplyResult =
+        error && typeof error === "object" && "structuredResult" in error
+          ? (error as { structuredResult?: unknown }).structuredResult
+          : undefined;
       failureReasons.push(
         `job-${i} (request_id=${result.requestId}): ${reason}`,
       );
@@ -399,6 +403,7 @@ export async function runWorkflowApplySeam(args: {
         succeeded: false,
         terminalState: "failed",
         reason,
+        structuredApplyResult,
         jobId: job.id,
         requestId: result.requestId,
       });
@@ -414,6 +419,7 @@ export async function runWorkflowApplySeam(args: {
           index: i,
           taskLabel,
           reason,
+          structuredApplyResult,
           targetParentID: applyParent || undefined,
         },
         error,

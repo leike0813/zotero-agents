@@ -604,6 +604,51 @@ async function collectWorkflowCandidates(args: {
   });
 }
 
+async function filterDirectoryEntriesByBuiltinManifest(
+  workflowsDir: string,
+  entries: string[],
+  diagnostics: LoaderDiagnostic[],
+) {
+  const builtinManifestPath = joinPath(workflowsDir, "manifest.json");
+  if (!(await pathExists(builtinManifestPath))) {
+    return entries;
+  }
+  try {
+    const parsed = JSON.parse(await readTextFile(builtinManifestPath)) as {
+      files?: unknown;
+    };
+    if (!Array.isArray(parsed.files)) {
+      return entries;
+    }
+    const shippedRoots = new Set(
+      parsed.files
+        .map((entry) =>
+          String(entry || "")
+            .replace(/\\/g, "/")
+            .split("/")
+            .map((segment) => segment.trim())
+            .filter(Boolean)[0],
+        )
+        .filter(Boolean),
+    );
+    if (shippedRoots.size === 0) {
+      return entries;
+    }
+    return entries.filter((entry) => shippedRoots.has(entry));
+  } catch (error) {
+    diagnostics.push(
+      createLoaderDiagnostic({
+        level: "warning",
+        category: "manifest_parse_error",
+        message: `Unable to read builtin workflow manifest filter: ${builtinManifestPath} (${String(error)})`,
+        path: builtinManifestPath,
+        reason: String(error),
+      }),
+    );
+    return entries;
+  }
+}
+
 async function loadHooks(
   args: {
     workflowRoot: string;
@@ -865,6 +910,11 @@ export async function loadWorkflowManifests(
     };
   }
   entries = normalizeDirectoryEntries(entries);
+  entries = await filterDirectoryEntriesByBuiltinManifest(
+    workflowsDir,
+    entries,
+    diagnostics,
+  );
 
   for (const entry of entries) {
     const workflowRoot = joinPath(workflowsDir, entry);

@@ -248,6 +248,18 @@ pub enum SynthesisCommand {
     GetSchemas(SynthesisInputArgs),
 
     #[command(
+        about = "Query Synthesis Concept KB candidates",
+        long_about = "Map to Host Bridge capability synthesis.query_concept_kb. Use --input with concept_candidate_labels/labels for bounded read-only alias matching."
+    )]
+    QueryConceptKb(SynthesisInputArgs),
+
+    #[command(
+        about = "Query a topic-scoped citation graph cluster",
+        long_about = "Map to Host Bridge capability synthesis.query_citation_graph_cluster. Use --input with source_paper_refs, max_external_nodes, and cluster_policy."
+    )]
+    QueryCitationGraphCluster(SynthesisInputArgs),
+
+    #[command(
         about = "Read a compact Synthesis library index page",
         long_about = "Map to Host Bridge capability synthesis.get_library_index. Use --input for paging and filter JSON."
     )]

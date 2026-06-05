@@ -40,7 +40,8 @@ export type ReviewStructuredTopicInput = {
   external_literature_analysis: Record<string, unknown>;
   positioning: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
-  comparison_matrix: Record<string, unknown>;
+  improvement_dimension_summary: Record<string, unknown>;
+  improvement_dimensions: unknown[];
   debates: unknown[];
   coverage: Record<string, unknown>;
   gaps: unknown[];
@@ -139,10 +140,20 @@ function buildStructuredTopicInput(
   return {
     artifact,
     ...(isRecord(value?.manifest)
-      ? { manifest: sanitizeStructuredValue(value.manifest) as Record<string, unknown> }
+      ? {
+          manifest: sanitizeStructuredValue(value.manifest) as Record<
+            string,
+            unknown
+          >,
+        }
       : {}),
     ...(isRecord(value?.metadata)
-      ? { metadata: sanitizeStructuredValue(value.metadata) as Record<string, unknown> }
+      ? {
+          metadata: sanitizeStructuredValue(value.metadata) as Record<
+            string,
+            unknown
+          >,
+        }
       : {}),
     claims: Array.isArray(artifact.claims) ? artifact.claims : [],
     timeline_events: isRecord(artifact.timeline_events)
@@ -153,14 +164,21 @@ function buildStructuredTopicInput(
     paper_evidence: Array.isArray(artifact.paper_evidence)
       ? artifact.paper_evidence
       : [],
-    external_literature_analysis: isRecord(artifact.external_literature_analysis)
+    external_literature_analysis: isRecord(
+      artifact.external_literature_analysis,
+    )
       ? artifact.external_literature_analysis
       : {},
     positioning: isRecord(artifact.positioning) ? artifact.positioning : {},
     taxonomy: isRecord(artifact.taxonomy) ? artifact.taxonomy : {},
-    comparison_matrix: isRecord(artifact.comparison_matrix)
-      ? artifact.comparison_matrix
+    improvement_dimension_summary: isRecord(
+      artifact.improvement_dimension_summary,
+    )
+      ? artifact.improvement_dimension_summary
       : {},
+    improvement_dimensions: Array.isArray(artifact.improvement_dimensions)
+      ? artifact.improvement_dimensions
+      : [],
     debates: Array.isArray(artifact.debates) ? artifact.debates : [],
     coverage: isRecord(artifact.coverage) ? artifact.coverage : {},
     gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
@@ -171,7 +189,8 @@ function buildStructuredTopicInput(
     incomplete_sections: [
       "positioning",
       "taxonomy",
-      "comparison_matrix",
+      "improvement_dimension_summary",
+      "improvement_dimensions",
       "debates",
       "review_outline",
       "evidence_map",
@@ -237,12 +256,14 @@ function normalizeRegistryRows(
 ) {
   const allowed = new Set(paperRefs);
   return [...(rows || [])]
-    .map((row): ReviewRegistryArtifactCoverageRow => ({
-      paper_ref: cleanString(row.paper_ref),
-      title: cleanString(row.title) || cleanString(row.paper_ref),
-      artifactCoverage: normalizeCoverage(row.artifactCoverage),
-      missing_artifacts: normalizeStringList(row.missing_artifacts),
-    }))
+    .map(
+      (row): ReviewRegistryArtifactCoverageRow => ({
+        paper_ref: cleanString(row.paper_ref),
+        title: cleanString(row.title) || cleanString(row.paper_ref),
+        artifactCoverage: normalizeCoverage(row.artifactCoverage),
+        missing_artifacts: normalizeStringList(row.missing_artifacts),
+      }),
+    )
     .filter((row) => row.paper_ref && allowed.has(row.paper_ref))
     .sort((left, right) => left.paper_ref.localeCompare(right.paper_ref));
 }
@@ -282,12 +303,15 @@ export function projectCitationGraphSliceForReview(args: {
     graph_hash: cleanString(args.graph.graph_hash),
     nodes,
     edges: edges.filter(
-      (edge) => retainedNodeIds.has(edge.source) && retainedNodeIds.has(edge.target),
+      (edge) =>
+        retainedNodeIds.has(edge.source) && retainedNodeIds.has(edge.target),
     ),
   };
 }
 
-function buildMissingArtifactDiagnostics(rows: ReviewRegistryArtifactCoverageRow[]) {
+function buildMissingArtifactDiagnostics(
+  rows: ReviewRegistryArtifactCoverageRow[],
+) {
   return rows
     .flatMap((row) =>
       row.missing_artifacts.map((artifactType) => ({
@@ -322,7 +346,9 @@ export function buildReviewWorkflowInput(
   const paperRefs = resolvedPapers.map((paper) => paper.paper_ref);
   const registryRows = normalizeRegistryRows(args.registry_rows, paperRefs);
   const missingArtifacts = buildMissingArtifactDiagnostics(registryRows);
-  const structuredTopic = buildStructuredTopicInput(args.topic.structured_topic);
+  const structuredTopic = buildStructuredTopicInput(
+    args.topic.structured_topic,
+  );
   const base = {
     kind: "synthesis.review_workflow_input" as const,
     schema_version: "1.0.0" as const,

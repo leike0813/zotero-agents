@@ -1,0 +1,448 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2019",
+      "authors": "Adiga, D.; Bhat, S. A.; et al.",
+      "title": "Table structure recognition based on cell relationship, a bottom-up approach"
+    },
+    {
+      "id": "ref-2",
+      "year": "2023",
+      "authors": "Bacea, D.-S.; Oniga, F.",
+      "title": "Single stage architecture for improved accuracy realtime object detection on mobile devices"
+    },
+    {
+      "id": "ref-3",
+      "year": "2018",
+      "authors": "Cai, Z.; Vasconcelos, N.",
+      "title": "Cascade r-cnn: Delving into high quality object detection"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-5",
+      "year": "2019",
+      "authors": "Chen, K.; Wang, J.; et al.",
+      "title": "MMDetection: Open mmlab detection toolbox and benchmark"
+    },
+    {
+      "id": "ref-6",
+      "year": "2023",
+      "authors": "Chen, F.; Zhang, H.; et al.",
+      "title": "Enhanced training of query-based object detection via selective query recollection"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Chi, Z.; Huang, H.; et al.",
+      "title": "Complicated table structure recognition"
+    },
+    {
+      "id": "ref-8",
+      "year": "2017",
+      "authors": "Chollet, F.",
+      "title": "Xception: Deep learning with depthwise separable convolutions"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "Dai, J.; Qi, H.; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-10",
+      "year": "2009",
+      "authors": "Deng, J.; Dong, W.; et al.",
+      "title": "Imagenet: A largescale hierarchical image database"
+    },
+    {
+      "id": "ref-11",
+      "year": "2022",
+      "authors": "Ding, X.; Zhang, X.; et al.",
+      "title": "Scaling up your kernels to 31x31: Revisiting large kernel design in cnns"
+    },
+    {
+      "id": "ref-12",
+      "year": "2023",
+      "authors": "Fernandes, J.; Xiao, B.; et al.",
+      "title": "Tablestrrec: framework for table structure recognition in data sheet images"
+    },
+    {
+      "id": "ref-13",
+      "year": "2022",
+      "authors": "Guo, M.-H.; Lu, C.-Z.; et al.",
+      "title": "Segnext: Rethinking convolutional attention design for semantic segmentation"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Hashmi, K. A.; Stricker, D.; et al.",
+      "title": "Guided table structure recognition through anchor optimization"
+    },
+    {
+      "id": "ref-15",
+      "year": "2017",
+      "authors": "He, K.; Gkioxari, G.; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-17",
+      "year": "2022",
+      "authors": "Hong, Q.; Liu, F.; et al.",
+      "title": "Dynamic sparse r-cnn"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "Howard, A. G.; Zhu, M.; et al.",
+      "title": "Mobilenets: Efficient convolutional neural networks for mobile vision applications"
+    },
+    {
+      "id": "ref-19",
+      "year": "2021",
+      "authors": "Hu, P.; Wang, W.; et al.",
+      "title": "Touching text line segmentation combined local baseline and connected component for uchen tibetan historical documents"
+    },
+    {
+      "id": "ref-20",
+      "year": "2023",
+      "authors": "Huang, Y.; Lu, N.; et al.",
+      "title": "Improving table structure recognition with visual-alignment sequential coordinate modeling"
+    },
+    {
+      "id": "ref-21",
+      "year": "2015",
+      "authors": "Ioffe, S.",
+      "title": "Batch normalization: Accelerating deep network training by reducing internal covariate shift"
+    },
+    {
+      "id": "ref-22",
+      "year": "2022",
+      "authors": "JaidedA, I.",
+      "title": "Easyocr"
+    },
+    {
+      "id": "ref-23",
+      "year": "1991",
+      "authors": "Krogh, A.; Hertz, J.",
+      "title": "A simple weight decay can improve generalization"
+    },
+    {
+      "id": "ref-24",
+      "year": "2021",
+      "authors": "Kuang, Z.; Sun, H.; et al.",
+      "title": "Mmocr: A comprehensive toolbox for text detection, recognition and understanding"
+    },
+    {
+      "id": "ref-25",
+      "year": "2022",
+      "authors": "Li, C.; Li, L.; et al.",
+      "title": "Yolov6: A singlestage object detection framework for industrial applications"
+    },
+    {
+      "id": "ref-26",
+      "year": "2022",
+      "authors": "Li, X.-H.; Yin, F.; et al.",
+      "title": "Table structure recognition and form parsing by end-to-end object detection and relation parsing"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Lin, T.-Y.; Girshick, R.; et al.",
+      "title": "Feature pyramid networks for object detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-29",
+      "year": "2022",
+      "authors": "Liu, H.; Li, X.; et al.",
+      "title": "Neural collaborative graph machines for table structure recognition"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Liu, Z.; Mao, H.; et al.",
+      "title": "A convnet for the 2020s"
+    },
+    {
+      "id": "ref-31",
+      "year": "2021",
+      "authors": "Lu, N.; Yu, W.; et al.",
+      "title": "Master: Multiaspect non-local network for scene text recognition"
+    },
+    {
+      "id": "ref-32",
+      "year": "2023",
+      "authors": "Ly, N. T.; Takasu, A.",
+      "title": "An end-to-end multi-task learning model for image-based table recognition"
+    },
+    {
+      "id": "ref-33",
+      "year": "2023",
+      "authors": "Ma, C.; Lin, W.; et al.",
+      "title": "Robust table detection and structure recognition from heterogeneous document images"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Mendes, J.; Saraiva, J.",
+      "title": "Tabula: A language to model spreadsheet tables"
+    },
+    {
+      "id": "ref-35",
+      "year": "2023",
+      "authors": "Mondal, A.; Agarwal, M.; et al.",
+      "title": "Dataset agnostic document object detection"
+    },
+    {
+      "id": "ref-36",
+      "year": "2022",
+      "authors": "Nassar, A.; Livathinos, N.; et al.",
+      "title": "Tableformer: Table structure understanding with transformers"
+    },
+    {
+      "id": "ref-37",
+      "year": "2023",
+      "authors": "Nguyen, N. Q.; Le, A. D.; et al.",
+      "title": "Formerge: Recover spanning cells in complex table structure using transformer network"
+    },
+    {
+      "id": "ref-38",
+      "year": "2013",
+      "authors": "Pascanu, R.",
+      "title": "On the difficulty of training recurrent neural networks"
+    },
+    {
+      "id": "ref-39",
+      "year": "2020",
+      "authors": "Prasad, D.; Gadpal, A.; et al.",
+      "title": "Cascadetabnet: An approach for end to end table detection and structure recognition from imagebased documents"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Qiao, L.; Li, Z.; et al.",
+      "title": "Lgpma: Complicated table structure recognition with local and global pyramid mask alignment"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "Rastan, R.; Paik, H.-Y.; et al.",
+      "title": "Texus: A unified framework for extracting and understanding tables in pdf documents"
+    },
+    {
+      "id": "ref-42",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-43",
+      "year": "2023",
+      "authors": "Ren, T.; Liu, S.; et al.",
+      "title": "Detrex: Benchmarking detection transformers"
+    },
+    {
+      "id": "ref-44",
+      "year": "2017",
+      "authors": "Schreiber, S.; Agne, S.; et al.",
+      "title": "Deepdesrt: Deep learning for detection and structure recognition of tables in document images"
+    },
+    {
+      "id": "ref-45",
+      "year": "2023",
+      "authors": "Shen, H.; Gao, X.; et al.",
+      "title": "Divide rows and conquer cells: Towards structure recognition for large tables"
+    },
+    {
+      "id": "ref-46",
+      "year": "2019",
+      "authors": "Siddiqui, S. A.; Fateh, I. A.; et al.",
+      "title": "Deeptabstr: Deep learning based table structure recognition"
+    },
+    {
+      "id": "ref-47",
+      "year": "2018",
+      "authors": "Siddiqui, S. A.; Malik, M. I.; et al.",
+      "title": "Decnt: Deep deformable cnn for table detection"
+    },
+    {
+      "id": "ref-48",
+      "year": "2022",
+      "authors": "Singer-Vine, J.",
+      "title": "Pdfplumber"
+    },
+    {
+      "id": "ref-49",
+      "year": "2021",
+      "authors": "Smock, B.; Pesala, R.",
+      "title": "Table transformer"
+    },
+    {
+      "id": "ref-50",
+      "year": "2022",
+      "authors": "Smock, B.; Pesala, R.; et al.",
+      "title": "Pubtables-1 m: Towards comprehensive table extraction from unstructured documents"
+    },
+    {
+      "id": "ref-51",
+      "year": "2023",
+      "authors": "Smock, B.; Pesala, R.; et al.",
+      "title": "Aligning benchmark datasets for table structure recognition"
+    },
+    {
+      "id": "ref-52",
+      "year": "2021",
+      "authors": "Sun, P.; Jiang, Y.; et al.",
+      "title": "What makes for end-to-end object detection? In International conference on machine learning (pp"
+    },
+    {
+      "id": "ref-53",
+      "year": "2021",
+      "authors": "Sun, P.; Zhang, R.; et al.",
+      "title": "Sparse r-cnn: End-to-end object detection with learnable proposals"
+    },
+    {
+      "id": "ref-54",
+      "year": "2019",
+      "authors": "Tensmeyer, C.; Morariu, V. I.; et al.",
+      "title": "Deep splitting and merging for table structure decomposition"
+    },
+    {
+      "id": "ref-55",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-56",
+      "year": "2017",
+      "authors": "Vaswani, A.; Shazeer, N.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-57",
+      "year": "2023",
+      "authors": "Wang, C.-Y.; Bochkovskiy, A.; et al.",
+      "title": "YOLOv7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors"
+    },
+    {
+      "id": "ref-58",
+      "year": "2023",
+      "authors": "Wang, J.; Lin, W.; et al.",
+      "title": "Robust table structure recognition with dynamic queries enhanced detection transformer"
+    },
+    {
+      "id": "ref-59",
+      "year": "2019",
+      "authors": "Wu, Y.; Kirillov, A.; et al.",
+      "title": "Detectron2"
+    },
+    {
+      "id": "ref-60",
+      "year": "2023",
+      "authors": "Wu, X.; Ma, T.; et al.",
+      "title": "Drfn: A unified framework for complex document layout analysis"
+    },
+    {
+      "id": "ref-61",
+      "year": "2023",
+      "authors": "Wu, X.; Xiao, L.; et al.",
+      "title": "Cross-domain document layout analysis using document style guide"
+    },
+    {
+      "id": "ref-62",
+      "year": "2022",
+      "authors": "Xiao, B.; Akkaya, Y.; et al.",
+      "title": "Efficient information sharing in ict supply chain social network via table structure recognition"
+    },
+    {
+      "id": "ref-63",
+      "year": "2023",
+      "authors": "Xiao, B.; Akkaya, Y.; et al.",
+      "title": "Multi-modal ocr system for the ict global supply chain"
+    },
+    {
+      "id": "ref-64",
+      "year": "2022",
+      "authors": "Xiao, B.; Simsek, M.; et al.",
+      "title": "Handling big tabular data of ict supply chains: a multi-task, machine-interpretable approach"
+    },
+    {
+      "id": "ref-65",
+      "year": "2023",
+      "authors": "Xiao, B.; Simsek, M.; et al.",
+      "title": "Revisiting table detection datasets for visually rich documents"
+    },
+    {
+      "id": "ref-66",
+      "year": "2023",
+      "authors": "Xiao, B.; Simsek, M.; et al.",
+      "title": "Table detection for visually rich document images"
+    },
+    {
+      "id": "ref-67",
+      "year": "2021",
+      "authors": "Xue, W.; Yu, B.; et al.",
+      "title": "Tgrnet: A table graph reconstruction network for table structure recognition"
+    },
+    {
+      "id": "ref-68",
+      "year": "2021",
+      "authors": "Ye, J.; Qi, X.; et al.",
+      "title": "Pingan-vcgroup’s solution for icdar 2021 competition on scientific literature parsing task b: Table recognition to html"
+    },
+    {
+      "id": "ref-69",
+      "year": "2023",
+      "authors": "Yu, F.; Huang, J.; et al.",
+      "title": "An effective method for figures and tables detection in academic literature"
+    },
+    {
+      "id": "ref-70",
+      "year": "2023",
+      "authors": "Zhang, S.; Wang, X.; et al.",
+      "title": "Dense distinct query for end-to-end object detection"
+    },
+    {
+      "id": "ref-71",
+      "year": "2022",
+      "authors": "Zhang, Z.; Zhang, J.; et al.",
+      "title": "Split, embed and merge: An accurate table structure recognizer"
+    },
+    {
+      "id": "ref-72",
+      "year": "2021",
+      "authors": "Zheng, X.; Burdick, D.; et al.",
+      "title": "Global table extractor (gte): A framework for joint table identification and cell structure recognition using visual context"
+    },
+    {
+      "id": "ref-73",
+      "year": "2020",
+      "authors": "Zhong, X.; ShafieiBavani, E.; et al.",
+      "title": "Image-based table recognition: data, model, and evaluation"
+    },
+    {
+      "id": "ref-74",
+      "year": "2021",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

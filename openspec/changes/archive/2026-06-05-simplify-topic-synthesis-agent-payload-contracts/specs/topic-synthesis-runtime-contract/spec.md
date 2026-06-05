@@ -1,0 +1,120 @@
+## ADDED Requirements
+
+### Requirement: Runtime prepares cross-paper context deterministically
+
+The topic synthesis runtime SHALL prepare cross-paper contexts and provenance
+without requiring an agent-authored cross-paper evidence map.
+
+#### Scenario: Context preparation runs
+
+- **WHEN** Stage 5 paper triage is complete
+- **THEN** runtime SHALL compute deterministic paper scores from relevance,
+  quality, artifact availability, and graph role hints
+- **AND** it SHALL generate separate `core_analysis` and `external_literature`
+  context selections.
+
+#### Scenario: Calibrated context constants are used
+
+- **WHEN** runtime computes full-context slot counts
+- **THEN** it SHALL use the calibrated constants from
+  `artifact/synthesis-agent-payload-simplification-notes.md`
+- **AND** those constants SHALL include `core_analysis_full_context_tokens_per_paper: 1500`,
+  `external_literature_full_context_tokens_per_paper: 7750`, and
+  `safety_margin_ratio: 0.10`.
+
+#### Scenario: Provenance index is generated
+
+- **WHEN** runtime writes cross-paper context views
+- **THEN** it SHALL also write a source paper evidence/provenance index
+- **AND** it SHALL NOT label the runtime-only index as an agent-authored
+  semantic evidence map.
+
+### Requirement: Runtime derives final evidence structures from source paper refs
+
+The runtime SHALL materialize paper evidence, evidence refs, and semantic
+evidence maps from validated section `source_paper_refs`.
+
+#### Scenario: Section references source papers
+
+- **WHEN** a validated section object contains `source_paper_refs`
+- **THEN** runtime SHALL validate each ref against the resolved paper set
+- **AND** it SHALL derive stable evidence refs for the final artifact.
+
+#### Scenario: Semantic evidence map is produced
+
+- **WHEN** final artifact materialization runs
+- **THEN** runtime SHALL compile `semantic_evidence_map` from Stage 7/8/10
+  section contents
+- **AND** it SHALL NOT use a Stage 6 placeholder as the semantic map source.
+
+### Requirement: Runtime derives timeline markers
+
+Runtime SHALL derive timeline rendering markers from paper evidence, timeline
+events, and paper metadata.
+
+#### Scenario: Timeline event cites papers
+
+- **WHEN** an agent-authored timeline event contains `source_paper_refs`
+- **THEN** runtime SHALL derive milestone markers for those papers
+- **AND** marker `kind`, year, paper evidence id, and event id SHALL be
+  runtime-derived.
+
+#### Scenario: Paper is not promoted to milestone
+
+- **WHEN** a resolved paper has bibliographic year metadata but is not cited by
+  a timeline event
+- **THEN** runtime MAY derive a paper marker
+- **AND** it SHALL deduplicate markers by paper evidence id.
+
+### Requirement: Runtime materializes KG sidecars
+
+The topic synthesis runtime SHALL turn KG enrichment payloads into the required
+main-path sidecar artifacts.
+
+#### Scenario: KG enrichment is validated
+
+- **WHEN** Stage 9 enrichment passes validation
+- **THEN** runtime SHALL write `concept-cards-proposal.json`,
+  `topic-graph-relation-proposals.json`, and
+  `topic-interest-metadata.json`
+- **AND** it SHALL derive sidecar wrapper fields, ids, seed literature item ids,
+  topic ids, and schema metadata.
+
+### Requirement: Runtime materializes statistics and synthesis report
+
+Runtime SHALL generate statistics and final report content deterministically
+from graph data and validated sections.
+
+#### Scenario: Graph statistics are available
+
+- **WHEN** topic-scoped graph query returns current data
+- **THEN** runtime SHALL materialize numeric statistics from graph/canonical
+  data
+- **AND** the agent SHALL NOT be asked to fill those numbers.
+
+#### Scenario: Graph statistics are missing or stale
+
+- **WHEN** graph data is missing, stale, or unavailable
+- **THEN** runtime SHALL write a structured graph/statistics caveat
+- **AND** it SHALL NOT require the agent to fabricate statistics.
+
+#### Scenario: Final report is rendered
+
+- **WHEN** final sections pass validation
+- **THEN** runtime SHALL render `synthesis_report` from a fixed template and
+  validated section sources
+- **AND** it SHALL NOT require an agent-authored `synthesis_report_body`.
+
+### Requirement: Runtime writes a candidate final output
+
+The skill runtime SHALL not directly write the accepted final
+`result/result.json` file.
+
+#### Scenario: Final validation succeeds
+
+- **WHEN** `validate_final_artifacts` succeeds
+- **THEN** runtime SHALL write `result/final-output.candidate.json`
+- **AND** the candidate file SHALL be a runner-facing envelope containing
+  `__SKILL_DONE__: true`
+- **AND** the orchestrator SHALL be responsible for validating stdout and
+  writing accepted `result/result.json`.

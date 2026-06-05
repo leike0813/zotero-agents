@@ -106,6 +106,42 @@ requiring user-level CLI installation.
 - **AND** the prompt MUST NOT include the bearer token or absolute CLI binary
   path.
 
+### Requirement: Host Bridge CLI approvals route by ACP scope
+
+The system SHALL route write-capable Host Bridge CLI approval requests to the UI
+that owns the scoped ACP context.
+
+#### Scenario: ACP Chat scoped request uses Chat approval UI
+
+- **WHEN** a Host Bridge CLI request has `scope.kind` set to `acp-chat`
+- **AND** the scope contains the current ACP conversation id in `requestId` or
+  `runId`
+- **THEN** Zotero SHALL present the approval request in the ACP Chat panel
+- **AND** the approval decision SHALL report `permission.channel` as `acp-chat`.
+
+#### Scenario: ACP Chat approval UI is unavailable
+
+- **WHEN** a Host Bridge CLI request has `scope.kind` set to `acp-chat`
+- **AND** no approval handler is registered for the scoped ACP conversation
+- **THEN** Zotero SHALL reject the request with `permission_ui_unavailable`
+- **AND** Zotero MUST NOT fall back to the global approval prompt.
+
+#### Scenario: ACP Skills run scoped request uses Skills approval UI
+
+- **WHEN** a Host Bridge CLI request has `scope.kind` set to `acp-skill-run` or
+  `acp-run`
+- **AND** the scope contains the current run request id in `requestId` or `runId`
+- **THEN** Zotero SHALL present the approval request in the ACP Skills UI
+- **AND** the approval decision SHALL report `permission.channel` as
+  `acp-skill-run`.
+
+#### Scenario: Unscoped external request uses global approval UI
+
+- **WHEN** a write-capable Host Bridge CLI request has no ACP scope
+- **THEN** Zotero SHALL present the approval request in the global Zotero
+  approval UI
+- **AND** the approval decision SHALL report `permission.channel` as `global`.
+
 ### Requirement: CLI binaries are bundled and installable
 The plugin SHALL carry platform `zotero-bridge` binaries for agent use and
 offer a user-facing installation action for terminal use.
@@ -146,3 +182,16 @@ The CLI file download command MUST continue to accept only broker-issued file id
 - **THEN** `file download <fileId>` calls `GET /files/{fileId}` with bearer auth
 - **AND** it does not accept local filesystem paths as file ids
 
+### Requirement: Host Bridge CLI documentation SHALL stay aligned with broker capabilities
+
+The repository SHALL provide a local check that guards Host Bridge CLI docs,
+runtime prompt docs, wrapper skill guidance, MCP tool wiring, and CLI semantic
+mapping against obvious capability drift.
+
+#### Scenario: Doc-sync check
+
+- **WHEN** the host bridge doc-sync check runs
+- **THEN** it SHALL read Host Bridge capability names from the capability
+  registry source
+- **AND** it SHALL fail when core capability names are missing from the CLI docs,
+  injected README, wrapper skill, CLI source, or MCP mirror wiring

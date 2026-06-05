@@ -1,27 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "synthesis.topic_context_payload",
+  "$id": "synthesis.create_topic_context_payload",
   "type": "object",
-  "required": ["topic_definition"],
+  "required": ["topic_title", "duplicate_status"],
   "properties": {
-    "operation": { "type": "string" },
-    "language": { "type": "string" },
-    "topic_seed": { "type": "string" },
-    "topic_id": { "type": "string" },
-    "topic_definition": {
-      "type": "object",
-      "required": ["id", "title"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "title": { "type": "string", "minLength": 1 }
-      },
-      "additionalProperties": true
+    "topic_title": { "type": "string", "minLength": 1 },
+    "aliases": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
     },
-    "duplicate_check": { "type": "object" },
-    "current_context": { "type": "object" },
-    "base_hashes": { "type": "object" },
-    "read_section_hashes": { "type": "object" },
-    "recommended_update": { "type": "object" }
+    "definition": { "type": "string" },
+    "scope_include": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    },
+    "scope_exclude": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    },
+    "duplicate_status": {
+      "enum": [
+        "none",
+        "possible_duplicate",
+        "duplicate",
+        "needs_user_confirmation"
+      ]
+    },
+    "duplicate_candidate_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    },
+    "duplicate_reason": { "type": "string" },
+    "diagnostics": { "type": "array", "default": [] }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

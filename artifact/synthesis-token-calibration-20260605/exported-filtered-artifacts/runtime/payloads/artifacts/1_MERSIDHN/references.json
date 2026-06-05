@@ -1,0 +1,316 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "Elahe Arani; Shruthi Gowda; et al.",
+      "title": "A comprehensive study of real-time object detection networks across multiple domains: A survey"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-3",
+      "year": "2023",
+      "authors": "Jiahao Chang; Shuo Wang; et al.",
+      "title": "Detrdistill: A universal knowledge distillation framework for detr-families"
+    },
+    {
+      "id": "ref-4",
+      "year": "2017",
+      "authors": "Guobin Chen; Wongun Choi; et al.",
+      "title": "Learning efficient object detection models with knowledge distillation"
+    },
+    {
+      "id": "ref-5",
+      "year": "2022",
+      "authors": "Qiang Chen; Xiaokang Chen; et al.",
+      "title": "Group detr: Fast training convergence with decoupled one-to-many label assignment"
+    },
+    {
+      "id": "ref-6",
+      "year": "2022",
+      "authors": "Qiang Chen; Jian Wang; et al.",
+      "title": "Group detr v2: Strong object detector with encoder-decoder pretraining, 2022b"
+    },
+    {
+      "id": "ref-7",
+      "year": "2022",
+      "authors": "Qiang Chen; Jian Wang; et al.",
+      "title": "Group detr v2: Strong object detector with encoderdecoder pretraining"
+    },
+    {
+      "id": "ref-8",
+      "year": "2024",
+      "authors": "Qiang Chen; Xiangbo Su; et al.",
+      "title": "Lw-detr: A transformer replacement to yolo for real-time detection"
+    },
+    {
+      "id": "ref-9",
+      "year": "2019",
+      "authors": "Jiwoong Choi; Dayoung Chun; et al.",
+      "title": "Gaussian YOLOv3: An accurate and fast object detector using localization uncertainty for autonomous driving"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Cheng Cui; Ruoyu Guo; et al.",
+      "title": "Beyond self-supervision: A simple yet effective network distillation alternative to improve backbones, 2021"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Xing Dai; Zeren Jiang; et al.",
+      "title": "General instance distillation for object detection"
+    },
+    {
+      "id": "ref-12",
+      "year": "2021",
+      "authors": "Zheng Ge; Songtao Liu; et al.",
+      "title": "Yolox: Exceeding yolo series in 2021"
+    },
+    {
+      "id": "ref-13",
+      "year": "2015",
+      "authors": "Ross Girshick",
+      "title": "Fast R-CNN"
+    },
+    {
+      "id": "ref-14",
+      "year": "2023",
+      "authors": "Jocher Glenn",
+      "title": "Yolov8"
+    },
+    {
+      "id": "ref-15",
+      "year": "2024",
+      "authors": "Jocher Glenn",
+      "title": "Yolo11"
+    },
+    {
+      "id": "ref-16",
+      "year": "2021",
+      "authors": "Jianyuan Guo; Kai Han; et al.",
+      "title": "Distilling object detectors via decoupled features"
+    },
+    {
+      "id": "ref-17",
+      "year": "2015",
+      "authors": "Geoffrey Hinton; Oriol Vinyals; et al.",
+      "title": "Distilling the knowledge in a neural network"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Dn-detr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-19",
+      "year": "2017",
+      "authors": "Quanquan Li; Shengying Jin; et al.",
+      "title": "Mimicking very efficient network for object detection"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "Xiang Li; Wenhai Wang; et al.",
+      "title": "Generalized Focal Loss: learning qualified and distributed bounding boxes for dense object detection"
+    },
+    {
+      "id": "ref-21",
+      "year": "2021",
+      "authors": "Xiang Li; Wenhai Wang; et al.",
+      "title": "Generalized focal loss v2: Learning reliable localization quality estimation for dense object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Lawrence Zitnick"
+    },
+    {
+      "id": "ref-23",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin; Michael Maire; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-24",
+      "year": "2021",
+      "authors": "Shilong Liu; Feng Li; et al.",
+      "title": "Dabdetr: Dynamic anchor boxes are better queries for detr"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Berg"
+    },
+    {
+      "id": "ref-26",
+      "year": "2024",
+      "authors": "Wenyu Lv; Yian Zhao; et al.",
+      "title": "Rt-detrv2: Improved baseline with bag-of-freebies for real-time detection transformer, 2024"
+    },
+    {
+      "id": "ref-27",
+      "year": "2022",
+      "authors": "Chengqi Lyu; Wenwei Zhang; et al.",
+      "title": "Rtmdet: An empirical study of designing real-time object detectors"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Depu Meng; Xiaokang Chen; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Seyed Iman Mirzadeh; Mehrdad Farajtabar; et al.",
+      "title": "Improved knowledge distillation via teacher assistant"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Heqian Qiu; Hongliang Li; et al.",
+      "title": "Offset bin classification network for accurate object detection"
+    },
+    {
+      "id": "ref-31",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Divvala; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Divvala; et al.",
+      "title": "You only look once: Unified, real-time object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-34",
+      "year": "2015",
+      "authors": "Adriana Romero; Nicolas Ballas; et al.",
+      "title": "Fitnets: Hints for thin deep nets"
+    },
+    {
+      "id": "ref-35",
+      "year": "2015",
+      "authors": "Olga Russakovsky; Jia Deng; et al.",
+      "title": "Imagenet large scale visual recognition challenge"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "Shuai Shao; Zeming Li; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-37",
+      "year": "2021",
+      "authors": "Wonchul Son; Jaemin Na; et al.",
+      "title": "Densely guided knowledge distillation using multiple teacher assistants"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Zhi Tian; Chunhua Shen; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-39",
+      "year": "2024",
+      "authors": "Ao Wang; Hui Chen; et al.",
+      "title": "Yolov10: Real-time end-to-end object detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2023",
+      "authors": "Chengcheng Wang; Wei He; et al.",
+      "title": "Gold-yolo: Efficient object detector via gather-and-distribute mechanism"
+    },
+    {
+      "id": "ref-41",
+      "year": "2024",
+      "authors": "Chien-Yao Wang and Hong-Yuan Mark Liao",
+      "title": "YOLOv9: Learning what you want to learn using programmable gradient information"
+    },
+    {
+      "id": "ref-42",
+      "year": "2023",
+      "authors": "Chien-Yao Wang; Alexey Bochkovskiy; et al.",
+      "title": "Yolov7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors"
+    },
+    {
+      "id": "ref-43",
+      "year": "2019",
+      "authors": "Tao Wang; Li Yuan; et al.",
+      "title": "Distilling object detectors with fine-grained feature imitation"
+    },
+    {
+      "id": "ref-44",
+      "year": "2022",
+      "authors": "Yingming Wang; Xiangyu Zhang; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-45",
+      "year": "2024",
+      "authors": "Yu Wang; Xin Li; et al.",
+      "title": "Kd-detr: Knowledge distillation for detection transformer with consistent distillation points sampling"
+    },
+    {
+      "id": "ref-46",
+      "year": "2017",
+      "authors": "Sergey Zagoruyko and Nikos Komodakis",
+      "title": "Paying more attention to attention: Improving the performance of convolutional neural networks via attention transfer"
+    },
+    {
+      "id": "ref-47",
+      "year": "2022",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-48",
+      "year": "2019",
+      "authors": "Linfeng Zhang; Jiebo Song; et al.",
+      "title": "Be your own teacher: Improve the performance of convolutional neural networks via self distillation"
+    },
+    {
+      "id": "ref-49",
+      "year": "2021",
+      "authors": "Linfeng Zhang; Chenglong Bao; et al.",
+      "title": "Self-distillation: Towards efficient and compact neural networks"
+    },
+    {
+      "id": "ref-50",
+      "year": "2024",
+      "authors": "Yian Zhao; Wenyu Lv; et al.",
+      "title": "Detrs beat yolos on real-time object detection"
+    },
+    {
+      "id": "ref-51",
+      "year": "2022",
+      "authors": "Zhaohui Zheng; Rongguang Ye; et al.",
+      "title": "Localization distillation for dense object detection"
+    },
+    {
+      "id": "ref-52",
+      "year": "2020",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

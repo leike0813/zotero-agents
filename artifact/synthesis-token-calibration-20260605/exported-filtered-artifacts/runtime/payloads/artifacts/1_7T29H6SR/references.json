@@ -1,0 +1,406 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2018",
+      "authors": "Md Zahangir Alom; Mahmudul Hasan; et al.",
+      "title": "Recurrent residual convolutional neural network based on u-net (r2u-net) for medical image segmentation"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "Tomer Amit; Tal Shaharbany; et al.",
+      "title": "Segdiff: Image segmentation with diffusion probabilistic models"
+    },
+    {
+      "id": "ref-3",
+      "year": "2024",
+      "authors": "Lev Ayzenberg; Raja Giryes; et al.",
+      "title": "Dinov2 based self supervised learning for few shot medical image segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2024",
+      "authors": "Reza Azad; Ehsan Khodapanah Aghdam; et al.",
+      "title": "Medical image segmentation review: The success of u-net"
+    },
+    {
+      "id": "ref-5",
+      "year": "2017",
+      "authors": "Vijay Badrinarayanan; Alex Kendall; et al.",
+      "title": "Segnet: A deep convolutional encoderdecoder architecture for image segmentation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2021",
+      "authors": "Mathilde Caron; Hugo Touvron; et al.",
+      "title": "Emerging properties in self-supervised vision transformers"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Jieneng Chen; Yongyi Lu; et al.",
+      "title": "Transunet: Transformers make strong encoders for medical image segmentation"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Wuyang Chen; Xianzhi Du; et al.",
+      "title": "A simple single-scale vision transformer for object localization and instance segmentation"
+    },
+    {
+      "id": "ref-9",
+      "year": "2020",
+      "authors": "Zhihao Chen; Lei Zhu; et al.",
+      "title": "A multi-task mean teacher for semi-supervised shadow detection"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Zhihao Chen; Liang Wan; et al.",
+      "title": "Triplecooperative video shadow detection"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Ho Kei Cheng; Yu-Wing Tai; et al.",
+      "title": "Rethinking space-time networks with improved memory coverage for efficient video object segmentation"
+    },
+    {
+      "id": "ref-12",
+      "year": "2018",
+      "authors": "Noel CF Codella; David Gutman; et al.",
+      "title": "Skin lesion analysis toward melanoma detection: A challenge at the 2017 international symposium on biomedical imaging (isbi), hosted by the international skin imaging collaboration (isic)"
+    },
+    {
+      "id": "ref-13",
+      "year": "2025",
+      "authors": "Simon Damm; Mike Laszkiewicz; et al.",
+      "title": "Anomalydino: Boosting patch-based few-shot anomaly detection with dinov2"
+    },
+    {
+      "id": "ref-14",
+      "year": "2022",
+      "authors": "Xinpeng Ding; Jingwen Yang; et al.",
+      "title": "Learning shadow correspondence for video shadow detection"
+    },
+    {
+      "id": "ref-15",
+      "year": "2025",
+      "authors": "Yifan Gao; Haoyue Li; et al.",
+      "title": "Dino u-net: Exploiting highfidelity dense features from foundation models for medical image segmentation, 2025"
+    },
+    {
+      "id": "ref-16",
+      "year": "2023",
+      "authors": "Haifan Gong; Jiaxin Chen; et al.",
+      "title": "Thyroid region prior guided attention for ultrasound segmentation of thyroid nodules"
+    },
+    {
+      "id": "ref-17",
+      "year": "2022",
+      "authors": "Huankang Guan; Jiaying Lin; et al.",
+      "title": "Learning semantic associations for mirror detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2022",
+      "authors": "Kaiming He; Xinlei Chen; et al.",
+      "title": "Masked au- ´ toencoders are scalable vision learners"
+    },
+    {
+      "id": "ref-19",
+      "year": "2023",
+      "authors": "Ruozhen He; Jiaying Lin; et al.",
+      "title": "Efficient mirror detection via multi-level heterogeneous learning"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Xiaowei Hu; Tianyu Wang; et al.",
+      "title": "Revisiting shadow detection: A new benchmark dataset for complex world"
+    },
+    {
+      "id": "ref-21",
+      "year": "2023",
+      "authors": "Tianyu Huang; Bowen Dong; et al.",
+      "title": "Symmetry-aware transformer-based mirror detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2023",
+      "authors": "Jitesh Jain; Jiachen Li; et al.",
+      "title": "Oneformer: One transformer to rule universal image segmentation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2019",
+      "authors": "Debesh Jha; Pia H Smedsrud; et al.",
+      "title": "Kvasir-seg: A segmented polyp dataset"
+    },
+    {
+      "id": "ref-24",
+      "year": "2023",
+      "authors": "Alexander Kirillov; Eric Mintun; et al.",
+      "title": "Segment anything"
+    },
+    {
+      "id": "ref-25",
+      "year": "2025",
+      "authors": "Chenxin Li; Xinyu Liu; et al.",
+      "title": "U-kan makes strong backbone for medical image segmentation and generation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2024",
+      "authors": "Xiangtai Li; Henghui Ding; et al.",
+      "title": "Transformer-based visual segmentation: A survey"
+    },
+    {
+      "id": "ref-27",
+      "year": "2020",
+      "authors": "Jiaying Lin; Guodong Wang; et al.",
+      "title": "Progressive mirror detection"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Jiaying Lin; Zebang He; et al.",
+      "title": "Rich context aggregation with reflection prior for glass surface detection"
+    },
+    {
+      "id": "ref-29",
+      "year": "2023",
+      "authors": "Jiaying Lin; Xin Tan; et al.",
+      "title": "Learning to detect mirrors from videos via dual correspondences"
+    },
+    {
+      "id": "ref-30",
+      "year": "2024",
+      "authors": "Fang Liu; Yuhao Liu; et al.",
+      "title": "Multi-view dynamic reflection prior for video glass surface detection"
+    },
+    {
+      "id": "ref-31",
+      "year": "2023",
+      "authors": "Lihao Liu; Jean Prost; et al.",
+      "title": "Scotch and soda: A transformer video shadow detection framework"
+    },
+    {
+      "id": "ref-32",
+      "year": "2015",
+      "authors": "Jonathan Long; Evan Shelhamer; et al.",
+      "title": "Fully convolutional networks for semantic segmentation"
+    },
+    {
+      "id": "ref-33",
+      "year": "2017",
+      "authors": "Ilya Loshchilov; Frank Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "Xiankai Lu; Wenguan Wang; et al.",
+      "title": "See more, know more: Unsupervised video object segmentation with co-attention siamese networks"
+    },
+    {
+      "id": "ref-35",
+      "year": "2022",
+      "authors": "Xiao Lu; Yihong Cao; et al.",
+      "title": "Video shadow detection via spatio-temporal interpolation consistency training"
+    },
+    {
+      "id": "ref-36",
+      "year": "2024",
+      "authors": "Jun Ma; Feifei Li; et al.",
+      "title": "U-mamba: Enhancing long-range dependency for biomedical image segmentation"
+    },
+    {
+      "id": "ref-37",
+      "year": "2023",
+      "authors": "Maciej A Mazurowski; Haoyu Dong; et al.",
+      "title": "Segment anything model for medical image analysis: an experimental study"
+    },
+    {
+      "id": "ref-38",
+      "year": "2021",
+      "authors": "Shervin Minaee; Yuri Boykov; et al.",
+      "title": "Image segmentation using deep learning: A survey"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "Seoung Wug Oh; Joon-Young Lee; et al.",
+      "title": "Video object segmentation using space-time memory networks"
+    },
+    {
+      "id": "ref-40",
+      "year": "2018",
+      "authors": "Ozan Oktay; Jo Schlemper; et al.",
+      "title": "Attention u-net: Learning where to look for the pancreas"
+    },
+    {
+      "id": "ref-41",
+      "year": "2023",
+      "authors": "Maxime Oquab; Timothee Darcet; et al.",
+      "title": "Dinov2: Learning robust visual features without supervision"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Adam Paszke; Sam Gross; et al.",
+      "title": "Pytorch: An imperative style, highperformance deep learning library"
+    },
+    {
+      "id": "ref-43",
+      "year": "2022",
+      "authors": "Gensheng Pei; Fumin Shen; et al.",
+      "title": "Hierarchical feature alignment network for unsupervised video object segmentation"
+    },
+    {
+      "id": "ref-44",
+      "year": "2021",
+      "authors": "Rene Ranftl; Alexey Bochkovskiy; et al.",
+      "title": "Vision transformers for dense prediction"
+    },
+    {
+      "id": "ref-45",
+      "year": "2015",
+      "authors": "Olaf Ronneberger; Philipp Fischer; et al.",
+      "title": "U-net: Convolutional networks for biomedical image segmentation"
+    },
+    {
+      "id": "ref-46",
+      "year": "2025",
+      "authors": "Oriane Simeoni; Huy V Vo; et al.",
+      "title": "Dinov3"
+    },
+    {
+      "id": "ref-47",
+      "year": "2021",
+      "authors": "Robin Strudel; Ricardo Garcia; et al.",
+      "title": "Segmenter: Transformer for semantic segmentation"
+    },
+    {
+      "id": "ref-48",
+      "year": "2022",
+      "authors": "Xin Tan; Jiaying Lin; et al.",
+      "title": "Mirror detection with the visual chirality cue"
+    },
+    {
+      "id": "ref-49",
+      "year": "2022",
+      "authors": "Jeya Maria Jose Valanarasu; Vishal M Patel",
+      "title": "Unext: Mlp-based rapid medical image segmentation network"
+    },
+    {
+      "id": "ref-50",
+      "year": "2017",
+      "authors": "Tomas F Yago Vicente; Minh Hoai; et al.",
+      "title": "Leave-one-out kernel optimization for shadow detection and removal"
+    },
+    {
+      "id": "ref-51",
+      "year": "2024",
+      "authors": "Hongqiu Wang; Jian Chen; et al.",
+      "title": "Dual-reference source-free active domain adaptation for nasopharyngeal carcinoma tumor segmentation across multiple hospitals"
+    },
+    {
+      "id": "ref-52",
+      "year": "2024",
+      "authors": "Hongqiu Wang; Guang Yang; et al.",
+      "title": "Video-instrument synergistic network for referring video instrument segmentation in robotic surgery"
+    },
+    {
+      "id": "ref-53",
+      "year": "2025",
+      "authors": "Hongqiu Wang; Yixian Chen; et al.",
+      "title": "Serp-mamba: Advancing high-resolution retinal vessel segmentation with selective state-space model"
+    },
+    {
+      "id": "ref-54",
+      "year": "2025",
+      "authors": "Jianyuan Wang; Minghao Chen; et al.",
+      "title": "Vggt: Visual geometry grounded transformer"
+    },
+    {
+      "id": "ref-55",
+      "year": "2025",
+      "authors": "Shansong Wang; Mojtaba Safari; et al.",
+      "title": "Dinov3 with test-time training for medical image registration"
+    },
+    {
+      "id": "ref-56",
+      "year": "2024",
+      "authors": "Junde Wu; Rao Fu; et al.",
+      "title": "Medsegdiff: Medical image segmentation with diffusion probabilistic model"
+    },
+    {
+      "id": "ref-57",
+      "year": "2021",
+      "authors": "Enze Xie; Wenhai Wang; et al.",
+      "title": "Segformer: Simple and efficient design for semantic segmentation with transformers"
+    },
+    {
+      "id": "ref-58",
+      "year": "2024",
+      "authors": "Zhifeng Xie; Sen Wang; et al.",
+      "title": "Csfwinformer: Cross-spacefrequency window transformer for mirror detection"
+    },
+    {
+      "id": "ref-59",
+      "year": "2024",
+      "authors": "Zhaohu Xing; Tian Ye; et al.",
+      "title": "Segmamba: Long-range sequential modeling mamba for 3d medical image segmentation"
+    },
+    {
+      "id": "ref-60",
+      "year": "2025",
+      "authors": "Lihe Yang; Zhen Zhao; et al.",
+      "title": "Unimatch v2: Pushing the limit of semi-supervised semantic segmentation"
+    },
+    {
+      "id": "ref-61",
+      "year": "2019",
+      "authors": "Xin Yang; Haiyang Mei; et al.",
+      "title": "Where is my mirror? In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp"
+    },
+    {
+      "id": "ref-62",
+      "year": "2021",
+      "authors": "Chiyuan Zhang; Samy Bengio; et al.",
+      "title": "Understanding deep learning (still) requires rethinking generalization"
+    },
+    {
+      "id": "ref-63",
+      "year": "2024",
+      "authors": "Zhuoyang Zhang; Han Cai; et al.",
+      "title": "Efficientvit-sam: Accelerated segment anything model without performance loss"
+    },
+    {
+      "id": "ref-64",
+      "year": "2023",
+      "authors": "Xu Zhao; Wenchao Ding; et al.",
+      "title": "Fast segment anything"
+    },
+    {
+      "id": "ref-65",
+      "year": "2024",
+      "authors": "Haipeng Zhou; Hongqiu Wang; et al.",
+      "title": "Timeline and boundary guided diffusion network for video shadow detection"
+    },
+    {
+      "id": "ref-66",
+      "year": "2024",
+      "authors": "Tianfei Zhou; Wang Xia; et al.",
+      "title": "Image segmentation in foundation model era: A survey"
+    },
+    {
+      "id": "ref-67",
+      "year": "2024",
+      "authors": "Lei Zhu; Fangyun Wei; et al.",
+      "title": "Scaling the codebook size of vq-gan to 100,000 with a utilization rate of 99%"
+    }
+  ]
+}

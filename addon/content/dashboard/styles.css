@@ -635,6 +635,11 @@ tr.clickable {
   font-size: 12px;
 }
 
+.workflow-settings-field-label-warning {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .workflow-settings-field-error {
   color: var(--danger);
   font-size: 11px;
@@ -664,7 +669,8 @@ tr.clickable {
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   font-size: 12px;
 }
@@ -1027,7 +1033,8 @@ tr.clickable {
   margin: 0 0 8px 0;
 }
 
-.log-error, .log-stack {
+.log-error,
+.log-stack {
   background: var(--zs-danger-soft);
   border: 1px solid var(--zs-danger-border);
   color: var(--danger);

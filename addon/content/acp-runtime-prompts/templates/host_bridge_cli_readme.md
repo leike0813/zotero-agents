@@ -535,9 +535,11 @@ Valid no-selection input:
 }
 ```
 
-Workflow submit requires Zotero-side approval. If this run has ACP scope,
-approval appears in the ACP Skills UI. The CLI waits for the user decision.
-Do not attempt to approve the request yourself.
+Workflow submit requires Zotero-side approval. If this process was launched
+from ACP Chat, approval appears in the ACP Chat panel. If it was launched from
+an ACP Skills run, approval appears in the ACP Skills UI. External calls without
+ACP scope use the global Zotero approval UI. The CLI waits for the user
+decision. Do not attempt to approve the request yourself.
 
 Successful `data` includes:
 
@@ -731,9 +733,11 @@ workflow must write or replace a hidden workflow payload on an existing Zotero
 note. This writes the current embedded payload attachment format and must not be
 used to add legacy `data-zs-payload` HTML blocks.
 
-When approval is required, wait for the user to approve or deny in Zotero UI.
-Do not simulate approval, do not retry in a loop without new information, and do
-not use a write-capable alternative path.
+When approval is required, wait for the user to approve or deny in the relevant
+Zotero UI. ACP Chat scope is approved in the ACP Chat panel; ACP Skills run
+scope is approved in the ACP Skills UI; unscoped external calls use the global
+Zotero approval UI. Do not simulate approval, do not retry in a loop without new
+information, and do not use a write-capable alternative path.
 
 ## 16. Raw Capability Calls
 

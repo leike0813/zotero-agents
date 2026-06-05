@@ -21,6 +21,7 @@ import {
   type SynthesisTagAbbrevRecord,
   type SynthesisTagAliasRecord,
   type SynthesisTagProtocolRecord,
+  type SynthesisTagStagedSuggestionRecord,
   type SynthesisTagValidationWarningRecord,
   type SynthesisTagVocabularyEntryRecord,
 } from "./repository";
@@ -162,6 +163,16 @@ export type SynthesisTagVocabularySnapshot = {
   validation_warnings: SynthesisTagValidationWarning[];
   projection?: ProjectionState;
   import_preview?: SynthesisTagImportPreview;
+};
+
+export type SynthesisTagStagedSuggestion = {
+  tag: string;
+  facet: string;
+  note?: string;
+  source_flow?: string;
+  parent_bindings?: number[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ServiceOptions = {
@@ -806,6 +817,77 @@ function tagWarningFromRecord(
   };
 }
 
+function normalizeParentBindings(values: unknown) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((entry) => Math.trunc(Number(entry)))
+        .filter((entry) => Number.isFinite(entry) && entry > 0),
+    ),
+  ).sort((left, right) => left - right);
+}
+
+function parentBindingsJson(values: unknown) {
+  return jsonArrayText(normalizeParentBindings(values));
+}
+
+function parentBindingsFromJson(value: unknown) {
+  return normalizeParentBindings(parseJsonArrayText(value));
+}
+
+function stagedSuggestionToRecord(
+  entry: SynthesisTagStagedSuggestion,
+): SynthesisTagStagedSuggestionRecord {
+  const tag = cleanString(entry.tag);
+  return {
+    tag,
+    facet: normalizeFacet(entry.facet, tag),
+    note: cleanString(entry.note) || undefined,
+    sourceFlow: cleanString(entry.source_flow) || "tag-regulator-suggest",
+    parentBindingsJson: parentBindingsJson(entry.parent_bindings || []),
+    createdAt: entry.created_at,
+    updatedAt: entry.updated_at,
+  };
+}
+
+function stagedSuggestionFromRecord(
+  record: SynthesisTagStagedSuggestionRecord,
+): SynthesisTagStagedSuggestion {
+  const tag = cleanString(record.tag);
+  return {
+    tag,
+    facet: normalizeFacet(record.facet, tag),
+    note: cleanString(record.note) || undefined,
+    source_flow: cleanString(record.sourceFlow) || "tag-regulator-suggest",
+    parent_bindings: parentBindingsFromJson(record.parentBindingsJson),
+    created_at: record.createdAt,
+    updated_at: record.updatedAt,
+  };
+}
+
+function mergeStagedSuggestion(
+  existing: SynthesisTagStagedSuggestion | null,
+  input: SynthesisTagStagedSuggestion,
+  timestamp: string,
+): SynthesisTagStagedSuggestion {
+  const tag = cleanString(input.tag || existing?.tag);
+  return {
+    tag,
+    facet: normalizeFacet(input.facet || existing?.facet, tag),
+    note: cleanString(input.note) || cleanString(existing?.note) || undefined,
+    source_flow:
+      cleanString(input.source_flow) ||
+      cleanString(existing?.source_flow) ||
+      "tag-regulator-suggest",
+    parent_bindings: normalizeParentBindings([
+      ...(existing?.parent_bindings || []),
+      ...(input.parent_bindings || []),
+    ]),
+    created_at: existing?.created_at || timestamp,
+    updated_at: timestamp,
+  };
+}
+
 function tagProjectionFromSnapshot(args: {
   snapshot: SynthesisTagVocabularySnapshot;
   rebuiltAt: string;
@@ -1059,6 +1141,118 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     });
   }
 
+  async function listStagedTagSuggestions() {
+    await initializeIfMissing();
+    return repository
+      .listTagStagedSuggestions()
+      .map(stagedSuggestionFromRecord);
+  }
+
+  async function stageTagSuggestions(args: {
+    entries: Array<{
+      tag: string;
+      facet?: string;
+      note?: string;
+      source_flow?: string;
+      parent_bindings?: number[];
+    }>;
+  }) {
+    await initializeIfMissing();
+    const timestamp = now();
+    const staged = repository
+      .listTagStagedSuggestions()
+      .map(stagedSuggestionFromRecord);
+    const byLower = new Map(
+      staged.map((entry) => [entry.tag.toLowerCase(), entry]),
+    );
+    const written: SynthesisTagStagedSuggestion[] = [];
+    for (const raw of Array.isArray(args.entries) ? args.entries : []) {
+      const tag = cleanString(raw?.tag);
+      if (!tag) {
+        continue;
+      }
+      const merged = mergeStagedSuggestion(
+        byLower.get(tag.toLowerCase()) || null,
+        {
+          tag,
+          facet: normalizeFacet(raw?.facet, tag),
+          note: cleanString(raw?.note) || undefined,
+          source_flow:
+            cleanString(raw?.source_flow) || "tag-regulator-suggest",
+          parent_bindings: normalizeParentBindings(raw?.parent_bindings || []),
+        },
+        timestamp,
+      );
+      repository.upsertTagStagedSuggestion(stagedSuggestionToRecord(merged));
+      byLower.set(tag.toLowerCase(), merged);
+      written.push(merged);
+    }
+    return {
+      staged: written.sort((left, right) =>
+        left.tag.localeCompare(right.tag, "en", { sensitivity: "base" }),
+      ),
+    };
+  }
+
+  async function promoteStagedTagSuggestions(args: { tags: string[] }) {
+    await initializeIfMissing();
+    const requested = normalizeStringList(args.tags);
+    if (!requested.length) {
+      return { promoted: [] as string[], skipped: [] as string[] };
+    }
+    const current = await loadTagVocabulary();
+    const existingLower = new Set(
+      current.entries.map((entry) => entry.tag.toLowerCase()),
+    );
+    const staged = repository
+      .listTagStagedSuggestions({ tags: requested })
+      .map(stagedSuggestionFromRecord);
+    const promotedEntries: SynthesisTagVocabularyEntry[] = [];
+    const skipped: string[] = [];
+    for (const entry of staged) {
+      if (existingLower.has(entry.tag.toLowerCase())) {
+        skipped.push(entry.tag);
+        continue;
+      }
+      promotedEntries.push({
+        tag: entry.tag,
+        facet: normalizeFacet(entry.facet, entry.tag),
+        note: entry.note,
+        source: entry.source_flow || "tag-regulator-suggest",
+        deprecated: false,
+      });
+      existingLower.add(entry.tag.toLowerCase());
+    }
+    if (promotedEntries.length) {
+      await saveTagVocabulary({
+        entries: [...current.entries, ...promotedEntries],
+        aliases: current.aliases,
+        abbrev: current.abbrev,
+        protocol: current.protocol,
+        transactionId: `tag-staged-promote-${now()}`,
+      });
+    }
+    const promoted = promotedEntries.map((entry) => entry.tag);
+    repository.removeTagStagedSuggestions(promoted);
+    return { promoted, skipped };
+  }
+
+  async function discardStagedTagSuggestions(args: { tags: string[] }) {
+    await initializeIfMissing();
+    const removed = repository
+      .removeTagStagedSuggestions(args.tags)
+      .map(stagedSuggestionFromRecord);
+    return { discarded: removed.map((entry) => entry.tag) };
+  }
+
+  async function clearStagedTagSuggestions() {
+    await initializeIfMissing();
+    const removed = repository
+      .clearTagStagedSuggestions()
+      .map(stagedSuggestionFromRecord);
+    return { discarded: removed.map((entry) => entry.tag) };
+  }
+
   async function previewImport(payload: unknown) {
     const current = await loadTagVocabulary();
     const imported = normalizeVocabularyPayload(parseImportPayload(payload));
@@ -1184,6 +1378,11 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     saveTagVocabulary,
     exportTagVocabularyCheckpoint,
     validateTagVocabulary,
+    listStagedTagSuggestions,
+    stageTagSuggestions,
+    promoteStagedTagSuggestions,
+    discardStagedTagSuggestions,
+    clearStagedTagSuggestions,
     previewImport,
     applyImport,
     rebuildTagIndexProjection,

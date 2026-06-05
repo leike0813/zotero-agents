@@ -1,0 +1,196 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2016",
+      "authors": "Ba, J.L.; Kiros, J.R.; et al.",
+      "title": "Layer normalization"
+    },
+    {
+      "id": "ref-2",
+      "year": "2014",
+      "authors": "Bahdanau, D.; Cho, K.; et al.",
+      "title": "Neural machine translation by jointly learning to align and translate"
+    },
+    {
+      "id": "ref-3",
+      "year": "2017",
+      "authors": "Britz, D.; Goldie, A.; et al.",
+      "title": "Massive exploration of neural machine translation architectures"
+    },
+    {
+      "id": "ref-4",
+      "year": "2016",
+      "authors": "Cheng, J.; Dong, L.; et al.",
+      "title": "Long short-term memory-networks for machine reading"
+    },
+    {
+      "id": "ref-5",
+      "year": "2014",
+      "authors": "Cho, K.; Merrienboer, B.v.; et al.",
+      "title": "Learning phrase representations using rnn encoder-decoder for statistical machine translation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2016",
+      "authors": "Chollet, F.",
+      "title": "Xception: Deep learning with depthwise separable convolutions"
+    },
+    {
+      "id": "ref-7",
+      "year": "2014",
+      "authors": "Chung, J.; Gülçehre, Ç.; et al.",
+      "title": "Empirical evaluation of gated recurrent neural networks on sequence modeling"
+    },
+    {
+      "id": "ref-8",
+      "year": "2017",
+      "authors": "Gehring, J.; Auli, M.; et al.",
+      "title": "Convolutional sequence to sequence learning"
+    },
+    {
+      "id": "ref-9",
+      "year": "2013",
+      "authors": "Graves, A.",
+      "title": "Generating sequences with recurrent neural networks"
+    },
+    {
+      "id": "ref-10",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-11",
+      "year": "2001",
+      "authors": "Hochreiter, S.; Bengio, Y.; et al.",
+      "title": "Gradient flow in recurrent nets: the difficulty of learning long-term dependencies, 2001"
+    },
+    {
+      "id": "ref-12",
+      "year": "1997",
+      "authors": "Schmidhuber, S.H.a.J.",
+      "title": "Long short-term memory"
+    },
+    {
+      "id": "ref-13",
+      "year": "2016",
+      "authors": "Jozefowicz, R.; Vinyals, O.; et al.",
+      "title": "Exploring the limits of language modeling"
+    },
+    {
+      "id": "ref-14",
+      "year": "2016",
+      "authors": "Sutskever, Ł.K.a.I.",
+      "title": "Neural GPUs learn algorithms"
+    },
+    {
+      "id": "ref-15",
+      "year": "2017",
+      "authors": "Kalchbrenner, N.; Espeholt, L.; et al.",
+      "title": "Neural machine translation in linear time"
+    },
+    {
+      "id": "ref-16",
+      "year": "2017",
+      "authors": "Kim, Y.; Denton, C.; et al.",
+      "title": "Structured attention networks"
+    },
+    {
+      "id": "ref-17",
+      "year": "2015",
+      "authors": "Ba, D.K.a.J.",
+      "title": "Adam: A method for stochastic optimization"
+    },
+    {
+      "id": "ref-18",
+      "year": "2017",
+      "authors": "Ginsburg, O.K.a.B.",
+      "title": "Factorization tricks for LSTM networks"
+    },
+    {
+      "id": "ref-19",
+      "year": "2017",
+      "authors": "Lin, Z.; Feng, M.; et al.",
+      "title": "A structured self-attentive sentence embedding"
+    },
+    {
+      "id": "ref-20",
+      "year": "2016",
+      "authors": "Kaiser, S.B.Ł.",
+      "title": "Can active memory replace attention? In Advances in Neural Information Processing Systems, (NIPS), 2016"
+    },
+    {
+      "id": "ref-21",
+      "year": "2015",
+      "authors": "Luong, M.; Pham, H.; et al.",
+      "title": "Effective approaches to attentionbased neural machine translation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2016",
+      "authors": "Parikh, A.; Täckström, O.; et al.",
+      "title": "A decomposable attention model"
+    },
+    {
+      "id": "ref-23",
+      "year": "2017",
+      "authors": "Paulus, R.; Xiong, C.; et al.",
+      "title": "A deep reinforced model for abstractive summarization"
+    },
+    {
+      "id": "ref-24",
+      "year": "2016",
+      "authors": "Wolf, O.P.a.L.",
+      "title": "Using the output embedding to improve language models"
+    },
+    {
+      "id": "ref-25",
+      "year": "2015",
+      "authors": "Sennrich, R.; Haddow, B.; et al.",
+      "title": "Neural machine translation of rare words with subword units"
+    },
+    {
+      "id": "ref-26",
+      "year": "2017",
+      "authors": "Shazeer, N.; Mirhoseini, A.; et al.",
+      "title": "Outrageously large neural networks: The sparsely-gated mixture-of-experts layer"
+    },
+    {
+      "id": "ref-27",
+      "year": "2014",
+      "authors": "Srivastava, N.; Hinton, G.E.; et al.",
+      "title": "Dropout: a simple way to prevent neural networks from overfitting"
+    },
+    {
+      "id": "ref-28",
+      "year": "2015",
+      "authors": "Sukhbaatar, S.; szlam, a.; et al.",
+      "title": "End-to-end memory networks"
+    },
+    {
+      "id": "ref-29",
+      "year": "2014",
+      "authors": "Sutskever, I.; Vinyals, O.; et al.",
+      "title": "Sequence to sequence learning with neural networks"
+    },
+    {
+      "id": "ref-30",
+      "year": "2015",
+      "authors": "Szegedy, C.; Vanhoucke, V.; et al.",
+      "title": "Rethinking the inception architecture for computer vision"
+    },
+    {
+      "id": "ref-31",
+      "year": "2016",
+      "authors": "Wu, Y.; Schuster, M.; et al.",
+      "title": "Google’s neural machine translation system: Bridging the gap between human and machine translation"
+    },
+    {
+      "id": "ref-32",
+      "year": "2016",
+      "authors": "Zhou, J.; Cao, Y.; et al.",
+      "title": "Deep recurrent models with fast-forward connections for neural machine translation"
+    }
+  ]
+}

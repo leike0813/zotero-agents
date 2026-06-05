@@ -1,0 +1,67 @@
+# SAM 3: segment anything with concepts (2026)
+
+- Paper ref: 1:HDDAIKQQ
+- Title: SAM 3: segment anything with concepts
+- Year: 2026
+
+## Filtered Digest
+
+#### TL;DR
+
+本文提出 SAM 3（Segment Anything Model 3），一个统一的模型，能够基于概念提示（短句短语、图像示例或两者结合）在图像和视频中检测、分割和跟踪物体。SAM 3 引入了 Promptable Concept Segmentation（PCS）任务，接受文本和/或图像示例作为输入，为所有匹配概念的物体实例预测实例掩码和唯一身份标识，同时在视频帧间保持物体身份。
+
+为实现 PCS，作者构建了一个可扩展的数据引擎，生成了包含 4M 独特概念标签的高质量数据集（跨越图像和视频），包括困难负样本。模型由共享单一骨干网络的图像级检测器和基于内存的视频跟踪器组成，并通过 presence head 解耦识别与定位，显著提升检测精度。
+
+实验结果表明，SAM 3 在图像和视频 PCS 任务上将现有系统的准确率提高了一倍以上，在 LVIS 零样本掩码 AP 达到 48.8（当前最佳为 38.5），在 SA-Co/Gold 基准上 cgF1 达到 54.1（是 OWLv2 的两倍多，达到人类性能的 74%）。在 H200 GPU 上，SAM 3 对单张图像（检测 100+ 物体）推理时间为 30ms。
+
+作者开源了 SAM 3 模型、SA-Co 基准（包含 207K 独特概念、120K 图像和 1.7K 视频，比现有基准多 50 倍以上概念），以及推理代码。SA-Co/HQ 数据集包含 5.2M 图像和 4M 独特名词短语，是最大的高质量开放词汇分割数据集。
+
+#### 研究问题与贡献
+
+- 研究问题：如何在图像和视频中实现对任意视觉概念的 promptable 分割，即根据文本短语和/或图像示例检测、分割和跟踪所有匹配的概念实例？
+
+- 提出 PCS（Promptable Concept Segmentation）任务和 SA-Co 基准，支持短句短语和图像示例作为提示，要求模型输出所有匹配实例的掩码和唯一 ID
+
+- 设计了解耦识别、定位和跟踪的架构，扩展 SAM 2 以解决概念分割问题，同时保留视觉分割能力
+
+- 构建了高效的人机协同数据引擎，利用人类和 AI 标注者的互补优势，通过 AI 验证器将标注吞吐量提高一倍
+
+- 在 SA-Co 基准上实现 SOTA，图像和视频 PCS 性能较 prior systems 提升一倍以上，LVIS 零样本掩码 AP 达 48.8
+
+#### 方法要点
+
+- 检测器基于 DETR 架构，由 Perception Encoder 骨干网络、融合编码器和 DETR 式解码器组成，支持文本、几何和图像示例提示
+
+- 引入 Presence Token（全局存在令牌）专门负责预测目标概念是否存在，解耦识别（what）和定位（where），proposal queries 只解决定位问题
+
+- 检测器和跟踪器共享 PE 骨干网络，但采用解耦设计避免任务冲突：检测器无需识别身份，跟踪器专注于分离身份
+
+- 跟踪器继承 SAM 2 架构，支持视频分割和交互式细化，使用内存库编码物体外观，通过匹配函数关联传播掩码与新检测
+
+- 图像示例以边界框 + 二元标签（正/负）形式提供，可迭代添加以修正错误，编码后与文本提示拼接为 prompt tokens
+
+- 采用双重监督（DAC-DETR）和对齐损失（Align loss），mask head 改编自 MaskFormer，并增加语义分割头
+
+- 训练分为四阶段：PE 预训练、检测器预训练、检测器微调、跟踪器训练（冻结骨干）
+
+#### 关键结果
+
+- 图像 PCS（文本提示）：SA-Co/Gold 上 cgF1=54.1（人类 72.8），是 OWLv2（17.3）的 3 倍多；LVIS 上 cgF1=37.2、AP=48.5（当前最佳 38.5）
+
+- 少样本适应：ODinW13 零样本 AP=61.0（超越 gDino1.5-Pro 的 58.7），10 样本 AP=71.8；RF-100VL 零样本 AP=15.2、10 样本 AP=36.5
+
+- 单示例提示（T+I 组合）：COCO AP+=78.1、LVIS AP+=78.4、ODinW13 AP+=81.8，显著超越 T-Rex2（分别 +18.3、+10.3、+20.5）
+
+- 交互式 K 示例：3 次点击后 cgF1 提升 +21.6（超越纯文本），超越 PVS 细化 +2.0；4 次点击后性能趋于平稳
+
+- 视频 PCS：SA-Co/VEval 上 pHOTA 达 58.0-69.9（人类 70.5-78.4），BURST test mAP=36.3、YTVIS21 val mAP=57.4、OVIS val mAP=60.5
+
+- VOS 任务：MOSEv2 val J&F=60.3（超越 prior work 6.5 点），DAVIS17 val J&F=92.2，SA-V test J&F=84.4
+
+- 交互式图像分割（SA-37 基准）：1-click mIoU=66.1、3-clicks=81.3、5-clicks=85.1，超越 SAM 2.1
+
+- 物体计数：CountBench MAE=0.12/Acc=93.8、PixMo-Count MAE=0.21/Acc=86.2，优于多数 MLLMs
+
+- SAM 3 Agent（结合 MLLM）：ReasonSeg test gIoU=74.0、OmniLabel val AP=45.3，零样本超越 prior work
+
+- 推理速度：H200 GPU 上 30ms/帧（100+ 物体），视频中间性能可维持近实时（~5 个并发物体）

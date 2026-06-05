@@ -75,6 +75,13 @@ type EditableBackendRow = {
   acp?: BackendInstance["acp"];
 };
 
+type BackendManagerDialogData = Record<string, unknown> & {
+  _allowBackendManagerClose?: boolean;
+  _initialBackendDraftSignature?: string;
+  _lastButtonId?: string;
+  _nativeBeforeUnloadListener?: (event: BeforeUnloadEvent) => void;
+};
+
 export type SkillRunnerManagementLaunchPayload = {
   backendId: string;
   baseUrl: string;
@@ -100,15 +107,15 @@ function applySelectVisualStyle(control: HTMLElement, width?: string) {
 }
 
 function getChoiceTrigger(control: Element) {
-  return control.querySelector("[data-zs-choice-trigger='1']") as
-    | HTMLButtonElement
-    | null;
+  return control.querySelector(
+    "[data-zs-choice-trigger='1']",
+  ) as HTMLButtonElement | null;
 }
 
 function getChoiceList(control: Element) {
-  return control.querySelector("[data-zs-choice-list='1']") as
-    | HTMLDivElement
-    | null;
+  return control.querySelector(
+    "[data-zs-choice-list='1']",
+  ) as HTMLDivElement | null;
 }
 
 function closeChoiceList(control: Element) {
@@ -126,6 +133,16 @@ function closeAllChoiceLists(doc: Document) {
   for (const list of lists) {
     list.hidden = true;
     list.style.display = "none";
+  }
+}
+
+function closeAllAcpPresetMenus(doc: Document) {
+  const menus = Array.from(
+    doc.querySelectorAll("[data-zs-acp-preset-menu='1']"),
+  ) as HTMLDivElement[];
+  for (const menu of menus) {
+    menu.hidden = true;
+    menu.style.display = "none";
   }
 }
 
@@ -163,7 +180,9 @@ function getElementValue(control: Element) {
   if (control.getAttribute("data-zs-choice-control") === "1") {
     return String(control.getAttribute("data-zs-choice-value") || "").trim();
   }
-  return String((control as HTMLInputElement | HTMLSelectElement).value || "").trim();
+  return String(
+    (control as HTMLInputElement | HTMLSelectElement).value || "",
+  ).trim();
 }
 
 function setChoiceControlOptions(args: {
@@ -303,6 +322,97 @@ function createChoiceControl(args: {
   return select;
 }
 
+function createAcpPresetMenu(args: { doc: Document; providerType: string }) {
+  const { doc } = args;
+  const wrapper = createHtmlElement(doc, "div");
+  wrapper.style.position = "relative";
+  wrapper.style.display = "inline-block";
+
+  const button = createHtmlElement(doc, "button");
+  button.type = "button";
+  button.textContent = getString("backend-manager-acp-preset-add" as any);
+  button.setAttribute("data-zs-backend-action", "toggle-acp-preset-menu");
+  button.setAttribute("data-zs-provider-type", args.providerType);
+  wrapper.appendChild(button);
+
+  const menu = createHtmlElement(doc, "div");
+  menu.hidden = true;
+  menu.style.display = "none";
+  menu.style.position = "absolute";
+  menu.style.right = "0";
+  menu.style.top = "calc(100% + 2px)";
+  menu.style.zIndex = "99999";
+  menu.style.minWidth = "220px";
+  menu.style.padding = "4px 0";
+  menu.style.border = "1px solid #8f8f9d";
+  menu.style.borderRadius = "4px";
+  menu.style.backgroundColor = "#fff";
+  menu.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+  menu.setAttribute("data-zs-acp-preset-menu", "1");
+  wrapper.appendChild(menu);
+
+  const appendItem = (label: string, attrs: Record<string, string>) => {
+    const item = createHtmlElement(doc, "button");
+    item.type = "button";
+    item.textContent = label;
+    item.style.display = "block";
+    item.style.width = "100%";
+    item.style.padding = "4px 8px";
+    item.style.border = "none";
+    item.style.background = "transparent";
+    item.style.color = "#111";
+    item.style.textAlign = "left";
+    item.style.cursor = "pointer";
+    for (const [key, value] of Object.entries(attrs)) {
+      item.setAttribute(key, value);
+    }
+    item.addEventListener("mouseenter", () => {
+      item.style.backgroundColor = "#f1f3f5";
+    });
+    item.addEventListener("mouseleave", () => {
+      item.style.backgroundColor = "transparent";
+    });
+    menu.appendChild(item);
+  };
+
+  for (const preset of listAcpBackendPresets()) {
+    appendItem(preset.displayName, {
+      "data-zs-backend-action": "add-acp-preset",
+      "data-zs-provider-type": args.providerType,
+      "data-zs-acp-preset-id": preset.id,
+    });
+  }
+
+  const separator = createHtmlElement(doc, "div");
+  separator.style.height = "1px";
+  separator.style.margin = "4px 0";
+  separator.style.backgroundColor = "#d0d0d7";
+  separator.setAttribute("role", "separator");
+  menu.appendChild(separator);
+
+  appendItem(getString("backend-manager-acp-preset-custom" as any), {
+    "data-zs-backend-action": "add",
+    "data-zs-provider-type": args.providerType,
+  });
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const shouldOpen = menu.style.display === "none";
+    closeAllAcpPresetMenus(doc);
+    menu.hidden = !shouldOpen;
+    menu.style.display = shouldOpen ? "block" : "none";
+  });
+  doc.addEventListener("click", (event) => {
+    const target = event.target as Node | null;
+    if (!target || !wrapper.contains(target)) {
+      closeAllAcpPresetMenus(doc);
+    }
+  });
+
+  return wrapper;
+}
+
 function buildFallbackBackendRow(): EditableBackendRow {
   return {
     internalId: DEFAULT_BACKEND_ID,
@@ -399,7 +509,9 @@ function appendSelectCell(
   cell.appendChild(control);
 }
 
-function readAcpMetadataFromRow(row: Element): BackendInstance["acp"] | undefined {
+function readAcpMetadataFromRow(
+  row: Element,
+): BackendInstance["acp"] | undefined {
   const raw = String(row.getAttribute("data-zs-backend-acp") || "").trim();
   if (!raw) {
     return undefined;
@@ -414,13 +526,18 @@ function readAcpMetadataFromRow(row: Element): BackendInstance["acp"] | undefine
   }
 }
 
-function writeAcpMetadataToRow(row: Element, acp: BackendInstance["acp"] | undefined) {
+function writeAcpMetadataToRow(
+  row: Element,
+  acp: BackendInstance["acp"] | undefined,
+) {
   if (acp) {
     row.setAttribute("data-zs-backend-acp", JSON.stringify(acp));
   } else {
     row.removeAttribute("data-zs-backend-acp");
   }
-  const chip = row.querySelector("[data-zs-acp-connection-status='1']") as HTMLElement | null;
+  const chip = row.querySelector(
+    "[data-zs-acp-connection-status='1']",
+  ) as HTMLElement | null;
   if (chip) {
     const status = acp?.connectionTest?.status || "untested";
     styleAcpBackendStatusChip({
@@ -472,9 +589,9 @@ function setAcpBackendRowBusy(row: Element, busy: boolean) {
   const button = row.querySelector(
     "[data-zs-backend-action='refresh-acp-runtime-options']",
   ) as HTMLButtonElement | null;
-  const chip = row.querySelector("[data-zs-acp-connection-status='1']") as
-    | HTMLElement
-    | null;
+  const chip = row.querySelector(
+    "[data-zs-acp-connection-status='1']",
+  ) as HTMLElement | null;
   const acp = readAcpMetadataFromRow(row);
   const wasPassed = acp?.connectionTest?.status === "passed";
   if (button) {
@@ -530,7 +647,9 @@ function appendActionCell(args: {
   if (String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     const manageButton = createHtmlElement(args.row.ownerDocument!, "button");
     manageButton.type = "button";
-    manageButton.textContent = getString("backend-manager-open-management" as any);
+    manageButton.textContent = getString(
+      "backend-manager-open-management" as any,
+    );
     manageButton.setAttribute("data-zs-backend-action", "open-management");
     manageButton.addEventListener("click", () => {
       if (typeof args.onOpenManagement === "function") {
@@ -557,11 +676,15 @@ function appendActionCell(args: {
   if (String(args.backendType || "").trim() === ACP_BACKEND_TYPE) {
     const refreshButton = createHtmlElement(args.row.ownerDocument!, "button");
     refreshButton.type = "button";
-    const status = readAcpMetadataFromRow(args.row)?.connectionTest?.status || "untested";
+    const status =
+      readAcpMetadataFromRow(args.row)?.connectionTest?.status || "untested";
     refreshButton.textContent = getAcpBackendActionLabel(
       readAcpMetadataFromRow(args.row),
     );
-    refreshButton.setAttribute("data-zs-backend-action", "refresh-acp-runtime-options");
+    refreshButton.setAttribute(
+      "data-zs-backend-action",
+      "refresh-acp-runtime-options",
+    );
     refreshButton.addEventListener("click", () => {
       if (typeof args.onRefreshAcpRuntimeOptions === "function") {
         args.onRefreshAcpRuntimeOptions(args.row);
@@ -656,9 +779,12 @@ function appendProviderSection(args: {
   header.style.marginBottom = "6px";
 
   const title = createHtmlElement(doc, "h4");
-  title.textContent = getString("backend-manager-provider-profiles-title" as any, {
-    args: { provider: getString(args.provider.labelKey as any) },
-  });
+  title.textContent = getString(
+    "backend-manager-provider-profiles-title" as any,
+    {
+      args: { provider: getString(args.provider.labelKey as any) },
+    },
+  );
   title.style.margin = "0";
   header.appendChild(title);
 
@@ -668,40 +794,21 @@ function appendProviderSection(args: {
   actions.style.gap = "6px";
 
   if (args.provider.type === ACP_BACKEND_TYPE) {
-    const presetControl = createChoiceControl({
-      doc,
-      options: listAcpBackendPresets().map((preset) => ({
-        value: preset.id,
-        text: preset.displayName,
-      })),
-      selectedValue: listAcpBackendPresets()[0]?.id || "",
-    });
-    presetControl.setAttribute("data-zs-acp-preset-control", "1");
-    presetControl.setAttribute(
-      "title",
-      getString("backend-manager-acp-preset-select-title" as any),
+    actions.appendChild(
+      createAcpPresetMenu({ doc, providerType: args.provider.type }),
     );
-    applySelectVisualStyle(presetControl, "210px");
-    actions.appendChild(presetControl);
-
-    const presetButton = createHtmlElement(doc, "button");
-    presetButton.type = "button";
-    presetButton.textContent = getString(
-      "backend-manager-acp-preset-add" as any,
-    );
-    presetButton.setAttribute("data-zs-backend-action", "add-acp-preset");
-    presetButton.setAttribute("data-zs-provider-type", args.provider.type);
-    actions.appendChild(presetButton);
   }
 
-  const addButton = createHtmlElement(doc, "button");
-  addButton.type = "button";
-  addButton.textContent = getString("backend-manager-provider-add" as any, {
-    args: { provider: getString(args.provider.labelKey as any) },
-  });
-  addButton.setAttribute("data-zs-backend-action", "add");
-  addButton.setAttribute("data-zs-provider-type", args.provider.type);
-  actions.appendChild(addButton);
+  if (args.provider.type !== ACP_BACKEND_TYPE) {
+    const addButton = createHtmlElement(doc, "button");
+    addButton.type = "button";
+    addButton.textContent = getString("backend-manager-provider-add" as any, {
+      args: { provider: getString(args.provider.labelKey as any) },
+    });
+    addButton.setAttribute("data-zs-backend-action", "add");
+    addButton.setAttribute("data-zs-provider-type", args.provider.type);
+    actions.appendChild(addButton);
+  }
   header.appendChild(actions);
 
   section.appendChild(header);
@@ -749,8 +856,91 @@ function appendProviderSection(args: {
   args.root.appendChild(section);
 }
 
-function ensureTableSkeleton(doc: Document, root: HTMLElement) {
+function createBackendManagerActionButton(args: {
+  doc: Document;
+  labelKey: "backend-manager-save" | "backend-manager-cancel";
+  action: "save" | "cancel";
+  primary?: boolean;
+}) {
+  const button = createHtmlElement(args.doc, "button");
+  button.type = "button";
+  button.textContent = getString(args.labelKey as any);
+  button.setAttribute("data-zs-backend-dialog-action", args.action);
+  button.style.minWidth = "84px";
+  button.style.padding = "4px 12px";
+  if (args.primary) {
+    button.style.fontWeight = "600";
+  }
+  return button;
+}
+
+function createBackendManagerActionBar(args: {
+  doc: Document;
+  dialogData: BackendManagerDialogData;
+}) {
+  const actionBar = createHtmlElement(args.doc, "div");
+  actionBar.setAttribute("data-zs-backend-action-bar", "1");
+  actionBar.style.display = "flex";
+  actionBar.style.flex = "0 0 auto";
+  actionBar.style.justifyContent = "flex-end";
+  actionBar.style.gap = "8px";
+  actionBar.style.padding = "8px 10px";
+  actionBar.style.borderTop = "1px solid #d0d0d7";
+  actionBar.style.backgroundColor = "Canvas";
+  actionBar.style.boxShadow = "0 -2px 8px rgba(0, 0, 0, 0.08)";
+  actionBar.style.zIndex = "2";
+
+  const cancelButton = createBackendManagerActionButton({
+    doc: args.doc,
+    labelKey: "backend-manager-cancel",
+    action: "cancel",
+  });
+  cancelButton.addEventListener("click", () => {
+    if (!confirmBackendManagerClose(args.doc, args.dialogData)) {
+      return;
+    }
+    args.dialogData._lastButtonId = "cancel";
+    args.dialogData._allowBackendManagerClose = true;
+    args.doc.defaultView?.close();
+  });
+
+  const saveButton = createBackendManagerActionButton({
+    doc: args.doc,
+    labelKey: "backend-manager-save",
+    action: "save",
+    primary: true,
+  });
+  saveButton.addEventListener("click", () => {
+    args.dialogData._lastButtonId = "save";
+    args.dialogData._allowBackendManagerClose = true;
+    args.doc.defaultView?.close();
+  });
+
+  actionBar.append(cancelButton, saveButton);
+  return actionBar;
+}
+
+function ensureTableSkeleton(
+  doc: Document,
+  root: HTMLElement,
+  dialogData: BackendManagerDialogData,
+) {
   root.innerHTML = "";
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.height = "100%";
+  root.style.maxHeight = "min(78vh, 720px)";
+  root.style.minHeight = "0";
+  root.style.minWidth = "1040px";
+  root.style.padding = "0";
+
+  const scrollRegion = createHtmlElement(doc, "div");
+  scrollRegion.setAttribute("data-zs-backend-scroll-region", "1");
+  scrollRegion.style.flex = "1 1 auto";
+  scrollRegion.style.minHeight = "0";
+  scrollRegion.style.overflow = "auto";
+  scrollRegion.style.padding = "6px";
+
   const wrapper = createHtmlElement(doc, "div");
   wrapper.style.minWidth = "1040px";
 
@@ -766,7 +956,8 @@ function ensureTableSkeleton(doc: Document, root: HTMLElement) {
   help.style.marginTop = "8px";
   wrapper.appendChild(help);
 
-  root.appendChild(wrapper);
+  scrollRegion.appendChild(wrapper);
+  root.append(scrollRegion, createBackendManagerActionBar({ doc, dialogData }));
 }
 
 function readRowField(row: Element, field: string) {
@@ -781,6 +972,88 @@ function readRowField(row: Element, field: string) {
 
 function readRowInternalId(row: Element) {
   return String(row.getAttribute("data-zs-backend-internal-id") || "").trim();
+}
+
+function createBackendManagerDraftSignature(doc: Document) {
+  const rows = Array.from(
+    doc.querySelectorAll("[data-zs-backend-row='1']"),
+  ) as Element[];
+  return JSON.stringify(
+    rows.map((row) => ({
+      type: String(row.getAttribute("data-zs-backend-type") || "").trim(),
+      internalId: readRowInternalId(row),
+      displayName: readRowField(row, "displayName"),
+      baseUrl: readRowField(row, "baseUrl"),
+      authKind: readRowField(row, "authKind"),
+      authToken: readRowField(row, "authToken"),
+      timeoutMs: readRowField(row, "timeoutMs"),
+      command: readRowField(row, "command"),
+      args: readRowField(row, "args"),
+      env: readRowField(row, "env"),
+      acp: String(row.getAttribute("data-zs-backend-acp") || "").trim(),
+    })),
+  );
+}
+
+function hasBackendManagerUnsavedChanges(
+  doc: Document,
+  dialogData: BackendManagerDialogData,
+) {
+  const initial = String(dialogData._initialBackendDraftSignature || "");
+  return Boolean(initial && createBackendManagerDraftSignature(doc) !== initial);
+}
+
+function confirmBackendManagerClose(
+  doc: Document,
+  dialogData: BackendManagerDialogData,
+) {
+  if (
+    dialogData._allowBackendManagerClose ||
+    !hasBackendManagerUnsavedChanges(doc, dialogData)
+  ) {
+    return true;
+  }
+  const message = getString("backend-manager-unsaved-exit-confirm" as any);
+  const dialogWindow = doc.defaultView as Window | null;
+  const confirmWindow =
+    dialogWindow && typeof dialogWindow.confirm === "function"
+      ? dialogWindow
+      : (ztoolkit.getGlobal("window") as Window | undefined);
+  if (typeof confirmWindow?.confirm !== "function") {
+    return true;
+  }
+  return confirmWindow.confirm(message);
+}
+
+function installBackendManagerBeforeUnloadPrompt(
+  doc: Document,
+  dialogData: BackendManagerDialogData,
+) {
+  const win = doc.defaultView;
+  if (!win || dialogData._nativeBeforeUnloadListener) {
+    return;
+  }
+  const listener = (event: BeforeUnloadEvent) => {
+    if (confirmBackendManagerClose(doc, dialogData)) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  win.addEventListener("beforeunload", listener);
+  dialogData._nativeBeforeUnloadListener = listener;
+}
+
+function removeBackendManagerBeforeUnloadPrompt(
+  doc: Document | undefined,
+  dialogData: BackendManagerDialogData,
+) {
+  const win = doc?.defaultView;
+  const listener = dialogData._nativeBeforeUnloadListener;
+  if (win && listener) {
+    win.removeEventListener("beforeunload", listener);
+  }
+  dialogData._nativeBeforeUnloadListener = undefined;
 }
 
 function hasBackendRowInternalId(doc: Document, internalId: string) {
@@ -815,9 +1088,7 @@ export function resolveSkillRunnerManagementLaunchPayloadFromRow(
   };
 }
 
-function resolveSkillRunnerBackendFromRow(
-  row: Element,
-): BackendInstance {
+function resolveSkillRunnerBackendFromRow(row: Element): BackendInstance {
   const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
   if (type !== DEFAULT_BACKEND_TYPE) {
     throw new Error(
@@ -1330,9 +1601,7 @@ export function persistBackendsConfig(
       }
       if (
         managed &&
-        !mergedBackends.some(
-          (entry) => isManagedLocalBackendId(entry.id),
-        )
+        !mergedBackends.some((entry) => isManagedLocalBackendId(entry.id))
       ) {
         if (String(managed.id || "").trim() === MANAGED_LOCAL_BACKEND_ID) {
           const normalizedManaged = {
@@ -1405,26 +1674,31 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
     );
   }
 
-  const dialogData: Record<string, unknown> = {
+  const dialogData: BackendManagerDialogData = {
     loadCallback: () => {
       const doc = addon.data.dialog?.window?.document;
       if (!doc) {
         return;
       }
-      const root = doc.getElementById("zs-backend-manager-root") as
-        | HTMLElement
-        | null;
+      const root = doc.getElementById(
+        "zs-backend-manager-root",
+      ) as HTMLElement | null;
       if (!root) {
         return;
       }
 
-      ensureTableSkeleton(doc, root);
+      ensureTableSkeleton(doc, root, dialogData);
+      installBackendManagerBeforeUnloadPrompt(doc, dialogData);
       const bodies = Array.from(
-        doc.querySelectorAll("[data-zs-backend-body='1'][data-zs-provider-type]"),
+        doc.querySelectorAll(
+          "[data-zs-backend-body='1'][data-zs-provider-type]",
+        ),
       ) as HTMLElement[];
       const bodyMap = new Map<string, HTMLElement>();
       bodies.forEach((body) => {
-        const type = String(body.getAttribute("data-zs-provider-type") || "").trim();
+        const type = String(
+          body.getAttribute("data-zs-provider-type") || "",
+        ).trim();
         if (type) {
           bodyMap.set(type, body);
         }
@@ -1453,11 +1727,14 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
             };
             if (typed.ok === true) {
               alertWindow?.alert?.(
-                getString("backend-manager-refresh-model-cache-success" as any, {
-                  args: {
-                    refreshedAt: String(typed.refreshedAt || ""),
+                getString(
+                  "backend-manager-refresh-model-cache-success" as any,
+                  {
+                    args: {
+                      refreshedAt: String(typed.refreshedAt || ""),
+                    },
                   },
-                }),
+                ),
               );
               return;
             }
@@ -1538,6 +1815,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       ) as HTMLButtonElement[];
       addButtons.forEach((button) => {
         button.addEventListener("click", () => {
+          closeAllAcpPresetMenus(doc);
           const providerType = String(
             button.getAttribute("data-zs-provider-type") || "",
           ).trim();
@@ -1573,13 +1851,10 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       ) as HTMLButtonElement[];
       presetButtons.forEach((button) => {
         button.addEventListener("click", () => {
-          const section = button.closest(
-            "[data-zs-provider-section='acp']",
-          ) as HTMLElement | null;
-          const control = section?.querySelector(
-            "[data-zs-acp-preset-control='1']",
-          ) as Element | null;
-          const presetId = getElementValue(control || button);
+          closeAllAcpPresetMenus(doc);
+          const presetId = String(
+            button.getAttribute("data-zs-acp-preset-id") || "",
+          ).trim();
           const preset = findAcpBackendPreset(presetId);
           const tbody = bodyMap.get(ACP_BACKEND_TYPE);
           if (!preset || !tbody) {
@@ -1602,8 +1877,16 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
           });
         });
       });
+
+      dialogData._initialBackendDraftSignature =
+        createBackendManagerDraftSignature(doc);
     },
-    unloadCallback: () => {},
+    unloadCallback: () => {
+      removeBackendManagerBeforeUnloadPrompt(
+        addon.data.dialog?.window?.document,
+        dialogData,
+      );
+    },
   };
 
   const dialogHelper = new ztoolkit.Dialog(1, 1)
@@ -1612,27 +1895,33 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       namespace: "html",
       id: "zs-backend-manager-root",
       styles: {
-        padding: "6px",
+        padding: "0",
       },
     })
-    .addButton(getString("backend-manager-save" as any), "save")
-    .addButton(getString("backend-manager-cancel" as any), "cancel")
     .setDialogData(dialogData)
-    .open(getString("backend-manager-title" as any));
+    .open(getString("backend-manager-title" as any), {
+      centerscreen: true,
+      resizable: true,
+      fitContent: false,
+      width: 1180,
+      height: 760,
+    });
 
   addon.data.dialog = dialogHelper;
   await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
     ?.promise;
   addon.data.dialog = undefined;
 
-  if ((dialogData as { _lastButtonId?: string })._lastButtonId !== "save") {
+  if (dialogData._lastButtonId !== "save") {
     return;
   }
 
   try {
     const doc = dialogHelper.window?.document;
     if (!doc) {
-      throw new Error(getString("backend-manager-error-window-unavailable" as any));
+      throw new Error(
+        getString("backend-manager-error-window-unavailable" as any),
+      );
     }
     const collected = collectBackendsFromDialog(doc);
     persistBackendsConfig(collected.backends);

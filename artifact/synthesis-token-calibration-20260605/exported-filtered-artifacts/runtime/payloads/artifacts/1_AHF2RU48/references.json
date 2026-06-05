@@ -1,0 +1,250 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Alsfasser, M.; Siegemund, J.; et al.",
+      "title": "Exploiting polar grid structure and object shadows for fast object detection in point clouds"
+    },
+    {
+      "id": "ref-2",
+      "year": "2018",
+      "authors": "Berman, M.; Triki, A.R.; et al.",
+      "title": "The lovász-softmax loss: A tractable surrogate for the optimization of the intersection-over-union measure in neural networks"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Caesar, H.; Bankiti, V.; et al.",
+      "title": "nuscenes: A multimodal dataset for autonomous driving. arXiv preprint arXiv:1903.11027"
+    },
+    {
+      "id": "ref-4",
+      "year": "2018",
+      "authors": "Casas, S.; Luo, W.; et al.",
+      "title": "Intentnet: Learning to predict intention from raw sensor data"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Chen, Q.; Sun, L.; et al.",
+      "title": "Every view counts: Cross-view consistency in 3d object detection with hybrid-cylindrical-spherical voxelization. Advances in Neural Information Processing Systems"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Chen, Q.; Sun, L.; et al.",
+      "title": "Object as hotspots: An anchor-free 3d object detection approach via firing of hotspots"
+    },
+    {
+      "id": "ref-7",
+      "year": "2017",
+      "authors": "Chen, X.; Ma, H.; et al.",
+      "title": "Multi-view 3d object detection network for autonomous driving"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Cheng, R.; Razani, R.; et al.",
+      "title": "2-s3net: Attentive feature fusion with adaptive feature selection for sparse semantic segmentation network. arXiv preprint arXiv:2102.04530"
+    },
+    {
+      "id": "ref-9",
+      "year": "2020",
+      "authors": "Cortinhal, T.; Tzelepis, G.; et al.",
+      "title": "Salsanext: Fast, uncertainty-aware semantic segmentation of lidar point clouds for autonomous driving. arXiv preprint arXiv:2003.03653"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Fan, L.; Xiong, X.; et al.",
+      "title": "Rangedet: In defense of range view for lidar-based 3d object detection. arXiv preprint arXiv:2103.10039"
+    },
+    {
+      "id": "ref-11",
+      "year": "2020",
+      "authors": "Frossard, D.; Suo, S.; et al.",
+      "title": "Strobe: Streaming object detection from lidar packets. arXiv preprint arXiv:2011.06425"
+    },
+    {
+      "id": "ref-12",
+      "year": "2013",
+      "authors": "Geiger, A.; Lenz, P.; et al.",
+      "title": "Vision meets robotics: The kitti dataset. The International Journal of Robotics Research 32(11), 1231–1237"
+    },
+    {
+      "id": "ref-13",
+      "year": "2020",
+      "authors": "Han, W.; Zhang, Z.; et al.",
+      "title": "Streaming object detection for 3-d point clouds"
+    },
+    {
+      "id": "ref-14",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-15",
+      "year": "2015",
+      "authors": "Ioffe, S.; Szegedy, C.",
+      "title": "Batch normalization: Accelerating deep network training by reducing internal covariate shift"
+    },
+    {
+      "id": "ref-16",
+      "year": "2019",
+      "authors": "Lang, A.H.; Vora, S.; et al.",
+      "title": "Pointpillars: Fast encoders for object detection from point clouds"
+    },
+    {
+      "id": "ref-17",
+      "year": "2017",
+      "authors": "Lin, T.Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2016",
+      "authors": "Liu, W.; Anguelov, D.; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-19",
+      "year": "2018",
+      "authors": "Luo, W.; Yang, B.; et al.",
+      "title": "Fast and furious: Real time end-to-end 3d detection, tracking and motion forecasting with a single convolutional net. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) (June"
+    },
+    {
+      "id": "ref-20",
+      "year": "2015",
+      "authors": "Maturana, D.; Scherer, S.",
+      "title": "Voxnet: A 3d convolutional neural network for real-time object recognition"
+    },
+    {
+      "id": "ref-21",
+      "year": "2019",
+      "authors": "Meyer, G.P.; Laddha, A.; et al.",
+      "title": "Lasernet: An efficient probabilistic 3d object detector for autonomous driving"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Qi, C.R.; Su, H.; et al.",
+      "title": "Pointnet: Deep learning on point sets for 3d classification and segmentation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2020",
+      "authors": "Rapoport-Lavie, M.; Raviv, D.",
+      "title": "It’s all around you: Range-guided cylindrical network for 3d object detection. arXiv preprint arXiv:2012.03121"
+    },
+    {
+      "id": "ref-24",
+      "year": "2016",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: towards real-time object detection with region proposal networks. IEEE transactions on pattern analysis and machine intelligence 39(6), 1137–1149"
+    },
+    {
+      "id": "ref-25",
+      "year": "2015",
+      "authors": "Ronneberger, O.; Fischer, P.; et al.",
+      "title": "U-net: Convolutional networks for biomedical image segmentation"
+    },
+    {
+      "id": "ref-26",
+      "year": "2018",
+      "authors": "Simon, M.; Milz, S.; et al.",
+      "title": "Complex-yolo: Real-time 3d object detection on point clouds. CoRR"
+    },
+    {
+      "id": "ref-27",
+      "year": "2020",
+      "authors": "Sun, P.; Kretzschmar, H.; et al.",
+      "title": "Scalability in perception for autonomous driving: Waymo open dataset"
+    },
+    {
+      "id": "ref-28",
+      "year": "2020",
+      "authors": "Tang, H.; Liu, Z.; et al.",
+      "title": "Searching efficient 3d architectures with sparse point-voxel convolution"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Vora, S.; Lang, A.H.; et al.",
+      "title": "Pointpainting: Sequential fusion for 3d object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2018",
+      "authors": "Yan, Y.; Mao, Y.; et al.",
+      "title": "Second: Sparsely embedded convolutional detection. Sensors 18(10), 3337"
+    },
+    {
+      "id": "ref-31",
+      "year": "2018",
+      "authors": "Yang, B.; Liang, M.; et al.",
+      "title": "HDNET: Exploiting HD maps for 3d object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2018",
+      "authors": "Yang, B.; Luo, W.; et al.",
+      "title": "Pixor: Real-time 3d object detection from point clouds"
+    },
+    {
+      "id": "ref-33",
+      "year": "2018",
+      "authors": "Yang, B.; Luo, W.; et al.",
+      "title": "PIXOR: Real-time 3d object detection from point clouds"
+    },
+    {
+      "id": "ref-34",
+      "year": "2020",
+      "authors": "Ye, Y.; Chen, H.; et al.",
+      "title": "Sarpnet: Shape attention regional proposal network for lidar-based 3d object detection. Neurocomputing 379, 53–63"
+    },
+    {
+      "id": "ref-35",
+      "year": "2020",
+      "authors": "Yin, T.; Zhou, X.",
+      "title": "Center-based 3d object detection and tracking. arXiv preprint arXiv:2006.11275"
+    },
+    {
+      "id": "ref-36",
+      "year": "2020",
+      "authors": "Zhang, Y.; Zhou, Z.; et al.",
+      "title": "Polarnet: An improved grid representation for online lidar point clouds semantic segmentation. arXiv preprint arXiv:2003.14032"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Zhou, H.; Zhu, X.; et al.",
+      "title": "Cylinder3d: An effective 3d framework for driving-scene lidar semantic segmentation. arXiv preprint arXiv:2008.01550"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Zhou, Y.; Sun, P.; et al.",
+      "title": "End-to-end multi-view fusion for 3d object detection in lidar point clouds. arXiv preprint arXiv:1910.06528"
+    },
+    {
+      "id": "ref-39",
+      "year": "2018",
+      "authors": "Zhou, Y.; Tuzel, O.",
+      "title": "Voxelnet: End-to-end learning for point cloud based 3d object detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Zhou, Z.; Zhang, Y.; et al.",
+      "title": "Panoptic-polarnet: Proposal-free lidar point cloud panoptic segmentation. arXiv preprint arXiv:2103.14962"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "Zhu, B.; Jiang, Z.; et al.",
+      "title": "Class-balanced grouping and sampling for point cloud 3d object detection. arXiv preprint arXiv:1908.09492"
+    }
+  ]
+}

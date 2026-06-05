@@ -1,0 +1,274 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2022",
+      "authors": "CodaLab Competition - CVPR 2020 BDD100K multiple object tracking challenge, July 2022.",
+      "title": "//competitions.codalab.org/competitions/24910.](https://competitions.codalab.org/competitions/24910) Accessed 19 Jul 2022"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Bergmann, P.; Meinhardt, T.; et al.",
+      "title": "Tracking without bells and whistles"
+    },
+    {
+      "id": "ref-3",
+      "year": "2016",
+      "authors": "Bewley, A.; Ge, Z.; et al.",
+      "title": "Simple online and realtime tracking"
+    },
+    {
+      "id": "ref-4",
+      "year": "2017",
+      "authors": "Bochinski, E.; Eiselein, V.; et al.",
+      "title": "High-speed tracking-by-detection without using image information"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Camgoz, N.; Koller, O.; et al.",
+      "title": "Sign language transformers: Joint end-to-end sign language recognition and translation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "Endto-end object detection with transformers"
+    },
+    {
+      "id": "ref-7",
+      "year": "2020",
+      "authors": "Chang, X.; Zhang, W.; et al.",
+      "title": "End-to-end multispeaker speech recognition with transformer"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Chu, P.; Wang, J.; et al.",
+      "title": "TransMOT: spatial-temporal graph transformer for multiple object tracking"
+    },
+    {
+      "id": "ref-9",
+      "year": "2021",
+      "authors": "Dosovitskiy, A.; et al.",
+      "title": "An image is worth 16 x 16 words: transformers for image recognition at scale"
+    },
+    {
+      "id": "ref-10",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-11",
+      "year": "1955",
+      "authors": "Kuhn, H.",
+      "title": "The Hungarian method for the assignment problem"
+    },
+    {
+      "id": "ref-12",
+      "year": "2016",
+      "authors": "Leal-Taix´e, L.; Canton-Ferrer, C.; et al.",
+      "title": "Learning by tracking: Siamese CNN for robust target association"
+    },
+    {
+      "id": "ref-13",
+      "year": "2019",
+      "authors": "Li, N.; Liu, S.; et al.",
+      "title": "Neural speech synthesis with transformer network"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "Lin, T.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-15",
+      "year": "2014",
+      "authors": "Lin, T.; Y., et al.; et al.",
+      "title": "Microsoft coco: common objects in context"
+    },
+    {
+      "id": "ref-16",
+      "year": "2021",
+      "authors": "Liu, Z.; et al.",
+      "title": "Swin transformer: hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Luiten, J.; et al.",
+      "title": "HOTA: a higher order metric for evaluating multi-object tracking"
+    },
+    {
+      "id": "ref-18",
+      "year": "2021",
+      "authors": "Meinhardt, T.; Kirillov, A.; et al.",
+      "title": "TrackFormer: multiobject tracking with transformers"
+    },
+    {
+      "id": "ref-19",
+      "year": "2016",
+      "authors": "Milan, A.; Leal-Taix´e, L.; et al.",
+      "title": "Mot16: a benchmark for multi-object tracking"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Pang, J.; et al.",
+      "title": "Quasi-dense similarity learning for multiple object tracking"
+    },
+    {
+      "id": "ref-21",
+      "year": "2019",
+      "authors": "Rezatofighi, H.; Tsoi, N.; et al.",
+      "title": "Generalized intersection over union: a metric and a loss for bounding box regression"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Schulter, S.; Vernaza, P.; et al.",
+      "title": "Deep network flow for multiobject tracking"
+    },
+    {
+      "id": "ref-23",
+      "year": "2018",
+      "authors": "Shao, S.; et al.",
+      "title": "CrowdHuman: a benchmark for detecting human in a crowd"
+    },
+    {
+      "id": "ref-24",
+      "year": "2018",
+      "authors": "Sharma, S.; Ansari, J.; et al.",
+      "title": "Beyond pixels: leveraging geometry and shape cues for online multi-object tracking"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Shi, B.; Bai, X.; et al.",
+      "title": "An end-to-end trainable neural network for image-based sequence recognition and its application to scene text recognition"
+    },
+    {
+      "id": "ref-26",
+      "year": "2020",
+      "authors": "Shuai, B.; Berneshawi, A.; et al.",
+      "title": "Multi-object tracking with Siamese track-RCNN"
+    },
+    {
+      "id": "ref-27",
+      "year": "2022",
+      "authors": "Stadler, D.; Beyerer, J.",
+      "title": "Modelling ambiguous assignments for multi-person tracking in crowds"
+    },
+    {
+      "id": "ref-28",
+      "year": "2021",
+      "authors": "Sun, P.; et al.",
+      "title": "DanceTrack: multi-object tracking in uniform appearance and diverse motion"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Sun, P.; et al.",
+      "title": "TransTrack: multiple-object tracking with transformer"
+    },
+    {
+      "id": "ref-30",
+      "year": "2014",
+      "authors": "Sutskever, I.; Vinyals, O.; et al.",
+      "title": "Sequence to sequence learning with neural networks"
+    },
+    {
+      "id": "ref-31",
+      "year": "2017",
+      "authors": "Vaswani, A.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-32",
+      "year": "2021",
+      "authors": "Wang, Q.; Zheng, Y.; et al.",
+      "title": "Multiple object tracking with correlation learning"
+    },
+    {
+      "id": "ref-33",
+      "year": "2021",
+      "authors": "Wang, S.; Sheng, H.; et al.",
+      "title": "A general recurrent tracking framework without real data"
+    },
+    {
+      "id": "ref-34",
+      "year": "2018",
+      "authors": "Wang, X.; Girshick, R.; et al.",
+      "title": "Non-local neural networks"
+    },
+    {
+      "id": "ref-35",
+      "year": "2021",
+      "authors": "Wang, Y.; Kitani, K.; et al.",
+      "title": "Joint object detection and multi-object tracking with graph neural networks"
+    },
+    {
+      "id": "ref-36",
+      "year": "2021",
+      "authors": "Wang, Y.; et al.",
+      "title": "End-to-end video instance segmentation with transformers"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Wang, Z.; Zheng, L.; et al.",
+      "title": "Towards real-time multi-object tracking"
+    },
+    {
+      "id": "ref-38",
+      "year": "1995",
+      "authors": "Welch, G.; Bishop, G.; et al.",
+      "title": "An introduction to the kalman filter (1995)"
+    },
+    {
+      "id": "ref-39",
+      "year": "2017",
+      "authors": "Wojke, N.; Bewley, A.; et al.",
+      "title": "Simple online and realtime tracking with a deep association metric"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "Wu, J.; Cao, J.; et al.",
+      "title": "Track to detect and segment: an online multi-object tracker"
+    },
+    {
+      "id": "ref-41",
+      "year": "2020",
+      "authors": "Yu, F.; et al.",
+      "title": "Bdd100k: a diverse driving dataset for heterogeneous multitask learning"
+    },
+    {
+      "id": "ref-42",
+      "year": "2021",
+      "authors": "Zhang, Y.; et al.",
+      "title": "ByteTrack: multi-object tracking by associating every detection box"
+    },
+    {
+      "id": "ref-43",
+      "year": "2021",
+      "authors": "Zhang, Y.; Wang, C.; et al.",
+      "title": "FairMOT: on the fairness of detection and re-identification in multiple object tracking"
+    },
+    {
+      "id": "ref-44",
+      "year": "2020",
+      "authors": "Zhou, X.; Koltun, V.; et al.",
+      "title": "Tracking objects as points"
+    },
+    {
+      "id": "ref-45",
+      "year": "2020",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable DETR: deformable transformers for end-to-end object detection"
+    }
+  ]
+}

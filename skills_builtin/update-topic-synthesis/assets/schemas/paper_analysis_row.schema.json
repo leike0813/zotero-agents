@@ -1,94 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Topic Synthesis Paper Analysis Row",
+  "title": "Topic Synthesis Paper Triage Row",
   "type": "object",
-  "additionalProperties": true,
-  "required": [
-    "paper_ref",
-    "evidence_available",
-    "bibliographic",
-    "topic_relevance",
-    "research_problem",
-    "method_contribution",
-    "evaluation_context",
-    "graph_metrics_interpretation",
-    "findings",
-    "limitations",
-    "taxonomy_hints",
-    "timeline_candidates",
-    "claim_support_candidates",
-    "comparison_facts",
-    "external_references",
-    "citation_contexts",
-    "missing_payloads"
-  ],
+  "additionalProperties": false,
+  "required": ["paper_ref", "topic_relevance", "paper_quality", "core_digest"],
   "properties": {
     "paper_ref": { "type": "string", "minLength": 1 },
-    "evidence_available": { "type": "boolean" },
-    "bibliographic": {
-      "type": "object",
-      "required": ["title", "year", "authors"],
-      "properties": {
-        "title": { "type": "string" },
-        "year": { "type": ["string", "number"] },
-        "authors": { "type": "array" }
-      }
-    },
     "topic_relevance": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["level", "reason"],
       "properties": {
         "level": { "enum": ["core", "related", "peripheral", "excluded"] },
         "reason": { "type": "string", "minLength": 1 }
       }
     },
-    "research_problem": {
+    "paper_quality": {
       "type": "object",
-      "required": ["text", "scope"],
+      "additionalProperties": false,
+      "required": ["level", "reason"],
       "properties": {
-        "text": { "type": "string", "minLength": 1 },
-        "scope": { "type": "string" }
+        "level": { "enum": ["high", "medium", "low", "unknown"] },
+        "reason": { "type": "string", "minLength": 1 }
       }
     },
-    "method_contribution": {
-      "type": "object",
-      "required": ["route", "mechanism", "claimed_advantage", "target_bottleneck"],
-      "properties": {
-        "route": { "type": "string" },
-        "mechanism": { "type": "string" },
-        "claimed_advantage": { "type": "string" },
-        "target_bottleneck": { "type": "string" }
-      }
+    "core_digest": { "type": "string", "minLength": 1 },
+    "caveats": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
     },
-    "evaluation_context": {
-      "type": "object",
-      "required": ["datasets", "metrics", "baselines", "setting"],
-      "properties": {
-        "datasets": { "type": "array" },
-        "metrics": { "type": "array" },
-        "baselines": { "type": "array" },
-        "setting": { "type": "string" }
-      }
-    },
-    "graph_metrics_interpretation": {
-      "type": "object",
-      "required": ["synthesis_use"],
-      "properties": {
-        "role_hints": { "type": "array" },
-        "structural_position": { "type": "string" },
-        "synthesis_use": { "type": "string", "minLength": 1 },
-        "caveat": { "type": "string" }
-      }
-    },
-    "findings": { "type": "array" },
-    "limitations": { "type": "array" },
-    "taxonomy_hints": { "type": "array" },
-    "timeline_candidates": { "type": "array" },
-    "claim_support_candidates": { "type": "array" },
-    "comparison_facts": { "type": "array" },
-    "external_references": { "type": "array" },
-    "citation_contexts": { "type": "array" },
-    "missing_payloads": { "type": "array" }
-  },
-  "not": { "anyOf": [{ "required": ["digest_locator"] }, { "required": ["payload_hash"] }] }
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
 }

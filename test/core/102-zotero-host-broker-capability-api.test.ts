@@ -126,6 +126,58 @@ describe("zotero host broker capability api", function () {
     assert.notStrictEqual(firstPage.items[0].key, note.key);
   });
 
+  it("enumerates library items through Zotero.Items.getAll(libraryId) without sparse ID fallback", async function () {
+    const hostApi = createWorkflowHostApi();
+    const highIdItem = new Zotero.Item("journalArticle");
+    highIdItem.id = 1892;
+    highIdItem.key = "HIGH1892";
+    highIdItem.libraryID = Zotero.Libraries.userLibraryID;
+    highIdItem.setField("title", "Broker Sparse High ID Paper");
+    highIdItem.setCreators?.([{ lastName: "Sparse" }]);
+    await highIdItem.saveTx();
+
+    const previousGetAll = (Zotero.Items as any).getAll;
+    const previousGet = Zotero.Items.get;
+    const getAllLibraryIds: unknown[] = [];
+    const getItemIds: number[] = [];
+    (Zotero.Items as any).getAll = async (libraryId: unknown) => {
+      getAllLibraryIds.push(libraryId);
+      return previousGetAll.call(Zotero.Items, libraryId);
+    };
+    (Zotero.Items as any).get = (id: number) => {
+      getItemIds.push(id);
+      return previousGet.call(Zotero.Items, id);
+    };
+
+    try {
+      const list = await hostApi.library.listItems({
+        query: "Sparse High ID",
+        limit: 10,
+      });
+      const search = await hostApi.library.searchItems({
+        query: "Sparse High ID",
+        limit: 10,
+      });
+
+      assert.deepEqual(getAllLibraryIds, [
+        Zotero.Libraries.userLibraryID,
+        Zotero.Libraries.userLibraryID,
+      ]);
+      assert.deepEqual(getItemIds, []);
+      assert.include(
+        list.items.map((item) => item.key),
+        highIdItem.key,
+      );
+      assert.include(
+        search.map((item) => item.key),
+        highIdItem.key,
+      );
+    } finally {
+      (Zotero.Items as any).getAll = previousGetAll;
+      (Zotero.Items as any).get = previousGet;
+    }
+  });
+
   it("returns bounded note summaries and chunked note detail", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Large Note Parent");

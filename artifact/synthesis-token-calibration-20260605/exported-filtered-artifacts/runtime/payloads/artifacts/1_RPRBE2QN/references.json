@@ -1,0 +1,304 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Nicolas Carion,Francisco Massa, Gabriel Synnaeve,Nicolas Usunier, Alexander Kirillov,and Sergey Zagoruyko",
+      "title": "End-toend object detection with transformers"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "Huiyu Wang,Yukun Zhu,Hartwig Adam,Alan Yuille,and Liang-Chieh Chen",
+      "title": "Max-deeplab: End-to-end panoptic segmentation with mask transformers"
+    },
+    {
+      "id": "ref-3",
+      "year": "2021",
+      "authors": "Bowen Cheng,Alexander G Schwing,and Alexander Kirillov",
+      "title": "Per-pixel classification is not all you need for semantic segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2021",
+      "authors": "Wenwei Zhang， Jiangmiao Pang， Kai Chen， and Chen Change Loy.K-Net:Towards unified image segmentation",
+      "title": "In NeurIPS,2021"
+    },
+    {
+      "id": "ref-5",
+      "year": "2021",
+      "authors": "Wenhai Wang,Enze Xie,Xiang Li, Deng-Ping Fan,Kaitao Song,Ding Liang,Tong Lu,Ping Luo,and Ling Shao",
+      "title": "Pvtv2: Improved baselines with pyramid vision transformer"
+    },
+    {
+      "id": "ref-6",
+      "year": "2019",
+      "authors": "Alexander Kirillov,Kaiming He,Ross Girshick,Carsten Rother,and Piotr Dollar",
+      "title": "Panoptic segmentation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Alexander Kirillov,Ross Girshick,Kaiming He,and Piotr Dollar",
+      "title": "Panoptic feature pyramid networks.In CVPR, 2019"
+    },
+    {
+      "id": "ref-8",
+      "year": "",
+      "authors": "Navaneeth Bodla,Bharat Singh，Rama Chellappa,and Larry S Davis",
+      "title": "Soft-nms-improving object detection with one line of code"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "In Proceedings of the IEEE international conference on computer vision, pages 5561-5569,2017",
+      "title": "1"
+    },
+    {
+      "id": "ref-10",
+      "year": "2019",
+      "authors": "Yuwen Xiong,Renjie Liao,Hengshuang Zhao,Rui Hu,Min Bai,Ersin Yumer,and Raquel Urtasun",
+      "title": "Upsnet:A unifed panoptic segmentation network"
+    },
+    {
+      "id": "ref-11",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin,Piotr Dollar,Ross Girshick,Kaiming He, Bharath Hariharan,and Serge Belongie.Feature pyramid networks for object detection.In CVPR,2017.1",
+      "title": "Tsung-Yi Lin,Piotr Dollar,Ross Girshick,Kaiming He, Bharath Hariharan,and Serge Belongie.Feature pyramid networks for ob"
+    },
+    {
+      "id": "ref-12",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan,Piotr Dollar, and C Lawrence Zitnick.Microsoft coco",
+      "title": "Common objects in context.In ECCV,2014. 2, 5"
+    },
+    {
+      "id": "ref-13",
+      "year": "2020",
+      "authors": "Xizhou Zhu, Weijie Su,Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Yuxin Fang, Shusheng Yang, Xinggang Wang, Yu Li, Chen Fang,Ying Shan, Bin Feng,and Wenyu Liu",
+      "title": "Instances as queries"
+    },
+    {
+      "id": "ref-15",
+      "year": "2019",
+      "authors": "Kai Chen,Jiangmiao Pang,Jiaqi Wang,Yu Xiong,Xiaoxiao Li, Shuyang Sun, Wansen Feng, Ziwei Liu, Jianping Shi, Wanli Ouyang, et al",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-16",
+      "year": "2020",
+      "authors": "Ujwal Bonde,Pablo F Alcantarilla,and Stefan Leutenegger",
+      "title": "Towards bounding-box free panoptic segmentation"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Qizhu Li, Xiaojuan Qi,and Philip HS Tor",
+      "title": "Unifying training and inference for panoptic segmentation"
+    },
+    {
+      "id": "ref-18",
+      "year": "2020",
+      "authors": "Bowen Cheng, Maxwell D Collins, Yukun Zhu, Ting Liu, Thomas S Huang,Hartwig Adam,and Liang-Chieh Chen",
+      "title": "Panoptic-deeplab: A simple,strong,and fast baseline for bottom-up panoptic segmentation"
+    },
+    {
+      "id": "ref-19",
+      "year": "2019",
+      "authors": "Tien-Ju Yang,Maxwell D Collins,Yukun Zhu,Jyh-Jing Hwang,Ting Liu, Xiao Zhang,Vivienne Sze, George Papandreou,and Liang-Chieh Chen.Deeperlab",
+      "title": "Single-shot image parser. arXiv:1902.05093,2019.2"
+    },
+    {
+      "id": "ref-20",
+      "year": "2019",
+      "authors": "Naiyu Gao, Yanhu Shan, Yupei Wang, Xin Zhao, Yinan Yu, Ming Yang,and Kaiqi Huang",
+      "title": "SSAP: Single-shot instance segmentation with affinity pyramid"
+    },
+    {
+      "id": "ref-21",
+      "year": "2019",
+      "authors": "Yanwei Li, Xinze Chen, Zheng Zhu,Lingxi Xie,Guan Huang,Dalong Du,and Xingang Wang",
+      "title": "Attention-guided unified network for panoptic segmentation"
+    },
+    {
+      "id": "ref-22",
+      "year": "2021",
+      "authors": "2 [21] Yanwei Li, Hengshuang Zhao, Xiaojuan Qi, Liwei Wang, Zeming Li, Jian Sun,and Jiaya Jia",
+      "title": "Fully convolutional networks for panoptic segmentation"
+    },
+    {
+      "id": "ref-23",
+      "year": "2020",
+      "authors": "Zhi Tian,Chunhua Shen,and Hao Chen",
+      "title": "Conditional convolutions for instance segmentation"
+    },
+    {
+      "id": "ref-24",
+      "year": "2016",
+      "authors": "Kaiming He,Xiangyu Zhang, Shaoqing Ren,and Jian Sun",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-25",
+      "year": "2017",
+      "authors": "Ashish Vaswani, Noam Shazeer,Niki Parmar, Jakob Uszkoreit,Llion Jones,Aidan N Gomez, Lukasz Kaiser,and Illia Polosukhin",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-26",
+      "year": "2021",
+      "authors": "Bin Dong,Fangao Zeng, Tiancai Wang,Xiangyu Zhang,and Yichen Wei",
+      "title": "Solq: Segmenting objects by learning queries"
+    },
+    {
+      "id": "ref-27",
+      "year": "2015",
+      "authors": "Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-28",
+      "year": "2017",
+      "authors": "Tsung-Yi Lin,Priya Goyal, Ross Girshick, Kaiming He,and Piotr Dollar",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-29",
+      "year": "2020",
+      "authors": "Xinlong Wang,Rufeng Zhang,Tao Kong,Lei Li,and Chunhua Shen",
+      "title": "SOLOv2: Dynamic and fast instance segmentation"
+    },
+    {
+      "id": "ref-30",
+      "year": "2020",
+      "authors": "Xinlong Wang, Tao Kong, Chunhua Shen, Yuning Jiang,and Lei Li",
+      "title": "Solo: Segmenting objects by locations"
+    },
+    {
+      "id": "ref-31",
+      "year": "2016",
+      "authors": "Russell Stewart,Mykhaylo Andriluka,and Andrew Y Ng",
+      "title": "End-to-end people detection in crowded scenes.In CVPR, 2016.4"
+    },
+    {
+      "id": "ref-32",
+      "year": "1955",
+      "authors": "Harold W Kuhn",
+      "title": "The hungarian method for the assignment problem"
+    },
+    {
+      "id": "ref-33",
+      "year": "2021",
+      "authors": "Muzammal Naseer, Kanchana Ranasinghe,Salman Khan, Munawar Hayat,Fahad Shahbaz Khan,and Ming-Hsuan Yang． Intriguing properties of vision transformers.arXiv preprint arXiv",
+      "title": "2105.10497,2021. 8"
+    },
+    {
+      "id": "ref-34",
+      "year": "2016",
+      "authors": "Fausto Milletari, Nassir Navab,and Seyed-Ahmad Ahmadi",
+      "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation"
+    },
+    {
+      "id": "ref-35",
+      "year": "2017",
+      "authors": "Bolei Zhou,Hang Zhao,Xavier Puig,Sanja Fidler,Adela Barriuso,and Antonio Torralba.Scene_parsing through ade2Ok dataset.In Proceedings of the IEEE conference on computer vision and patern recognition, pages 633-641, 2017.5,6",
+      "title": "Bolei Zhou,Hang Zhao,Xavier Puig,Sanja Fidler,Adela Barriuso,and Antonio Torralba.Scene_parsing through ade2Ok dataset.I"
+    },
+    {
+      "id": "ref-36",
+      "year": "2021",
+      "authors": "Ze Liu,Yutong Lin，Yue Cao,Han Hu,Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-37",
+      "year": "2019",
+      "authors": "Chongsong Chen,Jiawei Ren，Daisheng_ Jin， Zhongang Cai, Cunjun Yu, Bairun Wang, Mingyuan Zhang,and Jinyi Wu.Joint coco and mapillary workshop at iccv 2019: Coco panoptic segmentation challenge track technical report: Panoptic htc with class-guided fusion",
+      "title": "SHR,56(84.1):67-2"
+    },
+    {
+      "id": "ref-38",
+      "year": "2021",
+      "authors": "Yanwei Li, Hengshuang Zhao,Xiaojuan Qi, Yukang Chen, Lu Qi,Liwei Wang, Zeming Li, Jian Sun,and Jiaya Jia",
+      "title": "Fully convolutional networks for panoptic segmentation with point-based supervision"
+    },
+    {
+      "id": "ref-39",
+      "year": "",
+      "authors": "Yangxin Wu, Gengwei Zhang, Yiming Gao, Xiajun Deng, Ke Gong, Xiaodan Liang,and Liang Lin",
+      "title": "Bidirectional graph reasoning network for panoptic segmentation"
+    },
+    {
+      "id": "ref-40",
+      "year": "2020",
+      "authors": "In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition,pages 9080-9089,2020",
+      "title": "6"
+    },
+    {
+      "id": "ref-41",
+      "year": "2020",
+      "authors": "Yangxin Wu, Gengwei Zhang, Hang Xu, Xiaodan Liang,and Liang Lin",
+      "title": "Auto-panoptic: Cooperative multi-component architecture search for panoptic segmentation"
+    },
+    {
+      "id": "ref-42",
+      "year": "",
+      "authors": "Ningning Ma, Xiangyu Zhang,Hai-Tao Zheng,and Jian Sun",
+      "title": "Shufflenet v2: Practical guidelines for efficient cnn architecture design"
+    },
+    {
+      "id": "ref-43",
+      "year": "2018",
+      "authors": "In Proceedings of the European conference on computer vision (ECCV), pages 116-131,2018",
+      "title": "6"
+    },
+    {
+      "id": "ref-44",
+      "year": "2017",
+      "authors": "Kaiming He,Georgia Gkioxari,Piotr Dollar,and Ross Girshick.Mask R-CNN",
+      "title": "In ICCV,2017"
+    },
+    {
+      "id": "ref-45",
+      "year": "",
+      "authors": "Bowen Cheng,Ross Girshick,Piotr Dollar,Alexander C Berg,and Alexander Kirillov.Boundary iou",
+      "title": "Improving object-centric image segmentation evaluation"
+    },
+    {
+      "id": "ref-46",
+      "year": "2021",
+      "authors": "In Proceedingsof the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 15334-15342,2021",
+      "title": "6,7"
+    },
+    {
+      "id": "ref-47",
+      "year": "",
+      "authors": "Christoph Kamann and Carsten Rother",
+      "title": "Christoph Kamann and Carsten Rother"
+    },
+    {
+      "id": "ref-48",
+      "year": "2020",
+      "authors": "Benchmarking the robustness of semantic segmentation models.In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 8828-8838,2020",
+      "title": "8"
+    },
+    {
+      "id": "ref-49",
+      "year": "2021",
+      "authors": "Enze Xie,Wenhai Wang, Zhiding Yu,Anima Anandkumar, Jose M Alvarez,and Ping Luo",
+      "title": "Segformer: Simple and efficient design for semantic segmentation with transformers"
+    },
+    {
+      "id": "ref-50",
+      "year": "2021",
+      "authors": "Srinadh Bhojanapalli,Ayan Chakrabarti,Daniel Glasner, Daliang Li, Thomas Unterthiner,and Andreas Veit",
+      "title": "Understanding robustness of transformers for image clasification"
+    }
+  ]
+}

@@ -79,6 +79,7 @@ import {
   registerAcpSkillRunController,
   recordAcpSkillRunOutputRevision,
   recordAcpSkillRunSessionUpdate,
+  resolveAcpSkillRunPermissionRequest,
   setAcpSkillRunPermissionRequest,
   setAcpSkillRunRecoveryHandler,
   setAcpSkillRunRuntimeOptions,
@@ -295,6 +296,7 @@ async function buildRunPrompt(args: {
       proxySkillRoots: context.materialization.proxySkillRoots,
       requestedSkillProxyPath: context.materialization.requestedSkillProxyPath,
       sharedSkillCatalogPath: context.materialization.sharedSkillCatalogPath,
+      sharedSkillCatalog: context.materialization.sharedSkillCatalog,
     },
     request: context.request,
     runnerJson: context.materialization.runnerJson,
@@ -553,7 +555,59 @@ type FrozenAcpRuntimeOptions = {
   modelId?: string;
   reasoningEffort?: string;
   rawModelId?: string;
+  autoApproveAcpPermissions?: boolean;
 };
+
+type PermissionRequestWithResolver = Parameters<
+  typeof setAcpSkillRunPermissionRequest
+>[1];
+
+function resolveAutoApproveAcpPermissionOption(
+  request: PermissionRequestWithResolver,
+) {
+  if (normalizeString(request.source) !== "acp-tool-call") {
+    return "";
+  }
+  const options = Array.isArray(request.options) ? request.options : [];
+  const approve = options.find(
+    (option) => normalizeString(option.optionId) === "approve",
+  );
+  if (approve) {
+    return normalizeString(approve.optionId);
+  }
+  const allowByKind = options.find((option) => {
+    const kind = normalizeString(option.kind);
+    return kind === "allow" || kind === "allow_once" || kind === "allow_always";
+  });
+  if (allowByKind) {
+    return normalizeString(allowByKind.optionId);
+  }
+  const allowById = options.find((option) =>
+    normalizeString(option.optionId).startsWith("allow"),
+  );
+  return allowById ? normalizeString(allowById.optionId) : "";
+}
+
+function handleAcpSkillRunPermissionRequest(args: {
+  requestId: string;
+  request: PermissionRequestWithResolver;
+  runtimeOptions?: FrozenAcpRuntimeOptions;
+}) {
+  setAcpSkillRunPermissionRequest(args.requestId, args.request);
+  if (args.runtimeOptions?.autoApproveAcpPermissions !== true) {
+    return;
+  }
+  const optionId = resolveAutoApproveAcpPermissionOption(args.request);
+  if (!optionId) {
+    return;
+  }
+  resolveAcpSkillRunPermissionRequest({
+    runRequestId: args.requestId,
+    permissionRequestId: args.request.requestId,
+    outcome: "selected",
+    optionId,
+  });
+}
 
 function rememberAcpSkillRunRuntimeOptions(args: {
   requestId: string;
@@ -619,6 +673,9 @@ function resolveFrozenAcpRuntimeOptions(args: {
     ...(modelId ? { modelId } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(rawModelId ? { rawModelId } : {}),
+    ...(options.autoApproveAcpPermissions === true
+      ? { autoApproveAcpPermissions: true }
+      : {}),
   };
 }
 
@@ -1062,6 +1119,9 @@ function resolveRecoveredRuntimeOptions(
       : {}),
     ...(normalizeString(record.acpRawModelId)
       ? { rawModelId: normalizeString(record.acpRawModelId) }
+      : {}),
+    ...(record.providerOptions?.autoApproveAcpPermissions === true
+      ? { autoApproveAcpPermissions: true }
       : {}),
   };
 }
@@ -1534,7 +1594,11 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   };
   unsubscribePermission = adapter.onPermissionRequest((request) => {
-    setAcpSkillRunPermissionRequest(requestId, request);
+    handleAcpSkillRunPermissionRequest({
+      requestId,
+      request,
+      runtimeOptions: recoveredRuntimeOptions,
+    });
   });
   unsubscribeUpdate = adapter.onUpdate((event) => {
     const update = event.update || { sessionUpdate: "" };
@@ -2068,6 +2132,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let keepConversationAlive = false;
   let cleanupDone = false;
   let cancellationRequested = false;
+  let interruptionRequested = false;
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
   let currentTurnAssistantText = "";
@@ -2224,6 +2289,7 @@ export async function executeAcpSkillRunnerJob(args: {
       });
     },
     interruptTurn: async () => {
+      interruptionRequested = true;
       if (pendingReplyRejecter) {
         pendingReplyRejecter(
           new Error("ACP skill run interrupted while waiting for user reply."),
@@ -2242,9 +2308,12 @@ export async function executeAcpSkillRunnerJob(args: {
       if (current.sessionId) {
         await adapter.cancel({ sessionId: current.sessionId });
       }
-      await cleanupLiveSession({
-        conversationState: "closed",
-        closeAdapter: true,
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        activePrompt: false,
+        replyState: "idle",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
       });
     },
     reply: async (message) => {
@@ -2333,7 +2402,11 @@ export async function executeAcpSkillRunnerJob(args: {
     },
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {
-    setAcpSkillRunPermissionRequest(workspace.requestId, request);
+    handleAcpSkillRunPermissionRequest({
+      requestId: workspace.requestId,
+      request,
+      runtimeOptions: frozenRuntimeOptions,
+    });
   });
   unsubscribeUpdate = adapter.onUpdate((event) => {
     const update = event.update || { sessionUpdate: "" };
@@ -2419,6 +2492,7 @@ export async function executeAcpSkillRunnerJob(args: {
           proxySkillRoots: materialization.proxySkillRoots,
           requestedSkillProxyPath: materialization.requestedSkillProxyPath,
           sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
+          sharedSkillCatalog: materialization.sharedSkillCatalog,
         },
         hostBridgeCliPromptSnippet: hostBridgeCliInjection.promptSnippet,
       });
@@ -2747,6 +2821,36 @@ export async function executeAcpSkillRunnerJob(args: {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
+    if (interruptionRequested) {
+      keepConversationAlive = true;
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        activePrompt: false,
+        replyState: "idle",
+        error: "",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        event: {
+          stage: "interrupt-completed",
+          message: "ACP skill run current turn interrupted.",
+          level: "warn",
+          details: {
+            reason: message,
+          },
+        },
+      });
+      return {
+        status: "succeeded",
+        requestId: workspace.requestId,
+        fetchType: "result",
+        responseJson: {
+          provider: "acp",
+          requestId: workspace.requestId,
+          status: "interrupted",
+        },
+      };
+    }
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       status: cancellationRequested ? "canceled" : "failed",
@@ -2769,6 +2873,8 @@ export async function executeAcpSkillRunnerJob(args: {
   }
 }
 
-setAcpSkillRunRecoveryHandler(({ requestId, reason }) =>
-  recoverAcpSkillRunConversation({ requestId, reason }),
-);
+void Promise.resolve().then(() => {
+  setAcpSkillRunRecoveryHandler(({ requestId, reason }) =>
+    recoverAcpSkillRunConversation({ requestId, reason }),
+  );
+});

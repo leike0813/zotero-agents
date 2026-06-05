@@ -39,6 +39,7 @@ export type WorkflowJobOutcome = {
   succeeded: boolean;
   terminalState?: "succeeded" | "failed" | "canceled";
   reason?: string;
+  structuredApplyResult?: unknown;
   jobId: string;
   requestId?: string;
 };

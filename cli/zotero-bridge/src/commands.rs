@@ -237,6 +237,8 @@ fn synthesis_capability(command: &SynthesisCommand) -> &'static str {
         SynthesisCommand::ListTopics(_) => "synthesis.list_topics",
         SynthesisCommand::GetTopicContext(_) => "synthesis.get_topic_context",
         SynthesisCommand::GetSchemas(_) => "synthesis.get_schemas",
+        SynthesisCommand::QueryConceptKb(_) => "synthesis.query_concept_kb",
+        SynthesisCommand::QueryCitationGraphCluster(_) => "synthesis.query_citation_graph_cluster",
         SynthesisCommand::GetLibraryIndex(_) => "synthesis.get_library_index",
         SynthesisCommand::ResolveResolver(_) => "synthesis.resolve_resolver",
         SynthesisCommand::GetReferenceSidecarIndex(_) => "synthesis.get_reference_sidecar_index",
@@ -258,6 +260,8 @@ fn synthesis_input(command: SynthesisCommand) -> Result<Value, CliError> {
         SynthesisCommand::ListTopics(args)
         | SynthesisCommand::GetTopicContext(args)
         | SynthesisCommand::GetSchemas(args)
+        | SynthesisCommand::QueryConceptKb(args)
+        | SynthesisCommand::QueryCitationGraphCluster(args)
         | SynthesisCommand::GetLibraryIndex(args)
         | SynthesisCommand::ResolveResolver(args)
         | SynthesisCommand::GetReferenceSidecarIndex(args)
@@ -700,6 +704,14 @@ mod tests {
             (
                 SynthesisCommand::GetSchemas(SynthesisInputArgs { input: None }),
                 "synthesis.get_schemas",
+            ),
+            (
+                SynthesisCommand::QueryConceptKb(SynthesisInputArgs { input: None }),
+                "synthesis.query_concept_kb",
+            ),
+            (
+                SynthesisCommand::QueryCitationGraphCluster(SynthesisInputArgs { input: None }),
+                "synthesis.query_citation_graph_cluster",
             ),
             (
                 SynthesisCommand::GetLibraryIndex(SynthesisInputArgs { input: None }),

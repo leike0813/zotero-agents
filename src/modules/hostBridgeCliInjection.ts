@@ -41,6 +41,7 @@ export type HostBridgeCliRunInjection = {
 type MaterializeArgs = {
   workspaceDir: string;
   requestId: string;
+  scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
   resolveCli?: () => Promise<HostBridgeCliResolution>;
   ensureServer?: () => Promise<HostBridgeStatusSnapshot>;
@@ -100,7 +101,10 @@ function mergePathEntries(
 ) {
   const delimiter = pathDelimiter();
   const parts = splitPathEntries(pathValue);
-  for (const entry of entriesRaw.map(normalizeString).filter(Boolean).reverse()) {
+  for (const entry of entriesRaw
+    .map(normalizeString)
+    .filter(Boolean)
+    .reverse()) {
     if (parts.some((part) => part.toLowerCase() === entry.toLowerCase())) {
       continue;
     }
@@ -136,8 +140,11 @@ function buildCmdShim(binaryPath: string) {
 function buildProfileJson(args: {
   endpoint: string;
   requestId: string;
+  scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
 }) {
+  const scopeKind =
+    args.scopeKind === "acp-chat" ? "acp-chat" : "acp-skill-run";
   return {
     schema: "zotero-bridge.profile.v1",
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
@@ -147,7 +154,7 @@ function buildProfileJson(args: {
       tokenEnv: "ZOTERO_BRIDGE_TOKEN",
     },
     scope: {
-      kind: "acp-skill-run",
+      kind: scopeKind,
       requestId: args.requestId,
       runId: args.requestId,
       ...(args.autoApproveWrites ? { autoApproveWrites: true } : {}),
@@ -269,6 +276,7 @@ export async function materializeHostBridgeCliRunInjection(
       buildProfileJson({
         endpoint,
         requestId,
+        scopeKind: args.scopeKind,
         autoApproveWrites,
       }),
       null,

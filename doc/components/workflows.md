@@ -47,9 +47,9 @@ workflows/
 
 ```json
 {
-  "id": "tag-vocabulary-package",
+  "id": "literature-workbench-package",
   "version": "1.0.0",
-  "workflows": ["tag-manager", "tag-regulator"]
+  "workflows": ["literature-digest", "tag-regulator"]
 }
 ```
 

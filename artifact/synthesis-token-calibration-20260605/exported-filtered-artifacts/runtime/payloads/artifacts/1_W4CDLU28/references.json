@@ -1,0 +1,316 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Bochkovskiy, A.; Wang, C.-Y.; et al.",
+      "title": "YOLOv4: Optimal speed and accuracy of object detection"
+    },
+    {
+      "id": "ref-2",
+      "year": "2018",
+      "authors": "Zhaowei Cai and Nuno Vasconcelos",
+      "title": "Cascade R-CNN: delving into high quality object detection"
+    },
+    {
+      "id": "ref-3",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-toend object detection with transformers"
+    },
+    {
+      "id": "ref-4",
+      "year": "2020",
+      "authors": "Yinpeng Chen; Xiyang Dai; et al.",
+      "title": "Dynamic convolution: Attention over convolution kernels"
+    },
+    {
+      "id": "ref-5",
+      "year": "2020",
+      "authors": "Zhigang Dai; Bolun Cai; et al.",
+      "title": "UP-DETR:unsupervised pre-training for object detection with transformers"
+    },
+    {
+      "id": "ref-6",
+      "year": "2019",
+      "authors": "Kaiwen Duan; Song Bai; et al.",
+      "title": "Centernet: Keypoint triplets for object detection"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Peng Gao; Minghang Zheng; et al.",
+      "title": "Fast convergence of DETR with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-8",
+      "year": "2021",
+      "authors": "Zigang Geng; Ke Sun; et al.",
+      "title": "Bottom-up human pose estimation via disentangled keypoint regression"
+    },
+    {
+      "id": "ref-9",
+      "year": "2015",
+      "authors": "Ross B.Girshick",
+      "title": "Fast R-CNN"
+    },
+    {
+      "id": "ref-10",
+      "year": "2010",
+      "authors": "Glorot, X.; Bengio, Y.",
+      "title": "Understanding the difficulty of training deep feedforward neural networks"
+    },
+    {
+      "id": "ref-11",
+      "year": "2019",
+      "authors": "Guo, M.; Zhang, Y.; et al.",
+      "title": "Gaussian transformer: A lightweight approach for natural language inference"
+    },
+    {
+      "id": "ref-12",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-13",
+      "year": "2018",
+      "authors": "Jie Hu; Li Shen; et al.",
+      "title": "Gather-excite: Exploiting feature context in convolutional neural networks"
+    },
+    {
+      "id": "ref-14",
+      "year": "2018",
+      "authors": "Jie Hu; Li Shen; et al.",
+      "title": "Squeeze-and-excitation networks"
+    },
+    {
+      "id": "ref-15",
+      "year": "2015",
+      "authors": "Lichao Huang; Yi Yang; et al.",
+      "title": "Densebox:Unifying landmark localization with end to end object detection"
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "Jia, X.; De Brabandere, B.; et al.",
+      "title": "Dynamic filter networks"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Guolin Ke; Di He; et al.",
+      "title": "Rethinking positional encoding in language pre-training"
+    },
+    {
+      "id": "ref-18",
+      "year": "2020",
+      "authors": "Jaeyoung Kim; Mostafa El-Khamy; et al.",
+      "title": "TGSA: transformer with gaussian-weighted self-attention for speech enhancement"
+    },
+    {
+      "id": "ref-19",
+      "year": "2019",
+      "authors": "Kong, T.; Sun, F.; et al.",
+      "title": "FoveaBox: Beyond anchor-based object detector"
+    },
+    {
+      "id": "ref-20",
+      "year": "1995",
+      "authors": "Kuhn, H.W.",
+      "title": "The hungarian method for the assignment problem"
+    },
+    {
+      "id": "ref-21",
+      "year": "2020",
+      "authors": "Hei Law; Yun Teng; et al.",
+      "title": "Cornernet-lite: Efficient keypoint based object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2019",
+      "authors": "Li, Y.; Chen, Y.; et al.",
+      "title": "Scale-aware trident networks for object detection"
+    },
+    {
+      "id": "ref-23",
+      "year": "2020",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-24",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft COCO: Common objects in context"
+    },
+    {
+      "id": "ref-25",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Reed, Cheng-Yang Fu,and Alexander C. Berg. SSD: single shot multibox detector"
+    },
+    {
+      "id": "ref-26",
+      "year": "2016",
+      "authors": "Liu, W.; Anguelov, D.; et al.",
+      "title": "SSD: Single shot multibox detector"
+    },
+    {
+      "id": "ref-27",
+      "year": "2017",
+      "authors": "Loshchilov, I.; Hutter, F.",
+      "title": "Fixing weight decay regularization in Adam"
+    },
+    {
+      "id": "ref-28",
+      "year": "2019",
+      "authors": "Jiangmiao Pang; Kai Chen; et al.",
+      "title": "Libra R-CNN: towards balanced learning for object detection"
+    },
+    {
+      "id": "ref-29",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Kumar Divvala; et al.",
+      "title": "You only look once: Unified,real-time object detection"
+    },
+    {
+      "id": "ref-30",
+      "year": "2017",
+      "authors": "Joseph Redmon and Ali Farhadi",
+      "title": "YOLO90OO: beter, faster, stronger"
+    },
+    {
+      "id": "ref-31",
+      "year": "2018",
+      "authors": "Joseph Redmon and Ali Farhadi",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-32",
+      "year": "2017",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Girshick,and Jian Sun. Faster R-CNN: towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-34",
+      "year": "2019",
+      "authors": "Rezatofighi, H.; Tsoi, N.; et al.",
+      "title": "Generalized intersection over union: A metric and a loss for bounding box regression"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Sun, K.; Xiao, B.; et al.",
+      "title": "Deep high-resolution representation learning for human pose estimation"
+    },
+    {
+      "id": "ref-36",
+      "year": "2020",
+      "authors": "Sun, Z.; Cao, S.; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-37",
+      "year": "2020",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Conditional convolutions for instance segmentation"
+    },
+    {
+      "id": "ref-38",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-39",
+      "year": "2017",
+      "authors": "Ashish Vaswani; Noam Shazeer; et al.",
+      "title": "Gomez,Lukasz Kaiser,and Illia Polosukhin. Attention is all you need"
+    },
+    {
+      "id": "ref-40",
+      "year": "2017",
+      "authors": "Vaswani, A.; Shazeer, N.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "Wang, J.; Sun, K.; et al.",
+      "title": "Deep high-resolution representation learning for visual recognition"
+    },
+    {
+      "id": "ref-42",
+      "year": "2021",
+      "authors": "Yifan Xu; Weijian Xu; et al.",
+      "title": "Line segment detection using transformers without edges"
+    },
+    {
+      "id": "ref-43",
+      "year": "2019",
+      "authors": "Brandon Yang; Gabriel Bender; et al.",
+      "title": "Condconv: Conditionally parameterized convolutions for effcient inference"
+    },
+    {
+      "id": "ref-44",
+      "year": "2021",
+      "authors": "Changqian Yu; Bin Xiao; et al.",
+      "title": "Lite-hrnet:A lightweight high-resolution network"
+    },
+    {
+      "id": "ref-45",
+      "year": "2019",
+      "authors": "Yang, G.; Bender, B.; et al.",
+      "title": "CondConv: Conditionally parameterized convolutions for efficient inference"
+    },
+    {
+      "id": "ref-46",
+      "year": "2021",
+      "authors": "Yu, C.; Xiao, B.; et al.",
+      "title": "Lite-HRNet: A lightweight high-resolution network"
+    },
+    {
+      "id": "ref-47",
+      "year": "2016",
+      "authors": "Yu, J.; Jiang, Y.; et al.",
+      "title": "UnitBox: An advanced object detection network"
+    },
+    {
+      "id": "ref-48",
+      "year": "2019",
+      "authors": "Xingyi Zhou; Dequan Wang; et al.",
+      "title": "Objects as points"
+    },
+    {
+      "id": "ref-49",
+      "year": "2019",
+      "authors": "Xingyi Zhou; Jiacheng Zhuo; et al.",
+      "title": "Botom-up object detection by grouping extreme and center points"
+    },
+    {
+      "id": "ref-50",
+      "year": "2020",
+      "authors": "Chenchen Zhu; Fangyi Chen; et al.",
+      "title": "Soft anchor-point object detection"
+    },
+    {
+      "id": "ref-51",
+      "year": "2020",
+      "authors": "Zhu, C.; Chen, F.; et al.",
+      "title": "Soft anchor-point object detection"
+    },
+    {
+      "id": "ref-52",
+      "year": "2020",
+      "authors": "Zhu, C.; He, Y.; et al.",
+      "title": "Feature selective anchor-free module for single-shot object detection"
+    }
+  ]
+}

@@ -133,5 +133,7 @@ resolver object by itself.
 
 Read-only commands do not require approval. Write-capable operations such as
 `workflow submit`, `mutation.execute`, and `literature ingest` require Zotero UI
-approval. Wait for the user decision and report denial, timeout, or
-unavailability instead of retrying in a loop.
+approval. ACP Chat scoped calls are approved in the ACP Chat panel, ACP Skills
+run scoped calls are approved in the ACP Skills UI, and unscoped external calls
+use the global Zotero approval UI. Wait for the user decision and report denial,
+timeout, or unavailability instead of retrying in a loop.

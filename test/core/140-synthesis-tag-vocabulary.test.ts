@@ -6,6 +6,7 @@ import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/f
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
+import { handlers } from "../../src/handlers";
 import {
   getRuntimePersistencePaths,
   readRuntimeTextFile,
@@ -107,6 +108,113 @@ describe("Synthesis tag vocabulary", function () {
           "vocabulary.json",
         ),
       ),
+    );
+  });
+
+  it("stages, promotes, and discards tag-regulator suggestions in Synthesis state", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTagVocabularyService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+
+    await service.saveTagVocabulary({
+      entries: [{ tag: "topic:existing", facet: "topic" }],
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "topic:suggested",
+          facet: "topic",
+          note: "suggested note",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [10],
+        },
+        {
+          tag: "topic:suggested",
+          facet: "topic",
+          parent_bindings: [11, 10],
+        },
+        {
+          tag: "topic:discard-me",
+          facet: "topic",
+        },
+      ],
+    });
+
+    const staged = await service.listStagedTagSuggestions();
+    assert.deepEqual(
+      staged.map((entry) => entry.tag),
+      ["topic:discard-me", "topic:suggested"],
+    );
+    assert.deepEqual(
+      staged.find((entry) => entry.tag === "topic:suggested")
+        ?.parent_bindings,
+      [10, 11],
+    );
+
+    await service.discardStagedTagSuggestions({ tags: ["topic:discard-me"] });
+    const promoted = await service.promoteStagedTagSuggestions({
+      tags: ["topic:suggested"],
+    });
+
+    assert.deepEqual(promoted.promoted, ["topic:suggested"]);
+    assert.deepEqual(await service.listStagedTagSuggestions(), []);
+    assert.deepEqual(await service.exportTagVocabularyForRegulator(), [
+      "topic:existing",
+      "topic:suggested",
+    ]);
+  });
+
+  it("promotes staged suggestions through Synthesis service and applies bound parent tags", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Synthesis Staged Tag Parent" },
+    });
+
+    await service.saveTagVocabulary({
+      entries: [{ tag: "topic:existing", facet: "topic" }],
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "topic:bound",
+          facet: "topic",
+          note: "bound note",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [parent.id],
+        },
+        {
+          tag: "topic:existing",
+          facet: "topic",
+          note: "duplicate",
+          parent_bindings: [parent.id],
+        },
+      ],
+    });
+
+    const promoted = await service.promoteStagedTagSuggestions({
+      tags: ["topic:bound", "topic:existing"],
+    });
+
+    assert.deepEqual(promoted.promoted, ["topic:bound"]);
+    assert.deepEqual(promoted.skipped, ["topic:existing"]);
+    assert.deepEqual(promoted.applied_parent_tags, [
+      { tag: "topic:bound", parent_item_id: parent.id },
+    ]);
+    assert.deepEqual(
+      parent.getTags().map((entry) => entry.tag),
+      ["topic:bound"],
+    );
+    assert.deepEqual(
+      (await service.listStagedTagSuggestions()).map((entry) => entry.tag),
+      ["topic:existing"],
     );
   });
 

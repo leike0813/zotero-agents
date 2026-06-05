@@ -1,0 +1,51 @@
+# UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers (2021)
+
+- Paper ref: 1:P5NLH47E
+- Title: UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers
+- Year: 2021
+
+## Filtered Digest
+
+#### TL;DR
+
+- UP-DETR 通过一个无监督预训练任务在 DETR 框架上提升定位能力，避免对人类标注数据的依赖。
+
+- 提出随机查询补丁检测（random query patch detection）作为预训练目标，将查询补丁的边界框回归任务融入 Transformer 编码器-解码器结构。
+
+- 使用冻结的 CNN 骨干网络以保持特征判别力，并引入补丁特征重建项以平衡分类与定位之间的权衡。
+
+- 将单查询补丁扩展为多查询补丁，通过对象查询洗牌（object query shuffle）和注意力掩码（attention mask）实现多查询定位。
+
+- 实验表明 UP-DETR 具有更快的收敛速度和更高的 AP，在 VOC/Faster R-CNN 的对比中表现更强，在 COCO 的小/中/大对象检测上具有优势，同时也迁移到单-shot 检测和 Panoptic 分割任务。
+
+- 在 150/300 训练周期设置下，与 DETR 相比取得显著提升，且在冻结 CNN 的前提下仍保持稳定性。
+
+- 代码与预训练模型公开，便于复现实验结果。
+
+#### 研究问题与贡献
+
+- 如何在无监督条件下有效预训练 DETR 的变换器以提升下游目标检测性能？
+
+- 提出随机查询补丁检测作为新颖的自监督信号，并通过冻结 CNN 背骨与补丁特征重建来平衡特征表征和定位能力。
+
+- 引入多查询补丁、注意力掩码和对象查询洗牌以扩展自监督的多对象检测能力，提升对复杂场景的鲁棒性。
+
+- 在 VOC/ COCO 上验证了预训练对下游任务的实用性，并分析了不同训练设置对性能的影响。
+
+#### 方法要点
+
+- 冻结 CNN 骨干并引入补丁特征重建损失以保持前期特征判别力；同时进行查询补丁的回归和分类预测。
+
+- 单查询补丁到多查询补丁的扩展：将 N 个对象查询分成 M 组，将每组查询补丁分配给 N/M 个对象查询，结合注意力掩码实现独立性。
+
+- 使用对象查询洗牌来增强多样性并在训练中引入 dropout 风格的随机遮盖。
+
+- 预训练在 ImageNet 规模数据集进行，微调在 VOC 和 COCO 上进行，形成统一的预训练-微调流程。
+
+#### 关键结果
+
+- 相较于原始 DETR，UP-DETR 在 VOC 与 COCO 上均实现更快的收敛和更高的 AP，尤其在小目标检测场景中具备优势。
+
+- 在 One-shot 检测与 Panoptic 分割上也表现出良好迁移能力。
+
+- 通过冻结 CNN 骨干和引入重建损失，提升了定位任务中分类与定位的协同效果。

@@ -181,14 +181,12 @@ function getCitekey(item: any) {
 
 function getYearFromValue(value: unknown) {
   return (
-    cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] ||
-    ""
+    cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || ""
   );
 }
 
 function getYear(item: any) {
-  const json =
-    typeof item?.toJSON === "function" ? item.toJSON?.() || {} : {};
+  const json = typeof item?.toJSON === "function" ? item.toJSON?.() || {} : {};
   const candidates = [
     readField(item, "year"),
     cleanString(item?.year),
@@ -392,7 +390,7 @@ function isVisibleTopLevelRegular(item: any) {
 }
 
 async function registryInputsFromZotero(libraryId: number) {
-  const items = await getAllRegularZoteroItems();
+  const items = await getAllRegularZoteroItems(libraryId);
   const rows = await Promise.all(
     items
       .filter(isVisibleTopLevelRegular)
@@ -429,11 +427,7 @@ function itemIdFromQueryRow(row: unknown) {
     0,
     Math.floor(
       Number(
-        record.itemID ||
-          record.itemId ||
-          record.item_id ||
-          record.id ||
-          0,
+        record.itemID || record.itemId || record.item_id || record.id || 0,
       ) || 0,
     ),
   );
@@ -624,7 +618,9 @@ function normalizeArtifactType(
   return ARTIFACT_TYPE_ALIASES[text] || null;
 }
 
-function normalizeArtifactTypes(values: unknown): ReferenceSidecarArtifactType[] {
+function normalizeArtifactTypes(
+  values: unknown,
+): ReferenceSidecarArtifactType[] {
   const rawValues = Array.isArray(values) ? values : [];
   const normalized = rawValues
     .map(normalizeArtifactType)
@@ -690,6 +686,10 @@ function firstPayloadBlock(args: {
   artifactType: ReferenceSidecarArtifactType;
 }) {
   const payloadType = PAYLOAD_TYPES[args.artifactType];
+  const acceptedSources = new Set([
+    "embedded-image-attachment",
+    "html-payload-block",
+  ]);
   let decodeError: {
     note: ReferenceSidecarInputNote;
     block: ZoteroNotePayloadBlock;
@@ -698,7 +698,7 @@ function firstPayloadBlock(args: {
     if (row.block.payloadType !== payloadType) {
       continue;
     }
-    if (row.block.source !== "embedded-image-attachment") {
+    if (!acceptedSources.has(cleanString(row.block.source))) {
       continue;
     }
     if (!row.block.errors?.length) {
@@ -1023,7 +1023,7 @@ export function createZoteroSynthesisLibraryAdapter(
         libraryId,
       );
       const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-      const items = await getAllRegularZoteroItems();
+      const items = await getAllRegularZoteroItems(requestedLibraryId);
       const rows = items
         .filter((item: any) => {
           const regular =

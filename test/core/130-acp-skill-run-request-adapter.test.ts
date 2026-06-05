@@ -32,7 +32,10 @@ describe("ACP skill run request adapter", function () {
     assert.deepEqual(adapted.runtime_options, { execution_mode: "auto" });
     assert.deepEqual(adapted.sourceAttachmentPaths, ["D:/real/example.md"]);
     assert.equal(adapted.targetParentID, 123);
-    assert.notProperty(adapted as unknown as Record<string, unknown>, "upload_files");
+    assert.notProperty(
+      adapted as unknown as Record<string, unknown>,
+      "upload_files",
+    );
   });
 
   it("converts multiple upload keys", function () {
@@ -187,6 +190,43 @@ describe("ACP skill run request adapter", function () {
 
     assert.include(prompt, "source_path: D:/real/example.md");
     assert.notInclude(prompt, "inputs/source_path");
+  });
+
+  it("renders Opencode ACP skill invocation as natural language", async function () {
+    const prompt = await buildAcpSkillRunPrompt({
+      context: {
+        skillId: "literature-digest",
+        workspace: {
+          requestId: "run-1",
+          workspaceDir: "D:/runtime/run-1",
+          runtimeDir: "D:/runtime/run-1/.acp",
+          resultDir: "D:/runtime/run-1/result",
+          resultJsonPath: "D:/runtime/run-1/result/result.json",
+          auditDir: "D:/runtime/run-1/.audit",
+          inputManifestPath: "D:/runtime/run-1/.audit/input_manifest.json",
+        },
+        backend: {
+          id: "acp-opencode",
+          type: "acp",
+          baseUrl: "local://acp-opencode",
+        },
+        agentFamily: "opencode",
+        proxySkillRoots: [
+          "D:/runtime/run-1/.agents/skills",
+          "D:/runtime/run-1/.claude/skills",
+        ],
+        requestedSkillProxyPath:
+          "D:/runtime/run-1/.agents/skills/literature-digest",
+        sharedSkillCatalogPath: "D:/runtime/catalog",
+      },
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "literature-digest",
+      },
+    });
+
+    assert.match(prompt, /^Invoke skill named literature-digest/m);
+    assert.notInclude(prompt, "/skills literature-digest");
   });
 
   it("renders runner entrypoint common prompts with resolved contexts", async function () {

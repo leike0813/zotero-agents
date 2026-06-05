@@ -9,17 +9,20 @@ before final stdout is accepted.
 State-changing actions write deterministic action receipts for idempotent retry.
 validate_final_artifacts validates paper_evidence digest_ref payload_hash against SQLite bundles.
 validate_final_artifacts validates evidence_refs against paper_evidence.id and external_literature_analysis.summary.
-persist_paper_units validates paper-unit analyses against Stage 4 artifact bundle receipts.
-cross-paper synthesis requires package-local action receipts for every Stage 4
-artifact bundle and paper unit row; direct SQLite rows are not valid state.
-persist_resolver requires a complete paged library index receipt stored in
-library_index_pages.
+persist_paper_triage validates compact paper triage rows against resolver-cascade artifact bundle receipts.
+cross-paper synthesis requires package-local action receipts for every resolver-cascade
+artifact bundle and paper triage row; direct SQLite rows are not valid state.
+persist_resolver accepts an agent resolver proposal; runtime executes Host
+Bridge resolver, graph metrics, and artifact export, then writes the resolver
+execution manifest and bounded workset inputs for paper triage.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 from pathlib import Path
 
 from gate_runtime import next_action
@@ -35,31 +38,29 @@ from runtime_db import (
     get_key_value,
     get_meta,
     missing_paper_analysis_refs,
-    missing_citation_graph_metric_receipt_refs,
-    missing_paper_artifact_bundle_receipt_refs,
     paper_analysis_values,
     paper_artifact_bundle_values,
     paper_refs,
-    paper_unit_id_for_paper_ref,
+    triage_candidate_id_for_paper_ref,
     paper_workset_values,
-    persist_citation_graph_metrics,
     persist_cross_paper_evidence_map,
-    persist_library_index_page,
-    persist_filtered_artifact_manifest,
     persist_paper_analysis,
     persist_paper_analyses,
     persist_resolver,
+    persist_resolver_cascade_artifact_manifest,
+    persist_resolver_cascade_metrics,
     persist_topic_intent,
     pretty_json,
     read_json_file,
     record_action_receipt,
     register_artifact,
     register_section_output,
-    require_stage4_action_receipts_complete,
+    require_resolver_cascade_receipts_complete,
     set_meta,
     set_stage_state,
     sha256_file,
     inject_section_digest_refs,
+    materialize_runtime_owned_final_sections,
     _clean_text,
     _evidence_map_candidate_ids,
     _validate_evidence_map_refs,
@@ -69,20 +70,17 @@ from runtime_db import (
     validate_topic_synthesis_artifact_schema,
 )
 
-ACTION_ALIASES = {
-    "persist_paper_analysis": "persist_paper_unit",
-    "persist_paper_analyses": "persist_paper_units",
-    "validate_cross_paper_evidence_map": "persist_cross_paper_evidence_map",
-    "validate_route_timeline_synthesis": "persist_route_timeline",
-    "validate_core_analytical_sections": "persist_core_sections",
-}
+ACTION_ALIASES = {}
+DB_RELATIVE_PATH = Path("runtime/topic-synthesis.sqlite")
+HOST_BATCH_SIZE = 25
+CASCADE_METRICS_ACTION = "resolver_cascade_citation_graph_metrics"
+CASCADE_ARTIFACTS_ACTION = "resolver_cascade_artifact_manifest"
 
 FULL_SECTIONS = (
     "topic",
     "summary",
     "positioning",
     "taxonomy",
-    "comparison_matrix",
     "claims",
     "timeline_events",
     "paper_evidence",
@@ -99,7 +97,7 @@ FULL_SECTIONS = (
 )
 
 FINAL_REWRITE_PATHS = {
-    "result/result.json",
+    "result/final-output.candidate.json",
     "result/topic-analysis.json",
     "result/topic-analysis.patch.json",
     "result/sidecars/topic-interest-metadata.json",
@@ -108,24 +106,21 @@ TOPIC_INTEREST_METADATA_PATH = "result/sidecars/topic-interest-metadata.json"
 CONCEPT_CARDS_PROPOSAL_PATH = "result/sidecars/concept-cards-proposal.json"
 TOPIC_GRAPH_RELATION_PROPOSALS_PATH = "result/sidecars/topic-graph-relation-proposals.json"
 
-ROUTE_TIMELINE_SECTIONS = ("taxonomy", "timeline_events")
 CORE_SECTIONS = (
+    "taxonomy",
+    "timeline_events",
     "positioning",
     "claims",
-    "comparison_matrix",
+    "improvement_dimension_summary",
+    "improvement_dimensions",
     "debates",
     "gaps",
     "review_outline",
 )
-STAGE9_AUTHORED_SECTIONS = (
-    "topic",
-    "summary",
-    "external_literature_analysis",
-    "coverage",
-    "statistics",
-    "synthesis_report",
-    "source_artifacts",
-    "diagnostics",
+OPTIONAL_FULL_SECTIONS = (
+    "improvement_dimension_summary",
+    "improvement_dimensions",
+    "semantic_evidence_map",
 )
 VALID_GAP_TYPES = {"research_gap", "library_coverage_gap", "evidence_gap", "evaluation_gap"}
 
@@ -141,6 +136,317 @@ def write_text(path: Path, value: str) -> str:
     normalized = value.replace("\r\n", "\n").replace("\r", "\n")
     path.write_text(normalized, encoding="utf-8")
     return sha256_file(path)
+
+
+def _run_root_from_db_path(db_path: str | Path) -> Path:
+    resolved = Path(db_path).resolve()
+    if (
+        resolved.name != DB_RELATIVE_PATH.name
+        or resolved.parent.name != DB_RELATIVE_PATH.parent.name
+    ):
+        raise ValueError(
+            "topic synthesis DB must be located at <run_root>/runtime/topic-synthesis.sqlite"
+        )
+    return resolved.parent.parent
+
+
+def _locked_run_root(conn, db_path: str | Path, *, allow_stage0: bool = False) -> Path:
+    value = get_meta(conn, "run_root", "")
+    if value:
+        return Path(str(value)).resolve()
+    if allow_stage0:
+        return _run_root_from_db_path(db_path)
+    raise ValueError("runtime run_root is not locked; run confirm_runtime_setup first")
+
+
+def _resolve_payload_path(run_root: Path, payload_file: str | Path) -> Path:
+    path = Path(payload_file)
+    if not path.is_absolute():
+        path = run_root / path
+    resolved = path.resolve()
+    if run_root != resolved and run_root not in resolved.parents:
+        raise ValueError(f"payload file escapes locked run_root: {payload_file}")
+    return resolved
+
+
+def _bridge_executable(run_root: Path) -> Path:
+    env_path = os.environ.get("ZOTERO_BRIDGE_BIN")
+    candidates: list[Path] = []
+    if env_path:
+        env_candidate = Path(env_path)
+        if not env_candidate.is_absolute():
+            raise ValueError("ZOTERO_BRIDGE_BIN must be an absolute path")
+        candidates.append(env_candidate)
+    bridge_dir = run_root / ".zotero-bridge" / "bin"
+    if os.name == "nt":
+        candidates.extend(
+            [
+                bridge_dir / "zotero-bridge.cmd",
+                bridge_dir / "zotero-bridge.exe",
+                bridge_dir / "zotero-bridge",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                bridge_dir / "zotero-bridge",
+                bridge_dir / "zotero-bridge.cmd",
+                bridge_dir / "zotero-bridge.exe",
+            ]
+        )
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return candidate.resolve()
+    raise ValueError(f"Host Bridge CLI not found under {bridge_dir}")
+
+
+def _bridge_json_data(output: object) -> dict:
+    if not isinstance(output, dict):
+        raise ValueError("Host Bridge CLI stdout must be a JSON object")
+    if output.get("ok") is False:
+        raise ValueError(f"Host Bridge CLI failed: {pretty_json(output.get('error', output))}")
+    if output.get("ok") is True and "data" in output:
+        data = output.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("Host Bridge CLI data must be a JSON object")
+        return data
+    return output
+
+
+def _run_bridge_json(
+    run_root: Path,
+    subcommand: list[str],
+    payload: dict,
+    *,
+    input_name: str,
+) -> dict:
+    bridge = _bridge_executable(run_root)
+    input_path = run_root / "runtime" / "payloads" / input_name
+    write_json(input_path, payload)
+    input_ref = "@runtime/payloads/" + input_name
+    completed = subprocess.run(
+        [str(bridge), *subcommand, "--input", input_ref],
+        cwd=str(run_root),
+        capture_output=True,
+        encoding="utf-8",
+        text=True,
+        check=False,
+    )
+    stdout = (completed.stdout or "").strip()
+    parsed: object | None = None
+    if stdout:
+        try:
+            parsed = json.loads(stdout)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Host Bridge CLI stdout is not JSON: {error}") from error
+    if completed.returncode != 0:
+        detail = _bridge_json_data(parsed) if isinstance(parsed, dict) else {"stderr": completed.stderr.strip()}
+        raise ValueError(f"Host Bridge CLI exited with {completed.returncode}: {pretty_json(detail)}")
+    if parsed is None:
+        raise ValueError("Host Bridge CLI returned empty stdout")
+    return _bridge_json_data(parsed)
+
+
+RESOLVER_PROPOSAL_KEYS = {"resolver", "resolver_reasoning", "operation_intent", "limit", "diagnostics"}
+RESOLVER_EXECUTION_KEYS = {"topic_resolver", "resolved_paper_set", "resolution_result", "paper_refs"}
+
+
+def _resolver_limit(payload: dict) -> int:
+    value = payload.get("limit", 100)
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("resolver proposal limit must be an integer") from error
+    if limit < 1 or limit > 100:
+        raise ValueError("resolver proposal limit must be between 1 and 100")
+    return limit
+
+
+def _resolver_host_input(payload: dict, cursor: str | None = None) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("resolver proposal payload must be a JSON object")
+    execution_keys = sorted(key for key in RESOLVER_EXECUTION_KEYS if key in payload)
+    if execution_keys:
+        raise ValueError(
+            "resolver proposal payload must not contain runtime execution result fields: "
+            + ", ".join(execution_keys)
+        )
+    unknown_keys = sorted(set(payload) - RESOLVER_PROPOSAL_KEYS)
+    if unknown_keys:
+        raise ValueError("resolver proposal payload contains unknown fields: " + ", ".join(unknown_keys))
+    resolver = payload.get("resolver")
+    if not isinstance(resolver, dict):
+        raise ValueError("resolver proposal payload must contain resolver object")
+    host_input = {"resolver": resolver, "limit": _resolver_limit(payload)}
+    if cursor:
+        host_input["cursor"] = cursor
+    return host_input
+
+
+def persist_resolver_proposal(conn, payload: dict, run_root: Path) -> dict:
+    all_papers: list[object] = []
+    cursor: str | None = None
+    page_count = 0
+    normalized_resolver: dict | None = None
+    final_diagnostics: dict = {}
+    while True:
+        page_count += 1
+        host_input = _resolver_host_input(payload, cursor)
+        data = _run_bridge_json(
+            run_root,
+            ["synthesis", "resolve-resolver"],
+            host_input,
+            input_name="resolver-host-input.json",
+        )
+        if data.get("ok") is False:
+            raise ValueError("Host Bridge resolver rejected proposal: " + pretty_json(data.get("errors", data)))
+        papers = data.get("papers")
+        if not isinstance(papers, list):
+            raise ValueError("Host Bridge resolver response must contain papers[]")
+        all_papers.extend(papers)
+        if isinstance(data.get("normalized_resolver"), dict):
+            normalized_resolver = data["normalized_resolver"]
+        diagnostics = data.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            final_diagnostics = diagnostics
+        if data.get("has_more"):
+            next_cursor = str(data.get("next_cursor") or data.get("nextCursor") or "")
+            if not next_cursor:
+                raise ValueError("Host Bridge resolver page has_more=true without next_cursor")
+            cursor = next_cursor
+            continue
+        break
+
+    resolver = normalized_resolver if isinstance(normalized_resolver, dict) else payload["resolver"]
+    manifest = {
+        "schema_id": "synthesis.topic_resolver_manifest",
+        "schema_version": "1.0.0",
+        "topic_resolver": resolver,
+        "resolved_paper_set": {"papers": all_papers},
+        "resolver_diagnostics": {
+            **final_diagnostics,
+            "page_count": page_count,
+            "final_count": final_diagnostics.get("final_count", len(all_papers)),
+        },
+        "resolver_proposal": {
+            "resolver_reasoning": payload.get("resolver_reasoning", ""),
+            "operation_intent": payload.get("operation_intent", ""),
+            "diagnostics": payload.get("diagnostics", []),
+        },
+    }
+    operation = str(payload.get("operation_intent") or get_meta(conn, "operation", "") or "")
+    if operation:
+        manifest["operation"] = operation
+    for key in ("base_hashes", "read_section_hashes", "recommended_update", "changed_sections"):
+        value = get_meta(conn, key, None)
+        if value not in (None, "", {}, []):
+            manifest[key] = value
+
+    manifest_path = run_root / "runtime" / "payloads" / "resolver.json"
+    manifest_hash = write_json(manifest_path, manifest)
+    result = persist_resolver(conn, manifest)
+    result["resolver_manifest_path"] = "runtime/payloads/resolver.json"
+    result["resolver_manifest_hash"] = manifest_hash
+    result["host_pages"] = page_count
+    return result
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _bridge_artifact_manifest(run_root: Path, data: dict) -> dict:
+    for key in ("manifest", "artifact_manifest", "result"):
+        value = data.get(key)
+        if isinstance(value, dict) and isinstance(value.get("papers"), list):
+            return value
+    if isinstance(data.get("papers"), list):
+        return data
+    for key in ("manifest_path", "manifestPath", "path"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            loaded = read_json_file(_resolve_payload_path(run_root, value.strip()))
+            if not isinstance(loaded, dict):
+                raise ValueError(f"Host Bridge artifact manifest is not a JSON object: {value}")
+            return loaded
+    default_path = run_root / "runtime" / "payloads" / "paper-artifacts-manifest.json"
+    if default_path.exists():
+        loaded = read_json_file(default_path)
+        if not isinstance(loaded, dict):
+            raise ValueError("Host Bridge artifact manifest file must contain a JSON object")
+        return loaded
+    raise ValueError("Host Bridge artifact export did not return or write a manifest")
+
+
+def collect_resolver_cascade_metrics(conn, run_root: Path) -> list[dict]:
+    results: list[dict] = []
+    for index, batch_refs in enumerate(_chunks(paper_refs(conn), HOST_BATCH_SIZE), start=1):
+        host_input = {
+            "paperRefs": batch_refs,
+            "sortBy": "foundation",
+            "limit": len(batch_refs),
+        }
+        data = _run_bridge_json(
+            run_root,
+            ["synthesis", "get-citation-graph-metrics"],
+            host_input,
+            input_name=f"citation-graph-metrics-input-{index}.json",
+        )
+        receipt_payload = {"paper_refs": batch_refs, "result": data}
+        write_json(
+            run_root / "runtime" / "payloads" / f"citation-graph-metrics-batch-{index}.json",
+            receipt_payload,
+        )
+        result = persist_resolver_cascade_metrics(conn, receipt_payload)
+        record_action_receipt(
+            conn,
+            action_name=CASCADE_METRICS_ACTION,
+            payload=receipt_payload,
+            result=result,
+        )
+        results.append(result)
+    return results
+
+
+def collect_resolver_cascade_artifacts(conn, run_root: Path) -> list[dict]:
+    results: list[dict] = []
+    for index, batch_refs in enumerate(_chunks(paper_refs(conn), HOST_BATCH_SIZE), start=1):
+        host_input = {
+            "run_root": str(run_root),
+            "paper_refs": batch_refs,
+        }
+        data = _run_bridge_json(
+            run_root,
+            ["synthesis", "export-filtered-paper-artifacts"],
+            host_input,
+            input_name=f"paper-artifacts-export-input-{index}.json",
+        )
+        manifest = _bridge_artifact_manifest(run_root, data)
+        write_json(
+            run_root / "runtime" / "payloads" / f"paper-artifacts-manifest-batch-{index}.json",
+            manifest,
+        )
+        result = persist_resolver_cascade_artifact_manifest(conn, manifest, run_root=run_root)
+        record_action_receipt(
+            conn,
+            action_name=CASCADE_ARTIFACTS_ACTION,
+            payload=manifest,
+            result=result,
+        )
+        results.append(result)
+    return results
+
+
+def persist_resolver_cascade(conn, payload: dict, run_root: Path) -> dict:
+    resolver_result = persist_resolver_proposal(conn, payload, run_root)
+    metrics_results = collect_resolver_cascade_metrics(conn, run_root)
+    artifact_results = collect_resolver_cascade_artifacts(conn, run_root)
+    require_resolver_cascade_receipts_complete(conn, include_paper_analysis=False)
+    resolver_result["resolver_cascade"] = {
+        "metrics_batches": len(metrics_results),
+        "artifact_batches": len(artifact_results),
+    }
+    return resolver_result
 
 
 def safe_section_file(section_name: str) -> str:
@@ -235,10 +541,10 @@ def build_topic_interest_metadata(topic_definition: dict, artifact_metadata: obj
     }
 
 
-def require_payload(args: argparse.Namespace) -> dict:
+def require_payload(args: argparse.Namespace, run_root: Path) -> dict:
     if not args.payload_file:
         raise SystemExit(f"--payload-file is required for --action {args.action}")
-    payload = read_json_file(args.payload_file)
+    payload = read_json_file(_resolve_payload_path(run_root, args.payload_file))
     if not isinstance(payload, dict):
         raise SystemExit("--payload-file must contain a JSON object")
     return payload
@@ -248,40 +554,23 @@ def action_stage(action_name: str) -> str:
     action_name = ACTION_ALIASES.get(action_name, action_name)
     if action_name == "confirm_runtime_setup":
         return "stage_0_runtime_setup"
-    if action_name in {
-        "persist_citation_graph_metrics",
-    }:
-        return "stage_3_graph_metrics"
-    if action_name in {
-        "persist_filtered_artifact_manifest",
-    }:
-        return "stage_4_evidence_collection"
-    if action_name in {
-        "persist_paper_unit",
-        "persist_paper_units",
-    }:
-        return "stage_5_paper_units"
+    if action_name == "persist_paper_triage":
+        return "stage_5_paper_triage"
     if action_name in {
         "export_cross_paper_context",
         "persist_cross_paper_evidence_map",
         "derive_cross_paper_evidence_map",
     }:
         return "stage_6_cross_paper_map"
-    if action_name in {
-        "persist_route_timeline",
-    }:
-        return "stage_7_route_timeline"
-    if action_name in {
-        "persist_core_sections",
-    }:
-        return "stage_8_core_sections"
-    if action_name == "persist_kg_proposals":
-        return "stage_9_kg_proposals"
-    if action_name == "persist_external_statistics_report":
-        return "stage_10_external_statistics_report"
+    if action_name == "persist_core_synthesis":
+        return "stage_8_core_synthesis"
+    if action_name == "persist_kg_enrichment":
+        return "stage_9_kg_enrichment"
+    if action_name == "finalize_summary_coverage":
+        return "stage_10_summary_coverage"
     if action_name == "validate_final_artifacts":
         return "stage_11_render_and_validate"
-    if action_name in {"persist_library_index_page", "persist_resolver"}:
+    if action_name == "persist_resolver":
         return "stage_2_resolver_and_workset"
     if action_name in {"persist_topic_intent", "persist_topic_context"}:
         return "stage_1_topic_context"
@@ -302,7 +591,7 @@ def stage_result(conn, action_name: str, payload: dict, result: dict) -> dict:
 def export_cross_paper_context(conn, run_root: Path) -> dict:
     """Materialize a deterministic cross-paper context from SQLite SSOT."""
 
-    require_stage4_action_receipts_complete(conn)
+    require_resolver_cascade_receipts_complete(conn)
     bundled = {bundle.get("paper_ref") for bundle in paper_artifact_bundle_values(conn)}
     missing_bundles = [ref for ref in paper_refs(conn) if ref not in bundled]
     if missing_bundles:
@@ -446,7 +735,7 @@ def _inject_runtime_refs_from_source_papers(value: object) -> object:
             ]
         if not _has_non_empty_refs(next_value, "evidence_map_refs"):
             next_value["evidence_map_refs"] = [
-                paper_unit_id_for_paper_ref(ref) for ref in source_refs
+                triage_candidate_id_for_paper_ref(ref) for ref in source_refs
             ]
     return next_value
 
@@ -520,38 +809,6 @@ def _require_route_timeline_depth(payload: dict) -> None:
             raise ValueError(f"timeline {event_id} requires evidence_map_refs")
 
 
-def validate_route_timeline_synthesis(conn, payload: dict, run_root: Path) -> dict:
-    payload = _inject_runtime_refs_from_source_papers(payload)
-    taxonomy = _require_object(payload.get("taxonomy"), "taxonomy")
-    taxonomy_summary = _require_object(taxonomy.get("summary"), "taxonomy.summary")
-    if not _has_text(taxonomy_summary, "text", "analysis", "overview"):
-        raise ValueError("taxonomy.summary requires text/analysis")
-    _require_list(taxonomy.get("nodes"), "taxonomy.nodes")
-    timeline = _require_object(payload.get("timeline_events"), "timeline_events")
-    timeline_summary = _require_object(timeline.get("summary"), "timeline_events.summary")
-    if not _has_text(timeline_summary, "text", "analysis", "overview"):
-        raise ValueError("timeline_events.summary requires text/analysis")
-    _require_list(timeline.get("events"), "timeline_events.events")
-    _require_route_timeline_depth(payload)
-    known_candidates = _known_evidence_map_candidates(conn)
-    _validate_nested_evidence_map_refs("taxonomy", taxonomy, known_candidates)
-    _validate_evidence_map_refs("timeline_events", timeline.get("events", []), known_candidates)
-    relative_path = "runtime/payloads/route-timeline-synthesis.json"
-    hash_value = write_json(run_root / relative_path, payload)
-    register_artifact(
-        conn,
-        path=relative_path,
-        hash_value=hash_value,
-        content_type="json",
-        schema_id="synthesis.route_timeline_synthesis",
-        stage="stage_7_route_timeline",
-        validated=True,
-    )
-    set_meta(conn, "route_timeline_synthesis_path", relative_path)
-    set_meta(conn, "route_timeline_synthesis_hash", hash_value)
-    return {"path": relative_path, "hash": hash_value}
-
-
 def _validate_core_sections_depth(conn, payload: dict) -> None:
     known_candidates = _known_evidence_map_candidates(conn)
 
@@ -581,20 +838,28 @@ def _validate_core_sections_depth(conn, payload: dict) -> None:
         _require_field(claim, f"claim {claim_id}", "scope", "limitations", "applicability")
     _validate_evidence_map_refs("claims", claims, known_candidates)
 
-    comparison = _require_object(payload.get("comparison_matrix"), "comparison_matrix")
-    _require_list(comparison.get("dimensions"), "comparison_matrix.dimensions")
-    rows = _require_list(comparison.get("rows"), "comparison_matrix.rows")
-    for row in rows:
-        if not isinstance(row, dict):
-            raise ValueError("comparison_matrix.rows entries must be objects")
-        row_id = str(row.get("id") or row.get("route_ref") or "(unknown)")
-        _require_field(row, f"comparison row {row_id}", "id", "route_ref", "paper_refs")
-        values = row.get("values")
-        if not isinstance(values, dict) or not values:
-            raise ValueError(f"comparison row {row_id} requires non-empty values")
-        if not _has_non_empty_refs(row, "evidence_map_refs"):
-            raise ValueError(f"comparison row {row_id} requires evidence_map_refs")
-    _validate_nested_evidence_map_refs("comparison_matrix", comparison, known_candidates)
+    improvement_dimensions = payload.get("improvement_dimensions")
+    if not isinstance(improvement_dimensions, list) or not improvement_dimensions:
+        raise ValueError("improvement_dimensions must be a non-empty array")
+    _require_object(payload.get("improvement_dimension_summary"), "improvement_dimension_summary")
+    for dimension in improvement_dimensions:
+        if not isinstance(dimension, dict):
+            raise ValueError("improvement_dimensions entries must be objects")
+        dimension_id = str(
+            dimension.get("id")
+            or dimension.get("label")
+            or dimension.get("dimension")
+            or "(unknown)"
+        )
+        _require_field(dimension, f"improvement dimension {dimension_id}", "id", "label", "dimension", "title")
+        _require_field(dimension, f"improvement dimension {dimension_id}", "analysis", "summary", "description")
+        if not (
+            _has_non_empty_refs(dimension, "evidence_map_refs")
+            or _has_non_empty_refs(dimension, "source_paper_refs")
+            or _has_non_empty_refs(dimension, "evidence_refs")
+        ):
+            raise ValueError(f"improvement dimension {dimension_id} requires source_paper_refs")
+    _validate_evidence_map_refs("improvement_dimensions", improvement_dimensions, known_candidates)
 
     debates = _require_list(payload.get("debates"), "debates")
     for debate in debates:
@@ -635,10 +900,33 @@ def _validate_core_sections_depth(conn, payload: dict) -> None:
 
 def validate_core_analytical_sections(conn, payload: dict, run_root: Path) -> dict:
     payload = _inject_runtime_refs_from_source_papers(payload)
+    taxonomy = _require_object(payload.get("taxonomy"), "taxonomy")
+    taxonomy_summary = _require_object(taxonomy.get("summary"), "taxonomy.summary")
+    if not _has_text(taxonomy_summary, "text", "analysis", "overview"):
+        raise ValueError("taxonomy.summary requires text/analysis")
+    _require_list(taxonomy.get("nodes"), "taxonomy.nodes")
+    timeline = _require_object(payload.get("timeline_events"), "timeline_events")
+    timeline_summary = _require_object(timeline.get("summary"), "timeline_events.summary")
+    if not _has_text(timeline_summary, "text", "analysis", "overview"):
+        raise ValueError("timeline_events.summary requires text/analysis")
+    _require_list(timeline.get("events"), "timeline_events.events")
+    _require_route_timeline_depth(payload)
     for key in ("claims", "debates", "gaps"):
         _require_list(payload.get(key), key)
-    for key in ("comparison_matrix", "review_outline", "positioning"):
+    if not (isinstance(payload.get("improvement_dimensions"), list) and payload.get("improvement_dimensions")):
+        raise ValueError("improvement_dimensions must be a non-empty array")
+    _require_object(payload.get("improvement_dimension_summary"), "improvement_dimension_summary")
+    labels = payload.get("concept_candidate_labels")
+    if not isinstance(labels, list):
+        raise ValueError("concept_candidate_labels must be an array")
+    for label in labels:
+        if not str(label or "").strip():
+            raise ValueError("concept_candidate_labels entries must be non-empty strings")
+    for key in ("review_outline", "positioning"):
         _require_object(payload.get(key), key)
+    known_candidates = _known_evidence_map_candidates(conn)
+    _validate_nested_evidence_map_refs("taxonomy", taxonomy, known_candidates)
+    _validate_evidence_map_refs("timeline_events", timeline.get("events", []), known_candidates)
     _validate_core_sections_depth(conn, payload)
     relative_path = "runtime/payloads/core-analytical-sections.json"
     hash_value = write_json(run_root / relative_path, payload)
@@ -648,7 +936,7 @@ def validate_core_analytical_sections(conn, payload: dict, run_root: Path) -> di
         hash_value=hash_value,
         content_type="json",
         schema_id="synthesis.core_analytical_sections",
-        stage="stage_8_core_sections",
+        stage="stage_8_core_synthesis",
         validated=True,
     )
     set_meta(conn, "core_analytical_sections_path", relative_path)
@@ -662,12 +950,13 @@ def read_section_files(run_root: Path, operation: str) -> dict:
     for path in sorted(sections_root.glob("*.json")):
         selected.append(path.stem.replace("-", "_"))
     if operation != "update_patch":
-        unknown = sorted(set(selected) - set(FULL_SECTIONS))
+        allowed = set(FULL_SECTIONS) | set(OPTIONAL_FULL_SECTIONS)
+        unknown = sorted(set(selected) - allowed)
         if unknown:
             raise RuntimeError(
                 "unknown_section_files: "
                 + ", ".join(unknown)
-                + "; remove legacy aliases and emit only canonical topic synthesis sections"
+                + "; emit only canonical topic synthesis sections"
             )
     required = selected if operation == "update_patch" else list(FULL_SECTIONS)
     sections: dict[str, object] = {}
@@ -681,6 +970,10 @@ def read_section_files(run_root: Path, operation: str) -> dict:
         sections[section_name] = value
     if missing:
         raise RuntimeError(f"missing_required_section_files: {', '.join(missing)}")
+    if operation != "update_patch":
+        for section_name in selected:
+            if section_name in OPTIONAL_FULL_SECTIONS and section_name not in sections:
+                sections[section_name] = read_json_file(sections_root / safe_section_file(section_name))
     return sections
 
 
@@ -715,45 +1008,151 @@ def _current_sections_from_update_context(conn) -> dict:
         if isinstance(candidate, dict):
             return {
                 section_name: candidate[section_name]
-                for section_name in FULL_SECTIONS
+                for section_name in (*FULL_SECTIONS, *OPTIONAL_FULL_SECTIONS)
                 if section_name in candidate
             }
     return {}
 
 
-def _stage9_payload_sections(payload: dict, *, operation: str) -> dict:
-    sections = payload.get("sections")
-    if not isinstance(sections, dict):
-        raise ValueError("persist_external_statistics_report payload must contain sections object")
-    unknown = sorted(set(sections) - set(FULL_SECTIONS))
+def _topic_section_from_definition(conn) -> dict:
+    topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
+    if not isinstance(topic_definition, dict):
+        topic_definition = {}
+    title = _clean_text(topic_definition.get("title")) or _clean_text(topic_definition.get("id")) or "Topic"
+    definition = _clean_text(topic_definition.get("definition")) or title
+    field = (
+        _clean_text(topic_definition.get("discipline"))
+        or _clean_text(topic_definition.get("field"))
+        or _clean_text(topic_definition.get("research_field"))
+        or _clean_text(topic_definition.get("research_area"))
+        or "unspecified"
+    )
+    scope = topic_definition.get("scope_boundary")
+    if not isinstance(scope, dict):
+        scope_text = _clean_text(topic_definition.get("scope")) or definition
+        scope = {"include": [scope_text], "exclude": []}
+    return {
+        "id": _clean_text(topic_definition.get("id")),
+        "title": title,
+        "definition": definition,
+        "discipline": field,
+        "research_field": field,
+        "topic_granularity": _clean_text(topic_definition.get("topic_granularity")) or "mixed",
+        "scope_boundary": scope,
+        "aliases": topic_definition.get("aliases", []),
+    }
+
+
+def _text_or_summary(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("summary", "text", "reason", "overview"):
+            text = _clean_text(value.get(key))
+            if text:
+                return text
+    return _clean_text(value)
+
+
+def _artifact_coverage_label(conn, artifact_type: str, paper_count: int) -> str:
+    available = 0
+    for bundle in paper_artifact_bundle_values(conn):
+        for artifact in bundle.get("artifacts", []) if isinstance(bundle, dict) else []:
+            if (
+                isinstance(artifact, dict)
+                and artifact.get("artifact_type") == artifact_type
+                and artifact.get("status") == "available"
+            ):
+                available += 1
+                break
+    return f"{available}/{paper_count}"
+
+
+def _coverage_section(conn, value: object) -> dict:
+    coverage = dict(value) if isinstance(value, dict) else {}
+    paper_count = len(paper_refs(conn))
+    verdict = _clean_text(coverage.get("coverage_verdict") or coverage.get("verdict")) or "unknown"
+    reason = _text_or_summary(coverage) or "Coverage interpretation is recorded for this synthesis run."
+    coverage["paper_count"] = int(coverage.get("paper_count") or paper_count)
+    coverage["paper_evidence_count"] = int(coverage.get("paper_evidence_count") or paper_count)
+    coverage["digest_coverage"] = _clean_text(coverage.get("digest_coverage")) or _artifact_coverage_label(conn, "digest", paper_count)
+    coverage["references_coverage"] = _clean_text(coverage.get("references_coverage")) or _artifact_coverage_label(conn, "references", paper_count)
+    coverage["citation_analysis_coverage"] = _clean_text(coverage.get("citation_analysis_coverage")) or _artifact_coverage_label(conn, "citation_analysis", paper_count)
+    coverage["coverage_verdict"] = verdict
+    coverage.setdefault("route_coverage_summary", reason)
+    coverage.setdefault("claim_coverage_summary", reason)
+    coverage.setdefault("timeline_coverage_summary", reason)
+    coverage.setdefault("warnings", [])
+    return coverage
+
+
+def _external_literature_section(payload: dict, coverage: dict) -> dict:
+    external_summary = payload.get("external_context_summary")
+    summary = _text_or_summary(external_summary) or "External context was reviewed for collection guidance."
+    external = dict(external_summary) if isinstance(external_summary, dict) else {}
+    suggestions = payload.get("collection_suggestions")
+    if not isinstance(suggestions, list):
+        suggestions = []
+    external["summary"] = summary
+    external.setdefault("themes", [{"label": "collection guidance", "summary": summary}])
+    external.setdefault("representative_references", [])
+    external["coverage_verdict"] = _clean_text(coverage.get("coverage_verdict")) or "unknown"
+    external["suggested_additions"] = suggestions
+    return external
+
+
+def _source_artifacts_section(conn) -> list[dict]:
+    rows: list[dict] = []
+    for label, path_key, hash_key, content_type in (
+        ("cross_paper_context", "source_context_path", "source_context_hash", "markdown"),
+        ("external_literature_context", "external_context_path", "external_context_hash", "markdown"),
+        ("cross_paper_context_manifest", "source_context_manifest_path", "source_context_manifest_hash", "json"),
+    ):
+        path = _clean_text(get_meta(conn, path_key, ""))
+        hash_value = _clean_text(get_meta(conn, hash_key, ""))
+        if path and hash_value:
+            rows.append({"id": label, "path": path, "hash": hash_value, "content_type": content_type})
+    return rows
+
+
+def _finalize_summary_coverage_sections(conn, payload: dict) -> dict:
+    allowed = {
+        "summary",
+        "coverage",
+        "reliability_caveats",
+        "external_context_summary",
+        "collection_suggestions",
+        "diagnostics",
+    }
+    unknown = sorted(set(payload) - allowed)
     if unknown:
-        raise ValueError("persist_external_statistics_report sections contain unknown keys: " + ", ".join(unknown))
-    protected = sorted(set(sections) & (set(ROUTE_TIMELINE_SECTIONS) | set(CORE_SECTIONS)))
-    if protected:
-        raise ValueError(
-            "Stage 10 payload must not overwrite validated Stage 7/8 sections: "
-            + ", ".join(protected)
-        )
-    if operation != "update_patch":
-        missing = [name for name in STAGE9_AUTHORED_SECTIONS if name not in sections]
-        if missing:
-            raise ValueError(
-                "persist_external_statistics_report.sections missing Stage 10 sections: "
-                + ", ".join(missing)
-            )
-    elif not sections:
-        raise ValueError("update_patch persist_external_statistics_report.sections must not be empty")
-    return sections
+        raise ValueError("finalize_summary_coverage payload contains unknown keys: " + ", ".join(unknown))
+    summary = payload.get("summary")
+    if isinstance(summary, str):
+        summary_section = {"text": summary}
+    elif isinstance(summary, dict):
+        summary_section = dict(summary)
+    else:
+        raise ValueError("finalize_summary_coverage.summary must be a string or object")
+    if not _text_or_summary(summary_section):
+        raise ValueError("finalize_summary_coverage.summary requires prose")
+    coverage = _coverage_section(conn, payload.get("coverage"))
+    diagnostics = payload.get("diagnostics")
+    reliability_caveats = payload.get("reliability_caveats")
+    return {
+        "topic": _topic_section_from_definition(conn),
+        "summary": summary_section,
+        "external_literature_analysis": _external_literature_section(payload, coverage),
+        "coverage": coverage,
+        "source_artifacts": _source_artifacts_section(conn),
+        "diagnostics": {
+            "reliability_caveats": reliability_caveats if isinstance(reliability_caveats, list) else [],
+            "items": diagnostics if isinstance(diagnostics, list) else [],
+        },
+    }
 
 
 def _merge_prevalidated_sections(conn, run_root: Path, stage9_sections: dict, *, operation: str) -> dict:
-    route_timeline = _load_validated_payload_artifact(
-        conn,
-        run_root,
-        path_meta="route_timeline_synthesis_path",
-        hash_meta="route_timeline_synthesis_hash",
-        label="route/timeline synthesis",
-    )
     core_sections = _load_validated_payload_artifact(
         conn,
         run_root,
@@ -765,9 +1164,6 @@ def _merge_prevalidated_sections(conn, run_root: Path, stage9_sections: dict, *,
     if operation == "update_patch":
         sections.update(_current_sections_from_update_context(conn))
     sections.update(stage9_sections)
-    for section_name in ROUTE_TIMELINE_SECTIONS:
-        if section_name in route_timeline:
-            sections[section_name] = route_timeline[section_name]
     for section_name in CORE_SECTIONS:
         if section_name in core_sections:
             sections[section_name] = core_sections[section_name]
@@ -796,7 +1192,7 @@ def _materialize_section_files(run_root: Path, sections: dict) -> dict:
     return result
 
 
-def persist_external_statistics_report_payload(
+def persist_summary_coverage_payload(
     conn,
     payload: dict,
     run_root: Path,
@@ -805,9 +1201,10 @@ def persist_external_statistics_report_payload(
     language: str,
 ) -> dict:
     payload = _inject_runtime_refs_from_source_papers(payload)
-    stage9_sections = _stage9_payload_sections(payload, operation=operation)
+    stage9_sections = _finalize_summary_coverage_sections(conn, payload)
     sections = _merge_prevalidated_sections(conn, run_root, stage9_sections, operation=operation)
     sections = inject_section_digest_refs(conn, sections)
+    sections = materialize_runtime_owned_final_sections(conn, sections, language=language)
     if operation != "update_patch":
         validate_topic_section_contract(conn, sections, require_complete=True)
         validate_topic_synthesis_artifact_schema(assemble_full_artifact(sections, language=language))
@@ -882,34 +1279,17 @@ def _normalize_topic_interest_metadata(value: object, *, topic_definition: dict)
     )
 
 
-def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
-    payload = _normalize_kg_proposals_payload(payload)
-    if payload.get("schema_id") not in (None, "synthesis.topic_synthesis_kg_proposals"):
-        raise ValueError("kg proposal payload schema_id must be synthesis.topic_synthesis_kg_proposals")
-    if (
-        "concept_cards_proposal" not in payload
-        or "topic_graph_relation_proposals" not in payload
-        or "topic_interest_metadata" not in payload
-    ):
-        raise ValueError(
-            "kg proposal payload requires concept_cards_proposal, topic_graph_relation_proposals, and topic_interest_metadata"
-        )
+def persist_kg_enrichment_payload(conn, payload: dict, run_root: Path) -> dict:
+    payload = _normalize_kg_enrichment_payload(payload)
+    if payload.get("schema_id") not in (None, "synthesis.topic_synthesis_kg_enrichment"):
+        raise ValueError("kg enrichment payload schema_id must be synthesis.topic_synthesis_kg_enrichment")
     topic_id = _topic_id(conn)
     topic_definition = get_key_value(conn, "topic_intent", "topic_definition", {})
     if not isinstance(topic_definition, dict):
         topic_definition = {"id": topic_id}
-    concept_sidecar = _normalize_concept_cards_sidecar(
-        payload.get("concept_cards_proposal", {}),
-        topic_id=topic_id,
-    )
-    relation_sidecar = _normalize_topic_graph_sidecar(
-        payload.get("topic_graph_relation_proposals", {}),
-        topic_id=topic_id,
-    )
-    topic_interest_metadata = _normalize_topic_interest_metadata(
-        payload.get("topic_interest_metadata", {}),
-        topic_definition=topic_definition,
-    )
+    concept_sidecar = _normalize_concept_cards_sidecar(payload["concept_cards_proposal"], topic_id=topic_id)
+    relation_sidecar = _normalize_topic_graph_sidecar(payload["topic_graph_relation_proposals"], topic_id=topic_id)
+    topic_interest_metadata = _normalize_topic_interest_metadata(payload["topic_interest_metadata"], topic_definition=topic_definition)
     concept_hash = write_json(run_root / CONCEPT_CARDS_PROPOSAL_PATH, concept_sidecar)
     relation_hash = write_json(
         run_root / TOPIC_GRAPH_RELATION_PROPOSALS_PATH,
@@ -925,7 +1305,7 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         hash_value=concept_hash,
         content_type="json",
         schema_id="synthesis.concept_cards_proposal",
-        stage="stage_9_kg_proposals",
+        stage="stage_9_kg_enrichment",
         validated=True,
     )
     register_artifact(
@@ -934,7 +1314,7 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         hash_value=relation_hash,
         content_type="json",
         schema_id="synthesis.topic_graph_relation_proposals",
-        stage="stage_9_kg_proposals",
+        stage="stage_9_kg_enrichment",
         validated=True,
     )
     register_artifact(
@@ -943,7 +1323,7 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
         hash_value=topic_interest_metadata_hash,
         content_type="json",
         schema_id="topic_interest_metadata.v1",
-        stage="stage_9_kg_proposals",
+        stage="stage_9_kg_enrichment",
         validated=True,
     )
     artifact_metadata = get_meta(conn, "artifact_metadata", {})
@@ -965,25 +1345,65 @@ def persist_kg_proposals_payload(conn, payload: dict, run_root: Path) -> dict:
     }
 
 
-def _normalize_kg_proposals_payload(payload: dict) -> dict:
-    if any(key in payload for key in ("concept_cards", "topic_relations", "topic_interest")):
-        diagnostics = payload.get("diagnostics", [])
-        if not isinstance(diagnostics, list):
-            diagnostics = [str(diagnostics)]
-        return {
-            "schema_id": payload.get("schema_id", "synthesis.topic_synthesis_kg_proposals"),
-            "schema_version": str(payload.get("schema_version") or "1.0.0"),
-            "concept_cards_proposal": {
-                "cards": payload.get("concept_cards", []),
-                "diagnostics": diagnostics,
-            },
-            "topic_graph_relation_proposals": {
-                "proposals": payload.get("topic_relations", []),
-                "diagnostics": diagnostics,
-            },
-            "topic_interest_metadata": payload.get("topic_interest", {}),
-        }
-    return payload
+def _reject_forbidden_kg_keys(value: object, *, label: str) -> None:
+    forbidden = {
+        "canonical_concept_id",
+        "canonical_topic_id",
+        "canonical_edge_id",
+        "local_id",
+        "topic_id",
+        "source_topic_id",
+        "seed_literature_item_ids",
+        "seed_paper_refs",
+        "sidecar_schema_id",
+    }
+    if isinstance(value, dict):
+        found = sorted(set(value) & forbidden)
+        if found:
+            raise ValueError(f"{label} contains runtime-owned fields: {', '.join(found)}")
+        for key, entry in value.items():
+            _reject_forbidden_kg_keys(entry, label=f"{label}.{key}")
+    elif isinstance(value, list):
+        for index, entry in enumerate(value):
+            _reject_forbidden_kg_keys(entry, label=f"{label}[{index}]")
+
+
+def _normalize_kg_enrichment_payload(payload: dict) -> dict:
+    if not isinstance(payload.get("concept_details"), list):
+        raise ValueError("kg_enrichment.concept_details must be an array")
+    if not isinstance(payload.get("topic_relation_candidates"), list):
+        raise ValueError("kg_enrichment.topic_relation_candidates must be an array")
+    if not isinstance(payload.get("topic_matching_terms"), dict):
+        raise ValueError("kg_enrichment.topic_matching_terms must be an object")
+    diagnostics = payload.get("diagnostics", [])
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+    for key in ("concept_details", "topic_relation_candidates", "topic_matching_terms"):
+        _reject_forbidden_kg_keys(payload[key], label=f"kg_enrichment.{key}")
+    cards = []
+    for index, detail in enumerate(payload["concept_details"]):
+        if not isinstance(detail, dict):
+            raise ValueError("kg_enrichment.concept_details entries must be objects")
+        label = _clean_text(detail.get("label"))
+        if not label:
+            raise ValueError("kg_enrichment.concept_details[].label is required")
+        card = dict(detail)
+        card["proposal_id"] = f"concept-candidate-{index + 1}"
+        cards.append(card)
+    proposals = []
+    for index, relation in enumerate(payload["topic_relation_candidates"]):
+        if not isinstance(relation, dict):
+            raise ValueError("kg_enrichment.topic_relation_candidates entries must be objects")
+        proposal = dict(relation)
+        proposal["proposal_id"] = f"topic-relation-candidate-{index + 1}"
+        proposals.append(proposal)
+    return {
+        "schema_id": payload.get("schema_id", "synthesis.topic_synthesis_kg_enrichment"),
+        "schema_version": str(payload.get("schema_version") or "1.0.0"),
+        "concept_cards_proposal": {"cards": cards, "diagnostics": diagnostics},
+        "topic_graph_relation_proposals": {"proposals": proposals, "diagnostics": diagnostics},
+        "topic_interest_metadata": payload["topic_matching_terms"],
+    }
 
 
 def _require_registered_sidecar(conn, run_root: Path, relative_path: str, *, label: str) -> str:
@@ -1033,9 +1453,10 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
     integrity_errors = _pre_final_integrity_errors(conn, run_root)
     if integrity_errors:
         raise RuntimeError("runtime_integrity_failed: " + "; ".join(integrity_errors))
-    require_stage4_action_receipts_complete(conn)
+    require_resolver_cascade_receipts_complete(conn)
     sections = read_section_files(run_root, operation)
     sections = inject_section_digest_refs(conn, sections)
+    sections = materialize_runtime_owned_final_sections(conn, sections, language=language)
     if operation != "update_patch":
         validate_topic_section_contract(conn, sections, require_complete=True)
         validate_topic_synthesis_artifact_schema(
@@ -1174,7 +1595,8 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
             topic_definition.get("id") if isinstance(topic_definition, dict) else None
         ) or get_meta(conn, "topic_id", "")
         final["read_section_hashes"] = get_meta(conn, "read_section_hashes", {})
-    final_hash = write_json(run_root / "result/result.json", final)
+    final_candidate = {**final, "__SKILL_DONE__": True}
+    final_hash = write_json(run_root / "result/final-output.candidate.json", final_candidate)
     register_artifact(
         conn,
         path=manifest_path,
@@ -1186,7 +1608,7 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
     )
     register_artifact(
         conn,
-        path="result/result.json",
+        path="result/final-output.candidate.json",
         hash_value=final_hash,
         content_type="json",
         schema_id="synthesis.topic_synthesis_final_bundle",
@@ -1201,7 +1623,7 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
         "manifest_hash": manifest_hash,
         "topic_interest_metadata_path": TOPIC_INTEREST_METADATA_PATH,
         "topic_interest_metadata_hash": topic_interest_metadata_hash,
-        "final_path": "result/result.json",
+        "final_path": "result/final-output.candidate.json",
         "final_hash": final_hash,
     }
 
@@ -1209,7 +1631,6 @@ def validate_final_artifacts(conn, run_root: Path, *, operation: str, language: 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="runtime/topic-synthesis.sqlite")
-    parser.add_argument("--run-root", default=".")
     parser.add_argument("--operation", default="create")
     parser.add_argument("--language", default="auto")
     parser.add_argument("--action", default="validate_final_artifacts")
@@ -1232,7 +1653,8 @@ def main() -> None:
         print(json.dumps(canceled, ensure_ascii=False, sort_keys=True))
         return
     if args.action == "audit_runtime_integrity":
-        errors = audit_runtime_integrity(conn, run_root=Path(args.run_root), strict_files=True)
+        run_root = _locked_run_root(conn, args.db, allow_stage0=True)
+        errors = audit_runtime_integrity(conn, run_root=run_root, strict_files=True)
         result = {"ok": not errors, "errors": errors}
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         if errors:
@@ -1240,11 +1662,12 @@ def main() -> None:
         return
 
     try:
+        run_root = _locked_run_root(conn, args.db, allow_stage0=args.action == "confirm_runtime_setup")
         if args.action == "confirm_runtime_setup":
             payload = {
                 "operation": args.operation,
                 "language": "zh-CN" if args.language == "auto" else args.language,
-                "run_root": str(Path(args.run_root).resolve()),
+                "run_root": str(run_root),
             }
             set_meta(conn, "operation", payload["operation"])
             set_meta(conn, "language", payload["language"])
@@ -1255,7 +1678,7 @@ def main() -> None:
             return
 
         if args.action in {"persist_topic_intent", "persist_topic_context"}:
-            payload = require_payload(args)
+            payload = require_payload(args, run_root)
             result = persist_topic_intent(conn, payload)
             set_stage_state(conn, "stage_0_runtime_setup", "completed")
             set_stage_state(conn, "stage_1_topic_context", "completed")
@@ -1263,132 +1686,77 @@ def main() -> None:
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "persist_library_index_page":
-            payload = require_payload(args)
-            result = persist_library_index_page(conn, payload)
-            set_stage_state(conn, "stage_2_resolver", "running")
-            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
-            return
-
         if args.action == "persist_resolver":
-            payload = require_payload(args)
-            result = persist_resolver(conn, payload)
+            payload = require_payload(args, run_root)
+            result = persist_resolver_cascade(conn, payload, run_root)
             set_stage_state(conn, "stage_2_resolver_and_workset", "completed")
-            if result.get("paper_refs"):
-                set_stage_state(conn, "stage_3_graph_metrics", "running")
-            else:
-                set_stage_state(conn, "stage_3_graph_metrics", "completed")
-                set_stage_state(conn, "stage_4_evidence_collection", "completed")
-                set_stage_state(conn, "stage_5_paper_units", "completed")
-                set_stage_state(conn, "stage_6_cross_paper_map", "running")
+            set_stage_state(conn, "stage_5_paper_triage", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "persist_citation_graph_metrics":
-            payload = require_payload(args)
-            result = persist_citation_graph_metrics(conn, payload)
-            response = stage_result(conn, args.action, payload, result)
-            if not missing_citation_graph_metric_receipt_refs(conn):
-                set_stage_state(conn, "stage_3_graph_metrics", "completed")
-                set_stage_state(conn, "stage_4_evidence_collection", "running")
-            else:
-                set_stage_state(conn, "stage_3_graph_metrics", "running")
-            print(json.dumps(response, ensure_ascii=False, sort_keys=True))
-            return
-
-        if args.action == "persist_filtered_artifact_manifest":
-            payload = require_payload(args)
-            result = persist_filtered_artifact_manifest(conn, payload, run_root=args.run_root)
-            response = stage_result(conn, args.action, payload, result)
-            if not missing_paper_artifact_bundle_receipt_refs(conn):
-                set_stage_state(conn, "stage_4_evidence_collection", "completed")
-                set_stage_state(conn, "stage_5_paper_units", "running")
-            else:
-                set_stage_state(conn, "stage_4_evidence_collection", "running")
-            print(json.dumps(response, ensure_ascii=False, sort_keys=True))
-            return
-
-        if args.action in {"persist_paper_analysis", "persist_paper_unit"}:
-            if not args.paper_ref:
-                raise SystemExit("--paper-ref is required for persist_paper_unit")
-            payload = require_payload(args)
-            result = persist_paper_analysis(conn, args.paper_ref, payload, run_root=args.run_root)
+        if args.action == "persist_paper_triage":
+            payload = require_payload(args, run_root)
+            result = persist_paper_analyses(conn, payload, run_root=run_root)
             if not missing_paper_analysis_refs(conn):
-                set_stage_state(conn, "stage_5_paper_units", "completed")
+                set_stage_state(conn, "stage_5_paper_triage", "completed")
                 set_stage_state(conn, "stage_6_cross_paper_map", "running")
             else:
-                set_stage_state(conn, "stage_5_paper_units", "running")
-            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
-            return
-
-        if args.action in {"persist_paper_analyses", "persist_paper_units"}:
-            payload = require_payload(args)
-            result = persist_paper_analyses(conn, payload, run_root=args.run_root)
-            if not missing_paper_analysis_refs(conn):
-                set_stage_state(conn, "stage_5_paper_units", "completed")
-                set_stage_state(conn, "stage_6_cross_paper_map", "running")
-            else:
-                set_stage_state(conn, "stage_5_paper_units", "running")
+                set_stage_state(conn, "stage_5_paper_triage", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "export_cross_paper_context":
-            result = export_cross_paper_context(conn, Path(args.run_root))
+            result = export_cross_paper_context(conn, run_root)
             set_stage_state(conn, "stage_6_cross_paper_map", "running")
             print(json.dumps(stage_result(conn, args.action, {}, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action == "derive_cross_paper_evidence_map":
-            result = derive_cross_paper_evidence_map(conn, run_root=args.run_root)
+            result = derive_cross_paper_evidence_map(conn, run_root=run_root)
             set_stage_state(conn, "stage_6_cross_paper_map", "completed")
-            set_stage_state(conn, "stage_7_route_timeline", "running")
+            set_stage_state(conn, "stage_7_cross_paper_evidence", "completed")
+            set_stage_state(conn, "stage_8_core_synthesis", "running")
             print(json.dumps(stage_result(conn, args.action, {}, result), ensure_ascii=False, sort_keys=True))
             return
 
         if args.action in {"validate_cross_paper_evidence_map", "persist_cross_paper_evidence_map"}:
-            payload = require_payload(args)
-            result = persist_cross_paper_evidence_map(conn, payload, run_root=args.run_root)
+            payload = require_payload(args, run_root)
+            result = persist_cross_paper_evidence_map(conn, payload, run_root=run_root)
             set_stage_state(conn, "stage_6_cross_paper_map", "completed")
-            set_stage_state(conn, "stage_7_route_timeline", "running")
+            set_stage_state(conn, "stage_7_cross_paper_evidence", "completed")
+            set_stage_state(conn, "stage_8_core_synthesis", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action in {"validate_route_timeline_synthesis", "persist_route_timeline"}:
-            payload = require_payload(args)
-            result = validate_route_timeline_synthesis(conn, payload, Path(args.run_root))
-            set_stage_state(conn, "stage_7_route_timeline", "completed")
-            set_stage_state(conn, "stage_8_core_sections", "running")
+        if args.action == "persist_core_synthesis":
+            payload = require_payload(args, run_root)
+            result = validate_core_analytical_sections(conn, payload, run_root)
+            set_stage_state(conn, "stage_7_cross_paper_evidence", "completed")
+            set_stage_state(conn, "stage_8_core_synthesis", "completed")
+            set_stage_state(conn, "stage_9_kg_enrichment", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action in {"validate_core_analytical_sections", "persist_core_sections"}:
-            payload = require_payload(args)
-            result = validate_core_analytical_sections(conn, payload, Path(args.run_root))
-            set_stage_state(conn, "stage_8_core_sections", "completed")
-            set_stage_state(conn, "stage_9_kg_proposals", "running")
+        if args.action == "persist_kg_enrichment":
+            payload = require_payload(args, run_root)
+            result = persist_kg_enrichment_payload(conn, payload, run_root)
+            set_stage_state(conn, "stage_9_kg_enrichment", "completed")
+            set_stage_state(conn, "stage_10_summary_coverage", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
 
-        if args.action == "persist_kg_proposals":
-            payload = require_payload(args)
-            result = persist_kg_proposals_payload(conn, payload, Path(args.run_root))
-            set_stage_state(conn, "stage_9_kg_proposals", "completed")
-            set_stage_state(conn, "stage_10_external_statistics_report", "running")
-            print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
-            return
-
-        if args.action == "persist_external_statistics_report":
+        if args.action == "finalize_summary_coverage":
             operation = args.operation
             language = "zh-CN" if args.language == "auto" else args.language
-            payload = require_payload(args)
-            result = persist_external_statistics_report_payload(
+            payload = require_payload(args, run_root)
+            result = persist_summary_coverage_payload(
                 conn,
                 payload,
-                Path(args.run_root),
+                run_root,
                 operation=operation,
                 language=language,
             )
-            set_stage_state(conn, "stage_10_external_statistics_report", "completed")
+            set_stage_state(conn, "stage_10_summary_coverage", "completed")
             set_stage_state(conn, "stage_11_render_and_validate", "running")
             print(json.dumps(stage_result(conn, args.action, payload, result), ensure_ascii=False, sort_keys=True))
             return
@@ -1400,7 +1768,7 @@ def main() -> None:
             set_meta(conn, "language", language)
             rendered = validate_final_artifacts(
                 conn,
-                Path(args.run_root),
+                run_root,
                 operation=operation,
                 language=language,
             )
