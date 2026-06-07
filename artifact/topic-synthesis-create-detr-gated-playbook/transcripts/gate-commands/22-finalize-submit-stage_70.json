@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "result": {
+    "__SKILL_DONE__": true,
+    "analysis_manifest_path": "result/topic-analysis.json",
+    "artifact_metadata": {
+      "runtime": "split-skill"
+    },
+    "candidate_output_path": "result/final-output.candidate.json",
+    "diagnostics": [],
+    "kind": "topic_synthesis",
+    "language": "zh-CN",
+    "operation": "create",
+    "resolver_diagnostics": {
+      "final_count": 5,
+      "warnings": []
+    },
+    "resolver_manifest_path": "runtime/payloads/resolver.json",
+    "topic_definition": {
+      "id": "detr-style-object-detection",
+      "title": "DETR-style Object Detection"
+    }
+  },
+  "skill_id": "topic-synthesis-finalize",
+  "stage": "stage_70_summary"
+}

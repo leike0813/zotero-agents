@@ -1,0 +1,132 @@
+{
+  "taxonomy": {
+    "summary": {
+      "topic": "DETR-style Object Detection",
+      "route_count": 4
+    },
+    "nodes": [
+      {
+        "id": "route-baseline-set-prediction",
+        "label": "集合预测检测范式",
+        "description": "object queries、Hungarian matching 和 NMS-free 端到端检测。",
+        "source_paper_refs": ["1:EIMSDEU3"]
+      },
+      {
+        "id": "route-deformable-attention",
+        "label": "多尺度稀疏注意力",
+        "description": "用 deformable attention 降低计算成本并增强多尺度特征。",
+        "source_paper_refs": ["1:5HBHAWIV"]
+      },
+      {
+        "id": "route-query-training",
+        "label": "query/anchor/denoising 训练改造",
+        "description": "通过 conditional query、anchor 和 denoising 机制改善收敛与精度。",
+        "source_paper_refs": ["1:W4CDLU28", "1:HPLZ65Z2"]
+      },
+      {
+        "id": "route-real-time",
+        "label": "实时 DETR",
+        "description": "面向实时延迟和 YOLO 对比的 DETR 变体。",
+        "source_paper_refs": ["1:CBJWE4JX"]
+      }
+    ]
+  },
+  "timeline_events": {
+    "summary": {
+      "range": "2020-2024",
+      "basis": "five selected Zotero resolver papers"
+    },
+    "events": [
+      {
+        "year": "2020",
+        "event": "DETR 建立端到端集合预测检测基线。",
+        "source_paper_refs": ["1:EIMSDEU3"]
+      },
+      {
+        "year": "2021",
+        "event": "Deformable/Conditional 路线集中处理收敛和多尺度问题。",
+        "source_paper_refs": ["1:5HBHAWIV", "1:W4CDLU28"]
+      },
+      {
+        "year": "2022",
+        "event": "DINO 把 denoising 与 anchor/query 改造推向高性能训练范式。",
+        "source_paper_refs": ["1:HPLZ65Z2"]
+      },
+      {
+        "year": "2024",
+        "event": "实时 DETR 进入与 YOLO 系检测器直接比较的阶段。",
+        "source_paper_refs": ["1:CBJWE4JX"]
+      }
+    ]
+  },
+  "positioning": {
+    "main_position": "DETR 是从检测 pipeline 手工组件转向端到端集合预测的代表路线；后续改进主要围绕收敛、尺度、query 语义和实时效率展开。",
+    "comparison_axes": ["收敛速度", "多尺度/小目标", "query 与 matching 设计", "实时部署"]
+  },
+  "claims": [
+    {
+      "claim": "DETR 的核心贡献是把目标检测统一为集合预测并减少后处理依赖。",
+      "source_paper_refs": ["1:EIMSDEU3"]
+    },
+    {
+      "claim": "后续代表性改进集中在让 query 和 attention 更可优化、更高效。",
+      "source_paper_refs": ["1:5HBHAWIV", "1:W4CDLU28", "1:HPLZ65Z2"]
+    },
+    {
+      "claim": "实时 DETR 路线说明该范式的评价重点已扩展到部署延迟和 YOLO 对照。",
+      "source_paper_refs": ["1:CBJWE4JX"]
+    }
+  ],
+  "improvement_dimension_summary": {
+    "primary_dimensions": ["optimization", "attention_efficiency", "real_time_deployment"]
+  },
+  "improvement_dimensions": [
+    {
+      "id": "optimization",
+      "kind": "method",
+      "summary": "从 Conditional DETR 到 DINO，query/anchor/denoising 设计是改善收敛和质量的核心维度。",
+      "source_paper_refs": ["1:W4CDLU28", "1:HPLZ65Z2"]
+    },
+    {
+      "id": "attention_efficiency",
+      "kind": "efficiency",
+      "summary": "Deformable attention 通过稀疏采样和多尺度特征缓解原始 DETR 的计算和尺度压力。",
+      "source_paper_refs": ["1:5HBHAWIV"]
+    },
+    {
+      "id": "real_time_deployment",
+      "kind": "application",
+      "summary": "实时 DETR 变体把研究目标推进到速度、延迟和工业常用检测器对比。",
+      "source_paper_refs": ["1:CBJWE4JX"]
+    }
+  ],
+  "concept_candidate_labels": [
+    "DETR",
+    "object queries",
+    "Hungarian matching",
+    "deformable attention",
+    "denoising training",
+    "real-time detection transformer"
+  ],
+  "debates": [
+    {
+      "question": "端到端集合预测是否能在实时场景中替代 YOLO 系检测器？",
+      "source_paper_refs": ["1:CBJWE4JX"]
+    }
+  ],
+  "gaps": [
+    {
+      "gap": "本 playbook 未覆盖全部 22 篇 resolver 论文，也未读取完整 digest 正文。",
+      "type": "artifact_scope"
+    }
+  ],
+  "review_outline": {
+    "sections": [
+      "DETR 基线",
+      "收敛与多尺度改进",
+      "query/anchor/denoising 训练",
+      "实时化与部署评价",
+      "coverage caveats"
+    ]
+  }
+}

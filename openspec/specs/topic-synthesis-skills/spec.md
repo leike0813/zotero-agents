@@ -204,3 +204,173 @@ statistics, canonical external references, or the final synthesis report.
 - **AND** runtime SHALL materialize statistics, external literature analysis
   structure, source artifacts, and `synthesis_report`.
 
+### Requirement: Split topic synthesis apply remains strict and diagnosable
+
+The Host apply path SHALL accept split final candidates only when their
+referenced analysis manifest can produce a valid persisted topic artifact.
+
+#### Scenario: Incomplete split manifest is rejected with actionable diagnostics
+
+- **GIVEN** a split final candidate references a create/update_full analysis
+  manifest with missing complete-topic sections
+- **WHEN** apply validates the manifest
+- **THEN** it SHALL reject the result
+- **AND** the error SHALL identify the manifest validation failure rather than
+  silently downgrading the artifact.
+
+#### Scenario: Manifest sidecar entries can supply sidecar paths
+
+- **GIVEN** a valid complete manifest includes required sidecar entries
+- **WHEN** the final candidate omits legacy top-level sidecar path fields
+- **THEN** apply SHALL use the manifest sidecar paths for concept cards, topic
+  graph relation proposals, and topic interest metadata.
+
+### Requirement: Topic details exposes structured artifact provenance
+
+The topic details page SHALL render complete split-runtime topic artifacts with
+clear grouped content and provenance.
+
+#### Scenario: Details page shows split artifact provenance
+
+- **GIVEN** a persisted topic artifact has manifest, metadata, section hashes,
+  sidecars, diagnostics, and source artifact references
+- **WHEN** the topic details page is opened
+- **THEN** it SHALL expose coverage, evidence, report, and provenance summary
+- **AND** missing optional legacy fields SHALL render empty states instead of
+  blank or broken layouts.
+
+### Requirement: Topic synthesis skill suite renders self-contained packages
+
+The topic synthesis multi-skill suite SHALL keep its shared contracts,
+payload schemas, templates, package-local runtime sources, and stage guidance
+under `skills_src/topic-synthesis/`, and SHALL render the four published
+packages under `skills_builtin/` from that source.
+
+#### Scenario: Suite source is present
+
+- **WHEN** the repository is inspected
+- **THEN** `skills_src/topic-synthesis/contracts/` SHALL contain shared path,
+  stage, stage guidance, handoff envelope, stdout envelope, DB schema, and
+  payload schema assets
+- **AND** `skills_src/topic-synthesis/templates/` SHALL contain reusable
+  fragments plus one `SKILL.md` template for each published package.
+
+#### Scenario: Renderer emits the four packages
+
+- **WHEN** the topic synthesis suite renderer runs
+- **THEN** it SHALL emit `create-topic-synthesis-prepare`,
+  `update-topic-synthesis-prepare`, `topic-synthesis-core-enrichment`, and
+  `topic-synthesis-finalize`
+- **AND** each package SHALL contain a package-local `SKILL.md`,
+  `scripts/gate.py`, `scripts/topic_synthesis_db.py`, and only the
+  stage payload schemas needed by that package
+- **AND** it SHALL NOT generate `references/stages/<stage-id>.md` files.
+
+#### Scenario: Generated SKILL.md uses Chinese prose
+
+- **WHEN** a generated package `SKILL.md` is inspected
+- **THEN** its agent-facing headings and explanatory prose SHALL be written in
+  Chinese
+- **AND** stable identifiers such as stage ids, schema paths, JSON property
+  names, and command paths MAY remain unchanged.
+
+#### Scenario: Generated SKILL.md embeds actionable stage guidance
+
+- **WHEN** a generated package `SKILL.md` is inspected
+- **THEN** each local stage SHALL describe its execution steps, semantic
+  intent, quality checks, and common pitfalls
+- **AND** each payload stage SHALL include field guidance and one inline
+  schema-valid JSON example.
+
+#### Scenario: Old monolithic contracts are not copied into split instructions
+
+- **WHEN** generated split-skill instructions are inspected
+- **THEN** they SHALL NOT include old monolithic stage ids, action names,
+  payload paths, or the old `analyses[]` paper-triage wrapper
+- **AND** core enrichment instructions SHALL NOT require
+  `runtime/views/external-literature-context.md`
+- **AND** finalize instructions SHALL require
+  `runtime/views/external-literature-context.md` for coverage and collection
+  suggestion work.
+
+### Requirement: Split create runtime is gate-directed
+
+The generated topic synthesis split-skill packages SHALL support a real
+gate-directed create runtime path.
+
+#### Scenario: Gate returns and records the next instruction
+
+- **WHEN** a generated package runs `scripts/gate.py --db runtime/topic-synthesis.sqlite`
+- **THEN** it SHALL return the next stage instruction
+- **AND** it SHALL record the gate instruction under `runtime/gate-transcript/`.
+
+#### Scenario: Create prepare produces resolver cascade receipts
+
+- **GIVEN** `create-topic-synthesis-prepare` is run in a legal ACP run workspace
+- **WHEN** the resolver payload is submitted
+- **THEN** runtime SHALL call Host Bridge resolver, citation metrics, and
+  filtered artifact export
+- **AND** it SHALL write resolver, metrics, and artifact manifest files
+- **AND** SQLite action receipts SHALL record the cascade.
+
+#### Scenario: Prepare handoff is runtime generated
+
+- **WHEN** create prepare completes paper triage
+- **THEN** runtime SHALL generate cross-paper context, source evidence index,
+  and `runtime/handoff/prepare-analysis-context.json`
+- **AND** the skill output SHALL be a `topic_synthesis_handoff`.
+
+#### Scenario: Core enrichment produces sidecars and handoff
+
+- **WHEN** core enrichment receives the prepare handoff and completes its
+  payload stages
+- **THEN** runtime SHALL materialize KG sidecars and
+  `runtime/handoff/core-enrichment.json`.
+
+#### Scenario: Finalize produces final topic synthesis output
+
+- **WHEN** finalize receives the core handoff and completes its payload stages
+- **THEN** runtime SHALL materialize `result/sections/*.json`,
+  `result/topic-analysis.json`, and `result/final-output.candidate.json`
+- **AND** the final output SHALL be `kind: "topic_synthesis"`, not a handoff.
+
+#### Scenario: Generated scripts are self-contained
+
+- **WHEN** a generated package script is inspected
+- **THEN** it SHALL NOT import or read `skills_src`.
+
+### Requirement: DETR create playbook is gate-truth
+
+The repository SHALL provide a DETR create topic synthesis playbook generated
+from an actual split-skill gate/runtime run.
+
+#### Scenario: Playbook mirrors a legal ACP run workspace
+
+- **WHEN** the DETR gated playbook artifact is inspected
+- **THEN** its committed run workspace mirror SHALL be under
+  `workspace/runtime/acp/skill-runs/acp-skill-*`
+- **AND** diagnostics SHALL record that the actual Host Bridge run root was
+  created under `runtimePersistence.acpSkillRunsDir`.
+
+#### Scenario: Runtime-owned files are generated by gates
+
+- **WHEN** the playbook runtime workspace is inspected
+- **THEN** SQLite state, action receipts, handoffs, runtime views, sidecars,
+  sections, and final candidate files SHALL be backed by generated gate/action
+  transcripts and artifact registry entries
+- **AND** the artifact SHALL NOT rely on hand-written runtime-owned files.
+
+#### Scenario: Resolver discovery is real and bounded
+
+- **WHEN** the playbook records the DETR resolver discovery
+- **THEN** it SHALL include a real read-only Host Bridge transcript
+- **AND** the formal gated workset SHALL contain exactly five selected papers
+  derived from the resolver result.
+
+#### Scenario: Finalize output is a final candidate
+
+- **WHEN** the finalize split skill completes the run
+- **THEN** it SHALL produce `result/final-output.candidate.json`
+- **AND** that output SHALL be `kind: "topic_synthesis"` for a create
+  operation, not `topic_synthesis_handoff`.
+

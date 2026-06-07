@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "创建主题综合准备 Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "handoff",
+    "operation",
+    "db_path",
+    "handoff_manifest_path",
+    "handoff_manifest_hash",
+    "next_skill_id",
+    "diagnostics"
+  ],
+  "properties": {
+    "kind": { "const": "topic_synthesis_handoff" },
+    "handoff": { "const": "prepare_analysis_context" },
+    "operation": { "const": "create" },
+    "db_path": { "const": "runtime/topic-synthesis.sqlite" },
+    "handoff_manifest_path": { "type": "string", "minLength": 1 },
+    "handoff_manifest_hash": { "type": "string", "pattern": "^sha256:.+" },
+    "next_skill_id": { "const": "topic-synthesis-core-enrichment" },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  }
+}

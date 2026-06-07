@@ -1,0 +1,11 @@
+{
+  "resolver": {
+    "mode": "tag_query",
+    "query": {
+      "and": ["model:DL/DETR"]
+    }
+  },
+  "resolver_reasoning": "库索引显示 model:DL/DETR 标签计数为 22，适合作为可复现 resolver。",
+  "operation_intent": "create",
+  "diagnostics": [{ "resolved_count": 22 }]
+}

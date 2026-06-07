@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--action",
+    "submit",
+    "--payload",
+    "runtime/payloads/coverage-and-collection-suggestions.json"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "20-finalize-submit-stage_60",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"ok\": true, \"result\": {\"report_path\": \"runtime/views/synthesis-report.md\"}, \"skill_id\": \"topic-synthesis-finalize\", \"stage\": \"stage_60_coverage_and_collection_suggestions\"}\r\n",
+  "timestamp": "2026-06-06T08:11:55.250315+00:00"
+}

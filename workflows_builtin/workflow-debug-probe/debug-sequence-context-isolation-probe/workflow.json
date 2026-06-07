@@ -1,0 +1,69 @@
+{
+  "id": "debug-sequence-context-isolation-probe",
+  "label": "Debug: Sequence Context Isolation Probe",
+  "version": "0.1.0",
+  "provider": "acp",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "execution": {
+    "skillrunner_mode": "auto",
+    "feedback": {
+      "showNotifications": false
+    }
+  },
+  "result": {
+    "final_step_id": "finalize"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "emit-secret",
+          "skill_id": "debug-sequence-probe-emit",
+          "workspace": "new",
+          "parameter": {
+            "probe_id": "context-isolation",
+            "public_marker": "isolation-public",
+            "secret_marker": "isolation-secret",
+            "write_sentinel": true,
+            "sentinel_path": "runtime/sequence-probe-sentinel.json"
+          }
+        },
+        {
+          "id": "check-isolated",
+          "skill_id": "debug-sequence-probe-check",
+          "workspace": "new",
+          "handoff": {
+            "from_step": "emit-secret",
+            "pass_through": false,
+            "input": {
+              "public_marker": "public_marker"
+            }
+          },
+          "parameter": {
+            "probe_id": "context-isolation",
+            "expect_handoff_present": false,
+            "expected_public_marker": "isolation-public",
+            "forbid_secret_marker": true,
+            "expected_sentinel": "absent",
+            "sentinel_path": "runtime/sequence-probe-sentinel.json"
+          }
+        },
+        {
+          "id": "finalize",
+          "skill_id": "debug-sequence-probe-finalize",
+          "workspace": "reuse-workflow",
+          "parameter": {
+            "probe_id": "context-isolation"
+          }
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applySequenceProbeResult.mjs"
+  }
+}

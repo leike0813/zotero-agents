@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "主题综合核心分析与知识图谱补全 Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "handoff",
+    "operation",
+    "db_path",
+    "handoff_manifest_path",
+    "handoff_manifest_hash",
+    "next_skill_id",
+    "diagnostics"
+  ],
+  "properties": {
+    "kind": { "const": "topic_synthesis_handoff" },
+    "handoff": { "const": "core_enrichment" },
+    "operation": { "enum": ["create", "update_full", "update_patch"] },
+    "db_path": { "const": "runtime/topic-synthesis.sqlite" },
+    "handoff_manifest_path": { "type": "string", "minLength": 1 },
+    "handoff_manifest_hash": { "type": "string", "pattern": "^sha256:.+" },
+    "next_skill_id": { "const": "topic-synthesis-finalize" },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  }
+}

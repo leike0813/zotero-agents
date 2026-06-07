@@ -1,0 +1,256 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2019",
+      "authors": "X. Zhou; D. Wang; et al.",
+      "title": "Krahenb uhl"
+    },
+    {
+      "id": "ref-2",
+      "year": "2021",
+      "authors": "T. Wang; X. Zhu; et al.",
+      "title": "FCOS3D: Fully convolutional one-stage monocular 3d object detection"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Z. Tian; C. Shen; et al.",
+      "title": "FCOS: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "C. Godard; O. Mac Aodha; et al.",
+      "title": "Digging into self-supervised monocular depth prediction"
+    },
+    {
+      "id": "ref-5",
+      "year": "2019",
+      "authors": "J. H. Lee; M.-K. Han; et al.",
+      "title": "From big to small: Multi-scale local planar guidance for monocular depth estimation"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "V. Guizilini; R. Ambrus; et al.",
+      "title": "3d packing for self-supervised monocular depth estimation"
+    },
+    {
+      "id": "ref-7",
+      "year": "2020",
+      "authors": "A. Simonelli; S. Rota Bulo; et al.",
+      "title": "Demystifying pseudo-lidar for monocular 3d object detection, 12 2020."
+    },
+    {
+      "id": "ref-8",
+      "year": "2016",
+      "authors": "K. He; X. Zhang; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-9",
+      "year": "2017",
+      "authors": "A. Vaswani; N. Shazeer; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-10",
+      "year": "2020",
+      "authors": "N. Carion; F. Massa; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Anonymous",
+      "title": "Object dgcnn: 3d object detection using dynamic graphs"
+    },
+    {
+      "id": "ref-12",
+      "year": "2014",
+      "authors": "R. Girshick; J. Donahue; et al.",
+      "title": "Rich feature hierarchies for accurate object detection and semantic segmentation"
+    },
+    {
+      "id": "ref-13",
+      "year": "2015",
+      "authors": "S. Ren; K. He; et al.",
+      "title": "Faster R-CNN: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-14",
+      "year": "2017",
+      "authors": "K. He; G. Gkioxari; et al.",
+      "title": "Mask R-CNN"
+    },
+    {
+      "id": "ref-15",
+      "year": "2016",
+      "authors": "W. Liu; D. Anguelov; et al.",
+      "title": "SSD: Single shot multibox detector"
+    },
+    {
+      "id": "ref-16",
+      "year": "2016",
+      "authors": "J. Redmon; S. K. Divvala; et al.",
+      "title": "You only look once: Unified, realtime object detection"
+    },
+    {
+      "id": "ref-17",
+      "year": "2021",
+      "authors": "X. Zhu; W. Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2020",
+      "authors": "Z. Sun; S. Cao; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-19",
+      "year": "2020",
+      "authors": "P. Sun; R. Zhang; et al.",
+      "title": "SparseR-CNN: End-to-end object detection with learnable proposals"
+    },
+    {
+      "id": "ref-20",
+      "year": "2020",
+      "authors": "P. Sun; Y. Jiang; et al.",
+      "title": "OneNet: Towards end-to-end one-stage object detection"
+    },
+    {
+      "id": "ref-21",
+      "year": "2016",
+      "authors": "X. Chen; K. Kundu; et al.",
+      "title": "Monocular 3d object detection for autonomous driving"
+    },
+    {
+      "id": "ref-22",
+      "year": "2018",
+      "authors": "T. Roddick; A. Kendall; et al.",
+      "title": "Orthographic feature transform for monocular 3d object detection"
+    },
+    {
+      "id": "ref-23",
+      "year": "2017",
+      "authors": "A. Mousavian; D. Anguelov; et al.",
+      "title": "3d bounding box estimation using deep learning and geometry"
+    },
+    {
+      "id": "ref-24",
+      "year": "2017",
+      "authors": "W. Kehl; F. Manhardt; et al.",
+      "title": "Ssd-6d: Making rgb-based 3d detection and 6d pose estimation great again"
+    },
+    {
+      "id": "ref-25",
+      "year": "2019",
+      "authors": "J. Ku; A. D. Pon; et al.",
+      "title": "Monocular 3d object detection leveraging accurate proposals and shape reconstruction"
+    },
+    {
+      "id": "ref-26",
+      "year": "2020",
+      "authors": "D. Beker; H. Kato; et al.",
+      "title": "Monocular differentiable rendering for self-supervised 3d object detection"
+    },
+    {
+      "id": "ref-27",
+      "year": "2019",
+      "authors": "I. Barabanau; A. Artemov; et al.",
+      "title": "Monocular 3d object detection via geometric reasoning on keypoints"
+    },
+    {
+      "id": "ref-28",
+      "year": "2020",
+      "authors": "Z. Liu; Z. Wu; et al.",
+      "title": "Smoke: single-stage monocular 3d object detection via keypoint estimation"
+    },
+    {
+      "id": "ref-29",
+      "year": "2017",
+      "authors": "T.-Y",
+      "title": "Lin, P"
+    },
+    {
+      "id": "ref-30",
+      "year": "2016",
+      "authors": "R. Stewart; M. Andriluka; et al.",
+      "title": "End-to-end people detection in crowded scenes"
+    },
+    {
+      "id": "ref-31",
+      "year": "2017",
+      "authors": "T.-Y",
+      "title": "Lin, P"
+    },
+    {
+      "id": "ref-32",
+      "year": "1955",
+      "authors": "H. W. Kuhn; B. Yaw",
+      "title": "The hungarian method for the assignment problem"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "H. Caesar; V. Bankiti; et al.",
+      "title": "nuscenes: A multimodal dataset for autonomous driving"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "J. Dai; H. Qi; et al.",
+      "title": "Deformable convolutional networks"
+    },
+    {
+      "id": "ref-35",
+      "year": "2016",
+      "authors": "L. J. Ba; J. R. Kiros; et al.",
+      "title": "Layer normalization"
+    },
+    {
+      "id": "ref-36",
+      "year": "2019",
+      "authors": "I. Loshchilov; F. Hutter",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-37",
+      "year": "2021",
+      "authors": "D. Park; R. Ambrus; et al.",
+      "title": "Is pseudo-lidar needed for monocular 3d object detection? In IEEE/CVF International Conference on Co"
+    },
+    {
+      "id": "ref-38",
+      "year": "2018",
+      "authors": "F. Yu; D. Wang; et al.",
+      "title": "Deep layer aggregation"
+    },
+    {
+      "id": "ref-39",
+      "year": "2019",
+      "authors": "B. Zhu; Z. Jiang; et al.",
+      "title": "Class-balanced Grouping and Sampling for Point Cloud 3D Object Detection"
+    },
+    {
+      "id": "ref-40",
+      "year": "2021",
+      "authors": "T. Wang; X. ZHU; et al.",
+      "title": "Probabilistic and geometric depth: Detecting objects in perspective"
+    },
+    {
+      "id": "ref-41",
+      "year": "2021",
+      "authors": "T. Yin; X. Zhou; et al.",
+      "title": "Krahenb uhl"
+    },
+    {
+      "id": "ref-42",
+      "year": "2019",
+      "authors": "Y. Wang; W.-L. Chao; et al.",
+      "title": "Pseudo-lidar from visual depth estimation: Bridging the gap in 3d object detection for autonomous driving"
+    }
+  ]
+}

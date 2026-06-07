@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "evidence_id": "ev:1_3JUY9GBQ",
+      "paper_ref": "1:3JUY9GBQ",
+      "short_evidence": "DETR3D 使用 3D-to-2D queries 把多视角图像信息组织到 3D 检测中，说明 DETR 的 query/set prediction 思路可跨越 2D COCO 场景。"
+    },
+    {
+      "evidence_id": "ev:1_5HBHAWIV",
+      "paper_ref": "1:5HBHAWIV",
+      "short_evidence": "Deformable DETR 用稀疏 deformable attention 让 query 只关注少量关键采样点，显著改善训练效率和小目标检测。"
+    },
+    {
+      "evidence_id": "ev:1_EIMSDEU3",
+      "paper_ref": "1:EIMSDEU3",
+      "short_evidence": "DETR 把目标检测重构为集合预测问题，用 Transformer decoder object queries 和 Hungarian matching 避免手工 NMS/anchor 后处理，是本 topic 的方法原点。"
+    },
+    {
+      "evidence_id": "ev:1_HPLZ65Z2",
+      "paper_ref": "1:HPLZ65Z2",
+      "short_evidence": "DINO 通过 denoising anchor boxes 改善 query 学习和 matching 稳定性，展示 DETR-family 从概念验证走向强检测器的训练技术路线。"
+    },
+    {
+      "evidence_id": "ev:1_SZ3GNWT9",
+      "paper_ref": "1:SZ3GNWT9",
+      "short_evidence": "RF-DETR 把 DETR-family 推向实时检测和架构搜索/部署约束，显示该主题从收敛改进继续演化到效率、迁移和工程约束。"
+    }
+  ],
+  "schema_id": "synthesis.source_paper_evidence_index",
+  "schema_version": "1.0.0"
+}

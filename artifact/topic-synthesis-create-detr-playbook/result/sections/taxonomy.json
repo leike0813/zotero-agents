@@ -1,0 +1,14 @@
+{
+  "section": "taxonomy",
+  "source": "runtime/payloads/core-synthesis.json",
+  "content": {
+    "summary": "DETR 路线从集合预测基线发展出多尺度注意力、query/anchor/denoising 训练和实时化部署分支。",
+    "source_paper_refs": [
+      "1:EIMSDEU3",
+      "1:5HBHAWIV",
+      "1:W4CDLU28",
+      "1:HPLZ65Z2",
+      "1:CBJWE4JX"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "主题综合核心分析与知识图谱补全 Input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["handoff"],
+  "properties": {
+    "handoff": {
+      "type": "object",
+      "x-input-source": "inline",
+      "additionalProperties": true
+    }
+  }
+}

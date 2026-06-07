@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.stage_10_update_topic_context.schema.json",
+  "title": "Stage 10 update topic context payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["topic_context", "update_assessment", "diagnostics"],
+  "properties": {
+    "topic_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["topic_id"],
+      "properties": {
+        "topic_id": { "type": "string", "minLength": 1 },
+        "topic_definition": { "type": "object" },
+        "current_hashes": { "type": "object" },
+        "section_hashes": { "type": "object" },
+        "recommended_update": { "type": "object" }
+      }
+    },
+    "update_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "changed_sections", "reason"],
+      "properties": {
+        "operation": {
+          "enum": ["update_full", "update_patch", "unknown"]
+        },
+        "changed_sections": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reason": { "type": "string" }
+      }
+    },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  },
+  "examples": [
+    {
+      "topic_context": {
+        "topic_id": "existing-topic-id",
+        "topic_definition": {},
+        "current_hashes": {},
+        "section_hashes": {},
+        "recommended_update": {}
+      },
+      "update_assessment": {
+        "operation": "update_full",
+        "changed_sections": [],
+        "reason": ""
+      },
+      "diagnostics": []
+    }
+  ]
+}

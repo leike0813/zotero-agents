@@ -37,9 +37,17 @@ describe("Synthesis tab UI model", function () {
         }
       }
     }
-    assert.isAtLeast(paramsEnd, paramsStart, `${functionName} params should end`);
+    assert.isAtLeast(
+      paramsEnd,
+      paramsStart,
+      `${functionName} params should end`,
+    );
     const bodyStart = source.indexOf("{", paramsEnd);
-    assert.isAtLeast(bodyStart, paramsEnd, `${functionName} should have a body`);
+    assert.isAtLeast(
+      bodyStart,
+      paramsEnd,
+      `${functionName} should have a body`,
+    );
     let depth = 0;
     for (let index = bodyStart; index < source.length; index += 1) {
       const char = source[index];
@@ -409,13 +417,19 @@ describe("Synthesis tab UI model", function () {
   });
 
   it("does not classify stale citation graph cache basis as missing only because rows are unavailable", async function () {
-    const source = await fs.readFile("src/modules/synthesis/service.ts", "utf8");
+    const source = await fs.readFile(
+      "src/modules/synthesis/service.ts",
+      "utf8",
+    );
     const block = extractFunctionBlock(source, "buildMaintenanceSummary");
 
     assert.include(block, 'citationCacheStatus === "stale"');
     assert.include(block, "citation_graph_cache_rows_missing");
     assert.notInclude(block, "||\n      !args.citationGraphFound");
-    assert.notInclude(block, "citationCacheStatus === \"missing\" ||\n      !args.citationGraphFound");
+    assert.notInclude(
+      block,
+      'citationCacheStatus === "missing" ||\n      !args.citationGraphFound',
+    );
   });
 
   it("normalizes Synthesis background jobs without inventing progress", function () {
@@ -712,7 +726,9 @@ describe("Synthesis tab UI model", function () {
       createDefaultSynthesisUiState(),
       {
         action: "setFilters",
-        payload: { registry: { scope: "referenced", bindingStatus: "candidate" } },
+        payload: {
+          registry: { scope: "referenced", bindingStatus: "candidate" },
+        },
       },
     ).state;
 
@@ -881,7 +897,9 @@ describe("Synthesis tab UI model", function () {
       "topic:candidate",
       "topic:missing",
     ]);
-    assert.deepEqual(snapshot.tags.filters.selectedVocabularyTags, ["model:detr"]);
+    assert.deepEqual(snapshot.tags.filters.selectedVocabularyTags, [
+      "model:detr",
+    ]);
     assert.deepEqual(snapshot.tags.filters.editingStagedTag, {
       originalTag: "topic:candidate",
       draftTag: "candidate edited",
@@ -899,10 +917,10 @@ describe("Synthesis tab UI model", function () {
       snapshot.tags.visibleStagedRows.map((row) => row.tag),
       ["topic:candidate"],
     );
-    assert.deepEqual(snapshot.tags.visibleStagedRows[0]?.parent_bindings, [
-      11,
-      22,
-    ]);
+    assert.deepEqual(
+      snapshot.tags.visibleStagedRows[0]?.parent_bindings,
+      [11, 22],
+    );
     assert.equal(snapshot.tags.visibleStagedRows[0]?.parent_count, 2);
     assert.isTrue(snapshot.tags.projection.stale);
     assert.equal(snapshot.tags.importDraft, '{"entries":[]}');
@@ -950,10 +968,22 @@ describe("Synthesis tab UI model", function () {
       invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
     );
 
-    assert.include(previewImportBranch, 'command === "previewTagVocabularyImport"');
-    assert.include(previewImportBranch, 'command === "applyTagVocabularyImport"');
-    assert.include(previewImportBranch, 'command === "promoteStagedTagSuggestions"');
-    assert.include(previewImportBranch, 'command === "clearStagedTagSuggestions"');
+    assert.include(
+      previewImportBranch,
+      'command === "previewTagVocabularyImport"',
+    );
+    assert.include(
+      previewImportBranch,
+      'command === "applyTagVocabularyImport"',
+    );
+    assert.include(
+      previewImportBranch,
+      'command === "promoteStagedTagSuggestions"',
+    );
+    assert.include(
+      previewImportBranch,
+      'command === "clearStagedTagSuggestions"',
+    );
     assert.include(previewImportBranch, 'return ["tags"]');
     assert.include(app, "Review tag import preview");
     assert.include(app, "Merge Non-conflicting");
@@ -1260,20 +1290,26 @@ describe("Synthesis tab UI model", function () {
   });
 
   it("routes the Workbench rebuild graph host command", function () {
-    const layoutResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
-      action: "hostCommand",
-      payload: {
-        command: "manualRecomputeLayout",
-        args: { reason: "user" },
+    const layoutResult = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "manualRecomputeLayout",
+          args: { reason: "user" },
+        },
       },
-    });
-    const cacheResult = applySynthesisUiAction(createDefaultSynthesisUiState(), {
-      action: "hostCommand",
-      payload: {
-        command: "rebuildCitationGraphCacheNow",
-        args: { reason: "user" },
+    );
+    const cacheResult = applySynthesisUiAction(
+      createDefaultSynthesisUiState(),
+      {
+        action: "hostCommand",
+        payload: {
+          command: "rebuildCitationGraphCacheNow",
+          args: { reason: "user" },
+        },
       },
-    });
+    );
     const incrementalResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),
       {
@@ -1404,7 +1440,10 @@ describe("Synthesis tab UI model", function () {
       "SYNTHESIS_WORKBENCH_HANDSHAKE_REQUIRED_SUCCESSES = 5",
     );
     assert.include(source, "finalizeWorkbenchHandshake");
-    assert.include(source, 'sendSnapshot(runtime, "synthesis:init", { refreshFromService: false })');
+    assert.include(
+      source,
+      'sendSnapshot(runtime, "synthesis:init", { refreshFromService: false })',
+    );
     assert.include(source, "contentDocument");
     assert.include(source, "Zotero_Tabs.select");
     assert.include(source, "cleanupSynthesisWorkbenchTab");
@@ -1568,6 +1607,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".marker-list");
     assert.include(css, ".topic-workspace");
     assert.include(css, ".topic-detail-tabs");
+    assert.include(css, ".topic-provenance-aside");
     assert.include(css, ".evidence-explorer");
     assert.include(css, ".timeline-marker");
     assert.include(css, ".timeline-pin-body");
@@ -1599,6 +1639,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "matrix.dimensions");
     assert.include(source, "topicTimelineMarkers(detail)");
     assert.include(source, "timeline.markers");
+    assert.include(source, "renderTopicProvenanceSection");
+    assert.include(source, "renderTopicProvenanceAside");
+    assert.include(source, "artifact_provenance");
+    assert.include(source, '["provenance", "Provenance"]');
+    assert.include(source, "manifest_schema_id");
+    assert.include(source, "sidecar_count");
     assert.include(source, "Improvement / Dimensions");
     assert.include(source, "detail.improvement_dimensions");
     assert.include(source, "detail.comparison_matrix || {}");
@@ -1872,10 +1918,19 @@ describe("Synthesis tab UI model", function () {
       "selectTab must not force surface reload",
     );
     assert.include(actionBlock, "reviewsFilterChanged");
-    const handshakeBlock = extractFunctionBlock(host, "finalizeWorkbenchHandshake");
-    assert.notInclude(handshakeBlock, 'void sendSnapshot(runtime, "synthesis:snapshot");');
+    const handshakeBlock = extractFunctionBlock(
+      host,
+      "finalizeWorkbenchHandshake",
+    );
+    assert.notInclude(
+      handshakeBlock,
+      'void sendSnapshot(runtime, "synthesis:snapshot");',
+    );
     assert.notInclude(handshakeBlock, "refreshFromService: true");
-    assert.include(hooks, "prewarmSynthesisWorkbenchSurfaces({ surfaces: [] })");
+    assert.include(
+      hooks,
+      "prewarmSynthesisWorkbenchSurfaces({ surfaces: [] })",
+    );
   });
 
   it("invalidates Index surface cache on Zotero library item changes without sidecar refresh", async function () {
@@ -1916,7 +1971,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(scheduleBlock, "globalThis.setTimeout");
     assert.include(scheduleBlock, "surfaceNeedsServiceRefresh");
     assert.include(scheduleBlock, "sendSurface(runtime, activeSurface");
-    assert.include(host, "SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS");
+    assert.include(
+      host,
+      "SYNTHESIS_WORKBENCH_LIBRARY_INVALIDATION_DEBOUNCE_MS",
+    );
     assert.include(host, "synthesisWorkbenchRuntimes");
     assert.include(host, "synthesisWorkbenchRuntimes.delete(runtime)");
 
@@ -1956,10 +2014,7 @@ describe("Synthesis tab UI model", function () {
       invalidationBlock,
       "sendChrome(runtime, { refreshFromService: true })",
     );
-    assert.include(
-      host,
-      "registerSynthesisWorkbenchSidecarChangeListener",
-    );
+    assert.include(host, "registerSynthesisWorkbenchSidecarChangeListener");
 
     const hostApiBlock = extractFunctionBlock(
       workflowHostApi,
@@ -2089,7 +2144,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'from "sigma/rendering"');
     assert.include(source, "function drawGraphImportanceHalo");
     assert.include(source, "function drawGraphNodeHover");
-    assert.include(source, "if (data.importanceHalo && !data.importanceInteractive)");
+    assert.include(
+      source,
+      "if (data.importanceHalo && !data.importanceInteractive)",
+    );
     assert.include(source, "drawDiscNodeHover");
     assert.include(source, "defaultDrawNodeHover: drawGraphNodeHover");
     assert.include(source, "function graphNodeImportanceColor");
@@ -2160,14 +2218,20 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "display: none;");
     assert.include(css, "width: 42px;");
     assert.include(css, "height: 42px;");
-    assert.include(css, ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within)");
+    assert.include(
+      css,
+      ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within)",
+    );
     assert.include(css, "grid-template-rows: 42px;");
     assert.include(css, "place-items: center;");
     assert.include(css, "position: absolute;");
     assert.include(css, "inset: 0;");
     assert.include(css, "position: static;");
     assert.include(css, "transform: translateY(-1px);");
-    assert.include(css, ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .details");
+    assert.include(
+      css,
+      ".graph-control-drawer:not(:hover):not(:focus):not(:focus-within) .details",
+    );
     assert.include(css, "display: none;");
     assert.include(css, "overflow: hidden;");
     assert.include(css, "overflow: auto;");
@@ -2707,7 +2771,10 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(snapshot.hostCommands, "applyLiteratureCleanupAction");
     assert.include(snapshot.hostCommands, "refreshReferenceSidecarNow");
     assert.include(snapshot.hostCommands, "retryReferenceSidecarRefresh");
-    assert.include(snapshot.hostCommands, "refreshCitationGraphCacheIncrementalNow");
+    assert.include(
+      snapshot.hostCommands,
+      "refreshCitationGraphCacheIncrementalNow",
+    );
     assert.include(snapshot.hostCommands, "rebuildCitationGraphCacheNow");
     assert.include(snapshot.hostCommands, "retryCitationGraphCacheRebuild");
     assert.isFalse(
@@ -2816,8 +2883,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "appendRegistryColgroup");
     assert.include(source, "`registry-col-${column}`");
     assert.include(source, "surfaceRuntimeKey");
-    assert.include(source, "scope === \"referenced\"");
-    assert.include(source, "scope === \"all\"");
+    assert.include(source, 'scope === "referenced"');
+    assert.include(source, 'scope === "all"');
     assert.include(source, "surfaceRuntime(surface)");
     assert.include(source, '"reference",');
     assert.include(source, '"source",');
@@ -2940,7 +3007,10 @@ describe("Synthesis tab UI model", function () {
 
   it("guards Workbench review performance against heavy signatures and full rerenders", async function () {
     const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
-    const signatureBlock = extractFunctionBlock(app, "snapshotContentSignature");
+    const signatureBlock = extractFunctionBlock(
+      app,
+      "snapshotContentSignature",
+    );
     [
       "snapshot.registry.visibleRows",
       "snapshot.registry.matchProposals",
@@ -2982,7 +3052,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "markSurfaceRuntime");
     assert.include(app, 'data.type === "synthesis:chrome"');
     assert.include(app, 'data.type === "synthesis:surface"');
-    assert.include(app, 'main.dataset.synthesisSurface = surface');
+    assert.include(app, "main.dataset.synthesisSurface = surface");
     assert.include(app, 'dataset.synthesisSurface = "index-review-drawer"');
     assert.include(app, 'dataset.synthesisSurface = "reference-review-table"');
     assert.include(app, "compactRegistryRowSignature");
@@ -3030,8 +3100,14 @@ describe("Synthesis tab UI model", function () {
       app,
       "renderReferenceMatchingReviewTable",
     );
-    assert.include(reviewTableBlock, "const lookup = buildRegistryReviewLookup");
-    assert.include(reviewTableBlock, "referenceMatchProposalEntriesForReviewCenter");
+    assert.include(
+      reviewTableBlock,
+      "const lookup = buildRegistryReviewLookup",
+    );
+    assert.include(
+      reviewTableBlock,
+      "referenceMatchProposalEntriesForReviewCenter",
+    );
   });
 
   it("guards Workbench service hot paths against heavy surface reads", async function () {
@@ -3063,7 +3139,10 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(surfaceBlock, "activeReviewTab");
     assert.include(surfaceBlock, "proposalQueryForReviewState");
-    assert.notInclude(surfaceBlock, "listReferenceMatchProposals({ limit: 100 })");
+    assert.notInclude(
+      surfaceBlock,
+      "listReferenceMatchProposals({ limit: 100 })",
+    );
     assert.notInclude(surfaceBlock, "synthesisRepository.listReviewItems()");
     const reviewContextBlock = extractFunctionBlock(
       service,
@@ -3109,7 +3188,11 @@ describe("Synthesis tab UI model", function () {
     const pageStart = libraryAdapter.indexOf("async getRegistryInputsPage");
     const pageEnd = libraryAdapter.indexOf("async getRegistryInputForItem");
     assert.isAtLeast(pageStart, 0, "getRegistryInputsPage should exist");
-    assert.isAbove(pageEnd, pageStart, "getRegistryInputsPage should be bounded");
+    assert.isAbove(
+      pageEnd,
+      pageStart,
+      "getRegistryInputsPage should be bounded",
+    );
     const pageBlock = libraryAdapter.slice(pageStart, pageEnd);
     assert.include(pageBlock, "visibleTopLevelRegularItemsPage");
     assert.notInclude(pageBlock, "getAllRegularZoteroItems");
@@ -3124,14 +3207,24 @@ describe("Synthesis tab UI model", function () {
       factsStart,
     );
     assert.isAtLeast(factsStart, 0, "listReferenceFacts should exist");
-    assert.isAbove(factsEnd, factsStart, "listReferenceFacts should be bounded");
+    assert.isAbove(
+      factsEnd,
+      factsStart,
+      "listReferenceFacts should be bounded",
+    );
     const factsBlock = repository.slice(factsStart, factsEnd);
     assert.include(factsBlock, "sourceRefs: Array.from(sourceIds)");
     assert.include(factsBlock, "rawReferenceIds: args.rawReferenceIds");
     assert.include(factsBlock, "resolveEffectiveCanonicalReferenceIds");
     assert.notInclude(factsBlock, "this.listCanonicalReferences().map");
-    assert.notInclude(factsBlock, "for (const binding of this.listReferenceBindings())");
-    assert.notInclude(factsBlock, 'this.listRawReferences({ statuses: ["active"] })');
+    assert.notInclude(
+      factsBlock,
+      "for (const binding of this.listReferenceBindings())",
+    );
+    assert.notInclude(
+      factsBlock,
+      'this.listRawReferences({ statuses: ["active"] })',
+    );
   });
 
   it("wires asynchronous Workbench action feedback and host single-flight", async function () {
@@ -3151,7 +3244,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "snapshot.maintenance?.backgroundJobs?.rows");
     assert.include(app, "renderBackgroundJobPopover");
     assert.include(app, 'const isRunning = job.status === "running";');
-    assert.include(app, "isRunning ? progressLabel(job.progress) : \"\"");
+    assert.include(app, 'isRunning ? progressLabel(job.progress) : ""');
     assert.include(app, "if (isRunning && job.progress)");
     assert.include(app, "action-statusbar-job-button");
     assert.include(app, "action-statusbar");

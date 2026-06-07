@@ -25,9 +25,25 @@
     }
   },
   "request": {
-    "kind": "skillrunner.job.v1",
-    "create": {
-      "skill_id": "update-topic-synthesis"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "prepare",
+          "skill_id": "update-topic-synthesis-prepare",
+          "workspace": "new"
+        },
+        {
+          "id": "core",
+          "skill_id": "topic-synthesis-core-enrichment",
+          "workspace": "reuse-workflow"
+        },
+        {
+          "id": "finalize",
+          "skill_id": "topic-synthesis-finalize",
+          "workspace": "reuse-workflow"
+        }
+      ]
     }
   },
   "execution": {
@@ -39,13 +55,13 @@
     "timeout_ms": 1200000
   },
   "result": {
+    "final_step_id": "finalize",
     "fetch": { "type": "result" },
     "expects": {
       "result_json": "result/final-output.candidate.json"
     }
   },
   "hooks": {
-    "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "../hooks/applyTopicSynthesisResult.mjs"
   }
 }

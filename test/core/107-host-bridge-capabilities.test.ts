@@ -247,6 +247,20 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
     assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    const metricsRefresh = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) =>
+        entry.name === "synthesis.refresh_citation_graph_metrics",
+    );
+    assert.isOk(metricsRefresh);
+    assert.strictEqual(metricsRefresh.approval, "zotero-ui-required");
   });
 
   it("reports canonical resolve-resolver input contract errors", async function () {

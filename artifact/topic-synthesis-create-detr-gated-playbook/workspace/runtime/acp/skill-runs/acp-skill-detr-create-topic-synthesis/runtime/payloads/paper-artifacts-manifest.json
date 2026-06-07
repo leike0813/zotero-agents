@@ -1,0 +1,356 @@
+{
+  "schema_id": "synthesis.filtered_paper_artifacts_manifest",
+  "schema_version": "1.0.0",
+  "exported_by": "synthesis.export_filtered_paper_artifacts",
+  "exported_at": "2026-06-06T08:11:53.485Z",
+  "paper_refs": [
+    "1:3JUY9GBQ",
+    "1:5HBHAWIV",
+    "1:EIMSDEU3",
+    "1:HPLZ65Z2",
+    "1:SZ3GNWT9"
+  ],
+  "papers": [
+    {
+      "paper_ref": "1:3JUY9GBQ",
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "payload_type": "digest-markdown",
+          "status": "available",
+          "note_key": "7584RQ28",
+          "note_title": "Digest",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:c3a80a6d8650a25d3d8adffe0a267bf23bb0d2592a8b6bf5a9078bb085d71311",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_3JUY9GBQ/digest.md",
+          "content_hash": "sha256:5e6575588e400a9265764c668bcef4d688fb1f58a529e4999e5ea22cf465e49d"
+        },
+        {
+          "artifact_type": "references",
+          "payload_type": "references-json",
+          "status": "available",
+          "note_key": "XPMJPEJ9",
+          "note_title": "References",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:3156fd851ac4d4cd3a1107fb0ca853a5c090886ff224bd553c1e7445a3ba8c2c",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_3JUY9GBQ/references.json",
+          "content_hash": "sha256:eabc15f2850f2908e03cc9c5cd78c8ef6edc4230f08e83511b523825d9cbf254"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "payload_type": "citation-analysis-json",
+          "status": "available",
+          "note_key": "MIT59VMA",
+          "note_title": "Citation Analysis",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:908b007b591f52a53e8d38f0ac73e8f955c0a35062771e5c73e4d678282cf8cc",
+          "missing_reason": "",
+          "diagnostics": [
+            "removed_trailing_section_heading:时间线分析"
+          ],
+          "content_file": "runtime/payloads/artifacts/1_3JUY9GBQ/citation-analysis.md",
+          "content_hash": "sha256:64fed9d307f3ac5a64f3f929deeb44f948cfc47e6fc8bdd5fa9f293ab69a2d89",
+          "removed_trailing_section_heading": "时间线分析"
+        }
+      ],
+      "diagnostics": [
+        "1:3JUY9GBQ:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json"
+      ]
+    },
+    {
+      "paper_ref": "1:5HBHAWIV",
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "payload_type": "digest-markdown",
+          "status": "available",
+          "note_key": "537FPF8A",
+          "note_title": "Digest",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:e29d0d355c65d83e18497455fb1e0965813bc3117128a0b5402275b2206be5ff",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_5HBHAWIV/digest.md",
+          "content_hash": "sha256:b69b698c97bf78440d940a60b52765b309e0085192c0987ae88e730abde93379"
+        },
+        {
+          "artifact_type": "references",
+          "payload_type": "references-json",
+          "status": "available",
+          "note_key": "UAYG7ZQH",
+          "note_title": "References",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:1bb107251f262cdbcd26707335ba16d496773f877071cd11d578c17eaca9ffbc",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_5HBHAWIV/references.json",
+          "content_hash": "sha256:0bf8d94a993394cbaa6348c4958e8aa2957d611751f08ec5be4e87ec3181c106"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "payload_type": "citation-analysis-json",
+          "status": "available",
+          "note_key": "N6YTRYYM",
+          "note_title": "Citation Analysis",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:fb7ced3cfd258888826292c491e533b482227d1c4d449189fddb6e85bba246c3",
+          "missing_reason": "",
+          "diagnostics": [
+            "removed_trailing_section_heading:未映射引用"
+          ],
+          "content_file": "runtime/payloads/artifacts/1_5HBHAWIV/citation-analysis.md",
+          "content_hash": "sha256:b0cd2d12b8fd5bec724d3b7fdece6fd5a39ce92209d0d37a81920a236b45df09",
+          "removed_trailing_section_heading": "未映射引用"
+        }
+      ],
+      "diagnostics": [
+        "1:5HBHAWIV:probe:notes=5:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json"
+      ]
+    },
+    {
+      "paper_ref": "1:EIMSDEU3",
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "payload_type": "digest-markdown",
+          "status": "available",
+          "note_key": "8YJZV37N",
+          "note_title": "Digest",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:7bb9d9a1d9d8bfbf39465ee58b97cd7e84ef5d87155eb459a3db17550ab9dbd7",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_EIMSDEU3/digest.md",
+          "content_hash": "sha256:e780e2b7f5eaf9efae025fac062de8ad3db13c14ec1b3f42d28cc6f84d89606a"
+        },
+        {
+          "artifact_type": "references",
+          "payload_type": "references-json",
+          "status": "available",
+          "note_key": "RD94LKR2",
+          "note_title": "References",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:b86bdd23e8b2eedf1e4f32cad9c24a0a907bdade999587162e99ae04c6e29d76",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_EIMSDEU3/references.json",
+          "content_hash": "sha256:db04abb8101eb46b9821cea38e2e3dc577c97edef60e27abbad18a0de04666c1"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "payload_type": "citation-analysis-json",
+          "status": "available",
+          "note_key": "V628ZDKL",
+          "note_title": "Citation Analysis",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:0424549e48541d0b661fd5e45fb7769db55429136261d52bed6bd06ea93743db",
+          "missing_reason": "",
+          "diagnostics": [
+            "removed_trailing_section_heading:未映射引用"
+          ],
+          "content_file": "runtime/payloads/artifacts/1_EIMSDEU3/citation-analysis.md",
+          "content_hash": "sha256:164e67c836617c84c7c1844c32060b7f42676352d9326b3f043c08d9e7e6001a",
+          "removed_trailing_section_heading": "未映射引用"
+        }
+      ],
+      "diagnostics": [
+        "1:EIMSDEU3:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json"
+      ]
+    },
+    {
+      "paper_ref": "1:HPLZ65Z2",
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "payload_type": "digest-markdown",
+          "status": "available",
+          "note_key": "V4SSEUUH",
+          "note_title": "Digest",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:390d1a73345aeaad973a0bccaf51946e0c60232d083e1dc677f8f8267d2e7240",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_HPLZ65Z2/digest.md",
+          "content_hash": "sha256:c3aacd9ada92b23b929809f54f0770f7845adfd19377c4a8404a1bb12c1ef82e"
+        },
+        {
+          "artifact_type": "references",
+          "payload_type": "references-json",
+          "status": "available",
+          "note_key": "8BRF5U7N",
+          "note_title": "References",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:5bc7f3f70ae7c903174b746e8cf9d173c4489fc28ed73977740c14ff3c3d0d56",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_HPLZ65Z2/references.json",
+          "content_hash": "sha256:ff1e1d17aa7f7d19bc019e03c334ee2b74b2fa4975c3920fc496bf6356c4284c"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "payload_type": "citation-analysis-json",
+          "status": "available",
+          "note_key": "LAVHNKEU",
+          "note_title": "Citation Analysis",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:d97ccd8d695b7fc4055c1952922010d3fe0aa9b17a296ffa4775dcc6b2757f8f",
+          "missing_reason": "",
+          "diagnostics": [
+            "removed_trailing_section_heading:关键观察"
+          ],
+          "content_file": "runtime/payloads/artifacts/1_HPLZ65Z2/citation-analysis.md",
+          "content_hash": "sha256:878e1d38037d0a3a2475f0bdd2d764ae822097b8583961d62798483efbb1b3c4",
+          "removed_trailing_section_heading": "关键观察"
+        }
+      ],
+      "diagnostics": [
+        "1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json"
+      ]
+    },
+    {
+      "paper_ref": "1:SZ3GNWT9",
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "payload_type": "digest-markdown",
+          "status": "available",
+          "note_key": "ATHC7UMU",
+          "note_title": "Digest",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:a9c4e4a934d0d7b89da15e4af2107799ff404de0a381647498ea7b93c99f2221",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_SZ3GNWT9/digest.md",
+          "content_hash": "sha256:6f98d9ccc18a0f096c35405acceb1b6eea49220dbc7948078ebd7a95f6763c46"
+        },
+        {
+          "artifact_type": "references",
+          "payload_type": "references-json",
+          "status": "available",
+          "note_key": "YBMIMXMZ",
+          "note_title": "References",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:a6e5fa59532b9aa75eed7f6dfb50691c1d8b03e4325c49036de3f1d5d85b504e",
+          "missing_reason": "",
+          "diagnostics": [],
+          "content_file": "runtime/payloads/artifacts/1_SZ3GNWT9/references.json",
+          "content_hash": "sha256:695ffcfe36880f926761754db45f7b0216af64f8efae51f0ef5643c0fa160432"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "payload_type": "citation-analysis-json",
+          "status": "available",
+          "note_key": "K286EXUP",
+          "note_title": "Citation Analysis",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "payload_hash": "sha256:cccff877b0cb795000b4d557c17e4242fbc931f3e5013e1862d1c0732d1a3f87",
+          "missing_reason": "",
+          "diagnostics": [
+            "removed_trailing_section_heading:未映射引用"
+          ],
+          "content_file": "runtime/payloads/artifacts/1_SZ3GNWT9/citation-analysis.md",
+          "content_hash": "sha256:00a1fd233a04c6ed0901517e06a1913283546c2724294867ebb4b5400ff2b089",
+          "removed_trailing_section_heading": "未映射引用"
+        }
+      ],
+      "diagnostics": [
+        "1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json"
+      ]
+    }
+  ],
+  "diagnostics": [
+    "1:3JUY9GBQ:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+    "1:5HBHAWIV:probe:notes=5:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+    "1:EIMSDEU3:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+    "1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+    "1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json"
+  ]
+}

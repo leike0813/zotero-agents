@@ -1,0 +1,31 @@
+{
+  "diagnostics": [],
+  "proposals": [
+    {
+      "evidence": [
+        "1:5HBHAWIV"
+      ],
+      "relation": "has_variant",
+      "source": "DETR",
+      "target": "Deformable DETR"
+    },
+    {
+      "evidence": [
+        "1:HPLZ65Z2"
+      ],
+      "relation": "has_variant",
+      "source": "DETR",
+      "target": "DINO"
+    },
+    {
+      "evidence": [
+        "1:3JUY9GBQ"
+      ],
+      "relation": "extends_to",
+      "source": "DETR",
+      "target": "3D object detection"
+    }
+  ],
+  "schema_id": "synthesis.topic_graph_relation_proposals",
+  "schema_version": "1.0.0"
+}

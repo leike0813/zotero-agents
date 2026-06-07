@@ -120,6 +120,45 @@ function describeManifestValidationErrors(
   return errors.map(formatManifestValidationError).join("; ");
 }
 
+function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
+  if (String(manifest.request?.kind || "").trim() !== "skillrunner.sequence.v1") {
+    return "";
+  }
+  if (manifest.hooks.buildRequest) {
+    return "";
+  }
+  const steps = manifest.request?.sequence?.steps || [];
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return "/request/sequence/steps must be non-empty";
+  }
+  const finalStepId = String(manifest.result?.final_step_id || "").trim();
+  if (!finalStepId) {
+    return "/result/final_step_id is required for skillrunner.sequence.v1";
+  }
+  const seen = new Set<string>();
+  for (let index = 0; index < steps.length; index++) {
+    const step = steps[index];
+    const id = String(step?.id || "").trim();
+    if (!id) {
+      return `/request/sequence/steps/${index}/id must be non-empty`;
+    }
+    if (seen.has(id)) {
+      return `/request/sequence/steps contains duplicated id: ${id}`;
+    }
+    seen.add(id);
+  }
+  if (!seen.has(finalStepId)) {
+    return "/result/final_step_id must match a declared sequence step";
+  }
+  for (let index = 0; index < steps.length; index++) {
+    const fromStep = String(steps[index]?.handoff?.from_step || "").trim();
+    if (fromStep && !seen.has(fromStep)) {
+      return `/request/sequence/steps/${index}/handoff/from_step must match a declared sequence step`;
+    }
+  }
+  return "";
+}
+
 export function normalizeManifestProvider(manifest: WorkflowManifest) {
   const declared = String(manifest.provider || "").trim();
   if (declared) {
@@ -170,6 +209,21 @@ export function parseWorkflowManifestFromText(args: {
         message: `Invalid workflow manifest: ${args.manifestPath}`,
         path: args.manifestPath,
         reason: describeManifestValidationErrors(validate.errors),
+      }),
+    };
+  }
+  const semanticError = validateSequenceManifestSemantics(
+    parsed as WorkflowManifest,
+  );
+  if (semanticError) {
+    return {
+      manifest: null,
+      diagnostic: createLoaderDiagnostic({
+        level: "warning",
+        category: "manifest_validation_error",
+        message: `Invalid workflow manifest: ${args.manifestPath}`,
+        path: args.manifestPath,
+        reason: semanticError,
       }),
     };
   }

@@ -1,0 +1,238 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2020",
+      "authors": "Bochkovskiy, A.; Wang, C.-Y.; et al.",
+      "title": "Yolov4: Optimal speed and accuracy of object detection"
+    },
+    {
+      "id": "ref-2",
+      "year": "2020",
+      "authors": "Carion, N.; Massa, F.; et al.",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "id": "ref-3",
+      "year": "2019",
+      "authors": "Chen, K.; Pang, J.; et al.",
+      "title": "Hybrid task cascade for instance segmentation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2019",
+      "authors": "Chen, K.; Wang, J.; et al.",
+      "title": "Mmdetection: Open mmlab detection toolbox and benchmark"
+    },
+    {
+      "id": "ref-5",
+      "year": "2016",
+      "authors": "Chen, T.; Xu, B.; et al.",
+      "title": "Training deep nets with sublinear memory cost"
+    },
+    {
+      "id": "ref-6",
+      "year": "2021",
+      "authors": "Dai, X.; Chen, Y.; et al.",
+      "title": "Dynamic head: Unifying object detection heads with attentions"
+    },
+    {
+      "id": "ref-7",
+      "year": "2021",
+      "authors": "Dai, X.; Chen, Y.; et al.",
+      "title": "Dynamic detr: End-to-end object detection with dynamic attention"
+    },
+    {
+      "id": "ref-8",
+      "year": "2009",
+      "authors": "Deng, J.; Dong, W.; et al.",
+      "title": "Imagenet: A large-scale hierarchical image database"
+    },
+    {
+      "id": "ref-9",
+      "year": "2018",
+      "authors": "Devlin, J.; Chang, M.-W.; et al.",
+      "title": "Bert: Pretraining of deep bidirectional transformers for language understanding"
+    },
+    {
+      "id": "ref-10",
+      "year": "2021",
+      "authors": "Gao, P.; Zheng, M.; et al.",
+      "title": "Fast convergence of detr with spatially modulated co-attention"
+    },
+    {
+      "id": "ref-11",
+      "year": "2021",
+      "authors": "Ge, Z.; Liu, S.; et al.",
+      "title": "Yolox: Exceeding yolo series in 2021"
+    },
+    {
+      "id": "ref-12",
+      "year": "2017",
+      "authors": "He, K.; Gkioxari, G.; et al.",
+      "title": "Mask r-cnn"
+    },
+    {
+      "id": "ref-13",
+      "year": "2016",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "title": "Deep residual learning for image recognition"
+    },
+    {
+      "id": "ref-14",
+      "year": "2021",
+      "authors": "Kamath, A.; Singh, M.; et al.",
+      "title": "Mdetr – modulated detection for end-to-end multi-modal understanding"
+    },
+    {
+      "id": "ref-15",
+      "year": "2014",
+      "authors": "Kingma, D.P.; Ba, J.",
+      "title": "Adam: A method for stochastic optimization"
+    },
+    {
+      "id": "ref-16",
+      "year": "2022",
+      "authors": "Li, F.; Zhang, H.; et al.",
+      "title": "Dndetr: Accelerate detr training by introducing query denoising"
+    },
+    {
+      "id": "ref-17",
+      "year": "2020",
+      "authors": "Lin, T.-Y.; Goyal, P.; et al.",
+      "title": "Focal loss for dense object detection"
+    },
+    {
+      "id": "ref-18",
+      "year": "2014",
+      "authors": "Lin, T.-Y.; Maire, M.; et al.",
+      "title": "Microsoft coco: Common objects in context"
+    },
+    {
+      "id": "ref-19",
+      "year": "2022",
+      "authors": "Liu, S.; Li, F.; et al.",
+      "title": "DAB-DETR: Dynamic anchor boxes are better queries for DETR"
+    },
+    {
+      "id": "ref-20",
+      "year": "2021",
+      "authors": "Liu, Z.; Hu, H.; et al.",
+      "title": "Swin transformer v2: Scaling up capacity and resolution"
+    },
+    {
+      "id": "ref-21",
+      "year": "2021",
+      "authors": "Liu, Z.; Lin, Y.; et al.",
+      "title": "Swin transformer: Hierarchical vision transformer using shifted windows"
+    },
+    {
+      "id": "ref-22",
+      "year": "2017",
+      "authors": "Loshchilov, I.; Hutter, F.",
+      "title": "Decoupled weight decay regularization"
+    },
+    {
+      "id": "ref-23",
+      "year": "2021",
+      "authors": "Meng, D.; Chen, X.; et al.",
+      "title": "Conditional detr for fast training convergence"
+    },
+    {
+      "id": "ref-24",
+      "year": "2018",
+      "authors": "Micikevicius, P.; Narang, S.; et al.",
+      "title": "Mixed precision training"
+    },
+    {
+      "id": "ref-25",
+      "year": "2021",
+      "authors": "Radford, A.; Kim, J.W.; et al.",
+      "title": "Learning transferable visual models from natural language supervision"
+    },
+    {
+      "id": "ref-26",
+      "year": "2017",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolo9000: better, faster, stronger"
+    },
+    {
+      "id": "ref-27",
+      "year": "2018",
+      "authors": "Redmon, J.; Farhadi, A.",
+      "title": "Yolov3: An incremental improvement"
+    },
+    {
+      "id": "ref-28",
+      "year": "2015",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-29",
+      "year": "2017",
+      "authors": "Ren, S.; He, K.; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-30",
+      "year": "2019",
+      "authors": "Rezatofighi, H.; Tsoi, N.; et al.",
+      "title": "Generalized intersection over union: A metric and a loss for bounding box regression"
+    },
+    {
+      "id": "ref-31",
+      "year": "2019",
+      "authors": "Shao, S.; Li, Z.; et al.",
+      "title": "Objects365: A large-scale, high-quality dataset for object detection"
+    },
+    {
+      "id": "ref-32",
+      "year": "2020",
+      "authors": "Sun, Z.; Cao, S.; et al.",
+      "title": "Rethinking transformer-based set prediction for object detection"
+    },
+    {
+      "id": "ref-33",
+      "year": "2019",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "title": "Fcos: Fully convolutional one-stage object detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2017",
+      "authors": "Vaswani, A.; Shazeer, N.; et al.",
+      "title": "Attention is all you need"
+    },
+    {
+      "id": "ref-35",
+      "year": "2021",
+      "authors": "Wang, Y.; Zhang, X.; et al.",
+      "title": "Anchor detr: Query design for transformer-based detector"
+    },
+    {
+      "id": "ref-36",
+      "year": "2021",
+      "authors": "Xu, M.; Zhang, Z.; et al.",
+      "title": "End-to-end semi-supervised object detection with soft teacher"
+    },
+    {
+      "id": "ref-37",
+      "year": "2021",
+      "authors": "Yao, Z.; Ai, J.; et al.",
+      "title": "Efficient detr: Improving end-to-end object detector with dense prior"
+    },
+    {
+      "id": "ref-38",
+      "year": "2021",
+      "authors": "Yuan, L.; Chen, D.; et al.",
+      "title": "Florence: A new foundation model for computer vision"
+    },
+    {
+      "id": "ref-39",
+      "year": "2021",
+      "authors": "Zhu, X.; Su, W.; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    }
+  ]
+}

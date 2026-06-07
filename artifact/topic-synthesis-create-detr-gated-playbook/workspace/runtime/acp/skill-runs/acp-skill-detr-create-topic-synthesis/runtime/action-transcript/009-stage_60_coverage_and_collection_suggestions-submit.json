@@ -1,0 +1,7 @@
+{
+  "action": "submit",
+  "result": {
+    "report_path": "runtime/views/synthesis-report.md"
+  },
+  "stage": "stage_60_coverage_and_collection_suggestions"
+}

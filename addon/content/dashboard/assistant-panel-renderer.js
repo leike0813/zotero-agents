@@ -1115,7 +1115,7 @@
       .join("###");
   }
 
-  function updateWorkspaceDrawerLiveFields(target, sections) {
+  function updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey) {
     const tasks = [];
     (Array.isArray(sections) ? sections : []).forEach(function (section) {
       (Array.isArray(section && section.groups) ? section.groups : []).forEach(function (group) {
@@ -1135,6 +1135,9 @@
       });
       const updated = row && row.querySelector(".assistant-workspace-drawer-task-updated-at");
       if (updated) updated.textContent = safeText(item.updatedAt);
+      if (row) {
+        row.classList.toggle("is-active", Boolean(taskKey && taskKey === selectedTaskKey));
+      }
     });
   }
 
@@ -1191,12 +1194,13 @@
       : Array.isArray(drawers.skillrunnerSections)
         ? drawers.skillrunnerSections
         : [];
+    const selectedTaskKey = safeText(drawers.selectedTaskKey);
     const nextSignature = workspaceDrawerStableSignature(sections);
     if (
       target.getAttribute("data-assistant-workspace-drawer") === "true" &&
       target.getAttribute("data-assistant-workspace-drawer-signature") === nextSignature
     ) {
-      updateWorkspaceDrawerLiveFields(target, sections);
+      updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey);
       return;
     }
     clear(target);
@@ -1235,7 +1239,6 @@
       );
     }
 
-    const selectedTaskKey = safeText(drawers.selectedTaskKey);
     const body = el("div", "assistant-workspace-drawer-sections skillrunner-workspace-sections");
     let availableTaskCount = 0;
     sections.forEach(function (section) {

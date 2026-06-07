@@ -1,0 +1,11 @@
+{
+  "topic_title": "DETR-style Object Detection",
+  "aliases": ["DETR", "Detection Transformer"],
+  "definition": "以 DETR 及其后续变体为核心的端到端目标检测路线。",
+  "scope_include": ["DETR 原始集合预测检测范式", "DETR 变体"],
+  "scope_exclude": ["与目标检测无关的通用视觉 Transformer 预训练"],
+  "duplicate_status": "none",
+  "duplicate_candidate_ids": [],
+  "duplicate_reason": "list-topics 返回空主题列表。",
+  "diagnostics": [{ "source": "runtime/bridge/list-topics.json" }]
+}

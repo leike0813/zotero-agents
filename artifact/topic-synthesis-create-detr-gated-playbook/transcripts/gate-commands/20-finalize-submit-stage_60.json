@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "result": {
+    "report_path": "runtime/views/synthesis-report.md"
+  },
+  "skill_id": "topic-synthesis-finalize",
+  "stage": "stage_60_coverage_and_collection_suggestions"
+}

@@ -1,0 +1,40 @@
+{
+  "coverage_verdict": "partial",
+  "coverage_reason": "resolver 找到 22 篇 DETR 标签候选，但本 playbook 只选 5 篇做流程样例；这些论文覆盖基线、收敛、多尺度、denoising 和实时化，但不是完整综述。",
+  "reliability_summary": "库内 artifact manifest 显示 5 篇样例均有 digest、references 和 citation-analysis payload；citation graph metrics 返回 stale，因此图谱指标只能作为诊断和弱排序信号。",
+  "coverage_caveats": [
+    {
+      "code": "bounded_example_only",
+      "message": "paper triage 与 cross-paper context 只使用 5 篇样例。"
+    },
+    {
+      "code": "citation_metrics_stale",
+      "message": "citation graph metrics status 为 stale。"
+    },
+    {
+      "code": "full_digest_not_retained",
+      "message": "为避免提交大段正文，playbook 只保留短 evidence 摘要。"
+    }
+  ],
+  "external_context_summary": "外部对照主要来自库内 YOLO/Faster R-CNN/ViT 等标签和 selected papers 的评价语境；本次没有进行网络检索或完整外部文献扩展。",
+  "suggested_collection_directions": [
+    {
+      "direction": "补齐更多 DETR 变体",
+      "reason": "resolver 还有 17 篇未进入样例，包括 DAB-DETR、DN-DETR、Group DETR、RT-DETRv2/v3 等。",
+      "example_titles_or_terms": ["DAB-DETR", "DN-DETR", "Group DETR", "RT-DETRv2"],
+      "priority": "high"
+    },
+    {
+      "direction": "补齐非 DETR 对照",
+      "reason": "实时化和部署讨论需要 YOLO/Faster R-CNN 等强基线作系统对照。",
+      "example_titles_or_terms": ["YOLOv7", "Faster R-CNN", "real-time object detection"],
+      "priority": "medium"
+    }
+  ],
+  "diagnostics": [
+    {
+      "source": "runtime/bridge/citation-graph-metrics.json",
+      "status": "stale"
+    }
+  ]
+}

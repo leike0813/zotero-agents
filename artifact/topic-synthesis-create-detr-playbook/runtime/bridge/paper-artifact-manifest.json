@@ -1,0 +1,34 @@
+{
+  "command": "zotero-bridge synthesis get-paper-artifact-manifest --input '{\"paper_refs\":[\"1:EIMSDEU3\",\"1:5HBHAWIV\",\"1:W4CDLU28\",\"1:HPLZ65Z2\",\"1:CBJWE4JX\"]}'",
+  "ok": true,
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.get_paper_artifact_manifest",
+    "data": {
+      "total": 15,
+      "diagnostics": [
+        "1:EIMSDEU3:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:5HBHAWIV:probe:notes=5:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:W4CDLU28:probe:notes=3:payloads=citation-analysis-json,digest-markdown,references-json",
+        "1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:CBJWE4JX:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json"
+      ],
+      "artifact_counts_by_paper": {
+        "1:EIMSDEU3": 3,
+        "1:5HBHAWIV": 3,
+        "1:W4CDLU28": 3,
+        "1:HPLZ65Z2": 3,
+        "1:CBJWE4JX": 3
+      },
+      "available_payload_types": [
+        "digest-markdown",
+        "references-json",
+        "citation-analysis-json"
+      ]
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

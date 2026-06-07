@@ -1,0 +1,18 @@
+{
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.list_topics",
+    "data": {
+      "diagnostics": {
+        "count": 0,
+        "source": "sqlite-topic-graph"
+      },
+      "topics": []
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

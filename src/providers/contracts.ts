@@ -56,6 +56,49 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   fetch_type?: "bundle" | "result";
 };
 
+export type SkillRunnerSequenceWorkspaceMode = "new" | "reuse-workflow";
+
+export type SkillRunnerSequenceHandoffSpec = {
+  from_step?: string;
+  required?: boolean;
+  pass_through?: boolean;
+  input?: Record<string, string>;
+  parameter?: Record<string, string>;
+  defaults?: {
+    input?: Record<string, unknown>;
+    parameter?: Record<string, unknown>;
+  };
+};
+
+export type SkillRunnerSequenceStepV1 = {
+  id: string;
+  skill_id: string;
+  input?: Record<string, unknown>;
+  parameter?: Record<string, unknown>;
+  fetch_type?: "bundle" | "result";
+  workspace?: SkillRunnerSequenceWorkspaceMode;
+  handoff?: SkillRunnerSequenceHandoffSpec;
+};
+
+export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
+  kind: "skillrunner.sequence.v1";
+  steps: SkillRunnerSequenceStepV1[];
+  final_step_id: string;
+  parameter?: Record<string, unknown>;
+  poll?: {
+    interval_ms?: number;
+    timeout_ms?: number;
+  };
+  runtime_options?: {
+    execution_mode?: "auto" | "interactive" | string;
+    zotero_host_access?: {
+      required?: boolean;
+      auto_approve_writes?: boolean;
+    };
+    [key: string]: unknown;
+  };
+};
+
 export type GenericHttpRequestV1 = ProviderExecutionRequestMeta & {
   kind: "generic-http.request.v1";
   request: {
@@ -127,6 +170,10 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
       required?: boolean;
       auto_approve_writes?: boolean;
     };
+    workflow_workspace?: {
+      mode?: "new" | "reuse";
+      workflow_run_id?: string;
+    };
     [key: string]: unknown;
   };
   poll?: {
@@ -146,6 +193,16 @@ export type ProviderExecutionSucceededResult = {
   bundleDir?: string;
   resultJson?: unknown;
   responseJson?: unknown;
+  sequence?: {
+    workflow_run_id?: string;
+    final_step_id?: string;
+    steps?: Array<{
+      step_id?: string;
+      request_id?: string;
+      output?: unknown;
+      result?: ProviderExecutionResult;
+    }>;
+  };
 };
 
 export type ProviderExecutionDeferredResult = {

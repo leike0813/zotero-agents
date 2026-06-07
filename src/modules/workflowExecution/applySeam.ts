@@ -35,6 +35,11 @@ type RunResultLike = {
   resultJsonPath?: string;
   workspaceDir?: string;
   requestId?: string;
+  sequence?: {
+    workflow_run_id?: string;
+    final_step_id?: string;
+    steps?: Array<Record<string, unknown>>;
+  };
 };
 
 function isSkillRunnerAutoRequest(args: {
@@ -95,6 +100,82 @@ const defaultApplySeamDeps: ApplySeamDeps = {
   createZipBundleReader: (bundlePath) => new ZipBundleReader(bundlePath),
   createWorkflowResultContext,
 };
+
+async function createBundleReaderForRunResult(args: {
+  result: RunResultLike;
+  requestId: string;
+  deps: ApplySeamDeps;
+}) {
+  let bundlePath = "";
+  let bundleReader: BundleReader = args.deps.createUnavailableBundleReader(
+    args.requestId,
+  );
+  if (args.result.bundleBytes && args.result.bundleBytes.length > 0) {
+    bundlePath = args.deps.buildTempBundlePath(args.requestId);
+    await args.deps.writeBytes(bundlePath, args.result.bundleBytes);
+    bundleReader = args.deps.createZipBundleReader(bundlePath);
+  } else if (args.result.bundleDir) {
+    bundleReader = args.deps.createDirectoryBundleReader(args.result.bundleDir);
+  }
+  return { bundleReader, bundlePath };
+}
+
+function getSequenceSteps(result: RunResultLike) {
+  const steps = result.sequence?.steps;
+  return Array.isArray(steps) ? steps : [];
+}
+
+async function createSequenceApplyContext(args: {
+  result: RunResultLike;
+  manifest: WorkflowRunState["workflow"]["manifest"];
+  deps: ApplySeamDeps;
+  cleanupPaths: string[];
+}) {
+  const steps = getSequenceSteps(args.result);
+  if (steps.length === 0) {
+    return undefined;
+  }
+  const sequence = args.result.sequence || {};
+  const enrichedSteps = [];
+  for (const step of steps) {
+    const stepResult =
+      step.result && typeof step.result === "object" && !Array.isArray(step.result)
+        ? (step.result as RunResultLike)
+        : undefined;
+    if (!stepResult) {
+      enrichedSteps.push({ ...step });
+      continue;
+    }
+    const requestId =
+      String(stepResult.requestId || "").trim() ||
+      String(step.request_id || "").trim() ||
+      "sequence-step";
+    const resource = await createBundleReaderForRunResult({
+      result: stepResult,
+      requestId,
+      deps: args.deps,
+    });
+    if (resource.bundlePath) {
+      args.cleanupPaths.push(resource.bundlePath);
+    }
+    const resultContext = await args.deps.createWorkflowResultContext({
+      runResult: stepResult,
+      bundleReader: resource.bundleReader,
+      manifest: args.manifest,
+    });
+    enrichedSteps.push({
+      ...step,
+      request_id: requestId,
+      result: stepResult,
+      bundleReader: resource.bundleReader,
+      resultContext,
+    });
+  }
+  return {
+    ...sequence,
+    steps: enrichedSteps,
+  };
+}
 
 export async function runWorkflowApplySeam(args: {
   runState: WorkflowRunState;
@@ -323,6 +404,7 @@ export async function runWorkflowApplySeam(args: {
     }
 
     let bundlePath = "";
+    const sequenceBundlePaths: string[] = [];
     try {
       resolved.appendRuntimeLog({
         level: "info",
@@ -334,20 +416,23 @@ export async function runWorkflowApplySeam(args: {
         message: "applyResult started",
         details: { index: i, taskLabel, targetParentID: applyParent || undefined },
       });
-      let bundleReader: BundleReader = resolved.createUnavailableBundleReader(
-        result.requestId,
-      );
-      if (result.bundleBytes && result.bundleBytes.length > 0) {
-        bundlePath = resolved.buildTempBundlePath(result.requestId);
-        await resolved.writeBytes(bundlePath, result.bundleBytes);
-        bundleReader = resolved.createZipBundleReader(bundlePath);
-      } else if (result.bundleDir) {
-        bundleReader = resolved.createDirectoryBundleReader(result.bundleDir);
-      }
+      const bundleResource = await createBundleReaderForRunResult({
+        result,
+        requestId: result.requestId,
+        deps: resolved,
+      });
+      bundlePath = bundleResource.bundlePath;
+      const bundleReader = bundleResource.bundleReader;
       const resultContext = await resolved.createWorkflowResultContext({
         runResult: result,
         bundleReader,
         manifest: args.runState.workflow.manifest,
+      });
+      const sequenceApplyContext = await createSequenceApplyContext({
+        result,
+        manifest: args.runState.workflow.manifest,
+        deps: resolved,
+        cleanupPaths: sequenceBundlePaths,
       });
       await resolved.executeApplyResult({
         workflow: args.runState.workflow,
@@ -360,6 +445,9 @@ export async function runWorkflowApplySeam(args: {
           backendId: String(job.meta.backendId || "").trim() || undefined,
           backendType: String(job.meta.backendType || "").trim() || undefined,
           runId: String(job.meta.runId || "").trim() || undefined,
+          ...(sequenceApplyContext
+            ? { sequence: sequenceApplyContext }
+            : {}),
         },
       });
       if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
@@ -434,6 +522,9 @@ export async function runWorkflowApplySeam(args: {
     } finally {
       if (bundlePath) {
         await resolved.removeFileIfExists(bundlePath);
+      }
+      for (const path of sequenceBundlePaths) {
+        await resolved.removeFileIfExists(path);
       }
     }
   }

@@ -1,0 +1,1742 @@
+{
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.get_library_index",
+    "data": {
+      "cursor": "0",
+      "has_more": false,
+      "index_hash": "sha256:5d300fd7b82648bb26742699b9de2bece2a3dae514ae2a79f2194f4276bddb00",
+      "libraryId": 1,
+      "limit": 200,
+      "next_cursor": "",
+      "page_hash": "sha256:6f480f56cd47ebab50e92a2c4a7e9e25e1a690f0e9ecdc1f8d4a5677e26b663f",
+      "papers": [
+        {
+          "collections": [],
+          "creators": [
+            "Zhuang Liu",
+            "Hanzi Mao",
+            "Chao-Yuan Wu",
+            "Christoph Feichtenhofer",
+            "Trevor Darrell",
+            "Saining Xie"
+          ],
+          "item_key": "I6XI39WA",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:I6XI39WA",
+          "tags": [
+            "ai_task:classification",
+            "ai_task:detection",
+            "ai_task:segmentation",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "model:DL/ConvNeXt",
+            "model:DL/ResNet",
+            "model:DL/Swin",
+            "model:DL/ViT",
+            "status:0-inbox",
+            "topic:benchmark"
+          ],
+          "title": "A ConvNet for the 2020s",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ting Chen",
+            "Simon Kornblith",
+            "Mohammad Norouzi",
+            "Geoffrey Hinton"
+          ],
+          "item_key": "ANFVBN87",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:ANFVBN87",
+          "tags": [
+            "ai_task:classification",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:contrastive-learning",
+            "method:data-augmentation",
+            "method:ML",
+            "method:self-supervised",
+            "model:DL/ResNet",
+            "status:0-inbox"
+          ],
+          "title": "A Simple Framework for Contrastive Learning of Visual Representations",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Gongjie Zhang",
+            "Zhipeng Luo",
+            "Yingchen Yu",
+            "Kaiwen Cui",
+            "Shijian Lu"
+          ],
+          "item_key": "S86GB385",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:S86GB385",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:optimization",
+            "model:DL/DETR",
+            "test_tag_serial"
+          ],
+          "title": "Accelerating DETR convergence via semantic-aligned matching",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ishan Misra",
+            "Rohit Girdhar",
+            "Armand Joulin"
+          ],
+          "item_key": "JMWG9XVD",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:JMWG9XVD",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/transformer",
+            "status:0-inbox",
+            "topic:3d-detection"
+          ],
+          "title": "An end-to-end transformer model for 3D object detection",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Alexey Dosovitskiy",
+            "Lucas Beyer",
+            "Alexander Kolesnikov",
+            "Dirk Weissenborn",
+            "Xiaohua Zhai",
+            "Thomas Unterthiner",
+            "Mostafa Dehghani",
+            "Matthias Minderer",
+            "Georg Heigold",
+            "Sylvain Gelly",
+            "Jakob Uszkoreit",
+            "Neil Houlsby"
+          ],
+          "item_key": "LUM266YT",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:LUM266YT",
+          "tags": [
+            "ai_task:classification",
+            "Artificial Intelligence (cs.AI)",
+            "Computer Vision and Pattern Recognition (cs.CV)",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "Machine Learning (cs.LG)",
+            "method:ML",
+            "method:transfer-learning",
+            "model:DL/ViT",
+            "topic:pretraining"
+          ],
+          "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ashish Vaswani",
+            "Noam Shazeer",
+            "Niki Parmar",
+            "Jakob Uszkoreit",
+            "Llion Jones",
+            "Aidan N Gomez",
+            "Ł ukasz Kaiser",
+            "Illia Polosukhin"
+          ],
+          "item_key": "Z25GLKZV",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:Z25GLKZV",
+          "tags": [
+            "ai_task:generation",
+            "field:CS/AI",
+            "field:CS/AI/NLP",
+            "model:DL/attention",
+            "model:DL/transformer",
+            "status:0-inbox",
+            "topic:pretraining"
+          ],
+          "title": "Attention is All you Need",
+          "year": "2017"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Tianwei Yin",
+            "Xingyi Zhou",
+            "Philipp Krähenbühl"
+          ],
+          "item_key": "J6DSFFBH",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:J6DSFFBH",
+          "tags": [
+            "ai_task:classification",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:ML",
+            "method:transfer-learning",
+            "model:DL/ViT",
+            "topic:pretraining"
+          ],
+          "title": "Center-based 3D Object Detection and Tracking",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zhi Tian",
+            "Chunhua Shen",
+            "Hao Chen"
+          ],
+          "item_key": "8AXAW2GX",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:8AXAW2GX",
+          "tags": [
+            "ai_task:instance-segmentation",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:DL"
+          ],
+          "title": "Conditional Convolutions for Instance Segmentation",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Depu Meng",
+            "Xiaokang Chen",
+            "Zejia Fan",
+            "Gang Zeng",
+            "Houqiang Li",
+            "Yuhui Yuan",
+            "Lei Sun",
+            "Jingdong Wang"
+          ],
+          "item_key": "W4CDLU28",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:W4CDLU28",
+          "tags": [
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "topic:model-convergence"
+          ],
+          "title": "Conditional DETR for fast training convergence",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yansong Peng",
+            "Hebei Li",
+            "Peixi Wu",
+            "Yueyi Zhang",
+            "Xiaoyan Sun",
+            "Feng Wu"
+          ],
+          "item_key": "MERSIDHN",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:MERSIDHN",
+          "tags": [
+            "ai_task:classification",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:ML",
+            "method:transfer-learning",
+            "model:DL/ViT",
+            "topic:pretraining"
+          ],
+          "title": "D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Shilong Liu",
+            "Feng Li",
+            "Hao Zhang",
+            "Xiao Yang",
+            "Xianbiao Qi",
+            "Hang Su",
+            "Jun Zhu",
+            "Lei Zhang"
+          ],
+          "item_key": "IY3FMWQM",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:IY3FMWQM",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "model:DL/ResNet",
+            "model:DL/transformer",
+            "topic:anchor"
+          ],
+          "title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Kaiming He",
+            "Xiangyu Zhang",
+            "Shaoqing Ren",
+            "Jian Sun"
+          ],
+          "item_key": "34WIW5FH",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:34WIW5FH",
+          "tags": [
+            "ai_task:classification",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/ResNet"
+          ],
+          "title": "Deep Residual Learning for Image Recognition",
+          "year": "2015"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Xizhou Zhu",
+            "Weijie Su",
+            "Lewei Lu",
+            "Bin Li",
+            "Xiaogang Wang",
+            "Jifeng Dai"
+          ],
+          "item_key": "5HBHAWIV",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:5HBHAWIV",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/DETR",
+            "model:DL/transformer"
+          ],
+          "title": "Deformable DETR: deformable transformers for end-to-end object detection",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Matthieu Lin",
+            "Chuming Li",
+            "Xingyuan Bu",
+            "Ming Sun",
+            "Chen Lin",
+            "Junjie Yan",
+            "Wanli Ouyang",
+            "Zhidong Deng"
+          ],
+          "item_key": "I4ZU2PCY",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:I4ZU2PCY",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "model:DL/Faster-R-CNN",
+            "model:DL/transformer",
+            "topic:pedestrian-detection"
+          ],
+          "title": "DETR for crowd pedestrian detection",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yue Wang",
+            "Vitor Campagnolo Guizilini",
+            "Tianyuan Zhang",
+            "Yilun Wang",
+            "Hang Zhao",
+            "Justin Solomon"
+          ],
+          "item_key": "3JUY9GBQ",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:3JUY9GBQ",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/DETR",
+            "topic:3d-detection",
+            "topic:autonomous-driving",
+            "topic:multi-camera",
+            "topic:nms-free"
+          ],
+          "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yian Zhao",
+            "Wenyu Lv",
+            "Shangliang Xu",
+            "Jinman Wei",
+            "Guanzhong Wang",
+            "Qingqing Dang",
+            "Yi Liu",
+            "Jie Chen"
+          ],
+          "item_key": "CBJWE4JX",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:CBJWE4JX",
+          "tags": [
+            "ai_task:detection",
+            "data:image",
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "model:DL/YOLO",
+            "status:2-to-read",
+            "topic:benchmark",
+            "topic:real-time"
+          ],
+          "title": "DETRs beat YOLOs on real-time object detection",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zhuofan Zong",
+            "Guanglu Song",
+            "Yu Liu"
+          ],
+          "item_key": "7AERRYC7",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:7AERRYC7",
+          "tags": [
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/DETR",
+            "topic:end-to-end"
+          ],
+          "title": "DETRs with collaborative hybrid assignments training",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ding Jia",
+            "Yuhui Yuan",
+            "Haodi He",
+            "Xiaopei Wu",
+            "Haojun Yu",
+            "Weihong Lin",
+            "Lei Sun",
+            "Chao Zhang",
+            "Han Hu"
+          ],
+          "item_key": "D6BUKS9Q",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:D6BUKS9Q",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:hybrid-matching",
+            "method:set-matching",
+            "model:DL/DETR",
+            "topic:image-patch",
+            "topic:nms-free"
+          ],
+          "title": "DETRs with Hybrid Matching",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ryan Faulkenberry",
+            "Saurabh Prasad"
+          ],
+          "item_key": "8DP4884A",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:8DP4884A",
+          "tags": [
+            "ai_task:segmentation",
+            "field:CS/AI/CV",
+            "field:RS",
+            "method:cost-aggregation",
+            "method:zero-shot",
+            "model:DL/DINOv3",
+            "topic:open-vocabulary"
+          ],
+          "title": "DINO Soars: DINOv3 for Open-Vocabulary Semantic Segmentation of Remote Sensing Imagery",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Hao Zhang",
+            "Feng Li",
+            "Shilong Liu",
+            "Lei Zhang",
+            "Hang Su",
+            "Jun Zhu",
+            "Lionel M. Ni",
+            "Heung-Yeung Shum"
+          ],
+          "item_key": "HPLZ65Z2",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:HPLZ65Z2",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:contrastive-learning",
+            "method:denoising-training",
+            "model:DL/DETR",
+            "topic:anchor"
+          ],
+          "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Kun Tang",
+            "Xinquan Yang",
+            "Mianjie Zheng",
+            "Xuefen Liu",
+            "Xuguang Li",
+            "Xiaoqi Guo",
+            "Ruihan Chen",
+            "Linlin Shen",
+            "He Meng"
+          ],
+          "item_key": "9CBBDH3Y",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:9CBBDH3Y",
+          "tags": [
+            "/unread",
+            "Computer Science - Computer Vision and Pattern Recognition"
+          ],
+          "title": "DinoDental: Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Analysis",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Maxime Oquab",
+            "Timothée Darcet",
+            "Théo Moutakanni",
+            "Huy Vo",
+            "Marc Szafraniec",
+            "Vasil Khalidov",
+            "Pierre Fernandez",
+            "Daniel Haziza",
+            "Francisco Massa",
+            "Alaaeldin El-Nouby",
+            "Mahmoud Assran",
+            "Nicolas Ballas",
+            "Wojciech Galuba",
+            "Russell Howes",
+            "Po-Yao Huang",
+            "Shang-Wen Li",
+            "Ishan Misra",
+            "Michael Rabbat",
+            "Vasu Sharma",
+            "Gabriel Synnaeve",
+            "Hu Xu",
+            "Hervé Jegou",
+            "Julien Mairal",
+            "Patrick Labatut",
+            "Armand Joulin",
+            "Piotr Bojanowski"
+          ],
+          "item_key": "5X4M5DHJ",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:5X4M5DHJ",
+          "tags": [
+            "/unread",
+            "Computer Vision and Pattern Recognition (cs.CV)",
+            "FOS: Computer and information sciences"
+          ],
+          "title": "DINOv2: Learning Robust Visual Features without Supervision",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Oriane Siméoni",
+            "Huy V. Vo",
+            "Maximilian Seitzer",
+            "Federico Baldassarre",
+            "Maxime Oquab",
+            "Cijo Jose",
+            "Vasil Khalidov",
+            "Marc Szafraniec",
+            "Seungeun Yi",
+            "Michaël Ramamonjisoa",
+            "Francisco Massa",
+            "Daniel Haziza",
+            "Luca Wehrstedt",
+            "Jianyuan Wang",
+            "Timothée Darcet",
+            "Théo Moutakanni",
+            "Leonel Sentana",
+            "Claire Roberts",
+            "Andrea Vedaldi",
+            "Jamie Tolan",
+            "John Brandt",
+            "Camille Couprie",
+            "Julien Mairal",
+            "Hervé Jégou",
+            "Patrick Labatut",
+            "Piotr Bojanowski"
+          ],
+          "item_key": "TWR6CC4I",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:TWR6CC4I",
+          "tags": [
+            "/unread",
+            "Computer Science - Computer Vision and Pattern Recognition",
+            "Computer Science - Machine Learning"
+          ],
+          "title": "DINOv3",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Feng Li",
+            "Hao Zhang",
+            "Shilong Liu",
+            "Jian Guo",
+            "Lionel M. Ni",
+            "Lei Zhang"
+          ],
+          "item_key": "NXLIGKF5",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:NXLIGKF5",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:denoising-training",
+            "method:DL",
+            "model:DL/DETR"
+          ],
+          "title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Che Liu",
+            "Yinda Chen",
+            "Haoyuan Shi",
+            "Jinpeng Lu",
+            "Bailiang Jian",
+            "Jiazhen Pan",
+            "Linghan Cai",
+            "Jiayi Wang",
+            "Jieming Yu",
+            "Ziqi Gao",
+            "Xiaoran Zhang",
+            "Long Bai",
+            "Yundi Zhang",
+            "Jun Li",
+            "Cosmin I. Bercea",
+            "Cheng Ouyang",
+            "Chen Chen",
+            "Zhiwei Xiong",
+            "Benedikt Wiestler",
+            "Christian Wachinger",
+            "James S. Duncan",
+            "Daniel Rueckert",
+            "Wenjia Bai",
+            "Rossella Arcucci"
+          ],
+          "item_key": "UW8ZLVA6",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:UW8ZLVA6",
+          "tags": [
+            "/unread",
+            "Computer Science - Computer Vision and Pattern Recognition"
+          ],
+          "title": "Does DINOv3 Set a New Medical Vision Standard? Benchmarking 2D and 3D Classification, Segmentation, and Registration",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zhuyu Yao",
+            "Jiangbo Ai",
+            "Boxun Li",
+            "Chi Zhang"
+          ],
+          "item_key": "VHBU3NI6",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:VHBU3NI6",
+          "tags": [
+            "ai_task:detection",
+            "data:image",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "status:2-to-read"
+          ],
+          "title": "Efficient DETR: improving end-to-end object detector with dense prior",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Nicolas Carion",
+            "Francisco Massa",
+            "Gabriel Synnaeve",
+            "Nicolas Usunier",
+            "Alexander Kirillov",
+            "Sergey Zagoruyko",
+            "Andrea Vedaldi",
+            "Horst Bischof",
+            "Thomas Brox",
+            "Jan-Michael Frahm"
+          ],
+          "item_key": "EIMSDEU3",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:EIMSDEU3",
+          "tags": [
+            "ai_task:detection",
+            "ai_task:segmentation",
+            "field:CS/AI/CV",
+            "field:CS/AI/DL",
+            "method:DL",
+            "method:supervised-learning",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "topic:benchmark"
+          ],
+          "title": "End-to-end object detection with transformers",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yingying Zhang",
+            "Chuangji Shi",
+            "Xin Guo",
+            "Jiangwei Lao",
+            "Jian Wang",
+            "Jiaotuan Wang",
+            "Jingdong Chen"
+          ],
+          "item_key": "CGJBFE6C",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:CGJBFE6C",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "model:DL/transformer"
+          ],
+          "title": "Enhancing DETRs variants through improved content query and similar query aggregation",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Guoping Xu",
+            "Jayaram K. Udupa",
+            "Weiguo Lu",
+            "You Zhang"
+          ],
+          "item_key": "M68XPFA9",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:M68XPFA9",
+          "tags": [
+            "/unread",
+            "Computer Science - Computation and Language",
+            "Computer Science - Computational Engineering, Finance, and Science",
+            "Computer Science - Computer Vision and Pattern Recognition"
+          ],
+          "title": "Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Shaoqing Ren",
+            "Kaiming He",
+            "Ross Girshick",
+            "Jian Sun"
+          ],
+          "item_key": "M3AU5AC9",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:M3AU5AC9",
+          "tags": [
+            "ai_task:detection",
+            "data:MS-COCO",
+            "field:CS/AI/CV",
+            "model:DL/CNN",
+            "model:DL/Faster-R-CNN",
+            "status:2-to-read",
+            "topic:end-to-end",
+            "topic:real-time"
+          ],
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+          "year": "2017"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Qiang Chen",
+            "Xiaokang Chen",
+            "Jian Wang",
+            "Shan Zhang",
+            "Kun Yao",
+            "Haocheng Feng",
+            "Junyu Han",
+            "Errui Ding",
+            "Gang Zeng",
+            "Jingdong Wang"
+          ],
+          "item_key": "DBYQ4LWE",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:DBYQ4LWE",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/DETR"
+          ],
+          "title": "Group DETR: Fast DETR Training with Group-Wise One-to-Many Assignment",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Chenping Fu",
+            "Wanqi Yuan",
+            "Jiewen Xiao",
+            "Risheng Liu",
+            "Xin Fan"
+          ],
+          "item_key": "4IUAXCCZ",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:4IUAXCCZ",
+          "tags": [
+            "ai_task:detection",
+            "ai_task:image-restoration",
+            "field:CS/AI/CV",
+            "method:multi-task-learning",
+            "topic:underwater"
+          ],
+          "title": "Joint perceptual learning for enhancement and object detection in underwater scenarios",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Qiang Chen",
+            "Xiangbo Su",
+            "Xinyu Zhang",
+            "Jian Wang",
+            "Jiahui Chen",
+            "Yunpeng Shen",
+            "Chuchu Han",
+            "Ziliang Chen",
+            "Weixiang Xu",
+            "Fanrong Li",
+            "Shan Zhang",
+            "Kun Yao",
+            "Errui Ding",
+            "Gang Zhang",
+            "Jingdong Wang"
+          ],
+          "item_key": "8838AH6P",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:8838AH6P",
+          "tags": [
+            "ai_task:detection",
+            "data:MS-COCO",
+            "field:CS/AI/CV",
+            "match_status:unmatched",
+            "method:pretraining",
+            "model:DL/DETR",
+            "model:DL/ViT",
+            "model:DL/YOLO",
+            "topic:real-time"
+          ],
+          "title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Feng Li",
+            "Hao Zhang",
+            "Huaizhe Xu",
+            "Shilong Liu",
+            "Lei Zhang",
+            "Lionel M. Ni",
+            "Heung-Yeung Shum"
+          ],
+          "item_key": "VQ2WLIDR",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:VQ2WLIDR",
+          "tags": [
+            "/unread"
+          ],
+          "title": "Mask DINO: towards a unified transformer-based framework for object detection and segmentation",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Kaiming He",
+            "Georgia Gkioxari",
+            "Piotr DollÃ¡r",
+            "Ross Girshick"
+          ],
+          "item_key": "UVI9ULI2",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:UVI9ULI2",
+          "tags": [
+            "/unread"
+          ],
+          "title": "Mask R-CNN",
+          "year": "2017"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Kaiming He",
+            "Xinlei Chen",
+            "Saining Xie",
+            "Yanghao Li",
+            "Piotr Dollár",
+            "Ross Girshick"
+          ],
+          "item_key": "UKTTI6PP",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:UKTTI6PP",
+          "tags": [
+            "field:CS/AI/CV",
+            "method:self-supervised",
+            "model:DL/autoencoder",
+            "model:DL/MAE",
+            "model:DL/ViT",
+            "topic:masked-image-modeling",
+            "topic:pretraining",
+            "topic:scalable-learning"
+          ],
+          "title": "Masked Autoencoders Are Scalable Vision Learners",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Bowen Cheng",
+            "Ishan Misra",
+            "Alexander G. Schwing",
+            "Alexander Kirillov",
+            "Rohit Girdhar"
+          ],
+          "item_key": "53A2WXX8",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:53A2WXX8",
+          "tags": [
+            "ai_task:segmentation",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "model:DL/transformer",
+            "topic:instance-segmentation",
+            "topic:mask-classification",
+            "topic:panoptic-segmentation"
+          ],
+          "title": "Masked-attention Mask Transformer for Universal Image Segmentation",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yuheng Li",
+            "Yizhou Wu",
+            "Yuxiang Lai",
+            "Mingzhe Hu",
+            "Xiaofeng Yang"
+          ],
+          "item_key": "BBIY57N3",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:BBIY57N3",
+          "tags": [
+            "ai_task:segmentation",
+            "data:image",
+            "field:CS/AI/CV",
+            "field:Medical-Imaging",
+            "method:self-supervised",
+            "method:transfer-learning",
+            "model:DL/DINOv3",
+            "model:DL/ViT",
+            "status:0-inbox",
+            "topic:domain-adaptation",
+            "topic:pretraining"
+          ],
+          "title": "MedDINOv3: How to adapt vision foundation models for medical image segmentation?",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Fangao Zeng",
+            "Bin Dong",
+            "Yuang Zhang",
+            "Tiancai Wang",
+            "Xiangyu Zhang",
+            "Yichen Wei",
+            "Shai Avidan",
+            "Gabriel Brostow",
+            "Moustapha Cissé",
+            "Giovanni Maria Farinella",
+            "Tal Hassner"
+          ],
+          "item_key": "KSM65VAD",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:KSM65VAD",
+          "tags": [
+            "ai_task:tracking",
+            "data:video",
+            "field:CS/AI/CV",
+            "model:DL/transformer"
+          ],
+          "title": "MOTR: end-to-end multiple-object tracking with transformer",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Tahira Shehzadi",
+            "Khurram Azeem Hashmi",
+            "Marcus Liwicki",
+            "Didier Stricker",
+            "Muhammad Zeshan Afzal"
+          ],
+          "item_key": "4FUJYLNY",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:4FUJYLNY",
+          "tags": [
+            "/unread"
+          ],
+          "title": "Object Detection with Transformers: A Review",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zhiqi Li",
+            "Wenhai Wang",
+            "Enze Xie",
+            "Zhiding Yu",
+            "Anima Anandkumar",
+            "Jose M. Alvarez",
+            "Ping Luo",
+            "Tong Lu"
+          ],
+          "item_key": "RPRBE2QN",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:RPRBE2QN",
+          "tags": [
+            "ai_task:segmentation",
+            "field:CS/AI/CV",
+            "model:DL/transformer"
+          ],
+          "title": "Panoptic SegFormer: delving deeper into panoptic segmentation with transformers",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zixiang Zhou",
+            "Yang Zhang",
+            "Hassan Foroosh"
+          ],
+          "item_key": "DDT5Q9QF",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:DDT5Q9QF",
+          "tags": [
+            "ai_task:segmentation",
+            "data:LiDAR",
+            "data:point-cloud",
+            "method:DL",
+            "method:polar-transform",
+            "method:proposal-free",
+            "topic:autonomous-driving",
+            "topic:panoptic-segmentation"
+          ],
+          "title": "Panoptic-PolarNet: Proposal-free LiDAR Point Cloud Panoptic Segmentation",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Bowen Cheng",
+            "Alexander G. Schwing",
+            "Alexander Kirillov"
+          ],
+          "item_key": "USRNFHXP",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:USRNFHXP",
+          "tags": [
+            "ai_task:segmentation",
+            "method:set-matching",
+            "model:DL/transformer",
+            "topic:mask-classification",
+            "topic:panoptic-segmentation"
+          ],
+          "title": "Per-Pixel Classification is Not All You Need for Semantic Segmentation",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Thomas Martin Deserno",
+            "Heinz Handels",
+            "Hans-Peter Meinzer",
+            "Thomas Tolxdorff",
+            "Cosmin Adrian Morariu",
+            "Daniel Sebastian Dohle",
+            "Tobias Terheiden",
+            "Konstantinos Tsagakis",
+            "Josef Pauli"
+          ],
+          "item_key": "M5KCQ9G3",
+          "item_type": "bookSection",
+          "library_id": 1,
+          "paper_ref": "1:M5KCQ9G3",
+          "tags": [
+            "ai_task:segmentation",
+            "data:image",
+            "method:polar-transform",
+            "status:2-to-read"
+          ],
+          "title": "Polar-Based Aortic Segmentation in 3D CTA Dissection Data Using a Piecewise Constant Curvature Model",
+          "year": "2014"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yang Zhang",
+            "Zixiang Zhou",
+            "Philip David",
+            "Xiangyu Yue",
+            "Zerong Xi",
+            "Boqing Gong",
+            "Hassan Foroosh"
+          ],
+          "item_key": "CHPBJDLU",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:CHPBJDLU",
+          "tags": [
+            "ai_task:segmentation",
+            "data:LiDAR",
+            "data:point-cloud",
+            "field:CS/AI/CV",
+            "model:DL/CNN",
+            "status:0-inbox"
+          ],
+          "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Qi Chen",
+            "Sourabh Vora",
+            "Oscar Beijbom"
+          ],
+          "item_key": "AHF2RU48",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:AHF2RU48",
+          "tags": [
+            "ai_task:detection",
+            "ai_task:instance-segmentation",
+            "ai_task:segmentation",
+            "data:LiDAR",
+            "data:point-cloud",
+            "field:CS/AI/CV",
+            "method:multi-task-learning",
+            "method:polar-transform",
+            "model:DL/CenterPoint",
+            "model:DL/transformer",
+            "status:0-inbox",
+            "tool:PyTorch",
+            "topic:3d-detection",
+            "topic:autonomous-driving"
+          ],
+          "title": "PolarStream: Streaming Lidar Object Detection and Segmentation with Polar Pillars",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Yifan Pu",
+            "Weicong Liang",
+            "Yiduo Hao",
+            "Yuhui Yuan",
+            "Yukang Yang",
+            "Chao Zhang",
+            "Han Hu",
+            "Gao Huang"
+          ],
+          "item_key": "3YG8UNCI",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:3YG8UNCI",
+          "tags": [
+            "ai_task:detection",
+            "model:DL/DETR",
+            "status:0-inbox"
+          ],
+          "title": "Rank-DETR for high quality object detection",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Shihua Huang",
+            "Yongjie Hou",
+            "Longfei Liu",
+            "Xuanlong Yu",
+            "Xi Shen"
+          ],
+          "item_key": "8YS3DEMI",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:8YS3DEMI",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/DINOv3",
+            "topic:edge-deployment",
+            "topic:model-compression",
+            "topic:real-time"
+          ],
+          "title": "Real-time object detection meets DINOv3",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Bin Xiao",
+            "Murat Simsek",
+            "Burak Kantarci",
+            "Ala Abu Alkheir"
+          ],
+          "item_key": "VI9JURUB",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:VI9JURUB",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/attention"
+          ],
+          "title": "Rethinking detection based table structure recognition for visually rich document images",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Isaac Robinson",
+            "Peter Robicheaux",
+            "Matvei Popov",
+            "Deva Ramanan",
+            "Neehar Peri"
+          ],
+          "item_key": "SZ3GNWT9",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:SZ3GNWT9",
+          "tags": [
+            "ai_task:detection",
+            "data:image",
+            "field:CS/AI/CV",
+            "field:CS/AI/DL",
+            "method:optimization",
+            "method:transfer-learning",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "topic:benchmark",
+            "topic:domain-adaptation",
+            "topic:edge-deployment",
+            "topic:fine-tuning",
+            "topic:pretraining",
+            "topic:real-time"
+          ],
+          "title": "RF-DETR: neural architecture search for real-time detection transformers",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Wenyu Lv",
+            "Yian Zhao",
+            "Qinyao Chang",
+            "Kui Huang",
+            "Guanzhong Wang",
+            "Yi Liu"
+          ],
+          "item_key": "8PP8HQMY",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:8PP8HQMY",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:data-augmentation",
+            "model:DL/attention",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "topic:benchmark",
+            "topic:real-time"
+          ],
+          "title": "RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Shuo Wang",
+            "Chunlong Xia",
+            "Feng Lv",
+            "Yifeng Shi"
+          ],
+          "item_key": "GHWYS7AF",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:GHWYS7AF",
+          "tags": [
+            "ai_task:detection",
+            "data:image",
+            "field:CS/AI/CV",
+            "model:DL/DETR",
+            "topic:real-time"
+          ],
+          "title": "RT-DETRv3: real-time end-to-end object detection with hierarchical dense positive supervision",
+          "year": "2024"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Nicolas Carion",
+            "Laura Gustafson",
+            "Yuan-Ting Hu",
+            "Shoubhik Debnath",
+            "Ronghang Hu",
+            "Didac Suris",
+            "Chaitanya Ryali",
+            "Kalyan Vasudev Alwala",
+            "Haitham Khedr",
+            "Andrew Huang",
+            "Jie Lei",
+            "Tengyu Ma",
+            "Baishan Guo",
+            "Arpit Kalla",
+            "Markus Marks",
+            "Joseph Greer",
+            "Meng Wang",
+            "Peize Sun",
+            "Roman Rädle",
+            "Triantafyllos Afouras",
+            "Effrosyni Mavroudi",
+            "Katherine Xu",
+            "Tsung-Han Wu",
+            "Yu Zhou",
+            "Liliane Momeni",
+            "Rishi Hazra",
+            "Shuangrui Ding",
+            "Sagar Vaze",
+            "Francois Porcher",
+            "Feng Li",
+            "Siyuan Li",
+            "Aishwarya Kamath",
+            "Ho Kei Cheng",
+            "Piotr Dollár",
+            "Nikhila Ravi",
+            "Kate Saenko",
+            "Pengchuan Zhang",
+            "Christoph Feichtenhofer"
+          ],
+          "item_key": "HDDAIKQQ",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:HDDAIKQQ",
+          "tags": [
+            "ai_task:detection",
+            "ai_task:segmentation",
+            "ai_task:tracking",
+            "data:image",
+            "data:video",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "model:DL/SAM",
+            "topic:open-vocabulary",
+            "topic:promptable-segmentation"
+          ],
+          "title": "SAM 3: segment anything with concepts",
+          "year": "2026"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Sicheng Yang",
+            "Hongqiu Wang",
+            "Zhaohu Xing",
+            "Sixiang Chen",
+            "Lei Zhu"
+          ],
+          "item_key": "7T29H6SR",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:7T29H6SR",
+          "tags": [
+            "ai_task:segmentation",
+            "field:CS/AI/CV",
+            "method:self-supervised",
+            "model:DL/DINOv3",
+            "model:DL/ViT"
+          ],
+          "title": "SegDINO: An Efficient Design for Medical and Natural Image Segmentation with DINO-V3",
+          "year": "2025"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Alexander Kirillov",
+            "Eric Mintun",
+            "Nikhila Ravi",
+            "Hanzi Mao",
+            "Chloe Rolland",
+            "Laura Gustafson",
+            "Tete Xiao",
+            "Spencer Whitehead",
+            "Alexander C. Berg",
+            "Wan-Yen Lo",
+            "Piotr DollÃ¡r",
+            "Ross Girshick"
+          ],
+          "item_key": "8WM66ZL3",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:8WM66ZL3",
+          "tags": [
+            "ai_task:segmentation",
+            "data:image",
+            "field:CS/AI/CV",
+            "method:zero-shot",
+            "model:DL/ViT",
+            "status:2-to-read",
+            "topic:benchmark",
+            "topic:promptable-segmentation"
+          ],
+          "title": "Segment Anything",
+          "year": "2023"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Xinlong Wang",
+            "Rufeng Zhang",
+            "Tao Kong",
+            "Lei Li",
+            "Chunhua Shen"
+          ],
+          "item_key": "76BD6UYE",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:76BD6UYE",
+          "tags": [
+            "ai_task:instance-segmentation",
+            "field:CS/AI/CV",
+            "method:anchor-free",
+            "method:DL",
+            "method:grid-classification",
+            "topic:instance-segmentation"
+          ],
+          "title": "SOLO: Segmenting Objects by Locations",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Xinlong Wang",
+            "Rufeng Zhang",
+            "Tao Kong",
+            "Lei Li",
+            "Chunhua Shen"
+          ],
+          "item_key": "4DB3YS8Y",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:4DB3YS8Y",
+          "tags": [
+            "ai_task:detection",
+            "ai_task:instance-segmentation",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/CNN",
+            "topic:nms-free",
+            "topic:real-time"
+          ],
+          "title": "SOLOv2: Dynamic and Fast Instance Segmentation",
+          "year": "2020"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Byungseok Roh",
+            "JaeWoong Shin",
+            "Wuhyun Shin",
+            "Saehoon Kim"
+          ],
+          "item_key": "29IBKEUR",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:29IBKEUR",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/DETR",
+            "model:DL/transformer"
+          ],
+          "title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Ze Liu",
+            "Yutong Lin",
+            "Yue Cao",
+            "Han Hu",
+            "Yixuan Wei",
+            "Zheng Zhang",
+            "Stephen Lin",
+            "Baining Guo"
+          ],
+          "item_key": "95F26DIX",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:95F26DIX",
+          "tags": [
+            "ai_task:classification",
+            "ai_task:detection",
+            "ai_task:segmentation",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:DL",
+            "method:ML",
+            "model:DL/attention",
+            "model:DL/Swin",
+            "model:DL/transformer",
+            "model:DL/ViT"
+          ],
+          "title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Olaf Ronneberger",
+            "Philipp Fischer",
+            "Thomas Brox"
+          ],
+          "item_key": "8ET4QJ6S",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:8ET4QJ6S",
+          "tags": [
+            "ai_task:segmentation",
+            "Computer Vision and Pattern Recognition (cs.CV)",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:data-augmentation",
+            "model:DL/U-Net",
+            "status:0-inbox"
+          ],
+          "title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+          "year": "2015"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Zhigang Dai",
+            "Bolun Cai",
+            "Yugeng Lin",
+            "Junying Chen"
+          ],
+          "item_key": "P5NLH47E",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:P5NLH47E",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "method:unsupervised-learning",
+            "model:DL/DETR",
+            "model:DL/transformer",
+            "topic:pretraining"
+          ],
+          "title": "UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers",
+          "year": "2021"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Marin Bencevic",
+            "Marija Habijan",
+            "Irena Galic",
+            "Danilo Babin"
+          ],
+          "item_key": "XKJFVI8H",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:XKJFVI8H",
+          "tags": [
+            "ai_task:segmentation",
+            "data:image",
+            "method:DL",
+            "method:polar-transform",
+            "model:DL/U-Net",
+            "status:2-to-read",
+            "tool:PyTorch"
+          ],
+          "title": "Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation in CTA Images",
+          "year": "2022"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Daniel Bolya",
+            "Chong Zhou",
+            "Fanyi Xiao",
+            "Yong Jae Lee"
+          ],
+          "item_key": "2KUGMFL2",
+          "item_type": "journalArticle",
+          "library_id": 1,
+          "paper_ref": "1:2KUGMFL2",
+          "tags": [
+            "ai_task:instance-segmentation",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/ResNet",
+            "model:DL/YOLO",
+            "topic:benchmark",
+            "topic:real-time"
+          ],
+          "title": "YOLACT: Real-time Instance Segmentation",
+          "year": "2019"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Joseph Redmon",
+            "Ali Farhadi"
+          ],
+          "item_key": "URSNH83W",
+          "item_type": "preprint",
+          "library_id": 1,
+          "paper_ref": "1:URSNH83W",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI",
+            "field:CS/AI/CV",
+            "method:DL",
+            "model:DL/YOLO",
+            "status:0-inbox",
+            "topic:real-time"
+          ],
+          "title": "YOLOv3: An Incremental Improvement",
+          "year": "2018"
+        },
+        {
+          "collections": [],
+          "creators": [
+            "Chien-Yao Wang",
+            "Alexey Bochkovskiy",
+            "Hong-Yuan Mark Liao"
+          ],
+          "item_key": "ABTG2CFC",
+          "item_type": "conferencePaper",
+          "library_id": 1,
+          "paper_ref": "1:ABTG2CFC",
+          "tags": [
+            "ai_task:detection",
+            "field:CS/AI/CV",
+            "model:DL/YOLO",
+            "status:2-to-read",
+            "topic:real-time"
+          ],
+          "title": "YOLOv7: Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object Detectors",
+          "year": "2023"
+        }
+      ],
+      "returned": 65,
+      "total_papers": 65
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

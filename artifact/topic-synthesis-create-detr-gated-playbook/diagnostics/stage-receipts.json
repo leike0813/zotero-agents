@@ -1,0 +1,54 @@
+{
+  "stages": [
+    {
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_00_runtime_setup",
+      "state": "completed"
+    },
+    {
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_10_create_topic_context",
+      "state": "completed"
+    },
+    {
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_20_resolver_and_workset",
+      "state": "completed"
+    },
+    {
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_30_prepare_analysis_context",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_00_runtime_state_check",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_40_core_synthesis",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_12_completed",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_60_coverage_and_collection_suggestions",
+      "state": "completed"
+    },
+    {
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_70_summary",
+      "state": "completed"
+    }
+  ]
+}

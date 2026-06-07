@@ -1,0 +1,32 @@
+{
+  "schema_id": "synthesis.playbook.source_paper_evidence_index",
+  "schema_version": "1.0.0",
+  "source": "runtime/views/selected-paper-set.json",
+  "items": [
+    {
+      "paper_ref": "1:EIMSDEU3",
+      "evidence_id": "ev:eimsdeu3:baseline",
+      "short_evidence": "DETR baseline: set prediction, object queries, Hungarian matching, no NMS."
+    },
+    {
+      "paper_ref": "1:5HBHAWIV",
+      "evidence_id": "ev:5hbhawiv:deformable",
+      "short_evidence": "Deformable attention and multi-scale features target DETR convergence and scale limitations."
+    },
+    {
+      "paper_ref": "1:W4CDLU28",
+      "evidence_id": "ev:w4cdlu28:conditional-query",
+      "short_evidence": "Conditional spatial queries improve fast training convergence."
+    },
+    {
+      "paper_ref": "1:HPLZ65Z2",
+      "evidence_id": "ev:hplz65z2:dino",
+      "short_evidence": "DINO combines denoising and anchor/query improvements for stronger DETR training."
+    },
+    {
+      "paper_ref": "1:CBJWE4JX",
+      "evidence_id": "ev:cbjwe4jx:real-time",
+      "short_evidence": "Real-time DETR work positions DETR variants against YOLO-style detectors."
+    }
+  ]
+}

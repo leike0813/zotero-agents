@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.stage_70_summary.schema.json",
+  "title": "Stage 70 summary payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary_brief",
+    "summary_overview",
+    "key_takeaways",
+    "diagnostics"
+  ],
+  "properties": {
+    "summary_brief": { "type": "string" },
+    "summary_overview": { "type": "string" },
+    "key_takeaways": { "type": "array", "items": { "type": "string" } },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  },
+  "examples": [
+    {
+      "summary_brief": "",
+      "summary_overview": "",
+      "key_takeaways": [],
+      "diagnostics": []
+    }
+  ]
+}

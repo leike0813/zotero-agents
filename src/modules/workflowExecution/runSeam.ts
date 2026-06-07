@@ -1,6 +1,9 @@
 import { JobQueueManager } from "../../jobQueue/manager";
 import { executeWithProvider } from "../../providers/registry";
-import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
+import {
+  ACP_SKILL_RUN_REQUEST_KIND,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
+} from "../../config/defaults";
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
@@ -16,6 +19,8 @@ import {
   resolveTaskNameFromRequest,
 } from "./requestMeta";
 import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
+import { executeSkillRunnerSequence } from "./sequenceRuntime";
+import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
 
 type RunSeamDeps = {
   createQueue: (
@@ -62,8 +67,26 @@ export function runWorkflowExecutionSeam(
   });
   const queue = resolved.createQueue({
     concurrency: dispatchConcurrency,
-    executeJob: (job, runtime) =>
-      resolved.executeWithProvider({
+    executeJob: (job, runtime) => {
+      if (
+        args.prepared.executionContext.requestKind ===
+        SKILLRUNNER_SEQUENCE_REQUEST_KIND
+      ) {
+        return executeSkillRunnerSequence({
+          request: job.request as SkillRunnerSequenceRequestV1,
+          backend: args.prepared.executionContext.backend,
+          providerOptions: args.prepared.executionContext.providerOptions,
+          workflowId: args.prepared.workflow.manifest.id,
+          workflowRunId: `${runId}-${job.id}`,
+          jobId: job.id,
+          executeWithProvider: resolved.executeWithProvider,
+          appendRuntimeLog: resolved.appendRuntimeLog,
+          onProgress: (event) => {
+            runtime.reportProgress(event);
+          },
+        });
+      }
+      return resolved.executeWithProvider({
         requestKind: args.prepared.executionContext.requestKind,
         request: job.request,
         backend: args.prepared.executionContext.backend,
@@ -71,7 +94,8 @@ export function runWorkflowExecutionSeam(
         onProgress: (event) => {
           runtime.reportProgress(event);
         },
-      }),
+      });
+    },
     onJobProgress: (job, event) => {
       if (event.type === "request-created") {
         const requestId = String(event.requestId || "").trim();
@@ -105,7 +129,8 @@ export function runWorkflowExecutionSeam(
         const isSkillRunnerJob =
           executionContext.requestKind === "skillrunner.job.v1";
         const isAcpSkillRun =
-          executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND;
+          executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
+          executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
         const backendType = String(executionContext.backend.type || "").trim();
         if (
           isSkillRunnerJob &&

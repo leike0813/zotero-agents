@@ -1,0 +1,85 @@
+{
+  "command": "zotero-bridge synthesis get-citation-graph-metrics --input '{\"paper_refs\":[\"1:EIMSDEU3\",\"1:5HBHAWIV\",\"1:W4CDLU28\",\"1:HPLZ65Z2\",\"1:CBJWE4JX\"]}'",
+  "ok": true,
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.get_citation_graph_metrics",
+    "data": {
+      "diagnostics": {
+        "metrics_found": false,
+        "recommended_commands": ["rebuildCitationGraphCacheNow"],
+        "returned_count": 5,
+        "snapshot_found": true,
+        "stale": true,
+        "warnings": [
+          "citation graph complex metrics are missing; using lightweight metrics"
+        ]
+      },
+      "graph_hash": "sha256:7ccb627e37c321c0f4fe9b611e3c3ce0d1bf43209098f1151868cca4049aa2db",
+      "metrics_hash": "sha256:255b73bfa94c8e34592e86c75e471aa75a43f16c40baa84040d341ec6dd7ec9a",
+      "ok": true,
+      "status": "stale",
+      "items": [
+        {
+          "paper_ref": "1:EIMSDEU3",
+          "item_key": "EIMSDEU3",
+          "title": "End-to-end object detection with transformers",
+          "year": "2020",
+          "foundation_score": 29,
+          "frontier_score": 55,
+          "internal_in_degree": 29,
+          "internal_out_degree": 55,
+          "external_reference_count": 51
+        },
+        {
+          "paper_ref": "1:5HBHAWIV",
+          "item_key": "5HBHAWIV",
+          "title": "Deformable DETR: deformable transformers for end-to-end object detection",
+          "year": "2021",
+          "foundation_score": 24,
+          "frontier_score": 44,
+          "internal_in_degree": 24,
+          "internal_out_degree": 44,
+          "external_reference_count": 40
+        },
+        {
+          "paper_ref": "1:W4CDLU28",
+          "item_key": "W4CDLU28",
+          "title": "Conditional DETR for fast training convergence",
+          "year": "2021",
+          "foundation_score": 15,
+          "frontier_score": 52,
+          "internal_in_degree": 15,
+          "internal_out_degree": 52,
+          "external_reference_count": 44
+        },
+        {
+          "paper_ref": "1:CBJWE4JX",
+          "item_key": "CBJWE4JX",
+          "title": "DETRs beat YOLOs on real-time object detection",
+          "year": "2024",
+          "foundation_score": 7,
+          "frontier_score": 43,
+          "internal_in_degree": 7,
+          "internal_out_degree": 43,
+          "external_reference_count": 30
+        },
+        {
+          "paper_ref": "1:HPLZ65Z2",
+          "item_key": "HPLZ65Z2",
+          "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+          "year": "2022",
+          "foundation_score": 11,
+          "frontier_score": 39,
+          "internal_in_degree": 11,
+          "internal_out_degree": 39,
+          "external_reference_count": 26
+        }
+      ]
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "artifact_manifest_hash": "sha256:2bec987ad676249a3407810ea918181928dcccc31a78e6a7bfe15324a7fb0972",
+    "metrics_manifest_hash": "sha256:e56bd24b721cd4593c327ae1800e1c73cc60ce649c6f7803321ba79145e08448",
+    "paper_count": 5,
+    "paper_refs": [
+      "1:3JUY9GBQ",
+      "1:5HBHAWIV",
+      "1:EIMSDEU3",
+      "1:HPLZ65Z2",
+      "1:SZ3GNWT9"
+    ],
+    "resolver_manifest_hash": "sha256:bc7c9cc5e404dc90965c7268804fd2c87b69950c4078bd4cbc88267e3d6a7b7c",
+    "resolver_manifest_path": "runtime/payloads/resolver.json"
+  },
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_20_resolver_and_workset"
+}

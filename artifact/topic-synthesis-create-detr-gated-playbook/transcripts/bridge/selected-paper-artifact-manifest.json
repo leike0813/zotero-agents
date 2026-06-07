@@ -1,0 +1,428 @@
+{
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.get_paper_artifact_manifest",
+    "data": {
+      "artifacts": [
+        {
+          "artifact_type": "digest",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:c3a80a6d8650a25d3d8adffe0a267bf23bb0d2592a8b6bf5a9078bb085d71311",
+          "item_found": true,
+          "note_key": "7584RQ28",
+          "note_keys_seen": [
+            "7584RQ28",
+            "MIT59VMA",
+            "XPMJPEJ9",
+            "YIRSFPID"
+          ],
+          "note_title": "Digest",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_hash": "sha256:c3a80a6d8650a25d3d8adffe0a267bf23bb0d2592a8b6bf5a9078bb085d71311",
+          "payload_type": "digest-markdown",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:3156fd851ac4d4cd3a1107fb0ca853a5c090886ff224bd553c1e7445a3ba8c2c",
+          "item_found": true,
+          "note_key": "XPMJPEJ9",
+          "note_keys_seen": [
+            "7584RQ28",
+            "MIT59VMA",
+            "XPMJPEJ9",
+            "YIRSFPID"
+          ],
+          "note_title": "References",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_hash": "sha256:3156fd851ac4d4cd3a1107fb0ca853a5c090886ff224bd553c1e7445a3ba8c2c",
+          "payload_type": "references-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:908b007b591f52a53e8d38f0ac73e8f955c0a35062771e5c73e4d678282cf8cc",
+          "item_found": true,
+          "note_key": "MIT59VMA",
+          "note_keys_seen": [
+            "7584RQ28",
+            "MIT59VMA",
+            "XPMJPEJ9",
+            "YIRSFPID"
+          ],
+          "note_title": "Citation Analysis",
+          "paper_ref": "1:3JUY9GBQ",
+          "payload_hash": "sha256:908b007b591f52a53e8d38f0ac73e8f955c0a35062771e5c73e4d678282cf8cc",
+          "payload_type": "citation-analysis-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:e29d0d355c65d83e18497455fb1e0965813bc3117128a0b5402275b2206be5ff",
+          "item_found": true,
+          "note_key": "537FPF8A",
+          "note_keys_seen": [
+            "537FPF8A",
+            "5EIDSSGU",
+            "N6YTRYYM",
+            "UAYG7ZQH",
+            "XS823CMB"
+          ],
+          "note_title": "Digest",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_hash": "sha256:e29d0d355c65d83e18497455fb1e0965813bc3117128a0b5402275b2206be5ff",
+          "payload_type": "digest-markdown",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:1bb107251f262cdbcd26707335ba16d496773f877071cd11d578c17eaca9ffbc",
+          "item_found": true,
+          "note_key": "UAYG7ZQH",
+          "note_keys_seen": [
+            "537FPF8A",
+            "5EIDSSGU",
+            "N6YTRYYM",
+            "UAYG7ZQH",
+            "XS823CMB"
+          ],
+          "note_title": "References",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_hash": "sha256:1bb107251f262cdbcd26707335ba16d496773f877071cd11d578c17eaca9ffbc",
+          "payload_type": "references-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:fb7ced3cfd258888826292c491e533b482227d1c4d449189fddb6e85bba246c3",
+          "item_found": true,
+          "note_key": "N6YTRYYM",
+          "note_keys_seen": [
+            "537FPF8A",
+            "5EIDSSGU",
+            "N6YTRYYM",
+            "UAYG7ZQH",
+            "XS823CMB"
+          ],
+          "note_title": "Citation Analysis",
+          "paper_ref": "1:5HBHAWIV",
+          "payload_hash": "sha256:fb7ced3cfd258888826292c491e533b482227d1c4d449189fddb6e85bba246c3",
+          "payload_type": "citation-analysis-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:7bb9d9a1d9d8bfbf39465ee58b97cd7e84ef5d87155eb459a3db17550ab9dbd7",
+          "item_found": true,
+          "note_key": "8YJZV37N",
+          "note_keys_seen": [
+            "8YJZV37N",
+            "N2FCIJPW",
+            "NHDEJ559",
+            "RD94LKR2",
+            "V628ZDKL"
+          ],
+          "note_title": "Digest",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_hash": "sha256:7bb9d9a1d9d8bfbf39465ee58b97cd7e84ef5d87155eb459a3db17550ab9dbd7",
+          "payload_type": "digest-markdown",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:b86bdd23e8b2eedf1e4f32cad9c24a0a907bdade999587162e99ae04c6e29d76",
+          "item_found": true,
+          "note_key": "RD94LKR2",
+          "note_keys_seen": [
+            "8YJZV37N",
+            "N2FCIJPW",
+            "NHDEJ559",
+            "RD94LKR2",
+            "V628ZDKL"
+          ],
+          "note_title": "References",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_hash": "sha256:b86bdd23e8b2eedf1e4f32cad9c24a0a907bdade999587162e99ae04c6e29d76",
+          "payload_type": "references-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "child_note_count": 5,
+          "diagnostics": [],
+          "hash": "sha256:0424549e48541d0b661fd5e45fb7769db55429136261d52bed6bd06ea93743db",
+          "item_found": true,
+          "note_key": "V628ZDKL",
+          "note_keys_seen": [
+            "8YJZV37N",
+            "N2FCIJPW",
+            "NHDEJ559",
+            "RD94LKR2",
+            "V628ZDKL"
+          ],
+          "note_title": "Citation Analysis",
+          "paper_ref": "1:EIMSDEU3",
+          "payload_hash": "sha256:0424549e48541d0b661fd5e45fb7769db55429136261d52bed6bd06ea93743db",
+          "payload_type": "citation-analysis-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:390d1a73345aeaad973a0bccaf51946e0c60232d083e1dc677f8f8267d2e7240",
+          "item_found": true,
+          "note_key": "V4SSEUUH",
+          "note_keys_seen": [
+            "8BRF5U7N",
+            "FSKMIJDJ",
+            "LAVHNKEU",
+            "V4SSEUUH"
+          ],
+          "note_title": "Digest",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_hash": "sha256:390d1a73345aeaad973a0bccaf51946e0c60232d083e1dc677f8f8267d2e7240",
+          "payload_type": "digest-markdown",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:5bc7f3f70ae7c903174b746e8cf9d173c4489fc28ed73977740c14ff3c3d0d56",
+          "item_found": true,
+          "note_key": "8BRF5U7N",
+          "note_keys_seen": [
+            "8BRF5U7N",
+            "FSKMIJDJ",
+            "LAVHNKEU",
+            "V4SSEUUH"
+          ],
+          "note_title": "References",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_hash": "sha256:5bc7f3f70ae7c903174b746e8cf9d173c4489fc28ed73977740c14ff3c3d0d56",
+          "payload_type": "references-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:d97ccd8d695b7fc4055c1952922010d3fe0aa9b17a296ffa4775dcc6b2757f8f",
+          "item_found": true,
+          "note_key": "LAVHNKEU",
+          "note_keys_seen": [
+            "8BRF5U7N",
+            "FSKMIJDJ",
+            "LAVHNKEU",
+            "V4SSEUUH"
+          ],
+          "note_title": "Citation Analysis",
+          "paper_ref": "1:HPLZ65Z2",
+          "payload_hash": "sha256:d97ccd8d695b7fc4055c1952922010d3fe0aa9b17a296ffa4775dcc6b2757f8f",
+          "payload_type": "citation-analysis-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "conversation-note-markdown",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "digest",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:a9c4e4a934d0d7b89da15e4af2107799ff404de0a381647498ea7b93c99f2221",
+          "item_found": true,
+          "note_key": "ATHC7UMU",
+          "note_keys_seen": [
+            "ATHC7UMU",
+            "FE5YBUZB",
+            "K286EXUP",
+            "YBMIMXMZ"
+          ],
+          "note_title": "Digest",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_hash": "sha256:a9c4e4a934d0d7b89da15e4af2107799ff404de0a381647498ea7b93c99f2221",
+          "payload_type": "digest-markdown",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "references",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:a6e5fa59532b9aa75eed7f6dfb50691c1d8b03e4325c49036de3f1d5d85b504e",
+          "item_found": true,
+          "note_key": "YBMIMXMZ",
+          "note_keys_seen": [
+            "ATHC7UMU",
+            "FE5YBUZB",
+            "K286EXUP",
+            "YBMIMXMZ"
+          ],
+          "note_title": "References",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_hash": "sha256:a6e5fa59532b9aa75eed7f6dfb50691c1d8b03e4325c49036de3f1d5d85b504e",
+          "payload_type": "references-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        },
+        {
+          "artifact_type": "citation_analysis",
+          "child_note_count": 4,
+          "diagnostics": [],
+          "hash": "sha256:cccff877b0cb795000b4d557c17e4242fbc931f3e5013e1862d1c0732d1a3f87",
+          "item_found": true,
+          "note_key": "K286EXUP",
+          "note_keys_seen": [
+            "ATHC7UMU",
+            "FE5YBUZB",
+            "K286EXUP",
+            "YBMIMXMZ"
+          ],
+          "note_title": "Citation Analysis",
+          "paper_ref": "1:SZ3GNWT9",
+          "payload_hash": "sha256:cccff877b0cb795000b4d557c17e4242fbc931f3e5013e1862d1c0732d1a3f87",
+          "payload_type": "citation-analysis-json",
+          "payload_types_seen": [
+            "citation-analysis-json",
+            "digest-markdown",
+            "literature-matching-metadata-json",
+            "references-json"
+          ],
+          "probe_source": "synthesis.read_paper_artifacts",
+          "status": "available"
+        }
+      ],
+      "diagnostics": [
+        "1:3JUY9GBQ:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:5HBHAWIV:probe:notes=5:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:EIMSDEU3:probe:notes=5:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:HPLZ65Z2:probe:notes=4:payloads=citation-analysis-json,conversation-note-markdown,digest-markdown,literature-matching-metadata-json,references-json",
+        "1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json"
+      ],
+      "total": 15
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

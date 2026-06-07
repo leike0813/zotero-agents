@@ -1,0 +1,14 @@
+{
+  "command": "zotero-bridge synthesis read-paper-artifacts --input '{\"paper_refs\":[\"1:EIMSDEU3\",\"1:5HBHAWIV\",\"1:W4CDLU28\",\"1:HPLZ65Z2\",\"1:CBJWE4JX\"],\"artifact_kinds\":[\"digest-markdown\"],\"max_chars_per_artifact\":800}'",
+  "ok": false,
+  "error": {
+    "code": "capability_not_found",
+    "category": "capability",
+    "message": "Host Bridge capability not found",
+    "capability": "synthesis.read_paper_artifacts"
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

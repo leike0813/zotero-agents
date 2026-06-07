@@ -222,7 +222,10 @@ function withInjectedSkillRunnerExecutionMode(args: {
     runOptions?: WorkflowRunOptions;
   };
 }) {
-  if (args.requestKind !== "skillrunner.job.v1") {
+  if (
+    args.requestKind !== "skillrunner.job.v1" &&
+    args.requestKind !== "skillrunner.sequence.v1"
+  ) {
     return args.request;
   }
   const executionMode = resolveSkillRunnerExecutionMode(args.workflow.manifest);

@@ -174,6 +174,24 @@ function normalizeStringArray(value: unknown) {
   );
 }
 
+function resolveWorkflowWorkspaceIntent(request: AcpSkillRunRequestV1) {
+  const raw = request.runtime_options?.workflow_workspace;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+  const mode = normalizeString((raw as { mode?: unknown }).mode);
+  const workflowRunId = normalizeString(
+    (raw as { workflow_run_id?: unknown }).workflow_run_id,
+  );
+  if ((mode !== "new" && mode !== "reuse") || !workflowRunId) {
+    return undefined;
+  }
+  return {
+    mode,
+    workflowRunId,
+  } as const;
+}
+
 function basename(path: string) {
   return (
     normalizeString(path)
@@ -1765,6 +1783,7 @@ export async function executeAcpSkillRunnerJob(args: {
     workflowId:
       normalizeString(request.parameter?.workflowId) || request.skill_id,
     jobId: resolveJobId(request),
+    workflowWorkspace: resolveWorkflowWorkspaceIntent(request),
   });
   const workflowId =
     normalizeString(request.parameter?.workflowId) || request.skill_id;

@@ -1,0 +1,154 @@
+{
+  "claims": [
+    {
+      "claim": "DETR 的核心贡献是把 detection 建模为集合预测，减少 anchor/NMS 等手工组件。",
+      "evidence": [
+        "1:EIMSDEU3"
+      ]
+    },
+    {
+      "claim": "后续代表性工作主要围绕收敛速度、多尺度特征和 query/anchor 训练稳定性展开。",
+      "evidence": [
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2"
+      ]
+    },
+    {
+      "claim": "DETR-family 已从 2D COCO 检测扩展到 3D 与实时部署场景。",
+      "evidence": [
+        "1:3JUY9GBQ",
+        "1:SZ3GNWT9"
+      ]
+    }
+  ],
+  "concept_candidate_labels": [
+    "DETR",
+    "object queries",
+    "Hungarian matching",
+    "deformable attention",
+    "denoising training",
+    "real-time detection transformer"
+  ],
+  "debates": [
+    {
+      "question": "端到端 set prediction 是否能在效率上持续接近或替代 YOLO-style detector？",
+      "related_papers": [
+        "1:SZ3GNWT9"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "gap": "样例 workset 未覆盖完整 RT-DETR、DN-DETR、Conditional DETR 和综述论文。",
+      "impact": "最终综述只能作为基准样例，不代表完整 DETR 主题分析。"
+    }
+  ],
+  "improvement_dimension_summary": {
+    "dimensions": [
+      "convergence",
+      "multi_scale",
+      "query_anchor_design",
+      "paradigm_extension",
+      "real_time"
+    ]
+  },
+  "improvement_dimensions": [
+    {
+      "dimension": "convergence",
+      "papers": [
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2"
+      ],
+      "summary": "减少原始 DETR 长训练和 matching 不稳定。"
+    },
+    {
+      "dimension": "paradigm_extension",
+      "papers": [
+        "1:3JUY9GBQ"
+      ],
+      "summary": "把 query/set prediction 思路迁移到 3D 检测。"
+    },
+    {
+      "dimension": "real_time",
+      "papers": [
+        "1:SZ3GNWT9"
+      ],
+      "summary": "面向实时检测和部署约束。"
+    }
+  ],
+  "positioning": {
+    "review_angle": "以 query-based detection 的问题-改进链组织综述：原始范式、收敛瓶颈、训练策略、外延扩展和部署效率。",
+    "topic_boundary": "关注 DETR-family object detection，而不是泛 Transformer、DINOv3 表征或非检测任务。"
+  },
+  "review_outline": {
+    "sections": [
+      "问题定义",
+      "原始 DETR",
+      "收敛与训练改进",
+      "3D/实时扩展",
+      "coverage gaps"
+    ]
+  },
+  "taxonomy": {
+    "nodes": [
+      {
+        "id": "baseline",
+        "label": "原始 DETR 范式",
+        "papers": [
+          "1:EIMSDEU3"
+        ]
+      },
+      {
+        "id": "convergence",
+        "label": "收敛与多尺度改进",
+        "papers": [
+          "1:5HBHAWIV",
+          "1:HPLZ65Z2"
+        ]
+      },
+      {
+        "id": "extension",
+        "label": "3D 与实时扩展",
+        "papers": [
+          "1:3JUY9GBQ",
+          "1:SZ3GNWT9"
+        ]
+      }
+    ],
+    "summary": {
+      "zh": "DETR-family 可按原始 set prediction、收敛/多尺度改进、query/anchor 训练策略、跨场景扩展和实时化部署来组织。"
+    }
+  },
+  "timeline_events": {
+    "events": [
+      {
+        "event": "DETR 提出端到端 set prediction 检测。",
+        "paper_ref": "1:EIMSDEU3",
+        "year": 2020
+      },
+      {
+        "event": "Deformable DETR 改善收敛和多尺度处理。",
+        "paper_ref": "1:5HBHAWIV",
+        "year": 2021
+      },
+      {
+        "event": "DINO 强化 denoising 与 anchor query 训练路线。",
+        "paper_ref": "1:HPLZ65Z2",
+        "year": 2022
+      },
+      {
+        "event": "DETR3D 扩展到多视角 3D 检测。",
+        "paper_ref": "1:3JUY9GBQ",
+        "year": 2022
+      },
+      {
+        "event": "RF-DETR 指向实时 detection transformer。",
+        "paper_ref": "1:SZ3GNWT9",
+        "year": 2025
+      }
+    ],
+    "summary": {
+      "zh": "样例 workset 从 2020 原始 DETR 到 2025 RF-DETR，覆盖方法提出、收敛修正、3D 扩展和实时化。"
+    }
+  }
+}

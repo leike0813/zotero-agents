@@ -1,0 +1,21 @@
+{
+  "resolver": {
+    "mode": "tag_query",
+    "query": {
+      "and": ["model:DL/DETR"]
+    }
+  },
+  "resolver_reasoning": "库索引显示 model:DL/DETR 标签计数为 22，且 DETR 查询页覆盖 Conditional DETR、Deformable DETR、DINO、实时 DETR 等候选；该标签比标题全文搜索更稳定，适合作为 DETR create playbook 的可复现 resolver。",
+  "operation_intent": "create",
+  "diagnostics": [
+    {
+      "source": "runtime/bridge/library-index-detr-page.json",
+      "model_dl_detr_tag_count": 22,
+      "total_papers": 65
+    },
+    {
+      "source": "runtime/bridge/resolver-result.json",
+      "resolved_count": 22
+    }
+  ]
+}

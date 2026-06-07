@@ -1,0 +1,31 @@
+{
+  "schema_id": "synthesis.skill_handoff",
+  "schema_version": "1.0.0",
+  "handoff": "finalize_output",
+  "stage": "stage_70_summary",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "artifacts": {
+    "coverage_and_collection_suggestions": {
+      "path": "runtime/payloads/coverage-and-collection-suggestions.json",
+      "hash": "sha256:f6d028300d8afc648f9ede58a8f8b105ef9fdf21e900825d81b90478045907ca"
+    },
+    "summary": {
+      "path": "runtime/payloads/summary.json",
+      "hash": "sha256:2df035512a422428497c94213ac048384e770f8a0076d82212593bc511d9ab21"
+    },
+    "topic_analysis": {
+      "path": "result/topic-analysis.json",
+      "hash": "sha256:162c604bbd15a3c5e604ce9cfe6749fc8c2ea294f8f3b1911cc7b7e20d28e4ca"
+    },
+    "final_candidate": {
+      "path": "result/final-output.candidate.json",
+      "hash": "sha256:b243f3980e345aaf1b015bcc9b06f216f2f1d44858311896aaeffc2e78bfc862"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "final_handoff_record_only",
+      "message": "The actual finalize skill output is result/final-output.candidate.json; this handoff manifest is retained as a playbook audit record."
+    }
+  ]
+}

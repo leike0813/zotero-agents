@@ -1,0 +1,16 @@
+{
+  "schema_id": "synthesis.playbook.synthesis_report_manifest",
+  "schema_version": "1.0.0",
+  "report_path": "runtime/views/synthesis-report.md",
+  "source_paper_refs": [
+    "1:EIMSDEU3",
+    "1:5HBHAWIV",
+    "1:W4CDLU28",
+    "1:HPLZ65Z2",
+    "1:CBJWE4JX"
+  ],
+  "limitations": [
+    "Only five resolver papers are used for paper triage and cross-paper context.",
+    "Digest bodies were not retained in the repository artifact."
+  ]
+}

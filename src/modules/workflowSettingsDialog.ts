@@ -272,6 +272,17 @@ function coerceBoolean(value: unknown, fallback = false) {
   return fallback;
 }
 
+function isSchemaEntryVisible(
+  entry: FormSchemaEntry,
+  values: Record<string, unknown>,
+) {
+  const condition = entry.visibleIf;
+  if (!condition?.parameter) {
+    return true;
+  }
+  return coerceBoolean(values[condition.parameter], false) === condition.equals;
+}
+
 function coerceNumberText(value: unknown, fallback: unknown) {
   const raw = typeof value === "undefined" ? fallback : value;
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -310,7 +321,10 @@ function renderSchemaFields(args: {
 }) {
   const { doc, container, entries, values, idPrefix, emptyText } = args;
   container.innerHTML = "";
-  if (entries.length === 0) {
+  const visibleEntries = entries.filter((entry) =>
+    isSchemaEntryVisible(entry, values),
+  );
+  if (visibleEntries.length === 0) {
     const empty = createHtmlElement(doc, "p");
     empty.textContent = emptyText;
     empty.style.margin = "4px 0";
@@ -319,7 +333,7 @@ function renderSchemaFields(args: {
     return;
   }
 
-  for (const entry of entries) {
+  for (const entry of visibleEntries) {
     const row = createHtmlElement(doc, "div");
     row.style.marginBottom = "8px";
 

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.stage_10_create_topic_context.schema.json",
+  "title": "Stage 10 create topic context payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "topic_title",
+    "aliases",
+    "definition",
+    "scope_include",
+    "scope_exclude",
+    "duplicate_status",
+    "duplicate_candidate_ids",
+    "duplicate_reason",
+    "diagnostics"
+  ],
+  "properties": {
+    "topic_title": { "type": "string", "minLength": 1 },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "definition": { "type": "string", "minLength": 1 },
+    "scope_include": { "type": "array", "items": { "type": "string" } },
+    "scope_exclude": { "type": "array", "items": { "type": "string" } },
+    "duplicate_status": {
+      "enum": ["none", "possible_duplicate", "duplicate", "unknown"]
+    },
+    "duplicate_candidate_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "duplicate_reason": { "type": "string" },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  },
+  "examples": [
+    {
+      "topic_title": "DETR-style Object Detection",
+      "aliases": [],
+      "definition": "Query-based object detection methods derived from DETR.",
+      "scope_include": [],
+      "scope_exclude": [],
+      "duplicate_status": "none",
+      "duplicate_candidate_ids": [],
+      "duplicate_reason": "",
+      "diagnostics": []
+    }
+  ]
+}

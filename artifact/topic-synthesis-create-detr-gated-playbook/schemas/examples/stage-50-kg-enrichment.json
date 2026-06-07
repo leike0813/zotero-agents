@@ -1,0 +1,74 @@
+{
+  "concept_details": [
+    {
+      "description": "End-to-end object detection with transformers.",
+      "kind": "topic_root",
+      "label": "DETR"
+    },
+    {
+      "description": "Decoder queries representing predicted objects.",
+      "kind": "method_concept",
+      "label": "object queries"
+    },
+    {
+      "description": "Sparse multi-scale attention used by Deformable DETR.",
+      "kind": "method_concept",
+      "label": "deformable attention"
+    },
+    {
+      "description": "DINO-style auxiliary denoising to stabilize DETR training.",
+      "kind": "training_strategy",
+      "label": "denoising training"
+    }
+  ],
+  "diagnostics": [],
+  "topic_matching_terms": {
+    "diagnostics": [],
+    "exclude_terms": [
+      "DINOv3 feature encoder",
+      "generic ViT classification"
+    ],
+    "include_terms": [
+      "DETR",
+      "Detection Transformer",
+      "DETR-family",
+      "end-to-end object detection"
+    ],
+    "methods": [
+      "set prediction",
+      "object queries",
+      "Hungarian matching",
+      "deformable attention",
+      "denoising training"
+    ],
+    "must_have_terms": [
+      "DETR"
+    ]
+  },
+  "topic_relation_candidates": [
+    {
+      "evidence": [
+        "1:5HBHAWIV"
+      ],
+      "relation": "has_variant",
+      "source": "DETR",
+      "target": "Deformable DETR"
+    },
+    {
+      "evidence": [
+        "1:HPLZ65Z2"
+      ],
+      "relation": "has_variant",
+      "source": "DETR",
+      "target": "DINO"
+    },
+    {
+      "evidence": [
+        "1:3JUY9GBQ"
+      ],
+      "relation": "extends_to",
+      "source": "DETR",
+      "target": "3D object detection"
+    }
+  ]
+}

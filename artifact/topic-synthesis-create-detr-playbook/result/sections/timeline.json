@@ -1,0 +1,12 @@
+{
+  "section": "timeline",
+  "source": "runtime/payloads/core-synthesis.json",
+  "content": {
+    "events": [
+      { "year": "2020", "summary": "DETR baseline", "source_paper_refs": ["1:EIMSDEU3"] },
+      { "year": "2021", "summary": "Deformable and Conditional DETR address convergence and scale.", "source_paper_refs": ["1:5HBHAWIV", "1:W4CDLU28"] },
+      { "year": "2022", "summary": "DINO strengthens denoising-anchor training.", "source_paper_refs": ["1:HPLZ65Z2"] },
+      { "year": "2024", "summary": "Real-time DETR variants compete with YOLO-style detectors.", "source_paper_refs": ["1:CBJWE4JX"] }
+    ]
+  }
+}

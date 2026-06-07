@@ -1,0 +1,55 @@
+{
+  "schema_id": "synthesis.playbook.selected_paper_set",
+  "schema_version": "1.0.0",
+  "topic_seed": "DETR",
+  "resolver_source": "runtime/bridge/resolver-result.json",
+  "selection_policy": "Select five resolver papers covering original DETR, sparse/multi-scale attention, convergence-oriented query design, denoising-anchor training, and real-time DETR-vs-YOLO direction.",
+  "unused_resolver_paper_count": 17,
+  "papers": [
+    {
+      "paper_ref": "1:EIMSDEU3",
+      "item_key": "EIMSDEU3",
+      "title": "End-to-end object detection with transformers",
+      "year": "2020",
+      "role": "original_baseline",
+      "selection_reason": "原始 DETR 论文，定义 set prediction、object queries、Hungarian matching 和 NMS-free 端到端检测基线。",
+      "tags": ["ai_task:detection", "ai_task:segmentation", "field:CS/AI/CV", "model:DL/DETR", "model:DL/transformer", "topic:benchmark"]
+    },
+    {
+      "paper_ref": "1:5HBHAWIV",
+      "item_key": "5HBHAWIV",
+      "title": "Deformable DETR: deformable transformers for end-to-end object detection",
+      "year": "2021",
+      "role": "attention_efficiency_and_multiscale",
+      "selection_reason": "代表对 DETR 收敛慢和小目标/多尺度建模不足的核心结构性修正。",
+      "tags": ["ai_task:detection", "field:CS/AI/CV", "method:DL", "model:DL/DETR", "model:DL/transformer"]
+    },
+    {
+      "paper_ref": "1:W4CDLU28",
+      "item_key": "W4CDLU28",
+      "title": "Conditional DETR for fast training convergence",
+      "year": "2021",
+      "role": "query_design_for_convergence",
+      "selection_reason": "代表通过 conditional spatial query 改善训练收敛和定位学习。",
+      "tags": ["field:CS/AI/CV", "model:DL/DETR", "topic:model-convergence"]
+    },
+    {
+      "paper_ref": "1:HPLZ65Z2",
+      "item_key": "HPLZ65Z2",
+      "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+      "year": "2022",
+      "role": "denoising_anchor_training",
+      "selection_reason": "代表用 denoising training 与 anchor/query 改造推动 DETR 系列精度和训练稳定性。",
+      "tags": ["ai_task:detection", "field:CS/AI/CV", "method:contrastive-learning", "method:denoising-training", "model:DL/DETR", "topic:anchor"]
+    },
+    {
+      "paper_ref": "1:CBJWE4JX",
+      "item_key": "CBJWE4JX",
+      "title": "DETRs beat YOLOs on real-time object detection",
+      "year": "2024",
+      "role": "real_time_detection_direction",
+      "selection_reason": "代表 DETR 进入实时检测与 YOLO 对比的应用化路线。",
+      "tags": ["ai_task:detection", "data:image", "field:CS/AI/CV", "model:DL/DETR", "model:DL/transformer", "model:DL/YOLO", "topic:benchmark", "topic:real-time"]
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "command": "zotero-bridge synthesis get-library-index --input '{\"cursor\":0,\"limit\":10,\"query\":\"DETR\",\"includeTags\":true}'",
+  "ok": true,
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.get_library_index",
+    "data": {
+      "cursor": "0",
+      "has_more": true,
+      "index_hash": "sha256:5d300fd7b82648bb26742699b9de2bece2a3dae514ae2a79f2194f4276bddb00",
+      "libraryId": 1,
+      "limit": 10,
+      "next_cursor": "10",
+      "page_hash": "sha256:157b80836687fd953d292b2c680db9da10af52baf49b82959465d1afb1a4b030",
+      "returned": 10,
+      "total_papers": 65,
+      "tag_summary": {
+        "ai_task:detection": 32,
+        "field:CS/AI/CV": 51,
+        "model:DL/DETR": 22,
+        "model:DL/transformer": 19,
+        "topic:real-time": 11
+      },
+      "papers": [
+        {
+          "paper_ref": "1:S86GB385",
+          "item_key": "S86GB385",
+          "title": "Accelerating DETR convergence via semantic-aligned matching",
+          "year": "2022",
+          "tags": ["ai_task:detection", "field:CS/AI/CV", "method:optimization", "model:DL/DETR", "test_tag_serial"]
+        },
+        {
+          "paper_ref": "1:W4CDLU28",
+          "item_key": "W4CDLU28",
+          "title": "Conditional DETR for fast training convergence",
+          "year": "2021",
+          "tags": ["field:CS/AI/CV", "model:DL/DETR", "topic:model-convergence"]
+        },
+        {
+          "paper_ref": "1:MERSIDHN",
+          "item_key": "MERSIDHN",
+          "title": "D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement",
+          "year": "2024",
+          "tags": ["field:CS/AI/CV", "model:DL/ViT", "topic:pretraining"]
+        }
+      ]
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

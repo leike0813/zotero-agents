@@ -1,7 +1,7 @@
 {
   "id": "literature-digest",
   "label": "Literature Digest",
-  "provider": "skillrunner",
+  "provider": "acp",
   "version": "0.1.0",
   "inputs": {
     "unit": "attachment",
@@ -14,17 +14,7 @@
     }
   },
   "request": {
-    "kind": "skillrunner.job.v1",
-    "create": {
-      "skill_id": "literature-digest"
-    },
-    "input": {
-      "upload": {
-        "files": [
-          { "key": "source_path", "from": "selected.source" }
-        ]
-      }
-    }
+    "kind": "skillrunner.sequence.v1"
   },
   "parameters": {
     "language": {
@@ -42,6 +32,20 @@
       ],
       "allowCustom": true,
       "default": "zh-CN"
+    },
+    "auto_tag_regulator": {
+      "type": "boolean",
+      "title": "Auto Tag Regulator",
+      "default": false
+    },
+    "auto_tag_infer_tag": {
+      "type": "boolean",
+      "title": "Infer tags",
+      "default": true,
+      "visible_if": {
+        "parameter": "auto_tag_regulator",
+        "equals": true
+      }
     }
   },
   "execution": {
@@ -59,6 +63,7 @@
   },
   "hooks": {
     "filterInputs": "hooks/filterInputs.mjs",
+    "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }

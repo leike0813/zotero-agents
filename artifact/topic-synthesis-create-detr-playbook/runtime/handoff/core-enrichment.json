@@ -1,0 +1,18 @@
+{
+  "schema_id": "synthesis.skill_handoff",
+  "schema_version": "1.0.0",
+  "handoff": "core_enrichment",
+  "stage": "stage_50_kg_enrichment",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "artifacts": {
+    "core_synthesis": {
+      "path": "runtime/payloads/core-synthesis.json",
+      "hash": "sha256:d62f8d057e41dd6de6d52b064ca118d096eb7be27cf835b176942244da2d34be"
+    },
+    "kg_enrichment": {
+      "path": "runtime/payloads/kg-enrichment.json",
+      "hash": "sha256:2df2f3428e08e02b34d08d5bed2a94cd71c6ed585502fdbb8150963775eb899a"
+    }
+  },
+  "diagnostics": []
+}

@@ -1,0 +1,18 @@
+{
+  "schema_id": "synthesis.playbook.finalize_context_manifest",
+  "schema_version": "1.0.0",
+  "inputs": [
+    "runtime/payloads/core-synthesis.json",
+    "runtime/payloads/kg-enrichment.json",
+    "runtime/views/cross-paper-context.md",
+    "runtime/views/source-paper-evidence-index.json",
+    "runtime/bridge/citation-graph-metrics.json",
+    "runtime/bridge/paper-artifact-manifest.json"
+  ],
+  "coverage_basis": {
+    "resolver_count": 22,
+    "selected_paper_count": 5,
+    "citation_metrics_status": "stale",
+    "artifact_manifest_total": 15
+  }
+}

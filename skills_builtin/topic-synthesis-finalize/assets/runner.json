@@ -1,0 +1,18 @@
+{
+  "id": "topic-synthesis-finalize",
+  "name": "主题综合收尾",
+  "description": "读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。",
+  "version": "0.1.0",
+  "execution_modes": ["interactive"],
+  "max_attempt": 12,
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "执行生成的 topic synthesis split skill。必须先阅读 SKILL.md，并按 scripts/gate.py 返回的 gate JSON 执行。最终回复使用 ACP final branch：包含 `__SKILL_DONE__: true`，并附加一个符合 assets/output.schema.json 的业务 JSON 对象；output schema 本身不包含 `__SKILL_DONE__`。"
+    }
+  }
+}

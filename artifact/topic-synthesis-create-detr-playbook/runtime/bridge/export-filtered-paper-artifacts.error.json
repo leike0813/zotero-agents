@@ -1,0 +1,17 @@
+{
+  "command": "zotero-bridge synthesis export-filtered-paper-artifacts --input '{\"paper_refs\":[\"1:EIMSDEU3\",\"1:5HBHAWIV\",\"1:W4CDLU28\",\"1:HPLZ65Z2\",\"1:CBJWE4JX\"],\"artifact_kinds\":[\"digest-markdown\",\"references-json\",\"citation-analysis-json\"]}'",
+  "ok": false,
+  "error": {
+    "code": "capability_failed",
+    "category": "capability",
+    "message": "run_root is required"
+  },
+  "follow_up_error": {
+    "command": "same command with run_root=\"runtime\"",
+    "message": "run_root must be inside the ACP skill-runs directory"
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

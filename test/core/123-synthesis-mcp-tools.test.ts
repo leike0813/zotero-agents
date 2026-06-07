@@ -751,6 +751,10 @@ describe("Synthesis MCP tools", function () {
     assert.isFalse(result.ok);
     assert.include(
       result.diagnostics.recommended_commands,
+      "refreshCitationGraphMetricsNow",
+    );
+    assert.notInclude(
+      result.diagnostics.recommended_commands,
       "rebuildCitationGraphCacheNow",
     );
     assert.equal(result.diagnostics.maintenance.queue_state, "removed");

@@ -51,6 +51,10 @@ export type WorkflowParameterOption = {
 
 export type WorkflowParameterSchema = {
   type: WorkflowParameterType;
+  visible_if?: {
+    parameter: string;
+    equals: boolean;
+  };
   title?: string;
   description?: string;
   default?: unknown;
@@ -104,6 +108,7 @@ export type WorkflowResultSpec = {
   fetch?: {
     type?: "bundle" | "result";
   };
+  final_step_id?: string;
   expects?: {
     result_json?: string;
     artifacts?: string[];
@@ -128,6 +133,27 @@ export type WorkflowRequestSpec = {
   poll?: {
     interval_ms?: number;
     timeout_ms?: number;
+  };
+  sequence?: {
+    steps?: Array<{
+      id?: string;
+      skill_id?: string;
+      input?: Record<string, unknown>;
+      parameter?: Record<string, unknown>;
+      fetch_type?: "bundle" | "result";
+      workspace?: "new" | "reuse-workflow";
+      handoff?: {
+        from_step?: string;
+        required?: boolean;
+        pass_through?: boolean;
+        input?: Record<string, string>;
+        parameter?: Record<string, string>;
+        defaults?: {
+          input?: Record<string, unknown>;
+          parameter?: Record<string, unknown>;
+        };
+      };
+    }>;
   };
   [key: string]: unknown;
 };

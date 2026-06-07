@@ -1,0 +1,8 @@
+## 阶段循环
+
+1. 运行 gate，读取返回 JSON。
+2. 只处理返回 JSON 中的当前 `stage`，不得跳 stage。
+3. command stage 执行返回 JSON 的 `command` 字段。
+4. payload stage 先按返回 JSON 的 `required_reads` 获取材料，再写 `payload_path`，最后执行 `submit_command`。
+5. 每次 command 或 submit 成功后，都必须重新运行 gate。
+6. gate 返回 `stage: "completed"` 时，输出其中的 `output` 对象作为本技能结果。

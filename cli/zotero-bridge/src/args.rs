@@ -291,7 +291,7 @@ pub enum SynthesisCommand {
 
     #[command(
         about = "Read citation graph metrics for selected papers",
-        long_about = "Map to Host Bridge capability synthesis.get_citation_graph_metrics."
+        long_about = "Map to Host Bridge capability synthesis.get_citation_graph_metrics. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use a raw diagnostic call to synthesis.refresh_citation_graph_metrics."
     )]
     GetCitationGraphMetrics(SynthesisInputArgs),
 

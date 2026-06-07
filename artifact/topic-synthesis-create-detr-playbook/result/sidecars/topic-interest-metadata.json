@@ -1,0 +1,9 @@
+{
+  "schema_id": "synthesis.topic_interest_metadata",
+  "schema_version": "1.0.0",
+  "topic_id": "detr-style-object-detection",
+  "topic_seed": "DETR",
+  "resolver_count": 22,
+  "selected_paper_count": 5,
+  "selection_policy": "bounded representative playbook sample"
+}

@@ -334,7 +334,8 @@ export function getHostBridgeApprovalRequirement(
 ): HostBridgeApprovalRequirement {
   if (
     capability === "debug.synthesis.cleanInstallReset" ||
-    capability === "debug.zotero.eval"
+    capability === "debug.zotero.eval" ||
+    capability === "synthesis.refresh_citation_graph_metrics"
   ) {
     return "zotero-ui-required";
   }

@@ -25,6 +25,7 @@ import {
   ACP_BACKEND_TYPE,
   ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_BACKEND_TYPE,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
 import { isAcpBackendConnectionTestPassed } from "./acpBackendProbe";
 import {
@@ -154,6 +155,17 @@ function isSkillRunnerJobWorkflow(workflow: LoadedWorkflow) {
   );
 }
 
+function isSkillRunnerSequenceWorkflow(workflow: LoadedWorkflow) {
+  return (
+    String(workflow.manifest.request?.kind || "").trim() ===
+    SKILLRUNNER_SEQUENCE_REQUEST_KIND
+  );
+}
+
+function isSkillRunnerContractWorkflow(workflow: LoadedWorkflow) {
+  return isSkillRunnerJobWorkflow(workflow) || isSkillRunnerSequenceWorkflow(workflow);
+}
+
 function resolveEffectiveRequestKindForBackend(args: {
   workflow: LoadedWorkflow;
   backend: BackendInstance;
@@ -245,7 +257,11 @@ function resolveSkillRunnerMode(
   }
   const providerId = String(workflow.manifest.provider || "").trim();
   const requestKind = String(workflow.manifest.request?.kind || "").trim();
-  if (providerId !== "skillrunner" && requestKind !== "skillrunner.job.v1") {
+  if (
+    providerId !== "skillrunner" &&
+    requestKind !== "skillrunner.job.v1" &&
+    requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND
+  ) {
     return "";
   }
   const mode = String(workflow.manifest.execution?.skillrunner_mode || "")
@@ -432,7 +448,10 @@ export function listWorkflowSettingsRecord() {
 
 async function toWorkflowSchemaEntries(
   workflow: LoadedWorkflow,
-  options?: { resolveDynamicOptions?: boolean },
+  options?: {
+    resolveDynamicOptions?: boolean;
+    workflowParams?: Record<string, unknown>;
+  },
 ): Promise<WorkflowSettingsSchemaEntry[]> {
   const schema = workflow.manifest.parameters || {};
   const shouldResolveDynamicOptions = options?.resolveDynamicOptions !== false;
@@ -482,10 +501,15 @@ async function toWorkflowSchemaEntries(
       };
     }),
   );
-  if (!workflowAllowsWriteApprovalBypass(workflow.manifest)) {
-    return entries;
-  }
-  return entries;
+  return entries.filter((entry) => {
+    const condition = schema[entry.key]?.visible_if;
+    const parameter = String(condition?.parameter || "").trim();
+    if (!parameter) {
+      return true;
+    }
+    const value = options?.workflowParams?.[parameter];
+    return (typeof value === "boolean" ? value : false) === condition?.equals;
+  });
 }
 
 function toRunSchemaEntries(
@@ -592,7 +616,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   resolveDynamicOptions?: boolean;
 }): Promise<WorkflowSettingsUiDescriptor> {
   const manifestProviderId = resolveProviderId(args.workflow);
-  if (!isSkillRunnerJobWorkflow(args.workflow)) {
+  if (!isSkillRunnerContractWorkflow(args.workflow)) {
     assertWorkflowExecutionProviderSupported(manifestProviderId);
   }
   const manifestProvider = resolveProviderById(manifestProviderId);
@@ -604,7 +628,11 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
       ? await listBackendsForWorkflow(args.workflow)
       : await listBackendsForProvider(manifestProviderId);
   const availableBackends = rawCandidateBackends.filter((backend) => {
-    if (isSkillRunnerJobWorkflow(args.workflow)) {
+    if (isSkillRunnerSequenceWorkflow(args.workflow)) {
+      if (String(backend.type || "").trim() !== ACP_BACKEND_TYPE) {
+        return false;
+      }
+    } else if (isSkillRunnerJobWorkflow(args.workflow)) {
       const backendType = String(backend.type || "").trim();
       if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
         return false;
@@ -651,10 +679,6 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     workflow: args.workflow,
     backend: selectedBackend,
   });
-  const workflowSchemaEntries = await toWorkflowSchemaEntries(args.workflow, {
-    resolveDynamicOptions: args.resolveDynamicOptions,
-  });
-  const runSchemaEntries = toRunSchemaEntries(args.workflow);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,
     merged.workflowParams,
@@ -665,6 +689,11 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
       (merged.workflowParams as Record<string, unknown> | undefined) || {},
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
   });
+  const workflowSchemaEntries = await toWorkflowSchemaEntries(args.workflow, {
+    resolveDynamicOptions: args.resolveDynamicOptions,
+    workflowParams,
+  });
+  const runSchemaEntries = toRunSchemaEntries(args.workflow);
   const runOptions = buildWorkflowRunOptionsForUi({
     manifest: args.workflow.manifest,
     source: merged.runOptions,
@@ -794,7 +823,7 @@ export async function resolveWorkflowExecutionContext(args: {
   executionOptionsOverride?: WorkflowExecutionOptions;
 }): Promise<WorkflowExecutionContext> {
   const manifestProviderId = resolveProviderId(args.workflow);
-  if (!isSkillRunnerJobWorkflow(args.workflow)) {
+  if (!isSkillRunnerContractWorkflow(args.workflow)) {
     assertWorkflowExecutionProviderSupported(manifestProviderId);
   }
   const manifestProvider = resolveProviderById(manifestProviderId);

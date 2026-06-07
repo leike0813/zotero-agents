@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.stage_40_core_synthesis.schema.json",
+  "title": "Stage 40 core synthesis payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "taxonomy",
+    "timeline_events",
+    "positioning",
+    "claims",
+    "improvement_dimension_summary",
+    "improvement_dimensions",
+    "concept_candidate_labels",
+    "debates",
+    "gaps",
+    "review_outline"
+  ],
+  "properties": {
+    "taxonomy": { "type": "object" },
+    "timeline_events": { "type": "object" },
+    "positioning": { "type": "object" },
+    "claims": { "type": "array", "items": { "type": "object" } },
+    "improvement_dimension_summary": { "type": "object" },
+    "improvement_dimensions": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "concept_candidate_labels": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "debates": { "type": "array", "items": { "type": "object" } },
+    "gaps": { "type": "array", "items": { "type": "object" } },
+    "review_outline": { "type": "object" }
+  },
+  "examples": [
+    {
+      "taxonomy": { "summary": {}, "nodes": [] },
+      "timeline_events": { "summary": {}, "events": [] },
+      "positioning": {},
+      "claims": [],
+      "improvement_dimension_summary": {},
+      "improvement_dimensions": [],
+      "concept_candidate_labels": [],
+      "debates": [],
+      "gaps": [],
+      "review_outline": {}
+    }
+  ]
+}

@@ -1294,15 +1294,11 @@ describe("Synthesis Layer v1 integration service", function () {
         .some((binding) => binding.itemKey === acceptedProposal?.targetItemKey),
     );
     assert.isTrue(
-      repository
-        .listCitationEdges({
-          sourceLiteratureItemIds: ["1:A"],
-          targetLiteratureItemIds: [
-            `1:${acceptedProposal?.targetItemKey || ""}`,
-          ],
-          statuses: ["accepted"],
-        })
-        .length > 0,
+      repository.listCitationEdges({
+        sourceLiteratureItemIds: ["1:A"],
+        targetLiteratureItemIds: [`1:${acceptedProposal?.targetItemKey || ""}`],
+        statuses: ["accepted"],
+      }).length > 0,
     );
 
     await service.applyReferenceMatchProposalAction({
@@ -1633,7 +1629,7 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.refreshReferenceSidecarNow();
-    await service.rebuildCitationGraphCacheNow();
+    const rebuild = await service.rebuildCitationGraphCacheNow();
     const metrics = await service.getCitationGraphMetrics({ limit: 2 });
     const byPaper = await service.getCitationGraphMetrics({
       paperRefs: ["1:B"],
@@ -1643,17 +1639,95 @@ describe("Synthesis Layer v1 integration service", function () {
       direction: "incoming",
     });
 
+    assert.equal(rebuild.metrics, 2);
+    assert.isString(rebuild.metricsHash);
     assert.equal(metrics.ok, true);
+    assert.equal(metrics.status, "ready");
+    assert.equal(metrics.diagnostics.metrics_found, true);
     assert.isTrue(
       metrics.items.some((item) => item.node_id === "zotero:item:B"),
     );
     assert.equal(byPaper.items[0].paper_ref, "1:B");
     assert.isAtLeast(byPaper.items[0].internal_in_degree, 1);
+    assert.isAbove(byPaper.items[0].internal_pagerank, 0);
+    assert.isString(byPaper.items[0].component_id);
     assert.equal(
       slice.nodes.find((node: any) => node.node_id === "zotero:item:B")?.metrics
         ?.internal_in_degree,
       1,
     );
+  });
+
+  it("refreshes complex metrics after incremental citation graph updates", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          year: "2020",
+          references: [
+            { title: "Beta Paper", year: "2024", authors: ["Beta"] },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+          year: "2024",
+          authors: ["Beta"],
+        },
+      ],
+    });
+
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+
+    const updated = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          year: "2020",
+          references: [
+            { title: "Beta Paper", year: "2024", authors: ["Beta"] },
+            { title: "Gamma Paper", year: "2025", authors: ["Gamma"] },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+          year: "2024",
+          authors: ["Beta"],
+        },
+        {
+          libraryId: 1,
+          itemKey: "C",
+          title: "Gamma Paper",
+          year: "2025",
+          authors: ["Gamma"],
+        },
+      ],
+    });
+
+    await updated.refreshReferenceSidecarNow();
+    const metrics = await updated.getCitationGraphMetrics({
+      paperRefs: ["1:C"],
+    });
+
+    assert.equal(metrics.status, "ready");
+    assert.equal(metrics.diagnostics.metrics_found, true);
+    assert.equal(metrics.diagnostics.stale, false);
+    assert.equal(metrics.items[0].paper_ref, "1:C");
+    assert.isAbove(metrics.items[0].internal_pagerank, 0);
+    assert.isString(metrics.items[0].component_id);
   });
 
   it("marks citation graph metrics stale when graph hash changes", async function () {
@@ -1725,6 +1799,114 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(metrics.ok, true);
     assert.equal(metrics.status, "stale");
     assert.equal(metrics.diagnostics.stale, true);
+    assert.include(
+      metrics.diagnostics.recommended_commands,
+      "refreshCitationGraphMetricsNow",
+    );
+    assert.notInclude(
+      metrics.diagnostics.recommended_commands,
+      "rebuildCitationGraphCacheNow",
+    );
+  });
+
+  it("refreshes graph metrics without rebuilding graph rows", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-05-12T00:00:00.000Z",
+    });
+    repository.replaceCitationGraphState({
+      nodes: [
+        {
+          literatureItemId: "1:A",
+          nodeStatus: "active",
+          hasZoteroBinding: true,
+          title: "Alpha",
+          year: "2020",
+        },
+        {
+          literatureItemId: "1:B",
+          nodeStatus: "active",
+          hasZoteroBinding: true,
+          title: "Beta",
+          year: "2024",
+        },
+      ],
+      edges: [
+        {
+          edgeId: "edge:a-b",
+          sourceLiteratureItemId: "1:A",
+          targetLiteratureItemId: "1:B",
+          edgeStatus: "accepted",
+          weight: 1,
+        },
+      ],
+      lightweightMetrics: [
+        {
+          literatureItemId: "1:A",
+          outgoingCount: 1,
+          incomingCount: 0,
+          matchedOutgoingCount: 1,
+          unresolvedOutgoingCount: 0,
+          ambiguousOutgoingCount: 0,
+          localDegree: 1,
+          sourceStructureVersion: 1,
+        },
+        {
+          literatureItemId: "1:B",
+          outgoingCount: 0,
+          incomingCount: 1,
+          matchedOutgoingCount: 0,
+          unresolvedOutgoingCount: 0,
+          ambiguousOutgoingCount: 0,
+          localDegree: 1,
+          sourceStructureVersion: 1,
+        },
+      ],
+    });
+    repository.upsertCitationGraphLayoutState({
+      viewKey: "workbench_overview",
+      preset: "force",
+      graphHash: "sha256:old-layout",
+      layoutHash: "sha256:layout",
+      layoutJson: "{}",
+      status: "ready",
+    });
+    repository.upsertCacheBasis({
+      cacheKey: "citation-graph:library",
+      cacheKind: "citation_graph",
+      scopeKind: "library",
+      scopeRef: "1",
+      status: "ready",
+      basisKind: "test",
+      basisValue: "ready",
+      sourceHash: "sha256:graph",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+    });
+    const beforeEdges = repository.listCitationEdges();
+    const beforeLayouts = repository.listCitationGraphLayoutStates();
+    const stale = await service.getCitationGraphMetrics();
+
+    assert.equal(stale.status, "stale");
+    assert.equal(stale.diagnostics.metrics_found, false);
+
+    const refreshed = await service.refreshCitationGraphMetricsNow();
+    const ready = await service.getCitationGraphMetrics({
+      paperRefs: ["1:B"],
+    });
+
+    assert.equal(refreshed.status, "completed");
+    assert.equal(refreshed.metric_count, 2);
+    assert.equal(ready.status, "ready");
+    assert.equal(ready.diagnostics.metrics_found, true);
+    assert.isAbove(ready.items[0].internal_pagerank, 0);
+    assert.deepEqual(repository.listCitationEdges(), beforeEdges);
+    assert.deepEqual(repository.listCitationGraphLayoutStates(), beforeLayouts);
   });
 });
 
@@ -2098,6 +2280,19 @@ function v2SectionsWithEvidence(payloadHash: string) {
       dimensions: ["problem addressed"],
       rows: [{ id: "cmp:detr", evidence_map_refs: ["cmp:detr"] }],
     },
+    improvement_dimension_summary: {
+      text: "The fixture treats end-to-end formulation as the primary improvement dimension.",
+    },
+    improvement_dimensions: [
+      {
+        id: "dimension:detr",
+        title: "End-to-end formulation",
+        summary:
+          "DETR is represented as a fixture improvement dimension for object detection synthesis.",
+        evidence_refs: ["paper:1:DETR"],
+        evidence_map_refs: ["cmp:detr"],
+      },
+    ],
     claims: [
       {
         id: "claim:detr",
@@ -2326,6 +2521,116 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.isObject(reviewInput.structured_topic?.timeline_events);
     assert.isArray(reviewInput.structured_topic?.paper_evidence);
     assert.isObject(reviewInput.structured_topic?.external_literature_analysis);
+  });
+
+  it("applies split final candidates using manifest sidecar paths and exposes provenance", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
+    });
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle({
+        artifact_metadata: {
+          runtime: "split-skill",
+          topic_id: "object-detection",
+        },
+        candidate_output_path: "result/final-output.candidate.json",
+      }),
+      v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
+    );
+    const detail = await service.readTopicDetail({
+      topicId: "object-detection",
+    });
+
+    assert.equal(result.status, "persisted");
+    assert.equal(
+      detail.artifact_provenance.manifest_schema_id,
+      "synthesis.topic_analysis_manifest",
+    );
+    assert.equal(detail.artifact_provenance.sidecar_count, 3);
+    assert.isAtLeast(Number(detail.artifact_provenance.section_count), 10);
+    assert.equal(
+      detail.artifact_provenance.sidecars.topic_interest_metadata.schema_id,
+      "topic_interest_metadata.v1",
+    );
+  });
+
+  it("rejects incomplete split manifests with actionable diagnostics", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [],
+    });
+    const files = new Map<string, string>([
+      [
+        "runtime/payloads/resolver.json",
+        JSON.stringify({
+          resolver: { mode: "explicit", paper_refs: ["1:DETR"] },
+          resolved_paper_set: {
+            papers: [{ paper_ref: "1:DETR", match_reasons: ["explicit"] }],
+          },
+          resolver_diagnostics: { final_count: 1 },
+        }),
+      ],
+      [
+        "result/topic-analysis.json",
+        JSON.stringify({
+          schema_id: "synthesis.topic_analysis_manifest",
+          schema_version: "1.0.0",
+          operation: "create",
+          language: "zh-CN",
+          sections: {
+            summary: {
+              path: "result/sections/summary.json",
+              hash: "sha256:summary",
+            },
+            coverage: {
+              path: "result/sections/coverage.json",
+              hash: "sha256:coverage",
+            },
+          },
+          sidecars: {},
+        }),
+      ],
+    ]);
+
+    try {
+      await service.applyTopicSynthesisResult(
+        v2TopicBundle({
+          artifact_metadata: { runtime: "split-skill" },
+        }),
+        {
+          bundleReader: {
+            readText(pathValue: string) {
+              const text = files.get(pathValue);
+              if (text === undefined) {
+                throw new Error(`missing test run artifact: ${pathValue}`);
+              }
+              return text;
+            },
+          },
+        },
+      );
+      assert.fail("expected incomplete split manifest to be rejected");
+    } catch (error) {
+      assert.match(
+        error instanceof Error ? error.message : String(error),
+        /invalid split topic analysis manifest: split finalize must produce the complete host-apply-ready section set/i,
+      );
+    }
   });
 
   it("upserts topic graph nodes and ingests relation proposal sidecars after structured apply", async function () {

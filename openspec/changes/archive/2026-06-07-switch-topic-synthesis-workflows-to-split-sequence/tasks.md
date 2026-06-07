@@ -1,0 +1,7 @@
+- [x] Add OpenSpec delta coverage for split topic synthesis workflow entry points.
+- [x] Implement `stage_10_update_topic_context` in split runtime and include update prepare Stage 20/30.
+- [x] Regenerate split topic synthesis builtin packages.
+- [x] Convert create/update workflow manifests to `skillrunner.sequence.v1`.
+- [x] Remove update workflow buildRequest packaging/reference.
+- [x] Update focused workflow and split-runtime tests.
+- [x] Run targeted mocha, TypeScript, OpenSpec validation, and targeted prettier checks.

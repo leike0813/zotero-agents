@@ -1,0 +1,49 @@
+{
+  "schema_id": "synthesis.playbook.schema_examples_manifest",
+  "schema_version": "1.0.0",
+  "source_run": "artifact/topic-synthesis-create-detr-playbook",
+  "examples": [
+    {
+      "stage": "stage_10_create_topic_context",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-10-create-topic-context.schema.json",
+      "example": "schemas/examples/stage-10-create-topic-context.json",
+      "runtime_source": "runtime/payloads/create-topic-context.json"
+    },
+    {
+      "stage": "stage_20_resolver_and_workset",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-20-resolver-and-workset.schema.json",
+      "example": "schemas/examples/stage-20-resolver-and-workset.json",
+      "runtime_source": "runtime/payloads/resolver-and-workset.json"
+    },
+    {
+      "stage": "stage_30_prepare_analysis_context",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-30-prepare-analysis-context.schema.json",
+      "example": "schemas/examples/stage-30-prepare-analysis-context.json",
+      "runtime_source": "runtime/payloads/prepare-analysis-context.json"
+    },
+    {
+      "stage": "stage_40_core_synthesis",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-40-core-synthesis.schema.json",
+      "example": "schemas/examples/stage-40-core-synthesis.json",
+      "runtime_source": "runtime/payloads/core-synthesis.json"
+    },
+    {
+      "stage": "stage_50_kg_enrichment",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-50-kg-enrichment.schema.json",
+      "example": "schemas/examples/stage-50-kg-enrichment.json",
+      "runtime_source": "runtime/payloads/kg-enrichment.json"
+    },
+    {
+      "stage": "stage_60_coverage_and_collection_suggestions",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-60-coverage-and-collection-suggestions.schema.json",
+      "example": "schemas/examples/stage-60-coverage-and-collection-suggestions.json",
+      "runtime_source": "runtime/payloads/coverage-and-collection-suggestions.json"
+    },
+    {
+      "stage": "stage_70_summary",
+      "schema": "skills_src/topic-synthesis/contracts/payload-schemas/stage-70-summary.schema.json",
+      "example": "schemas/examples/stage-70-summary.json",
+      "runtime_source": "runtime/payloads/summary.json"
+    }
+  ]
+}

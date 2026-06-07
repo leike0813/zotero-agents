@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--action",
+    "run"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "11-core-run-stage_00",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"ok\": true, \"result\": {\"checked\": \"runtime/handoff/prepare-analysis-context.json\"}, \"skill_id\": \"topic-synthesis-core-enrichment\", \"stage\": \"stage_00_runtime_state_check\"}\r\n",
+  "timestamp": "2026-06-06T08:11:54.157637+00:00"
+}

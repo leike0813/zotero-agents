@@ -13,6 +13,6 @@
     }
   },
   "hooks": {
-    "applyResult": "hooks/applyResult.js"
+    "applyResult": "hooks/applyResult.mjs"
   }
 }

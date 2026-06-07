@@ -1,0 +1,11 @@
+{
+  "schema_id": "synthesis.concept_cards_proposal",
+  "schema_version": "1.0.0",
+  "topic_id": "detr-style-object-detection",
+  "cards": [
+    { "label": "DETR", "summary": "End-to-end detection transformer based on set prediction." },
+    { "label": "Deformable Attention", "summary": "Sparse multi-scale attention used to improve DETR efficiency and convergence." },
+    { "label": "Denoising Training", "summary": "Training mechanism used by DINO-style DETR variants." }
+  ],
+  "diagnostics": []
+}

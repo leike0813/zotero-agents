@@ -1,0 +1,14 @@
+{
+  "assessments": [
+    {
+      "paper_ref": "1:EIMSDEU3",
+      "relevance_level": "core",
+      "relevance_reason": "原始 DETR 论文。",
+      "paper_quality_level": "high",
+      "paper_quality_reason": "artifact manifest 显示三类 payload 可用。",
+      "core_digest": "DETR 将目标检测建模为集合预测。",
+      "caveats": [],
+      "diagnostics": []
+    }
+  ]
+}

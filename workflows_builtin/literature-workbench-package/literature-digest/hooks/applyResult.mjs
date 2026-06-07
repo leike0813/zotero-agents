@@ -7,6 +7,7 @@ import {
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
+import { applyResult as applyTagRegulatorResult } from "../../tag-regulator/hooks/applyResult.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -653,6 +654,99 @@ async function applyResultImpl({
   };
 }
 
+function resolveSequenceSteps(runResult) {
+  const steps = runResult?.sequence?.steps;
+  return Array.isArray(steps) ? steps : [];
+}
+
+function findSequenceStep(runResult, stepId) {
+  const normalized = String(stepId || "").trim();
+  return resolveSequenceSteps(runResult).find(
+    (entry) => String(entry?.step_id || "").trim() === normalized,
+  );
+}
+
+function requireSequenceStepContext(runResult, stepId) {
+  const step = findSequenceStep(runResult, stepId);
+  if (!step) {
+    throw new Error(`literature-digest sequence apply missing step: ${stepId}`);
+  }
+  if (
+    !step.bundleReader ||
+    typeof step.bundleReader.readText !== "function" ||
+    !step.resultContext
+  ) {
+    throw new Error(
+      `literature-digest sequence apply missing result context for step: ${stepId}`,
+    );
+  }
+  return step;
+}
+
+function summarizeSequence(runResult) {
+  const sequence = runResult?.sequence || {};
+  return {
+    workflow_run_id: String(sequence.workflow_run_id || "").trim() || undefined,
+    final_step_id: String(sequence.final_step_id || "").trim() || undefined,
+    steps: resolveSequenceSteps(runResult).map((entry) => ({
+      step_id: String(entry?.step_id || "").trim(),
+      request_id: String(entry?.request_id || "").trim(),
+    })),
+  };
+}
+
+async function applySequenceResultImpl(args) {
+  const digestStep = requireSequenceStepContext(args.runResult, "digest");
+  const digest = await applyResultImpl({
+    ...args,
+    bundleReader: digestStep.bundleReader,
+    resultContext: digestStep.resultContext,
+    runResult: {
+      ...(digestStep.result && typeof digestStep.result === "object"
+        ? digestStep.result
+        : {}),
+      sequence: args.runResult?.sequence,
+    },
+  });
+  const tagStep = findSequenceStep(args.runResult, "tag-regulator");
+  if (!tagStep) {
+    return digest;
+  }
+  if (
+    !tagStep.bundleReader ||
+    typeof tagStep.bundleReader.readText !== "function" ||
+    !tagStep.resultContext
+  ) {
+    throw new Error(
+      "literature-digest sequence apply missing result context for step: tag-regulator",
+    );
+  }
+  const tagRegulator = await applyTagRegulatorResult({
+    parent: args.parent,
+    bundleReader: tagStep.bundleReader,
+    resultContext: tagStep.resultContext,
+    productStorage: args.productStorage,
+    request: {
+      kind: "skillrunner.sequence.step.v1",
+      step_id: "tag-regulator",
+      workflow_request: args.request,
+    },
+    runResult: tagStep.result,
+    manifest: args.manifest,
+    runtime: args.runtime,
+  });
+  return {
+    digest,
+    tag_regulator: tagRegulator,
+    sequence: summarizeSequence(args.runResult),
+  };
+}
+
 export async function applyResult(args) {
-  return withPackageRuntimeScope(args?.runtime, () => applyResultImpl(args));
+  return withPackageRuntimeScope(args?.runtime, () => {
+    if (resolveSequenceSteps(args?.runResult).length > 0) {
+      return applySequenceResultImpl(args);
+    }
+    return applyResultImpl(args);
+  });
 }

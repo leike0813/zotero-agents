@@ -848,6 +848,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getCitationGraphMetrics",
   ),
   synthesisCapability(
+    "synthesis.refresh_citation_graph_metrics",
+    "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
+    "refreshCitationGraphMetricsNow",
+  ),
+  synthesisCapability(
     "synthesis.get_paper_artifact_manifest",
     "Return available Synthesis paper artifact descriptors for selected paper references.",
     "getPaperArtifactManifest",

@@ -1,0 +1,166 @@
+{
+  "paper_refs": [
+    "1:3JUY9GBQ",
+    "1:5HBHAWIV",
+    "1:EIMSDEU3",
+    "1:HPLZ65Z2",
+    "1:SZ3GNWT9"
+  ],
+  "result": {
+    "diagnostics": {
+      "limits": {
+        "limit": 5,
+        "maxLimit": 100
+      },
+      "maintenance": {
+        "active_worker_count": 0,
+        "canonical_epoch": 0,
+        "canonical_sync_pending": false,
+        "failed_count": 1,
+        "pending_dirty_count": 0,
+        "queue_state": "removed",
+        "recommended_commands": [],
+        "running_count": 0
+      },
+      "metrics_found": true,
+      "recommended_commands": [],
+      "returned_count": 5,
+      "snapshot_found": true,
+      "stale": false,
+      "total_library_nodes": 5,
+      "warnings": []
+    },
+    "graph_hash": "sha256:cb4feb68b84b3a09cce5357f36b91ee6caba6dccc329bbf7e45d582715711a8c",
+    "items": [
+      {
+        "age_norm": 0.5,
+        "component_id": "component:001",
+        "component_size": 60,
+        "external_reference_count": 51,
+        "foundation_score": 0.492382,
+        "frontier_score": 0.321807,
+        "in_degree_norm": 0.805556,
+        "internal_in_degree": 29,
+        "internal_out_degree": 4,
+        "internal_pagerank": 0.017618,
+        "is_isolated": false,
+        "item_key": "EIMSDEU3",
+        "node_id": "zotero:item:EIMSDEU3",
+        "out_degree_norm": 0.153846,
+        "pagerank_norm": 0.041725,
+        "paper_ref": "1:EIMSDEU3",
+        "recency_norm": 0.5,
+        "synthesis_role_hints": [
+          "external-heavy"
+        ],
+        "title": "End-to-end object detection with transformers",
+        "unresolved_reference_count": 0,
+        "year": "2020"
+      },
+      {
+        "age_norm": 0.416667,
+        "component_id": "component:001",
+        "component_size": 60,
+        "external_reference_count": 40,
+        "foundation_score": 0.405764,
+        "frontier_score": 0.364969,
+        "in_degree_norm": 0.666667,
+        "internal_in_degree": 24,
+        "internal_out_degree": 4,
+        "internal_pagerank": 0.01198,
+        "is_isolated": false,
+        "item_key": "5HBHAWIV",
+        "node_id": "zotero:item:5HBHAWIV",
+        "out_degree_norm": 0.153846,
+        "pagerank_norm": 0.028372,
+        "paper_ref": "1:5HBHAWIV",
+        "recency_norm": 0.583333,
+        "synthesis_role_hints": [
+          "external-heavy"
+        ],
+        "title": "Deformable DETR: deformable transformers for end-to-end object detection",
+        "unresolved_reference_count": 0,
+        "year": "2021"
+      },
+      {
+        "age_norm": 0.333333,
+        "component_id": "component:001",
+        "component_size": 60,
+        "external_reference_count": 26,
+        "foundation_score": 0.207538,
+        "frontier_score": 0.494387,
+        "in_degree_norm": 0.305556,
+        "internal_in_degree": 11,
+        "internal_out_degree": 13,
+        "internal_pagerank": 0.005742,
+        "is_isolated": false,
+        "item_key": "HPLZ65Z2",
+        "node_id": "zotero:item:HPLZ65Z2",
+        "out_degree_norm": 0.5,
+        "pagerank_norm": 0.013599,
+        "paper_ref": "1:HPLZ65Z2",
+        "recency_norm": 0.666667,
+        "synthesis_role_hints": [
+          "external-heavy"
+        ],
+        "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+        "unresolved_reference_count": 0,
+        "year": "2022"
+      },
+      {
+        "age_norm": 0.333333,
+        "component_id": "component:001",
+        "component_size": 60,
+        "external_reference_count": 36,
+        "foundation_score": 0.066619,
+        "frontier_score": 0.425919,
+        "in_degree_norm": 0.027778,
+        "internal_in_degree": 1,
+        "internal_out_degree": 6,
+        "internal_pagerank": 0.003293,
+        "is_isolated": false,
+        "item_key": "3JUY9GBQ",
+        "node_id": "zotero:item:3JUY9GBQ",
+        "out_degree_norm": 0.230769,
+        "pagerank_norm": 0.007799,
+        "paper_ref": "1:3JUY9GBQ",
+        "recency_norm": 0.666667,
+        "synthesis_role_hints": [
+          "external-heavy"
+        ],
+        "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+        "unresolved_reference_count": 0,
+        "year": "2022"
+      },
+      {
+        "age_norm": 0.083333,
+        "component_id": "component:001",
+        "component_size": 60,
+        "external_reference_count": 45,
+        "foundation_score": 0.015052,
+        "frontier_score": 0.640241,
+        "in_degree_norm": 0,
+        "internal_in_degree": 0,
+        "internal_out_degree": 14,
+        "internal_pagerank": 0.003079,
+        "is_isolated": false,
+        "item_key": "SZ3GNWT9",
+        "node_id": "zotero:item:SZ3GNWT9",
+        "out_degree_norm": 0.538462,
+        "pagerank_norm": 0.007292,
+        "paper_ref": "1:SZ3GNWT9",
+        "recency_norm": 0.916667,
+        "synthesis_role_hints": [
+          "external-heavy",
+          "frontier"
+        ],
+        "title": "RF-DETR: neural architecture search for real-time detection transformers",
+        "unresolved_reference_count": 0,
+        "year": "2025"
+      }
+    ],
+    "metrics_hash": "sha256:892739729cd75bd784f675a076f53a40425aaa9f3a48d16f57473bcbc8076f64",
+    "ok": true,
+    "status": "ready"
+  }
+}

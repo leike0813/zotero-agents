@@ -1,0 +1,54 @@
+{
+  "assessments": [
+    {
+      "paper_ref": "1:EIMSDEU3",
+      "relevance_level": "core",
+      "relevance_reason": "原始 DETR 论文，直接定义主题边界和后续变体的比较基线。",
+      "paper_quality_level": "high",
+      "paper_quality_reason": "图谱轻量指标中 foundation_score 最高，artifact manifest 显示 digest、references、citation-analysis 均可用。",
+      "core_digest": "DETR 把目标检测建模为集合预测问题，用 object queries 与 Hungarian matching 实现端到端检测，是后续路线的基线。",
+      "caveats": ["本 playbook 不保留完整 digest 正文，只保留短 evidence 摘要。"],
+      "diagnostics": [{ "role": "original_baseline" }]
+    },
+    {
+      "paper_ref": "1:5HBHAWIV",
+      "relevance_level": "core",
+      "relevance_reason": "Deformable DETR 是解决 DETR 多尺度和收敛问题的代表性结构改造。",
+      "paper_quality_level": "high",
+      "paper_quality_reason": "artifact manifest 三类 payload 可用，foundation_score 和 frontier_score 均较高。",
+      "core_digest": "Deformable attention 用稀疏采样和多尺度特征降低 DETR 优化与计算压力，成为后续高性能 DETR 的关键路线。",
+      "caveats": [],
+      "diagnostics": [{ "role": "attention_efficiency_and_multiscale" }]
+    },
+    {
+      "paper_ref": "1:W4CDLU28",
+      "relevance_level": "core",
+      "relevance_reason": "Conditional DETR 聚焦 query 的空间条件化，代表收敛问题的一条机制路线。",
+      "paper_quality_level": "medium",
+      "paper_quality_reason": "artifact manifest 三类 payload 可用，但库内标签较少，主要作为 query design 示例。",
+      "core_digest": "Conditional DETR 将查询与空间位置关系显式化，改善 DETR 训练收敛和定位学习。",
+      "caveats": ["示例中未读取完整论文正文。"],
+      "diagnostics": [{ "role": "query_design_for_convergence" }]
+    },
+    {
+      "paper_ref": "1:HPLZ65Z2",
+      "relevance_level": "core",
+      "relevance_reason": "DINO 代表 denoising training、anchor/query 改造和 DETR 性能提升的组合路线。",
+      "paper_quality_level": "high",
+      "paper_quality_reason": "artifact manifest 三类 payload 可用，标签含 denoising-training 和 anchor。",
+      "core_digest": "DINO 通过 denoising anchor boxes 和改进训练策略提升 DETR 的稳定性与检测质量。",
+      "caveats": [],
+      "diagnostics": [{ "role": "denoising_anchor_training" }]
+    },
+    {
+      "paper_ref": "1:CBJWE4JX",
+      "relevance_level": "related",
+      "relevance_reason": "该论文代表 DETR 变体进入实时检测和 YOLO 对比语境。",
+      "paper_quality_level": "medium",
+      "paper_quality_reason": "artifact manifest 三类 payload 可用，图谱指标显示更偏近期 frontier，但 metrics 状态为 stale。",
+      "core_digest": "实时 DETR 方向把端到端 Transformer 检测器放到速度/精度权衡中评价，连接研究路线和部署需求。",
+      "caveats": ["当前 citation metrics 为 stale，只能作为弱排序信号。"],
+      "diagnostics": [{ "role": "real_time_detection_direction" }]
+    }
+  ]
+}

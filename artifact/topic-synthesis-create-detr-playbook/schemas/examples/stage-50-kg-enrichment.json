@@ -1,0 +1,12 @@
+{
+  "concept_details": [],
+  "topic_relation_candidates": [],
+  "topic_matching_terms": {
+    "include_terms": ["DETR"],
+    "must_have_terms": ["DETR"],
+    "methods": ["Hungarian matching"],
+    "exclude_terms": [],
+    "diagnostics": []
+  },
+  "diagnostics": []
+}

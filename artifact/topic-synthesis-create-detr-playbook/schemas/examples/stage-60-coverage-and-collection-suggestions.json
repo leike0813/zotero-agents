@@ -1,0 +1,16 @@
+{
+  "coverage_verdict": "partial",
+  "coverage_reason": "只选 5 篇样例。",
+  "reliability_summary": "artifact manifest 可用，citation metrics 为 stale。",
+  "coverage_caveats": [],
+  "external_context_summary": "只使用库内上下文。",
+  "suggested_collection_directions": [
+    {
+      "direction": "补齐更多 DETR 变体",
+      "reason": "resolver 还有未选论文。",
+      "example_titles_or_terms": ["DAB-DETR", "DN-DETR"],
+      "priority": "high"
+    }
+  ],
+  "diagnostics": []
+}

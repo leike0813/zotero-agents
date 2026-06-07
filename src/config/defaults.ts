@@ -10,6 +10,8 @@ export const ACP_PROMPT_REQUEST_KIND = "acp.prompt.v1";
 
 export const ACP_SKILL_RUN_REQUEST_KIND = "acp.skill.run.v1";
 
+export const SKILLRUNNER_SEQUENCE_REQUEST_KIND = "skillrunner.sequence.v1";
+
 export const ACP_OPENCODE_BACKEND_ID = "acp-opencode";
 
 export const ACP_OPENCODE_DISPLAY_NAME = "OpenCode ACP";

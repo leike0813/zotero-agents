@@ -1,0 +1,12 @@
+{
+  "report_path": "runtime/views/synthesis-report.md",
+  "schema_id": "synthesis.synthesis_report_manifest",
+  "schema_version": "1.0.0",
+  "source_paper_refs": [
+    "1:3JUY9GBQ",
+    "1:5HBHAWIV",
+    "1:EIMSDEU3",
+    "1:HPLZ65Z2",
+    "1:SZ3GNWT9"
+  ]
+}

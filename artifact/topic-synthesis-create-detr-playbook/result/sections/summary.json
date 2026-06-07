@@ -1,0 +1,14 @@
+{
+  "section": "summary",
+  "source": "runtime/payloads/summary.json",
+  "content": {
+    "summary_brief": "DETR-style object detection 围绕集合预测、收敛改进、多尺度注意力和实时化部署演进。",
+    "source_paper_refs": [
+      "1:EIMSDEU3",
+      "1:5HBHAWIV",
+      "1:W4CDLU28",
+      "1:HPLZ65Z2",
+      "1:CBJWE4JX"
+    ]
+  }
+}

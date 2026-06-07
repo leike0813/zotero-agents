@@ -1,0 +1,6 @@
+{
+  "summary_brief": "DETR 围绕集合预测、收敛和实时化演进。",
+  "summary_overview": "本样例只作为 create topic synthesis 流程和 schema 基准。",
+  "key_takeaways": ["原始 DETR 定义基线。"],
+  "diagnostics": []
+}

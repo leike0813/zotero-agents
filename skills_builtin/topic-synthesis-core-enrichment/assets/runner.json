@@ -1,0 +1,18 @@
+{
+  "id": "topic-synthesis-core-enrichment",
+  "name": "主题综合核心分析与知识图谱补全",
+  "description": "读取已准备的分析上下文，编写核心综合分析和知识图谱补全 payload。",
+  "version": "0.1.0",
+  "execution_modes": ["interactive"],
+  "max_attempt": 12,
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "执行生成的 topic synthesis split skill。必须先阅读 SKILL.md，并按 scripts/gate.py 返回的 gate JSON 执行。最终回复使用 ACP final branch：包含 `__SKILL_DONE__: true`，并附加一个符合 assets/output.schema.json 的业务 JSON 对象；output schema 本身不包含 `__SKILL_DONE__`。"
+    }
+  }
+}

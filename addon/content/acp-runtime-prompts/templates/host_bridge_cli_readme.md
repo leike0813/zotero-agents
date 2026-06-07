@@ -147,12 +147,14 @@ zotero-bridge note payload (--key <key> | --id <id>) [--library-id <id>] [--payl
 zotero-bridge synthesis list-topics [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-topic-context [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-schemas [--input <JSON_OR_FILE>]
+zotero-bridge synthesis query-concept-kb [--input <JSON_OR_FILE>]
+zotero-bridge synthesis query-citation-graph-cluster [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-library-index [--input <JSON_OR_FILE>]  # sidecar cache view
 zotero-bridge synthesis resolve-resolver [--input <JSON_OR_FILE>]
 zotero-bridge synthesis get-reference-sidecar-index [--input <JSON_OR_FILE>]  # sidecar cache view
 zotero-bridge synthesis query-citation-graph [--input <JSON_OR_FILE>]  # sidecar cache view
 zotero-bridge synthesis get-citation-graph-slice [--input <JSON_OR_FILE>]  # sidecar cache view
-zotero-bridge synthesis get-citation-graph-metrics [--input <JSON_OR_FILE>]  # sidecar cache view
+zotero-bridge synthesis get-citation-graph-metrics [--input <JSON_OR_FILE>]  # read graph metrics
 zotero-bridge synthesis get-paper-artifact-manifest [--input <JSON_OR_FILE>]
 zotero-bridge synthesis read-paper-artifacts [--input <JSON_OR_FILE>]
 zotero-bridge synthesis export-filtered-paper-artifacts [--input <JSON_OR_FILE>]
@@ -170,6 +172,14 @@ Use raw capability calls only for advanced diagnostics:
 
 ```text
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
+```
+
+Citation graph complex metrics are recomputed automatically after graph rebuilds
+and incremental graph refreshes. If a legacy or diagnostic state reports missing
+complex metrics, repair it with a Zotero-approved raw call:
+
+```text
+zotero-bridge call synthesis.refresh_citation_graph_metrics --input '{}'
 ```
 
 ## 6. JSON Input Arguments
@@ -204,6 +214,12 @@ current generated digest/topic content, use artifact-oriented synthesis reads
 such as `get-paper-artifact-manifest`, `read-paper-artifacts`,
 `resolve-topic-paper-digest`, and `get-topic-context`.
 
+Citation graph metrics are read-only through
+`synthesis get-citation-graph-metrics`. Graph refresh and rebuild operations
+maintain complex metrics automatically; the raw
+`synthesis.refresh_citation_graph_metrics` capability is diagnostic repair only
+and requires Zotero UI approval.
+
 Common topic synthesis commands:
 
 ```text
@@ -237,6 +253,8 @@ Capability mapping:
 | `synthesis list-topics`                     | `synthesis.list_topics`                     |
 | `synthesis get-topic-context`               | `synthesis.get_topic_context`               |
 | `synthesis get-schemas`                     | `synthesis.get_schemas`                     |
+| `synthesis query-concept-kb`                | `synthesis.query_concept_kb`                |
+| `synthesis query-citation-graph-cluster`    | `synthesis.query_citation_graph_cluster`    |
 | `synthesis get-library-index`               | `synthesis.get_library_index`               |
 | `synthesis resolve-resolver`                | `synthesis.resolve_resolver`                |
 | `synthesis get-reference-sidecar-index`     | `synthesis.get_reference_sidecar_index`     |

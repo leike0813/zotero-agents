@@ -4,6 +4,7 @@ import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
@@ -150,7 +151,8 @@ export class AcpProvider implements Provider {
     return (
       backendType === ACP_BACKEND_TYPE &&
       (requestKind === ACP_PROMPT_REQUEST_KIND ||
-        requestKind === ACP_SKILL_RUN_REQUEST_KIND)
+        requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
+        requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND)
     );
   }
 
@@ -167,6 +169,13 @@ export class AcpProvider implements Provider {
     }
     if (String(args.requestKind || "").trim() === ACP_SKILL_RUN_REQUEST_KIND) {
       return executeAcpSkillRunnerJob(args);
+    }
+    if (
+      String(args.requestKind || "").trim() === SKILLRUNNER_SEQUENCE_REQUEST_KIND
+    ) {
+      throw new Error(
+        "skillrunner.sequence.v1 must be executed by workflow runtime orchestration",
+      );
     }
     const request = args.request as AcpPromptRequestV1;
     const requestId = `acp-${Date.now().toString(36)}-${Math.random()

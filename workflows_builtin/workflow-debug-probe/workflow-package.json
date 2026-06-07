@@ -1,0 +1,10 @@
+{
+  "id": "workflow-debug-probe",
+  "version": "0.2.0",
+  "workflows": [
+    "workflow.json",
+    "debug-sequence-linear-probe/workflow.json",
+    "debug-sequence-workspace-reuse-probe/workflow.json",
+    "debug-sequence-context-isolation-probe/workflow.json"
+  ]
+}

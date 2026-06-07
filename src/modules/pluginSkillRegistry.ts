@@ -16,6 +16,7 @@ import {
   statRuntimePath,
   getRuntimePersistencePaths,
 } from "./runtimePersistence";
+import { isDebugModeEnabled } from "./debugMode";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
@@ -42,6 +43,7 @@ export type PluginSkillRegistryDiagnostic = {
 export type PluginSkillRegistryEntry = {
   skillId: string;
   description: string;
+  debugOnly?: boolean;
   sourceKind: PluginSkillSourceKind;
   sourceDir: string;
   skillMdPath: string;
@@ -427,6 +429,7 @@ async function inspectCandidate(
   return {
     skillId,
     description: skillFrontmatter.description,
+    ...(runnerJson.debug_only === true ? { debugOnly: true } : {}),
     sourceKind: candidate.sourceKind,
     sourceDir: candidate.sourceDir,
     skillMdPath,
@@ -503,6 +506,9 @@ export async function scanPluginSkillRegistry(
     const inspected = await inspectCandidate(candidate);
     if ("category" in inspected) {
       diagnostics.push(inspected);
+      continue;
+    }
+    if (inspected.debugOnly && !isDebugModeEnabled()) {
       continue;
     }
     validEntries.push(inspected);

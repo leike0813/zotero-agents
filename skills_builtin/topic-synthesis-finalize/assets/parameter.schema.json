@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "主题综合收尾 Parameter",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "topicSeed": { "type": "string", "minLength": 1 },
+    "topicId": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "minLength": 1 }
+  },
+  "required": []
+}

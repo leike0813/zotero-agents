@@ -1,0 +1,11 @@
+{
+  "diagnostics": [],
+  "key_takeaways": [
+    "DETR 的主题边界应限定为 query-based end-to-end object detection，避免混入泛 Transformer 或 DINOv3 表征文献。",
+    "收敛效率和 query/anchor 设计是 DETR-family 最核心的改进轴。",
+    "3D 与 real-time 方向说明 DETR 已从原始 2D 检测扩展到更复杂的应用约束。",
+    "正式综述需要补充未入选的 17 篇 resolver 候选，尤其是 Conditional/DN/RT/LW/Group DETR。"
+  ],
+  "summary_brief": "DETR-style Object Detection 的样例 synthesis 显示：DETR 以 set prediction 和 object queries 开启端到端检测范式，后续代表性工作围绕收敛、多尺度、query/anchor 训练稳定性、3D 扩展和实时部署继续演化。",
+  "summary_overview": "本次全仿真 playbook 使用真实 Zotero Bridge resolver 从 DETR 候选集中选择 5 篇代表论文，并通过 split runtime 生成 SQLite receipts、handoff、context views、sidecars、sections 和 final candidate。样例结论强调方法演进链：原始 DETR 定义问题，Deformable DETR 和 DINO 修复训练与多尺度瓶颈，DETR3D 展示范式迁移，RF-DETR 暴露实时化与部署方向。由于样例只使用 5 篇，最终结果应作为 schema 与 gate 基准，而不是完整主题综述。"
+}

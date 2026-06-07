@@ -1,0 +1,16 @@
+{
+  "id": "debug-sequence-probe-finalize",
+  "name": "Debug Sequence Probe Finalize",
+  "description": "Debug-only sequence probe step that summarizes previous checks for workflow applyResult.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["auto"],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only probe exactly as described in SKILL.md. Inputs: {{ input }}. Parameters: {{ parameter }}. Use the current working directory as the run workspace. Output exactly one JSON object."
+    }
+  }
+}

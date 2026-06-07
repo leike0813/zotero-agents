@@ -1,0 +1,39 @@
+{
+  "schema_id": "synthesis.skill_handoff",
+  "schema_version": "1.0.0",
+  "handoff": "prepare_analysis_context",
+  "stage": "stage_30_prepare_analysis_context",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "artifacts": {
+    "create_topic_context": {
+      "path": "runtime/payloads/create-topic-context.json",
+      "hash": "sha256:ebaf5a8198fbd842a8fd1996d7df5afaaaf98b748b85fc9096ae099c4bca8edb"
+    },
+    "resolver_and_workset": {
+      "path": "runtime/payloads/resolver-and-workset.json",
+      "hash": "sha256:945508f69578792545b9031b187d22ca9ffa941e023dba5cf39697eb114015a4"
+    },
+    "prepare_analysis_context": {
+      "path": "runtime/payloads/prepare-analysis-context.json",
+      "hash": "sha256:1a56770e45bbf18a8d2189763aea55dc3f35cd58f17b9244bfc6b7d5bca4a020"
+    },
+    "selected_paper_set": {
+      "path": "runtime/views/selected-paper-set.json",
+      "hash": "sha256:55b5acdf9cfa31d5ff37841a12e579daed7217e113fe0611328100dd52e19c2a"
+    },
+    "cross_paper_context": {
+      "path": "runtime/views/cross-paper-context.md",
+      "hash": "sha256:a537c1d05d47663c1acb1923efe91da8b0b17ad576ecb7e581e2ed878081f9cf"
+    },
+    "source_paper_evidence_index": {
+      "path": "runtime/views/source-paper-evidence-index.json",
+      "hash": "sha256:0f9e3a016a0024acdd1a9955954f88ac4ebef9a386e8b41bac552e6947127063"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "dry_run_handoff",
+      "message": "SQLite file is not produced in this playbook; db_path is retained to match the split-skill handoff contract."
+    }
+  ]
+}

@@ -437,7 +437,8 @@ export async function openWorkflowSettingsWebDialog(args: {
           isStructuralDraftChange({
             changedSection,
             changedKey,
-          })
+          }) ||
+          changedSection === "workflowParams"
         ) {
           await refreshDescriptor();
           pushSnapshot("workflow-settings-dialog:snapshot");

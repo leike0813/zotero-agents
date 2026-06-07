@@ -1,0 +1,32 @@
+{
+  "schema_id": "synthesis.topic_analysis_manifest",
+  "schema_version": "1.0.0",
+  "topic_id": "detr-style-object-detection",
+  "operation": "create",
+  "language": "zh-CN",
+  "sections": {
+    "taxonomy": { "path": "result/sections/taxonomy.json", "hash": "sha256:d6d2c84ede35e96e446cbd781150d5a74afc49daeeacdcb79b5153cd943506a0" },
+    "timeline": { "path": "result/sections/timeline.json", "hash": "sha256:01dc8dd8e82ea558b54e65e124e0caf52ce480134c7f3b060473f159815d1855" },
+    "summary": { "path": "result/sections/summary.json", "hash": "sha256:3a8cde6e95df576ea301ad26fb4669d3404016b9ee2b48ddbace08b50aae2ee1" }
+  },
+  "sidecars": {
+    "topic_interest_metadata": {
+      "path": "result/sidecars/topic-interest-metadata.json",
+      "hash": "sha256:3eadb5d8b970c3d18eb4df4a662d4e29102a30fc21299fab0bf5b938ce71cfda"
+    },
+    "concept_cards_proposal": {
+      "path": "result/sidecars/concept-cards-proposal.json",
+      "hash": "sha256:e62da85a52d5fb401609ee9f2a4f0d3a7ae2a0724e35ed3481e67a6f4fcce4ef"
+    },
+    "topic_graph_relation_proposals": {
+      "path": "result/sidecars/topic-graph-relation-proposals.json",
+      "hash": "sha256:68b306b031da6e524c281441402d0f6c228127d03ff750925261db9d2581af32"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "dry_run_only",
+      "message": "This manifest is a playbook candidate and was not applied to Zotero."
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "aliases": [
+    "DETR",
+    "Detection Transformer",
+    "DETR-family detectors"
+  ],
+  "definition": "以 DETR 为起点的 query-based、set-prediction 目标检测方法族，重点关注端到端检测、训练收敛、query/anchor 设计、多尺度特征和实时化变体。",
+  "diagnostics": [],
+  "duplicate_candidate_ids": [],
+  "duplicate_reason": "Host Bridge list-topics 返回空 topic 列表；本次 create run 未发现已有 DETR topic。",
+  "duplicate_status": "none",
+  "scope_exclude": [
+    "仅使用 DINOv2/DINOv3 表征但不讨论 DETR 检测框架的论文",
+    "泛 Transformer 或 ViT 分类论文",
+    "传统 CNN/YOLO/Faster R-CNN 背景论文，除非作为对照"
+  ],
+  "scope_include": [
+    "DETR 原始方法",
+    "DETR-family 目标检测变体",
+    "收敛加速与 query/anchor 设计",
+    "2D/3D/real-time detection transformer 扩展"
+  ],
+  "topic_title": "DETR-style Object Detection"
+}

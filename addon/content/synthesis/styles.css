@@ -2224,7 +2224,8 @@ th {
 }
 
 .graph-control-drawer:not(:hover):not(:focus):not(:focus-within)
-  .graph-control-icon svg {
+  .graph-control-icon
+  svg {
   transform: translateY(-1px);
 }
 
@@ -2677,7 +2678,7 @@ th {
 
 .topic-detail-layout {
   display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr) 220px;
   gap: 12px;
   min-height: 0;
   padding: 12px 12px 8px;
@@ -2720,6 +2721,26 @@ th {
 
 .topic-reading-surface {
   padding: 22px 28px 30px;
+}
+
+.topic-provenance-aside {
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid var(--topic-border);
+  border-radius: 6px;
+  background: var(--topic-panel-subtle);
+  overflow: auto;
+}
+
+.topic-provenance-aside h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.topic-provenance-aside button {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .topic-section {
@@ -3585,7 +3606,7 @@ th {
 
   .topic-detail-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(320px, 1fr);
+    grid-template-rows: auto minmax(320px, 1fr) auto;
     overflow: auto;
   }
 

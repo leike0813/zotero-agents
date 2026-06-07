@@ -199,6 +199,12 @@ function createFakeDocumentForAssistantPanel() {
           child.className.split(/\s+/).includes(classMatch[1]),
         );
       }
+      const attrMatch = selector.match(/^\[([A-Za-z0-9_-]+)\]$/);
+      if (attrMatch) {
+        return this.descendants().filter((child) =>
+          child.getAttribute(attrMatch[1]) !== null,
+        );
+      }
       return [];
     }
 
@@ -2132,5 +2138,68 @@ describe("acp ui smoke", function () {
     assert.equal(nextInput.selectionStart, 2);
     assert.equal(nextInput.selectionEnd, 7);
     assert.strictEqual(fakeDocument.activeElement, input);
+  });
+
+  it("updates workspace drawer active session without reordering unchanged rows", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const drawerRegion = fakeDocument.createElement("div");
+    const sections = [
+      {
+        id: "sessions",
+        title: "Sessions",
+        groups: [
+          {
+            backendId: "backend-a",
+            backendDisplayName: "Backend A",
+            activeTasks: [
+              {
+                key: "session-a",
+                title: "Session A",
+                workflowLabel: "Backend A",
+                status: "idle",
+                selectable: true,
+              },
+              {
+                key: "session-b",
+                title: "Session B",
+                workflowLabel: "Backend A",
+                status: "idle",
+                selectable: true,
+              },
+            ],
+            finishedTasks: [],
+          },
+        ],
+      },
+    ];
+
+    function renderSelected(selectedTaskKey: string) {
+      renderer.renderAssistantContextDrawer(drawerRegion, {
+        drawers: {
+          layout: "workspace-task-drawer",
+          contextTitle: "Sessions",
+          selectedTaskKey,
+          sections,
+        },
+      });
+      return drawerRegion.querySelectorAll(".assistant-workspace-drawer-task") as any[];
+    }
+
+    let rows = renderSelected("session-a");
+    assert.deepEqual(
+      rows.map((row) => row.getAttribute("data-assistant-task-key")),
+      ["session-a", "session-b"],
+    );
+    assert.include(rows[0].className, "is-active");
+    assert.notInclude(rows[1].className, "is-active");
+
+    rows = renderSelected("session-b");
+    assert.deepEqual(
+      rows.map((row) => row.getAttribute("data-assistant-task-key")),
+      ["session-a", "session-b"],
+    );
+    assert.notInclude(rows[0].className, "is-active");
+    assert.include(rows[1].className, "is-active");
   });
 });

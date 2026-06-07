@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-06-06T00:00:00+08:00",
+  "diagnostics": [
+    {
+      "command": "zotero-bridge synthesis query-concept-kb --input '{\"query\":\"DETR object detection transformer\",\"limit\":10}'",
+      "ok": false,
+      "error": "CLI subcommand query-concept-kb is not recognized, although manifest lists synthesis.query_concept_kb."
+    },
+    {
+      "command": "zotero-bridge synthesis query-citation-graph-cluster --input '{\"paper_refs\":[...],\"limit\":10}'",
+      "ok": false,
+      "error": "CLI subcommand query-citation-graph-cluster is not recognized, although manifest lists synthesis.query_citation_graph_cluster."
+    },
+    {
+      "command": "zotero-bridge synthesis get-citation-graph-slice --input '{\"paper_refs\":[...],\"limit\":20}'",
+      "ok": true,
+      "warning": "The command returned ok:false in capability data with warning startNodeId or paperRef is required; this playbook does not depend on graph slices."
+    }
+  ]
+}

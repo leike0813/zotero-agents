@@ -55,7 +55,7 @@ describe("Synthesize topic workflow contract", function () {
     }
   });
 
-  it("declares separate builtin create and update topic synthesis ACP skills as backends", async function () {
+  it("declares create and update topic synthesis as split ACP skill sequences", async function () {
     const createWorkflow = JSON.parse(
       await fs.readFile(
         "workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json",
@@ -69,14 +69,58 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.equal(
-      createWorkflow.request?.create?.skill_id,
-      "create-topic-synthesis",
+    assert.equal(createWorkflow.request?.kind, "skillrunner.sequence.v1");
+    assert.equal(updateWorkflow.request?.kind, "skillrunner.sequence.v1");
+    assert.deepEqual(
+      createWorkflow.request?.sequence?.steps?.map((step: any) => ({
+        id: step.id,
+        skill_id: step.skill_id,
+        workspace: step.workspace,
+      })),
+      [
+        {
+          id: "prepare",
+          skill_id: "create-topic-synthesis-prepare",
+          workspace: "new",
+        },
+        {
+          id: "core",
+          skill_id: "topic-synthesis-core-enrichment",
+          workspace: "reuse-workflow",
+        },
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          workspace: "reuse-workflow",
+        },
+      ],
     );
-    assert.equal(
-      updateWorkflow.request?.create?.skill_id,
-      "update-topic-synthesis",
+    assert.deepEqual(
+      updateWorkflow.request?.sequence?.steps?.map((step: any) => ({
+        id: step.id,
+        skill_id: step.skill_id,
+        workspace: step.workspace,
+      })),
+      [
+        {
+          id: "prepare",
+          skill_id: "update-topic-synthesis-prepare",
+          workspace: "new",
+        },
+        {
+          id: "core",
+          skill_id: "topic-synthesis-core-enrichment",
+          workspace: "reuse-workflow",
+        },
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          workspace: "reuse-workflow",
+        },
+      ],
     );
+    assert.equal(createWorkflow.result?.final_step_id, "finalize");
+    assert.equal(updateWorkflow.result?.final_step_id, "finalize");
     assert.equal(createWorkflow.inputs?.unit, "workflow");
     assert.equal(updateWorkflow.inputs?.unit, "workflow");
     assert.equal(
@@ -135,9 +179,13 @@ describe("Synthesize topic workflow contract", function () {
       sourceAttachmentPaths?: string[];
       targetParentID?: number;
       parameter?: Record<string, unknown>;
+      kind?: string;
+      steps?: Array<{ id: string; skill_id: string; workspace?: string }>;
+      final_step_id?: string;
     }>;
 
     assert.lengthOf(requests, 1);
+    assert.equal(requests[0].kind, "skillrunner.sequence.v1");
     assert.equal(requests[0].taskName, "Create synthesis: DETR");
     assert.isUndefined(
       (requests[0] as any).runtime_options?.zotero_host_access,
@@ -149,6 +197,20 @@ describe("Synthesize topic workflow contract", function () {
       "D:/papers/conditional-detr.pdf",
     ]);
     assert.equal(requests[0].parameter?.topicSeed, "DETR");
+    assert.equal(requests[0].parameter?.language, "zh-CN");
+    assert.equal(requests[0].final_step_id, "finalize");
+    assert.deepEqual(
+      requests[0].steps?.map((step) => [
+        step.id,
+        step.skill_id,
+        step.workspace,
+      ]),
+      [
+        ["prepare", "create-topic-synthesis-prepare", "new"],
+        ["core", "topic-synthesis-core-enrichment", "reuse-workflow"],
+        ["finalize", "topic-synthesis-finalize", "reuse-workflow"],
+      ],
+    );
   });
 
   it("uses the update-topic-synthesis workflow title template for workflow-unit requests", async function () {
@@ -183,37 +245,18 @@ describe("Synthesize topic workflow contract", function () {
           topicId: "object-detection",
         },
       },
-      runtime: {
-        hostApi: {
-          synthesis: {
-            async getTopicContext() {
-              return {
-                language: "zh-CN",
-                recommended_update: {
-                  scope: "refresh",
-                  mode: "update_full",
-                  reason: "manual",
-                  prefill: {
-                    topicId: "object-detection",
-                    language: "zh-CN",
-                    updateScope: "refresh",
-                    updateMode: "update_full",
-                    updateReason: "manual",
-                  },
-                },
-              };
-            },
-          },
-        } as any,
-      },
     })) as Array<{
       taskName?: string;
       sourceAttachmentPaths?: string[];
       targetParentID?: number;
       parameter?: Record<string, unknown>;
+      kind?: string;
+      steps?: Array<{ id: string; skill_id: string; workspace?: string }>;
+      final_step_id?: string;
     }>;
 
     assert.lengthOf(requests, 1);
+    assert.equal(requests[0].kind, "skillrunner.sequence.v1");
     assert.equal(requests[0].taskName, "Update synthesis: object-detection");
     assert.equal(requests[0].targetParentID, 8);
     assert.deepEqual(requests[0].sourceAttachmentPaths, [
@@ -221,9 +264,22 @@ describe("Synthesize topic workflow contract", function () {
       "D:/papers/conditional-detr.pdf",
     ]);
     assert.equal(requests[0].parameter?.topicId, "object-detection");
-    assert.equal(requests[0].parameter?.language, "zh-CN");
-    assert.equal(requests[0].parameter?.updateScope, "refresh");
-    assert.equal(requests[0].parameter?.updateMode, "update_full");
+    assert.notProperty(requests[0].parameter || {}, "language");
+    assert.notProperty(requests[0].parameter || {}, "updateScope");
+    assert.notProperty(requests[0].parameter || {}, "updateMode");
+    assert.equal(requests[0].final_step_id, "finalize");
+    assert.deepEqual(
+      requests[0].steps?.map((step) => [
+        step.id,
+        step.skill_id,
+        step.workspace,
+      ]),
+      [
+        ["prepare", "update-topic-synthesis-prepare", "new"],
+        ["core", "topic-synthesis-core-enrichment", "reuse-workflow"],
+        ["finalize", "topic-synthesis-finalize", "reuse-workflow"],
+      ],
+    );
   });
 
   it("loads create/update topic synthesis from the builtin synthesis-layer workflow package", async function () {
@@ -248,12 +304,20 @@ describe("Synthesize topic workflow contract", function () {
     assert.equal(createWorkflow?.packageId, "synthesis-layer");
     assert.equal(updateWorkflow?.packageId, "synthesis-layer");
     assert.equal(
-      createWorkflow?.manifest.request?.create?.skill_id,
-      "create-topic-synthesis",
+      createWorkflow?.manifest.request?.kind,
+      "skillrunner.sequence.v1",
     );
     assert.equal(
-      updateWorkflow?.manifest.request?.create?.skill_id,
-      "update-topic-synthesis",
+      updateWorkflow?.manifest.request?.kind,
+      "skillrunner.sequence.v1",
+    );
+    assert.equal(
+      createWorkflow?.manifest.request?.sequence?.steps?.[0]?.skill_id,
+      "create-topic-synthesis-prepare",
+    );
+    assert.equal(
+      updateWorkflow?.manifest.request?.sequence?.steps?.[0]?.skill_id,
+      "update-topic-synthesis-prepare",
     );
   });
 
@@ -276,6 +340,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(
       files,
       "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
+    );
+    assert.notInclude(
+      files,
+      "synthesis-layer/update-topic-synthesis/hooks/buildRequest.mjs",
     );
     assert.notInclude(files, "synthesis-layer/synthesize-topic/workflow.json");
   });
@@ -994,7 +1062,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
-  it("keeps update workflow user input limited to topicId and derives update parameters in the build hook", async function () {
+  it("keeps update workflow user input limited to topicId and derives update context in prepare", async function () {
     const createWorkflow = JSON.parse(
       await fs.readFile(
         "workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json",
@@ -1021,7 +1089,12 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       "updatable",
     );
     assert.isFalse(updateWorkflow.parameters?.topicId?.allowCustom);
-    assert.equal(updateWorkflow.hooks?.buildRequest, "hooks/buildRequest.mjs");
+    assert.notProperty(updateWorkflow.hooks || {}, "buildRequest");
+    assert.equal(updateWorkflow.request?.kind, "skillrunner.sequence.v1");
+    assert.equal(
+      updateWorkflow.request?.sequence?.steps?.[0]?.skill_id,
+      "update-topic-synthesis-prepare",
+    );
   });
 
   it("documents and packages required KG enrichment sidecars", async function () {

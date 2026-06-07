@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "17-finalize-gate-stage_00",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action run\", \"db_path\": \"runtime/topic-synthesis.sqlite\", \"needs_payload\": false, \"operation\": \"create\", \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"topic-synthesis-finalize\", \"stage\": \"stage_00_runtime_state_check\", \"stage_kind\": \"command\", \"task\": \"校验既有 DB、core enrichment handoff、sidecars 和收尾上下文。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:54.886629+00:00"
+}

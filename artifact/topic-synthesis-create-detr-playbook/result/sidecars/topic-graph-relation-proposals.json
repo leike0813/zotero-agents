@@ -1,0 +1,18 @@
+{
+  "schema_id": "synthesis.topic_graph_relation_proposals",
+  "schema_version": "1.0.0",
+  "source_topic_id": "detr-style-object-detection",
+  "proposals": [
+    {
+      "relation": "related_to",
+      "target_terms": ["object detection", "vision transformer"],
+      "reason": "DETR combines object detection with transformer-based set prediction."
+    },
+    {
+      "relation": "contrasted_with",
+      "target_terms": ["YOLO", "real-time object detection"],
+      "reason": "Real-time DETR literature evaluates against YOLO-style detectors."
+    }
+  ],
+  "diagnostics": []
+}

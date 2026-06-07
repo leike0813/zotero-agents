@@ -1,0 +1,59 @@
+{
+  "id": "debug-sequence-linear-probe",
+  "label": "Debug: Sequence Linear Probe",
+  "version": "0.1.0",
+  "provider": "acp",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "execution": {
+    "skillrunner_mode": "auto",
+    "feedback": {
+      "showNotifications": false
+    }
+  },
+  "result": {
+    "final_step_id": "finalize"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "emit",
+          "skill_id": "debug-sequence-probe-emit",
+          "workspace": "new",
+          "parameter": {
+            "probe_id": "linear",
+            "public_marker": "linear-public",
+            "secret_marker": "linear-secret"
+          }
+        },
+        {
+          "id": "check",
+          "skill_id": "debug-sequence-probe-check",
+          "workspace": "reuse-workflow",
+          "parameter": {
+            "probe_id": "linear",
+            "expect_handoff_present": true,
+            "expected_public_marker": "linear-public",
+            "expected_secret_marker": "linear-secret",
+            "expected_sentinel": "absent"
+          }
+        },
+        {
+          "id": "finalize",
+          "skill_id": "debug-sequence-probe-finalize",
+          "workspace": "reuse-workflow",
+          "parameter": {
+            "probe_id": "linear"
+          }
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applySequenceProbeResult.mjs"
+  }
+}

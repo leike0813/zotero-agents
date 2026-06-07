@@ -1,0 +1,13 @@
+contract_version: "0.1.0"
+db_path: runtime/topic-synthesis.sqlite
+handoff_paths:
+  prepare_analysis_context: runtime/handoff/prepare-analysis-context.json
+  core_enrichment: runtime/handoff/core-enrichment.json
+  finalize_output: runtime/handoff/finalize-output.json
+result_paths:
+  candidate_output: result/final-output.candidate.json
+  create_manifest: result/topic-analysis.json
+  update_patch_manifest: result/topic-analysis.patch.json
+schema_paths:
+  handoff: assets/schemas/handoff.schema.json
+  stdout_envelope: assets/output.schema.json

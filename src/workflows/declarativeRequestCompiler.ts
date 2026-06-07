@@ -4,6 +4,7 @@ import type {
   GenericHttpStepsRequestV1,
   PassThroughRunRequestV1,
   SkillRunnerJobRequestV1,
+  SkillRunnerSequenceRequestV1,
 } from "../providers/contracts";
 import { PASS_THROUGH_REQUEST_KIND } from "../config/defaults";
 import {
@@ -435,6 +436,79 @@ function buildSkillRunnerJobRequest(args: {
   return requestPayload;
 }
 
+function cloneRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function buildSkillRunnerSequenceRequest(args: {
+  selectionContext: unknown;
+  manifest: WorkflowManifest;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+  };
+}): SkillRunnerSequenceRequestV1 {
+  const request = args.manifest.request as WorkflowRequestSpec | undefined;
+  const steps = request?.sequence?.steps || [];
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw new Error(
+      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires request.sequence.steps`,
+    );
+  }
+  if (String(args.manifest.provider || "").trim() !== "acp") {
+    throw new Error(
+      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires provider=acp`,
+    );
+  }
+  const finalStepId = String(args.manifest.result?.final_step_id || "").trim();
+  if (!finalStepId) {
+    throw new Error(
+      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires result.final_step_id`,
+    );
+  }
+  const workflowParams = resolveWorkflowParams({
+    manifest: args.manifest,
+    executionOptions: args.executionOptions,
+  });
+  const targetParentID = resolveDeclarativeTargetParentID(args);
+  const attachments = resolveSelectionAttachments(args.selectionContext);
+  const sourceAttachmentPaths = resolveSourceAttachmentPaths(attachments);
+  const taskName = resolveTaskName({
+    manifest: args.manifest,
+    workflowParams,
+    sourceAttachmentPaths,
+    selectionContext: args.selectionContext,
+    targetParentID,
+  });
+  const payload: SkillRunnerSequenceRequestV1 = {
+    kind: "skillrunner.sequence.v1",
+    taskName,
+    sourceAttachmentPaths,
+    steps: steps.map((step) => ({
+      id: String(step.id || "").trim(),
+      skill_id: String(step.skill_id || "").trim(),
+      ...(step.input ? { input: cloneRecord(step.input) } : {}),
+      ...(step.parameter ? { parameter: cloneRecord(step.parameter) } : {}),
+      ...(step.fetch_type ? { fetch_type: step.fetch_type } : {}),
+      ...(step.workspace ? { workspace: step.workspace } : {}),
+      ...(step.handoff ? { handoff: cloneRecord(step.handoff) as any } : {}),
+    })),
+    final_step_id: finalStepId,
+    parameter: workflowParams,
+    poll: {
+      interval_ms:
+        request?.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
+      timeout_ms:
+        request?.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
+    },
+  };
+  if (targetParentID) {
+    payload.targetParentID = targetParentID;
+  }
+  return payload;
+}
+
 function buildGenericHttpRequest(args: {
   selectionContext: unknown;
   manifest: WorkflowManifest;
@@ -654,6 +728,14 @@ export function compileDeclarativeRequest(args: {
   const resolvedKind = assertRequestKindSupported(args.kind).requestKind;
   if (resolvedKind === "skillrunner.job.v1") {
     const request = buildSkillRunnerJobRequest(args);
+    assertRequestPayloadContract({
+      requestKind: resolvedKind,
+      request,
+    });
+    return request;
+  }
+  if (resolvedKind === "skillrunner.sequence.v1") {
+    const request = buildSkillRunnerSequenceRequest(args);
     assertRequestPayloadContract({
       requestKind: resolvedKind,
       request,

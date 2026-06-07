@@ -1,0 +1,7 @@
+{
+  "action": "run",
+  "result": {
+    "checked": "runtime/handoff/core-enrichment.json"
+  },
+  "stage": "stage_00_runtime_state_check"
+}

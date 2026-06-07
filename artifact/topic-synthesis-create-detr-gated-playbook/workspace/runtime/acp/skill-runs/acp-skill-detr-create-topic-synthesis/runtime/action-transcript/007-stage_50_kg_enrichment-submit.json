@@ -1,0 +1,17 @@
+{
+  "action": "submit",
+  "result": {
+    "handoff": {
+      "__SKILL_DONE__": true,
+      "db_path": "runtime/topic-synthesis.sqlite",
+      "diagnostics": [],
+      "handoff": "core_enrichment",
+      "handoff_manifest_hash": "sha256:7c7779be4a3efb7ef81ddaf20d7c5bb2cf4407e34e2b97cfcabb8f25f699a8de",
+      "handoff_manifest_path": "runtime/handoff/core-enrichment.json",
+      "kind": "topic_synthesis_handoff",
+      "next_skill_id": "topic-synthesis-finalize",
+      "operation": "create"
+    }
+  },
+  "stage": "stage_50_kg_enrichment"
+}

@@ -1,0 +1,46 @@
+{
+  "concept_details": [
+    {
+      "label": "DETR",
+      "definition": "Detection Transformer; an end-to-end object detection formulation based on set prediction and object queries.",
+      "source_paper_refs": ["1:EIMSDEU3"]
+    },
+    {
+      "label": "deformable attention",
+      "definition": "Sparse multi-scale attention mechanism used to reduce DETR compute and improve convergence.",
+      "source_paper_refs": ["1:5HBHAWIV"]
+    },
+    {
+      "label": "denoising training",
+      "definition": "Training strategy used by DINO-style DETR variants to stabilize query learning and improve detection quality.",
+      "source_paper_refs": ["1:HPLZ65Z2"]
+    }
+  ],
+  "topic_relation_candidates": [
+    {
+      "relation": "DETR is a detection-transformer method family",
+      "source_topic": "DETR-style Object Detection",
+      "target_terms": ["object detection", "vision transformer"],
+      "source_paper_refs": ["1:EIMSDEU3"]
+    },
+    {
+      "relation": "real-time DETR competes with YOLO-style detectors",
+      "source_topic": "DETR-style Object Detection",
+      "target_terms": ["YOLO", "real-time object detection"],
+      "source_paper_refs": ["1:CBJWE4JX"]
+    }
+  ],
+  "topic_matching_terms": {
+    "include_terms": ["DETR", "Detection Transformer", "end-to-end object detection", "object queries"],
+    "must_have_terms": ["DETR"],
+    "methods": ["Hungarian matching", "deformable attention", "denoising training", "conditional query"],
+    "exclude_terms": ["DINOv3 only", "semantic segmentation only", "medical image segmentation only"],
+    "diagnostics": [
+      {
+        "code": "concept_kb_cli_unavailable",
+        "message": "Concept candidates are derived from selected-paper metadata because query-concept-kb CLI subcommand was unavailable."
+      }
+    ]
+  },
+  "diagnostics": []
+}

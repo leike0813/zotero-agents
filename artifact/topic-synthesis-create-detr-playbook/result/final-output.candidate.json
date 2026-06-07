@@ -1,0 +1,25 @@
+{
+  "kind": "topic_synthesis",
+  "operation": "create",
+  "language": "zh-CN",
+  "topic_definition": {
+    "id": "detr-style-object-detection",
+    "title": "DETR-style Object Detection"
+  },
+  "resolver_manifest_path": "runtime/payloads/resolver-and-workset.json",
+  "resolver_diagnostics": {
+    "final_count": 22,
+    "selected_count": 5,
+    "warnings": [
+      "playbook selected a representative 5-paper subset for triage and cross-paper context"
+    ]
+  },
+  "artifact_metadata": {
+    "dry_run": true,
+    "zotero_apply_performed": false,
+    "playbook_path": "artifact/topic-synthesis-create-detr-playbook/playbook.md"
+  },
+  "analysis_manifest_path": "result/topic-analysis.json",
+  "candidate_output_path": "result/final-output.candidate.json",
+  "__SKILL_DONE__": true
+}

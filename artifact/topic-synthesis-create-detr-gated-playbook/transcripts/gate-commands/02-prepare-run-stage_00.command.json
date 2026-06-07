@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--input",
+    "runtime/input.json",
+    "--action",
+    "run"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "02-prepare-run-stage_00",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"ok\": true, \"result\": {\"operation\": \"create\", \"run_root\": \"<redacted-local-path>\"}, \"skill_id\": \"create-topic-synthesis-prepare\", \"stage\": \"stage_00_runtime_setup\"}\r\n",
+  "timestamp": "2026-06-06T08:11:51.931818+00:00"
+}

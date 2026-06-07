@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.stage_60_coverage_and_collection_suggestions.schema.json",
+  "title": "Stage 60 coverage and collection suggestions payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "coverage_verdict",
+    "coverage_reason",
+    "reliability_summary",
+    "coverage_caveats",
+    "external_context_summary",
+    "suggested_collection_directions",
+    "diagnostics"
+  ],
+  "properties": {
+    "coverage_verdict": {
+      "enum": [
+        "sufficient",
+        "partial",
+        "insufficient",
+        "severely_missing",
+        "unknown"
+      ]
+    },
+    "coverage_reason": { "type": "string" },
+    "reliability_summary": { "type": "string" },
+    "coverage_caveats": { "type": "array", "items": { "type": "object" } },
+    "external_context_summary": { "type": "string" },
+    "suggested_collection_directions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "direction",
+          "reason",
+          "example_titles_or_terms",
+          "priority"
+        ],
+        "properties": {
+          "direction": { "type": "string" },
+          "reason": { "type": "string" },
+          "example_titles_or_terms": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "priority": { "enum": ["high", "medium", "low", "unknown"] }
+        }
+      }
+    },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  },
+  "examples": [
+    {
+      "coverage_verdict": "partial",
+      "coverage_reason": "",
+      "reliability_summary": "",
+      "coverage_caveats": [],
+      "external_context_summary": "",
+      "suggested_collection_directions": [
+        {
+          "direction": "",
+          "reason": "",
+          "example_titles_or_terms": [],
+          "priority": "medium"
+        }
+      ],
+      "diagnostics": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "taxonomy": { "summary": { "topic": "DETR" }, "nodes": [] },
+  "timeline_events": { "summary": { "range": "2020-2024" }, "events": [] },
+  "positioning": { "main_position": "DETR 是端到端集合预测检测路线。" },
+  "claims": [],
+  "improvement_dimension_summary": {},
+  "improvement_dimensions": [],
+  "concept_candidate_labels": ["DETR", "object queries"],
+  "debates": [],
+  "gaps": [],
+  "review_outline": {}
+}

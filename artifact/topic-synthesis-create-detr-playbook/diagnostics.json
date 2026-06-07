@@ -1,0 +1,39 @@
+{
+  "schema_id": "synthesis.playbook.diagnostics",
+  "schema_version": "1.0.0",
+  "topic_seed": "DETR",
+  "operation": "create",
+  "language": "zh-CN",
+  "zotero_side_effects": "none",
+  "data_retention_policy": "Keep paper refs, item keys, titles, years, tags, hashes, command summaries, and short evidence summaries; omit full digest bodies and local attachment paths.",
+  "resolver": {
+    "mode": "tag_query",
+    "query": { "and": ["model:DL/DETR"] },
+    "resolved_count": 22,
+    "selected_count": 5,
+    "unused_count": 17
+  },
+  "bridge_observations": [
+    {
+      "command": "status",
+      "ok": true,
+      "status": "running"
+    },
+    {
+      "command": "get-citation-graph-metrics",
+      "ok": true,
+      "status": "stale"
+    },
+    {
+      "command": "read-paper-artifacts",
+      "ok": false,
+      "code": "capability_not_found"
+    },
+    {
+      "command": "export-filtered-paper-artifacts",
+      "ok": false,
+      "code": "capability_failed",
+      "message": "requires ACP skill-runs run_root"
+    }
+  ]
+}

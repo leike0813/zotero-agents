@@ -1,0 +1,62 @@
+{
+  "id": "debug-sequence-workspace-reuse-probe",
+  "label": "Debug: Sequence Workspace Reuse Probe",
+  "version": "0.1.0",
+  "provider": "acp",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "execution": {
+    "skillrunner_mode": "auto",
+    "feedback": {
+      "showNotifications": false
+    }
+  },
+  "result": {
+    "final_step_id": "finalize"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "writer",
+          "skill_id": "debug-sequence-probe-emit",
+          "workspace": "new",
+          "parameter": {
+            "probe_id": "workspace-reuse",
+            "public_marker": "workspace-public",
+            "secret_marker": "workspace-secret",
+            "write_sentinel": true,
+            "sentinel_path": "runtime/sequence-probe-sentinel.json"
+          }
+        },
+        {
+          "id": "reader",
+          "skill_id": "debug-sequence-probe-check",
+          "workspace": "reuse-workflow",
+          "parameter": {
+            "probe_id": "workspace-reuse",
+            "expected_public_marker": "workspace-public",
+            "expected_sentinel": "present",
+            "sentinel_path": "runtime/sequence-probe-sentinel.json"
+          }
+        },
+        {
+          "id": "finalize",
+          "skill_id": "debug-sequence-probe-finalize",
+          "workspace": "reuse-workflow",
+          "parameter": {
+            "probe_id": "workspace-reuse",
+            "expected_sentinel": "present",
+            "sentinel_path": "runtime/sequence-probe-sentinel.json"
+          }
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applySequenceProbeResult.mjs"
+  }
+}

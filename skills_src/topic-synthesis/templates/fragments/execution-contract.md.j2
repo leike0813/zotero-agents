@@ -1,0 +1,9 @@
+## 执行合同
+
+- `scripts/gate.py` 是唯一面向执行代理的 CLI。
+- 不要直接调用 `scripts/topic_synthesis_db.py`。
+- 不要传入 stage 名称或 action 名称。
+- 命令型 stage 只执行 gate 返回 JSON 的 `command` 字段，不写 JSON payload。
+- payload 型 stage 需要把一个 JSON payload 写入 gate 指定的 `payload_path`，
+  然后用 gate 返回 JSON 的 `submit_command` 提交。
+- gate 返回的 `command` / `submit_command` 是执行真源；本文档中的命令模板只用于解释等价形态。

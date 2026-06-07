@@ -12,6 +12,7 @@ import {
   collectRuntimeFiles,
   copyRuntimeDirectory,
 } from "../../src/modules/runtimePersistence";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 async function makeTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-plugin-skills-"));
@@ -97,6 +98,7 @@ describe("plugin skill registry", function () {
   });
 
   afterEach(async function () {
+    setDebugModeOverrideForTests();
     setPluginSkillRegistryRuntimeRootURI("");
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -179,6 +181,42 @@ describe("plugin skill registry", function () {
       "user-demo description",
     );
     assert.match(registry.entriesById["user-demo"].checksum, /^sha256:/);
+  });
+
+  it("hides debug-only skills when debug mode is disabled", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "normal-demo",
+      skillId: "normal-demo",
+    });
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "debug-demo",
+      skillId: "debug-demo",
+      runnerJson: {
+        id: "debug-demo",
+        debug_only: true,
+        execution_modes: ["auto"],
+        schemas: { output: "assets/output.schema.json" },
+      },
+    });
+
+    setDebugModeOverrideForTests(false);
+    const hidden = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+    assert.deepEqual(
+      hidden.entries.map((entry) => entry.skillId),
+      ["normal-demo"],
+    );
+
+    setDebugModeOverrideForTests(true);
+    const visible = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+    assert.sameMembers(
+      visible.entries.map((entry) => entry.skillId),
+      ["debug-demo", "normal-demo"],
+    );
+    assert.equal(visible.entriesById["debug-demo"].debugOnly, true);
   });
 
   it("keeps skills valid when frontmatter description is missing", async function () {

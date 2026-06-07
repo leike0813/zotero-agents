@@ -5,6 +5,7 @@ import {
   DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
 
 type ProviderRequestContractDefinition = {
@@ -22,6 +23,11 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
     providerType: DEFAULT_BACKEND_TYPE,
     backendType: DEFAULT_BACKEND_TYPE,
     validatePayload: validateSkillRunnerJobPayload,
+  },
+  [SKILLRUNNER_SEQUENCE_REQUEST_KIND]: {
+    providerType: ACP_BACKEND_TYPE,
+    backendType: ACP_BACKEND_TYPE,
+    validatePayload: validateSkillRunnerSequencePayload,
   },
   "generic-http.request.v1": {
     providerType: "generic-http",
@@ -171,6 +177,141 @@ function validateSkillRunnerJobPayload(request: unknown) {
   return null;
 }
 
+function validateStringMap(value: unknown, label: string) {
+  if (!isObject(value)) {
+    return `${label} must be object`;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key.trim()) {
+      return `${label} keys must be non-empty strings`;
+    }
+    if (!isNonEmptyString(entry)) {
+      return `${label}.${key} must be non-empty string`;
+    }
+  }
+  return null;
+}
+
+function validateSequenceWorkspace(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  const mode = String(value || "").trim();
+  if (mode !== "new" && mode !== "reuse-workflow") {
+    return `${label} must be new or reuse-workflow`;
+  }
+  return null;
+}
+
+function validateSequenceHandoff(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object`;
+  }
+  if (
+    typeof value.from_step !== "undefined" &&
+    !isNonEmptyString(value.from_step)
+  ) {
+    return `${label}.from_step must be non-empty string when provided`;
+  }
+  if (
+    typeof value.required !== "undefined" &&
+    typeof value.required !== "boolean"
+  ) {
+    return `${label}.required must be boolean when provided`;
+  }
+  if (
+    typeof value.pass_through !== "undefined" &&
+    typeof value.pass_through !== "boolean"
+  ) {
+    return `${label}.pass_through must be boolean when provided`;
+  }
+  if (typeof value.input !== "undefined") {
+    const detail = validateStringMap(value.input, `${label}.input`);
+    if (detail) {
+      return detail;
+    }
+  }
+  if (typeof value.parameter !== "undefined") {
+    const detail = validateStringMap(value.parameter, `${label}.parameter`);
+    if (detail) {
+      return detail;
+    }
+  }
+  if (typeof value.defaults !== "undefined" && !isObject(value.defaults)) {
+    return `${label}.defaults must be object when provided`;
+  }
+  return null;
+}
+
+function validateSkillRunnerSequencePayload(request: unknown) {
+  if (!isObject(request)) {
+    return "payload must be object";
+  }
+  if (String(request.kind || "").trim() !== SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+    return `payload.kind must be ${SKILLRUNNER_SEQUENCE_REQUEST_KIND}`;
+  }
+  if (!Array.isArray(request.steps) || request.steps.length === 0) {
+    return "payload.steps must be non-empty array";
+  }
+  if (!isNonEmptyString(request.final_step_id)) {
+    return "payload.final_step_id must be non-empty string";
+  }
+  const seen = new Set<string>();
+  for (let i = 0; i < request.steps.length; i++) {
+    const step = request.steps[i];
+    if (!isObject(step)) {
+      return `payload.steps[${i}] must be object`;
+    }
+    const id = String(step.id || "").trim();
+    if (!id) {
+      return `payload.steps[${i}].id must be non-empty string`;
+    }
+    if (seen.has(id)) {
+      return `payload.steps contains duplicated id: ${id}`;
+    }
+    seen.add(id);
+    if (!isNonEmptyString(step.skill_id)) {
+      return `payload.steps[${i}].skill_id must be non-empty string`;
+    }
+    const workspaceDetail = validateSequenceWorkspace(
+      step.workspace,
+      `payload.steps[${i}].workspace`,
+    );
+    if (workspaceDetail) {
+      return workspaceDetail;
+    }
+    const handoffDetail = validateSequenceHandoff(
+      step.handoff,
+      `payload.steps[${i}].handoff`,
+    );
+    if (handoffDetail) {
+      return handoffDetail;
+    }
+    if (
+      typeof step.fetch_type !== "undefined" &&
+      step.fetch_type !== "bundle" &&
+      step.fetch_type !== "result"
+    ) {
+      return `payload.steps[${i}].fetch_type must be bundle or result when provided`;
+    }
+  }
+  if (!seen.has(String(request.final_step_id).trim())) {
+    return "payload.final_step_id must match a declared step id";
+  }
+  for (let i = 0; i < request.steps.length; i++) {
+    const step = request.steps[i] as Record<string, unknown>;
+    const handoff = isObject(step.handoff) ? step.handoff : null;
+    const fromStep = String(handoff?.from_step || "").trim();
+    if (fromStep && !seen.has(fromStep)) {
+      return `payload.steps[${i}].handoff.from_step must match a declared step id`;
+    }
+  }
+  return null;
+}
+
 function validateGenericHttpRequestPayload(request: unknown) {
   if (!isObject(request)) {
     return "payload must be object";
@@ -241,6 +382,22 @@ function validateAcpSkillRunPayload(request: unknown) {
   }
   if (Object.prototype.hasOwnProperty.call(request, "upload_files")) {
     return "payload.upload_files is not allowed for acp.skill.run.v1";
+  }
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  const workflowWorkspace = runtimeOptions?.workflow_workspace;
+  if (typeof workflowWorkspace !== "undefined") {
+    if (!isObject(workflowWorkspace)) {
+      return "payload.runtime_options.workflow_workspace must be object when provided";
+    }
+    const mode = String(workflowWorkspace.mode || "").trim();
+    if (mode !== "new" && mode !== "reuse") {
+      return "payload.runtime_options.workflow_workspace.mode must be new or reuse";
+    }
+    if (!isNonEmptyString(workflowWorkspace.workflow_run_id)) {
+      return "payload.runtime_options.workflow_workspace.workflow_run_id must be non-empty string";
+    }
   }
   if (!isObject(request.input)) {
     return null;

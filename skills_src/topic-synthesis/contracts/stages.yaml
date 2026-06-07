@@ -1,0 +1,134 @@
+contract_version: "0.1.0"
+skills:
+  - id: create-topic-synthesis-prepare
+    title: 创建主题综合准备
+    description: 为新建主题综合运行准备主题意图、resolver、文献工作集和分析上下文。
+    operation: create
+    output_kind: topic_synthesis_handoff
+    handoff: prepare_analysis_context
+    next_skill_id: topic-synthesis-core-enrichment
+    required_runtime_inputs:
+      - runtime/input.json
+    stages:
+      - id: stage_00_runtime_setup
+        kind: command
+        task: 初始化或校验新建运行的本地 SQLite 状态。
+        required_reads: []
+      - id: stage_10_create_topic_context
+        kind: payload
+        task: 编写新建主题意图和重复检查判断。
+        schema: stage-10-create-topic-context.schema.json
+        payload_path: runtime/payloads/create-topic-context.json
+        required_reads:
+          - "<zotero-bridge> synthesis list-topics --input '{}'"
+      - id: stage_20_resolver_and_workset
+        kind: payload
+        task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
+        schema: stage-20-resolver-and-workset.schema.json
+        payload_path: runtime/payloads/resolver-and-workset.json
+        required_reads:
+          - '<zotero-bridge> synthesis get-library-index --input ''{"cursor":0,"limit":200}'''
+      - id: stage_30_prepare_analysis_context
+        kind: payload
+        task: 为已解析的文献工作集编写轻量 paper triage 判断。
+        schema: stage-30-prepare-analysis-context.schema.json
+        payload_path: runtime/payloads/prepare-analysis-context.json
+        required_reads:
+          - runtime/views/filtered-paper-artifacts/
+  - id: update-topic-synthesis-prepare
+    title: 更新主题综合准备
+    description: 为更新主题综合运行准备当前主题上下文、resolver、文献工作集和分析上下文。
+    operation: update_full
+    output_kind: topic_synthesis_handoff
+    handoff: prepare_analysis_context
+    next_skill_id: topic-synthesis-core-enrichment
+    required_runtime_inputs:
+      - runtime/input.json
+    stages:
+      - id: stage_00_runtime_setup
+        kind: command
+        task: 初始化或校验更新运行的本地 SQLite 状态。
+        required_reads: []
+      - id: stage_10_update_topic_context
+        kind: payload
+        task: 读取当前主题上下文，并编写紧凑的更新判断。
+        schema: stage-10-update-topic-context.schema.json
+        payload_path: runtime/payloads/update-topic-context.json
+        required_reads:
+          - '<zotero-bridge> synthesis get-topic-context --input ''{"topicId":"<topic_id>"}'''
+      - id: stage_20_resolver_and_workset
+        kind: payload
+        task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
+        schema: stage-20-resolver-and-workset.schema.json
+        payload_path: runtime/payloads/resolver-and-workset.json
+        required_reads:
+          - '<zotero-bridge> synthesis get-library-index --input ''{"cursor":0,"limit":200}'''
+      - id: stage_30_prepare_analysis_context
+        kind: payload
+        task: 为已解析的文献工作集编写轻量 paper triage 判断。
+        schema: stage-30-prepare-analysis-context.schema.json
+        payload_path: runtime/payloads/prepare-analysis-context.json
+        required_reads:
+          - runtime/views/filtered-paper-artifacts/
+  - id: topic-synthesis-core-enrichment
+    title: 主题综合核心分析与知识图谱补全
+    description: 读取已准备的分析上下文，编写核心综合分析和知识图谱补全 payload。
+    operation: create
+    output_kind: topic_synthesis_handoff
+    handoff: core_enrichment
+    next_skill_id: topic-synthesis-finalize
+    required_runtime_inputs:
+      - runtime/topic-synthesis.sqlite
+      - runtime/handoff/prepare-analysis-context.json
+    stages:
+      - id: stage_00_runtime_state_check
+        kind: command
+        task: 校验既有 DB、prepare handoff 和必需的上下文 artifacts。
+        required_reads: []
+      - id: stage_40_core_synthesis
+        kind: payload
+        task: 编写 taxonomy、timeline、positioning、claims、improvement dimensions、debates、gaps、review outline 和 concept candidate labels。
+        schema: stage-40-core-synthesis.schema.json
+        payload_path: runtime/payloads/core-synthesis.json
+        required_reads:
+          - runtime/handoff/prepare-analysis-context.json
+          - runtime/views/cross-paper-context.md
+          - runtime/views/source-paper-evidence-index.json
+      - id: stage_50_kg_enrichment
+        kind: payload
+        task: 编写 concept details、topic relation candidates 和 topic matching terms。
+        schema: stage-50-kg-enrichment.schema.json
+        payload_path: runtime/payloads/kg-enrichment.json
+        required_reads:
+          - runtime/views/concept-candidate-context.json
+  - id: topic-synthesis-finalize
+    title: 主题综合收尾
+    description: 读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。
+    operation: create
+    output_kind: topic_synthesis
+    handoff: finalize_output
+    next_skill_id: ""
+    required_runtime_inputs:
+      - runtime/topic-synthesis.sqlite
+      - runtime/handoff/core-enrichment.json
+    stages:
+      - id: stage_00_runtime_state_check
+        kind: command
+        task: 校验既有 DB、core enrichment handoff、sidecars 和收尾上下文。
+        required_reads: []
+      - id: stage_60_coverage_and_collection_suggestions
+        kind: payload
+        task: 编写 coverage verdict、reliability interpretation、external context summary 和 collection suggestions。
+        schema: stage-60-coverage-and-collection-suggestions.schema.json
+        payload_path: runtime/payloads/coverage-and-collection-suggestions.json
+        required_reads:
+          - runtime/views/external-literature-context.md
+          - runtime/views/finalize-context.manifest.json
+      - id: stage_70_summary
+        kind: payload
+        task: 基于已渲染的 synthesis report 编写最终 summary。
+        schema: stage-70-summary.schema.json
+        payload_path: runtime/payloads/summary.json
+        required_reads:
+          - runtime/views/synthesis-report.md
+          - runtime/views/synthesis-report.manifest.json

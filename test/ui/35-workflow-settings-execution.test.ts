@@ -83,7 +83,10 @@ describe("workflow settings execution", function () {
   afterEach(function () {
     clearSkillRunnerModelCache();
     clearWorkflowSettings("literature-digest");
+    clearWorkflowSettings("literature-explainer");
+    clearWorkflowSettings("tag-regulator");
     clearWorkflowSettings("tag-manager");
+    clearWorkflowSettings("pass-through-settings");
     if (typeof prevBackendsConfigPref === "undefined") {
       Zotero.Prefs.clear(backendsConfigPrefKey, true);
     } else {
@@ -97,7 +100,7 @@ describe("workflow settings execution", function () {
   });
 
   it("applies persisted workflow params/provider options/profile to request build", async function () {
-    updateWorkflowSettings("literature-digest", {
+    updateWorkflowSettings("literature-explainer", {
       backendId: "skillrunner-alt",
       workflowParams: { language: "en-US" },
       providerOptions: {
@@ -109,7 +112,7 @@ describe("workflow settings execution", function () {
 
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
+      (entry) => entry.manifest.id === "literature-explainer",
     );
     assert.isOk(workflow);
 
@@ -123,7 +126,7 @@ describe("workflow settings execution", function () {
     assert.equal(context.providerOptions.model, "gemini-2.5-flash");
     assert.equal(context.providerOptions.provider_id, "google");
     assert.equal(context.providerOptions.effort, "default");
-    assert.equal(context.providerOptions.no_cache, true);
+    assert.isUndefined(context.providerOptions.no_cache);
 
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -154,9 +157,9 @@ describe("workflow settings execution", function () {
       upload_files?: Array<{ key: string; path: string }>;
     }>;
     assert.equal(requests[0].kind, "skillrunner.job.v1");
-    assert.equal(requests[0].skill_id, "literature-digest");
+    assert.equal(requests[0].skill_id, "literature-explainer");
     assert.equal(requests[0].parameter?.language, "en-US");
-    assert.equal(requests[0].runtime_options?.execution_mode, "auto");
+    assert.equal(requests[0].runtime_options?.execution_mode, "interactive");
     assert.equal(requests[0].fetch_type, "bundle");
     assert.equal(requests[0].upload_files?.[0].key, "source_path");
     assert.match(
@@ -168,7 +171,7 @@ describe("workflow settings execution", function () {
   itZoteroFullOrNode(
     "applies per-submit execution overrides without mutating persisted settings",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         workflowParams: { language: "zh-CN" },
         providerOptions: {
@@ -180,7 +183,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -202,7 +205,7 @@ describe("workflow settings execution", function () {
       assert.equal(overridden.providerOptions.model, "gemini-2.5-flash");
       assert.equal(overridden.providerOptions.provider_id, "google");
       assert.equal(overridden.providerOptions.effort, "default");
-      assert.equal(overridden.providerOptions.no_cache, true);
+      assert.isUndefined(overridden.providerOptions.no_cache);
 
       const persisted = await resolveWorkflowExecutionContext({
         workflow: workflow!,
@@ -213,14 +216,14 @@ describe("workflow settings execution", function () {
       assert.equal(persisted.providerOptions.model, "");
       assert.equal(persisted.providerOptions.provider_id, "google");
       assert.equal(persisted.providerOptions.effort, "default");
-      assert.equal(persisted.providerOptions.no_cache, false);
+      assert.isUndefined(persisted.providerOptions.no_cache);
     },
   );
 
   itZoteroFullOrNode(
     "persists explicit A->B updates for default settings",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         workflowParams: { language: "zh-CN" },
         providerOptions: {
@@ -229,7 +232,7 @@ describe("workflow settings execution", function () {
           no_cache: false,
         },
       });
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         workflowParams: { language: "en-US" },
         providerOptions: {
@@ -241,7 +244,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -250,7 +253,7 @@ describe("workflow settings execution", function () {
       });
       assert.equal(persisted.workflowParams.language, "en-US");
       assert.equal(persisted.providerOptions.model, "gemini-2.5-pro");
-      assert.equal(persisted.providerOptions.no_cache, true);
+      assert.isUndefined(persisted.providerOptions.no_cache);
     },
   );
 
@@ -285,7 +288,7 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "enforces auto-mode runtime options for auto workflows",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("tag-regulator", {
         backendId: "skillrunner-alt",
         providerOptions: {
           engine: "gemini",
@@ -297,7 +300,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "tag-regulator",
       );
       assert.isOk(workflow);
 
@@ -333,7 +336,7 @@ describe("workflow settings execution", function () {
         },
       });
 
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-alt",
         providerOptions: {
           engine: "opencode",
@@ -346,7 +349,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -443,7 +446,7 @@ describe("workflow settings execution", function () {
         },
       });
 
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-alt",
         providerOptions: {
           engine: "opencode",
@@ -454,7 +457,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -537,7 +540,7 @@ describe("workflow settings execution", function () {
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -568,7 +571,7 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "normalizes legacy model@effort for single-provider engines",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         providerOptions: {
           engine: "codex",
@@ -578,7 +581,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -595,7 +598,7 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "returns persisted snapshot when settings page opens",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         workflowParams: { language: "zh-CN" },
         providerOptions: {
@@ -606,7 +609,7 @@ describe("workflow settings execution", function () {
       });
 
       const defaults =
-        resetRunOnceOverridesForSettingsOpen("literature-digest");
+        resetRunOnceOverridesForSettingsOpen("literature-explainer");
       assert.equal(defaults.backendId, "skillrunner-primary");
       assert.equal(defaults.workflowParams?.language, "zh-CN");
       assert.equal(defaults.providerOptions?.model, "");
@@ -614,7 +617,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-explainer",
       );
       assert.isOk(workflow);
 
@@ -624,12 +627,73 @@ describe("workflow settings execution", function () {
       assert.equal(context.backend.id, "skillrunner-primary");
       assert.equal(context.workflowParams.language, "zh-CN");
       assert.equal(context.providerOptions.model, "");
-      assert.equal(context.providerOptions.no_cache, false);
+      assert.isUndefined(context.providerOptions.no_cache);
     },
   );
 
   itNodeOnly(
-    "lists ACP backends as compatible profiles for skillrunner job workflows",
+    "filters workflow parameter descriptors with visible_if boolean conditions",
+    async function () {
+      const workflow = {
+        manifest: {
+          id: "visible-if-workflow",
+          label: "Visible If Workflow",
+          provider: "pass-through",
+          parameters: {
+            auto_tag_regulator: {
+              type: "boolean",
+              default: false,
+            },
+            auto_tag_infer_tag: {
+              type: "boolean",
+              default: true,
+              visible_if: {
+                parameter: "auto_tag_regulator",
+                equals: true,
+              },
+            },
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        hooks: {
+          applyResult: async () => ({ ok: true }),
+        },
+      } as any;
+
+      const disabled = await buildWorkflowSettingsUiDescriptor({
+        workflow,
+        candidateBackends: [],
+        draft: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
+      });
+      assert.deepEqual(
+        disabled.workflowSchemaEntries.map((entry) => entry.key),
+        ["auto_tag_regulator"],
+      );
+
+      const enabled = await buildWorkflowSettingsUiDescriptor({
+        workflow,
+        candidateBackends: [],
+        draft: {
+          workflowParams: {
+            auto_tag_regulator: true,
+          },
+        },
+      });
+      assert.deepEqual(
+        enabled.workflowSchemaEntries.map((entry) => entry.key),
+        ["auto_tag_regulator", "auto_tag_infer_tag"],
+      );
+    },
+  );
+
+  itNodeOnly(
+    "lists only ACP backends as compatible profiles for skillrunner sequence workflows",
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
@@ -646,17 +710,15 @@ describe("workflow settings execution", function () {
       });
 
       const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
-      assert.includeMembers(profileIds, [
-        "acp-opencode",
-        "skillrunner-alt",
-        "skillrunner-primary",
-      ]);
+      assert.includeMembers(profileIds, ["acp-opencode"]);
+      assert.isFalse(profileIds.includes("skillrunner-alt"));
+      assert.isFalse(profileIds.includes("skillrunner-primary"));
       assert.isFalse(profileIds.includes("generic-http-local"));
     },
   );
 
   itNodeOnly(
-    "resolves skillrunner job workflows to ACP provider when an ACP backend is selected",
+    "resolves skillrunner sequence workflows to ACP provider when an ACP backend is selected",
     async function () {
       const acpBackend = {
         id: "acp-opencode",
@@ -729,7 +791,7 @@ describe("workflow settings execution", function () {
       assert.equal(context.backend.id, "acp-opencode");
       assert.equal(context.backend.type, "acp");
       assert.equal(context.providerId, "acp");
-      assert.equal(context.requestKind, "acp.skill.run.v1");
+      assert.equal(context.requestKind, "skillrunner.sequence.v1");
       assert.deepEqual(context.providerOptions, {
         acpModeId: "default",
         acpModelId: "qwen3",
@@ -867,7 +929,10 @@ describe("workflow settings execution", function () {
         candidateBackends: registry.backends,
       });
 
-      assert.equal(descriptor.selectedProfile, "");
+      assert.notEqual(descriptor.selectedProfile, "generic-http-local");
+      if (descriptor.profiles.length === 1) {
+        assert.equal(descriptor.selectedProfile, descriptor.profiles[0].id);
+      }
       assert.isFalse(
         descriptor.profiles.some((entry) => entry.id === "generic-http-local"),
       );
@@ -877,7 +942,7 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "uses latest persisted values for settings defaults after persistent update",
     function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-primary",
         workflowParams: { language: "zh-CN" },
         providerOptions: {
@@ -886,10 +951,10 @@ describe("workflow settings execution", function () {
           no_cache: false,
         },
       });
-      const first = resetRunOnceOverridesForSettingsOpen("literature-digest");
+      const first = resetRunOnceOverridesForSettingsOpen("literature-explainer");
       assert.equal(first.workflowParams?.language, "zh-CN");
 
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-alt",
         workflowParams: { language: "en-US" },
         providerOptions: {
@@ -898,7 +963,7 @@ describe("workflow settings execution", function () {
           no_cache: true,
         },
       });
-      const second = resetRunOnceOverridesForSettingsOpen("literature-digest");
+      const second = resetRunOnceOverridesForSettingsOpen("literature-explainer");
       assert.equal(second.backendId, "skillrunner-alt");
       assert.equal(second.workflowParams?.language, "en-US");
       assert.equal(second.providerOptions?.model, "gemini-2.5-flash");
@@ -976,10 +1041,37 @@ describe("workflow settings execution", function () {
   );
 
   itNodeOnly(
-    "persists GitHub workflow params for tag-manager without requiring backend profile",
+    "persists workflow params for pass-through workflows without requiring backend profile",
     async function () {
-      await ensureWorkflowRegistryLoaded();
-      updateWorkflowSettings("tag-manager", {
+      const root = await mkTempDir("zotero-skills-pass-through-settings");
+      const workflowRoot = joinPath(root, "pass-through-settings");
+      await writeUtf8(
+        joinPath(workflowRoot, "workflow.json"),
+        JSON.stringify(
+          {
+            id: "pass-through-settings",
+            label: "Pass Through Settings",
+            provider: "pass-through",
+            parameters: {
+              github_owner: { type: "string", default: "" },
+              github_repo: { type: "string", default: "" },
+              file_path: { type: "string", default: "" },
+              github_token: { type: "string", default: "" },
+            },
+            hooks: {
+              applyResult: "hooks/applyResult.js",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      await writeUtf8(
+        joinPath(workflowRoot, "hooks", "applyResult.js"),
+        "export async function applyResult(){ return { ok: true }; }",
+      );
+
+      updateWorkflowSettings("pass-through-settings", {
         workflowParams: {
           github_owner: "demo-owner",
           github_repo: "Zotero_TagVocab",
@@ -988,9 +1080,9 @@ describe("workflow settings execution", function () {
         },
       });
 
-      const loaded = await loadWorkflowManifests(workflowsPath());
+      const loaded = await loadWorkflowManifests(root);
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "tag-manager",
+        (entry) => entry.manifest.id === "pass-through-settings",
       );
       assert.isOk(workflow);
 

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "synthesis.topic_synthesis_stdout_envelope.schema.json",
+  "title": "Topic synthesis skill business output envelope",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "handoff",
+        "operation",
+        "db_path",
+        "handoff_manifest_path",
+        "handoff_manifest_hash",
+        "next_skill_id",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": { "const": "topic_synthesis_handoff" },
+        "handoff": {
+          "enum": ["prepare_analysis_context", "core_enrichment"]
+        },
+        "operation": {
+          "enum": ["create", "update_full", "update_patch"]
+        },
+        "db_path": { "const": "runtime/topic-synthesis.sqlite" },
+        "handoff_manifest_path": { "type": "string", "minLength": 1 },
+        "handoff_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:.+"
+        },
+        "next_skill_id": { "type": "string", "minLength": 1 },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation",
+        "analysis_manifest_path",
+        "candidate_output_path",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": { "const": "topic_synthesis" },
+        "operation": {
+          "enum": ["create", "update_full", "update_patch"]
+        },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "candidate_output_path": {
+          "const": "result/final-output.candidate.json"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    }
+  ]
+}

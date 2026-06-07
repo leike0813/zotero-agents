@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "result": {
+    "duplicate_status": "none",
+    "topic_definition": {
+      "id": "detr-style-object-detection",
+      "title": "DETR-style Object Detection"
+    }
+  },
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_10_create_topic_context"
+}

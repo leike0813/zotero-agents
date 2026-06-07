@@ -1,0 +1,36 @@
+## 严格执行顺序
+
+每个 stage 都按 gate JSON 驱动执行。不要根据记忆跳 stage。
+
+初始 gate：
+
+```bash
+python scripts/gate.py --db "runtime/topic-synthesis.sqlite"
+```
+
+如果 gate 返回 `needs_payload: false`：
+
+1. 确认 `stage` 是当前 `SKILL.md` 中的本地 stage。
+2. 复制并执行 gate JSON 的 `command` 字段。
+3. 等价命令模板是：
+
+```bash
+python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action run
+```
+
+4. 命令成功后，立刻重新运行初始 gate。
+
+如果 gate 返回 `needs_payload: true`：
+
+1. 确认 `stage` 是当前 `SKILL.md` 中的本地 stage。
+2. 读取 gate JSON 的 `required_reads`、`payload_path`、`payload_schema` 和 `submit_command`。
+3. 按本 stage 的“上下文获取方式”执行 Host read 命令或读取 runtime 文件。
+4. 只手写 `payload_path` 指向的 JSON payload，不写 runtime-owned 文件。
+5. 复制并执行 gate JSON 的 `submit_command`。
+6. 等价命令模板是：
+
+```bash
+python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --payload "<payload_path>"
+```
+
+7. submit 成功后，立刻重新运行初始 gate。

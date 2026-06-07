@@ -1,0 +1,12 @@
+{
+  "summary_brief": "DETR-style object detection 的主线是从原始集合预测范式，沿着多尺度稀疏注意力、query/anchor/denoising 训练和实时化部署三条路线演进。",
+  "summary_overview": "本 playbook 以 Zotero Bridge resolver 返回的 22 篇 DETR 候选为全集，从中选择 5 篇代表性论文构建 create topic synthesis 的 dry-run 示例。结果显示 DETR 的核心问题不是单一模型结构，而是端到端集合预测范式在收敛、尺度、query 语义和实时效率之间的系统权衡。",
+  "key_takeaways": [
+    "DETR 原始论文定义了 object queries + Hungarian matching 的端到端检测范式。",
+    "Deformable DETR 和 Conditional DETR 分别代表多尺度注意力与 query design 的收敛改进路线。",
+    "DINO 代表 denoising/anchor 训练机制对 DETR 性能的进一步强化。",
+    "实时 DETR 方向把评价焦点推进到延迟、吞吐和 YOLO 对照。",
+    "该 artifact 是流程与 schema 基准，不是完整 DETR 综述。"
+  ],
+  "diagnostics": []
+}

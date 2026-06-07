@@ -18,6 +18,9 @@ export type SynthesisMcpService = {
   getCitationGraphMetrics?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
+  refreshCitationGraphMetricsNow?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getPaperArtifactManifest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

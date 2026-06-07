@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "result": {
+    "concept_candidate_count": 6
+  },
+  "skill_id": "topic-synthesis-core-enrichment",
+  "stage": "stage_40_core_synthesis"
+}

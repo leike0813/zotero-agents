@@ -1,0 +1,21 @@
+{
+  "needs_payload": false,
+  "operation": "create",
+  "output": {
+    "__SKILL_DONE__": true,
+    "db_path": "runtime/topic-synthesis.sqlite",
+    "diagnostics": [],
+    "handoff": "prepare_analysis_context",
+    "handoff_manifest_hash": "sha256:419c75d8a9deffbeede31a1f5ef1b46067ed05aaabec3898c55899f621f289bb",
+    "handoff_manifest_path": "runtime/handoff/prepare-analysis-context.json",
+    "kind": "topic_synthesis_handoff",
+    "next_skill_id": "topic-synthesis-core-enrichment",
+    "operation": "create"
+  },
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "completed",
+  "status": "completed",
+  "task": "本 skill 已完成。"
+}

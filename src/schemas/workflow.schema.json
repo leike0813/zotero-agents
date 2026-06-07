@@ -65,7 +65,7 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "const": "skillrunner.job.v1"
+                    "enum": ["skillrunner.job.v1", "skillrunner.sequence.v1"]
                   }
                 },
                 "required": ["kind"]
@@ -90,6 +90,66 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
+              "request": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "skillrunner.sequence.v1"
+                  }
+                },
+                "required": ["kind"]
+              }
+            },
+            "required": ["request"]
+          },
+          {
+            "not": {
+              "properties": {
+                "hooks": {
+                  "type": "object",
+                  "properties": {
+                    "buildRequest": {}
+                  },
+                  "required": ["buildRequest"]
+                }
+              },
+              "required": ["hooks"]
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "provider": {
+            "const": "acp"
+          },
+          "result": {
+            "type": "object",
+            "properties": {
+              "final_step_id": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            },
+            "required": ["final_step_id"]
+          },
+          "request": {
+            "type": "object",
+            "properties": {
+              "sequence": {
+                "$ref": "#/$defs/requestSequenceSpec"
+              }
+            },
+            "required": ["sequence"]
+          }
+        },
+        "required": ["provider", "result"]
+      }
     }
   ],
   "additionalProperties": true,
@@ -105,6 +165,9 @@
         "type": {
           "type": "string",
           "enum": ["string", "number", "boolean"]
+        },
+        "visible_if": {
+          "$ref": "#/$defs/parameterVisibleIf"
         },
         "title": {
           "type": "string"
@@ -158,6 +221,19 @@
         }
       ],
       "additionalProperties": true
+    },
+    "parameterVisibleIf": {
+      "type": "object",
+      "required": ["parameter", "equals"],
+      "properties": {
+        "parameter": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "equals": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     },
     "parameterOptionsSource": {
       "type": "object",
@@ -340,6 +416,9 @@
             }
           },
           "additionalProperties": false
+        },
+        "final_step_id": {
+          "$ref": "#/$defs/nonEmptyString"
         }
       },
       "additionalProperties": false
@@ -359,6 +438,9 @@
         },
         "poll": {
           "$ref": "#/$defs/requestPollSpec"
+        },
+        "sequence": {
+          "$ref": "#/$defs/requestSequenceSpec"
         },
         "result": false
       },
@@ -413,6 +495,93 @@
         }
       },
       "additionalProperties": false
+    },
+    "requestSequenceSpec": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestSequenceStepSpec"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceStepSpec": {
+      "type": "object",
+      "required": ["id", "skill_id"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "skill_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "parameter": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "fetch_type": {
+          "type": "string",
+          "enum": ["bundle", "result"]
+        },
+        "workspace": {
+          "type": "string",
+          "enum": ["new", "reuse-workflow"]
+        },
+        "handoff": {
+          "$ref": "#/$defs/requestSequenceHandoffSpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceHandoffSpec": {
+      "type": "object",
+      "properties": {
+        "from_step": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "pass_through": {
+          "type": "boolean"
+        },
+        "input": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "parameter": {
+          "$ref": "#/$defs/stringMap"
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "input": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "parameter": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
     },
     "requestPollSpec": {
       "type": "object",

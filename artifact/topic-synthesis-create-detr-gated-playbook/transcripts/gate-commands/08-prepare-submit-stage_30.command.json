@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--action",
+    "submit",
+    "--payload",
+    "runtime/payloads/prepare-analysis-context.json"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "08-prepare-submit-stage_30",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"ok\": true, \"result\": {\"analyzed_count\": 5, \"handoff\": {\"__SKILL_DONE__\": true, \"db_path\": \"runtime/topic-synthesis.sqlite\", \"diagnostics\": [], \"handoff\": \"prepare_analysis_context\", \"handoff_manifest_hash\": \"sha256:419c75d8a9deffbeede31a1f5ef1b46067ed05aaabec3898c55899f621f289bb\", \"handoff_manifest_path\": \"runtime/handoff/prepare-analysis-context.json\", \"kind\": \"topic_synthesis_handoff\", \"next_skill_id\": \"topic-synthesis-core-enrichment\", \"operation\": \"create\"}, \"paper_refs\": [\"1:EIMSDEU3\", \"1:5HBHAWIV\", \"1:HPLZ65Z2\", \"1:3JUY9GBQ\", \"1:SZ3GNWT9\"]}, \"skill_id\": \"create-topic-synthesis-prepare\", \"stage\": \"stage_30_prepare_analysis_context\"}\r\n",
+  "timestamp": "2026-06-06T08:11:53.840882+00:00"
+}

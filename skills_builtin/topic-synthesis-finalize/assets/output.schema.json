@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "主题综合收尾 Result",
+  "type": "object",
+  "additionalProperties": true,
+  "not": {
+    "anyOf": [{ "required": ["markdown"] }, { "required": ["markdown_path"] }]
+  },
+  "oneOf": [
+    {
+      "title": "Completed create topic synthesis",
+      "type": "object",
+      "additionalProperties": false,
+      "not": { "required": ["base_hashes"] },
+      "required": [
+        "kind",
+        "operation",
+        "language",
+        "topic_definition",
+        "resolver_manifest_path",
+        "resolver_diagnostics",
+        "artifact_metadata",
+        "analysis_manifest_path"
+      ],
+      "properties": {
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "const": "create" },
+        "language": { "type": "string", "minLength": 1 },
+        "topic_definition": {
+          "type": "object",
+          "required": ["id", "title"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "resolver_manifest_path": { "type": "string", "minLength": 1 },
+        "resolver_diagnostics": { "type": "object" },
+        "artifact_metadata": { "type": "object" },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "candidate_output_path": {
+          "const": "result/final-output.candidate.json"
+        },
+        "diagnostics": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    {
+      "title": "Full update topic synthesis",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation",
+        "language",
+        "base_hashes",
+        "topic_definition",
+        "resolver_manifest_path",
+        "resolver_diagnostics",
+        "artifact_metadata",
+        "analysis_manifest_path"
+      ],
+      "properties": {
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "const": "update_full" },
+        "language": { "type": "string", "minLength": 1 },
+        "base_hashes": { "type": "object" },
+        "topic_definition": {
+          "type": "object",
+          "required": ["id", "title"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "resolver_manifest_path": { "type": "string", "minLength": 1 },
+        "resolver_diagnostics": { "type": "object" },
+        "artifact_metadata": { "type": "object" },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "candidate_output_path": {
+          "const": "result/final-output.candidate.json"
+        },
+        "diagnostics": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    {
+      "title": "Patch update topic synthesis",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "operation",
+        "language",
+        "read_section_hashes",
+        "artifact_metadata",
+        "analysis_manifest_path"
+      ],
+      "properties": {
+        "kind": { "const": "topic_synthesis" },
+        "operation": { "const": "update_patch" },
+        "language": { "type": "string", "minLength": 1 },
+        "read_section_hashes": { "type": "object" },
+        "topic_definition": {
+          "type": "object",
+          "required": ["id", "title"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "resolver_manifest_path": { "type": "string", "minLength": 1 },
+        "resolver_diagnostics": { "type": "object" },
+        "artifact_metadata": { "type": "object" },
+        "analysis_manifest_path": { "type": "string", "minLength": 1 },
+        "candidate_output_path": {
+          "const": "result/final-output.candidate.json"
+        },
+        "diagnostics": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    {
+      "title": "Canceled topic synthesis",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "reason", "message"],
+      "properties": {
+        "kind": { "const": "topic_synthesis_canceled" },
+        "status": { "const": "canceled" },
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "duplicate_topic_id": { "type": "string" },
+        "topic_seed": { "type": "string" },
+        "topic_id": { "type": "string" }
+      }
+    }
+  ]
+}

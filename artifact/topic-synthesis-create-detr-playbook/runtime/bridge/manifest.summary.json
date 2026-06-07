@@ -1,0 +1,40 @@
+{
+  "command": "zotero-bridge manifest",
+  "ok": true,
+  "data": {
+    "auth": {
+      "masterTokenConfigured": true,
+      "type": "bearer"
+    },
+    "endpoint": {
+      "bindMode": "lan",
+      "lanEnabled": true,
+      "url": "http://127.0.0.1:26570/bridge/v1"
+    },
+    "protocol": "host-bridge.v1",
+    "synthesis_capabilities": [
+      "synthesis.list_topics",
+      "synthesis.get_topic_context",
+      "synthesis.get_schemas",
+      "synthesis.query_concept_kb",
+      "synthesis.query_citation_graph_cluster",
+      "synthesis.get_library_index",
+      "synthesis.resolve_resolver",
+      "synthesis.get_reference_sidecar_index",
+      "synthesis.get_citation_graph_slice",
+      "synthesis.get_citation_graph_metrics",
+      "synthesis.get_paper_artifact_manifest",
+      "synthesis.export_filtered_paper_artifacts",
+      "synthesis.resolve_topic_paper_digest",
+      "synthesis.get_review_input"
+    ]
+  },
+  "redaction": {
+    "auth_tokens": "masked by playbook",
+    "remote_host": "masked by playbook"
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  }
+}

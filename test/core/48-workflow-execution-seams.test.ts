@@ -12,6 +12,7 @@ import {
 } from "../../src/modules/workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
+import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
@@ -654,6 +655,105 @@ describe("workflow execution seams", function () {
 
     assert.equal(capturedConcurrency, 3);
     assert.deepEqual(runState.jobIds, ["job-1", "job-2", "job-3"]);
+  });
+
+  it("passes sequence step result contexts to applyResult hooks", async function () {
+    let capturedSequence: any;
+    const queueStub = {
+      getJob() {
+        return {
+          id: "job-1",
+          state: "succeeded",
+          meta: {
+            targetParentID: 123,
+            backendId: "acp-backend",
+            backendType: "acp",
+            providerId: "acp",
+            runId: "run-1",
+          },
+          result: {
+            status: "succeeded",
+            requestId: "tag-request",
+            fetchType: "result",
+            resultJson: { ok: true },
+            responseJson: {},
+            sequence: {
+              workflow_run_id: "workflow-run-1",
+              final_step_id: "tag",
+              steps: [
+                {
+                  step_id: "digest",
+                  request_id: "digest-request",
+                  output: { digest_path: "D:/workspace/result/digest.md" },
+                  result: {
+                    status: "succeeded",
+                    requestId: "digest-request",
+                    fetchType: "result",
+                    resultJson: {
+                      digest_path: "D:/workspace/result/digest.md",
+                    },
+                    responseJson: {},
+                  },
+                },
+                {
+                  step_id: "tag",
+                  request_id: "tag-request",
+                  output: { add_tags: ["topic:sequence"] },
+                  result: {
+                    status: "succeeded",
+                    requestId: "tag-request",
+                    fetchType: "result",
+                    resultJson: {
+                      add_tags: ["topic:sequence"],
+                    },
+                    responseJson: {},
+                  },
+                },
+              ],
+            },
+          },
+        };
+      },
+    };
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "sequence-apply",
+              label: "Sequence Apply",
+              provider: "acp",
+              request: { kind: "skillrunner.sequence.v1" },
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [{ targetParentID: 123 }],
+          queue: queueStub as any,
+          jobIds: ["job-1"],
+          runId: "run-1",
+          totalJobs: 1,
+          idlePromise: Promise.resolve(),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined as any,
+        executeApplyResult: async (args) => {
+          capturedSequence = (args.runResult as any).sequence;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 1);
+    assert.equal(capturedSequence?.steps?.[0]?.step_id, "digest");
+    assert.deepEqual(capturedSequence.steps[0].resultContext.resultJson, {
+      digest_path: "D:/workspace/result/digest.md",
+    });
+    assert.deepEqual(capturedSequence.steps[1].resultContext.resultJson, {
+      add_tags: ["topic:sequence"],
+    });
   });
 
   it("uses full-parallel queue concurrency for generic-http providers", function () {

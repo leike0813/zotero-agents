@@ -1,0 +1,30 @@
+{
+  "topic_title": "DETR-style Object Detection",
+  "aliases": [
+    "DETR",
+    "Detection Transformer",
+    "End-to-End Object Detection with Transformers",
+    "DETR variants"
+  ],
+  "definition": "以 DETR 及其后续变体为核心的端到端目标检测路线，重点关注 object queries、集合预测、Hungarian matching、Transformer detection heads、收敛改进、多尺度注意力和实时化改造。",
+  "scope_include": [
+    "DETR 原始集合预测检测范式",
+    "Deformable/Conditional/DINO 等 DETR 变体",
+    "query、anchor、denoising、matching 和 attention 机制改进",
+    "实时检测 Transformer 与 YOLO 对照"
+  ],
+  "scope_exclude": [
+    "纯 CNN 检测器综述，除非作为对照",
+    "与目标检测无关的通用视觉 Transformer 预训练",
+    "非检测任务中的 DINO/DINOv3 表征学习，除非用于外部 coverage caveat"
+  ],
+  "duplicate_status": "none",
+  "duplicate_candidate_ids": [],
+  "duplicate_reason": "zotero-bridge synthesis list-topics 返回 topics=[]，没有可比较的既有主题。",
+  "diagnostics": [
+    {
+      "source": "runtime/bridge/list-topics.json",
+      "topic_count": 0
+    }
+  ]
+}

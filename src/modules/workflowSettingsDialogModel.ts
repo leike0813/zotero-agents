@@ -14,6 +14,10 @@ export type FormSchemaType = "string" | "number" | "boolean";
 export type FormSchemaEntry = {
   key: string;
   type: FormSchemaType;
+  visibleIf?: {
+    parameter: string;
+    equals: boolean;
+  };
   title?: string;
   description?: string;
   enumValues?: string[];
@@ -62,6 +66,12 @@ function fromWorkflowParameterSchema(
   return Object.entries(parameters).map(([key, schema]) => ({
     key,
     type: schema.type,
+    visibleIf: schema.visible_if
+      ? {
+          parameter: String(schema.visible_if.parameter || "").trim(),
+          equals: schema.visible_if.equals === true,
+        }
+      : undefined,
     title: schema.title,
     description: schema.description,
     enumValues: schema.type === "string" ? normalizeEnum(schema.enum) : [],

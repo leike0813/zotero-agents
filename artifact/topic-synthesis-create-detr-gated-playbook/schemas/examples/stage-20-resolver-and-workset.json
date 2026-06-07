@@ -1,0 +1,22 @@
+{
+  "diagnostics": [
+    {
+      "code": "bounded_playbook_workset",
+      "message": "为构建可维护的全仿真 playbook，paper triage 与 cross-paper context 限定为 5 篇代表论文。",
+      "resolver_total": 22,
+      "selected_count": 5
+    }
+  ],
+  "operation_intent": "create",
+  "resolver": {
+    "mode": "explicit",
+    "paper_refs": [
+      "1:EIMSDEU3",
+      "1:5HBHAWIV",
+      "1:HPLZ65Z2",
+      "1:3JUY9GBQ",
+      "1:SZ3GNWT9"
+    ]
+  },
+  "resolver_reasoning": "先用真实 `model:DL/DETR` tag_query resolver 获得 22 篇候选；正式 gated run 只纳入 5 篇代表论文，覆盖原始 DETR、Deformable/DINO 收敛改进、DETR3D 范式扩展和 RF-DETR 近期实时变体。"
+}
