@@ -1,0 +1,47 @@
+[1] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora, Venice Erin Liong,Qiang Xu,Anush Krishnan,Yu Pan, Giancarlo Baldan,and Oscar Beijbom.nuscenes:A multimodal dataset for autonomous driving.In CVPR,pages 11621-11631,2020.7   
+[2] Nicolas Carion,Francisco Massa,Gabriel Synnaeve,Nicolas Usunier,Alexander Kirillov,and Sergey Zagoruyko.End-toend object detection with transformers.In ECCV,2020.1, 2,6,8   
+[3] Qiang Chen, Yingming Wang,Tong Yang,Xiangyu Zhang, Jian Cheng,and Jian Sun． You only look one-level feature. In CVPR, pages 13039-13048,2021.3,8   
+[4] Xiaokang Chen, Fangyun Wei, Gang Zeng,and Jingdong Wang.Conditional detr v2: Efficient detection transformer with box queries. arXiv preprint arXiv:2207.08914,2022.1, 6,8   
+[5] Bowen Cheng, Ishan Misra, Alexander G Schwing,Alexander Kirillov,and Rohit Girdhar.Masked-attention mask transformer for universal image segmentation. arXiv preprint arXiv:2112.01527,2021. 2,6, 7, 8   
+[6] Tri Dao，Daniel Y Fu，Stefano Ermon，Atri Rudra, and Christopher Re.Flashattention: Fast and memoryefficient exact attention with io-awareness. arXiv preprint arXiv:2205.14135,2022. 5   
+[7] Alexey Dosovitskiy,Lucas Beyer,Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai， Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly,et al. An image is worth 16xl6 words: Transformers for image recognition at scale.In ICLR,2021.7   
+[8] Peng Gao,Minghang Zheng,Xiaogang Wang, Jifeng Dai, and Hongsheng Li. Fast convergence of detr with spatially modulated co-attention. In ICCV,pages 3621-3630, 2021. 1,8   
+[9] Ziteng Gao,Limin Wang,Bing Han，and Sheng Guo. Adamixer: A fast-converging query-based object detector. In CVPR, pages 5364-5373,2022. 1, 8   
+[10] Zheng Ge, Songtao Liu, Zeming Li, Osamu Yoshie,and Jian Sun. Ota: Optimal transport assignment for object detection. In CVPR, pages 303-312,2021. 3,8   
+[11] Zheng Ge, Songtao Liu, Feng Wang, Zeming Li,and Jian Sun. Yolox: Exceeding yolo series in 2021. arXiv preprint arXiv:2107.08430,2021. 3   
+[12] Kaiming He,Georgia Gkioxari,Piotr Dollar,and Ross Girshick. Mask R-CNN. In ICCV,2017. 3, 8   
+[13] Kaiming He,Xiangyu Zhang, Shaoqing Ren,and Jian Sun. Deep residual learning for image recognition.In CVPR, 2016. 1,6,7, 8   
+[14] J Hosang,R Benenson，and B Schiele.Learning nonmaximum suppression. PAMI, 2017.1   
+[15] Junjie Huang,Guan Huang, Zheng Zhu,and Dalong Du. Bevdet: High-performance multi-camera 3d object detection in bird-eye-view.arXiv preprint arXiv:2112.11790,2021.7   
+[16] Ding Jia, Yuhui Yuan, Haodi He, Xiaopei Wu, Haojun Yu, Weihong Lin,Lei Sun, Chao Zhang,and Han Hu. Detrs with hybrid matching. arXiv preprint arXiv:2207.13080,2022. 8   
+[17] Kang Kim and Hee Seok Lee.Probabilistic anchor assignment with iou prediction for object detection． In ECCV, pages 355-371. Springer, 2020.8   
+[18] Youngwan Lee and Jongyoul Park. Centermask: Real-time anchor-free instance segmentation. In CVPR, pages 13906- 13915,2020. 7   
+[19] Benjamin Lefaudeux,Francisco Massa,Diana Liskovich, Wenhan Xiong, Vittorio Caggiano, Sean Naren, Min Xu, Jieru Hu,Marta Tintore,Susan Zhang,Patrick Labatut, and Daniel Haziza. xformers:A modular and hackable transformer modelling library. https: //github.com/ facebookresearch/xformers,2022. 5   
+[20] Feng Li, Hao Zhang, Shilong Liu,Jian Guo,Lionel M Ni, and Lei Zhang. Dn-detr: Accelerate detr training by introducing query denoising. In CVPR,2022. 2,4,6, 7,8   
+[21] Feng Li,Hao Zhang, Shilong Liu,Lei Zhang,Lionel M Ni, Heung-Yeung Shum,et al. Mask dino: Towards a unified transformer-based framework for object detection and segmentation. arXiv preprint arXiv:2206.02777,2022.7   
+[22] Zhiqi Li, Wenhai Wang,Hongyang Li, Enze Xie, Chonghao Sima,Tong Lu, Yu Qiao,and Jifeng Dai. Bevformer: Learning bird's-eye-view representation from multi-camera images via spatiotemporal transformers.arXiv preprint arXiv:2203.17270,2022.7   
+[23] Tsung-Yi Lin,Priya Goyal,Ross Girshick,Kaiming He,and Piotr Dollar. Focal loss for dense object detection.In ICCV, 2017. 1, 3, 8   
+[24] Tsung-Yi Lin,Michael Maire, Serge Belongie, James Hays, Pietro Perona,Deva Ramanan,Piotr Dollar,and C Lawrence Zitnick. Microsoft COCO: Common objects in context. In ECCV,2014.1,2,5, 7,8   
+[25] Shilong Liu,Feng Li, Hao Zhang, Xiao Yang,Xianbiao Qi, Hang Su,Jun Zhu,and Lei Zhang.Dab-detr: Dynamic anchor boxes are better queries for detr.arXiv preprint arXiv:2201.12329,2022. 1,2,5,6,7, 8   
+[26] Yingfei Liu, Tiancai Wang, Xiangyu Zhang, and Jian Sun. Petr:Position embedding transformation for multi-view 3d object detection. arXiv preprint arXiv:2203.05625,2022.2, 6,7   
+[27] Yingfei Liu,Junjie Yan,Fan Jia, Shuailin Li, Qi Gao, Tiancai Wang,Xiangyu Zhang,and Jian Sun. Petrv2:A unified framework for 3d perception from multi-camera images. arXiv preprint arXiv:2206.01256,2022. 2, 6,7   
+[28] Ze Liu,Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei,Jia Ning,Yue Cao,Zheng Zhang,Li Dong,etal. Swin transformer v2: Scaling up capacity and resolution. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition,pages 12009-12019,2022.7   
+[29] Ze Liu,Yutong Lin,Yue Cao,Han Hu,Yixuan Wei, Zheng Zhang,Stephen Lin,and Baining Guo． Swin transformer: Hierarchical vision transformer using shifted windows. arXiv:2103.14030,2021. 6,7   
+[30] Depu Meng，Xiaokang Chen, Zejia Fan,Gang Zeng, Houqiang Li, Yuhui Yuan,Lei Sun,and Jingdong Wang. Conditional detr for fast training convergence.In ICCV, pages 3651-3660,2021. 1,2,4,5,6,7, 8   
+[31] Jeffrey Ouyang-Zhang, Jang Hyun Cho, Xingyi Zhou, and Philipp Krahenbuhl.Nms strikes back.arXiv preprint arXiv:2212.06137,2022. 9   
+[32] Joseph Redmon and Ali Farhadi. Yolov3:An incremental improvement. arXiv preprint arXiv:1804.02767,2018. 1, 3   
+[33] Shaoqing Ren,Kaiming He,Ross Girshick,and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. NeurIPS,28,2015.1,2,3,8   
+[34] Shuai Shao, Zeming Li, Tianyuan Zhang,Chao Peng, Gang Yu, Xiangyu Zhang, Jing Li,and Jian Sun. Objects365: A large-scale, high-quality dataset for object detection. In Proceedings of the IEEE/CVF international conference on computer vision, pages 8430-8439,2019.7   
+[35] Peize Sun, Yi Jiang,Enze Xie,Wenqi Shao, Zehuan Yuan, Changhu Wang,and Ping Luo.What makes for end-to-end object detection? In ICML, pages 9934-9944.PMLR, 2021. Q   
+[36] Zhi Tian,Chunhua Shen,Hao Chen,and Tong He.Fcos: Fully convolutional one-stage object detection.In ICCV, pages 9627-9636,2019.2,3,8   
+[37] Ashish Vaswani,Noam Shazeer,Niki Parmar, Jakob Uszkoreit,Llion Jones,Aidan N Gomez,Lukasz Kaiser,and Illia Polosukhin.Attention is all you need.In NeurIPS,2017.1   
+[38] Jianfeng Wang,Lin Song, Zeming Li,Hongbin Sun, Jian Sun,and Nanning Zheng. End-to-end object detection with fully convolutional network. In CVPR, pages 15849-15858, 2021.8   
+[39] Wenhui Wang,Hangbo Bao,Li Dong,Johan Bjorck, Zhiliang Peng,Qiang Liu,Kriti Aggarwal, Owais Khan Mohammed, Saksham Singhal, Subhojit Som, et al. Image as a foreign language:Beit pretraining for all vision and visionlanguage tasks. arXiv preprint arXiv:2208.10442,2022.7   
+[40] Yingming Wang, Xiangyu Zhang,Tong Yang,and Jian Sun. Anchor detr: Query design for transformer-based detector. In AAAI, 2022. 1, 7, 8   
+[41] Yixuan Wei, Han Hu, Zhenda Xie, Zheng Zhang, Yue Cao, Jianmin Bao,Dong Chen,and Baining Guo． Contrastive learning rivals masked image modeling in fine-tuning via feature distillation. arXiv preprint arXiv:2205.14141,2022. 7   
+[42] Jianwei Yang, Chunyuan Li, Xiyang Dai, and Jianfeng Gao. Focal modulation networks,2022.7   
+[43] Zhuyu Yao, Jiangbo Ai,Boxun Li,and Chi Zhang.Efficient detr: improving end-to-end object detector with dense prior. arXiv preprint arXiv:2104.01318,2021. 1, 8   
+[44] Hao Zhang,Feng Li, Shilong Liu,Lei Zhang,Hang Su, Jun Zhu,Lionel M Ni,and Heung-Yeung Shum.Dino:Detr with improved denoising anchor boxes for end-to-end object detection. arXiv preprint arXiv:2203.03605,2022. 2,6,7, 8   
+[45] Shifeng Zhang, Cheng Chi, Yongqiang Yao, Zhen Lei, and Stan Z Li. Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection. In CVPR, pages 9759-9768, 2020. 3, 8   
+[46] Benjin Zhu, Jianfeng Wang, Zhengkai Jiang,Fuhang Zong, Songtao Liu,Zeming Li,and Jian Sun. Autoassign: Differentiable label assignment for dense object detection.arXiv preprint arXiv:2007.03496,2020. 8   
+[47] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable DETR: deformable transformers for end-to-end object detection. CoRR,abs/2010.04159, 2020. 1,2, 6,7, 8

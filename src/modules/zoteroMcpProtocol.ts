@@ -67,36 +67,35 @@ export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
   "add_items_to_collection";
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
   "remove_items_from_collection";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS = "synthesis.list_topics";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT =
-  "synthesis.get_topic_context";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS = "synthesis.get_schemas";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CONCEPT_KB =
-  "synthesis.query_concept_kb";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH_CLUSTER =
-  "synthesis.query_citation_graph_cluster";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX =
-  "synthesis.get_library_index";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER =
-  "synthesis.resolve_resolver";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REFERENCE_SIDECAR_INDEX =
-  "synthesis.get_reference_sidecar_index";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH =
-  "synthesis.query_citation_graph";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE =
-  "synthesis.get_citation_graph_slice";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_METRICS =
-  "synthesis.get_citation_graph_metrics";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST =
-  "synthesis.get_paper_artifact_manifest";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_READ_PAPER_ARTIFACTS =
-  "synthesis.read_paper_artifacts";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS =
-  "synthesis.export_filtered_paper_artifacts";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST =
-  "synthesis.resolve_topic_paper_digest";
-export const ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT =
-  "synthesis.get_review_input";
+export const ZOTERO_MCP_TOOL_TOPICS_LIST = "topics.list";
+export const ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT = "topics.get_context";
+export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT = "topics.get_review_input";
+export const ZOTERO_MCP_TOOL_SCHEMAS_GET = "schemas.get";
+export const ZOTERO_MCP_TOOL_CONCEPTS_QUERY = "concepts.query";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_QUERY_CLUSTER =
+  "citation_graph.query_cluster";
+export const ZOTERO_MCP_TOOL_LIBRARY_INDEX_GET = "library_index.get";
+export const ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE = "resolvers.resolve";
+export const ZOTERO_MCP_TOOL_REFERENCE_INDEX_GET = "reference_index.get";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_OVERVIEW =
+  "citation_graph.get_overview";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_SLICE =
+  "citation_graph.get_slice";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_METRICS =
+  "citation_graph.get_metrics";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_EXTERNAL_REFERENCES =
+  "citation_graph.rank_external_references";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_LIBRARY_PAPERS =
+  "citation_graph.rank_library_papers";
+export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST =
+  "paper_artifacts.get_manifest";
+export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_READ = "paper_artifacts.read";
+export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED =
+  "paper_artifacts.export_filtered";
+export const ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_RESOLVE_TOPIC_DIGEST =
+  "paper_artifacts.resolve_topic_digest";
+export const ZOTERO_MCP_TOOL_INSIGHTS_GET_ATTENTION_QUEUE =
+  "insights.get_attention_queue";
 
 export type ZoteroMcpJsonRpcId = string | number | null;
 
@@ -2528,14 +2527,14 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   },
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+    name: ZOTERO_MCP_TOOL_TOPICS_LIST,
     title: "List Synthesis topics",
     description:
       "Return a small semantic inventory of existing Synthesis topics for create-mode duplicate checks. This tool does not return resolvers, paper sets, artifacts, or freshness data.",
     method: "listTopics",
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_TOPIC_CONTEXT,
+    name: ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT,
     title: "Get Synthesis topic context",
     description:
       "Return topic seed, existing topic definition, resolver, resolved paper set, and old artifact metadata for a synthesis job.",
@@ -2554,7 +2553,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_SCHEMAS,
+    name: ZOTERO_MCP_TOOL_SCHEMAS_GET,
     title: "Get Synthesis schemas",
     description:
       "Return Synthesis Topic Definition, Resolver, Artifact, MCP, or workflow result schemas.",
@@ -2564,7 +2563,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CONCEPT_KB,
+    name: ZOTERO_MCP_TOOL_CONCEPTS_QUERY,
     title: "Query Synthesis Concept KB",
     description:
       "Return bounded read-only exact, alias, and ambiguous Concept KB matches for topic synthesis KG enrichment. This tool never mutates review state.",
@@ -2579,7 +2578,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_QUERY_CITATION_GRAPH_CLUSTER,
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_QUERY_CLUSTER,
     title: "Query Synthesis citation graph cluster",
     description:
       "Return bounded read-only topic-scoped citation graph cluster counts and diagnostics for synthesis statistics. This tool never rebuilds or refreshes graph state.",
@@ -2612,7 +2611,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+    name: ZOTERO_MCP_TOOL_LIBRARY_INDEX_GET,
     title: "Get Synthesis library index",
     description:
       "Return one deterministic page of the global lightweight library index for topic resolver generation. Iterate cursor until has_more=false; index_hash must stay stable across pages.",
@@ -2627,7 +2626,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+    name: ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
     title: "Resolve Synthesis resolver",
     description:
       "Validate and execute a canonical Topic Resolver. Input must include a top-level resolver object; do not pass topic_resolver or root-level queries.",
@@ -2640,10 +2639,10 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     required: ["resolver"],
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_REFERENCE_SIDECAR_INDEX,
-    title: "Get Synthesis Reference Sidecar Index",
+    name: ZOTERO_MCP_TOOL_REFERENCE_INDEX_GET,
+    title: "Get Synthesis reference index",
     description:
-      "Return bounded read-only Reference Sidecar Index rows with artifact coverage, binding diagnostics, and recommended maintenance commands.",
+      "Return bounded read-only reference index rows with artifact coverage, binding diagnostics, and recommended maintenance commands.",
     method: "getReferenceSidecarIndex",
     properties: {
       sourceRefs: { type: "array", maxItems: 250 },
@@ -2653,7 +2652,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_PAPER_ARTIFACT_MANIFEST,
+    name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_GET_MANIFEST,
     title: "Get Synthesis paper artifact manifest",
     description:
       "Return host-computed availability for digest, references, and citation-analysis artifacts for topic synthesis papers. Missing artifacts are reported as status rows, not errors.",
@@ -2666,7 +2665,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+    name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED,
     title: "Export filtered Synthesis paper artifacts",
     description:
       "Read one or more papers' digest, references, and citation-analysis artifacts through the host decoder and write a filtered manifest plus bounded content files into the ACP skill run workspace.",
@@ -2684,7 +2683,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     required: ["run_root"],
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_SLICE,
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_SLICE,
     title: "Get Synthesis citation graph slice",
     description:
       "Read a bounded slice from the persisted Synthesis citation graph snapshot with freshness diagnostics. This tool never rebuilds the graph, recomputes layouts, or returns the full graph.",
@@ -2701,7 +2700,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_CITATION_GRAPH_METRICS,
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_METRICS,
     title: "Get Synthesis citation graph metrics",
     description:
       "Read bounded library-paper graph metrics and recommended maintenance commands from the persisted Synthesis citation graph metrics snapshot. This tool never rebuilds the graph or returns the full graph.",
@@ -2721,7 +2720,59 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_TOPIC_PAPER_DIGEST,
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_EXTERNAL_REFERENCES,
+    title: "Rank external citation graph references",
+    description:
+      "Return ranked external references from the persisted citation graph without rebuilding or refreshing graph state.",
+    method: "rankExternalReferences",
+    properties: {
+      limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
+      sortBy: {
+        type: "string",
+        enum: ["external_degree", "shared_source_count", "year"],
+      },
+      sort_by: {
+        type: "string",
+        enum: ["external_degree", "shared_source_count", "year"],
+      },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_LIBRARY_PAPERS,
+    title: "Rank library citation graph papers",
+    description:
+      "Return ranked library papers from persisted citation graph metrics without rebuilding or refreshing graph state.",
+    method: "rankLibraryPapers",
+    properties: {
+      paperRefs: { type: "array", maxItems: 250 },
+      paper_refs: { type: "array", maxItems: 250 },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
+      sortBy: {
+        type: "string",
+        enum: ["foundation", "frontier", "pagerank", "in_degree"],
+      },
+      sort_by: {
+        type: "string",
+        enum: ["foundation", "frontier", "pagerank", "in_degree"],
+      },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_INSIGHTS_GET_ATTENTION_QUEUE,
+    title: "Get Host Bridge insight attention queue",
+    description:
+      "Return read-only attention items for graph metrics, reference index, and selected paper artifact readiness.",
+    method: "getAttentionQueue",
+    properties: {
+      paperRefs: { type: "array", maxItems: 250 },
+      paper_refs: { type: "array", maxItems: 250 },
+      sourceRefs: { type: "array", maxItems: 250 },
+      source_refs: { type: "array", maxItems: 250 },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_RESOLVE_TOPIC_DIGEST,
     title: "Resolve topic paper digest",
     description:
       "Resolve the original digest-markdown payload for a structured topic paper evidence digest_ref and report source hash freshness.",
@@ -2736,7 +2787,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     },
   }),
   synthesisTool({
-    name: ZOTERO_MCP_TOOL_SYNTHESIS_GET_REVIEW_INPUT,
+    name: ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT,
     title: "Get Synthesis review workflow input",
     description:
       "Return a read-only topic synthesis input package for downstream literature review workflows.",
@@ -3074,7 +3125,7 @@ function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
 }
 
 const HOST_BRIDGE_MCP_ALLOWED_ARGS: Record<string, string[]> = {
-  "synthesis.get_schemas": ["kind"],
+  "schemas.get": ["kind"],
 };
 
 function summarizeHostBridgeCapabilityResult(

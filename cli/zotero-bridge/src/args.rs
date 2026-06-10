@@ -49,7 +49,7 @@ pub enum Command {
 
     #[command(
         about = "Advanced diagnostic raw capability call",
-        long_about = "Send a raw capability request to POST /bridge/v1/call. This is an advanced diagnostic interface; prefer semantic item, note, synthesis, literature, workflow, task, and file commands for normal operations."
+        long_about = "Send a raw capability request to POST /bridge/v1/call. This is an advanced diagnostic interface; prefer semantic item, note, topic, citation-graph, paper-artifacts, literature, workflow, task, and file commands for normal operations."
     )]
     Call(CallArgs),
 
@@ -59,8 +59,32 @@ pub enum Command {
     #[command(about = "Read Zotero note data and embedded note payloads")]
     Note(NoteArgs),
 
-    #[command(about = "Read Zotero Synthesis Layer data through semantic commands")]
-    Synthesis(SynthesisArgs),
+    #[command(about = "Read topic synthesis topic data through semantic commands")]
+    Topics(TopicsArgs),
+
+    #[command(about = "Read Synthesis schema metadata through semantic commands")]
+    Schemas(SchemasArgs),
+
+    #[command(about = "Query concept knowledge base data through semantic commands")]
+    Concepts(ConceptsArgs),
+
+    #[command(about = "Read citation graph data and rankings through semantic commands")]
+    CitationGraph(CitationGraphArgs),
+
+    #[command(about = "Read compact library index pages through semantic commands")]
+    LibraryIndex(LibraryIndexArgs),
+
+    #[command(about = "Resolve topic resolvers through semantic commands")]
+    Resolvers(ResolversArgs),
+
+    #[command(about = "Read reference index diagnostics through semantic commands")]
+    ReferenceIndex(ReferenceIndexArgs),
+
+    #[command(about = "Read and export paper artifact data through semantic commands")]
+    PaperArtifacts(PaperArtifactsArgs),
+
+    #[command(about = "Read aggregate Host Bridge insight queues")]
+    Insights(InsightsArgs),
 
     #[command(about = "Run literature workflow actions through semantic commands")]
     Literature(LiteratureArgs),
@@ -222,117 +246,222 @@ pub struct NotePayloadArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct SynthesisArgs {
+pub struct TopicsArgs {
     #[command(subcommand)]
-    pub command: SynthesisCommand,
+    pub command: TopicsCommand,
 }
 
 #[derive(Debug, Clone, Subcommand)]
-pub enum SynthesisCommand {
+pub enum TopicsCommand {
     #[command(
         about = "List existing topic synthesis topics",
-        long_about = "Map to Host Bridge capability synthesis.list_topics. Use --input for optional JSON parameters; omitted input is {}."
+        long_about = "Map to Host Bridge capability topics.list. Use --input for optional JSON parameters; omitted input is {}."
     )]
-    ListTopics(SynthesisInputArgs),
+    List(BridgeInputArgs),
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability synthesis.get_topic_context. Use --input for the topic lookup payload."
+        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload."
     )]
-    GetTopicContext(SynthesisInputArgs),
+    GetContext(BridgeInputArgs),
 
     #[command(
-        about = "Read Synthesis Layer schema metadata",
-        long_about = "Map to Host Bridge capability synthesis.get_schemas."
+        about = "Read one topic synthesis report markdown body",
+        long_about = "Map to Host Bridge capability topics.get_report. The report markdown is read from runtime synthesis_report.body."
     )]
-    GetSchemas(SynthesisInputArgs),
-
-    #[command(
-        about = "Query Synthesis Concept KB candidates",
-        long_about = "Map to Host Bridge capability synthesis.query_concept_kb. Use --input with concept_candidate_labels/labels for bounded read-only alias matching."
-    )]
-    QueryConceptKb(SynthesisInputArgs),
-
-    #[command(
-        about = "Query a topic-scoped citation graph cluster",
-        long_about = "Map to Host Bridge capability synthesis.query_citation_graph_cluster. Use --input with source_paper_refs, max_external_nodes, and cluster_policy."
-    )]
-    QueryCitationGraphCluster(SynthesisInputArgs),
-
-    #[command(
-        about = "Read a compact Synthesis library index page",
-        long_about = "Map to Host Bridge capability synthesis.get_library_index. Use --input for paging and filter JSON."
-    )]
-    GetLibraryIndex(SynthesisInputArgs),
-
-    #[command(
-        about = "Resolve a topic resolver into a paper set",
-        long_about = "Map to Host Bridge capability synthesis.resolve_resolver. --input must be a JSON object containing a top-level resolver field, for example {\"resolver\":{\"mode\":\"tag_query\",\"query\":\"tag-name\"}}. Do not pass topic_resolver, root-level queries, or the resolver object by itself."
-    )]
-    ResolveResolver(SynthesisInputArgs),
-
-    #[command(
-        about = "Read the Synthesis Reference Sidecar Index",
-        long_about = "Map to Host Bridge capability synthesis.get_reference_sidecar_index."
-    )]
-    GetReferenceSidecarIndex(SynthesisInputArgs),
-
-    #[command(
-        about = "Query the Synthesis citation graph",
-        long_about = "Map to Host Bridge capability synthesis.query_citation_graph."
-    )]
-    QueryCitationGraph(SynthesisInputArgs),
-
-    #[command(
-        about = "Read a Synthesis citation graph slice",
-        long_about = "Map to Host Bridge capability synthesis.get_citation_graph_slice."
-    )]
-    GetCitationGraphSlice(SynthesisInputArgs),
-
-    #[command(
-        about = "Read citation graph metrics for selected papers",
-        long_about = "Map to Host Bridge capability synthesis.get_citation_graph_metrics. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use a raw diagnostic call to synthesis.refresh_citation_graph_metrics."
-    )]
-    GetCitationGraphMetrics(SynthesisInputArgs),
-
-    #[command(
-        about = "Read paper artifact manifest metadata",
-        long_about = "Map to Host Bridge capability synthesis.get_paper_artifact_manifest."
-    )]
-    GetPaperArtifactManifest(SynthesisInputArgs),
-
-    #[command(
-        about = "Read selected paper artifacts",
-        long_about = "Map to Host Bridge capability synthesis.read_paper_artifacts."
-    )]
-    ReadPaperArtifacts(SynthesisInputArgs),
-
-    #[command(
-        about = "Export bounded paper artifacts into the run workspace",
-        long_about = "Map to Host Bridge capability synthesis.export_filtered_paper_artifacts."
-    )]
-    ExportFilteredPaperArtifacts(SynthesisInputArgs),
-
-    #[command(
-        about = "Resolve a topic paper digest",
-        long_about = "Map to Host Bridge capability synthesis.resolve_topic_paper_digest."
-    )]
-    ResolveTopicPaperDigest(SynthesisInputArgs),
+    GetReport(BridgeInputArgs),
 
     #[command(
         about = "Read review workflow input from Synthesis",
-        long_about = "Map to Host Bridge capability synthesis.get_review_input."
+        long_about = "Map to Host Bridge capability topics.get_review_input."
     )]
-    GetReviewInput(SynthesisInputArgs),
+    GetReviewInput(BridgeInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct SynthesisInputArgs {
+pub struct SchemasArgs {
+    #[command(subcommand)]
+    pub command: SchemasCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum SchemasCommand {
+    #[command(
+        about = "Read Synthesis Layer schema metadata",
+        long_about = "Map to Host Bridge capability schemas.get."
+    )]
+    Get(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ConceptsArgs {
+    #[command(subcommand)]
+    pub command: ConceptsCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ConceptsCommand {
+
+    #[command(
+        about = "Query Synthesis Concept KB candidates",
+        long_about = "Map to Host Bridge capability concepts.query. Use --input with concept_candidate_labels/labels for bounded read-only alias matching."
+    )]
+    Query(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct CitationGraphArgs {
+    #[command(subcommand)]
+    pub command: CitationGraphCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum CitationGraphCommand {
+    #[command(
+        about = "Read the Synthesis citation graph overview",
+        long_about = "Map to Host Bridge capability citation_graph.get_overview."
+    )]
+    Overview(BridgeInputArgs),
+
+    #[command(
+        about = "Query a topic-scoped citation graph cluster",
+        long_about = "Map to Host Bridge capability citation_graph.query_cluster. Use --input with source_paper_refs, max_external_nodes, and cluster_policy."
+    )]
+    QueryCluster(BridgeInputArgs),
+
+    #[command(
+        about = "Read a Synthesis citation graph slice",
+        long_about = "Map to Host Bridge capability citation_graph.get_slice."
+    )]
+    GetSlice(BridgeInputArgs),
+
+    #[command(
+        about = "Read citation graph metrics for selected papers",
+        long_about = "Map to Host Bridge capability citation_graph.get_metrics. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use citation-graph refresh-metrics."
+    )]
+    GetMetrics(BridgeInputArgs),
+
+    #[command(
+        about = "Rank external references from the citation graph",
+        long_about = "Map to Host Bridge capability citation_graph.rank_external_references."
+    )]
+    RankExternalReferences(BridgeInputArgs),
+
+    #[command(
+        about = "Rank library papers from citation graph metrics",
+        long_about = "Map to Host Bridge capability citation_graph.rank_library_papers."
+    )]
+    RankLibraryPapers(BridgeInputArgs),
+
+    #[command(
+        about = "Refresh persisted citation graph complex metrics",
+        long_about = "Map to Host Bridge capability citation_graph.refresh_metrics. This diagnostic repair command requires Zotero-side approval and refreshes persisted complex metrics from the current graph cache without rebuilding graph structure."
+    )]
+    RefreshMetrics(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct LibraryIndexArgs {
+    #[command(subcommand)]
+    pub command: LibraryIndexCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum LibraryIndexCommand {
+    #[command(
+        about = "Read a compact Synthesis library index page",
+        long_about = "Map to Host Bridge capability library_index.get. Use --input for paging and filter JSON."
+    )]
+    Get(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ResolversArgs {
+    #[command(subcommand)]
+    pub command: ResolversCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ResolversCommand {
+    #[command(
+        about = "Resolve a topic resolver into a paper set",
+        long_about = "Map to Host Bridge capability resolvers.resolve. --input must be a JSON object containing a top-level resolver field, for example {\"resolver\":{\"mode\":\"tag_query\",\"query\":\"tag-name\"}}. Do not pass topic_resolver, root-level queries, or the resolver object by itself."
+    )]
+    Resolve(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ReferenceIndexArgs {
+    #[command(subcommand)]
+    pub command: ReferenceIndexCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ReferenceIndexCommand {
+    #[command(
+        about = "Read the Synthesis reference index",
+        long_about = "Map to Host Bridge capability reference_index.get."
+    )]
+    Get(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct PaperArtifactsArgs {
+    #[command(subcommand)]
+    pub command: PaperArtifactsCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum PaperArtifactsCommand {
+
+    #[command(
+        about = "Read paper artifact manifest metadata",
+        long_about = "Map to Host Bridge capability paper_artifacts.get_manifest."
+    )]
+    Manifest(BridgeInputArgs),
+
+    #[command(
+        about = "Read selected paper artifacts",
+        long_about = "Map to Host Bridge capability paper_artifacts.read."
+    )]
+    Read(BridgeInputArgs),
+
+    #[command(
+        about = "Export bounded paper artifacts into the run workspace",
+        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered."
+    )]
+    ExportFiltered(BridgeInputArgs),
+
+    #[command(
+        about = "Resolve a topic paper digest",
+        long_about = "Map to Host Bridge capability paper_artifacts.resolve_topic_digest."
+    )]
+    ResolveTopicDigest(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct InsightsArgs {
+    #[command(subcommand)]
+    pub command: InsightsCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum InsightsCommand {
+
+    #[command(
+        about = "Read aggregate graph/artifact/reference attention items",
+        long_about = "Map to Host Bridge capability insights.get_attention_queue."
+    )]
+    AttentionQueue(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct BridgeInputArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Synthesis capability input as inline JSON, a file path, @file, or '-' for stdin",
-        long_help = "Synthesis capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}."
+        help = "Host Bridge capability input as inline JSON, a file path, @file, or '-' for stdin",
+        long_help = "Host Bridge capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}."
     )]
     pub input: Option<String>,
 }
@@ -474,7 +603,7 @@ pub enum DebugCommand {
     #[command(about = "Debug ACP skill run state and recovery actions")]
     AcpSkillRun(DebugAcpSkillRunArgs),
 
-    #[command(about = "Debug Synthesis Layer state and workers")]
+    #[command(about = "Debug Synthesis Layer cache and operations")]
     Synthesis(DebugSynthesisArgs),
 }
 
@@ -513,83 +642,17 @@ pub enum DebugSynthesisCommand {
     #[command(about = "Inspect one debug Synthesis topic")]
     InspectTopic(DebugInputArgs),
 
-    #[command(about = "Debug Synthesis update queue")]
-    Queue(DebugSynthesisQueueArgs),
+    #[command(about = "List debug-only Synthesis explicit operations")]
+    Operations(DebugInputArgs),
 
-    #[command(about = "Debug Synthesis job progress")]
-    Jobs(DebugSynthesisJobsArgs),
+    #[command(about = "List debug-only Synthesis profiler timings")]
+    Profiler(DebugInputArgs),
 
-    #[command(about = "Run one debug Synthesis worker")]
-    Worker(DebugSynthesisWorkerArgs),
+    #[command(about = "List debug-only Synthesis sidecar cache basis rows")]
+    Cache(DebugInputArgs),
 
-    #[command(about = "Run one debug Synthesis maintenance pass")]
-    Maintenance(DebugSynthesisMaintenanceArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct DebugSynthesisQueueArgs {
-    #[command(subcommand)]
-    pub command: DebugSynthesisQueueCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum DebugSynthesisQueueCommand {
-    #[command(about = "List debug Synthesis queue events")]
-    List(DebugInputArgs),
-
-    #[command(about = "Enqueue one debug Synthesis dirty event")]
-    Enqueue(DebugInputArgs),
-
-    #[command(about = "Retry debug Synthesis queue failures")]
-    Retry(DebugInputArgs),
-
-    #[command(about = "Pause debug Synthesis queue processing")]
-    Pause(DebugInputArgs),
-
-    #[command(about = "Resume debug Synthesis queue processing")]
-    Resume(DebugInputArgs),
-
-    #[command(about = "Dangerous debug operation: clear Synthesis queue")]
-    Clear(DebugInputArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct DebugSynthesisJobsArgs {
-    #[command(subcommand)]
-    pub command: DebugSynthesisJobsCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum DebugSynthesisJobsCommand {
-    #[command(about = "List debug Synthesis job progress rows")]
-    List(DebugInputArgs),
-
-    #[command(about = "Mark stale debug Synthesis jobs as retryable failures")]
-    ClearStale(DebugInputArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct DebugSynthesisWorkerArgs {
-    #[command(subcommand)]
-    pub command: DebugSynthesisWorkerCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum DebugSynthesisWorkerCommand {
-    #[command(about = "Run one debug Synthesis worker")]
-    Run(DebugInputArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct DebugSynthesisMaintenanceArgs {
-    #[command(subcommand)]
-    pub command: DebugSynthesisMaintenanceCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum DebugSynthesisMaintenanceCommand {
-    #[command(about = "Run one debug Synthesis maintenance pass")]
-    Run(DebugInputArgs),
+    #[command(about = "Dangerous debug operation: reset Synthesis install state")]
+    CleanInstallReset(DebugInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -627,7 +690,7 @@ pub struct FileDownloadArgs {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{Cli, Command, LiteratureCommand, SynthesisCommand};
+    use super::{Cli, Command, LiteratureCommand, TopicsCommand};
 
     #[test]
     fn top_level_help_exposes_agent_discovery_cues() {
@@ -640,7 +703,10 @@ mod tests {
         assert!(help.contains("manifest"));
         assert!(help.contains("item"));
         assert!(help.contains("note"));
-        assert!(help.contains("synthesis"));
+        assert!(help.contains("topics"));
+        assert!(help.contains("citation-graph"));
+        assert!(help.contains("paper-artifacts"));
+        assert!(help.contains("insights"));
         assert!(help.contains("literature"));
         assert!(help.contains("workflow"));
         assert!(help.contains("task"));
@@ -669,12 +735,18 @@ mod tests {
             "diff",
             "inspect-paper",
             "inspect-topic",
-            "queue",
-            "jobs",
-            "worker",
-            "maintenance",
+            "operations",
+            "profiler",
+            "cache",
+            "clean-install-reset",
         ] {
             assert!(synthesis_help.contains(name), "missing {name}");
+        }
+        for removed in ["queue", "jobs", "worker", "maintenance"] {
+            assert!(
+                !synthesis_help.contains(removed),
+                "removed debug command still listed: {removed}"
+            );
         }
     }
 
@@ -691,29 +763,35 @@ mod tests {
     }
 
     #[test]
-    fn synthesis_help_exposes_all_subcommands() {
+    fn domain_help_exposes_split_subcommands() {
         let mut command = Cli::command();
-        let synthesis = command.find_subcommand_mut("synthesis").unwrap();
-        let help = synthesis.render_long_help().to_string();
-
-        for name in [
-            "list-topics",
-            "get-topic-context",
-            "get-schemas",
-            "get-library-index",
-            "resolve-resolver",
-            "get-reference-sidecar-index",
-            "query-citation-graph",
-            "get-citation-graph-slice",
-            "get-citation-graph-metrics",
-            "get-paper-artifact-manifest",
-            "read-paper-artifacts",
-            "export-filtered-paper-artifacts",
-            "resolve-topic-paper-digest",
-            "get-review-input",
-        ] {
-            assert!(help.contains(name), "missing {name}");
+        let topics = command.find_subcommand_mut("topics").unwrap();
+        let topics_help = topics.render_long_help().to_string();
+        for name in ["list", "get-context", "get-report", "get-review-input"] {
+            assert!(topics_help.contains(name), "missing {name}");
         }
+
+        let graph = command.find_subcommand_mut("citation-graph").unwrap();
+        let graph_help = graph.render_long_help().to_string();
+        for name in [
+            "overview",
+            "query-cluster",
+            "get-slice",
+            "get-metrics",
+            "rank-external-references",
+            "rank-library-papers",
+            "refresh-metrics",
+        ] {
+            assert!(graph_help.contains(name), "missing {name}");
+        }
+
+        let artifacts = command.find_subcommand_mut("paper-artifacts").unwrap();
+        let artifacts_help = artifacts.render_long_help().to_string();
+        for name in ["manifest", "read", "export-filtered", "resolve-topic-digest"] {
+            assert!(artifacts_help.contains(name), "missing {name}");
+        }
+        let insights = command.find_subcommand_mut("insights").unwrap();
+        assert!(insights.render_long_help().to_string().contains("attention-queue"));
     }
 
     #[test]
@@ -737,17 +815,17 @@ mod tests {
     }
 
     #[test]
-    fn parses_synthesis_subcommand_with_json_input() {
-        let cli = Cli::parse_from(["zotero-bridge", "synthesis", "list-topics", "--input", "{}"]);
+    fn parses_topics_subcommand_with_json_input() {
+        let cli = Cli::parse_from(["zotero-bridge", "topics", "list", "--input", "{}"]);
 
         match cli.command {
-            Command::Synthesis(args) => match args.command {
-                SynthesisCommand::ListTopics(input) => {
+            Command::Topics(args) => match args.command {
+                TopicsCommand::List(input) => {
                     assert_eq!(input.input.as_deref(), Some("{}"));
                 }
-                _ => panic!("expected list-topics"),
+                _ => panic!("expected topics list"),
             },
-            _ => panic!("expected synthesis command"),
+            _ => panic!("expected topics command"),
         }
     }
 }

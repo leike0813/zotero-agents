@@ -1,0 +1,212 @@
+[1] Mayank Bansal, Alex Krizhevsky, and Abhijit Ogale. Chauffeurnet: Learning to drive by imitating the best and synthesizing the worst. RSS, 2019. 1
+
+[2] Philipp Bergmann, Tim Meinhardt, and Laura Leal-Taixe. Tracking without bells and whistles. ICCV, 2019. 2
+
+[3] Keni Bernardin, Alexander Elbs, and Rainer Stiefelhagen. Multiple object tracking performance metrics and evaluation in a smart room environment. Citeseer. 5
+
+[4] Alex Bewley, Zongyuan Ge, Lionel Ott, Fabio Ramos, and Ben Upcroft. Simple online and realtime tracking. ICIP, 2016. 2, 4
+
+[5] Alex Bewley, Pei Sun, Thomas Mensink, Dragomir Anguelov, and Cristian Sminchisescu. Range conditioned dilated convolutions for scale invariant 3d object detection. arXiv preprint arXiv:2005.09927, 2020. 6
+
+[6] Holger Caesar, Varun Bankiti, Alex H. Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Giancarlo Baldan, and Oscar Beijbom. nuscenes: A multimodal dataset for autonomous driving. CVPR, 2020. 2, 5, 11
+
+[7] Qi Chen, Lin Sun, Ernest Cheung, Kui Jia, and Alan Yuille. Every view counts: Cross-view consistency in 3d object detection with hybrid-cylindrical-spherical voxelization. NeurIPS, 2020. 6, 8, 12
+
+[8] Qi Chen, Lin Sun, Zhixin Wang, Kui Jia, and Alan Yuille. Object as hotspots: An anchor-free 3d object detection approach via firing of hotspots. ECCV, 2020. 2
+
+[9] Yilun Chen, Shu Liu, Xiaoyong Shen, and Jiaya Jia. Fast point r-cnn. ICCV, 2019. 2
+
+[10] Hsu-kuang Chiu, Antonio Prioletti, Jie Li, and Jeannette Bohg. Probabilistic 3d multi-object tracking for autonomous driving. arXiv:2001.05673, 2020. 2, 3, 6, 8
+
+[11] Jifeng Dai, Haozhi Qi, Yuwen Xiong, Yi Li, Guodong Zhang, Han Hu, and Yichen Wei. Deformable convolutional networks. ICCV, 2017. 11
+
+[12] Martin Engelcke, Dushyant Rao, Dominic Zeng Wang, Chi Hay Tong, and Ingmar Posner. Vote3deep: Fast object detection in 3d point clouds using efficient convolutional neural networks. ICRA, 2017. 2
+
+[13] Mark Everingham, Luc Van Gool, Christopher KI Williams, John Winn, and Andrew Zisserman. The pascal visual object classes (voc) challenge. IJCV, 2010. 5
+
+[14] Runzhou Ge, Zhuangzhuang Ding, Yihan Hu, Yu Wang, Sijia Chen, Li Huang, and Yuan Li. Afdet: Anchor free one stage 3d object detection. arXiv preprint arXiv:2006.12671, 2020. 8
+
+[15] Andreas Geiger, Philip Lenz, and Raquel Urtasun. Are we ready for autonomous driving? the kitti vision benchmark suite. CVPR, 2012. 2
+
+[16] Ross Girshick. Fast r-cnn. ICCV, 2015. 1, 2
+
+[17] Ross Girshick, Jeff Donahue, Trevor Darrell, and Jitendra Malik. Rich feature hierarchies for accurate object detection and semantic segmentation. CVPR, 2014. 1, 2
+
+[18] Benjamin Graham, Martin Engelcke, and Laurens van der Maaten. 3d semantic segmentation with submanifold sparse convolutional networks. CVPR, 2018. 2
+
+[19] Sylvain Gugger. The 1cycle policy. https://sgugger. github.io/the-1cycle-policy.html, 2018. 11
+
+[20] Chenhang He, Hui Zeng, Jianqiang Huang, Xian-Sheng Hua, and Lei Zhang. Structure aware single-stage 3d object detection from point cloud. CVPR, 2020. 2, 3, 7, 8
+
+[21] Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Gir- ´ shick. Mask r-cnn. ICCV, 2017. 2
+
+[22] Geoffrey E Hinton, Nitish Srivastava, Alex Krizhevsky, Ilya Sutskever, and Ruslan R Salakhutdinov. Improving neural networks by preventing co-adaptation of feature detectors. JMLR, 2012. 5
+
+[23] Peiyun Hu, Jason Ziglar, David Held, and Deva Ramanan. What you see is what you get: Exploiting visibility for 3d object detection. CVPR, 2020. 1, 6, 12
+
+[24] Rui Huang, Wanyue Zhang, Abhijit Kundu, Caroline Pantofaru, David A Ross, Thomas Funkhouser, and Alireza Fathi. An lstm approach to temporal 3d object detection in lidar point clouds. ECCV, 2020. 8
+
+[25] Sergey Ioffe and Christian Szegedy. Batch normalization: Accelerating deep network training by reducing internal covariate shift. ICML, 2015. 5
+
+[26] Borui Jiang, Ruixuan Luo, Jiayuan Mao, Tete Xiao, and Yuning Jiang. Acquisition of localization confidence for accurate object detection. ECCV, 2018. 4
+
+[27] H. Karunasekera, H. Wang, and H. Zhang. Multiple object tracking with attention to appearance, structure, motion and size. IEEE Access, 2019. 2
+
+[28] Alex H. Lang, Sourabh Vora, Holger Caesar, Lubing Zhou, Jiong Yang, and Oscar Beijbom. Pointpillars: Fast encoders for object detection from point clouds. CVPR, 2019. 2, 3, 5, 6, 8, 11, 12
+
+[29] Hei Law and Jia Deng. Cornernet: Detecting objects as paired keypoints. ECCV, 2018. 3
+
+[30] Buyu Li, Wanli Ouyang, Lu Sheng, Xingyu Zeng, and Xiaogang Wang. Gs3d: An efficient 3d object detection framework for autonomous driving. CVPR, 2019. 4
+
+[31] Ming Liang, Bin Yang, Yun Chen, Rui Hu, and Raquel Urtasun. Multi-task multi-sensor fusion for 3d object detection. CVPR, 2019. 2
+
+[32] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object detection. ICCV, 2017. 2, 3
+
+[33] Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Scott Reed, Cheng-Yang Fu, and Alexander C Berg. Ssd: Single shot multibox detector. ECCV, 2016. 2
+
+[34] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. ICLR, 2019. 11
+
+[35] Mahyar Najibi, Guangda Lai, Abhijit Kundu, Zhichao Lu, Vivek Rathod, Thomas Funkhouser, Caroline Pantofaru, David Ross, Larry S Davis, and Alireza Fathi. Dops: Learning to detect 3d objects and predict their 3d shapes. CVPR, 2020. 8
+
+[36] Jiquan Ngiam, Benjamin Caine, Wei Han, Brandon Yang, Yuning Chai, Pei Sun, Yin Zhou, Xi Yi, Ouais Alsharif, Patrick Nguyen, et al. Starnet: Targeted computation for object detection in point clouds. arXiv preprint arXiv:1908.11069, 2019. 6, 8
+
+[37] Jonah Philion, Amlan Kar, and Sanja Fidler. Learning to evaluate perception models using planner-centric metrics. CVPR, 2020. 5
+
+[38] Charles R. Qi, Or Litany, Kaiming He, and Leonidas Guibas. Deep hough voting for 3d object detection in point clouds. ICCV, 2019. 2
+
+[39] Charles R Qi, Wei Liu, Chenxia Wu, Hao Su, and Leonidas J Guibas. Frustum pointnets for 3d object detection from rgb-d data. CVPR, 2018. 2
+
+[40] Charles R Qi, Hao Su, Kaichun Mo, and Leonidas J Guibas. Pointnet: Deep learning on point sets for 3d classification and segmentation. CVPR, 2017. 2, 3
+
+[41] Charles Ruizhongtai Qi, Li Yi, Hao Su, and Leonidas J Guibas. Pointnet++: Deep hierarchical feature learning on point sets in a metric space. In NeurIPS, 2017. 7, 8
+
+[42] Joseph Redmon and Ali Farhadi. Yolo9000: better, faster, stronger. CVPR, 2017. 2
+
+[43] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. NIPS, 2015. 2, 3, 5
+
+[44] Shaoshuai Shi, Chaoxu Guo, Li Jiang, Zhe Wang, Jianping Shi, Xiaogang Wang, and Hongsheng Li. Pv-rcnn: Pointvoxel feature set abstraction for 3d object detection. CVPR, 2020. 2, 3, 4, 5, 6, 7, 8, 11
+
+[45] Shaoshuai Shi, Xiaogang Wang, and Hongsheng Li. Pointrcnn: 3d object proposal generation and detection from point cloud. CVPR, 2019. 1, 2, 5, 7
+
+[46] Shaoshuai Shi, Zhe Wang, Jianping Shi, Xiaogang Wang, and Hongsheng Li. From points to parts: 3d object detection from point cloud with part-aware and part-aggregation network. TPAMI, 2020. 2, 4, 7
+
+[47] Martin Simony, Stefan Milzy, Karl Amendey, and Horst-Michael Gross. Complex-yolo: An euler-region-proposal for real-time 3d object detection on point clouds. ECCV, 2018. 1, 2
+
+[48] Pei Sun, Henrik Kretzschmar, Xerxes Dotiwalla, Aurelien Chouard, Vijaysai Patnaik, Paul Tsui, James Guo, Yin Zhou, Yuning Chai, Benjamin Caine, et al. Scalability in perception for autonomous driving: An open dataset benchmark. CVPR, 2020. 2, 5, 6
+
+[49] Sourabh Vora, Alex H Lang, Bassam Helou, and Oscar Beijbom. Pointpainting: Sequential fusion for 3d object detection. CVPR, 2020. 6, 11, 12
+
+[50] Dequan Wang, Coline Devin, Qi-Zhi Cai, Philipp Krahenb ¨ uhl, ¨ and Trevor Darrell. Monocular plan view networks for autonomous driving. IROS, 2019. 1
+
+[51] Dominic Zeng Wang and Ingmar Posner. Voting for voting in online point cloud object detection. RSS, 2015. 2
+
+[52] Yue Wang, Alireza Fathi, Abhijit Kundu, David Ross, Caroline Pantofaru, Tom Funkhouser, and Justin Solomon. Pillarbased object detection for autonomous driving. ECCV, 2020. 2, 8
+
+[53] Xinshuo Weng and Kris Kitani. A Baseline for 3D Multi-Object Tracking. IROS, 2020. 2, 3, 5, 6
+
+[54] Nicolai Wojke, Alex Bewley, and Dietrich Paulus. Simple online and realtime tracking with a deep association metric. ICIP, 2017. 2
+
+[55] Kelvin Wong, Shenlong Wang, Mengye Ren, Ming Liang, and Raquel Urtasun. Identifying unknown instances for autonomous driving. CORL, 2019. 2
+
+[56] Yan Yan, Yuxing Mao, and Bo Li. Second: Sparsely embedded convolutional detection. Sensors, 2018. 2, 3, 5, 6, 11
+
+[57] Bin Yang, Wenjie Luo, and Raquel Urtasun. Pixor: Real-time 3d object detection from point clouds. CVPR, 2018. 2
+
+[58] Xue Yang, Qingqing Liu, Junchi Yan, Ang Li, Zhiqiang Zhang, and Gang Yu. R3det: Refined single-stage detector with feature refinement for rotating object. arXiv:1908.05612, 2019. 1
+
+[59] Xue Yang, Jirui Yang, Junchi Yan, Yue Zhang, Tengfei Zhang, Zhi Guo, Xian Sun, and Kun Fu. Scrdet: Towards more robust detection for small, cluttered and rotated objects. ICCV, 2019. 1
+
+[60] Zetong Yang, Yanan Sun, Shu Liu, and Jiaya Jia. 3dssd: Point-based 3d single stage object detector. CVPR, 2020. 1, 2, 11
+
+[61] Zetong Yang, Yanan Sun, Shu Liu, Xiaoyong Shen, and Jiaya Jia. Std: Sparse-to-dense 3d object detector for point cloud. ICCV, 2019. 2
+
+[62] Junbo Yin, Jianbing Shen, Chenye Guan, Dingfu Zhou, and Ruigang Yang. Lidar-based online 3d video object detection with graph-based message passing and spatiotemporal transformer attention. CVPR, 2020. 6, 12
+
+[63] Xingyi Zhou, Vladlen Koltun, and Philipp Krahenb ¨ uhl. Track- ¨ ing objects as points. ECCV, 2020. 2, 3
+
+[64] Xingyi Zhou, Dequan Wang, and Philipp Krahenb ¨ uhl. Objects ¨ as points. arXiv:1904.07850, 2019. 2, 3
+
+[65] Yin Zhou, Pei Sun, Yu Zhang, Dragomir Anguelov, Jiyang Gao, Tom Ouyang, James Guo, Jiquan Ngiam, and Vijay Vasudevan. End-to-end multi-view fusion for 3d object detection in lidar point clouds. CORL, 2019. 2, 8
+
+[66] Yin Zhou and Oncel Tuzel. Voxelnet: End-to-end learning for point cloud based 3d object detection. CVPR, 2018. 2, 3, 5, 11
+
+[67] Benjin Zhu, Zhengkai Jiang, Xiangxin Zhou, Zeming Li, and Gang Yu. Class-balanced grouping and sampling for point cloud 3d object detection. arXiv:1908.09492, 2019. 2, 5, 6, 7, 8, 11, 12
+
+[68] Xinge Zhu, Yuexin Ma, Tai Wang, Yan Xu, Jianping Shi, and Dahua Lin. Ssn: Shape signature networks for multi-class object detection from point clouds. ECCV, 2020. 6, 12
+
+## A. Tracking algorithm
+
+Algorithm 1: Center-based Tracking   
+Input $: T ^ { ( t - 1 ) } = \{ ( \mathbf { p } , \mathbf { v } , c , \mathbf { q } , i d , a ) _ { j } ^ { ( t - 1 ) } \} _ { j = 1 } ^ { M } :$   
+Tracked objects in the previous frame, with   
+center $\mathbf { p } ,$ ground plane velocity $\mathbf { v } ,$ category   
+label $c ,$ other bounding box attributes q,   
+tracking id id, and inactive age a (active   
+tracks will have $a = 0 ) .$   
+$\hat { D } ^ { ( t ) } = \{ ( \hat { \mathbf { p } } , \hat { \mathbf { v } } , \hat { c } , \hat { \mathbf { q } } ) _ { i } ^ { ( t ) } \} _ { i = 1 } ^ { N } \colon$ Detections in   
+the current frame in descending confidence.   
+Output : $T ^ { ( t ) } = \{ ( \mathbf { p } , \mathbf { v } , c , \mathbf { q } , i \overline { { d } } , a ) _ { j = 1 } ^ { K } \}$ : Tracked   
+Objects.   
+1 Hyper parameters: Matching distance threshold $\tau ;$   
+Max inactive age $A .$   
+2 Initialization: Tracks $T ^ { ( t ) }$ , and matches $s$ are   
+initialized as empty sets.   
+3 ${ T ^ { ( t ) } \gets \emptyset , S \gets \emptyset }$   
+4 $F \gets C o s t ( \hat { D } ^ { ( t ) } , T ^ { ( t - 1 ) } )$ //   
+$F _ { i j } = | | \hat { \mathbf { p } } _ { i } ^ { ( t ) } - \hat { \mathbf { v } } , \mathbf { p } _ { j } ^ { ( t - 1 ) } | | _ { 2 }$   
+5 for i ← 1 to $N$ do   
+6 $j \gets \arg \operatorname* { m i n } _ { j \notin \mathcal { S } } F _ { i j }$   
+7 // Class-wise distance threshold $\tau _ { c }$   
+8 if $\mathbf { F } _ { i j } \le \tau _ { c }$ then   
+9 // Associate with tracked object   
+10 $a _ { i } ^ { ( t ) } \gets 0$   
+11 $\mathsf { \bar { \Gamma } } ^ { ( t ) } \gets T ^ { ( t ) } \cup \{ ( \hat { D } _ { i } ^ { ( t ) } , i d _ { j } ^ { ( t - 1 ) } , a _ { i } ^ { ( t ) } ) \}$   
+12 $s  s \cup \{ j \}$ // Mark track $j$ as matched   
+13 end   
+14 else   
+15 // Initialize a new track   
+16 $a _ { i } ^ { ( t ) } \gets 0$   
+17 $T ^ { ( t ) } \gets T ^ { ( t ) } \cup \{ ( \hat { D } _ { i } ^ { ( t ) } , n e w I D , a _ { i } ^ { ( t ) } ) \}$   
+18 end   
+19 end   
+20 for $j  1$ to M do   
+21 $\mathbf { i f } \ j \notin { \cal S }$ then   
+22 // Unmatched tracks   
+23 if $T . a _ { j } ^ { ( t - 1 ) } < A$ then   
+24 $\check { T } . a _ { j } ^ { ( t ) } \gets T . a _ { j } ^ { ( t - 1 ) } + 1$   
+25 $T . p _ { j } ^ { ( t ) } \gets T . p _ { j } ^ { ( t - 1 ) } + T . v _ { j } ^ { ( t - 1 ) }$ // Update   
+the center location   
+26 $T ^ { ( t ) } \gets T ^ { ( t ) } \cup \{ T _ { j } ^ { ( t - 1 ) } \}$   
+27 end   
+28 end   
+29 end   
+30 Return $T ^ { ( t ) }$
+
+## B. Implementation Details
+
+Our implementation is based on the open-sourced code of CBGS [67]1. CBGS provides implementations of Point-Pillars [28] and VoxelNet [66] on nuScenes. For Waymo experiments, we use the same architecture for VoxelNet and increases the output stride to 1 for PointPillars [28] following the dataset’s reference implementation2.
+
+A common practice [6, 49, 60, 67] in nuScenes is to transform and merge the Lidar points of non-annotated frames into its following annotated frame. This produces a denser point-cloud and enables a more reasonable velocity estimation. We follow this practice in all nuScenes experiments.
+
+For data augmentation, we use random flipping along both X and Y axis, and global scaling with a random factor from $[ 0 . 9 5 , 1 . 0 5 ]$ . We use a random global rotation between $[ - \pi / 8 , \pi / 8 ]$ for nuScenes [67] and $[ - \pi / 4 , \pi / 4 ]$ for Waymo [44]. We also use the ground-truth sampling [56] on nuScenes to deal with the long tail class distribution, which copies and pastes points inside an annotated box from one frame to another frame.
+
+For nuScenes dataset, we follow CBGS [67] to optimize the model using AdamW [34] optimizer with one-cycle learning rate policy [19], with max learning rate 1e-3, weight decay 0.01, and momentum 0.85 to 0.95. We train the models with batch size 16 for 20 epochs on 4 V100 GPUs.
+
+We use the same training schedule for Waymo models except a learning rate 3e-3, and we train the model for 30 epochs following PV-RCNN [44]. To save computation on large scale Waymo dataset, we finetune the model for 6 epochs with second stage refinement modules for various ablation studies. All ablation experiments are conducted in this same setting.
+
+For the nuScenes test set submission, we use a input grid size of $0 . 0 7 5 m \times 0 . 0 7 5 m$ and add two separate deformable convolution layers [11] in the detection head to learn different features for classification and regression. This improves CenterPoint-Voxel’s performance from 64.8 NDS to 65.4 NDS on nuScenes validation. For the nuScenes tracking benchmark, we submit our best CenterPoint-Voxel model with flip testing, which yields a result of 66.5 AMOTA on nuScenes validation.
+
+## C. nuScenes Performance across classes
+
+We show per-class comparisons with state-of-the-art methods in Table 13.
+
+## D. nuScenes Detection Challenge
+
+As a general framework, CenterPoint is complementary to contemporary methods and was used by three of the top 4 entries in the NeurIPS 2020 nuScenes detection challenge. In this section, we describe the details of our winning submission which significantly improved 2019 challenge winner CBGS [67] by 14.3 mAP and 8.1 NDS. We report some improved results in Table 14. We use PointPainting [49] to annotate each lidar point with image-based instance segmentation results generated by a Cascade RCNN model trained on nuImages3. This improves the NDS from 65.4 to 68.0. We then perform two test-time augmentations including double flip testing and point-cloud rotation around the yaw axis. Specifically, we use $[ 0 ^ { \circ } , \pm 6 . 2 5 ^ { \circ } , \pm 1 2 . 5 ^ { \circ } , \pm 2 5 ^ { \circ } ]$ for yaw rotations. Theses test time augmentations improve the NDS from 68.0 to 70.3. In the end, we ensemble five models with input grid size between [0.05m, 0.05m] to [0.15m, 0.15m] and filter out predictions with zero number of points, which yields our best results on nuScenes validation, with 68.2 mAP and 71.7 NDS.
+
+<table><tr><td>Method</td><td>mAP</td><td>NDS</td><td>Car</td><td>Truck</td><td>Bus</td><td>Trailer</td><td>CV</td><td>Ped</td><td>Motor</td><td>Bicycle</td><td>TC</td><td>Barrier</td></tr><tr><td>WYSIWYG [23]</td><td>35.0</td><td>41.9</td><td>79.1</td><td>30.4</td><td>46.6</td><td>40.1</td><td>7.1</td><td>65.0</td><td>18.2</td><td>0.1</td><td>28.8</td><td>34.7</td></tr><tr><td>PointPillars [28]</td><td>30.5</td><td>45.3</td><td>68.4</td><td>23.0</td><td>28.2</td><td>23.4</td><td>4.1</td><td>59.7</td><td>27.4</td><td>1.1</td><td>30.8</td><td>38.9</td></tr><tr><td>PointPainting [49]</td><td>46.4</td><td>58.1</td><td>77.9</td><td>35.8</td><td>36.2</td><td>37.3</td><td>15.8</td><td>73.3</td><td>41.5</td><td>24.1</td><td>62.4</td><td>60.2</td></tr><tr><td>CVCNet [7]</td><td>55.3</td><td>64.4</td><td>82.7</td><td>46.1</td><td>46.6</td><td>49.4</td><td>22.6</td><td>79.8</td><td>59.1</td><td>31.4</td><td>65.6</td><td>69.6</td></tr><tr><td>PMPNet [62]</td><td>45.4</td><td>53.1</td><td>79.7</td><td>33.6</td><td>47.1</td><td>43.1</td><td>18.1</td><td>76.5</td><td>40.7</td><td>7.9</td><td>58.8</td><td>48.8</td></tr><tr><td>SSN [68]</td><td>46.4</td><td>58.1</td><td>80.7</td><td>37.5</td><td>39.9</td><td>43.9</td><td>14.6</td><td>72.3</td><td>43.7</td><td>20.1</td><td>54.2</td><td>56.3</td></tr><tr><td>CBGS [67]</td><td>52.8</td><td>63.3</td><td>81.1</td><td>48.5</td><td>54.9</td><td>42.9</td><td>10.5</td><td>80.1</td><td>51.5</td><td>22.3</td><td>70.9</td><td>65.7</td></tr><tr><td>Ours</td><td>58.0</td><td>65.5</td><td>84.6</td><td>51.0</td><td>60.2</td><td>53.2</td><td>17.5</td><td>83.4</td><td>53.7</td><td>28.7</td><td>76.7</td><td>70.9</td></tr></table>
+
+Table 13: State-of-the-art comparisons for 3D detection on nuScenes test set. We show the NDS, mAP, and mAP for each class. Abbreviations: construction vehicle (CV), pedestrian (Ped), motorcycle (Motor), and traffic cone (TC).
+<table><tr><td>Method</td><td>mAP</td><td>NDS</td></tr><tr><td>Baseline</td><td>57.1</td><td>65.4</td></tr><tr><td>+ PointPainting [49]</td><td>62.7</td><td>68.0</td></tr><tr><td>+ Flip Test</td><td>64.9</td><td>69.4</td></tr><tr><td>+ Rotation</td><td>66.2</td><td>70.3</td></tr><tr><td>+ Ensemble</td><td>67.7</td><td>71.4</td></tr><tr><td>+ Filter Empty</td><td>68.2</td><td>71.7</td></tr></table>
+
+Table 14: Ablation studies for 3D detection on nuScenes validation.

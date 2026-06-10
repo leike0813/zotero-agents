@@ -105,14 +105,17 @@ const defaultPreparationDeps: PreparationDeps = {
   alertWindow,
 };
 
-export async function runWorkflowPreparationSeam(args: {
-  win: _ZoteroTypes.MainWindow;
-  workflow: LoadedWorkflow;
-  messageFormatter: WorkflowMessageFormatter;
-  executionOptionsOverride?: WorkflowExecutionOptions;
-  selectedItemsOverride?: Zotero.Item[];
-  suppressUiFeedback?: boolean;
-}, deps: Partial<PreparationDeps> = {}): Promise<PreparationSeamResult> {
+export async function runWorkflowPreparationSeam(
+  args: {
+    win: _ZoteroTypes.MainWindow;
+    workflow: LoadedWorkflow;
+    messageFormatter: WorkflowMessageFormatter;
+    executionOptionsOverride?: WorkflowExecutionOptions;
+    selectedItemsOverride?: Zotero.Item[];
+    suppressUiFeedback?: boolean;
+  },
+  deps: Partial<PreparationDeps> = {},
+): Promise<PreparationSeamResult> {
   const resolved = {
     ...defaultPreparationDeps,
     ...deps,
@@ -131,10 +134,16 @@ export async function runWorkflowPreparationSeam(args: {
       stage: "trigger-rejected-no-selection",
       message: "workflow trigger rejected: no selected items",
     });
-    if (!args.suppressUiFeedback) {
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
       resolved.alertWindow(
         args.win,
-        localizeWorkflowText("workflow-execute-no-selection", "No items selected."),
+        localizeWorkflowText(
+          "workflow-execute-no-selection",
+          "No items selected.",
+        ),
       );
     }
     return {
@@ -193,11 +202,13 @@ export async function runWorkflowPreparationSeam(args: {
         scope: "workflow-trigger",
         workflowId: args.workflow.manifest.id,
         stage: "build-requests-preview-fallback",
-        message: "workflow execution options preview unavailable; using empty preview",
+        message:
+          "workflow execution options preview unavailable; using empty preview",
         error: previewError,
       });
     }
-    const selectionContext = await resolved.buildSelectionContext(selectedItems);
+    const selectionContext =
+      await resolved.buildSelectionContext(selectedItems);
     const builtRequests = await resolved.executeBuildRequests({
       workflow: args.workflow,
       selectionContext,
@@ -291,7 +302,10 @@ export async function runWorkflowPreparationSeam(args: {
       },
       error,
     });
-    if (!args.suppressUiFeedback) {
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
       resolved.alertWindow(
         args.win,
         localizeWorkflowText(
@@ -368,7 +382,10 @@ export async function runWorkflowPreparationSeam(args: {
       },
       error,
     });
-    if (!args.suppressUiFeedback) {
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
       resolved.alertWindow(
         args.win,
         localizeWorkflowText(
@@ -394,7 +411,10 @@ export async function runWorkflowPreparationSeam(args: {
       stage: "execution-context-missing",
       message: "workflow execution context missing",
     });
-    if (!args.suppressUiFeedback) {
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
       resolved.alertWindow(
         args.win,
         localizeWorkflowText(

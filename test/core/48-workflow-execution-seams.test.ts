@@ -9,6 +9,8 @@ import {
   emitWorkflowFinishSummary,
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
+  resetWorkflowToastStateForTests,
+  showWorkflowToast,
 } from "../../src/modules/workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
@@ -23,6 +25,7 @@ async function createWorkflowRoot(args: {
   applyResultBody?: string;
   filterInputsBody?: string;
   parameters?: Record<string, unknown>;
+  execution?: Record<string, unknown>;
 }) {
   const root = await mkTempDir(`zotero-skills-seam-${args.id}`);
   const workflowRoot = joinPath(root, args.id);
@@ -33,10 +36,15 @@ async function createWorkflowRoot(args: {
         id: args.id,
         label: `Seam ${args.id}`,
         provider: "pass-through",
+        ...(args.execution ? { execution: args.execution } : {}),
         ...(args.parameters ? { parameters: args.parameters } : {}),
         hooks: {
-          ...(args.filterInputsBody ? { filterInputs: "hooks/filterInputs.js" } : {}),
-          ...(args.buildRequestBody ? { buildRequest: "hooks/buildRequest.js" } : {}),
+          ...(args.filterInputsBody
+            ? { filterInputs: "hooks/filterInputs.js" }
+            : {}),
+          ...(args.buildRequestBody
+            ? { buildRequest: "hooks/buildRequest.js" }
+            : {}),
           applyResult: "hooks/applyResult.js",
         },
       },
@@ -72,6 +80,7 @@ async function createWorkflowRoot(args: {
 describe("workflow execution seams", function () {
   beforeEach(function () {
     clearRuntimeLogs();
+    resetWorkflowToastStateForTests();
   });
 
   it("supports deterministic preparation testing via injected seam dependencies", async function () {
@@ -116,7 +125,8 @@ describe("workflow execution seams", function () {
         appendRuntimeLog: (entry) => {
           logs.push(entry.stage);
         },
-        resolveWorkflowExecutionContext: async () => fakeExecutionContext as any,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
         buildSelectionContext: async () => ({}),
         executeBuildRequests: async () => {
           const error = new Error("skip all");
@@ -195,7 +205,10 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    assert.equal(result.prepared.executionContext.requestKind, "acp.skill.run.v1");
+    assert.equal(
+      result.prepared.executionContext.requestKind,
+      "acp.skill.run.v1",
+    );
     assert.deepEqual(result.prepared.requests, [
       {
         kind: "acp.skill.run.v1",
@@ -276,7 +289,8 @@ describe("workflow execution seams", function () {
               parameter: { query: "exact paper" },
             },
           ] as any,
-        resolveWorkflowExecutionContext: async () => fakeExecutionContext as any,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
         alertWindow: () => undefined,
         appendRuntimeLog: (entry) => {
           logs.push({ stage: entry.stage, details: entry.details });
@@ -317,22 +331,55 @@ describe("workflow execution seams", function () {
       itemType: "journalArticle",
       fields: { title: "Seam Build Failed Parent" },
     });
-    const alerts: string[] = [];
+    const toasts: string[] = [];
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      createLine(args: { text?: string }) {
+        toasts.push(String(args?.text || ""));
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
     const win = {
       ZoteroPane: {
         getSelectedItems: () => [parent],
       },
-      alert: (message: string) => alerts.push(message),
+      alert: (message: string) => {
+        throw new Error(`unexpected modal alert: ${message}`);
+      },
     } as unknown as _ZoteroTypes.MainWindow;
 
-    await executeWorkflowFromCurrentSelection({
-      win,
-      workflow: workflow!,
-    });
+    try {
+      await executeWorkflowFromCurrentSelection({
+        win,
+        workflow: workflow!,
+      });
+    } finally {
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
 
-    assert.lengthOf(alerts, 1);
-    assert.include(alerts[0], "cannot run");
-    assert.include(alerts[0], "build request exploded");
+    assert.isTrue(
+      toasts.some(
+        (entry) =>
+          /cannot run/.test(entry) && /build request exploded/.test(entry),
+      ),
+      `missing build failure toast: ${JSON.stringify(toasts)}`,
+    );
   });
 
   it("keeps mixed success/failure summary parity after seam refactor", async function () {
@@ -367,7 +414,6 @@ describe("workflow execution seams", function () {
       itemType: "journalArticle",
       fields: { title: "Seam Mixed Fail Parent" },
     });
-    const alerts: string[] = [];
     const toasts: string[] = [];
     const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
     const createdToolkit = !runtime.ztoolkit;
@@ -390,7 +436,7 @@ describe("workflow execution seams", function () {
         getSelectedItems: () => [parentA, parentB],
       },
       alert: (message: string) => {
-        alerts.push(message);
+        throw new Error(`unexpected modal alert: ${message}`);
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
@@ -407,11 +453,6 @@ describe("workflow execution seams", function () {
       }
     }
 
-    assert.lengthOf(alerts, 1);
-    assert.include(alerts[0], "succeeded=1");
-    assert.include(alerts[0], "failed=1");
-    assert.include(alerts[0], "Failure reasons:");
-    assert.match(alerts[0], /job-1 .*forced apply failure/);
     assert.isTrue(
       toasts.some((entry) => /started\. jobs=2/i.test(entry)),
       `missing start toast: ${JSON.stringify(toasts)}`,
@@ -423,6 +464,87 @@ describe("workflow execution seams", function () {
     assert.isTrue(
       toasts.some((entry) => /job 2\/2 failed/i.test(entry)),
       `missing failed job toast: ${JSON.stringify(toasts)}`,
+    );
+    assert.isTrue(
+      toasts.some(
+        (entry) =>
+          /succeeded=1/.test(entry) &&
+          /failed=1/.test(entry) &&
+          /Failure reasons:/.test(entry) &&
+          /job-1 .*forced apply failure/.test(entry),
+      ),
+      `missing summary toast: ${JSON.stringify(toasts)}`,
+    );
+  });
+
+  it("suppresses workflow execution toasts when showNotifications is false", async function () {
+    const root = await createWorkflowRoot({
+      id: "seam-notifications-disabled",
+      execution: {
+        feedback: {
+          showNotifications: false,
+        },
+      },
+    });
+    const loaded = await loadWorkflowManifests(root);
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "seam-notifications-disabled",
+    );
+    assert.isOk(workflow);
+
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Seam Notifications Disabled Parent" },
+    });
+    const toasts: string[] = [];
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      createLine(args: { text?: string }) {
+        toasts.push(String(args?.text || ""));
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
+    const win = {
+      ZoteroPane: {
+        getSelectedItems: () => [parent],
+      },
+      alert: (message: string) => {
+        throw new Error(`unexpected modal alert: ${message}`);
+      },
+    } as unknown as _ZoteroTypes.MainWindow;
+
+    try {
+      await executeWorkflowFromCurrentSelection({
+        win,
+        workflow: workflow!,
+      });
+    } finally {
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(toasts, []);
+    const logs = listRuntimeLogs({
+      workflowId: "seam-notifications-disabled",
+    });
+    assert.isTrue(
+      logs.some((entry) => entry.stage === "trigger-finished"),
+      "expected runtime logs to remain available",
     );
   });
 
@@ -446,7 +568,7 @@ describe("workflow execution seams", function () {
       itemType: "journalArticle",
       fields: { title: "Seam Configurable Gate Failure Parent" },
     });
-    const alerts: string[] = [];
+    const toasts: string[] = [];
     const runtime = globalThis as typeof globalThis & {
       ztoolkit?: Record<string, unknown>;
       addon?: { data?: { ztoolkit?: Record<string, unknown> } };
@@ -465,6 +587,21 @@ describe("workflow execution seams", function () {
         throw new Error("dialog exploded");
       }
     };
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      createLine(args: { text?: string }) {
+        toasts.push(String(args?.text || ""));
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
     runtime.addon = runtime.addon || {};
     runtime.addon.data = runtime.addon.data || {};
     runtime.addon.data.ztoolkit = runtime.ztoolkit;
@@ -476,7 +613,7 @@ describe("workflow execution seams", function () {
             getSelectedItems: () => [parent],
           },
           alert: (message: string) => {
-            alerts.push(message);
+            throw new Error(`unexpected modal alert: ${message}`);
           },
         } as unknown as _ZoteroTypes.MainWindow,
         workflow: workflow!,
@@ -498,15 +635,24 @@ describe("workflow execution seams", function () {
       }
     }
 
-    assert.lengthOf(alerts, 1);
-    assert.include(alerts[0], "settings gate failed");
-    assert.include(alerts[0], "dialog exploded");
+    assert.isTrue(
+      toasts.some(
+        (entry) =>
+          /settings gate failed/.test(entry) && /dialog exploded/.test(entry),
+      ),
+      `missing settings gate failure toast: ${JSON.stringify(toasts)}`,
+    );
 
     const logs = listRuntimeLogs({
       workflowId: "seam-configurable-gate-failure",
     });
-    const failureLog = logs.find((entry) => entry.stage === "settings-gate-failed");
-    const failureDetails = (failureLog?.details || {}) as Record<string, unknown>;
+    const failureLog = logs.find(
+      (entry) => entry.stage === "settings-gate-failed",
+    );
+    const failureDetails = (failureLog?.details || {}) as Record<
+      string,
+      unknown
+    >;
     assert.isOk(failureLog);
     assert.equal(failureDetails.workflowSource, "");
     assert.equal(failureDetails.gateStage, "dialog-open");
@@ -514,7 +660,6 @@ describe("workflow execution seams", function () {
 
   it("supports feedback seam verification without UI runtime", function () {
     const toasts: string[] = [];
-    const alerts: string[] = [];
     const formatter = createLocalizedMessageFormatter();
     emitWorkflowStartToast(
       {
@@ -562,11 +707,11 @@ describe("workflow execution seams", function () {
         messageFormatter: formatter,
       },
       {
-        alertWindow: (_win, message) => alerts.push(message),
+        showToast: (payload) => toasts.push(payload.text),
       },
     );
 
-    assert.lengthOf(toasts, 3);
+    assert.lengthOf(toasts, 4);
     assert.include(
       toasts,
       formatter.startToast({
@@ -593,9 +738,8 @@ describe("workflow execution seams", function () {
         reason: "failed",
       }),
     );
-    assert.lengthOf(alerts, 1);
-    assert.equal(
-      alerts[0],
+    assert.include(
+      toasts,
       formatter.summary({
         workflowLabel: "Seam Feedback",
         succeeded: 1,
@@ -607,6 +751,74 @@ describe("workflow execution seams", function () {
         "\n" +
         "1. job-1: failed",
     );
+  });
+
+  it("caps visible workflow execution toasts at three newest sticky notifications", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: string[] = [];
+    const closed: string[] = [];
+    const closeTimers: number[] = [];
+    const options: Array<Record<string, unknown> | undefined> = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+
+      constructor(_title: string, ctorOptions?: Record<string, unknown>) {
+        options.push(ctorOptions);
+      }
+
+      createLine(args: { text?: string }) {
+        this.text = String(args?.text || "");
+        return this;
+      }
+
+      show() {
+        shown.push(this.text);
+        return this;
+      }
+
+      startCloseTimer(ms: number) {
+        closeTimers.push(ms);
+        return this;
+      }
+
+      close() {
+        closed.push(this.text);
+        return this;
+      }
+    };
+
+    try {
+      for (const text of ["one", "two", "three", "four"]) {
+        showWorkflowToast(
+          {
+            text,
+            type: "default",
+          },
+          {
+            sticky: true,
+            bounded: true,
+          },
+        );
+      }
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(shown, ["one", "two", "three", "four"]);
+    assert.deepEqual(closed, ["one"]);
+    assert.deepEqual(closeTimers, []);
+    assert.isTrue(options.every((entry) => entry?.closeOnClick === true));
+    assert.isTrue(options.every((entry) => entry?.closeTime === 0));
   });
 
   it("uses full-parallel queue concurrency for backend-backed providers", function () {

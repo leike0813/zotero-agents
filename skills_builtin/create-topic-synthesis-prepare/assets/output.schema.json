@@ -9,9 +9,7 @@
     "operation",
     "db_path",
     "handoff_manifest_path",
-    "handoff_manifest_hash",
-    "next_skill_id",
-    "diagnostics"
+    "next_skill_id"
   ],
   "properties": {
     "kind": { "const": "topic_synthesis_handoff" },
@@ -19,8 +17,6 @@
     "operation": { "const": "create" },
     "db_path": { "const": "runtime/topic-synthesis.sqlite" },
     "handoff_manifest_path": { "type": "string", "minLength": 1 },
-    "handoff_manifest_hash": { "type": "string", "pattern": "^sha256:.+" },
-    "next_skill_id": { "const": "topic-synthesis-core-enrichment" },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    "next_skill_id": { "const": "topic-synthesis-core-enrichment" }
   }
 }

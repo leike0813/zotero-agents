@@ -7,45 +7,513 @@
   "required": [
     "taxonomy",
     "timeline_events",
-    "positioning",
     "claims",
     "improvement_dimension_summary",
     "improvement_dimensions",
     "concept_candidate_labels",
     "debates",
-    "gaps",
+    "future_directions",
     "review_outline"
   ],
+  "$defs": {
+    "non_empty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "non_empty_string_array": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/non_empty_string"
+      }
+    },
+    "source_paper_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/non_empty_string"
+      }
+    },
+    "text_summary": {
+      "type": "object",
+      "anyOf": [
+        {
+          "required": ["text"]
+        },
+        {
+          "required": ["analysis"]
+        },
+        {
+          "required": ["overview"]
+        }
+      ],
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "analysis": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "overview": {
+          "$ref": "#/$defs/non_empty_string"
+        }
+      }
+    },
+    "taxonomy_route": {
+      "type": "object",
+      "required": [
+        "source_paper_refs",
+        "definition",
+        "core_problem",
+        "mechanism",
+        "strengths",
+        "limitations",
+        "maturity"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "definition": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "core_problem": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "mechanism": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "strengths": {
+          "$ref": "#/$defs/non_empty_string_array"
+        },
+        "limitations": {
+          "$ref": "#/$defs/non_empty_string_array"
+        },
+        "maturity": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "representative_papers": {
+          "$ref": "#/$defs/non_empty_string_array"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "timeline_event": {
+      "type": "object",
+      "required": ["source_paper_refs", "description", "phase"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "label": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "year": {
+          "type": "integer"
+        },
+        "description": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "historical_role": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "phase": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "required": ["source_paper_refs", "analysis"],
+      "anyOf": [
+        {
+          "required": ["limitations"]
+        },
+        {
+          "required": ["scope"]
+        },
+        {
+          "required": ["applicability"]
+        }
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "text": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "analysis": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "scope": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "applicability": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "limitations": {
+          "$ref": "#/$defs/non_empty_string_array"
+        },
+        "confidence": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "source_ref_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "current_judgment", "source_paper_refs"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "current_judgment": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "improvement_dimension": {
+      "type": "object",
+      "required": ["source_paper_refs", "title", "analysis"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "analysis": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "future_direction": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "direction_type",
+        "current_limitation",
+        "future_direction",
+        "rationale",
+        "source_paper_refs"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "direction_type": {
+          "type": "string",
+          "enum": [
+            "method_limitation",
+            "evaluation_gap",
+            "data_or_benchmark_need",
+            "application_extension",
+            "theory_or_mechanism_question",
+            "integration_opportunity"
+          ]
+        },
+        "current_limitation": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "future_direction": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "rationale": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "writing_strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "review_thesis",
+        "writing_strategy",
+        "section_plan",
+        "best_for",
+        "risks",
+        "source_paper_refs"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "title": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "review_thesis": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "writing_strategy": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "section_plan": {
+          "$ref": "#/$defs/non_empty_string_array"
+        },
+        "best_for": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "risks": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "source_paper_refs": {
+          "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "review_outline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_importance",
+        "writing_strategies",
+        "recommended_strategy_id"
+      ],
+      "properties": {
+        "topic_importance": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "writing_strategies": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/writing_strategy"
+          }
+        },
+        "recommended_strategy_id": {
+          "$ref": "#/$defs/non_empty_string"
+        }
+      }
+    }
+  },
   "properties": {
-    "taxonomy": { "type": "object" },
-    "timeline_events": { "type": "object" },
-    "positioning": { "type": "object" },
-    "claims": { "type": "array", "items": { "type": "object" } },
-    "improvement_dimension_summary": { "type": "object" },
+    "taxonomy": {
+      "type": "object",
+      "required": ["summary", "nodes"],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/text_summary"
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/taxonomy_route"
+          }
+        }
+      }
+    },
+    "timeline_events": {
+      "type": "object",
+      "required": ["summary", "events"],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/text_summary"
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/timeline_event"
+          }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    },
+    "improvement_dimension_summary": {
+      "type": "object"
+    },
     "improvement_dimensions": {
       "type": "array",
-      "items": { "type": "object" }
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/improvement_dimension"
+      }
     },
     "concept_candidate_labels": {
       "type": "array",
-      "items": { "type": "string" }
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/non_empty_string"
+      }
     },
-    "debates": { "type": "array", "items": { "type": "object" } },
-    "gaps": { "type": "array", "items": { "type": "object" } },
-    "review_outline": { "type": "object" }
+    "debates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source_ref_object"
+      }
+    },
+    "future_directions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/future_direction"
+      }
+    },
+    "review_outline": {
+      "$ref": "#/$defs/review_outline"
+    }
   },
   "examples": [
     {
-      "taxonomy": { "summary": {}, "nodes": [] },
-      "timeline_events": { "summary": {}, "events": [] },
-      "positioning": {},
-      "claims": [],
-      "improvement_dimension_summary": {},
-      "improvement_dimensions": [],
-      "concept_candidate_labels": [],
-      "debates": [],
-      "gaps": [],
-      "review_outline": {}
+      "taxonomy": {
+        "summary": {
+          "text": "Computer Vision 的宏观结构包括视觉表示学习、图像分类、目标检测、分割、三维视觉、视频理解和视觉语言多模态；当前库内证据主要覆盖检测与分割相关路线。"
+        },
+        "nodes": [
+          {
+            "id": "area:object-detection",
+            "title": "Object detection",
+            "definition": "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。",
+            "core_problem": "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。",
+            "mechanism": "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。",
+            "strengths": ["直接支撑场景理解、自动驾驶和机器人感知等应用。"],
+            "limitations": [
+              "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。"
+            ],
+            "maturity": "established subfield with active method evolution",
+            "representative_papers": ["1:DETR2020"],
+            "source_paper_refs": ["1:DETR2020"]
+          },
+          {
+            "id": "area:image-segmentation",
+            "title": "Image segmentation",
+            "definition": "对像素、区域或实例进行分组和语义标注，连接检测、场景理解和视觉基础模型。",
+            "core_problem": "在像素级或实例级边界上表达视觉对象、区域和语义结构。",
+            "mechanism": "通过 mask prediction、dense classification 或统一分割框架，把图像特征转化为语义或实例 mask。",
+            "strengths": ["能提供比检测框更细粒度的视觉理解结果。"],
+            "limitations": [
+              "当前 workset 对分割路线只有局部 evidence，缺少完整历史和 benchmark 覆盖。"
+            ],
+            "maturity": "established task family",
+            "representative_papers": ["1:MASK2FORMER"],
+            "source_paper_refs": ["1:MASK2FORMER"]
+          }
+        ]
+      },
+      "timeline_events": {
+        "summary": {
+          "text": "当前 evidence 支持检测与分割路线中的若干里程碑；分类、视频理解和视觉语言路线需要后续补证。"
+        },
+        "events": [
+          {
+            "id": "event:query-based-detection",
+            "label": "Query-based detection",
+            "year": 2020,
+            "description": "query-based set prediction 成为目标检测子域的重要范式，但它只是 Computer Vision 的一个分支。",
+            "historical_role": "把检测建模从候选框和 NMS 流程推进到端到端匹配公式。",
+            "phase": "subfield reformulation",
+            "source_paper_refs": ["1:DETR2020"]
+          }
+        ]
+      },
+      "claims": [
+        {
+          "id": "claim:detection-evidence-concentration",
+          "text": "当前库内证据能较好支撑 Computer Vision 中的检测/分割子域，但不足以代表整个 Computer Vision。",
+          "analysis": "resolved papers 集中在 DETR-style detection 和 segmentation variants，因此它们能解释局部路线，却不能重写 Computer Vision 的整体语义边界。",
+          "scope": "library evidence coverage rather than full domain definition",
+          "limitations": [
+            "该判断依赖当前 resolver workset，需要补充分类、视频、三维和多模态视觉材料。"
+          ],
+          "confidence": "high",
+          "source_paper_refs": ["1:DETR2020", "1:MASK2FORMER"]
+        }
+      ],
+      "improvement_dimension_summary": {
+        "text": "当前可证据化的进展主轴集中在检测和分割；更完整的 Computer Vision 综述还需要补充分类、表示学习、视频和多模态材料。"
+      },
+      "improvement_dimensions": [
+        {
+          "id": "dim:convergence",
+          "title": "检测中的端到端训练效率",
+          "analysis": "DETR-family 工作展示了目标检测子域中端到端公式和训练效率之间的 tradeoff。",
+          "source_paper_refs": ["1:DETR2020"]
+        }
+      ],
+      "concept_candidate_labels": [
+        "Object detection",
+        "Image segmentation",
+        "Visual representation learning"
+      ],
+      "debates": [
+        {
+          "id": "debate:task-specific-vs-foundation-models",
+          "title": "任务专用模型与视觉基础模型的取舍",
+          "current_judgment": "当前库内证据主要来自任务专用检测/分割模型，对基础模型路线支撑不足。",
+          "source_paper_refs": ["1:DETR2020"]
+        }
+      ],
+      "future_directions": [
+        {
+          "id": "future:efficient-query-detection",
+          "title": "更高效的 query-based detection",
+          "direction_type": "method_limitation",
+          "current_limitation": "当前 DETR-family evidence 显示 query matching 和长训练 schedule 仍是端到端检测的主要成本来源。",
+          "future_direction": "后续研究可以围绕更稳定的 query initialization、轻量 matching objective 和低 epoch 收敛机制展开。",
+          "rationale": "DETR 与 DINO 等论文共同表明，set prediction 范式清晰但训练效率和稳定性仍决定其实际可用性。",
+          "source_paper_refs": ["1:DETR2020", "1:DINO"]
+        }
+      ],
+      "review_outline": {
+        "topic_importance": "Computer Vision 是视觉感知、识别和理解的上位领域；当前 workset 能支撑检测与分割相关路线的综述入口。",
+        "writing_strategies": [
+          {
+            "id": "strategy:method-evolution",
+            "title": "按方法演进组织综述",
+            "review_thesis": "以 query-based detection 如何重塑目标检测公式为主线，并说明它只是 Computer Vision 的一个证据充分子域。",
+            "writing_strategy": "先定义 Computer Vision 的宏观边界，再解释当前 evidence 为什么适合写检测/分割子域的路线演进，最后把不足覆盖交给 coverage caveats。",
+            "section_plan": [
+              "定义视觉任务谱系和当前 evidence-covered scope",
+              "解释 query-based detection 的公式重构",
+              "比较后续变体如何处理收敛、query design 和效率问题",
+              "指出该综述策略不覆盖分类、视频、三维和视觉语言路线"
+            ],
+            "best_for": "适合写方法演进型 Related Work 或 topic survey 的一个章节。",
+            "risks": "不要把 Computer Vision 整体压缩成 DETR-family，也不要把 coverage caveats 写成已被 source papers 支撑的研究结论。",
+            "source_paper_refs": ["1:DETR2020", "1:DINO"]
+          }
+        ],
+        "recommended_strategy_id": "strategy:method-evolution"
+      }
     }
   ]
 }

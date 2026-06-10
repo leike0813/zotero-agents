@@ -2,6 +2,5 @@
 
 - 如果 gate 返回 error JSON，停止当前技能。
 - 不要手动修改 SQLite。
-- 不要手动生成由 runtime 管理的 hashes。
 - 不要绕过 `gate.py` 调用内部 helper。
-- 不要基于旧字段、旧 stage 或历史路径猜测恢复方式。
+- 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

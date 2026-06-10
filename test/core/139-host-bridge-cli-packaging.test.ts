@@ -24,17 +24,17 @@ describe("host bridge cli packaging and install", function () {
       path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
       "utf8",
     );
-    const readme = await fs.readFile(
+    const wrapperSkill = await fs.readFile(
       path.join(
         process.cwd(),
-        "addon/content/acp-runtime-prompts/templates/host_bridge_cli_readme.md",
+        "skills_builtin/zotero-bridge-cli/SKILL.md",
       ),
       "utf8",
     );
-    const prompt = await fs.readFile(
+    const wrapperReference = await fs.readFile(
       path.join(
         process.cwd(),
-        "addon/content/acp-runtime-prompts/templates/host_bridge_cli_prompt.md",
+        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
       ),
       "utf8",
     );
@@ -43,15 +43,52 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
 
-    for (const source of [cliArgs, readme, prompt, docs]) {
+    for (const source of [cliArgs, wrapperReference, docs]) {
       assert.include(source, "resolver");
       assert.include(source, "topic_resolver");
     }
     assert.include(cliArgs, "top-level resolver field");
-    assert.include(readme, '"resolver"');
-    assert.include(readme, "Do not pass `topic_resolver`");
-    assert.include(prompt, "do not pass `topic_resolver`");
+    assert.include(wrapperReference, '"resolver"');
+    assert.include(wrapperReference, "Do not pass `topic_resolver`");
+    assert.include(wrapperSkill, "references/host-bridge-cli.md");
     assert.include(docs, '"resolver"');
+  });
+
+  it("renders wrapper skill discovery from the current semantic CLI surface", async function () {
+    const wrapperSkill = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/SKILL.md",
+      ),
+      "utf8",
+    );
+    const wrapperReference = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      ),
+      "utf8",
+    );
+
+    for (const source of [wrapperSkill, wrapperReference]) {
+      assert.include(source, ".\\.zotero-bridge\\bin\\zotero-bridge.cmd");
+      assert.include(source, "./.zotero-bridge/bin/zotero-bridge");
+      assert.include(source, "<zotero-bridge>");
+      assert.include(source, "ZOTERO_BRIDGE_PROFILE");
+    }
+
+    for (const commandGroup of [
+      "schemas",
+      "concepts",
+      "library-index",
+      "resolvers",
+      "reference-index",
+    ]) {
+      assert.include(wrapperReference, `zotero-bridge ${commandGroup} --help`);
+    }
+    assert.include(wrapperReference, "`library-index get`");
+    assert.include(wrapperReference, "`reference-index get`");
+    assert.include(wrapperReference, "`resolvers resolve`");
   });
 
   it("declares remote Host Bridge profile and master token preference controls", async function () {

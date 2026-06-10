@@ -22,7 +22,7 @@ describe("Synthesis review input MCP tool", function () {
       method: "tools/list",
     });
     const names = list.result.tools.map((tool: { name: string }) => tool.name);
-    assert.include(names, "synthesis.get_review_input");
+    assert.include(names, "topics.get_review_input");
     assert.notInclude(names, "synthesis.write_review_input");
 
     const calls: unknown[] = [];
@@ -41,13 +41,13 @@ describe("Synthesis review input MCP tool", function () {
             paper_evidence: [{ id: "ev-a" }],
             external_literature_analysis: { summary: "External context." },
             coverage: { status: "partial" },
-            gaps: [],
+            future_directions: [],
           },
         };
       },
     };
     const response: any = await handleZoteroMcpRequestForTests(
-      request(2, "synthesis.get_review_input", {
+      request(2, "topics.get_review_input", {
         topicId: "topic-alpha",
         maxGraphNodes: 120,
       }),
@@ -55,7 +55,10 @@ describe("Synthesis review input MCP tool", function () {
     );
 
     assert.deepEqual(calls, [{ topicId: "topic-alpha", maxGraphNodes: 120 }]);
-    assert.equal(response.result.structuredContent.tool, "synthesis.get_review_input");
+    assert.equal(
+      response.result.structuredContent.tool,
+      "topics.get_review_input",
+    );
     assert.equal(
       response.result.structuredContent.result.kind,
       "synthesis.review_workflow_input",
@@ -65,7 +68,8 @@ describe("Synthesis review input MCP tool", function () {
       [{ id: "claim-1" }],
     );
     assert.equal(
-      response.result.structuredContent.result.structured_topic.external_literature_analysis.summary,
+      response.result.structuredContent.result.structured_topic
+        .external_literature_analysis.summary,
       "External context.",
     );
   });

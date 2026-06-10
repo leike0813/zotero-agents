@@ -49,7 +49,7 @@ invariants:
 
   - id: inv.reference.refresh_not_graph_rebuild
     severity: fatal
-    statement: Reference sidecar refresh must not hide a full Citation Graph cache rebuild inside the sidecar transaction; it may trigger a separate visible graph incremental refresh or allowed bootstrap after promoting Reference Sidecar readiness.
+    statement: Reference sidecar refresh must not hide Citation Graph refresh, graph bootstrap, graph rebuild, or related-items sync inside the sidecar transaction; it promotes Reference Sidecar readiness and marks graph/related sync stale with scoped diagnostics.
     evidence: Reference sidecar refresh tests and invariant static guard.
 
   - id: inv.reference.readiness_cache_basis_only
@@ -124,7 +124,7 @@ invariants:
 
   - id: inv.graph.related_items_sync_explicit
     severity: fatal
-    statement: Zotero related-items sync runs only as a visible provenance-protected operation after explicit Synthesis update paths or explicit/debug commands; graph cache rebuild never schedules it automatically and graph cache is only an optional fast path.
+    statement: Zotero related-items sync runs only as a visible provenance-protected operation after explicit Advanced Matching/proposal paths, explicit/debug sync commands, or a successful manual stale Citation Graph refresh with scoped source refs; digest apply and Reference Sidecar refresh only mark related-items sync stale, and graph cache rebuild never schedules full-library sync automatically.
     evidence: Related-items sync tests.
 
   - id: inv.graph.related_items_sync_provenance_required

@@ -393,6 +393,68 @@ describe("Synthesis concept KB", function () {
     assert.equal(snapshot.review_items[0]?.status, "rejected");
   });
 
+  it("deletes concepts and their dependent concept KB rows", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisConceptKbService({
+      root,
+      now: () => "2026-05-25T00:00:00.000Z",
+    });
+    await service.ingestConceptCardProposals({
+      topicId: "topic-delete",
+      payload: {
+        cards: [
+          {
+            label: "Delete Me",
+            aliases: ["Remove Alias"],
+            concept_type: "method",
+            domain: "computer vision",
+            short_definition: "Temporary concept.",
+            definition: "Temporary concept.",
+            confidence: 0.9,
+          },
+          {
+            label: "Keep Me",
+            aliases: ["Keep Alias"],
+            concept_type: "method",
+            domain: "computer vision",
+            short_definition: "Persistent concept.",
+            definition: "Persistent concept.",
+            confidence: 0.9,
+          },
+        ],
+      },
+    });
+    const before = await service.loadConceptKb();
+    const deletedConcept = before.concepts.find(
+      (entry) => entry.label === "Delete Me",
+    )!;
+
+    const result = await service.deleteConceptEntries({
+      conceptIds: [deletedConcept.concept_id],
+      transactionId: "delete-concept",
+    });
+
+    assert.deepEqual(result.deleted_concept_ids, [deletedConcept.concept_id]);
+    assert.isUndefined(result.diagnostic);
+    const snapshot = await service.loadConceptKb();
+    assert.deepEqual(
+      snapshot.concepts.map((entry) => entry.label),
+      ["Keep Me"],
+    );
+    assert.notInclude(
+      snapshot.aliases.map((entry) => entry.alias),
+      "Remove Alias",
+    );
+    assert.deepEqual(
+      snapshot.senses.map((entry) => entry.label),
+      ["Keep Me"],
+    );
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    assert.equal(repository.countRows("synt_concept"), 1);
+    assert.equal(repository.countRows("synt_concept_sense"), 1);
+    assert.equal(repository.countRows("synt_topic_concept_link"), 1);
+  });
+
   it("rebuilds concept-kb-index projection explicitly and computes missing projection from SQLite", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisConceptKbService({ root });

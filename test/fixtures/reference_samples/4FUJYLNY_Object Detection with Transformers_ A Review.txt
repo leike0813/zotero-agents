@@ -1,0 +1,457 @@
+1. Ren, S.; He, K.; Girshick, R.B.; Sun, J. Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks. arXiv 2015, arXiv:1506.01497. [CrossRef]
+
+2. Girshick, R.B. Fast R-CNN. arXiv 2015, arXiv:1504.08083. [CrossRef]
+
+3. Redmon, J.; Farhadi, A. YOLOv3: An Incremental Improvement. arXiv 2018, arXiv:1804.02767. [CrossRef]
+
+4. Lin, T.; Goyal, P.; Girshick, R.B.; He, K.; Dollár, P. Focal Loss for Dense Object Detection. arXiv 2017, arXiv:1708.02002.
+
+5. Shehzadi, T.; Majid, A.; Hameed, M.; Farooq, A.; Yousaf, A. Intelligent predictor using cancer-related biologically information extraction from cancer transcriptomes. In Proceedings of the 2020 International Symposium on Recent Advances in Electrical Engineering & Computer Sciences (RAEE & CS), Islamabad, Pakistan, 20–22 October 2020; Volume 5, pp. 1–5. [CrossRef]
+
+6. Sarode, S.; Khan, M.S.U.; Shehzadi, T.; Stricker, D.; Afzal, M.Z. Classroom-Inspired Multi-mentor Distillation with Adaptive Learning Strategies. In Proceedings of the Intelligent Systems and Applications, Amsterdam, The Netherlands, 27–28 August 2025; Arai, K., Ed.; Springer Nature: Cham, Switzerland, 2025; pp. 294–324. [CrossRef]
+
+7. Girshick, R.B.; Donahue, J.; Darrell, T.; Malik, J. Rich feature hierarchies for accurate object detection and semantic segmentation. arXiv 2013, arXiv:1311.2524.
+
+8. Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn, D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.; Heigold, G.; Gelly, S.; et al. An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale. arXiv 2020, arXiv:2010.11929.
+
+9. Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones, L.; Gomez, A.N.; Kaiser, L.; Polosukhin, I. Attention is all you need. In Proceedings of the 31st International Conference on Neural Information Processing Systems, Long Beach, CA, USA, 4–9 December 2017; Curran Associates Inc.: Red Hook, NY, USA, 2017; pp. 6000–6010. Available online: https: //dl.acm.org/doi/10.5555/3295222.3295349 (accessed on 25 September 2025).
+
+10. Khan, M.S.U.; Shehzadi, T.; Noor, R.; Stricker, D.; Afzal, M.Z. Enhanced Bank Check Security: Introducing a Novel Dataset and Transformer-Based Approach for Detection and Verification. arXiv 2024, arXiv:2406.14370. [CrossRef]
+
+11. Carion, N.; Massa, F.; Synnaeve, G.; Usunier, N.; Kirillov, A.; Zagoruyko, S. End-to-End Object Detection with Transformers. In Proceedings of the Computer Vision–ECCV 2020, Glasgow, UK, 23–28 August 2020; Vedaldi, A., Bischof, H., Brox, T., Frahm, J.M., Eds.; Springer International Publishing: Cham, Switzerland, 2020; pp. 213–229. [CrossRef]
+
+12. Shehzadi, T.; Hashmi, K.A.; Stricker, D.; Afzal, M.Z. Object Detection with Transformers: A Review. arXiv 2023, arXiv:2306.04670. [CrossRef]
+
+13. Sheikh, T.U.; Shehzadi, T.; Hashmi, K.A.; Stricker, D.; Afzal, M.Z. UnSupDLA: Towards Unsupervised Document Layout Analysis. arXiv 2024, arXiv:2406.06236.
+
+14. Ehsan, I.; Shehzadi, T.; Stricker, D.; Afzal, M.Z. End-to-End Semi-Supervised approach with Modulated Object Queries for Table Detection in Documents. Int. J. Document Anal. Recognit. 2024, 27, 363–378. Available online: https://api.semanticscholar.org/Co rpusID:269626070 (accessed on on 25 September 2025). [CrossRef]
+
+15. Shehzadi, T.; Stricker, D.; Afzal, M.Z. A Hybrid Approach for Document Layout Analysis in Document images. arXiv 2024, arXiv:2404.17888. [CrossRef]
+
+16. Shehzadi, T.; Sarode, S.; Stricker, D.; Afzal, M.Z. Towards End-to-End Semi-Supervised Table Detection with Semantic Aligned Matching Transformer. arXiv 2024, arXiv:2405.00187.
+
+17. Saeed, W.; Saleh, M.S.; Gull, M.N.; Raza, H.; Saeed, R.; Shehzadi, T. Geometric features and traffic dynamic analysis on 4-leg intersections. Int. Rev. Appl. Sci. Eng. 2024, 15, 171–188. [CrossRef]
+
+18. Shehzadi, T.; Hashmi, K.A.; Stricker, D.; Liwicki, M.; Afzal, M.Z. Bridging the Performance Gap between DETR and R-CNN for Graphical Object Detection in Document Images. arXiv 2023, arXiv:2306.13526. [CrossRef]
+
+19. Shehzadi, T.; Hashmi, K.A.; Stricker, D.; Afzal, M.Z. Sparse Semi-DETR: Sparse Learnable Queries for Semi-Supervised Object Detection. arXiv 2024, arXiv:2404.01819.
+
+20. Zhu, X.; Su, W.; Lu, L.; Li, B.; Wang, X.; Dai, J. Deformable DETR: Deformable Transformers for End-to-End Object Detection. arXiv 2020, arXiv:2010.04159.
+
+21. Dai, Z.; Cai, B.; Lin, Y.; Chen, J. UP-DETR: Unsupervised Pre-training for Object Detection with Transformers. arXiv 2020, arXiv:2011.09094.
+
+22. Yao, Z.; Ai, J.; Li, B.; Zhang, C. Efficient DETR: Improving End-to-End Object Detector with Dense Prior. arXiv 2021, arXiv:2104.01318.
+
+23. Gao, P.; Zheng, M.; Wang, X.; Dai, J.; Li, H. Fast Convergence of DETR with Spatially Modulated Co-Attention. arXiv 2021, arXiv:2101.07448.
+
+24. Sun, Z.; Cao, S.; Yang, Y.; Kitani, K. Rethinking Transformer-based Set Prediction for Object Detection. arXiv 2020, arXiv:2011.10881.
+
+25. Meng, D.; Chen, X.; Fan, Z.; Zeng, G.; Li, H.; Yuan, Y.; Sun, L.; Wang, J. Conditional DETR for Fast Training Convergence. arXiv 2021, arXiv:2108.06152.
+
+26. Liu, F.; Wei, H.; Zhao, W.; Li, G.; Peng, J.; Li, Z. WB-DETR: Transformer-Based Detector without Backbone. In Proceedings of the 2021 IEEE/CVF International Conference on Computer Vision (ICCV), Montreal, QC, Canada, 11–17 October 2021; pp. 2959–2967. [CrossRef]
+
+27. Wang, T.; Yuan, L.; Chen, Y.; Feng, J.; Yan, S. PnP-DETR: Towards Efficient Visual Analysis with Transformers. arXiv 2021, arXiv:2109.07036.
+
+28. Dai, X.; Chen, Y.; Yang, J.; Zhang, P.; Yuan, L.; Zhang, L. Dynamic DETR: End-to-End Object Detection with Dynamic Attention. In Proceedings of the 2021 International Conference on Computer Vision, Montreal, QC, Canada, 11–17 October 2021. Available online: https://www.microsoft.com/en-us/research/publication/dynamic-detr-end-to-end-object-detection-with-dynamic -attention/ (accessed on 25 September 2025).
+
+29. Fang, Y.; Liao, B.; Wang, X.; Fang, J.; Qi, J.; Wu, R.; Niu, J.; Liu, W. You Only Look at One Sequence: Rethinking Transformer in Vision through Object Detection. arXiv 2021, arXiv:2106.00666. [CrossRef]
+
+30. Wang, Y.; Zhang, X.; Yang, T.; Sun, J. Anchor DETR: Query Design for Transformer-Based Detector. In Proceedings of the AAAI Conference on Artificial Intelligence, Online, 22 February–1 March 2022. Available online: https://api.semanticscholar.org/Corp usID:237513850 (accessed on 25 September 2025).
+
+31. Roh, B.; Shin, J.; Shin, W.; Kim, S. Sparse DETR: Efficient End-to-End Object Detection with Learnable Sparsity. arXiv 2021, arXiv:2111.14330.
+
+32. Lin, J.; Mao, X.; Chen, Y.; Xu, L.; He, Y.; Xue, H. D2ETR: Decoder-Only DETR with Computationally Efficient Cross-Scale Attention. arXiv 2022, arXiv:2203.00860. [CrossRef]
+
+33. Wang, W.; Cao, Y.; Zhang, J.; Tao, D. FP-DETR: Detection Transformer Advanced by Fully Pre-training. In Proceedings of the International Conference on Learning Representations, Virtual Event, 25–29 April 2022. Available online: https://openreview.n et/forum?id=yjMQuLLcGWK (accessed on 25 September 2025).
+
+34. Cao, X.; Yuan, P.; Feng, B.; Niu, K. CF-DETR: Coarse-to-Fine Transformers for End-to-End Object Detection. In Proceedings of the AAAI Conference on Artificial Intelligence, Online, 22 February–1 March 2022. Available online: https://api.semanticscholar.or g/CorpusID:250293790 (accessed on 25 September 2025).
+
+35. Li, F.; Zhang, H.; Liu, S.; Guo, J.; Ni, L.M.; Zhang, L. DN-DETR: Accelerate DETR Training by Introducing Query DeNoising. IEEE Trans. Pattern Anal. Mach. Intell. 2024, 46, 2239–2251. [CrossRef]
+
+36. Gao, Z.; Wang, L.; Han, B.; Guo, S. AdaMixer: A Fast-Converging Query-Based Object Detector. arXiv 2022, arXiv:2203.16507. [CrossRef]
+
+37. Chen, Z.; Zhang, J.; Tao, D. Recurrent Glimpse-based Decoder for Detection with Transformer. arXiv 2021, arXiv:2112.04632.
+
+38. Zhang, H.; Li, F.; Liu, S.; Zhang, L.; Su, H.; Zhu, J.; Ni, L.M.; Shum, H.Y. DINO: DETR with Improved DeNoising Anchor Boxes for End-to-End Object Detection. arXiv 2022, arXiv:2203.03605. [CrossRef]
+
+39. Zong, Z.; Song, G.; Liu, Y. DETRs with Collaborative Hybrid Assignments Training. In Proceedings of the 2023 IEEE/CVF International Conference on Computer Vision (ICCV), Paris, France, 2–6 October 2023; pp. 6725–6735. [CrossRef]
+
+40. Chen, Q.; Su, X.; Zhang, X.; Wang, J.; Chen, J.; Shen, Y.; Han, C.; Chen, Z.; Xu, W.; Li, F.; et al. LW-DETR: A Transformer Replacement to YOLO for Real-Time Detection. arXiv 2024, arXiv:2406.03459. Available online: https://arxiv.org/abs/2406.03459 (accessed on 25 September 2025).
+
+41. Zhao, Y.; Lv, W.; Xu, S.; Wei, J.; Wang, G.; Dang, Q.; Liu, Y.; Chen, J. DETRs Beat YOLOs on Real-time Object Detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), Seattle, WA, USA, 17–21 June 2024; pp. 16965–16974. Available online: https://openaccess.thecvf.com/content/CVPR2024/html/Zhao\_DETRs\_Beat\_YOLOs \_on\_Real-time\_Object\_Detection\_CVPR\_2024\_paper.html (accessed on 25 September 2025).
+
+42. Gu, J.; Wang, Z.; Kuen, J.; Ma, L.; Shahroudy, A.; Shuai, B.; Liu, T.; Wang, X.; Wang, G. Recent Advances in Convolutional Neural Networks. arXiv 2015, arXiv:1512.07108. [CrossRef]
+
+43. Borji, A.; Cheng, M.; Jiang, H.; Li, J. Salient Object Detection: A Survey. arXiv 2014, arXiv:1411.5878. [CrossRef]
+
+44. Chen, G.; Wang, H.; Chen, K.; Li, Z.; Song, Z.; Liu, Y.; Chen, W.; Knoll, A. A Survey of the Four Pillars for Small Object Detection: Multiscale Representation, Contextual Information, Super-Resolution, and Region Proposal. IEEE Trans. Syst. Man Cybern. Syst. 2022, 52, 936–953. [CrossRef]
+
+45. Agarwal, S.; du Terrail, J.O.; Jurie, F. Recent Advances in Object Detection in the Age of Deep Convolutional Neural Networks. arXiv 2018, arXiv:1809.03193.
+
+46. Yang, M.H.; Kriegman, D.; Ahuja, N. Detecting faces in images: A survey. IEEE Trans. Pattern Anal. Mach. Intell. 2002, 24, 34–58. [CrossRef]
+
+47. Zhao, B.; Feng, J.; Wu, X.; Yan, S. A survey on deep learning-based fine-grained object classification and semantic segmentation. Int. J. Autom. Comput. 2017, 14, 119–135. Available online: https://api.semanticscholar.org/CorpusID:53076119 (accessed on 25 September 2025). [CrossRef]
+
+48. Goswami, T.; Barad, Z.; Desai, P.; Nikita, P. Text Detection and Recognition in images: A survey. arXiv 2018, arXiv:1803.07278. [CrossRef]
+
+49. Chaudhari, S.; Polatkan, G.; Ramanath, R.; Mithal, V. An Attentive Survey of Attention Models. arXiv 2019, arXiv:1904.02874. [CrossRef]
+
+50. Han, J.; Zhang, D.; Cheng, G.; Liu, N.; Xu, D. Advanced Deep-Learning Techniques for Salient and Category-Specific Object Detection: A Survey. IEEE Signal Process. Mag. 2018, 35, 84–100. [CrossRef]
+
+51. Liu, L.; Ouyang, W.; Wang, X.; Fieguth, P.W.; Chen, J.; Liu, X.; Pietikäinen, M. Deep Learning for Generic Object Detection: A Survey. arXiv 2018, arXiv:1809.02165. [CrossRef]
+
+52. Enzweiler, M.; Gavrila, D.M. Monocular Pedestrian Detection: Survey and Experiments. IEEE Trans. Pattern Anal. Mach. Intell. 2009, 31, 2179–2195. [CrossRef]
+
+53. Ülkü, I.; Akagündüz, E. A Survey on Deep Learning-based Architectures for Semantic Segmentation on 2D images. arXiv 2019, arXiv:1912.10230.
+
+54. Cheng, G.; Han, J. A Survey on Object Detection in Optical Remote Sensing Images. arXiv 2016, arXiv:1603.06201. [CrossRef]
+
+55. Sommer, L.W.; Schuchert, T.; Beyerer, J. Fast Deep Vehicle Detection in Aerial Images. In Proceedings of the 2017 IEEE Winter Conference on Applications of Computer Vision (WACV), Santa Rosa, CA, USA, 2–29 March 2017; pp. 311–319. [CrossRef]
+
+56. Zhang, P.; Niu, X.; Dou, Y.; Xia, F. Airport Detection on Optical Satellite Images Using Deep Convolutional Neural Networks. IEEE Geosci. Remote Sens. Lett. 2017, 14, 1183–1187. [CrossRef]
+
+57. Bach, M.; Stumper, D.; Dietmayer, K. Deep Convolutional Traffic Light Recognition for Automated Driving. In Proceedings of the 2018 21st International Conference on Intelligent Transportation Systems (ITSC), Maui, HI, USA, 4–7 November 2018; pp. 851–858. [CrossRef]
+
+58. de la Escalera, A.; Moreno, L.; Salichs, M.; Armingol, J. Road traffic sign detection and classification. IEEE Trans. Ind. Electron. 1997, 44, 848–859. [CrossRef]
+
+59. Shehzadi, T.; Hashmi, K.A.; Pagani, A.; Liwicki, M.; Stricker, D.; Afzal, M.Z. Mask-Aware Semi-Supervised Object Detection in Floor Plans. Appl. Sci. 2022, 12, 9398. [CrossRef]
+
+60. Hariharan, B.; Arbelaez, P.; Girshick, R.B.; Malik, J. Simultaneous Detection and Segmentation. arXiv 2014, arXiv:1407.1808. [CrossRef]
+
+61. Hariharan, B.; Arbeláez, P.A.; Girshick, R.B.; Malik, J. Hypercolumns for Object Segmentation and Fine-grained Localization. arXiv 2014, arXiv:1411.5752.
+
+62. Dai, J.; He, K.; Sun, J. Instance-aware Semantic Segmentation via Multi-task Network Cascades. arXiv 2015, arXiv:1512.04412.
+
+63. Karpathy, A.; Fei-Fei, L. Deep Visual-Semantic Alignments for Generating Image Descriptions. arXiv 2014, arXiv:1412.2306.
+
+64. Xu, K.; Ba, J.; Kiros, R.; Cho, K.; Courville, A.C.; Salakhutdinov, R.; Zemel, R.S.; Bengio, Y. Show, Attend and Tell: Neural Image Caption Generation with Visual Attention. arXiv 2015, arXiv:1502.03044.
+
+65. Wu, Q.; Shen, C.; van den Hengel, A.; Wang, P.; Dick, A.R. Image Captioning and Visual Question Answering Based on Attributes and Their Related External Knowledge. arXiv 2016, arXiv:1603.02814.
+
+66. Bai, S.; An, S. A survey on automatic image caption generation. Neurocomputing 2018, 311, 291–304. [CrossRef]
+
+67. Kang, K.; Li, H.; Yan, J.; Zeng, X.; Yang, B.; Xiao, T.; Zhang, C.; Wang, Z.; Wang, R.; Wang, X.; et al. T-CNN: Tubelets with Convolutional Neural Networks for Object Detection from Videos. arXiv 2016, arXiv:1604.02532. [CrossRef]
+
+68. Arkin, E.; Yadikar, N.; Xu, X.; Aysa, A.; Ubul, K. A survey: Object detection methods from CNN to transformer. Multimed. Tools Appl. 2022, 82, 21353–21383. [CrossRef]
+
+69. Han, K.; Wang, Y.; Chen, H.; Chen, X.; Guo, J.; Liu, Z.; Tang, Y.; Xiao, A.; Xu, C.; Xu, Y.; et al. A Survey on Vision Transformer. IEEE Trans. Pattern Anal. Mach. Intell. 2023, 45, 87–110. [CrossRef]
+
+70. Arkin, E.; Yadikar, N.; Muhtar, Y.; Ubul, K. A Survey of Object Detection Based on CNN and Transformer. In Proceedings of the 2021 IEEE 2nd International Conference on Pattern Recognition and Machine Learning (PRML), Chengdu, China, 16–18 July 2021; pp. 99–108. [CrossRef]
+
+71. Khan, S.; Naseer, M.; Hayat, M.; Zamir, S.W.; Khan, F.S.; Shah, M. Transformers in Vision: A Survey. ACM Comput. Surv. 2022, 54, 1–41. [CrossRef]
+
+72. Liu, S.; Li, F.; Zhang, H.; Yang, X.; Qi, X.; Su, H.; Zhu, J.; Zhang, L. DAB-DETR: Dynamic Anchor Boxes are Better Queries for DETR. arXiv 2022, arXiv:2201.12329. [CrossRef]
+
+73. Zou, Z.; Shi, Z.; Guo, Y.; Ye, J. Object Detection in 20 Years: A Survey. arXiv 2019, arXiv:1905.05055. [CrossRef]
+
+74. Zaidi, S.S.A.; Ansari, M.S.; Aslam, A.; Kanwal, N.; Asghar, M.N.; Lee, B. A Survey of Modern Deep Learning based Object Detection Models. arXiv 2021, arXiv:2104.11892. [CrossRef]
+
+75. Lin, T.; Maire, M.; Belongie, S.J.; Bourdev, L.D.; Girshick, R.B.; Hays, J.; Perona, P.; Ramanan, D.; Dollár, P.; Zitnick, C.L. Microsoft COCO: Common Objects in Context. arXiv 2014, arXiv:1405.0312.
+
+76. Jiao, L.; Zhang, F.; Liu, F.; Yang, S.; Li, L.; Feng, Z.; Qu, R. A Survey of Deep Learning-based Object Detection. arXiv 2019, arXiv:1907.09408. [CrossRef]
+
+77. Ahmed, M.; Hashmi, K.A.; Pagani, A.; Liwicki, M.; Stricker, D.; Afzal, M.Z. Survey and Performance Analysis of Deep Learning Based Object Detection in Challenging Environments. Sensors 2021, 21, 5116. [CrossRef] [PubMed]
+
+78. Everingham, M.; Gool, L.V.; Williams, C.K.I.; Winn, J.; Zisserman, A. The Pascal Visual Object Classes (VOC) Challenge. Int. J. Comput. Vis. 2009, 88, 303–308. Available online: https://www.microsoft.com/en-us/research/publication/the-pascal-visual-o bject-classes-voc-challenge/ (accessed on 25 September 2025). [CrossRef]
+
+79. Lin, T.Y.; Dollár, P.; Girshick, R.; He, K.; Hariharan, B.; Belongie, S. Feature Pyramid Networks for Object Detection. In Proceedings of the 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), Honolulu, HI, USA, 21–26 July 2017; pp. 936–944. [CrossRef]
+
+80. He, K.; Zhang, X.; Ren, S.; Sun, J. Deep Residual Learning for Image Recognition. arXiv 2015, arXiv:1512.03385. [CrossRef]
+
+81. Krizhevsky, A.; Sutskever, I.; Hinton, G.E. ImageNet Classification with Deep Convolutional Neural Networks. In Proceedings of the Advances in Neural Information Processing Systems, Lake Tahoe, NV, USA, 3–6 December 2012; Pereira, F., Burges, C., Bottou, L., Weinberger, K., Eds.; Curran Associates, Inc.: Red Hook, NY, USA, 2012; Volume 25. Available online: https: //proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf (accessed on 25 September 2025).
+
+82. Bar, A.; Wang, X.; Kantorov, V.; Reed, C.J.; Herzig, R.; Chechik, G.; Rohrbach, A.; Darrell, T.; Globerson, A. DETReg: Unsupervised Pretraining with Region Priors for Object Detection. arXiv 2021, arXiv:2106.04550.
+
+83. Bateni, P.; Barber, J.; van de Meent, J.; Wood, F. Improving Few-Shot Visual Classification with Unlabelled Examples. arXiv 2020, arXiv:2006.12245.
+
+84. Wang, X.; Yang, X.; Zhang, S.; Li, Y.; Feng, L.; Fang, S.; Lyu, C.; Chen, K.; Zhang, W. Consistent Targets Provide Better Supervision in Semi-supervised Object Detection. arXiv 2022, arXiv:2209.01589. [CrossRef]
+
+85. Li, Y.; Huang, D.; Qin, D.; Wang, L.; Gong, B. Improving Object Detection with Selective Self-supervised Self-training. arXiv 2020, arXiv:2007.09162. [CrossRef]
+
+86. Hashmi, K.A.; Stricker, D.; Afzal, M.Z. Spatio-Temporal Learnable Proposals for End-to-End Video Object Detection. arXiv 2022, arXiv:2210.02368.
+
+87. Hashmi, K.A.; Pagani, A.; Stricker, D.; Afzal, M.Z. BoxMask: Revisiting Bounding Box Supervision for Video Object Detection. In Proceedings of the 2023 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV), Waikoloa, HI, USA, 2–7 January 2023; pp. 2029–2039. [CrossRef]
+
+88. Caron, M.; Touvron, H.; Misra, I.; Jégou, H.; Mairal, J.; Bojanowski, P.; Joulin, A. Emerging Properties in Self-Supervised Vision Transformers. arXiv 2021, arXiv:2104.14294. [CrossRef]
+
+89. Li, C.; Yang, J.; Zhang, P.; Gao, M.; Xiao, B.; Dai, X.; Yuan, L.; Gao, J. Efficient Self-supervised Vision Transformers for Representation Learning. arXiv 2021, arXiv:2106.09785.
+
+90. Liu, W.; Anguelov, D.; Erhan, D.; Szegedy, C.; Reed, S.E.; Fu, C.; Berg, A.C. SSD: Single Shot MultiBox Detector. arXiv 2015, arXiv:1512.02325.
+
+91. Redmon, J.; Divvala, S.K.; Girshick, R.B.; Farhadi, A. You Only Look Once: Unified, Real-Time Object Detection. arXiv 2015, arXiv:1506.02640.
+
+92. Redmon, J.; Farhadi, A. YOLO9000: Better, Faster, Stronger. arXiv 2016, arXiv:1612.08242. [CrossRef]
+
+93. Bochkovskiy, A.; Wang, C.; Liao, H.M. YOLOv4: Optimal Speed and Accuracy of Object Detection. arXiv 2020, arXiv:2004.10934. [CrossRef]
+
+94. Zhou, X.; Wang, D.; Krähenbühl, P. Objects as Points. arXiv 2019, arXiv:1904.07850.
+
+95. Fu, C.; Liu, W.; Ranga, A.; Tyagi, A.; Berg, A.C. DSSD: Deconvolutional Single Shot Detector. arXiv 2017, arXiv:1701.06659. [CrossRef]
+
+96. Jeong, J.; Park, H.; Kwak, N. Enhancement of SSD by concatenating feature maps for object detection. arXiv 2017, arXiv:1705.09587. [CrossRef]
+
+97. Zhang, S.; Wen, L.; Bian, X.; Lei, Z.; Li, S.Z. Single-Shot Refinement Neural Network for Object Detection. arXiv 2017, arXiv:1711.06897.
+
+98. Law, H.; Deng, J. CornerNet: Detecting Objects as Paired Keypoints. arXiv 2018, arXiv:1808.01244.
+
+99. He, K.; Zhang, X.; Ren, S.; Sun, J. Spatial Pyramid Pooling in Deep Convolutional Networks for Visual Recognition. arXiv 2014, arXiv:1406.4729.
+
+100. Dai, J.; Li, Y.; He, K.; Sun, J. R-FCN: Object Detection via Region-based Fully Convolutional Networks. arXiv 2016, arXiv:1605.06409.
+
+101. He, K.; Gkioxari, G.; Dollár, P.; Girshick, R. Mask R-CNN. In Proceedings of the 2017 IEEE International Conference on Computer Vision (ICCV), Venice, Italy, 22–29 October 2017; pp. 2980–2988. [CrossRef]
+
+102. Qiao, S.; Chen, L.; Yuille, A.L. DetectoRS: Detecting Objects with Recursive Feature Pyramid and Switchable Atrous Convolution. arXiv 2020, arXiv:2006.02334. [CrossRef]
+
+103. Chen, K.; Pang, J.; Wang, J.; Xiong, Y.; Li, X.; Sun, S.; Feng, W.; Liu, Z.; Shi, J.; Ouyang, W.; et al. Hybrid Task Cascade for Instance Segmentation. arXiv 2019, arXiv:1901.07518. [CrossRef]
+
+104. Cai, Z.; Vasconcelos, N. Cascade R-CNN: Delving into High Quality Object Detection. arXiv 2017, arXiv:1712.00726. [CrossRef]
+
+105. Iandola, F.N.; Moskewicz, M.W.; Ashraf, K.; Han, S.; Dally, W.J.; Keutzer, K. SqueezeNet: AlexNet-level accuracy with 50x fewer parameters and <1MB model size. arXiv 2016, arXiv:1602.07360.
+
+106. Howard, A.G.; Zhu, M.; Chen, B.; Kalenichenko, D.; Wang, W.; Weyand, T.; Andreetto, M.; Adam, H. MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications. arXiv 2017, arXiv:1704.04861. [CrossRef]
+
+107. Sandler, M.; Howard, A.G.; Zhu, M.; Zhmoginov, A.; Chen, L. Inverted Residuals and Linear Bottlenecks: Mobile Networks for Classification, Detection and Segmentation. arXiv 2018, arXiv:1801.04381.
+
+108. Howard, A.; Sandler, M.; Chu, G.; Chen, L.; Chen, B.; Tan, M.; Wang, W.; Zhu, Y.; Pang, R.; Vasudevan, V.; et al. Searching for MobileNetV3. arXiv 2019, arXiv:1905.02244. [CrossRef]
+
+109. Zhang, X.; Zhou, X.; Lin, M.; Sun, J. ShuffleNet: An Extremely Efficient Convolutional Neural Network for Mobile Devices. arXiv 2017, arXiv:1707.01083. [CrossRef]
+
+110. Wang, R.J.; Li, X.; Ao, S.; Ling, C.X. Pelee: A Real-Time Object Detection System on Mobile Devices. arXiv 2018, arXiv:1804.06882.
+
+111. Ma, N.; Zhang, X.; Zheng, H.; Sun, J. ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design. arXiv 2018, arXiv:1807.11164. [CrossRef]
+
+112. Tan, M.; Chen, B.; Pang, R.; Vasudevan, V.; Le, Q.V. MnasNet: Platform-Aware Neural Architecture Search for Mobile. arXiv 2018, arXiv:1807.11626.
+
+113. Yousaf, A.; Sazonov, E. Food Intake Detection in the Face of Limited Sensor Signal Annotations. In Proceedings of the 2024 Tenth International Conference on Communications and Electronics (ICCE), Da Nang, Vietnam, 31 July–2 August 2024; pp. 351–356. [CrossRef]
+
+114. Cai, H.; Gan, C.; Han, S. Once for All: Train One Network and Specialize it for Efficient Deployment. arXiv 2019, arXiv:1908.09791.
+
+115. Chabot, F.; Chaouch, M.; Rabarisoa, J.; Teulière, C.; Chateau, T. Deep MANTA: A Coarse-to-fine Many-Task Network for joint 2D and 3D vehicle analysis from monocular image. arXiv 2017, arXiv:1703.07570.
+
+116. Mousavian, A.; Anguelov, D.; Flynn, J.; Kosecka, J. 3D Bounding Box Estimation Using Deep Learning and Geometry. arXiv 2016, arXiv:1612.00496.
+
+117. Li, B.; Ouyang, W.; Sheng, L.; Zeng, X.; Wang, X. GS3D: An Efficient 3D Object Detection Framework for Autonomous Driving. arXiv 2019, arXiv:1903.10955. [CrossRef]
+
+118. Li, P.; Chen, X.; Shen, S. Stereo R-CNN based 3D Object Detection for Autonomous Driving. arXiv 2019, arXiv:1902.09738. [CrossRef]
+
+119. Shi, X.; Ye, Q.; Chen, X.; Chen, C.; Chen, Z.; Kim, T. Geometry-based Distance Decomposition for Monocular 3D Object Detection. arXiv 2021, arXiv:2104.03775.
+
+120. Ma, X.; Zhang, Y.; Xu, D.; Zhou, D.; Yi, S.; Li, H.; Ouyang, W. Delving into Localization Errors for Monocular 3D Object Detection. arXiv 2021, arXiv:2103.16237. [CrossRef]
+
+121. Liu, Y.; Wang, L.; Liu, M. YOLOStereo3D: A Step Back to 2D for Efficient Stereo 3D Detection. arXiv 2021, arXiv:2103.09422. [CrossRef]
+
+122. Yin, T.; Zhou, X.; Krähenbühl, P. Center-based 3D Object Detection and Tracking. arXiv 2020, arXiv:2006.11275.
+
+123. Zhou, Y.; Tuzel, O. VoxelNet: End-to-End Learning for Point Cloud Based 3D Object Detection. arXiv 2017, arXiv:1711.06396.
+
+124. Lang, A.H.; Vora, S.; Caesar, H.; Zhou, L.; Yang, J.; Beijbom, O. PointPillars: Fast Encoders for Object Detection from Point Clouds. arXiv 2018, arXiv:1812.05784.
+
+125. Xu, Q.; Zhong, Y.; Neumann, U. Behind the Curtain: Learning Occluded Shapes for 3D Object Detection. arXiv 2021, arXiv:2112.02205. [CrossRef]
+
+126. Zheng, W.; Tang, W.; Chen, S.; Jiang, L.; Fu, C. CIA-SSD: Confident IoU-Aware Single-Stage Object Detector from Point Cloud. arXiv 2020, arXiv:2012.03015. [CrossRef]
+
+127. Zheng, W.; Tang, W.; Jiang, L.; Fu, C. SE-SSD: Self-Ensembling Single-Stage Object Detector From Point Cloud. arXiv 2021, arXiv:2104.09804.
+
+128. Deng, J.; Shi, S.; Li, P.; Zhou, W.; Zhang, Y.; Li, H. Voxel R-CNN: Towards High Performance Voxel-based 3D Object Detection. arXiv 2020, arXiv:2012.15712. [CrossRef]
+
+129. Sheng, H.; Cai, S.; Liu, Y.; Deng, B.; Huang, J.; Hua, X.; Zhao, M. Improving 3D Object Detection with Channel-wise Transformer. arXiv 2021, arXiv:2108.10723. [CrossRef]
+
+130. Mao, J.; Xue, Y.; Niu, M.; Bai, H.; Feng, J.; Liang, X.; Xu, H.; Xu, C. Voxel Transformer for 3D Object Detection. arXiv 2021, arXiv:2109.02497. [CrossRef]
+
+131. Vora, S.; Lang, A.H.; Helou, B.; Beijbom, O. PointPainting: Sequential Fusion for 3D Object Detection. arXiv 2019, arXiv:1911.10150.
+
+132. Ku, J.; Mozifian, M.; Lee, J.; Harakeh, A.; Waslander, S.L. Joint 3D Proposal Generation and Object Detection from View Aggregation. arXiv 2017, arXiv:1712.02294.
+
+133. Liang, M.; Yang, B.; Wang, S.; Urtasun, R. Deep Continuous Fusion for Multi-Sensor 3D Object Detection. arXiv 2020, arXiv:2012.10992. [CrossRef]
+
+134. Yoo, J.H.; Kim, Y.; Kim, J.S.; Choi, J.W. 3D-CVF: Generating Joint Camera and LiDAR Features Using Cross-View Spatial Feature Fusion for 3D Object Detection. arXiv 2020, arXiv:2004.12636.
+
+135. Pang, S.; Morris, D.; Radha, H. CLOCs: Camera-LiDAR Object Candidates Fusion for 3D Object Detection. arXiv 2020, arXiv:2009.00784.
+
+136. Ye, L.; Rochan, M.; Liu, Z.; Wang, Y. Cross-Modal Self-Attention Network for Referring Image Segmentation. arXiv 2019, arXiv:1904.04745.
+
+137. Xie, E.; Wang, W.; Yu, Z.; Anandkumar, A.; Alvarez, J.M.; Luo, P. SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers. arXiv 2021, arXiv:2105.15203. [CrossRef]
+
+138. Zheng, S.; Lu, J.; Zhao, H.; Zhu, X.; Luo, Z.; Wang, Y.; Fu, Y.; Feng, J.; Xiang, T.; Torr, P.H.S.; et al. Rethinking Semantic Segmentation from a Sequence-to-Sequence Perspective with Transformers. arXiv 2020, arXiv:2012.15840.
+
+139. Strudel, R.; Pinel, R.G.; Laptev, I.; Schmid, C. Segmenter: Transformer for Semantic Segmentation. arXiv 2021, arXiv:2105.05633. [CrossRef]
+
+140. Ramachandran, P.; Parmar, N.; Vaswani, A.; Bello, I.; Levskaya, A.; Shlens, J. Stand-Alone Self-Attention in Vision Models. arXiv 2019, arXiv:1906.05909.
+
+141. Wang, W.; Xie, E.; Li, X.; Fan, D.; Song, K.; Liang, D.; Lu, T.; Luo, P.; Shao, L. Pyramid Vision Transformer: A Versatile Backbone for Dense Prediction without Convolutions. arXiv 2021, arXiv:2102.12122. [CrossRef]
+
+142. Kirillov, A.; He, K.; Girshick, R.B.; Rother, C.; Dollár, P. Panoptic Segmentation. arXiv 2018, arXiv:1801.00868.
+
+143. Wang, H.; Zhu, Y.; Green, B.; Adam, H.; Yuille, A.L.; Chen, L. Axial-DeepLab: Stand-Alone Axial-Attention for Panoptic Segmentation. arXiv 2020, arXiv:2003.07853.
+
+144. Neuhold, G.; Ollmann, T.; Bulò, S.R.; Kontschieder, P. The Mapillary Vistas Dataset for Semantic Understanding of Street Scenes. In Proceedings of the 2017 IEEE International Conference on Computer Vision (ICCV), Venice, Italy, 22–29 October 2017; pp. 5000–5009. [CrossRef]
+
+145. Cordts, M.; Omran, M.; Ramos, S.; Rehfeld, T.; Enzweiler, M.; Benenson, R.; Franke, U.; Roth, S.; Schiele, B. The Cityscapes Dataset for Semantic Urban Scene Understanding. arXiv 2016, arXiv:1604.01685. [CrossRef]
+
+146. Reed, S.; Akata, Z.; Yan, X.; Logeswaran, L.; Schiele, B.; Lee, H. Generative Adversarial Text to Image Synthesis. In Proceedings of the 33rd International Conference on Machine Learning, New York, NY, USA, 20–22 June 2016; Balcan, M.F., Weinberger, K.Q., Eds.; Proceedings of Machine Learning Research: New York, NY, USA, 2016; Volume 48, pp. 1060–1069. Available online: https://proceedings.mlr.press/v48/reed16.html (accessed on 25 September 2025).
+
+147. Zhang, H.; Xu, T.; Li, H.; Zhang, S.; Huang, X.; Wang, X.; Metaxas, D.N. StackGAN: Text to Photo-realistic Image Synthesis with Stacked Generative Adversarial Networks. arXiv 2016, arXiv:1612.03242.
+
+148. Zhang, H.; Xu, T.; Li, H.; Zhang, S.; Wang, X.; Huang, X.; Metaxas, D.N. StackGAN++: Realistic Image Synthesis with Stacked Generative Adversarial Networks. arXiv 2017, arXiv:1710.10916.
+
+149. Xu, T.; Zhang, P.; Huang, Q.; Zhang, H.; Gan, Z.; Huang, X.; He, X. AttnGAN: Fine-Grained Text to Image Generation with Attentional Generative Adversarial Networks. arXiv 2017, arXiv:1711.10485.
+
+150. Goodfellow, I.J.; Pouget-Abadie, J.; Mirza, M.; Xu, B.; Warde-Farley, D.; Ozair, S.; Courville, A.; Bengio, Y. Generative Adversarial Networks. arXiv 2014, arXiv:1406.2661. [CrossRef]
+
+151. Murahari, M.D.; Reddy; Sk, M.; Basha, M.M.M.; Hari, M.N.C.; Student, P. DALL-E: CREATING IMAGES FROM TEXT. 2021. Available online: https://api.semanticscholar.org/CorpusID:261026641 (accessed on 25 September 2025).
+
+152. Wang, X.; Yeshwanth, C.; Nießner, M. SceneFormer: Indoor Scene Generation with Transformers. arXiv 2020, arXiv:2012.09793.
+
+153. Chen, M.; Radford, A.; Child, R.; Wu, J.; Jun, H.; Luan, D.; Sutskever, I. Generative Pretraining From Pixels. In Proceedings of the 37th International Conference on Machine Learning, Virtual Event, 13–18 July 2020; III, H.D., Singh, A., Eds.; Proceedings of Machine Learning Research (PMLR): New York, NY, USA, 2020; Volume 119, pp. 1691–1703. Available online: https: //proceedings.mlr.press/v119/chen20s.html (accessed on 25 September 2025).
+
+154. Esser, P.; Rombach, R.; Ommer, B. Taming Transformers for High-Resolution Image Synthesis. arXiv 2020, arXiv:2012.09841.
+
+155. Jiang, Y.; Chang, S.; Wang, Z. TransGAN: Two Transformers Can Make One Strong GAN. arXiv 2021, arXiv:2102.07074.
+
+156. Bhunia, A.K.; Khan, S.H.; Cholakkal, H.; Anwer, R.M.; Khan, F.S.; Shah, M. Handwriting Transformers. arXiv 2021, arXiv:2104.03964. [CrossRef]
+
+157. Krizhevsky, A.; Hinton, G. Learning Multiple Layers of Features from Tiny Images; Technical Report; University of Toronto: Toronto, ON, Canada, 2009. Available online: https://www.cs.toronto.edu/\~kriz/learning-features-2009-TR.pdf (accessed on 25 September 2025).
+
+158. Coates, A.; Ng, A.; Lee, H. An Analysis of Single-Layer Networks in Unsupervised Feature Learning. In Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics, Fort Lauderdale, FL, USA, 11–13 April 2011; Gordon, G., Dunson, D., Dudík, M., Eds.; Proceedings of Machine Learning Research: New York, NY, USA, 2011; Volume 15, pp. 215–223. Available online: https://proceedings.mlr.press/v15/coates11a.html (accessed on 25 September 2025).
+
+159. Chen, T.; Kornblith, S.; Norouzi, M.; Hinton, G.E. A Simple Framework for Contrastive Learning of Visual Representations. arXiv 2020, arXiv:2002.05709. [CrossRef]
+
+160. Deng, J.; Dong, W.; Socher, R.; Li, L.J.; Li, K.; Fei-Fei, L. ImageNet: A large-scale hierarchical image database. In Proceedings of the 2009 IEEE Conference on Computer Vision and Pattern Recognition, Miami, FL, USA, 20–25 June 2009; pp. 248–255. [CrossRef]
+
+161. He, K.; Fan, H.; Wu, Y.; Xie, S.; Girshick, R.B. Momentum Contrast for Unsupervised Visual Representation Learning. arXiv 2019, arXiv:1911.05722.
+
+162. Bachman, P.; Hjelm, R.D.; Buchwalter, W. Learning Representations by Maximizing Mutual Information Across Views. arXiv 2019, arXiv:1906.00910. [CrossRef]
+
+163. Hénaff, O.J.; Srinivas, A.; Fauw, J.D.; Razavi, A.; Doersch, C.; Eslami, S.M.A.; van den Oord, A. Data-Efficient Image Recognition with Contrastive Predictive Coding. arXiv 2019, arXiv:1905.09272.
+
+164. Radford, A.; Metz, L.; Chintala, S. Unsupervised Representation Learning with Deep Convolutional Generative Adversarial Networks. arXiv 2015, arXiv:1511.06434. Available online: https://api.semanticscholar.org/CorpusID:11758569 (accessed on 25 September 2025).
+
+165. Gao, C.; Chen, Y.; Liu, S.; Tan, Z.; Yan, S. AdversarialNAS: Adversarial Neural Architecture Search for GANs. arXiv 2019, arXiv:1912.02037.
+
+166. Karras, T.; Laine, S.; Aittala, M.; Hellsten, J.; Lehtinen, J.; Aila, T. Analyzing and Improving the Image Quality of StyleGAN. arXiv 2019, arXiv:1912.04958.
+
+167. Yang, F.; Yang, H.; Fu, J.; Lu, H.; Guo, B. Learning Texture Transformer Network for Image Super-Resolution. arXiv 2020, arXiv:2006.04139. [CrossRef]
+
+168. Chen, H.; Wang, Y.; Guo, T.; Xu, C.; Deng, Y.; Liu, Z.; Ma, S.; Xu, C.; Xu, C.; Gao, W. Pre-Trained Image Processing Transformer. arXiv 2020, arXiv:2012.00364.
+
+169. Liang, J.; Cao, J.; Sun, G.; Zhang, K.; Van Gool, L.; Timofte, R. SwinIR: Image Restoration Using Swin Transformer. arXiv 2021, arXiv:2108.10257. [CrossRef]
+
+170. Wang, Z.; Cun, X.; Bao, J.; Liu, J. Uformer: A General U-Shaped Transformer for Image Restoration. arXiv 2021, arXiv:2106.03106. [CrossRef]
+
+171. Kumar, M.; Weissenborn, D.; Kalchbrenner, N. Colorization Transformer. arXiv 2021, arXiv:2102.04432.
+
+172. Antol, S.; Agrawal, A.; Lu, J.; Mitchell, M.; Batra, D.; Zitnick, C.L.; Parikh, D. VQA: Visual Question Answering. arXiv 2015, arXiv:1505.00468.
+
+173. Zellers, R.; Bisk, Y.; Farhadi, A.; Choi, Y. From Recognition to Cognition: Visual Commonsense Reasoning. arXiv 2018, arXiv:1811.10830.
+
+174. Lee, K.; Chen, X.; Hua, G.; Hu, H.; He, X. Stacked Cross Attention for Image-Text Matching. arXiv 2018, arXiv:1803.08024. [CrossRef]
+
+175. Vinyals, O.; Toshev, A.; Bengio, S.; Erhan, D. Show and Tell: A Neural Image Caption Generator. arXiv 2014, arXiv:1411.4555.
+
+176. Chen, Y.; Li, L.; Yu, L.; Kholy, A.E.; Ahmed, F.; Gan, Z.; Cheng, Y.; Liu, J. UNITER: Learning UNiversal Image-TExt Representations. arXiv 2019, arXiv:1909.11740.
+
+177. Li, X.; Yin, X.; Li, C.; Zhang, P.; Hu, X.; Zhang, L.; Wang, L.; Hu, H.; Dong, L.; Wei, F.; et al. Oscar: Object-Semantics Aligned Pre-training for Vision-Language Tasks. arXiv 2020, arXiv:2004.06165.
+
+178. Sun, C.; Myers, A.; Vondrick, C.; Murphy, K.; Schmid, C. VideoBERT: A Joint Model for Video and Language Representation Learning. arXiv 2019, arXiv:1904.01766. [CrossRef]
+
+179. Li, G.; Duan, N.; Fang, Y.; Jiang, D.; Zhou, M. Unicoder-VL: A Universal Encoder for Vision and Language by Cross-modal Pre-training. arXiv 2019, arXiv:1908.06066. [CrossRef]
+
+180. Li, L.H.; Yatskar, M.; Yin, D.; Hsieh, C.; Chang, K. VisualBERT: A Simple and Performant Baseline for Vision and Language. arXiv 2019, arXiv:1908.03557. [CrossRef]
+
+181. Su, W.; Zhu, X.; Cao, Y.; Li, B.; Lu, L.; Wei, F.; Dai, J. VL-BERT: Pre-training of Generic Visual-Linguistic Representations. arXiv 2019, arXiv:1908.08530.
+
+182. Tan, H.; Bansal, M. LXMERT: Learning Cross-Modality Encoder Representations from Transformers. arXiv 2019, arXiv:1908.07490. [CrossRef]
+
+183. Lu, J.; Batra, D.; Parikh, D.; Lee, S. ViLBERT: Pretraining Task-Agnostic Visiolinguistic Representations for Vision-and-Language Tasks. arXiv 2019, arXiv:1908.02265.
+
+184. Lee, S.; Yu, Y.; Kim, G.; Breuel, T.M.; Kautz, J.; Song, Y. Parameter Efficient Multimodal Transformers for Video Representation Learning. arXiv 2020, arXiv:2012.04124.
+
+185. Sun, N.; Zhu, Y.; Hu, X. Faster R-CNN Based Table Detection Combining Corner Locating. In Proceedings of the 2019 International Conference on Document Analysis and Recognition (ICDAR), Sydney, NSW, Australia, 20–25 September 2019; pp. 1314–1319. [CrossRef]
+
+186. Parmar, N.; Vaswani, A.; Uszkoreit, J.; Kaiser, L.; Shazeer, N.; Ku, A. Image Transformer. arXiv 2018, arXiv:1802.05751.
+
+187. Bello, I.; Zoph, B.; Vaswani, A.; Shlens, J.; Le, Q.V. Attention Augmented Convolutional Networks. arXiv 2019, arXiv:1904.09925.
+
+188. Rezatofighi, S.H.; Tsoi, N.; Gwak, J.; Sadeghian, A.; Reid, I.D.; Savarese, S. Generalized Intersection over Union: A Metric and a Loss for Bounding Box Regression. arXiv 2019, arXiv:1902.09630. [CrossRef]
+
+189. van den Oord, A.; Li, Y.; Babuschkin, I.; Simonyan, K.; Vinyals, O.; Kavukcuoglu, K.; van den Driessche, G.; Lockhart, E.; Cobo, L.C.; Stimberg, F.; et al. Parallel WaveNet: Fast High-Fidelity Speech Synthesis. arXiv 2017, arXiv:1711.10433.
+
+190. Gu, J.; Bradbury, J.; Xiong, C.; Li, V.O.K.; Socher, R. Non-Autoregressive Neural Machine Translation. arXiv 2017, arXiv:1711.02281.
+
+191. Ghazvininejad, M.; Levy, O.; Liu, Y.; Zettlemoyer, L. Mask-Predict: Parallel Decoding of Conditional Masked Language Models. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), Hong Kong, China, 3–7 November 2019; Inui, K., Jiang, J., Ng, V., Wan, X., Eds.; Association for Computational Linguistics: Stroudsburg, PA, USA, 2019; pp. 6112–6121. [CrossRef]
+
+192. Stewart, R.; Andriluka, M. End-to-end people detection in crowded scenes. arXiv 2015, arXiv:1506.04878.
+
+193. Romera-Paredes, B.; Torr, P.H.S. Recurrent Instance Segmentation. arXiv 2015, arXiv:1511.08250.
+
+194. Park, E.; Berg, A.C. Learning to decompose for object detection and instance segmentation. arXiv 2015, arXiv:1511.06449.
+
+195. Ren, M.; Zemel, R.S. End-to-End Instance Segmentation and Counting with Recurrent Attention. arXiv 2016, arXiv:1605.09410.
+
+196. Salvador, A.; Bellver, M.; Baradad, M.; Marqués, F.; Torres, J.; Giró-i-Nieto, X. Recurrent Neural Networks for Semantic Instance Segmentation. arXiv 2017, arXiv:1712.00617.
+
+197. Dai, J.; Qi, H.; Xiong, Y.; Li, Y.; Zhang, G.; Hu, H.; Wei, Y. Deformable Convolutional Networks. arXiv 2017, arXiv:1703.06211. [CrossRef]
+
+198. Zhu, X.; Hu, H.; Lin, S.; Dai, J. Deformable ConvNets v2: More Deformable, Better Results. arXiv 2018, arXiv:1811.11168. [CrossRef]
+
+199. Zhang, H.; Wang, J. Towards Adversarially Robust Object Detection. arXiv 2019, arXiv:1907.10310. [CrossRef]
+
+200. Wu, Y.; Chen, Y.; Yuan, L.; Liu, Z.; Wang, L.; Li, H.; Fu, Y. Rethinking Classification and Localization in R-CNN. arXiv 2019, arXiv:1904.06493. [CrossRef]
+
+201. Song, G.; Liu, Y.; Wang, X. Revisiting the Sibling Head in Object Detector. arXiv 2020, arXiv:2003.07540. [CrossRef]
+
+202. Dong, L.; Yang, N.; Wang, W.; Wei, F.; Liu, X.; Wang, Y.; Gao, J.; Zhou, M.; Hon, H. Unified Language Model Pre-training for Natural Language Understanding and Generation. arXiv 2019, arXiv:1905.03197. [CrossRef]
+
+203. Srivastava, N.; Hinton, G.; Krizhevsky, A.; Sutskever, I.; Salakhutdinov, R. Dropout: A Simple Way to Prevent Neural Networks from Overfitting. J. Mach. Learn. Res. 2014, 15, 1929–1958. Available online: http://jmlr.org/papers/v15/srivastava14a.html (accessed on 25 September 2025).
+
+204. Sun, P.; Zhang, R.; Jiang, Y.; Kong, T.; Xu, C.; Zhan, W.; Tomizuka, M.; Li, L.; Yuan, Z.; Wang, C.; et al. Sparse R-CNN: End-to-End Object Detection with Learnable Proposals. arXiv 2020, arXiv:2011.12450.
+
+205. Zhang, X.; Wan, F.; Liu, C.; Ji, R.; Ye, Q. FreeAnchor: Learning to Match Anchors for Visual Object Detection. arXiv 2019, arXiv:1909.02466. [CrossRef]
+
+206. Kim, K.; Lee, H.S. Probabilistic Anchor Assignment with IoU Prediction for Object Detection. arXiv 2020, arXiv:2007.08103. [CrossRef]
+
+207. Li, H.; Wu, Z.; Zhu, C.; Xiong, C.; Socher, R.; Davis, L.S. Learning from Noisy Anchors for One-stage Object Detection. arXiv 2019, arXiv:1912.05086.
+
+208. Tian, Z.; Shen, C.; Chen, H.; He, T. FCOS: Fully Convolutional One-Stage Object Detection. In Proceedings of the 2019 IEEE/CVF International Conference on Computer Vision (ICCV), Seoul, Republic of Korea, 27 October–2 November 2019; pp. 9626–9635. [CrossRef]
+
+209. Wu, Y.; He, K. Group Normalization. arXiv 2018, arXiv:1803.08494. [CrossRef]
+
+210. Chen, Y.; Kalantidis, Y.; Li, J.; Yan, S.; Feng, J. A2-Nets: Double Attention Networks. arXiv 2018, arXiv:1810.11579.
+
+211. Lin, T.Y.; RoyChowdhury, A.; Maji, S. Bilinear CNN Models for Fine-Grained Visual Recognition. In Proceedings of the 2015 IEEE International Conference on Computer Vision (ICCV), Santiago, Chile, 7–13 December 2015; pp. 1449–1457. [CrossRef]
+
+212. Wang, X.; Zhang, S.; Yu, Z.; Feng, L.; Zhang, W. Scale-Equalizing Pyramid Convolution for Object Detection. In Proceedings of the 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), Seattle, WA, USA, 13–19 June 2020; pp. 13356–13365. Available online: https://api.semanticscholar.org/CorpusID:218537867 (accessed on 25 September 2025).
+
+213. Hu, J.; Shen, L.; Sun, G. Squeeze-and-Excitation Networks. arXiv 2017, arXiv:1709.01507.
+
+214. Jiang, Z.; Yu, W.; Zhou, D.; Chen, Y.; Feng, J.; Yan, S. ConvBERT: Improving BERT with Span-based Dynamic Convolution. arXiv 2020, arXiv:2008.02496.
+
+215. Beal, J.; Kim, E.; Tzeng, E.; Park, D.H.; Zhai, A.; Kislyuk, D. Toward Transformer-Based Object Detection. arXiv 2020, arXiv:2012.09958. [CrossRef]
+
+216. Zhu, B.; Wang, J.; Jiang, Z.; Zong, F.; Liu, S.; Li, Z.; Sun, J. AutoAssign: Differentiable Label Assignment for Dense Object Detection. arXiv 2020, arXiv:2007.03496. [CrossRef]
+
+217. Hendrycks, D.; Gimpel, K. Bridging Nonlinearities and Stochastic Regularizers with Gaussian Error Linear Units. arXiv 2016, arXiv:1606.08415. [CrossRef]
+
+218. Ba, J.L.; Kiros, J.R.; Hinton, G.E. Layer Normalization. arXiv 2016, arXiv:1607.06450. [CrossRef]
+
+219. Ma, X.; Kong, X.; Wang, S.; Zhou, C.; May, J.; Ma, H.; Zettlemoyer, L. Luna: Linear Unified Nested Attention. arXiv 2021, arXiv:2106.01540. [CrossRef]
+
+220. Shen, Z.; Zhang, M.; Yi, S.; Yan, J.; Zhao, H. Factorized Attention: Self-Attention with Linear Complexities. arXiv 2018, arXiv:1812.01243.
+
+221. Ge, Z.; Liu, S.; Wang, F.; Li, Z.; Sun, J. YOLOX: Exceeding YOLO Series in 2021. arXiv 2021, arXiv:2107.08430. [CrossRef]
+
+222. Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec, M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-Nouby, A.; et al. DINOv2: Learning Robust Visual Features without Supervision. arXiv 2024, arXiv:2304.07193. Available online: https://arxiv.org/abs/2304.07193 (accessed on 25 September 2025). [CrossRef]
+
+223. Siméoni, O.; Vo, H.V.; Seitzer, M.; Baldassarre, F.; Oquab, M.; Jose, C.; Khalidov, V.; Szafraniec, M.; Yi, S.; Ramamonjisoa, M.; et al. DINOv3. arXiv 2025, arXiv:2508.10104. Available online: https://arxiv.org/abs/2508.10104 (accessed on 25 September 2025). [PubMed]
+
+224. Lv, W.; Zhao, Y.; Chang, Q.; Huang, K.; Wang, G.; Liu, Y. RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer. arXiv 2024, arXiv:2407.17140. Available online: https://arxiv.org/abs/2407.17140 (accessed on 25 September 2025).
+
+225. Wang, S.; Xia, C.; Lv, F.; Shi, Y. RT-DETRv3: Real-time End-to-End Object Detection with Hierarchical Dense Positive Supervision. arXiv 2024, arXiv:2409.08475.
+
+226. Powers, D.M.W. Evaluation: From precision, recall and F-measure to ROC, informedness, markedness and correlation. arXiv 2020, arXiv:2010.16061. [CrossRef]
+
+227. Touvron, H.; Cord, M.; Douze, M.; Massa, F.; Sablayrolles, A.; Jégou, H. Training data-efficient image transformers & distillation through attention. arXiv 2020, arXiv:2012.12877.
+
+228. Liu, Z.; Lin, Y.; Cao, Y.; Hu, H.; Wei, Y.; Zhang, Z.; Lin, S.; Guo, B. Swin Transformer: Hierarchical Vision Transformer using Shifted Windows. arXiv 2021, arXiv:2103.14030. [CrossRef]
+
+Disclaimer/Publisher’s Note: The statements, opinions and data contained in all publications are solely those of the individual author(s) and contributor(s) and not of MDPI and/or the editor(s). MDPI and/or the editor(s) disclaim responsibility for any injury to people or property resulting from any ideas, methods, instructions or products referred to in the content.

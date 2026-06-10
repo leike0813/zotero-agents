@@ -5,6 +5,7 @@ import {
   type MountedSynthesisWorkbenchRuntime,
 } from "./synthesisWorkbenchTab";
 import {
+  type DashboardManagementHost,
   mountTaskDashboardRuntime,
   type MountedTaskDashboardRuntime,
 } from "./taskManagerDialog";
@@ -16,6 +17,11 @@ import {
 } from "./assistantWorkspaceSidebar";
 
 type WorkspaceView = "dashboard" | "synthesis";
+type DashboardSelection = {
+  tabKey?: string;
+  workflowId?: string;
+  backendSubview?: "runs" | "management";
+};
 
 type ZoteroTabs = {
   add?: (options: Record<string, unknown>) => {
@@ -33,6 +39,12 @@ type WorkspaceRuntime = {
   frameWindow: Window | null;
   selectedView: WorkspaceView;
   dashboardRuntime?: MountedTaskDashboardRuntime;
+  pendingDashboardSelection?: DashboardSelection;
+  managementOverlay?: {
+    key: string;
+    wrapper: Element;
+    previousFrameDisplay: string;
+  };
   synthesisRuntime?: MountedSynthesisWorkbenchRuntime;
   removeMessageListener?: () => void;
   handshakeTimer?: ReturnType<typeof setInterval>;
@@ -92,6 +104,169 @@ function createWorkspaceBrowser(doc: Document) {
   (frame as HTMLElement).style.minHeight = "0";
   (frame as HTMLElement).style.border = "none";
   return frame;
+}
+
+function setElementDisplay(node: Element, value: string) {
+  (node as HTMLElement).style.display = value;
+}
+
+function styleElement(
+  node: Element,
+  styles: Record<string, string | undefined>,
+) {
+  const styled = node as HTMLElement;
+  for (const [name, value] of Object.entries(styles)) {
+    if (value !== undefined) {
+      styled.style.setProperty(name, value);
+    }
+  }
+}
+
+function createElementForChromeDoc(doc: Document, tag: string) {
+  const createXul = (doc as { createXULElement?: (tag: string) => Element })
+    .createXULElement;
+  return typeof createXul === "function"
+    ? createXul.call(doc, tag)
+    : doc.createElement(tag);
+}
+
+function setChromeElementText(
+  node: Element,
+  text: string,
+  xulAttribute: string,
+) {
+  if (
+    node.namespaceURI ===
+    "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  ) {
+    node.setAttribute(xulAttribute, text);
+    return;
+  }
+  node.textContent = text;
+}
+
+function clearManagementOverlay(runtime: WorkspaceRuntime) {
+  if (!runtime.managementOverlay) {
+    return;
+  }
+  runtime.managementOverlay.wrapper.remove();
+  setElementDisplay(
+    runtime.frame,
+    runtime.managementOverlay.previousFrameDisplay,
+  );
+  runtime.managementOverlay = undefined;
+}
+
+function createManagementHost(
+  runtime: WorkspaceRuntime,
+): DashboardManagementHost {
+  return {
+    mount: ({ backendId, title, url, onClose }) => {
+      const key = `${backendId}\n${url}`;
+      if (runtime.managementOverlay?.key === key) {
+        return;
+      }
+      clearManagementOverlay(runtime);
+      const doc = runtime.window.document;
+      const container = runtime.frame.parentElement;
+      if (!container) {
+        return;
+      }
+      const previousFrameDisplay = (runtime.frame as HTMLElement).style.display;
+      setElementDisplay(runtime.frame, "none");
+
+      const wrapper = createElementForChromeDoc(doc, "vbox");
+      wrapper.setAttribute(
+        "data-zs-role",
+        "skillrunner-management-workspace-host",
+      );
+      wrapper.setAttribute("flex", "1");
+      styleElement(wrapper, {
+        width: "100%",
+        height: "100%",
+        "min-width": "0",
+        "min-height": "0",
+        display: "flex",
+        "flex-direction": "column",
+        overflow: "hidden",
+      });
+
+      const toolbar = createElementForChromeDoc(doc, "hbox");
+      toolbar.setAttribute(
+        "data-zs-role",
+        "skillrunner-management-workspace-toolbar",
+      );
+      styleElement(toolbar, {
+        display: "flex",
+        "align-items": "center",
+        gap: "8px",
+        padding: "8px 10px",
+        "border-bottom": "1px solid rgba(128, 128, 128, 0.35)",
+      });
+
+      const titleNode = createElementForChromeDoc(doc, "label");
+      setChromeElementText(
+        titleNode,
+        title || "SkillRunner Management",
+        "value",
+      );
+      styleElement(titleNode, {
+        flex: "1 1 auto",
+        "font-weight": "600",
+        overflow: "hidden",
+        "text-overflow": "ellipsis",
+        "white-space": "nowrap",
+      });
+
+      const backButton = createElementForChromeDoc(doc, "button");
+      (backButton as HTMLButtonElement).type = "button";
+      setChromeElementText(backButton, "Back to Runs", "label");
+      backButton.addEventListener("click", () => {
+        clearManagementOverlay(runtime);
+        onClose();
+      });
+
+      const externalButton = createElementForChromeDoc(doc, "button");
+      (externalButton as HTMLButtonElement).type = "button";
+      setChromeElementText(externalButton, "Open in Browser", "label");
+      externalButton.addEventListener("click", () => {
+        (globalThis as any).Zotero?.launchURL?.(url);
+      });
+
+      toolbar.appendChild(backButton);
+      toolbar.appendChild(titleNode);
+      toolbar.appendChild(externalButton);
+
+      const browser = createElementForChromeDoc(doc, "browser");
+      browser.setAttribute(
+        "data-zs-role",
+        "skillrunner-management-workspace-frame",
+      );
+      browser.setAttribute("disableglobalhistory", "true");
+      browser.setAttribute("maychangeremoteness", "true");
+      browser.setAttribute("type", "content");
+      browser.setAttribute("flex", "1");
+      browser.setAttribute("src", url);
+      styleElement(browser, {
+        flex: "1 1 auto",
+        width: "100%",
+        height: "100%",
+        "min-width": "0",
+        "min-height": "0",
+        border: "0",
+      });
+
+      wrapper.appendChild(toolbar);
+      wrapper.appendChild(browser);
+      container.appendChild(wrapper);
+      runtime.managementOverlay = {
+        key,
+        wrapper,
+        previousFrameDisplay,
+      };
+    },
+    clear: () => clearManagementOverlay(runtime),
+  };
 }
 
 function setFrameSource(frame: Element, pageUrl: string) {
@@ -249,6 +424,10 @@ function scheduleWorkspaceHandshake(runtime: WorkspaceRuntime) {
 
 async function mountDashboardRuntimeIfReady(runtime: WorkspaceRuntime) {
   if (runtime.dashboardRuntime) {
+    if (runtime.pendingDashboardSelection) {
+      runtime.dashboardRuntime.selectTab(runtime.pendingDashboardSelection);
+      runtime.pendingDashboardSelection = undefined;
+    }
     return;
   }
   const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
@@ -259,14 +438,21 @@ async function mountDashboardRuntimeIfReady(runtime: WorkspaceRuntime) {
     return;
   }
   runtime.frameWindow = frameWindow;
+  const initialSelection = runtime.pendingDashboardSelection;
   runtime.dashboardRuntime = await mountTaskDashboardRuntime({
     root,
     hostWindow: frameWindow,
     chromeWindow: runtime.window,
+    initialTabKey: initialSelection?.tabKey,
+    initialWorkflowId: initialSelection?.workflowId,
+    initialBackendSubview: initialSelection?.backendSubview,
+    managementHost: createManagementHost(runtime),
   });
+  runtime.pendingDashboardSelection = undefined;
 }
 
 function cleanupDashboardRuntime(runtime: WorkspaceRuntime) {
+  clearManagementOverlay(runtime);
   runtime.dashboardRuntime?.cleanup();
   runtime.dashboardRuntime = undefined;
 }
@@ -316,6 +502,9 @@ async function handleAction(
   }
   if (action === "select-view") {
     const nextView = payload.view === "synthesis" ? "synthesis" : "dashboard";
+    if (nextView !== "dashboard") {
+      clearManagementOverlay(runtime);
+    }
     runtime.selectedView = nextView;
     postSnapshot(runtime, "workspace:snapshot");
     await mountDashboardRuntimeIfReady(runtime);
@@ -390,6 +579,9 @@ export async function openZoteroSkillsWorkspaceTab(
   args: {
     window?: _ZoteroTypes.MainWindow;
     initialView?: WorkspaceView;
+    initialDashboardTabKey?: string;
+    initialDashboardWorkflowId?: string;
+    initialDashboardBackendSubview?: "runs" | "management";
   } = {},
 ) {
   const hostWindow = resolveHostWindow(args.window);
@@ -406,8 +598,21 @@ export async function openZoteroSkillsWorkspaceTab(
   const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen({
     window: hostWindow,
   });
+  const dashboardSelection: DashboardSelection | undefined =
+    args.initialDashboardTabKey ||
+    args.initialDashboardWorkflowId ||
+    args.initialDashboardBackendSubview
+      ? {
+          tabKey: args.initialDashboardTabKey,
+          workflowId: args.initialDashboardWorkflowId,
+          backendSubview: args.initialDashboardBackendSubview,
+        }
+      : undefined;
   if (workspaceTab) {
     workspaceTab.selectedView = args.initialView || workspaceTab.selectedView;
+    if (dashboardSelection) {
+      workspaceTab.pendingDashboardSelection = dashboardSelection;
+    }
     Zotero_Tabs.select(WORKSPACE_TAB_ID);
     postSnapshot(workspaceTab, "workspace:snapshot");
     await mountDashboardRuntimeIfReady(workspaceTab);
@@ -439,6 +644,7 @@ export async function openZoteroSkillsWorkspaceTab(
     frame,
     frameWindow: resolveFrameWindow(frame),
     selectedView: args.initialView || "dashboard",
+    pendingDashboardSelection: dashboardSelection,
     handshakeAttemptCount: 0,
     handshakeSuccessCount: 0,
     handshakeComplete: false,

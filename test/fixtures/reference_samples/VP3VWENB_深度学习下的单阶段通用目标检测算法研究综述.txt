@@ -1,0 +1,211 @@
+[1] ZHOU X Y, GONG W, FU W L, et al. Application of deep learning in object detection[C]//Proceedings of the 2017 IEEE/ACIS 16th International Conference on Computer and Information Science. Piscataway: IEEE, 2017: 631-634.
+
+[2] DALAL N, TRIGGS B. Histograms of oriented gradients for human detection[C]//Proceedings of the 2005 IEEE Computer Society Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2005: 886-893.
+
+[3] KRIZHEVSKY A, SUTSKEVER I, HINTON G E. Image-Net classification with deep convolutional neural networks [J]. Communications of the ACM, 2017, 60(6): 84-90.
+
+[4] GIRSHICK R, DONAHUE J, DARRELL T, et al. Rich feature hierarchies for accurate object detection and semantic segmentation[C]//Proceedings of the 2014 IEEE Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2014: 580-587.
+
+[5] REN S Q, HE K M, GIRSHICK R, et al. Faster R-CNN: towards real- time object detection with region proposal networks[J]. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2017, 39(6): 1137-1149.
+
+[6] REDMON J, DIVVALA S, GIRSHICK R, et al. You only look once: unified, real- time object detection[C]//Proceedings of the 2016 IEEE Conference on Computer Vision and
+
+Pattern Recognition. Piscataway: IEEE, 2016: 779-788.
+
+[7] LIN T Y, GOYAL P, GIRSHICK R, et al. Focal loss for dense object detection[C]//Proceedings of the 2017 IEEE International Conference on Computer Vision. Piscataway: IEEE, 2017: 2999-3007.
+
+[8] LIU W, ANGUELOV D, ERHAN D, et al. SSD: single shot multibox detector[C]//Proceedings of the 14th European Conference on Computer Vision. Cham: Springer, 2016: 21-37.
+
+[9] CARION N, MASSA F, SYNNAEVE G, et al. End-to-end object detection with transformers[C]//Proceedings of the 16th European Conference on Computer Vision. Cham: Springer, 2020: 213-229.
+
+[10] ZHAO Y A, LV W Y, XU S L, et al. DETRs beat YOLOs on real- time object detection[C]//Proceedings of the 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2024: 16965-16974.
+
+[11] KHANAM R, HUSSAIN M. YOLOv11: an overview of the key architectural enhancements[EB/OL]. [2024-11-03]. https:// arxiv.org/abs/2410.17725.
+
+[12] HOWARD A G, ZHU M L, CHEN B, et al. MobileNets: efficient convolutional neural networks for mobile vision applications[EB/OL]. [2024-09-23]. https://arxiv.org/abs/1704. 04861.
+
+[13] ZHANG X Y, ZHOU X Y, LIN M X, et al. ShuffleNet: an extremely efficient convolutional neural network for mobile devices[C]//Proceedings of the 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2018: 6848-6856.
+
+[14] LU J S, BATRA D, PARIKH D, et al. ViLBERT: pretraining task-agnostic visiolinguistic representations for vision-andlanguage tasks[EB/OL]. [2024-09-23]. https://arxiv.org/abs/ 1908.02265.
+
+[15] 米增, 连哲. 面向通用目标检测的YOLO方法研究综述 [J]. 计算机工程与应用, 2024, 60(21): 38-54. MI Z, LIAN Z. Review of YOLO methods for universal object detection[J]. Computer Engineering and Applications, 2024, 60(21): 38-54.
+
+[16] 董甲东, 郭庆虎, 陈琳, 等. 深度学习中单阶段金属表面缺 陷检测算法优化综述[J]. 计算机工程与应用, 2025, 61 (4): 72-89. DONG J D, GUO Q H, CHEN L, et al. Review on optimization algorithms for one-stage metal surface defect detection in deep learning[J]. Computer Engineering and Applications, 2025, 61(4): 72-89.
+
+[17] 陈恒星, 刘一鸣. Anchor-free 目标检测算法综述[J]. 机电 工程技术, 2024, 53(8): 7-12. CHEN H X, LIU Y M. Overview of anchor-free object detection algorithms[J]. Mechanical & Electrical Engineering Technology, 2024, 53(8): 7-12.
+
+[18] 任书玉, 汪晓丁, 林晖. 目标检测中注意力机制综述[J]. 计 算机工程, 2024, 50(12): 16-32. REN S Y, WANG X D, LIN H. Review of attention mechanisms in object detection[J]. Computer Engineering, 2024, 50(12): 16-32.
+
+[19] 陈金林,吴一全,苑玉彬.无人机视角下目标检测的YOLO 系列算法研究进展[J/OL].北京航空航天大学学报[2024-09- 19]. https://doi.org/10.13700/j.bh.1001-5965.2024.0420. CHEN J L, WU Y Q, YUAN Y B. Research progress on YOLO series algorithms for target detection from the UAV vision[J/OL]. Journal of Beijing University of Aeronautics and Astronautics [2024-09-19]. https://doi.org/10.13700/j.bh. 1001-5965.2024.0420.
+
+[20] SZEGEDY C, LIU W, JIA Y Q, et al. Going deeper with convolutions[C]//Proceedings of the 2015 IEEE Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2015: 1-9.
+
+[21] EVERINGHAM M, VAN GOOL L, WILLIAMS C K I, et al. The pascal visual object classes (VOC) challenge[J]. International Journal of Computer Vision, 2010, 88(2): 303-338.
+
+[22] REDMON J, FARHADI A. YOLO9000: better, faster, stronger[C]//Proceedings of the 2017 IEEE Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2017: 6517-6525.
+
+[23] FARHADI A, REDMON J. YOLOv3: an incremental improvement[EB/OL]. [2024-09-19]. https://arxiv.org/abs/1804. 02767.
+
+[24] LIN T Y, DOLLÁR P, GIRSHICK R, et al. Feature pyramid networks for object detection[C]//Proceedings of the 2017 IEEE Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2017: 936-944.
+
+[25] HE K M, ZHANG X Y, REN S Q, et al. Spatial pyramid pooling in deep convolutional networks for visual recognition[J]. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2015, 37(9): 1904-1916.
+
+[26] BOCHKOVSKIY A, WANG C Y, LIAO H M. YOLOv4: optimal speed and accuracy of object detection[EB/OL]. [2024-09-19]. https://arxiv.org/abs/2004.10934.
+
+[27] WANG C Y, MARK LIAO H Y, WU Y H, et al. CSPNet: a
+
+new backbone that can enhance learning capability of CNN [C]//Proceedings of the 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2020: 390-391.
+
+[28] MISRA D. Mish: a self regularized non-monotonic activation function[EB/OL]. [2024- 09-19]. https://arxiv.org/abs/ 1908.08681.
+
+[29] NELSON J, SOLAWETZ J. YOLOv5 is here: state- of-theart object detection at 140 FPS[EB/OL]. [2024-09-19]. https:// blog.roboflow.com/yolo v5-is-here/.
+
+[30] LI C, LI L, JIANG H, et al. YOLOv6: a single-stage object detection framework for industrial applications[EB/OL]. [2024-09-19]. https://arxiv.org/abs/2209.02976.
+
+[31] DING X H, ZHANG X Y, MA N N, et al. RepVGG: making VGG-style ConvNets great again[C]//Proceedings of the 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2021: 13733-13742.
+
+[32] DING X H, CHEN H H, ZHANG X Y, et al. Re-parameterizing your optimizers rather than architectures[EB/OL]. [2024- 09-26]. https://arxiv.org/abs/2205.15242.
+
+[33] WANG C Y, BOCHKOVSKIY A, LIAO H M. YOLOv7: trainable bag- of- freebies sets new state- of- the- art for realtime object detectors[EB/OL]. [2024-09-26]. https://arxiv. org/abs/2207.02696.
+
+[34] WANG C Y A O, LIAO H Y M. Designing network design strategies through gradient path analysis[J]. Journal of Information Science & Engineering, 2023, 39(4): 975-995.
+
+[35] GALLAGHER J. How to train an ultralytics YOLOv8 oriented bounding box (OBB) model[EB/OL]. [2024-09-26]. https://blog.roboflow.com/train-yolov8-obb-model/.
+
+[36] WANG C Y, YEH I H, LIAO H M. YOLOv9: learning what you want to learn using programmable gradient information [EB/OL]. [2024-09-26]. https://arxiv.org/abs/2402.13616.
+
+[37] WANG A, CHEN H, LIU L H, et al. YOLOv10: real-time end-to-end object detection[EB/OL]. [2024-09-26]. https:// arxiv.org/abs/2405.14458.
+
+[38] AL RABBANI ALIF M, HUSSAIN M. YOLOv1 to YOLOv10: a comprehensive review of YOLO variants and their application in the agricultural domain[EB/OL]. [2024-09-26]. https://arxiv.org/abs/2406.10139.
+
+[39] LONG X, DENG K P, WANG G Z, et al. PP-YOLO: an effective and efficient implementation of object detector [EB/OL]. [2024-09-26]. https://arxiv.org/abs/2007.12099.
+
+[40] WANG C Y, YEH I H, LIAO H M. You only learn one rep-
+
+resentation: unified network for multiple tasks[EB/OL]. [2024-09-26]. https://arxiv.org/abs/2105.04206.
+
+[41] GE Z. YOLOX: exceeding YOLO series in 2021[EB/OL]. [2024-09-26]. https://arxiv.org/abs/2107.08430.
+
+[42] XU X Z, JIANG Y Q, CHEN W H, et al. DAMO-YOLO: a report on real-time object detection design[EB/OL]. [2024- 09-26]. https://arxiv.org/abs/2211.15444.
+
+[43] SUN Z, LIN M, SUN X, et al. MAE-DET: revisiting maximum entropy principle in zero- shot NAS for efficient object detection[C]//Proceedings of the 39th International Conference on Machine Learning, 2022: 20810-20826.
+
+[44] SKALSKI P. How to train YOLO-NAS on a custom dataset [EB/OL]. [2024-09-26]. https://blog.roboflow.com/yolo-nashow-to-train-on-custom-dataset/.
+
+[45] CHU X X, LI L, ZHANG B. Make RepVGG greater again: a quantization-aware approach[EB/OL]. [2024-09-26]. https:// arxiv.org/abs/2212.01593.
+
+[46] ZHOU Y. A YOLO-NL object detector for real-time detection[J]. Expert Systems with Applications, 2024, 238: 122256.
+
+[47] SU P, HAN H Z, LIU M, et al. MOD-YOLO: rethinking the YOLO architecture at the level of feature information and applying it to crack detection[J]. Expert Systems with Applications, 2024, 237: 121346.
+
+[48] FU C Y, LIU W, RANGA A, et al. DSSD: deconvolutional single shot detector[EB/OL]. [2024-10-13]. https://arxiv.org/ abs/1701.06659.
+
+[49] LI Z X, YANG L, ZHOU F Q. FSSD: feature fusion single shot multibox detector[EB/OL]. [2024-10-13]. https://arxiv. org/abs/1712.00960.
+
+[50] 胡焱, 原子昊, 涂晓光, 等. 基于对比学习的改进SSD目标 检测算法[J]. 红外技术, 2024, 46(5): 548-555. HU Y, YUAN Z H, TU X G, et al. Improved SSD target detection algorithm based on comparative learning[J]. Infrared Technology, 2024, 46(5): 548-555.
+
+[51] CHANDIO A, GUI G, KUMAR T, et al. Precise singlestage detector[EB/OL]. [2024-10-13]. https://arxiv.org/abs/ 2210.04252.
+
+[52] TIAN Z, SHEN C, CHEN H, et al. FCOS: fully convolutional one- stage object detection[EB/OL]. [2024-10-13]. https://arxiv.org/abs/1904.01355.
+
+[53] XU X L, LIANG W Y, ZHAO J H, et al. Tiny FCOS: a lightweight anchor- free object detection algorithm for mobile scenarios[J]. Mobile Networks and Applications, 2021, 26(6): 2219-2229.
+
+[54] WANG N, GAO Y, CHEN H, et al. NAS-FCOS: fast neural architecture search for object detection[C]//Proceedings of the 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2020: 11943-11951.
+
+[55] TAN M X, PANG R M, LE Q V. EfficientDet: scalable and efficient object detection[C]//Proceedings of the 2020 IEEE/ CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2020: 10781-10790.
+
+[56] TAN M X, LE Q V. EfficientNet: rethinking model scaling for convolutional neural networks[EB/OL]. [2024-10-13]. https://arxiv.org/abs/1905.11946.
+
+[57] WANG Y F, WANG T, ZHOU X, et al. TransEffiDet: aircraft detection and classification in aerial images based on EfficientDet and transformer[J]. Computational Intelligence and Neuroscience, 2022(1): 2262549.
+
+[58] ZHOU X Y, WANG D Q, KRÄHENBÜHL P. Objects as points[EB/OL]. [2024-10-13]. https://arxiv.org/abs/1904.07850.
+
+[59] LAW H, DENG J. CornerNet: detecting objects as paired keypoints[C]//Proceedings of the 15th European Conference on Computer Vision. Cham: Springer, 2018: 765-781.
+
+[60] LAW H, TENG Y, RUSSAKOVSKY O, et al. CornerNet-Lite: efficient keypoint based object detection[EB/OL]. [2024- 10-13]. https://arxiv.org/abs/1904.08900.
+
+[61] LYU C Q, ZHANG W W, HUANG H A, et al. RTMDet: an empirical study of designing real-time object detectors[EB/ OL]. [2024-10-13]. https://arxiv.org/abs/2212.07784.
+
+[62] ALEXEY D. An image is worth 16×16 words: transformers for image recognition at scale[EB/OL]. [2024-10-13]. https:// arxiv.org/abs/2010.11929.
+
+[63] ZHU X Z, SU W J, LU L W, et al. Deformable DETR: deformable transformers for end- to- end object detection[C]// Proceedings of the 9th International Conference on Learning Representations, 2021.
+
+[64] DAI X Y, CHEN Y P, YANG J W, et al. Dynamic DETR: end-to-end object detection with dynamic attention[C]//Proceedings of the 2021 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2021: 2968-2977.
+
+[65] MENG D P, CHEN X K, FAN Z J, et al. Conditional DETR for fast training convergence[C]//Proceedings of the 2021 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2021: 3631-3640.
+
+[66] LIU S L, LI F, ZHANG H, et al. DAB-DETR: dynamic anchor boxes are better queries for DETR[EB/OL]. [2024-10- 13]. https://arxiv.org/abs/2201.12329.
+
+[67] LI F, ZHANG H, LIU S L, et al. DN- DETR: accelerate DETR training by introducing query DeNoising[C]//Proceedings of the 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2022: 13609- 13617.
+
+[68] ZHANG H, LI F, LIU S L, et al. DINO: DETR with improved denoising anchor boxes for end-to-end object detection[EB/OL]. [2024-10-13]. https://arxiv.org/abs/2203.03605.
+
+[69] ZHANG M Y, SONG G L, LIU Y, et al. Decoupled DETR: spatially disentangling localization and classification for improved end- to- end object detection[C]//Proceedings of the 2023 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2023: 6578-6587.
+
+[70] ZHANG J Y, HUANG J X, LUO Z P, et al. DA-DETR: domain adaptive detection transformer with information fusion [C]//Proceedings of the 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2023: 23787-23798.
+
+[71] LI F, ZENG A L, LIU S L, et al. Lite DETR: an interleaved multi- scale encoder for efficient DETR[C]//Proceedings of the 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2023: 18558-18567.
+
+[72] ZHENG D H, DONG W H, HU H L, et al. Less is more: focus attention for efficient DETR[C]//Proceedings of the 2023 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2023: 6651-6660.
+
+[73] ZHAO C Y, SUN Y F, WANG W H, et al. MS-DETR: efficient DETR training with mixed supervision[C]//Proceedings of the 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2024: 17027-17036.
+
+[74] OUYANG H D. DEYO: DETR with YOLO for end-to-end object detection[EB/OL]. [2024-10-13]. https://arxiv.org/abs/ 2402.16370.
+
+[75] DENG J, DONG W, SOCHER R, et al. ImageNet: a largescale hierarchical image database[C]//Proceedings of the 2009 IEEE Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2009: 248-255.
+
+[76] LIN T Y, MAIRE M, BELONGIE S, et al. Microsoft COCO: common objects in context[C]//Proceedings of the 13th European Conference on Computer Vision. Cham: Springer, 2014: 740-755.
+
+[77] KKUZNETSOVA A, ROM H, ALLDRIN N, et al. The open images dataset V4: unified image classification, object detection, and visual relationship detection at scale[J]. Inter-
+
+national Journal of Computer Vision, 2020, 128(7): 1956- 1981.
+
+[78] SHAO S, LI Z M, ZHANG T Y, et al. Objects365: a largescale, high-quality dataset for object detection[C]//Proceedings of the 2019 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2019: 8430-8439.
+
+[79] ZHU X K, LYU S C, WANG X, et al. TPH-YOLOv5: improved YOLOv5 based on transformer prediction head for object detection on drone- captured scenarios[C]//Proceedings of the 2021 IEEE/CVF International Conference on Computer Vision. Piscataway: IEEE, 2021: 2778-2788.
+
+[80] 李钟华,林初俊,朱恒亮,等.基于结构感知和全局上下文信 息的小目标检测[J]. 计算机工程与应用, 2024, 60(9): 292-298. LI Z H, LIN C J, ZHU H L, et al. Small object detection based on structure perception and global context information[J]. Computer Engineering and Applications, 2024, 60 (9): 292-298.
+
+[81] 窦同旭, 曾勇, 杨冲, 等. 改进YOLOv5 的无人机影像小目 标物体识别算法[J]. 建模与仿真, 2023, 12(6): 5395-5407. DOU T X, ZENG Y, YANG C, et al. Improved algorithm for small target object recognition in drone images based on YOLOv5[J]. Modeling and Simulation, 2023, 12(6): 5395- 5407.
+
+[82] LIU H, MU C P, YANG R X, et al. Research on object detection algorithm based on UVA aerial image[C]//Proceedings of the 2021 7th IEEE International Conference on Network Intelligence and Digital Content. Piscataway: IEEE, 2021: 122-127.
+
+[83] CAO L, WANG Q, LUO Y H, et al. YOLO- TSL: a lightweight target detection algorithm for UAV infrared images based on triplet attention and slim-neck[J]. Infrared Physics & Technology, 2024, 141: 105487.
+
+[84] 潘玮, 韦超, 钱春雨, 等. 面向无人机视角下小目标检测的 YOLOv8s 改进模型[J]. 计算机工程与应用, 2024, 60(9): 142-150. PAN W, WEI C, QIAN C Y, et al. Improved YOLOv8s model for small object detection from perspective of drones [J]. Computer Engineering and Applications, 2024, 60(9): 142-150.
+
+[85] 于傲泽, 魏维伟, 王平, 等. 基于分块复合注意力的无人机 小目标检测算法[J]. 航空学报, 2024, 45(14): 629148. YU A Z, WEI W W, WANG P, et al. Small target detection algorithm for UAV based on patch-wise co-attention[J]. Acta Aeronautica et Astronautica Sinica, 2024, 45(14): 629148.
+
+[86] PANG Y, YU W B, XUAN C Z, et al. A large benchmark dataset for individual sheep face recognition[J]. Agriculture, 2023, 13(9): 1718.
+
+[87] HAO J Y, ZHANG H M, HAN Y M, et al. Sheep face detection based on an improved RetinaFace algorithm[J]. Animals, 2023, 13(15): 2458.
+
+[88] 杨蜀秦, 刘杨启航, 王振, 等. 基于融合坐标信息的改进 YOLO V4模型识别奶牛面部[J]. 农业工程学报, 2021, 37 (15): 129-135. YANG S Q, LIU Y Q H, WANG Z, et al. Improved YOLO V4 model for face recognition of diary cow by fusing coordinate information[J]. Transactions of the Chinese Society of Agricultural Engineering, 2021, 37(15): 129-135.
+
+[89] HSU W Y, LIN W Y. Ratio-and-scale-aware YOLO for pedestrian detection[J]. IEEE Transactions on Image Processing, 2021, 30: 934-947.
+
+[90] WU D M, JIA F, CHANG J H, et al. The 1st-place solution for CVPR 2023 OpenLane topology in autonomous driving challenge[EB/OL]. [2024-10-13]. https://arxiv.org/abs/2306. 09590.
+
+[91] 陈禹, 吴雪梅, 张珍, 等. 基于改进YOLOv5s的自然环境 下茶叶病害识别方法[J]. 农业工程学报, 2023, 39(24): 185- 194. CHEN Y, WU X M, ZHANG Z, et al. Method for identifying tea diseases in natural environment using improved YOLOv5s[J]. Transactions of the Chinese Society of Agricultural Engineering, 2023, 39(24): 185-194.
+
+[92] 蒋心璐, 陈天恩, 王聪, 等. 大田环境下的农业害虫图像小 目标检测算法[J]. 计算机工程, 2024, 50(1): 232-241. JIANG X L, CHEN T E, WANG C, et al. Small object detection algorithm for agricultural pest images in field environments[J]. Computer Engineering, 2024, 50(1): 232-241.
+
+[93] SIMON M, MILZ S, AMENDE K, et al. Complex-YOLO: real-time 3D object detection on point clouds[EB/OL]. [2024- 10-13]. https://arxiv.org/abs/1803.06199.
+
+[94] MARTINSON E, FURLONG B, GILLIES A. Training rare object detection in satellite imagery with synthetic GAN images[C]//Proceedings of the 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition. Piscataway: IEEE, 2021: 2763-2770.
+
+[95] GOODFELLOW I, POUGET-ABADIE J, MIRZA M, et al. Generative adversarial networks[J]. Communications of the ACM, 2020, 63(11): 139-144.
+
+[96] SALAUDEEN H, ÇELEBI E. Pothole detection using image enhancement GAN and object detection network[J]. Electronics, 2022, 11(12): 1882.
+
+[97] HO J, JAIN A, ABBEEL P. Denoising diffusion probabilistic models[C]//Advances in Neural Information Processing Systems 33, 2020: 6840-6851.
+
+[98] FANG H Y, HAN B R, ZHANG S, et al. Data augmentation for object detection via controllable diffusion models[C]// Proceedings of the 2024 IEEE/CVF Winter Conference on Applications of Computer Vision. Piscataway: IEEE, 2024: 1246-1255.
+
+[99] GAO W, WAN F, YUE J, et al. Discrepant multiple instance learning for weakly supervised object detection[J]. Pattern Recognition, 2022, 122: 108233.
+
+![](Images_PSFFPN9I/6f0afdc67bf6efd78447d1ecbb235c151fb85c4bb5aa6a73f0eabbcc2bf7b1ac.jpg)  
+王宁（1999—），男，河北怀来人，硕士研究生，CCF学生会员，主要研究方向为图像处理、目标检测。WANG Ning, born in 1999, M.S. candidate,CCF student member. His research interests in-clude image processing and object detection.
+
+![](Images_PSFFPN9I/a06b7301bdd602b6b37a2a9f8e474547a60634e630c23cd43683154da0c40e66.jpg)  
+智敏（1972—），女，内蒙古赤峰人，博士，教授，主要研究方向为人工智能、深度学习、图像处理。ZHI Min, born in 1972, Ph.D., professor. Herresearch interests include artificial intelligence,deep learning and image processing.

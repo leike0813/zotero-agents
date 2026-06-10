@@ -14,6 +14,7 @@ import {
   createSynthesisService,
   type SynthesisMirrorAdapter,
 } from "../../src/modules/synthesis/service";
+import { createSynthesisTopicGraphService } from "../../src/modules/synthesis/topicGraph";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { decideSynthesisApply } from "../../src/modules/synthesis/workflow";
 
@@ -192,6 +193,13 @@ async function exists(pathValue: string) {
   }
 }
 
+function legacyCurrentExportPath(root: string, topicId: string) {
+  return path.join(
+    buildSynthesisStoragePaths(root, topicId).currentRoot,
+    "export.md",
+  );
+}
+
 async function writeDbGraphState(root: string) {
   const repository = createSynthesisRepository({
     runtimeRoot: root,
@@ -340,17 +348,22 @@ describe("Synthesis Layer v1 integration service", function () {
 
     const result = await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
     const metadata = JSON.parse(
       await fs.readFile(paths.currentMetadata, "utf8"),
     );
     const index = JSON.parse(await fs.readFile(paths.index, "utf8"));
 
     assert.equal(result.status, "persisted");
-    assert.equal(markdown, "# Alpha Topic\n");
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "topic-alpha")),
+      false,
+    );
     assert.equal(metadata.schema_id, "synthesis.topic_artifact_metadata");
     assert.equal(metadata.data.topic_id, "topic-alpha");
+    assert.notProperty(metadata.data, "markdown_hash");
+    assert.notProperty(metadata.data, "export_hash");
     assert.equal(index.data.topics[0].topic_id, "topic-alpha");
+    assert.notProperty(index.data.topics[0], "markdown_hash");
     assert.lengthOf(mirror.upserts, 0);
   });
 
@@ -373,11 +386,12 @@ describe("Synthesis Layer v1 integration service", function () {
     const state = await topicFreshnessState(root);
 
     assert.equal(state.freshness, "fresh");
-    assert.equal(state.coverage, "complete");
+    assert.equal(state.coverage, "missing");
     assert.match(state.baseline_input_hash || "", /^sha256:/);
     assert.equal(state.baseline_input_hash, state.current_input_hash);
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "unknown");
+    assert.equal(snapshot.artifacts.rows[0]?.freshness, "fresh");
     assert.equal(snapshot.artifacts.rows[0]?.coverage, "missing");
+    assert.equal(snapshot.artifacts.rows[0]?.completion, 0);
     assert.lengthOf(mirror.upserts, 0);
   });
 
@@ -395,10 +409,7 @@ describe("Synthesis Layer v1 integration service", function () {
     await service.refreshReferenceSidecarNow();
     await service.applyTopicSynthesisResult(validBundle());
     const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const beforeMarkdown = await fs.readFile(
-      paths.currentExportMarkdown,
-      "utf8",
-    );
+    const beforeArtifact = await fs.readFile(paths.currentArtifact, "utf8");
     const beforeMetadata = await fs.readFile(paths.currentMetadata, "utf8");
 
     const updated = createSynthesisService({
@@ -416,10 +427,10 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(result.status, "ready");
     assert.equal(refreshed.freshness, "fresh");
     assert.notInclude(await topicReasonCodes(root), "artifact_changed");
-    assert.equal(snapshot.artifacts.rows[0]?.freshness, "unknown");
+    assert.equal(snapshot.artifacts.rows[0]?.freshness, "fresh");
     assert.equal(
-      await fs.readFile(paths.currentExportMarkdown, "utf8"),
-      beforeMarkdown,
+      await fs.readFile(paths.currentArtifact, "utf8"),
+      beforeArtifact,
     );
     assert.equal(
       await fs.readFile(paths.currentMetadata, "utf8"),
@@ -469,7 +480,6 @@ describe("Synthesis Layer v1 integration service", function () {
                 path_id: "legacy-topic",
                 title: "Legacy Topic",
                 updated_at: "2026-05-10T00:00:00.000Z",
-                markdown_hash: "sha256:legacy-md",
                 metadata_hash: "sha256:legacy-meta",
                 bundle_hash: "sha256:legacy-bundle",
                 paper_count: 3,
@@ -497,7 +507,6 @@ describe("Synthesis Layer v1 integration service", function () {
                 title: "Legacy Deleted",
                 deleted_at: "2026-05-10T00:00:00.000Z",
                 updated_at: "2026-05-10T00:00:00.000Z",
-                markdown_hash: "sha256:deleted-md",
                 metadata_hash: "sha256:deleted-meta",
                 bundle_hash: "sha256:deleted-bundle",
               },
@@ -526,7 +535,10 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.deepEqual(snapshot.artifacts.rows, []);
     assert.deepEqual(snapshot.registry.cleanupProposals, []);
     assert.equal(snapshot.deletedArtifacts.count, 0);
-    assert.deepEqual(inventory.topics, []);
+    assert.notInclude(
+      inventory.topics.map((topic) => topic.topic_id),
+      "topic-alpha",
+    );
     assert.deepEqual(options.options, []);
   });
 
@@ -593,19 +605,20 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     const result = await service.applyTopicSynthesisResult(validBundle());
-    const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "persisted");
-    assert.equal(markdown, "# Alpha Topic\n");
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "topic-alpha")),
+      false,
+    );
     if (result.ok) {
       assert.isUndefined(result.mirrorError);
       assert.notInclude(result.warnings || [], "mirror_refresh_failed");
     }
   });
 
-  it("saves conflict candidates without overwriting current assets or refreshing mirror", async function () {
+  it("ignores stale legacy base hashes without creating conflict candidates", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();
     const service = createSynthesisService({
@@ -617,7 +630,7 @@ describe("Synthesis Layer v1 integration service", function () {
 
     await service.applyTopicSynthesisResult(validBundle());
     const beforeUpserts = mirror.upserts.length;
-    const conflict = await service.applyTopicSynthesisResult(
+    const update = await service.applyTopicSynthesisResult(
       validBundle({
         mode: "update",
         markdown: "# Alpha Topic\n\nChanged",
@@ -628,13 +641,13 @@ describe("Synthesis Layer v1 integration service", function () {
         },
       }),
     );
-    const paths = buildSynthesisStoragePaths(root, "topic-alpha");
-    const markdown = await fs.readFile(paths.currentExportMarkdown, "utf8");
     const snapshot = await service.getSynthesisSnapshot();
 
-    assert.equal(conflict.status, "conflict");
-    assert.match(conflict.conflictCandidate?.bundle_hash || "", /^sha256:/);
-    assert.equal(markdown, "# Alpha Topic\n");
+    assert.equal(update.status, "persisted");
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "topic-alpha")),
+      false,
+    );
     assert.equal(mirror.upserts.length, beforeUpserts);
     assert.deepEqual(snapshot.conflicts.candidates, []);
   });
@@ -711,14 +724,18 @@ describe("Synthesis Layer v1 integration service", function () {
       true,
     );
     assert.equal(reviewInput.topic.topic_id, "topic-alpha");
-    assert.equal(reviewInput.topic.markdown, "# Alpha Topic");
+    assert.include(
+      reviewInput.topic.markdown,
+      "The topic source set contains 2 papers",
+    );
+    assert.notInclude(reviewInput.topic.markdown, "```json");
     assert.equal(
       reviewInput.structured_topic?.artifact.schema_id,
       "synthesis.topic_synthesis_artifact",
     );
     assert.isArray(reviewInput.structured_topic?.claims);
     assert.isObject(reviewInput.structured_topic?.timeline_events);
-    assert.isArray(reviewInput.structured_topic?.paper_evidence);
+    assert.isArray(reviewInput.structured_topic?.source_papers);
     assert.include(
       ["fresh", "stale", "dirty"],
       topicContext.freshness?.freshness,
@@ -836,6 +853,7 @@ describe("Synthesis Layer v1 integration service", function () {
       description: "",
       aliases: [],
       updated_at: "2026-05-12T00:00:00.000Z",
+      prospective_topic_relation_proposals: [],
     });
     for (const forbidden of [
       "topic_resolver",
@@ -862,6 +880,39 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.applyTopicSynthesisResult(validBundle());
+    const graph = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-12T02:00:00.000Z",
+    });
+    await graph.upsertTopicNode({
+      topic_id: "topic-beta",
+      title: "Beta Topic",
+      aliases: [],
+      node_type: "placeholder",
+      definition_status: "placeholder",
+    });
+    const proposalResult = await graph.ingestRelationProposals({
+      sourceTopicId: "topic-alpha",
+      payload: {
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        proposals: [
+          {
+            relation_type: "related_topic_candidate",
+            target_topic_id: "topic-beta",
+            confidence: 0.9,
+          },
+          {
+            relation_type: "contrast_topic_candidate",
+            target_topic_id: "topic-beta",
+            confidence: 0.4,
+          },
+        ],
+      },
+    });
+    await graph.decideTopicGraphRelation({
+      edgeId: proposalResult.accepted_edges[0]!.edge_id,
+      status: "confirmed",
+    });
     const beforeDeleteUpserts = mirror.upserts.length;
     const result = await service.deleteTopicArtifact({
       topicId: "topic-alpha",
@@ -869,19 +920,88 @@ describe("Synthesis Layer v1 integration service", function () {
     const snapshot = await service.getSynthesisSnapshot();
     const inventory = await service.listTopics();
     const deleted = await service.listDeletedTopicArtifacts();
-    const paths = buildSynthesisStoragePaths(root, "topic-alpha");
+    const graphAfterDelete = await graph.loadTopicGraph();
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "deleted");
-    assert.equal(await exists(paths.currentExportMarkdown), false);
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "topic-alpha")),
+      false,
+    );
     assert.deepEqual(snapshot.artifacts.rows, []);
-    assert.deepEqual(inventory.topics, []);
+    assert.notInclude(
+      inventory.topics.map((topic) => topic.topic_id),
+      "topic-alpha",
+    );
     assert.deepEqual(
       deleted.deleted.map((entry) => entry.topic_id),
       ["topic-alpha"],
     );
     assert.equal(snapshot.deletedArtifacts.count, 0);
     assert.equal(mirror.upserts.length, beforeDeleteUpserts);
+    assert.deepEqual(
+      graphAfterDelete.edges
+        .filter(
+          (edge) =>
+            edge.source_topic_id === "topic-alpha" ||
+            edge.target_topic_id === "topic-alpha",
+        )
+        .map((edge) => edge.status),
+      ["deleted"],
+    );
+    assert.deepEqual(
+      graphAfterDelete.review_items
+        .filter(
+          (item) =>
+            item.source_topic_id === "topic-alpha" ||
+            item.target_topic_id === "topic-alpha",
+        )
+        .map((item) => item.status),
+      ["deleted"],
+    );
+  });
+
+  it("soft deletes data-root topic artifacts even when the active index row is missing", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-12T02:30:00.000Z",
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    await service.applyTopicSynthesisResult(validBundle());
+    await fs.writeFile(
+      buildSynthesisStoragePaths(root).index,
+      JSON.stringify(
+        createCanonicalEnvelope({
+          schemaId: "synthesis.index",
+          data: { topics: [] },
+          now: "2026-05-12T02:31:00.000Z",
+        }),
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    const detail = await service.readTopicDetail({ topicId: "topic-alpha" });
+    const result = await service.deleteTopicArtifact({
+      topicId: "topic-alpha",
+    });
+    const deleted = await service.listDeletedTopicArtifacts();
+
+    assert.equal(detail.topicId, "topic-alpha");
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "deleted");
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "topic-alpha")),
+      false,
+    );
+    assert.deepEqual(
+      deleted.deleted.map((entry) => entry.topic_id),
+      ["topic-alpha"],
+    );
   });
 
   it("purges deleted topic artifact stores idempotently without touching active topics", async function () {
@@ -894,16 +1014,66 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await service.applyTopicSynthesisResult(validBundle());
+    const graph = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-12T03:00:00.000Z",
+    });
+    await graph.upsertTopicNode({
+      topic_id: "topic-beta",
+      title: "Beta Topic",
+      aliases: [],
+      node_type: "placeholder",
+      definition_status: "placeholder",
+    });
+    await graph.ingestRelationProposals({
+      sourceTopicId: "topic-alpha",
+      payload: {
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        proposals: [
+          {
+            relation_type: "related_topic_candidate",
+            target_topic_id: "topic-beta",
+            confidence: 0.9,
+          },
+          {
+            relation_type: "contrast_topic_candidate",
+            target_topic_id: "topic-beta",
+            confidence: 0.4,
+          },
+        ],
+      },
+    });
     await service.deleteTopicArtifact({ topicId: "topic-alpha" });
     const first = await service.purgeDeletedTopicArtifacts();
     const second = await service.purgeDeletedTopicArtifacts();
     const deleted = await service.listDeletedTopicArtifacts();
+    const graphAfterPurge = await graph.loadTopicGraph();
 
     assert.equal(first.ok, true);
     assert.equal(first.status, "purged");
     assert.equal(first.purged_count, 1);
     assert.equal(second.purged_count, 0);
     assert.deepEqual(deleted.deleted, []);
+    assert.notInclude(
+      graphAfterPurge.nodes.map((node) => node.topic_id),
+      "topic-alpha",
+    );
+    assert.deepEqual(
+      graphAfterPurge.edges.filter(
+        (edge) =>
+          edge.source_topic_id === "topic-alpha" ||
+          edge.target_topic_id === "topic-alpha",
+      ),
+      [],
+    );
+    assert.deepEqual(
+      graphAfterPurge.review_items.filter(
+        (item) =>
+          item.source_topic_id === "topic-alpha" ||
+          item.target_topic_id === "topic-alpha",
+      ),
+      [],
+    );
   });
 
   it("rejects deleting a missing topic without corrupting the active index", async function () {
@@ -956,6 +1126,7 @@ describe("Synthesis Layer v1 integration service", function () {
       description: "",
       aliases: [],
       updated_at: "2026-05-12T01:00:00.000Z",
+      prospective_topic_relation_proposals: [],
     });
   });
 
@@ -1422,6 +1593,472 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.lengthOf(repository.listCanonicalReferenceRedirects(), 0);
   });
 
+  it("applies manual target decisions for binding and canonical merge proposals", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [
+        { libraryId: 1, itemKey: "MANUAL", title: "Manual Target" },
+      ],
+    });
+    repository.upsertCanonicalReference({
+      canonicalReferenceId: "cref:binding-source",
+      title: "Binding Source",
+      status: "active",
+    });
+    repository.upsertCanonicalReference({
+      canonicalReferenceId: "cref:merge-source",
+      title: "Merge Source",
+      status: "active",
+    });
+    repository.upsertCanonicalReference({
+      canonicalReferenceId: "cref:merge-original-target",
+      title: "Original Target",
+      status: "active",
+    });
+    repository.upsertCanonicalReference({
+      canonicalReferenceId: "cref:merge-selected-target",
+      title: "Selected Target",
+      status: "active",
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:manual-binding",
+      kind: "zotero_binding",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:binding-source",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:binding"]),
+      targetLibraryId: 1,
+      targetItemKey: "WRONG",
+      confidence: "medium",
+      score: 0.5,
+      reasonsJson: JSON.stringify(["candidate"]),
+      evidenceJson: "{}",
+      diagnosticsJson: "[]",
+      basisHash: "sha256:manual-binding-basis",
+      sourceHash: "sha256:manual-binding-source",
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:manual-merge",
+      kind: "canonical_merge",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:merge-source",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:merge-source"]),
+      targetCanonicalReferenceId: "cref:merge-original-target",
+      confidence: "medium",
+      score: 0.5,
+      reasonsJson: JSON.stringify(["candidate"]),
+      evidenceJson: "{}",
+      diagnosticsJson: "[]",
+      basisHash: "sha256:manual-merge-basis",
+      sourceHash: "sha256:manual-merge-source",
+    });
+
+    const result = await service.applyReferenceMatchProposalActions({
+      decisions: [
+        {
+          proposalId: "proposal:manual-binding",
+          action: "manual_target",
+          target: { kind: "zotero_item", libraryId: 1, itemKey: "MANUAL" },
+        },
+        {
+          proposalId: "proposal:manual-merge",
+          action: "manual_target",
+          target: {
+            kind: "canonical_reference",
+            canonicalReferenceId: "cref:merge-selected-target",
+          },
+        },
+      ],
+    });
+
+    assert.equal(result.applied_count, 2, JSON.stringify(result));
+    assert.equal(result.failed_count, 0, JSON.stringify(result));
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: ["proposal:manual-binding"],
+      })[0]?.status,
+      "retargeted",
+    );
+    assert.equal(
+      repository.listReferenceMatchProposals({
+        proposalIds: ["proposal:manual-merge"],
+      })[0]?.status,
+      "retargeted",
+    );
+    assert.isTrue(
+      repository
+        .listReferenceBindings({ statuses: ["accepted"] })
+        .some(
+          (binding) =>
+            binding.canonicalReferenceId === "cref:binding-source" &&
+            binding.itemKey === "MANUAL" &&
+            binding.reviewer === "advanced-reference-matching-manual",
+        ),
+    );
+    const redirects = repository.listCanonicalReferenceRedirects();
+    assert.isTrue(
+      redirects.some(
+        (redirect) =>
+          redirect.fromCanonicalReferenceId === "cref:merge-source" &&
+          redirect.toCanonicalReferenceId === "cref:merge-selected-target",
+      ),
+    );
+    assert.isTrue(
+      redirects.some(
+        (redirect) =>
+          redirect.fromCanonicalReferenceId ===
+            "cref:merge-original-target" &&
+          redirect.toCanonicalReferenceId === "cref:merge-selected-target",
+      ),
+    );
+    const acceptedAuditProposals = repository.listReferenceMatchProposals({
+      statuses: ["accepted"],
+    });
+    assert.isAtLeast(
+      acceptedAuditProposals.filter(
+        (proposal) => proposal.kind === "canonical_merge",
+      ).length,
+      2,
+    );
+    assert.isTrue(
+      acceptedAuditProposals.some(
+        (proposal) =>
+          proposal.kind === "zotero_binding" &&
+          proposal.targetItemKey === "MANUAL",
+      ),
+    );
+
+    const invalid = await service.applyReferenceMatchProposalActions({
+      decisions: [
+        {
+          proposalId: "proposal:manual-merge",
+          action: "manual_target",
+          target: {
+            kind: "canonical_reference",
+            canonicalReferenceId: "cref:merge-source",
+          },
+        },
+      ],
+    });
+    assert.equal(invalid.applied_count, 0, JSON.stringify(invalid));
+    assert.equal(invalid.failed_count, 1, JSON.stringify(invalid));
+  });
+
+  it("deduplicates manual target canonical candidates and annotates active bindings", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [],
+      now: () => "2026-06-10T00:00:00.000Z",
+    });
+    [
+      ["cref:physical-a", "Physical A"],
+      ["cref:physical-b", "Physical B"],
+      ["cref:effective", "Effective Target"],
+      ["cref:accepted-only", "Accepted Only"],
+      ["cref:bound-auto", "Bound Duplicate"],
+      ["cref:bound-accepted", "Bound Duplicate"],
+    ].forEach(([canonicalReferenceId, title]) =>
+      repository.upsertCanonicalReference({
+        canonicalReferenceId,
+        title,
+        normalizedTitle: title.toLowerCase(),
+        year: "2026",
+        authorsJson: "[]",
+        identifiersJson: "{}",
+        metadataHash: `hash:${canonicalReferenceId}`,
+        status: "active",
+      }),
+    );
+    repository.upsertCanonicalReferenceRedirect({
+      fromCanonicalReferenceId: "cref:physical-a",
+      toCanonicalReferenceId: "cref:effective",
+      reason: "test",
+    });
+    repository.upsertCanonicalReferenceRedirect({
+      fromCanonicalReferenceId: "cref:physical-b",
+      toCanonicalReferenceId: "cref:effective",
+      reason: "test",
+    });
+    [
+      ["raw:a", "cref:physical-a"],
+      ["raw:b", "cref:physical-b"],
+      ["raw:c", "cref:effective"],
+      ["raw:accepted-only", "cref:accepted-only"],
+      ["raw:bound-auto", "cref:bound-auto"],
+      ["raw:bound-accepted", "cref:bound-accepted"],
+    ].forEach(([rawReferenceId, canonicalReferenceId], index) =>
+      repository.upsertRawReference({
+        rawReferenceId,
+        sourceRef: "1:SRC",
+        referencesArtifactHash: "hash:refs",
+        referenceIndex: index,
+        rawHash: `hash:${rawReferenceId}`,
+        parsedTitle: "Effective Target",
+        normalizedTitle: "effective target",
+        year: "2026",
+        authorsJson: "[]",
+        rawReference: "Effective Target. 2026.",
+        canonicalReferenceId,
+        status: "active",
+        diagnosticsJson: "[]",
+      }),
+    );
+    repository.upsertReferenceBinding({
+      bindingId: "binding:bound-auto",
+      canonicalReferenceId: "cref:bound-auto",
+      libraryId: 1,
+      itemKey: "BOUND2",
+      status: "auto",
+      confidence: "deterministic",
+      reviewer: "test",
+      basisHash: "hash:binding-auto",
+      diagnosticsJson: "[]",
+    });
+    repository.upsertReferenceBinding({
+      bindingId: "binding:bound-accepted",
+      canonicalReferenceId: "cref:bound-accepted",
+      libraryId: 1,
+      itemKey: "BOUND2",
+      status: "accepted",
+      confidence: "manual",
+      reviewer: "test",
+      basisHash: "hash:binding-accepted",
+      diagnosticsJson: "[]",
+    });
+    repository.upsertReferenceBinding({
+      bindingId: "binding:physical-b",
+      canonicalReferenceId: "cref:physical-b",
+      libraryId: 1,
+      itemKey: "BOUND",
+      status: "accepted",
+      confidence: "manual",
+      reviewer: "test",
+      basisHash: "hash:binding",
+      diagnosticsJson: "[]",
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:accepted-without-redirect",
+      kind: "canonical_merge",
+      status: "accepted",
+      sourceCanonicalReferenceId: "cref:accepted-only",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:accepted-only"]),
+      targetCanonicalReferenceId: "cref:effective",
+      confidence: "manual",
+      score: 1,
+      reasonsJson: JSON.stringify(["accepted_without_redirect_fixture"]),
+      evidenceJson: "{}",
+      diagnosticsJson: "[]",
+      basisHash: "sha256:accepted-without-redirect-basis",
+      sourceHash: "sha256:accepted-without-redirect-source",
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:effective-source-filter",
+      kind: "canonical_merge",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:accepted-only",
+      sourceRawReferenceIdsJson: JSON.stringify(["raw:accepted-only"]),
+      targetCanonicalReferenceId: "cref:physical-b",
+      confidence: "medium",
+      score: 0.5,
+      reasonsJson: JSON.stringify(["candidate"]),
+      evidenceJson: "{}",
+      diagnosticsJson: "[]",
+      basisHash: "sha256:effective-source-filter-basis",
+      sourceHash: "sha256:effective-source-filter-source",
+    });
+
+    const input = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const canonicalCandidates =
+      input.registry?.matchTargetCandidates?.filter(
+        (candidate) => candidate.kind === "canonical_reference",
+      ) || [];
+
+    assert.lengthOf(canonicalCandidates, 3);
+    const effectiveCandidate = canonicalCandidates.find(
+      (candidate) => candidate.canonicalReferenceId === "cref:effective",
+    );
+    const acceptedOnlyCandidate = canonicalCandidates.find(
+      (candidate) => candidate.canonicalReferenceId === "cref:accepted-only",
+    );
+    assert.deepInclude(effectiveCandidate, {
+      kind: "canonical_reference",
+      canonicalReferenceId: "cref:effective",
+      title: "Effective Target",
+      year: "2026",
+      bindingStatus: "accepted",
+      bindingTarget: {
+        libraryId: 1,
+        itemKey: "BOUND",
+        paperRef: "1:BOUND",
+      },
+    });
+    assert.deepEqual(effectiveCandidate?.rawReferenceIds, [
+      "raw:a",
+      "raw:b",
+      "raw:c",
+    ]);
+    assert.deepInclude(acceptedOnlyCandidate, {
+      kind: "canonical_reference",
+      canonicalReferenceId: "cref:accepted-only",
+      title: "Accepted Only",
+      year: "2026",
+    });
+    assert.deepEqual(acceptedOnlyCandidate?.rawReferenceIds, [
+      "raw:accepted-only",
+    ]);
+    const boundDuplicateCandidate = canonicalCandidates.find(
+      (candidate) => candidate.bindingTarget?.paperRef === "1:BOUND2",
+    );
+    assert.deepInclude(boundDuplicateCandidate, {
+      kind: "canonical_reference",
+      canonicalReferenceId: "cref:bound-accepted",
+      title: "Bound Duplicate",
+      year: "2026",
+      bindingStatus: "accepted",
+      bindingTarget: {
+        libraryId: 1,
+        itemKey: "BOUND2",
+        paperRef: "1:BOUND2",
+      },
+    });
+    assert.deepEqual(boundDuplicateCandidate?.rawReferenceIds, [
+      "raw:bound-accepted",
+      "raw:bound-auto",
+    ]);
+    const proposal = (input.registry?.matchProposals || []).find(
+      (row) => row.proposal_id === "proposal:effective-source-filter",
+    );
+    assert.equal(proposal?.kind, "canonical_merge");
+    assert.equal(proposal?.source_canonical_reference_id, "cref:accepted-only");
+    assert.equal(
+      proposal?.source_effective_canonical_reference_id,
+      "cref:accepted-only",
+    );
+    assert.equal(
+      proposal?.source_projected_literature_item_id,
+      "cref:accepted-only",
+    );
+    assert.equal(proposal?.target_canonical_reference_id, "cref:physical-b");
+    assert.equal(
+      proposal?.target_effective_canonical_reference_id,
+      "cref:effective",
+    );
+    assert.equal(proposal?.target_projected_literature_item_id, "1:BOUND");
+    assert.deepEqual(proposal?.source_raw_reference_ids, [
+      "raw:accepted-only",
+    ]);
+  });
+
+  it("filters manual target canonical candidates to citation graph projected nodes", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [],
+      now: () => "2026-06-10T00:00:00.000Z",
+    });
+    [
+      ["cref:bound-a", "End-to-end object detection with transformers"],
+      ["cref:bound-b", "End-to-end object detection with transformers"],
+      ["cref:ungraphed", "End-to-end object detection with transformers"],
+    ].forEach(([canonicalReferenceId, title]) =>
+      repository.upsertCanonicalReference({
+        canonicalReferenceId,
+        title,
+        normalizedTitle: title.toLowerCase(),
+        year: "2020",
+        authorsJson: "[]",
+        identifiersJson: "{}",
+        metadataHash: `hash:${canonicalReferenceId}`,
+        status: "active",
+      }),
+    );
+    [
+      ["raw:bound-a", "cref:bound-a"],
+      ["raw:bound-b", "cref:bound-b"],
+      ["raw:ungraphed", "cref:ungraphed"],
+    ].forEach(([rawReferenceId, canonicalReferenceId], index) =>
+      repository.upsertRawReference({
+        rawReferenceId,
+        sourceRef: "1:SRC",
+        referencesArtifactHash: "hash:refs",
+        referenceIndex: index,
+        rawHash: `hash:${rawReferenceId}`,
+        parsedTitle: "End-to-end object detection with transformers",
+        normalizedTitle: "end to end object detection with transformers",
+        year: "2020",
+        authorsJson: "[]",
+        rawReference: "End-to-end object detection with transformers. 2020.",
+        canonicalReferenceId,
+        status: "active",
+        diagnosticsJson: "[]",
+      }),
+    );
+    repository.upsertReferenceBinding({
+      bindingId: "binding:bound-a",
+      canonicalReferenceId: "cref:bound-a",
+      libraryId: 1,
+      itemKey: "BOUND",
+      status: "auto",
+      confidence: "deterministic",
+      reviewer: "test",
+      basisHash: "hash:binding-a",
+      diagnosticsJson: "[]",
+    });
+    repository.upsertReferenceBinding({
+      bindingId: "binding:bound-b",
+      canonicalReferenceId: "cref:bound-b",
+      libraryId: 1,
+      itemKey: "BOUND",
+      status: "accepted",
+      confidence: "manual",
+      reviewer: "test",
+      basisHash: "hash:binding-b",
+      diagnosticsJson: "[]",
+    });
+    repository.upsertCitationNode({
+      literatureItemId: "1:BOUND",
+      nodeStatus: "active",
+      hasZoteroBinding: true,
+      title: "End-to-end object detection with transformers",
+      year: "2020",
+      summaryJson: "{}",
+    });
+
+    const input = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const canonicalCandidates =
+      input.registry?.matchTargetCandidates?.filter(
+        (candidate) => candidate.kind === "canonical_reference",
+      ) || [];
+
+    assert.lengthOf(canonicalCandidates, 1);
+    assert.deepInclude(canonicalCandidates[0], {
+      kind: "canonical_reference",
+      canonicalReferenceId: "cref:bound-a",
+      title: "End-to-end object detection with transformers",
+      year: "2020",
+      bindingStatus: "accepted",
+      bindingTarget: {
+        libraryId: 1,
+        itemKey: "BOUND",
+        paperRef: "1:BOUND",
+      },
+    });
+    assert.deepEqual(canonicalCandidates[0]?.rawReferenceIds, [
+      "raw:bound-a",
+      "raw:bound-b",
+    ]);
+  });
+
   it("runs advanced canonical dedupe as an explicit proposal/fact operation", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -1718,6 +2355,17 @@ describe("Synthesis Layer v1 integration service", function () {
     });
 
     await updated.refreshReferenceSidecarNow();
+    const staleSnapshot = await updated.getSynthesisSnapshot();
+
+    assert.equal(
+      staleSnapshot.graph.diagnostics.cache_status,
+      "stale",
+    );
+
+    const refresh = await updated.refreshCitationGraphCacheIncrementalNow();
+    assert.equal(refresh.status, "completed");
+    assert.include(refresh.affected_source_refs, "1:A");
+
     const metrics = await updated.getCitationGraphMetrics({
       paperRefs: ["1:C"],
     });
@@ -2160,6 +2808,12 @@ function v2SectionContext(
         content_type: "json",
         schema_id: "synthesis.topic_graph_relation_proposals",
       },
+      prospective_topic_relation_proposals: {
+        path: "result/sidecars/prospective-topic-relation-proposals.json",
+        hash: "sha256:prospective-topic-relation-proposals",
+        content_type: "json",
+        schema_id: "synthesis.prospective_topic_relation_proposals",
+      },
     },
     sections: sectionEntries,
   };
@@ -2192,6 +2846,13 @@ function v2SectionContext(
         schema_id: "synthesis.topic_graph_relation_proposals",
         proposals: [],
         diagnostics: [],
+      }),
+    ],
+    [
+      "result/sidecars/prospective-topic-relation-proposals.json",
+      JSON.stringify({
+        schema_id: "synthesis.prospective_topic_relation_proposals",
+        proposals: [],
       }),
     ],
     [
@@ -2237,7 +2898,7 @@ function v2SectionContext(
   };
 }
 
-function v2SectionsWithEvidence(payloadHash: string) {
+function v2SectionsWithEvidence(payloadHash = "") {
   return {
     topic: {
       id: "object-detection",
@@ -2249,12 +2910,6 @@ function v2SectionsWithEvidence(payloadHash: string) {
       scope_boundary: { include: ["DETR"], exclude: [] },
     },
     summary: { brief: "structured summary" },
-    positioning: {
-      importance: "Object detection is a core perception task.",
-      timeliness: "Recent detector families require structured comparison.",
-      scope_boundary: { include: ["DETR"], exclude: [] },
-      review_position: "Review-ready synthesis fixture.",
-    },
     taxonomy: {
       primary_axis: "method_route",
       axis_rationale: "Fixture has one route.",
@@ -2268,39 +2923,38 @@ function v2SectionsWithEvidence(payloadHash: string) {
           definition: "End-to-end set prediction route for object detection.",
           core_problem: "Reduce hand-designed detection pipeline components.",
           mechanism: "Transformer object queries and bipartite matching.",
-          representative_papers: ["paper:1:DETR"],
+          source_paper_refs: ["1:DETR"],
           strengths: ["Unified detection formulation"],
           limitations: ["Fixture route has one paper"],
           maturity: "early fixture",
-          evidence_map_refs: ["tax:detr"],
         },
       ],
     },
     comparison_matrix: {
       dimensions: ["problem addressed"],
-      rows: [{ id: "cmp:detr", evidence_map_refs: ["cmp:detr"] }],
+      rows: [{ id: "cmp:detr", source_paper_refs: ["1:DETR"] }],
     },
-    improvement_dimension_summary: {
-      text: "The fixture treats end-to-end formulation as the primary improvement dimension.",
-    },
-    improvement_dimensions: [
-      {
-        id: "dimension:detr",
-        title: "End-to-end formulation",
-        summary:
-          "DETR is represented as a fixture improvement dimension for object detection synthesis.",
-        evidence_refs: ["paper:1:DETR"],
-        evidence_map_refs: ["cmp:detr"],
+    improvement_dimensions: {
+      summary: {
+        text: "The fixture treats end-to-end formulation as the primary improvement dimension.",
       },
-    ],
+      dimensions: [
+        {
+          id: "dimension:detr",
+          title: "End-to-end formulation",
+          analysis:
+            "DETR is represented as a fixture improvement dimension for object detection synthesis.",
+          source_paper_refs: ["1:DETR"],
+        },
+      ],
+    },
     claims: [
       {
         id: "claim:detr",
         text: "DETR introduced end-to-end detection.",
         analysis:
           "The fixture claim is supported by DETR's set-prediction formulation.",
-        evidence_refs: ["paper:1:DETR"],
-        evidence_map_refs: ["claim:detr"],
+        source_paper_refs: ["1:DETR"],
         confidence: 0.8,
         limitations: ["Fixture has one evidence paper."],
       },
@@ -2318,60 +2972,76 @@ function v2SectionsWithEvidence(payloadHash: string) {
           phase: "paradigm_shift",
           progression_logic:
             "Later detector transformer work builds on this formulation.",
-          evidence_refs: ["paper:1:DETR"],
-          evidence_map_refs: ["claim:detr"],
+          source_paper_refs: ["1:DETR"],
         },
       ],
     },
-    paper_evidence: [
+    source_papers: [
       {
-        id: "paper:1:DETR",
         paper_ref: "1:DETR",
         title: "Paper DETR",
         digest_ref: {
           paper_ref: "1:DETR",
           note_key: "digest-markdown-note",
           payload_type: "digest-markdown",
-          payload_hash: payloadHash,
+          ...(payloadHash ? { payload_hash: payloadHash } : {}),
         },
       },
     ],
-    external_literature_analysis: {
-      summary: "This is a summary of external literature analysis.",
-      themes: [{ id: "theme:transformer", title: "Transformer background" }],
-      representative_references: [],
-      citation_contexts: [],
-      contribution_to_topic: "",
-      limitations: "",
-      coverage_verdict: "partial",
-      suggested_additions: [],
-    },
     debates: [
       {
         id: "debate:detr",
         evidence_type: "methodological_tradeoff",
-        evidence_map_refs: ["debate:detr"],
+        source_paper_refs: ["1:DETR"],
       },
     ],
     coverage: {
       paper_count: 1,
       external_literature_count: 0,
       coverage_verdict: "partial",
-      route_coverage_summary: "Fixture covers one DETR route.",
+      coverage_reason: "Fixture covers one DETR route.",
+      coverage_caveats: [],
+      external_context_summary:
+        "This is a summary of external literature coverage.",
+      suggested_collection_directions: [],
     },
-    gaps: [
+    future_directions: [
       {
-        id: "gap:coverage",
-        gap_type: "library_coverage_gap",
-        evidence_map_refs: ["gap:coverage"],
+        id: "future:benchmark-coverage",
+        title: "Broaden benchmark comparison",
+        direction_type: "evaluation_gap",
+        current_limitation:
+          "The fixture source set only covers a single DETR evidence boundary.",
+        future_direction:
+          "Future synthesis should compare additional benchmark settings before making stronger coverage claims.",
+        rationale:
+          "The source paper fixture supports a narrow validation path and motivates broader evaluation.",
+        source_paper_refs: ["1:DETR"],
       },
     ],
     review_outline: {
-      introduction_logic: [
-        { id: "intro:why", evidence_map_refs: ["claim:detr"] },
+      topic_importance:
+        "Object detection is a core perception task that can be reviewed from the current source set.",
+      writing_strategies: [
+        {
+          id: "strategy:fixture",
+          title: "Source paper route review",
+          review_thesis:
+            "Use DETR as a minimal source-paper route to explain query-based object detection.",
+          writing_strategy:
+            "Start with the task definition, explain the DETR route, then state coverage limits.",
+          section_plan: [
+            "Define object detection",
+            "Explain the DETR source route",
+            "Summarize coverage limits",
+          ],
+          best_for: "A minimal fixture review.",
+          risks:
+            "The fixture has one source paper and cannot support field-wide conclusions.",
+          source_paper_refs: ["1:DETR"],
+        },
       ],
-      related_work_logic: [],
-      body_sections: [],
+      recommended_strategy_id: "strategy:fixture",
     },
     statistics: {
       paper_count: 1,
@@ -2385,19 +3055,29 @@ function v2SectionsWithEvidence(payloadHash: string) {
         research_routes: "taxonomy.summary",
         historical_progression: "timeline_events.summary",
       },
-      body: "This fixture topic synthesis describes object detection through a single DETR evidence paper. DETR introduced a set-prediction framing that reduced reliance on hand-designed post-processing and made query-based detection a coherent research route. Because the fixture contains only one paper, the taxonomy, timeline, claims, and external literature analysis are intentionally partial and should be treated as a minimal validation artifact rather than a full domain synthesis.",
-    },
-    evidence_map: {
-      path: "runtime/payloads/cross-paper-evidence-map.json",
-      hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      candidate_counts: {},
-      candidate_ids: [
-        "tax:detr",
-        "cmp:detr",
-        "claim:detr",
-        "debate:detr",
-        "gap:coverage",
-      ],
+      body: [
+        "# Object Detection",
+        "",
+        "This fixture topic synthesis describes object detection through a single DETR evidence paper.",
+        "",
+        "## 技术路线",
+        "",
+        "### Query-based detection",
+        "",
+        "- 定义：DETR introduced a set-prediction framing for object detection.",
+        "- 代表文献：[1]",
+        "",
+        "## 时间线",
+        "",
+        "### DETR set prediction (2020) —— *method introduction*",
+        "",
+        "- 主要成果：DETR introduced a set-prediction framing that reduced reliance on hand-designed post-processing.",
+        "- 代表文献：[1]",
+        "",
+        "## 文献列表",
+        "",
+        "- [1] *DETR* (2020) {1:DETR} :red_circle:",
+      ].join("\n"),
     },
     source_artifacts: [],
     diagnostics: { warnings: [] },
@@ -2415,14 +3095,13 @@ async function importOptional(modulePath: string) {
 describe("Synthesis Layer v2 structured persistence red tests", function () {
   it("uses explicit current/ canonical paths instead of current.md/current.json", async function () {
     const root = await makeRoot();
-    const runtimeRoot = path.join(root, "runtime");
+    const synthesisDataRoot = path.join(root, "data", "synthesis");
     const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
 
     assert.equal(
       paths.currentManifest,
       path.join(
-        runtimeRoot,
-        "synthesis",
+        synthesisDataRoot,
         "topics",
         "object-detection",
         "current",
@@ -2432,8 +3111,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentArtifact,
       path.join(
-        runtimeRoot,
-        "synthesis",
+        synthesisDataRoot,
         "topics",
         "object-detection",
         "current",
@@ -2443,8 +3121,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(
       paths.currentMetadata,
       path.join(
-        runtimeRoot,
-        "synthesis",
+        synthesisDataRoot,
         "topics",
         "object-detection",
         "current",
@@ -2452,21 +3129,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ),
     );
     assert.equal(
-      paths.currentExportMarkdown,
-      path.join(
-        runtimeRoot,
-        "synthesis",
-        "topics",
-        "object-detection",
-        "current",
-        "export.md",
-      ),
-    );
-    assert.equal(
       paths.currentSectionsRoot,
       path.join(
-        runtimeRoot,
-        "synthesis",
+        synthesisDataRoot,
         "topics",
         "object-detection",
         "current",
@@ -2474,6 +3139,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ),
     );
     assert.notProperty(paths, "currentMarkdown");
+    assert.notProperty(paths, "currentExportMarkdown");
   });
 
   it("applies structured topic results into current/ assets without mirror writes", async function () {
@@ -2502,25 +3168,37 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     const reviewInput = await service.getReviewInput({
       topicId: "object-detection",
     });
+    const artifact = JSON.parse(
+      await fs.readFile(paths.currentArtifact, "utf8"),
+    );
+    const reportBody = artifact.synthesis_report?.body || "";
 
     assert.equal(result.status, "persisted");
     assert.isTrue(await exists(paths.currentManifest));
     assert.isTrue(await exists(paths.currentArtifact));
     assert.isTrue(await exists(paths.currentMetadata));
-    assert.isTrue(await exists(paths.currentExportMarkdown));
+    assert.equal(
+      await exists(legacyCurrentExportPath(root, "object-detection")),
+      false,
+    );
     assert.isTrue(
       await exists(path.join(paths.currentSectionsRoot, "claims.json")),
     );
     assert.lengthOf(mirror.upserts, 0);
-    assert.include(reviewInput.topic.markdown, "# Object Detection");
+    assert.equal(reviewInput.topic.markdown, reportBody);
+    assert.include(reportBody, "## 技术路线");
+    assert.include(reportBody, "DETR introduced a set-prediction framing");
+    assert.notInclude(reportBody, "```json");
     assert.equal(
       reviewInput.structured_topic?.artifact.schema_id,
       "synthesis.topic_synthesis_artifact",
     );
     assert.isArray(reviewInput.structured_topic?.claims);
     assert.isObject(reviewInput.structured_topic?.timeline_events);
-    assert.isArray(reviewInput.structured_topic?.paper_evidence);
-    assert.isObject(reviewInput.structured_topic?.external_literature_analysis);
+    assert.isArray(reviewInput.structured_topic?.source_papers);
+    assert.isString(
+      (reviewInput.structured_topic?.coverage as any).external_context_summary,
+    );
   });
 
   it("applies split final candidates using manifest sidecar paths and exposes provenance", async function () {
@@ -2558,7 +3236,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       detail.artifact_provenance.manifest_schema_id,
       "synthesis.topic_analysis_manifest",
     );
-    assert.equal(detail.artifact_provenance.sidecar_count, 3);
+    assert.equal(detail.artifact_provenance.sidecar_count, 4);
     assert.isAtLeast(Number(detail.artifact_provenance.section_count), 10);
     assert.equal(
       detail.artifact_provenance.sidecars.topic_interest_metadata.schema_id,
@@ -2649,6 +3327,19 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ],
     });
 
+    for (const [topicId, title] of [
+      ["computer-vision", "Computer Vision"],
+      ["set-prediction", "Set Prediction"],
+    ]) {
+      await service.applyTopicSynthesisResult(
+        v2TopicBundle({
+          topic_definition: { id: topicId, title },
+          artifact_metadata: { topic_id: topicId },
+        }),
+        v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
+      );
+    }
+
     const result = await service.applyTopicSynthesisResult(
       v2TopicBundle(),
       v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR")), {
@@ -2671,14 +3362,25 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
           source_topic_id: "object-detection",
           proposals: [
             {
-              proposal_type: "broader_topic_candidate",
+              relation_type: "target_is_broader_topic_candidate",
               target_topic_id: "computer-vision",
               target_title: "Computer Vision",
+              source_paper_refs: ["1:DETR"],
             },
             {
-              proposal_type: "related_topic_candidate",
+              relation_type: "related_topic_candidate",
               target_topic_id: "set-prediction",
               target_title: "Set Prediction",
+              source_paper_refs: ["1:DETR"],
+            },
+          ],
+        },
+        "result/sidecars/prospective-topic-relation-proposals.json": {
+          schema_id: "synthesis.prospective_topic_relation_proposals",
+          proposals: [
+            {
+              target_topic_seed: "query-centric object detection",
+              relation_type: "related_topic_candidate",
             },
           ],
         },
@@ -2700,11 +3402,38 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       graph.edges.map((edge) => edge.relation),
       ["broader_than", "related_to"],
     );
+    const broaderEdge = graph.edges.find(
+      (edge) => edge.relation === "broader_than",
+    );
+    assert.equal(broaderEdge?.source_topic_id, "computer-vision");
+    assert.equal(broaderEdge?.target_topic_id, "object-detection");
     const materialized = graph.nodes.find(
       (node) => node.topic_id === "object-detection",
     );
     assert.equal(materialized?.node_type, "materialized");
     assert.equal(materialized?.paper_count, 1);
+    const topics = await service.listTopics();
+    const objectDetectionTopic = topics.topics.find(
+      (topic) => topic.topic_id === "object-detection",
+    );
+    assert.deepEqual(
+      objectDetectionTopic?.prospective_topic_relation_proposals,
+      [
+        {
+          target_topic_seed: "query-centric object detection",
+          relation_type: "related_topic_candidate",
+        },
+      ],
+    );
+    const topicContext = await service.getTopicContext({
+      topicId: "object-detection",
+    });
+    assert.deepEqual(topicContext.prospective_topic_relation_proposals, [
+      {
+        target_topic_seed: "query-centric object detection",
+        relation_type: "related_topic_candidate",
+      },
+    ]);
   });
 
   it("persists topic interest metadata sidecar after structured apply [inv.topic.registry_rebuild_not_changed]", async function () {
@@ -2746,7 +3475,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     const state = await topicFreshnessState(root, "object-detection");
     const topicContext = (await service.getTopicContext({
       topicId: "object-detection",
+      includeMarkdown: true,
     })) as {
+      markdown?: string;
       freshness?: {
         freshness?: string;
         known_dependency_status?: string;
@@ -2755,8 +3486,26 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       };
       discovery_hints?: Array<{ literatureItemId: string }>;
     };
+    const topicReport = (await service.getTopicReport({
+      topicId: "object-detection",
+    })) as {
+      ok?: boolean;
+      markdown?: string;
+      source?: { field?: string; ssot?: string };
+    };
 
     assert.equal(result.status, "persisted");
+    assert.isTrue(topicReport.ok);
+    assert.equal(topicReport.markdown, topicContext.markdown);
+    assert.include(
+      topicReport.markdown || "",
+      "DETR introduced a set-prediction framing",
+    );
+    assert.deepEqual(topicReport.source, {
+      path: "topics/object-detection/current/artifact.json",
+      field: "synthesis_report.body",
+      ssot: "runtime.synthesis_report.body",
+    });
     assert.isOk(metadata);
     assert.deepEqual(JSON.parse(metadata?.includeTermsJson || "[]"), [
       "object detection",
@@ -2780,13 +3529,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ["lit:candidate"],
     );
 
-    repository.upsertLiteratureItem({
-      literatureItemId: "lit:new-candidate",
-      displayTitle: "New DETR Candidate",
-      normalizedTitle: "new detr candidate",
-      titleNormalizerVersion: "test",
-      status: "active",
-    });
     repository.upsertLiteratureMatchingMetadata({
       literatureItemId: "lit:new-candidate",
       keyTermsJson: JSON.stringify(["object detection"]),
@@ -2809,7 +3551,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     );
   });
 
-  it("accepts structured paper evidence when digest_ref hash matches current Zotero artifact", async function () {
+  it("accepts structured paper evidence without digest_ref payload_hash", async function () {
     const root = await makeRoot();
     const digest = "# Digest DETR";
     const service = createSynthesisService({
@@ -2828,7 +3570,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
 
     const result = await service.applyTopicSynthesisResult(
       v2TopicBundle(),
-      v2SectionContext(v2SectionsWithEvidence(hashMarkdown(digest))),
+      v2SectionContext(v2SectionsWithEvidence()),
     );
 
     assert.equal(result.status, "persisted");
@@ -2863,7 +3605,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     }
   });
 
-  it("rejects structured paper evidence when digest_ref hash differs from current Zotero artifact", async function () {
+  it("accepts structured paper evidence when digest_ref hash differs from current Zotero artifact", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
@@ -2879,18 +3621,12 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       ],
     });
 
-    try {
-      await service.applyTopicSynthesisResult(
-        v2TopicBundle(),
-        v2SectionContext(v2SectionsWithEvidence("sha256:stale")),
-      );
-      assert.fail("expected stale digest_ref payload_hash to be rejected");
-    } catch (error) {
-      assert.match(
-        error instanceof Error ? error.message : String(error),
-        /digest refs|payload_hash mismatch/i,
-      );
-    }
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle(),
+      v2SectionContext(v2SectionsWithEvidence("sha256:stale")),
+    );
+
+    assert.equal(result.status, "persisted");
   });
 
   it("keeps legacy current.md/current.json topic directories out of Workbench UI reads", async function () {
@@ -2924,8 +3660,8 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.isUndefined(row);
   });
 
-  it("uses bundle base hashes for create/full update and read section hashes for update patch", function () {
-    const createDecision = decideSynthesisApply({
+  it("does not block apply on stale legacy hash fields", function () {
+    const fullUpdateDecision = decideSynthesisApply({
       bundle: v2TopicBundle({
         operation: "update_full",
         base_hashes: {
@@ -2960,13 +3696,10 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       },
     });
 
-    assert.equal(createDecision.action, "conflict");
-    assert.deepInclude(createDecision.mismatches, {
-      name: "manifest",
-      base: "sha256:old-manifest",
-      current: "sha256:new-manifest",
-    });
+    assert.equal(fullUpdateDecision.action, "persist");
+    assert.deepEqual(fullUpdateDecision.mismatches, []);
     assert.equal(patchDecision.action, "persist");
+    assert.deepEqual(patchDecision.mismatches, []);
   });
 
   it("allows non-overlapping section patches despite unrelated artifact hash drift", async function () {

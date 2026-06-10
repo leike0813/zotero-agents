@@ -5,6 +5,7 @@ TBD - created by archiving change spike-acp-embedded-zotero-mcp-server. Update P
 ## Requirements
 ### Requirement: Embedded MCP server SHALL expose a minimal localhost HTTP endpoint
 
+
 The plugin SHALL provide a spike-only MCP server bound to localhost.
 
 #### Scenario: Health endpoint
@@ -32,19 +33,21 @@ The plugin SHALL provide a spike-only MCP server bound to localhost.
 
 - **WHEN** an official MCP SDK client connects with `StreamableHTTPClientTransport`
 - **THEN** the client SHALL complete initialization
-- **AND** the client SHALL be able to list and call `zotero.get_current_view`.
+- **AND** the client SHALL be able to list and call `context.get_current_view`.
+### Requirement: Host Bridge current view capability SHALL be available
 
-### Requirement: Zotero current view tool SHALL be available
+The embedded MCP server SHALL expose read-only Host Bridge capabilities as MCP
+tools using the exact current Host Bridge capability names.
 
-The embedded MCP server SHALL expose a read-only `zotero.get_current_view` tool.
-
-#### Scenario: Tool call
-
-- **WHEN** the client calls `zotero.get_current_view`
-- **THEN** the response SHALL include current ACP host context fields
-- **AND** the response SHALL include a compact text summary.
-
+#### Scenario: MCP mirrors renamed Host Bridge namespaces
+- **WHEN** an MCP client lists tools
+- **THEN** the listed Host Bridge tools SHALL include renamed domain capability
+  names such as `topics.list`, `citation_graph.get_metrics`,
+  `paper_artifacts.export_filtered`, and `insights.get_attention_queue`
+- **AND** the tool list SHALL NOT include old public `synthesis.*` capability
+  names.
 ### Requirement: ACP session setup SHALL inject the MCP server descriptor when available
+
 
 ACP session creation and attachment SHALL pass the embedded Zotero MCP server to
 the backend when the server is running. The descriptor SHALL be the direct
@@ -67,8 +70,8 @@ a host MCP gateway, proxy URL, stdio shim, or equivalent forwarding layer.
 - **WHEN** the embedded MCP server cannot start
 - **THEN** ACP session setup SHALL continue without MCP servers
 - **AND** diagnostics SHALL include `zotero_mcp_unavailable`.
-
 ### Requirement: MCP diagnostics SHALL be observable and safe
+
 
 The system SHALL expose embedded MCP status in diagnostics without leaking secrets.
 
@@ -79,8 +82,8 @@ The system SHALL expose embedded MCP status in diagnostics without leaking secre
 - **AND** it SHALL mask bearer tokens and authorization headers.
 - **AND** it SHALL include a bounded recent request log with JSON-RPC method names and HTTP response status.
 - **AND** it SHALL include the current SSE client count.
-
 ### Requirement: Embedded MCP server SHALL be stopped during cleanup
+
 
 The embedded MCP server SHALL release its listening port during ACP/plugin cleanup.
 
@@ -88,8 +91,8 @@ The embedded MCP server SHALL release its listening port during ACP/plugin clean
 
 - **WHEN** ACP runtime test reset or plugin shutdown cleanup runs
 - **THEN** the embedded MCP server SHALL stop and release its port.
-
 ### Requirement: Embedded MCP server SHALL expose a localhost HTTP endpoint
+
 
 The plugin SHALL provide an embedded MCP server bound to localhost when the MCP
 server preference is enabled.
@@ -105,8 +108,8 @@ server preference is enabled.
 - **GIVEN** `mcpServer.enabled` is false
 - **WHEN** the plugin starts or an ACP compatibility path asks for MCP
 - **THEN** the embedded MCP server SHALL remain stopped
-
 ### Requirement: Embedded MCP server SHALL use Host Bridge authentication
+
 
 The embedded MCP server SHALL accept the same bearer token authentication as the
 Host Bridge CLI and SHALL NOT mint a separate MCP-only token.
@@ -116,8 +119,8 @@ Host Bridge CLI and SHALL NOT mint a separate MCP-only token.
 - **GIVEN** a client has the current Host Bridge bearer token
 - **WHEN** it calls the MCP endpoint with `Authorization: Bearer <token>`
 - **THEN** the request SHALL be authorized
-
 ### Requirement: MCP tools SHALL mirror Host Bridge capabilities
+
 
 The embedded MCP server SHALL expose Host Bridge capability names as MCP tool
 names and SHALL dispatch calls through the Host Bridge capability registry.
@@ -129,4 +132,3 @@ names and SHALL dispatch calls through the Host Bridge capability registry.
   `context.get_current_view`, `library.get_item_detail`, and
   `diagnostic.get_status`
 - **AND** the returned tools SHALL NOT require legacy MCP-specific names
-

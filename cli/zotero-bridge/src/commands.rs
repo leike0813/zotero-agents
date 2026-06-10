@@ -8,13 +8,16 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     args::{
-        CallArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        DebugSynthesisCommand, DebugSynthesisJobsCommand, DebugSynthesisMaintenanceCommand,
-        DebugSynthesisQueueCommand, DebugSynthesisWorkerCommand, FileArgs, FileCommand,
-        FileDownloadArgs, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs,
-        LiteratureArgs, LiteratureCommand, LiteratureIngestArgs, NoteArgs, NoteCommand,
-        NoteDetailArgs, NotePayloadArgs, SynthesisArgs, SynthesisCommand, TaskArgs, TaskCommand,
-        TaskListArgs, WorkflowArgs, WorkflowCommand, WorkflowRunArgs, WorkflowSubmitArgs,
+        BridgeInputArgs, CallArgs, CitationGraphArgs, CitationGraphCommand, ConceptsArgs,
+        ConceptsCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, InsightsArgs,
+        InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs,
+        LibraryIndexArgs, LibraryIndexCommand, LiteratureArgs, LiteratureCommand,
+        LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
+        PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
+        ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand,
+        WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -71,9 +74,57 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
     }
 }
 
-pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, CliError> {
-    let capability = synthesis_capability(&args.command);
-    let input = synthesis_input(args.command)?;
+pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
+    let capability = topics_capability(&args.command);
+    let input = bridge_input(topics_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn schemas(config: &BridgeConfig, args: SchemasArgs) -> Result<Value, CliError> {
+    let capability = schemas_capability(&args.command);
+    let input = bridge_input(schemas_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn concepts(config: &BridgeConfig, args: ConceptsArgs) -> Result<Value, CliError> {
+    let capability = concepts_capability(&args.command);
+    let input = bridge_input(concepts_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<Value, CliError> {
+    let capability = citation_graph_capability(&args.command);
+    let input = bridge_input(citation_graph_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn library_index(config: &BridgeConfig, args: LibraryIndexArgs) -> Result<Value, CliError> {
+    let capability = library_index_capability(&args.command);
+    let input = bridge_input(library_index_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
+    let capability = resolvers_capability(&args.command);
+    let input = bridge_input(resolvers_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn reference_index(config: &BridgeConfig, args: ReferenceIndexArgs) -> Result<Value, CliError> {
+    let capability = reference_index_capability(&args.command);
+    let input = bridge_input(reference_index_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn paper_artifacts(config: &BridgeConfig, args: PaperArtifactsArgs) -> Result<Value, CliError> {
+    let capability = paper_artifacts_capability(&args.command);
+    let input = bridge_input(paper_artifacts_input(args.command))?;
+    call_capability(config, capability, input)
+}
+
+pub fn insights(config: &BridgeConfig, args: InsightsArgs) -> Result<Value, CliError> {
+    let capability = insights_capability(&args.command);
+    let input = bridge_input(insights_input(args.command))?;
     call_capability(config, capability, input)
 }
 
@@ -171,59 +222,17 @@ fn debug_synthesis_capability_and_input(
         DebugSynthesisCommand::InspectTopic(input) => {
             Ok(("debug.synthesis.topic.inspect", debug_input(input)?))
         }
-        DebugSynthesisCommand::Queue(args) => {
-            debug_synthesis_queue_capability_and_input(args.command)
+        DebugSynthesisCommand::Operations(input) => {
+            Ok(("debug.synthesis.operations.list", debug_input(input)?))
         }
-        DebugSynthesisCommand::Jobs(args) => {
-            debug_synthesis_jobs_capability_and_input(args.command)
+        DebugSynthesisCommand::Profiler(input) => {
+            Ok(("debug.synthesis.profiler.list", debug_input(input)?))
         }
-        DebugSynthesisCommand::Worker(args) => match args.command {
-            DebugSynthesisWorkerCommand::Run(input) => {
-                Ok(("debug.synthesis.worker.run", debug_input(input)?))
-            }
-        },
-        DebugSynthesisCommand::Maintenance(args) => match args.command {
-            DebugSynthesisMaintenanceCommand::Run(input) => {
-                Ok(("debug.synthesis.maintenance.run", debug_input(input)?))
-            }
-        },
-    }
-}
-
-fn debug_synthesis_queue_capability_and_input(
-    command: DebugSynthesisQueueCommand,
-) -> Result<(&'static str, Value), CliError> {
-    match command {
-        DebugSynthesisQueueCommand::List(input) => {
-            Ok(("debug.synthesis.queue.list", debug_input(input)?))
+        DebugSynthesisCommand::Cache(input) => {
+            Ok(("debug.synthesis.cache.list", debug_input(input)?))
         }
-        DebugSynthesisQueueCommand::Enqueue(input) => {
-            Ok(("debug.synthesis.queue.enqueue", debug_input(input)?))
-        }
-        DebugSynthesisQueueCommand::Retry(input) => {
-            Ok(("debug.synthesis.queue.retry", debug_input(input)?))
-        }
-        DebugSynthesisQueueCommand::Pause(input) => {
-            Ok(("debug.synthesis.queue.pause", debug_input(input)?))
-        }
-        DebugSynthesisQueueCommand::Resume(input) => {
-            Ok(("debug.synthesis.queue.resume", debug_input(input)?))
-        }
-        DebugSynthesisQueueCommand::Clear(input) => {
-            Ok(("debug.synthesis.queue.clear", debug_input(input)?))
-        }
-    }
-}
-
-fn debug_synthesis_jobs_capability_and_input(
-    command: DebugSynthesisJobsCommand,
-) -> Result<(&'static str, Value), CliError> {
-    match command {
-        DebugSynthesisJobsCommand::List(input) => {
-            Ok(("debug.synthesis.jobs.list", debug_input(input)?))
-        }
-        DebugSynthesisJobsCommand::ClearStale(input) => {
-            Ok(("debug.synthesis.jobs.clearStale", debug_input(input)?))
+        DebugSynthesisCommand::CleanInstallReset(input) => {
+            Ok(("debug.synthesis.cleanInstallReset", debug_input(input)?))
         }
     }
 }
@@ -232,48 +241,141 @@ fn debug_input(args: DebugInputArgs) -> Result<Value, CliError> {
     read_json_arg(args.input.as_deref())
 }
 
-fn synthesis_capability(command: &SynthesisCommand) -> &'static str {
+fn topics_capability(command: &TopicsCommand) -> &'static str {
     match command {
-        SynthesisCommand::ListTopics(_) => "synthesis.list_topics",
-        SynthesisCommand::GetTopicContext(_) => "synthesis.get_topic_context",
-        SynthesisCommand::GetSchemas(_) => "synthesis.get_schemas",
-        SynthesisCommand::QueryConceptKb(_) => "synthesis.query_concept_kb",
-        SynthesisCommand::QueryCitationGraphCluster(_) => "synthesis.query_citation_graph_cluster",
-        SynthesisCommand::GetLibraryIndex(_) => "synthesis.get_library_index",
-        SynthesisCommand::ResolveResolver(_) => "synthesis.resolve_resolver",
-        SynthesisCommand::GetReferenceSidecarIndex(_) => "synthesis.get_reference_sidecar_index",
-        SynthesisCommand::QueryCitationGraph(_) => "synthesis.query_citation_graph",
-        SynthesisCommand::GetCitationGraphSlice(_) => "synthesis.get_citation_graph_slice",
-        SynthesisCommand::GetCitationGraphMetrics(_) => "synthesis.get_citation_graph_metrics",
-        SynthesisCommand::GetPaperArtifactManifest(_) => "synthesis.get_paper_artifact_manifest",
-        SynthesisCommand::ReadPaperArtifacts(_) => "synthesis.read_paper_artifacts",
-        SynthesisCommand::ExportFilteredPaperArtifacts(_) => {
-            "synthesis.export_filtered_paper_artifacts"
-        }
-        SynthesisCommand::ResolveTopicPaperDigest(_) => "synthesis.resolve_topic_paper_digest",
-        SynthesisCommand::GetReviewInput(_) => "synthesis.get_review_input",
+        TopicsCommand::List(_) => "topics.list",
+        TopicsCommand::GetContext(_) => "topics.get_context",
+        TopicsCommand::GetReport(_) => "topics.get_report",
+        TopicsCommand::GetReviewInput(_) => "topics.get_review_input",
     }
 }
 
-fn synthesis_input(command: SynthesisCommand) -> Result<Value, CliError> {
-    let args = match command {
-        SynthesisCommand::ListTopics(args)
-        | SynthesisCommand::GetTopicContext(args)
-        | SynthesisCommand::GetSchemas(args)
-        | SynthesisCommand::QueryConceptKb(args)
-        | SynthesisCommand::QueryCitationGraphCluster(args)
-        | SynthesisCommand::GetLibraryIndex(args)
-        | SynthesisCommand::ResolveResolver(args)
-        | SynthesisCommand::GetReferenceSidecarIndex(args)
-        | SynthesisCommand::QueryCitationGraph(args)
-        | SynthesisCommand::GetCitationGraphSlice(args)
-        | SynthesisCommand::GetCitationGraphMetrics(args)
-        | SynthesisCommand::GetPaperArtifactManifest(args)
-        | SynthesisCommand::ReadPaperArtifacts(args)
-        | SynthesisCommand::ExportFilteredPaperArtifacts(args)
-        | SynthesisCommand::ResolveTopicPaperDigest(args)
-        | SynthesisCommand::GetReviewInput(args) => args,
-    };
+fn topics_input(command: TopicsCommand) -> BridgeInputArgs {
+    match command {
+        TopicsCommand::List(args)
+        | TopicsCommand::GetContext(args)
+        | TopicsCommand::GetReport(args)
+        | TopicsCommand::GetReviewInput(args) => args,
+    }
+}
+
+fn schemas_capability(command: &SchemasCommand) -> &'static str {
+    match command {
+        SchemasCommand::Get(_) => "schemas.get",
+    }
+}
+
+fn schemas_input(command: SchemasCommand) -> BridgeInputArgs {
+    match command {
+        SchemasCommand::Get(args) => args,
+    }
+}
+
+fn concepts_capability(command: &ConceptsCommand) -> &'static str {
+    match command {
+        ConceptsCommand::Query(_) => "concepts.query",
+    }
+}
+
+fn concepts_input(command: ConceptsCommand) -> BridgeInputArgs {
+    match command {
+        ConceptsCommand::Query(args) => args,
+    }
+}
+
+fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
+    match command {
+        CitationGraphCommand::Overview(_) => "citation_graph.get_overview",
+        CitationGraphCommand::QueryCluster(_) => "citation_graph.query_cluster",
+        CitationGraphCommand::GetSlice(_) => "citation_graph.get_slice",
+        CitationGraphCommand::GetMetrics(_) => "citation_graph.get_metrics",
+        CitationGraphCommand::RankExternalReferences(_) => {
+            "citation_graph.rank_external_references"
+        }
+        CitationGraphCommand::RankLibraryPapers(_) => "citation_graph.rank_library_papers",
+        CitationGraphCommand::RefreshMetrics(_) => "citation_graph.refresh_metrics",
+    }
+}
+
+fn citation_graph_input(command: CitationGraphCommand) -> BridgeInputArgs {
+    match command {
+        CitationGraphCommand::Overview(args)
+        | CitationGraphCommand::QueryCluster(args)
+        | CitationGraphCommand::GetSlice(args)
+        | CitationGraphCommand::GetMetrics(args)
+        | CitationGraphCommand::RankExternalReferences(args)
+        | CitationGraphCommand::RankLibraryPapers(args)
+        | CitationGraphCommand::RefreshMetrics(args) => args,
+    }
+}
+
+fn library_index_capability(command: &LibraryIndexCommand) -> &'static str {
+    match command {
+        LibraryIndexCommand::Get(_) => "library_index.get",
+    }
+}
+
+fn library_index_input(command: LibraryIndexCommand) -> BridgeInputArgs {
+    match command {
+        LibraryIndexCommand::Get(args) => args,
+    }
+}
+
+fn resolvers_capability(command: &ResolversCommand) -> &'static str {
+    match command {
+        ResolversCommand::Resolve(_) => "resolvers.resolve",
+    }
+}
+
+fn resolvers_input(command: ResolversCommand) -> BridgeInputArgs {
+    match command {
+        ResolversCommand::Resolve(args) => args,
+    }
+}
+
+fn reference_index_capability(command: &ReferenceIndexCommand) -> &'static str {
+    match command {
+        ReferenceIndexCommand::Get(_) => "reference_index.get",
+    }
+}
+
+fn reference_index_input(command: ReferenceIndexCommand) -> BridgeInputArgs {
+    match command {
+        ReferenceIndexCommand::Get(args) => args,
+    }
+}
+
+fn paper_artifacts_capability(command: &PaperArtifactsCommand) -> &'static str {
+    match command {
+        PaperArtifactsCommand::Manifest(_) => "paper_artifacts.get_manifest",
+        PaperArtifactsCommand::Read(_) => "paper_artifacts.read",
+        PaperArtifactsCommand::ExportFiltered(_) => "paper_artifacts.export_filtered",
+        PaperArtifactsCommand::ResolveTopicDigest(_) => "paper_artifacts.resolve_topic_digest",
+    }
+}
+
+fn paper_artifacts_input(command: PaperArtifactsCommand) -> BridgeInputArgs {
+    match command {
+        PaperArtifactsCommand::Manifest(args)
+        | PaperArtifactsCommand::Read(args)
+        | PaperArtifactsCommand::ExportFiltered(args)
+        | PaperArtifactsCommand::ResolveTopicDigest(args) => args,
+    }
+}
+
+fn insights_capability(command: &InsightsCommand) -> &'static str {
+    match command {
+        InsightsCommand::AttentionQueue(_) => "insights.get_attention_queue",
+    }
+}
+
+fn insights_input(command: InsightsCommand) -> BridgeInputArgs {
+    match command {
+        InsightsCommand::AttentionQueue(args) => args,
+    }
+}
+
+fn bridge_input(args: BridgeInputArgs) -> Result<Value, CliError> {
     read_json_arg(args.input.as_deref())
 }
 
@@ -644,7 +746,7 @@ fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::SynthesisInputArgs;
+    use crate::args::BridgeInputArgs;
 
     #[test]
     fn maps_item_search_to_bridge_input() {
@@ -691,87 +793,124 @@ mod tests {
     }
 
     #[test]
-    fn maps_synthesis_subcommands_to_capabilities() {
-        let commands = vec![
-            (
-                SynthesisCommand::ListTopics(SynthesisInputArgs { input: None }),
-                "synthesis.list_topics",
-            ),
-            (
-                SynthesisCommand::GetTopicContext(SynthesisInputArgs { input: None }),
-                "synthesis.get_topic_context",
-            ),
-            (
-                SynthesisCommand::GetSchemas(SynthesisInputArgs { input: None }),
-                "synthesis.get_schemas",
-            ),
-            (
-                SynthesisCommand::QueryConceptKb(SynthesisInputArgs { input: None }),
-                "synthesis.query_concept_kb",
-            ),
-            (
-                SynthesisCommand::QueryCitationGraphCluster(SynthesisInputArgs { input: None }),
-                "synthesis.query_citation_graph_cluster",
-            ),
-            (
-                SynthesisCommand::GetLibraryIndex(SynthesisInputArgs { input: None }),
-                "synthesis.get_library_index",
-            ),
-            (
-                SynthesisCommand::ResolveResolver(SynthesisInputArgs { input: None }),
-                "synthesis.resolve_resolver",
-            ),
-            (
-                SynthesisCommand::GetReferenceSidecarIndex(SynthesisInputArgs { input: None }),
-                "synthesis.get_reference_sidecar_index",
-            ),
-            (
-                SynthesisCommand::QueryCitationGraph(SynthesisInputArgs { input: None }),
-                "synthesis.query_citation_graph",
-            ),
-            (
-                SynthesisCommand::GetCitationGraphSlice(SynthesisInputArgs { input: None }),
-                "synthesis.get_citation_graph_slice",
-            ),
-            (
-                SynthesisCommand::GetCitationGraphMetrics(SynthesisInputArgs { input: None }),
-                "synthesis.get_citation_graph_metrics",
-            ),
-            (
-                SynthesisCommand::GetPaperArtifactManifest(SynthesisInputArgs { input: None }),
-                "synthesis.get_paper_artifact_manifest",
-            ),
-            (
-                SynthesisCommand::ReadPaperArtifacts(SynthesisInputArgs { input: None }),
-                "synthesis.read_paper_artifacts",
-            ),
-            (
-                SynthesisCommand::ExportFilteredPaperArtifacts(SynthesisInputArgs { input: None }),
-                "synthesis.export_filtered_paper_artifacts",
-            ),
-            (
-                SynthesisCommand::ResolveTopicPaperDigest(SynthesisInputArgs { input: None }),
-                "synthesis.resolve_topic_paper_digest",
-            ),
-            (
-                SynthesisCommand::GetReviewInput(SynthesisInputArgs { input: None }),
-                "synthesis.get_review_input",
-            ),
-        ];
-
-        for (command, capability) in commands {
-            assert_eq!(synthesis_capability(&command), capability);
-            assert_eq!(synthesis_input(command).unwrap(), json!({}));
-        }
+    fn maps_domain_subcommands_to_capabilities() {
+        assert_eq!(
+            topics_capability(&TopicsCommand::List(BridgeInputArgs { input: None })),
+            "topics.list"
+        );
+        assert_eq!(
+            topics_capability(&TopicsCommand::GetContext(BridgeInputArgs { input: None })),
+            "topics.get_context"
+        );
+        assert_eq!(
+            topics_capability(&TopicsCommand::GetReport(BridgeInputArgs { input: None })),
+            "topics.get_report"
+        );
+        assert_eq!(
+            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs { input: None })),
+            "topics.get_review_input"
+        );
+        assert_eq!(
+            schemas_capability(&SchemasCommand::Get(BridgeInputArgs { input: None })),
+            "schemas.get"
+        );
+        assert_eq!(
+            concepts_capability(&ConceptsCommand::Query(BridgeInputArgs { input: None })),
+            "concepts.query"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::Overview(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.get_overview"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::QueryCluster(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.query_cluster"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::GetSlice(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.get_slice"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::GetMetrics(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.get_metrics"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::RankExternalReferences(
+                BridgeInputArgs { input: None }
+            )),
+            "citation_graph.rank_external_references"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::RankLibraryPapers(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.rank_library_papers"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::RefreshMetrics(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.refresh_metrics"
+        );
+        assert_eq!(
+            library_index_capability(&LibraryIndexCommand::Get(BridgeInputArgs { input: None })),
+            "library_index.get"
+        );
+        assert_eq!(
+            resolvers_capability(&ResolversCommand::Resolve(BridgeInputArgs { input: None })),
+            "resolvers.resolve"
+        );
+        assert_eq!(
+            reference_index_capability(&ReferenceIndexCommand::Get(BridgeInputArgs {
+                input: None
+            })),
+            "reference_index.get"
+        );
+        assert_eq!(
+            paper_artifacts_capability(&PaperArtifactsCommand::Manifest(BridgeInputArgs {
+                input: None
+            })),
+            "paper_artifacts.get_manifest"
+        );
+        assert_eq!(
+            paper_artifacts_capability(&PaperArtifactsCommand::Read(BridgeInputArgs {
+                input: None
+            })),
+            "paper_artifacts.read"
+        );
+        assert_eq!(
+            paper_artifacts_capability(&PaperArtifactsCommand::ExportFiltered(BridgeInputArgs {
+                input: None
+            })),
+            "paper_artifacts.export_filtered"
+        );
+        assert_eq!(
+            paper_artifacts_capability(&PaperArtifactsCommand::ResolveTopicDigest(
+                BridgeInputArgs { input: None }
+            )),
+            "paper_artifacts.resolve_topic_digest"
+        );
+        assert_eq!(
+            insights_capability(&InsightsCommand::AttentionQueue(BridgeInputArgs {
+                input: None
+            })),
+            "insights.get_attention_queue"
+        );
     }
 
     #[test]
     fn maps_debug_subcommands_to_capabilities() {
         use crate::args::{
             DebugAcpSkillRunArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-            DebugSynthesisArgs, DebugSynthesisCommand, DebugSynthesisJobsArgs,
-            DebugSynthesisJobsCommand, DebugSynthesisQueueArgs, DebugSynthesisQueueCommand,
-            DebugSynthesisWorkerArgs, DebugSynthesisWorkerCommand,
+            DebugSynthesisArgs, DebugSynthesisCommand,
         };
 
         let cases = vec![
@@ -808,40 +947,36 @@ mod tests {
             (
                 DebugArgs {
                     command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Queue(DebugSynthesisQueueArgs {
-                            command: DebugSynthesisQueueCommand::Clear(DebugInputArgs {
-                                input: None,
-                            }),
-                        }),
+                        command: DebugSynthesisCommand::Operations(DebugInputArgs { input: None }),
                     }),
                 },
-                "debug.synthesis.queue.clear",
+                "debug.synthesis.operations.list",
             ),
             (
                 DebugArgs {
                     command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Jobs(DebugSynthesisJobsArgs {
-                            command: DebugSynthesisJobsCommand::ClearStale(DebugInputArgs {
-                                input: None,
-                            }),
-                        }),
+                        command: DebugSynthesisCommand::Profiler(DebugInputArgs { input: None }),
                     }),
                 },
-                "debug.synthesis.jobs.clearStale",
+                "debug.synthesis.profiler.list",
             ),
             (
                 DebugArgs {
                     command: DebugCommand::Synthesis(DebugSynthesisArgs {
-                        command: DebugSynthesisCommand::Worker(DebugSynthesisWorkerArgs {
-                            command: DebugSynthesisWorkerCommand::Run(DebugInputArgs {
-                                input: Some(
-                                    "{\"worker\":\"paperRegistryIncremental\"}".to_string(),
-                                ),
-                            }),
+                        command: DebugSynthesisCommand::Cache(DebugInputArgs { input: None }),
+                    }),
+                },
+                "debug.synthesis.cache.list",
+            ),
+            (
+                DebugArgs {
+                    command: DebugCommand::Synthesis(DebugSynthesisArgs {
+                        command: DebugSynthesisCommand::CleanInstallReset(DebugInputArgs {
+                            input: Some("{\"confirm\":true}".to_string()),
                         }),
                     }),
                 },
-                "debug.synthesis.worker.run",
+                "debug.synthesis.cleanInstallReset",
             ),
         ];
 
@@ -852,23 +987,21 @@ mod tests {
     }
 
     #[test]
-    fn reads_synthesis_inline_and_file_inputs() {
-        let inline = synthesis_input(SynthesisCommand::GetLibraryIndex(SynthesisInputArgs {
+    fn reads_bridge_inline_and_file_inputs() {
+        let inline = bridge_input(BridgeInputArgs {
             input: Some("{\"cursor\":1}".to_string()),
-        }))
+        })
         .unwrap();
         assert_eq!(inline, json!({ "cursor": 1 }));
 
         let path = std::env::temp_dir().join(format!(
-            "zotero-bridge-synthesis-input-{}.json",
+            "zotero-bridge-domain-input-{}.json",
             std::process::id()
         ));
         fs::write(&path, "{\"paperRefs\":[\"p1\"]}").unwrap();
-        let file = synthesis_input(SynthesisCommand::GetCitationGraphMetrics(
-            SynthesisInputArgs {
-                input: Some(format!("@{}", path.display())),
-            },
-        ))
+        let file = bridge_input(BridgeInputArgs {
+            input: Some(format!("@{}", path.display())),
+        })
         .unwrap();
         assert_eq!(file, json!({ "paperRefs": ["p1"] }));
         let _ = fs::remove_file(path);

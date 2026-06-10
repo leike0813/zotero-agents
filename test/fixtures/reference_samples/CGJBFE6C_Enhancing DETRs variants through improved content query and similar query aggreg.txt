@@ -1,0 +1,66 @@
+[Carion et al., 2020] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-end object detection with transformers. In ECCV, pages 213–229, 2020.   
+[Chen et al., 2022] Qiang Chen, Xiaokang Chen, Gang Zeng, and Jingdong Wang. Group detr: Fast training convergence with decoupled one-to-many label assignment. ArXiv, abs/2207.13085, 2022.   
+[Chen et al., 2023] Fangyi Chen, Han Zhang, Kaiqin Hu, Yu-Kai Huang, Chenchen Zhu, and Marios Savvides. Enhanced training of query-based object detection via selective query recollection. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2023.   
+[Dai et al., 2021a] Xiyang Dai, Yinpeng Chen, Jianwei Yang, Pengchuan Zhang, Lu Yuan, and Lei Zhang. Dynamic detr: End-to-end object detection with dynamic attention. In IEEE International Conference on Computer Vision (ICCV), page 2988–2997, 2021.   
+[Dai et al., 2021b] Xiyang Dai, Yinpeng Chen, Jianwei Yang, Pengchuan Zhang, Lu Yuan, and Lei Zhang. Dynamic detr: End-to-end object detection with dynamic attention. 2021 IEEE/CVF International Conference on Computer Vision (ICCV), pages 2968–2977, 2021.   
+[Girshick et al., 2014] Ross Girshick, Jeff Donahue, Trevor Darrell, and Jitendra Malik. Rich feature hierarchies for accurate object detection and semantic segmentation. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2014.   
+[Girshick, 2015] Ross Girshick. Fast r-cnn. In IEEE International Conference on Computer Vision (ICCV), 2015.   
+[He et al., 2015] Kaiming He, X. Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 770–778, 2015.   
+[He et al., 2017] Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Girshick. Mask r-cnn. In ´ IEEE International Conference on Computer Vision (ICCV), pages 2961–2969, 2017.   
+[Hosang et al., 2017] Jan Hendrik Hosang, Rodrigo Benenson, and Bernt Schiele. Learning non-maximum suppression. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 6469–6477, 2017.   
+[Hu et al., 2018] Jie Hu, Li Shen, and Gang Sun. Squeezeand-excitation networks. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2018.
+
+![](Images_EEBF8EGR/41a3791f5a1ff6fbe4916c7bc7e2efdcdf904f2b1426b0f5a899755a6ac4e142.jpg)  
+Figure 8: Visualization of attention maps of SACQ for detected objects. For each object, we show three attention maps corresponding to different-scale features of Deformable-DETR. From left to right, the first attention map corresponds to the resolution of $C _ { 3 }$ -stage features of the backbone network. And the next two correspond accordingly to $C _ { 4 }$ -stage and $C _ { 5 }$ -stage features.
+
+[Jia et al., 2022] Ding Jia, Yuhui Yuan, Haodi He, Xiaopei Wu, Haojun Yu, Weihong Lin, Lei Sun, Chao Zhang, and Han Hu. Detrs with hybrid matching. arxiv, July 2022.
+
+[Joyce, 2011] James M. Joyce. Kullback-Leibler Divergence, pages 720–722. Springer Berlin Heidelberg, Berlin, Heidelberg, 2011.
+
+[Li et al., 2022a] Feng Li, Hao Zhang, Shilong Liu, Jian Guo, Lionel M. Ni, and Lei Zhang. Dn-detr: Accelerate detr training by introducing query denoising. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2022.
+
+[Li et al., 2022b] Feng Li, Hao Zhang, Hu-Sheng Xu, Siyi Liu, Lei Zhang, Lionel Ming shuan Ni, and Heung yeung Shum. Mask dino: Towards a unified transformer-based framework for object detection and segmentation. 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 3041–3050, 2022.
+
+[Lin et al., 2014] Tsung-Yi Lin, Michael Maire, Serge J. Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C. Lawrence Zitnick. Microsoft coco: Com- ´ mon objects in context. In European Conference on Computer Vision, 2014.
+
+[Lin et al., 2017] Tsung-Yi Lin, Piotr Dollar, Ross B. Gir- ´ shick, Kaiming He, Bharath Hariharan, and Serge J. Belongie. Feature pyramid networks for object detection. IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 936–944, 2017.
+
+[Lin et al., 2019] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object ´ detection. In IEEE International Conference on Computer Vision (ICCV), 2019.
+
+[Liu et al., 2016] Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Reed Scott, Cheng-Yang Fu, and Alexander C Berg. Ssd: Single shot multibox detector. In ECCV, pages 21–37, 2016.
+
+[Liu et al., 2021] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. 2021 IEEE/CVF International Conference on Computer Vision (ICCV), pages 9992–10002, 2021.
+
+[Liu et al., 2022a] Shilong Liu, Feng Li, Hao Zhang, Xiao Yang, Xianbiao Qi, Hang Su, Jun Zhu, and Lei Zhang. Dab-detr: Dynamic anchor boxes are better queries for detr. In International Conference on Learning Representations, 2022.
+
+[Liu et al., 2022b] Yang Liu, Yao Zhang, Yixin Wang, Yang Zhang, Jiang Tian, Zhongchao Shi, Jianping Fan, and Zhiqiang He. Sap-detr: Bridging the gap between salient points and queries-based transformer detector for fast model convergency. ArXiv, abs/2211.02006, 2022.
+
+[Liu et al., 2023] Siyi Liu, Tianhe Ren, Jia-Yu Chen, Zhaoyang Zeng, Hao Zhang, Feng Li, Hongyang Li, Jun Huang, Hang Su, Jun-Juan Zhu, and Lei Zhang. Detection transformer with stable matching. ArXiv, abs/2304.04742, 2023.
+
+[Loshchilov and Hutter, 2017] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations, 2017.
+
+[Qiu et al., 2023] Tian Qiu, Linyun Zhou, Wenxiang Xu, Lechao Cheng, Zunlei Feng, and Mingli Song. Team detr: Guide queries as a professional team in detection transformers. arxiv, 2023.
+
+[Redmon and Farhadi, 2018] Joseph Redmon and Ali Farhadi. Yolov3: An incrementalimprovement. In CoRR, 2018.
+
+[Redmon et al., 2016] Joseph Redmon, Santosh Divvala, Ross Girshick, and Ali Farhadi. You only look once: Unified, real-time object detection. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2016.
+
+[Ren et al., 2015] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. Advances in neural information processing systems, 28, 2015.
+
+[Rezatofighi et al., 2019] Seyed Hamid Rezatofighi, Nathan Tsoi, JunYoung Gwak, Amir Sadeghian, Ian D. Reid, and Silvio Savarese. Generalized intersection over union: A metric and a loss for bounding box regression. IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 658–666, 2019.
+
+[Roh et al., 2022] Byungseok Roh, JaeWoong Shin, Wuhyun Shin, and Saehoon Kim. Sparse detr: Efficient end-to-end object detection with learnable sparsity. In International Conference on Learning Representations, 2022.
+
+[Russakovsky et al., 2014] Olga Russakovsky, Jia Deng, Hao Su, Jonathan Krause, Sanjeev Satheesh, Sean Ma, Zhiheng Huang, Andrej Karpathy, Aditya Khosla, Michael S. Bernstein, Alexander C. Berg, and Li Fei-Fei. Imagenet large scale visual recognition challenge. International Journal of Computer Vision, 115:211–252, 2014.
+
+[Sun et al., 2020] Zhiqing Sun, Shengcao Cao, Yiming Yang, and Kris Kitani. Rethinking transformer-based set prediction for object detection. arxiv, 2020.
+
+[Tian et al., 2019] Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. Fcos: Fully convolutional one-stage object detection. In IEEE International Conference on Computer Vision (ICCV), 2019.   
+[Wang et al., 2021a] Tao Wang, Li Yuan, Yunpeng Chen, Jiashi Feng, and Shuicheng Yan. Pnp-detr: Towards efficient visual analysis with transformers. In IEEE International Conference on Computer Vision (ICCV), 2021.   
+[Wang et al., 2021b] Yingming Wang, Xiangyu Zhang, Tong Yang, and Jian Sun. Anchor detr: Query design for transformer-based detector. In AAAI, 2021.   
+[Zhang et al., 2022] Gongjie Zhang, Zhipeng Luo, Yingchen Yu, Kaiwen Cui, and Shijian Lu. Accelerating detr convergence via semantic-aligned matching. 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 939–948, 2022.   
+[Zhang et al., 2023] Hao Zhang, Feng Li, Shilong Liu, Lei Zhang, Hang Su, Jun Zhu, Lionel M. Ni, and HeungYeung Shum. Dino: Detr with improved denoising anchor boxes for end-to-end object detection. In International Conference on Learning Representations, 2023.   
+[Zhao and Ukita, 2023] Kaikai Zhao and Norimichi Ukita. Ks-detr: Knowledge sharing in attention learning for detection transformer. ArXiv, abs/2302.11208, 2023.   
+[Zhu et al., 2021] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable detr: Deformable transformers for end-to-end object detection. In International Conference on Learning Representations, 2021.   
+[Zong et al., 2022] Zhuofan Zong, Guanglu Song, and Yu Liu. Detrs with collaborative hybrid assignments training. ArXiv, abs/2211.12860, 2022.   
+[Zong et al., 2023] Zhuofan Zong, Guanglu Song, and Yu Liu. Detrs with collaborative hybrid assignments training. IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2023.

@@ -27,7 +27,7 @@ import {
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
-import { openSkillRunnerManagementDialog } from "./skillRunnerManagementDialog";
+import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
@@ -73,6 +73,7 @@ type DashboardState = {
   backends: BackendInstance[];
   backendLoadError?: string;
   selectedTabKey: string;
+  selectedBackendSubviewById: Map<string, "runs" | "management">;
   selectedLogTaskByBackendId: Map<string, string>;
   selectedLogEntryByBackendId: Map<string, string>;
   selectedWorkflowOptionsWorkflowId: string;
@@ -202,6 +203,8 @@ type DashboardSnapshot = {
     backendId: string;
     backendType: string;
     backendBaseUrl: string;
+    selectedSubview?: "runs" | "management";
+    managementUiUrl?: string;
     title: string;
     rows: DashboardRow[];
     emptyRowsText: string;
@@ -245,8 +248,22 @@ type DashboardActionEnvelope = {
 
 export type MountedTaskDashboardRuntime = {
   refresh: () => void;
-  selectTab: (args: { tabKey?: string; workflowId?: string }) => void;
+  selectTab: (args: {
+    tabKey?: string;
+    workflowId?: string;
+    backendSubview?: "runs" | "management";
+  }) => void;
   cleanup: () => void;
+};
+
+export type DashboardManagementHost = {
+  mount: (args: {
+    backendId: string;
+    title: string;
+    url: string;
+    onClose: () => void;
+  }) => void;
+  clear: () => void;
 };
 
 function resolveDashboardPageUrl() {
@@ -259,7 +276,11 @@ function resolveDashboardPageUrl() {
 
 let taskManagerDialog: DialogHelper | undefined;
 let externalSelectTab:
-  | ((args: { tabKey?: string; workflowId?: string }) => void)
+  | ((args: {
+      tabKey?: string;
+      workflowId?: string;
+      backendSubview?: "runs" | "management";
+    }) => void)
   | undefined;
 
 function localize(
@@ -549,6 +570,14 @@ function fromBackendTabKey(tabKey: string) {
   return tabKey.slice("backend:".length).trim();
 }
 
+function maybeBuildSkillRunnerManagementUiUrl(baseUrl: string) {
+  try {
+    return buildSkillRunnerManagementUiUrl(baseUrl);
+  } catch {
+    return "";
+  }
+}
+
 function compactError(error: unknown) {
   const text = String(error || "")
     .replace(/\s+/g, " ")
@@ -557,6 +586,42 @@ function compactError(error: unknown) {
     return "unknown error";
   }
   return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+}
+
+function createManagementContentBrowser(doc: Document, url: string) {
+  const createXul = (doc as { createXULElement?: (tag: string) => Element })
+    .createXULElement;
+  if (typeof createXul === "function") {
+    const browser = createXul.call(doc, "browser");
+    browser.setAttribute(
+      "data-zs-role",
+      "skillrunner-management-dashboard-frame",
+    );
+    browser.setAttribute("disableglobalhistory", "true");
+    browser.setAttribute("maychangeremoteness", "true");
+    browser.setAttribute("type", "content");
+    browser.setAttribute("flex", "1");
+    browser.setAttribute("src", url);
+    const styled = browser as Element & { style?: CSSStyleDeclaration };
+    styled.style?.setProperty("width", "100%");
+    styled.style?.setProperty("height", "100%");
+    styled.style?.setProperty("min-width", "0");
+    styled.style?.setProperty("min-height", "0");
+    styled.style?.setProperty("border", "0");
+    styled.style?.setProperty("flex", "1 1 auto");
+    return browser;
+  }
+  const frame = doc.createElement("iframe");
+  frame.setAttribute("data-zs-role", "skillrunner-management-dashboard-frame");
+  frame.setAttribute("title", "SkillRunner Management");
+  frame.setAttribute("src", url);
+  frame.style.width = "100%";
+  frame.style.height = "100%";
+  frame.style.minWidth = "0";
+  frame.style.minHeight = "0";
+  frame.style.border = "0";
+  frame.style.flex = "1 1 auto";
+  return frame;
 }
 
 function normalizeDraftChangedSection(raw: unknown) {
@@ -1245,6 +1310,18 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-open-management",
       "Open Backend UI",
     ),
+    closeManagement: localize(
+      "task-dashboard-close-management",
+      "Back to Runs",
+    ),
+    openManagementExternal: localize(
+      "task-dashboard-open-management-external",
+      "Open in Browser",
+    ),
+    managementLoadFailed: localize(
+      "task-dashboard-management-load-failed",
+      "Management UI failed to load.",
+    ),
     refreshModelCache: localize(
       "backend-manager-refresh-model-cache",
       "Refresh Model Cache",
@@ -1627,6 +1704,12 @@ async function buildDashboardSnapshot(args: {
     backendId: selectedBackend.id,
     backendType: selectedBackend.type,
     backendBaseUrl: selectedBackend.baseUrl,
+    selectedSubview: isSkillRunnerBackend(selectedBackend)
+      ? args.state.selectedBackendSubviewById.get(selectedBackend.id) || "runs"
+      : undefined,
+    managementUiUrl: isSkillRunnerBackend(selectedBackend)
+      ? maybeBuildSkillRunnerManagementUiUrl(selectedBackend.baseUrl)
+      : undefined,
     title: isSkillRunnerBackend(selectedBackend)
       ? localize(
           "task-dashboard-skillrunner-title",
@@ -1751,9 +1834,11 @@ function normalizeFilteredActive() {
 export async function openTaskManagerDialog(args?: {
   initialTabKey?: string;
   initialWorkflowId?: string;
+  initialBackendSubview?: "runs" | "management";
   embeddedRoot?: HTMLElement;
   hostWindow?: Window;
   chromeWindow?: _ZoteroTypes.MainWindow;
+  managementHost?: DashboardManagementHost;
 }) {
   const isEmbedded = !!args?.embeddedRoot && !!args.hostWindow;
   if (!isEmbedded && isWindowAlive(taskManagerDialog?.window)) {
@@ -1761,6 +1846,7 @@ export async function openTaskManagerDialog(args?: {
       externalSelectTab({
         tabKey: args?.initialTabKey,
         workflowId: args?.initialWorkflowId,
+        backendSubview: args?.initialBackendSubview,
       });
     }
     taskManagerDialog?.window?.focus();
@@ -1770,6 +1856,7 @@ export async function openTaskManagerDialog(args?: {
   const state: DashboardState = {
     backends: [],
     selectedTabKey: String(args?.initialTabKey || "home").trim() || "home",
+    selectedBackendSubviewById: new Map(),
     selectedLogTaskByBackendId: new Map(),
     selectedLogEntryByBackendId: new Map(),
     selectedWorkflowOptionsWorkflowId: String(
@@ -1786,6 +1873,13 @@ export async function openTaskManagerDialog(args?: {
     selectedProductAssetId: "",
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
+  const initialBackendId = fromBackendTabKey(state.selectedTabKey);
+  if (initialBackendId && args?.initialBackendSubview) {
+    state.selectedBackendSubviewById.set(
+      initialBackendId,
+      args.initialBackendSubview,
+    );
+  }
 
   cleanupTaskDashboardHistory();
 
@@ -2344,24 +2438,46 @@ export async function openTaskManagerDialog(args?: {
       if (!backend || !isSkillRunnerBackend(backend)) {
         return;
       }
-      try {
-        await openSkillRunnerManagementDialog({
-          backendId: backend.id,
-          baseUrl: backend.baseUrl,
-        });
-      } catch (error) {
-        alertRuntimeWindow(
-          localize(
-            "task-dashboard-open-management-failed",
-            "Failed to open management UI: {error}",
-            {
-              args: {
-                error: compactError(error),
-              },
-            },
-          ),
-        );
+      if (!ensureBackendInteractable(backendId)) {
+        return;
       }
+      state.selectedTabKey = toBackendTabKey(backend.id);
+      state.selectedBackendSubviewById.set(backend.id, "management");
+      refresh("user-action");
+      return;
+    }
+    if (action === "show-runs") {
+      const backendId = String(payload.backendId || "").trim();
+      const backend = state.backends.find((entry) => entry.id === backendId);
+      if (!backend || !isSkillRunnerBackend(backend)) {
+        return;
+      }
+      state.selectedTabKey = toBackendTabKey(backend.id);
+      state.selectedBackendSubviewById.set(backend.id, "runs");
+      clearManagementHost();
+      refresh("user-action");
+      return;
+    }
+    if (action === "mount-management-host") {
+      mountManagementHost(payload);
+      return;
+    }
+    if (action === "open-management-external") {
+      const backendId = String(payload.backendId || "").trim();
+      const backend = state.backends.find((entry) => entry.id === backendId);
+      if (!backend || !isSkillRunnerBackend(backend)) {
+        return;
+      }
+      const managementUiUrl = maybeBuildSkillRunnerManagementUiUrl(
+        backend.baseUrl,
+      );
+      if (!managementUiUrl) {
+        return;
+      }
+      const runtime = globalThis as {
+        Zotero?: { launchURL?: (url: string) => void };
+      };
+      runtime.Zotero?.launchURL?.(managementUiUrl);
       return;
     }
     if (action === "refresh-model-cache") {
@@ -2619,11 +2735,96 @@ export async function openTaskManagerDialog(args?: {
   };
 
   let mountedFrame: Element | null = null;
+  let mountedManagementHost: Element | null = null;
+  let mountedManagementHostKey = "";
   let exposesExternalSelectTab = false;
+
+  const clearManagementHost = () => {
+    args?.managementHost?.clear();
+    mountedManagementHost?.remove();
+    mountedManagementHost = null;
+    mountedManagementHostKey = "";
+  };
+
+  const mountManagementHost = (
+    payload: Record<string, unknown> | undefined,
+  ) => {
+    const backendId = String(payload?.backendId || "").trim();
+    const requestedUrl = String(payload?.managementUiUrl || "").trim();
+    if (!backendId || !requestedUrl || !frameWindow?.document) {
+      return;
+    }
+    const selectedBackendId = fromBackendTabKey(state.selectedTabKey);
+    if (
+      selectedBackendId !== backendId ||
+      state.selectedBackendSubviewById.get(backendId) !== "management"
+    ) {
+      clearManagementHost();
+      return;
+    }
+    const expectedUrl = maybeBuildSkillRunnerManagementUiUrl(
+      state.backends.find((backend) => backend.id === backendId)?.baseUrl || "",
+    );
+    if (!expectedUrl || expectedUrl !== requestedUrl) {
+      clearManagementHost();
+      return;
+    }
+    const doc = frameWindow.document;
+    const mount = Array.from(
+      doc.querySelectorAll(
+        "[data-zs-role='skillrunner-management-dashboard-host']",
+      ),
+    ).find(
+      (node) =>
+        String((node as HTMLElement).dataset.backendId || "").trim() ===
+        backendId,
+    ) as HTMLElement | undefined;
+    if (!mount) {
+      clearManagementHost();
+      return;
+    }
+    const hostKey = `${backendId}\n${requestedUrl}`;
+    const backend = state.backends.find((entry) => entry.id === backendId);
+    if (args?.managementHost) {
+      if (mountedManagementHostKey === hostKey) {
+        return;
+      }
+      mountedManagementHost?.remove();
+      mountedManagementHost = null;
+      mountedManagementHostKey = hostKey;
+      args.managementHost.mount({
+        backendId,
+        title:
+          resolveBackendDisplayName(backendId, backend?.displayName) ||
+          "SkillRunner Management",
+        url: requestedUrl,
+        onClose: () => {
+          selectDashboardTab({
+            tabKey: toBackendTabKey(backendId),
+            backendSubview: "runs",
+          });
+        },
+      });
+      return;
+    }
+    if (
+      mountedManagementHostKey === hostKey &&
+      mountedManagementHost?.parentElement === mount
+    ) {
+      return;
+    }
+    clearManagementHost();
+    mount.textContent = "";
+    const host = createManagementContentBrowser(doc, requestedUrl);
+    mountedManagementHost = host;
+    mountedManagementHostKey = hostKey;
+    mount.appendChild(host);
+  };
 
   const selectDashboardTab = (next: {
     tabKey?: string;
     workflowId?: string;
+    backendSubview?: "runs" | "management";
   }) => {
     if (typeof next.tabKey === "string" && next.tabKey.trim()) {
       const requestedTabKey = next.tabKey.trim();
@@ -2637,6 +2838,15 @@ export async function openTaskManagerDialog(args?: {
       state.selectedTabKey = requestedTabKey;
       if (state.selectedTabKey !== "home") {
         state.homeWorkflowDocWorkflowId = "";
+      }
+      if (requestedBackendId && next.backendSubview) {
+        state.selectedBackendSubviewById.set(
+          requestedBackendId,
+          next.backendSubview,
+        );
+        if (next.backendSubview !== "management") {
+          clearManagementHost();
+        }
       }
     }
     if (typeof next.workflowId === "string") {
@@ -2667,6 +2877,7 @@ export async function openTaskManagerDialog(args?: {
       removeMessageListener();
       removeMessageListener = undefined;
     }
+    clearManagementHost();
     for (const workflowId of Array.from(
       state.workflowSettingsSaveTimerById.keys(),
     )) {
@@ -2812,13 +3023,17 @@ export async function mountTaskDashboardRuntime(args: {
   chromeWindow?: _ZoteroTypes.MainWindow;
   initialTabKey?: string;
   initialWorkflowId?: string;
+  initialBackendSubview?: "runs" | "management";
+  managementHost?: DashboardManagementHost;
 }) {
   return openTaskManagerDialog({
     initialTabKey: args.initialTabKey,
     initialWorkflowId: args.initialWorkflowId,
+    initialBackendSubview: args.initialBackendSubview,
     embeddedRoot: args.root,
     hostWindow: args.hostWindow,
     chromeWindow: args.chromeWindow,
+    managementHost: args.managementHost,
   }) as Promise<MountedTaskDashboardRuntime>;
 }
 

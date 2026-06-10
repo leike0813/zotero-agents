@@ -88,17 +88,29 @@ inspect, and topic inspect diagnostics.
   is invoked
 - **THEN** the CLI SHALL call `debug.synthesis.topic.inspect`.
 
-### Requirement: CLI provides Synthesis work debug commands
+### Requirement: CLI provides Synthesis cache and operation diagnostics
 
-The CLI SHALL provide semantic commands for Synthesis work list, control, and
-drain execution.
+The CLI SHALL provide semantic commands for Synthesis cache, operation, and
+profiler diagnostics. Queue, dirty-event, worker, and maintenance controls SHALL
+not be exposed as semantic CLI commands.
 
-#### Scenario: Synthesis work command is requested
+#### Scenario: Synthesis operation diagnostics are requested
 
-- **WHEN** `zotero-bridge debug synthesis work list|run|enqueue|retry|pause|resume|clear --input <JSON_OR_FILE>`
+- **WHEN** `zotero-bridge debug synthesis operations --input <JSON_OR_FILE>`
   is invoked
-- **THEN** the CLI SHALL call the corresponding
-  `debug.synthesis.work.*` capability.
+- **THEN** the CLI SHALL call `debug.synthesis.operations.list`.
+
+#### Scenario: Synthesis profiler diagnostics are requested
+
+- **WHEN** `zotero-bridge debug synthesis profiler --input <JSON_OR_FILE>` is
+  invoked
+- **THEN** the CLI SHALL call `debug.synthesis.profiler.list`.
+
+#### Scenario: Synthesis cache diagnostics are requested
+
+- **WHEN** `zotero-bridge debug synthesis cache --input <JSON_OR_FILE>` is
+  invoked
+- **THEN** the CLI SHALL call `debug.synthesis.cache.list`.
 
 ### Requirement: CLI debug input and output reuse existing JSON contracts
 
@@ -130,10 +142,10 @@ The CLI SHALL NOT treat dangerous debug confirmation phrases as authority. It
 MAY pass dangerous debug inputs through, but the Host Bridge capability SHALL
 remain the authority for approval and confirmation validation.
 
-#### Scenario: Dangerous work clear is invoked
+#### Scenario: Dangerous clean install reset is invoked
 
-- **WHEN** `zotero-bridge debug synthesis work clear --input <JSON_OR_FILE>` is
+- **WHEN** `zotero-bridge debug synthesis clean-install-reset --input <JSON_OR_FILE>` is
   invoked
-- **THEN** the CLI SHALL call `debug.synthesis.work.clear` only if the manifest
-  exposes it
+- **THEN** the CLI SHALL call `debug.synthesis.cleanInstallReset` only if the
+  manifest exposes it
 - **AND** the CLI SHALL NOT treat a local phrase match as sufficient approval.

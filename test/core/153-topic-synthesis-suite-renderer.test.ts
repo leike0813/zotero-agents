@@ -54,6 +54,92 @@ function extractInlineExample(skillText: string, schemaName: string) {
   return JSON.parse(match![1]);
 }
 
+function assertStage40ExampleCoversGateFields(example: any) {
+  assert.notProperty(example, "positioning");
+  assert.isString(example.taxonomy?.summary?.text);
+  assert.isNotEmpty(example.taxonomy.summary.text);
+  const route = example.taxonomy?.nodes?.[0];
+  assert.isObject(route);
+  for (const key of ["definition", "core_problem", "mechanism", "maturity"]) {
+    assert.isString(route[key], `taxonomy route should include ${key}`);
+    assert.isNotEmpty(route[key], `taxonomy route ${key} should not be empty`);
+  }
+  assert.isArray(route.strengths);
+  assert.isNotEmpty(route.strengths);
+  assert.isArray(route.limitations);
+  assert.isNotEmpty(route.limitations);
+  assert.isArray(route.source_paper_refs);
+  assert.isNotEmpty(route.source_paper_refs);
+
+  const timelineEvent = example.timeline_events?.events?.[0];
+  assert.isString(timelineEvent?.description);
+  assert.isNotEmpty(timelineEvent.description);
+  assert.isString(timelineEvent.phase);
+  assert.isNotEmpty(timelineEvent.phase);
+  assert.isArray(timelineEvent.source_paper_refs);
+  assert.isNotEmpty(timelineEvent.source_paper_refs);
+
+  const claim = example.claims?.[0];
+  assert.isString(claim?.analysis);
+  assert.isNotEmpty(claim.analysis);
+  assert.isTrue(
+    Boolean(claim.scope) ||
+      Boolean(claim.applicability) ||
+      Array.isArray(claim.limitations),
+    "claim should include scope, applicability, or limitations",
+  );
+  assert.isArray(claim.source_paper_refs);
+  assert.isNotEmpty(claim.source_paper_refs);
+
+  const futureDirection = example.future_directions?.[0];
+  assert.isObject(futureDirection);
+  for (const key of [
+    "id",
+    "title",
+    "direction_type",
+    "current_limitation",
+    "future_direction",
+    "rationale",
+  ]) {
+    assert.isString(
+      futureDirection[key],
+      `future direction should include ${key}`,
+    );
+    assert.isNotEmpty(
+      futureDirection[key],
+      `future direction ${key} should not be empty`,
+    );
+  }
+  assert.isArray(futureDirection.source_paper_refs);
+  assert.isNotEmpty(futureDirection.source_paper_refs);
+
+  const reviewOutline = example.review_outline;
+  assert.isString(reviewOutline?.topic_importance);
+  assert.isNotEmpty(reviewOutline.topic_importance);
+  const strategy = reviewOutline.writing_strategies?.[0];
+  assert.isObject(strategy);
+  for (const key of [
+    "id",
+    "title",
+    "review_thesis",
+    "writing_strategy",
+    "best_for",
+    "risks",
+  ]) {
+    assert.isString(strategy[key], `writing strategy should include ${key}`);
+    assert.isNotEmpty(
+      strategy[key],
+      `writing strategy ${key} should not be empty`,
+    );
+  }
+  assert.isArray(strategy.section_plan);
+  assert.isNotEmpty(strategy.section_plan);
+  assert.include(
+    reviewOutline.writing_strategies.map((row: any) => row.id),
+    reviewOutline.recommended_strategy_id,
+  );
+}
+
 async function collectFileMap(root: string): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   async function visit(current: string) {
@@ -328,9 +414,8 @@ describe("Topic synthesis suite renderer", function () {
             language: "zh-CN",
             topic_definition: { id: "detr", title: "DETR" },
             resolver_manifest_path: "runtime/payloads/resolver.json",
-            resolver_diagnostics: {},
-            artifact_metadata: {},
             analysis_manifest_path: "result/topic-analysis.json",
+            candidate_output_path: "result/final-output.candidate.json",
           }),
           `${skillId} output schema must reject ACP control fields`,
         );
@@ -348,9 +433,7 @@ describe("Topic synthesis suite renderer", function () {
             db_path: "runtime/topic-synthesis.sqlite",
             handoff_manifest_path:
               "runtime/handoff/prepare-analysis-context.json",
-            handoff_manifest_hash: "sha256:abc",
             next_skill_id: "topic-synthesis-core-enrichment",
-            diagnostics: [],
           }),
           `${skillId} output schema must reject ACP control fields`,
         );
@@ -442,6 +525,17 @@ describe("Topic synthesis suite renderer", function () {
       assert.notInclude(skillText, "paper-triage-batch.json");
       assert.notInclude(skillText, "core-analytical-sections.json");
       assert.notInclude(skillText, "external-statistics-report.json");
+      assert.notInclude(skillText, "paper_evidence");
+      assert.notInclude(skillText, "evidence_map");
+      assert.notInclude(skillText, "evidence_refs");
+      assert.notInclude(skillText, "paper_evidence_refs");
+      assert.notInclude(skillText, "evidence_map_refs");
+      assert.notInclude(skillText, "topic_relation_candidates");
+      assert.notInclude(skillText, "runtime/views/synthesis-report.md");
+      assert.notInclude(
+        skillText,
+        "runtime/views/synthesis-report.manifest.json",
+      );
       assert.notInclude(skillText, '"analyses"');
     }
   });
@@ -468,6 +562,9 @@ describe("Topic synthesis suite renderer", function () {
       finalizeSkill,
       "runtime/views/external-literature-context.md",
     );
+    assert.notInclude(coreSkill, "external-literature context");
+    assert.notInclude(finalizeSkill, "No external network literature");
+    assert.notInclude(finalizeSkill, "未抓取");
   });
 
   it("renders generated SKILL.md prose in Chinese", async function () {
@@ -555,14 +652,66 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(createSkill, "coverage verdict 必须解释");
 
     assert.include(coreSkill, "taxonomy 必须解释研究路线");
+    assert.include(coreSkill, "source_paper_refs");
+    assert.include(coreSkill, "topic_definition 和 scope_boundary");
+    assert.include(coreSkill, "语义边界真源");
+    assert.notInclude(coreSkill, "positioning");
+    assert.include(coreSkill, "不要让库内样本密集子域反向改写 topic identity");
+    assert.include(coreSkill, "不要把大 topic 收缩成 resolved papers");
+    assert.include(coreSkill, "Object Detection 是 Computer Vision 的下位任务");
     assert.include(coreSkill, "KG enrichment");
+    assert.include(coreSkill, "existing_topic_relation_proposals");
+    assert.include(coreSkill, "prospective_topic_relation_proposals");
+    assert.include(coreSkill, "topics list --input '{}'");
+    assert.include(coreSkill, "target_is_broader_topic_candidate");
+    assert.include(coreSkill, "target_is_narrower_topic_candidate");
+    assert.include(
+      coreSkill,
+      "所有关系判断都以当前 synthesis topic 指向 target topic",
+    );
+    assert.include(coreSkill, "overlap 只用于互不包含的部分交叉范围");
+    assert.include(
+      coreSkill,
+      "不能因为 workset 偏向 DETR 就把当前 topic 改写成 DETR-series",
+    );
+    assert.notMatch(coreSkill, /(^|[^_])broader_topic_candidate/);
     assert.notInclude(coreSkill, "duplicate check 判断");
     assert.notInclude(coreSkill, "coverage verdict、coverage reason");
 
     assert.include(finalizeSkill, "coverage verdict 必须解释");
+    assert.include(finalizeSkill, "workset 子域偏置");
+    assert.include(finalizeSkill, "库内文献集中于 DETR/检测时");
     assert.include(finalizeSkill, "最终 summary_brief");
     assert.notInclude(finalizeSkill, "resolver proposal 设计");
     assert.notInclude(finalizeSkill, "taxonomy、timeline、positioning");
+  });
+
+  it("renders Stage 30 hard constraints against scripted paper triage", async function () {
+    for (const skillId of [
+      "create-topic-synthesis-prepare",
+      "update-topic-synthesis-prepare",
+    ]) {
+      const skillText = await fs.readFile(
+        path.join("skills_builtin", skillId, "SKILL.md"),
+        "utf8",
+      );
+      assert.include(skillText, "stage_30_prepare_analysis_context");
+      assert.include(skillText, "硬性约束");
+      assert.include(skillText, "逐篇阅读 runtime 导出的 paper artifacts");
+      assert.include(skillText, "不得编写或运行脚本");
+      assert.include(skillText, "relevance、quality、core_digest 和 caveats");
+      assert.include(skillText, "Subagent 委派建议");
+      assert.include(skillText, "推荐把 paper triage 按 paper_ref 分批委派");
+      assert.include(skillText, "委派 prompt 模板");
+      assert.include(skillText, "只返回 JSON 数组");
+      assert.include(skillText, "subagent 只返回 assessment row 草案");
+      assert.include(
+        skillText,
+        "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+      );
+      assert.include(skillText, "runtime/payloads/artifacts/");
+      assert.notInclude(skillText, "runtime/views/filtered-paper-artifacts/");
+    }
   });
 
   it("renders executable Host read commands instead of opaque Host labels", async function () {
@@ -579,17 +728,14 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(createSkill, "Host 文库索引");
     assert.notInclude(updateSkill, "Host 主题上下文");
     assert.notInclude(updateSkill, "Host 文库索引");
+    assert.include(createSkill, "<zotero-bridge> topics list --input '{}'");
     assert.include(
       createSkill,
-      "<zotero-bridge> synthesis list-topics --input '{}'",
-    );
-    assert.include(
-      createSkill,
-      '<zotero-bridge> synthesis get-library-index --input \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> library-index get --input \'{"cursor":0,"limit":200}\'',
     );
     assert.include(
       updateSkill,
-      '<zotero-bridge> synthesis get-topic-context --input \'{"topicId":"<topic_id>"}\'',
+      '<zotero-bridge> topics get-context --input \'{"topicId":"<topic_id>"}\'',
     );
   });
 
@@ -620,6 +766,60 @@ describe("Topic synthesis suite renderer", function () {
     }
   });
 
+  it("keeps payload schema examples valid and deep enough for gate-facing fields", async function () {
+    for (const schemaName of Object.values(expectedStageSchemas).flat()) {
+      const schema = JSON.parse(
+        await fs.readFile(
+          path.join(suiteRoot, "contracts", "payload-schemas", schemaName),
+          "utf8",
+        ),
+      );
+      const ajv = new Ajv2020({ allErrors: true, strict: false });
+      const validate = ajv.compile(schema);
+      for (const example of schema.examples || []) {
+        assert.isTrue(
+          validate(example),
+          `${schemaName}: ${ajv.errorsText(validate.errors)}`,
+        );
+        if (schemaName === "stage-40-core-synthesis.schema.json") {
+          assertStage40ExampleCoversGateFields(example);
+        }
+        if (
+          schemaName ===
+          "stage-60-coverage-and-collection-suggestions.schema.json"
+        ) {
+          assert.notProperty(example, "reliability_summary");
+          assert.property(example, "coverage_reason");
+          assert.property(example, "external_context_summary");
+          assert.property(example, "suggested_collection_directions");
+        }
+      }
+      if (
+        schemaName ===
+        "stage-60-coverage-and-collection-suggestions.schema.json"
+      ) {
+        assert.notInclude(schema.required || [], "reliability_summary");
+        assert.notProperty(schema.properties || {}, "reliability_summary");
+      }
+    }
+  });
+
+  it("renders Stage 40 inline examples with apply-ready nested fields", async function () {
+    const skillText = await fs.readFile(
+      path.join(
+        "skills_builtin",
+        "topic-synthesis-core-enrichment",
+        "SKILL.md",
+      ),
+      "utf8",
+    );
+    const example = extractInlineExample(
+      skillText,
+      "stage-40-core-synthesis.schema.json",
+    );
+    assertStage40ExampleCoversGateFields(example);
+  });
+
   it("does not import suite source from generated scripts", async function () {
     for (const skillId of generatedSkillIds) {
       for (const scriptName of ["gate.py", "topic_synthesis_db.py"]) {
@@ -633,7 +833,35 @@ describe("Topic synthesis suite renderer", function () {
     }
   });
 
+  it("renders runtime cascade commands against the current Host Bridge CLI namespace", async function () {
+    for (const skillId of generatedSkillIds) {
+      const scriptText = await fs.readFile(
+        path.join(
+          "skills_builtin",
+          skillId,
+          "scripts",
+          "topic_synthesis_db.py",
+        ),
+        "utf8",
+      );
+      assert.include(scriptText, '["resolvers", "resolve"]');
+      assert.include(scriptText, '["citation-graph", "get-metrics"]');
+      assert.include(scriptText, '["paper-artifacts", "export-filtered"]');
+      assert.notInclude(scriptText, '["synthesis", "resolve-resolver"]');
+      assert.notInclude(
+        scriptText,
+        '["synthesis", "get-citation-graph-metrics"]',
+      );
+      assert.notInclude(
+        scriptText,
+        '["synthesis", "export-filtered-paper-artifacts"]',
+      );
+    }
+  });
+
   it("returns a stable gate instruction from a non-package cwd", function () {
+    this.timeout(10000);
+
     for (const skillId of generatedSkillIds) {
       const instruction = runGateFromOtherCwd(skillId);
       assert.equal(instruction.skill_id, skillId);

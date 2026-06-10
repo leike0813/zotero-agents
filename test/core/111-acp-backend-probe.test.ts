@@ -5,6 +5,41 @@ import * as os from "os";
 import {
   probeAcpBackendRuntimeOptions,
 } from "../../src/modules/acpBackendProbe";
+import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
+
+function makeProbeAdapter(
+  overrides: Partial<AcpConnectionAdapter> = {},
+): AcpConnectionAdapter {
+  return {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake-acp",
+      canLoadSession: false,
+      canResumeSession: false,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    newSession: async () => ({
+      sessionId: "session-1",
+    }),
+    onUpdate: () => () => undefined,
+    onClose: () => () => undefined,
+    onDiagnostics: () => () => undefined,
+    onPermissionRequest: () => () => undefined,
+    loadSession: async () => ({ sessionId: "session-1" }),
+    resumeSession: async () => ({ sessionId: "session-1" }),
+    prompt: async () => ({ stopReason: "end_turn" }),
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async () => undefined,
+    authenticate: async () => undefined,
+    close: async () => undefined,
+    ...overrides,
+  };
+}
 
 describe("ACP backend probe", function () {
   let previousRuntimeRoot: string | undefined;
@@ -98,6 +133,130 @@ describe("ACP backend probe", function () {
     assert.deepEqual(
       result.backend.acp?.runtimeOptionsCache?.displayModels.map((entry) => entry.id),
       ["model-1"],
+    );
+  });
+
+  it("derives runtime options cache from ACP config options", async function () {
+    const result = await probeAcpBackendRuntimeOptions({
+      backend: {
+        id: "acp-config-options",
+        displayName: "ACP Config Options",
+        type: "acp",
+        baseUrl: "local://acp-config-options",
+        command: "fake-acp",
+      },
+      createAdapter: async () =>
+        makeProbeAdapter({
+          newSession: async () => ({
+            sessionId: "session-1",
+            configOptions: [
+              {
+                id: "mode",
+                name: "Mode",
+                category: "mode",
+                type: "select",
+                currentValue: "build",
+                options: [
+                  { value: "ask", name: "Ask" },
+                  { value: "build", name: "Build" },
+                ],
+              },
+              {
+                id: "model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                currentValue: "openai/gpt-5",
+                options: [
+                  { value: "openai/gpt-5", name: "GPT-5" },
+                  { value: "anthropic/claude", name: "Claude" },
+                ],
+              },
+              {
+                id: "effort",
+                name: "Reasoning",
+                category: "thought_level",
+                type: "select",
+                currentValue: "high",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          }),
+        }),
+    });
+
+    const cache = result.backend.acp?.runtimeOptionsCache;
+    assert.isTrue(result.ok);
+    assert.equal(result.backend.acp?.connectionTest?.status, "passed");
+    assert.deepEqual(cache?.modes.map((entry) => entry.id), ["ask", "build"]);
+    assert.equal(cache?.currentModeId, "build");
+    assert.deepEqual(cache?.displayModels.map((entry) => entry.id), [
+      "openai/gpt-5",
+      "anthropic/claude",
+    ]);
+    assert.equal(cache?.currentDisplayModelId, "openai/gpt-5");
+    assert.deepEqual(cache?.reasoningEfforts.map((entry) => entry.id), [
+      "low",
+      "high",
+    ]);
+    assert.equal(cache?.currentReasoningEffortId, "high");
+  });
+
+  it("preserves existing runtime options cache when probe fails or returns empty selectors", async function () {
+    const existingCache = {
+      refreshedAt: "2026-04-29T00:00:00.000Z",
+      modes: [{ id: "ask", label: "Ask" }],
+      currentModeId: "ask",
+      rawModels: [{ id: "openai/gpt-5", label: "GPT-5" }],
+      currentRawModelId: "openai/gpt-5",
+      displayModels: [{ id: "openai/gpt-5", label: "GPT-5" }],
+      currentDisplayModelId: "openai/gpt-5",
+      reasoningEfforts: [{ id: "high", label: "High" }],
+      currentReasoningEffortId: "high",
+    };
+    const backend = {
+      id: "acp-preserve-cache",
+      displayName: "ACP Preserve Cache",
+      type: "acp",
+      baseUrl: "local://acp-preserve-cache",
+      command: "fake-acp",
+      acp: {
+        runtimeOptionsCache: existingCache,
+      },
+    };
+
+    const failed = await probeAcpBackendRuntimeOptions({
+      backend,
+      createAdapter: async () => {
+        throw new Error("spawn failed");
+      },
+    });
+    const empty = await probeAcpBackendRuntimeOptions({
+      backend,
+      createAdapter: async () =>
+        makeProbeAdapter({
+          newSession: async () => ({
+            sessionId: "session-1",
+            configOptions: [],
+            modes: { currentModeId: "", availableModes: [] },
+            models: { currentModelId: "", availableModels: [] },
+          }),
+        }),
+    });
+
+    assert.isFalse(failed.ok);
+    assert.equal(
+      failed.backend.acp?.runtimeOptionsCache?.currentDisplayModelId,
+      "openai/gpt-5",
+    );
+    assert.isTrue(empty.ok);
+    assert.equal(empty.backend.acp?.connectionTest?.status, "passed");
+    assert.equal(
+      empty.backend.acp?.runtimeOptionsCache?.currentDisplayModelId,
+      "openai/gpt-5",
     );
   });
 });

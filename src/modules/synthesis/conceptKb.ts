@@ -256,6 +256,17 @@ export type SynthesisConceptReviewActionResult = {
   receipt?: CanonicalTransactionReceipt;
 };
 
+export type SynthesisConceptDeleteResult = {
+  deleted_concept_ids: string[];
+  deleted_sense_ids: string[];
+  deleted_alias_ids: string[];
+  deleted_relation_ids: string[];
+  updated_review_items: SynthesisConceptReviewItem[];
+  deleted_topic_links: SynthesisTopicConceptLink[];
+  diagnostic?: SynthesisConceptDiagnostic;
+  receipt?: CanonicalTransactionReceipt;
+};
+
 type ServiceOptions = {
   root: string;
   now?: () => string;
@@ -1953,6 +1964,145 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     return { transactionId: result.transactionId, receipt: result.receipt };
   }
 
+  async function deleteConceptEntries(args: {
+    conceptIds?: string[];
+    conceptId?: string;
+    transactionId?: string;
+  }): Promise<SynthesisConceptDeleteResult> {
+    const requestedIds = normalizeStringList([
+      ...(Array.isArray(args.conceptIds) ? args.conceptIds : []),
+      args.conceptId,
+    ]);
+    if (!requestedIds.length) {
+      return {
+        deleted_concept_ids: [],
+        deleted_sense_ids: [],
+        deleted_alias_ids: [],
+        deleted_relation_ids: [],
+        updated_review_items: [],
+        deleted_topic_links: [],
+        diagnostic: {
+          code: "concept_delete_missing_id",
+          message: "Concept deletion requires at least one concept id.",
+        },
+      };
+    }
+    const snapshot = await loadConceptKb();
+    const existingIds = new Set(
+      snapshot.concepts.map((concept) => concept.concept_id),
+    );
+    const deleteIds = new Set(
+      requestedIds.filter((conceptId) => existingIds.has(conceptId)),
+    );
+    if (!deleteIds.size) {
+      return {
+        deleted_concept_ids: [],
+        deleted_sense_ids: [],
+        deleted_alias_ids: [],
+        deleted_relation_ids: [],
+        updated_review_items: [],
+        deleted_topic_links: [],
+        diagnostic: {
+          code: "concept_delete_not_found",
+          message: "No matching concept records were found to delete.",
+          details: { concept_ids: requestedIds },
+        },
+      };
+    }
+    const timestamp = now();
+    const deletedSenses = snapshot.senses.filter((sense) =>
+      deleteIds.has(sense.concept_id),
+    );
+    const deletedSenseIds = new Set(
+      deletedSenses.map((sense) => sense.sense_id),
+    );
+    const deletedAliases = snapshot.aliases.filter(
+      (alias) =>
+        deleteIds.has(alias.concept_id) ||
+        (alias.sense_id ? deletedSenseIds.has(alias.sense_id) : false),
+    );
+    const deletedRelations = snapshot.relations.filter(
+      (relation) =>
+        deleteIds.has(relation.source_concept_id) ||
+        deleteIds.has(relation.target_concept_id),
+    );
+    const updatedReviewItems = snapshot.review_items.map((item) => {
+      const candidate_concept_ids = item.candidate_concept_ids.filter(
+        (conceptId) => !deleteIds.has(conceptId),
+      );
+      const target_concept_id =
+        item.target_concept_id && deleteIds.has(item.target_concept_id)
+          ? undefined
+          : item.target_concept_id;
+      const changed =
+        candidate_concept_ids.length !== item.candidate_concept_ids.length ||
+        target_concept_id !== item.target_concept_id;
+      return {
+        ...item,
+        candidate_concept_ids,
+        target_concept_id,
+        updated_at: changed ? timestamp : item.updated_at,
+      };
+    });
+    const existingTopicLinks = repository
+      .listTopicConceptLinks()
+      .map(topicLinkFromRecord);
+    const topicIds = new Set(existingTopicLinks.map((link) => link.topic_id));
+    const deletedTopicLinks = existingTopicLinks.filter(
+      (link) =>
+        deleteIds.has(link.concept_id) || deletedSenseIds.has(link.sense_id),
+    );
+    const topicLinks = Array.from(topicIds)
+      .map((topicId) => ({
+        topicPathId: topicId,
+        data: {
+          topic_id: topicId,
+          links: existingTopicLinks
+            .filter((link) => link.topic_id === topicId)
+            .filter(
+              (link) =>
+                !deleteIds.has(link.concept_id) &&
+                !deletedSenseIds.has(link.sense_id),
+            ),
+        },
+      }))
+      .filter((entry) =>
+        existingTopicLinks.some((link) => link.topic_id === entry.data.topic_id),
+      );
+    const result = await commitConceptState({
+      concepts: snapshot.concepts.filter(
+        (concept) => !deleteIds.has(concept.concept_id),
+      ),
+      senses: snapshot.senses.filter(
+        (sense) => !deleteIds.has(sense.concept_id),
+      ),
+      aliases: snapshot.aliases.filter(
+        (alias) =>
+          !deleteIds.has(alias.concept_id) &&
+          !(alias.sense_id && deletedSenseIds.has(alias.sense_id)),
+      ),
+      relations: snapshot.relations.filter(
+        (relation) =>
+          !deleteIds.has(relation.source_concept_id) &&
+          !deleteIds.has(relation.target_concept_id),
+      ),
+      reviewItems: updatedReviewItems,
+      topicLinks,
+      transactionId: args.transactionId,
+    });
+    return {
+      deleted_concept_ids: Array.from(deleteIds).sort(),
+      deleted_sense_ids: Array.from(deletedSenseIds).sort(),
+      deleted_alias_ids: deletedAliases.map((alias) => alias.alias_id).sort(),
+      deleted_relation_ids: deletedRelations
+        .map((relation) => relation.relation_id)
+        .sort(),
+      updated_review_items: updatedReviewItems,
+      deleted_topic_links: deletedTopicLinks,
+      receipt: result.receipt,
+    };
+  }
+
   async function rebuildConceptKbIndexProjection(
     options: IndexRebuildOptions = {},
   ) {
@@ -2020,6 +2170,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     ingestConceptCardProposals,
     applyConceptReviewAction,
     updateConceptDisplayText,
+    deleteConceptEntries,
     exportConceptKbCheckpoint,
     rebuildConceptKbIndexProjection,
     readConceptKbIndexProjection,

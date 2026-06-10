@@ -4,24 +4,30 @@
   "title": "Stage 70 summary payload",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "summary_brief",
-    "summary_overview",
-    "key_takeaways",
-    "diagnostics"
-  ],
+  "required": ["summary_brief", "summary_overview", "key_takeaways"],
   "properties": {
-    "summary_brief": { "type": "string" },
-    "summary_overview": { "type": "string" },
-    "key_takeaways": { "type": "array", "items": { "type": "string" } },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    "summary_brief": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary_overview": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_takeaways": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
   },
   "examples": [
     {
-      "summary_brief": "",
-      "summary_overview": "",
-      "key_takeaways": [],
-      "diagnostics": []
+      "summary_brief": "DETR-style object detection 用集合预测和 object queries 重塑了检测建模方式。",
+      "summary_overview": "当前综合说明了 DETR 路线的边界、关键改进方向和覆盖缺口。",
+      "key_takeaways": ["DETR 路线的核心证据来自 source_paper_refs 指向的解析论文。"]
     }
   ]
 }

@@ -1507,7 +1507,7 @@
     const runContexts = rawRuns.map(function (entry) {
       const requestId = safeText(entry.requestId);
       return {
-        title: safeText(entry.workflowLabel || entry.taskName || entry.skillId) || "Run",
+        title: safeText(entry.taskName || entry.workflowLabel || entry.skillId) || "Run",
         subtitle: safeText(entry.status) + " · " + requestId,
         status: safeText(entry.status),
         action: "select-run",
@@ -1518,7 +1518,7 @@
     });
     function acpSkillRunTask(entry) {
       const requestId = safeText(entry && entry.requestId);
-      const title = safeText(entry && (entry.workflowLabel || entry.taskName || entry.skillId)) || "Run";
+      const title = safeText(entry && (entry.taskName || entry.workflowLabel || entry.skillId)) || "Run";
       const backendLabel = safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
       const workflowLabel = safeText(entry && entry.skillId) || backendLabel;
       const statusText = safeText(entry && entry.status) || "unknown";
@@ -1745,7 +1745,7 @@
       context: {
         id: safeText(run && run.requestId),
         title:
-          safeText(run && (run.workflowLabel || run.taskName || run.skillId)) ||
+          safeText(run && (run.taskName || run.workflowLabel || run.skillId)) ||
           "ACP Skill Run",
         subtitle: safeText(run && run.skillId),
         status,
@@ -1782,7 +1782,7 @@
               ),
               contextAction(
                 "cancel-run",
-                labelFrom(panel, "actions.cancelRun", "Cancel Run"),
+                labelFrom(panel, "actions.cancelRun", "Cancel Task"),
                 { requestId: safeText(run.requestId) },
                 !isTerminalStatus(status),
                 "danger",
@@ -1913,7 +1913,7 @@
         actions: [
           contextAction(
             "cancel-run",
-            labelFrom(envelope, "actions.cancelRun", "Cancel Run"),
+            labelFrom(envelope, "actions.cancelRun", "Cancel Task"),
             { requestId: safeText(session.requestId) },
             !isTerminalStatus(status),
             "danger",

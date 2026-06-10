@@ -6,9 +6,9 @@ import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/f
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
+import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { handlers } from "../../src/handlers";
 import {
-  getRuntimePersistencePaths,
   readRuntimeTextFile,
   removeRuntimePath,
   runtimePathExists,
@@ -30,6 +30,45 @@ async function waitFor(predicate: () => Promise<boolean> | boolean) {
 }
 
 describe("Synthesis tag vocabulary", function () {
+  it("counts Zotero tag usage from current user library top-level non-trashed items", async function () {
+    const libraryId = Zotero.Libraries.userLibraryID;
+    const countedTag = "usage:test-top-level";
+    const ignoredTag = "usage:test-ignored";
+    const visible = new Zotero.Item("journalArticle");
+    visible.libraryID = libraryId;
+    visible.setField("title", "Visible usage source");
+    visible.addTag(countedTag);
+    await visible.saveTx();
+
+    const child = new Zotero.Item("journalArticle");
+    child.libraryID = libraryId;
+    child.parentItemID = visible.id;
+    child.setField("title", "Child usage source");
+    child.addTag(countedTag);
+    await child.saveTx();
+
+    const trashed = new Zotero.Item("journalArticle");
+    trashed.libraryID = libraryId;
+    trashed.setField("title", "Trashed usage source");
+    trashed.addTag(countedTag);
+    await trashed.saveTx();
+    await Zotero.Items.trashTx([trashed.id]);
+
+    const groupItem = new Zotero.Item("journalArticle");
+    groupItem.libraryID = 99;
+    groupItem.setField("title", "Group usage source");
+    groupItem.addTag(countedTag);
+    groupItem.addTag(ignoredTag);
+    await groupItem.saveTx();
+
+    const adapter = createZoteroSynthesisLibraryAdapter({ libraryId });
+    const counts = await adapter.getTagUsageCounts?.({ libraryId });
+    const byTag = new Map((counts || []).map((row) => [row.tag, row.count]));
+
+    assert.equal(byTag.get(countedTag), 1);
+    assert.isUndefined(byTag.get(ignoredTag));
+  });
+
   it("initializes Tag Vocabulary runtime state in SQLite without canonical assets", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTagVocabularyService({ root });
@@ -430,7 +469,6 @@ describe("Synthesis tag vocabulary", function () {
 
   it("exposes import preview through service snapshots and applies explicit DB imports", async function () {
     const root = await makeRuntimeRoot();
-    const runtimePaths = getRuntimePersistencePaths(root);
     let syncRuns = 0;
     const service = createSynthesisService({
       root,
@@ -483,7 +521,14 @@ describe("Synthesis tag vocabulary", function () {
       "data:coco",
     );
     assert.equal(syncRuns, 0);
-    assert.isFalse(await runtimePathExists(runtimePaths.synthesisDataRoot));
+    assert.isFalse(
+      await runtimePathExists(
+        path.join(
+          buildSynthesisKnowledgeGraphPaths(root).tagsRoot,
+          "vocabulary.json",
+        ),
+      ),
+    );
   });
 
   it("rebuilds tag-index projection from SQLite state", async function () {
@@ -506,5 +551,52 @@ describe("Synthesis tag vocabulary", function () {
     const computed = await service.readTagIndexProjection();
     assert.include(computed.tags, "ai_task:tag_normalization");
     assert.isFalse(await runtimePathExists(indexPath));
+  });
+
+  it("enriches Workbench tag rows with current user library usage counts", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "usage-a",
+          title: "Usage A",
+          tags: ["field:usage", "method:usage", "field:usage"],
+        },
+        {
+          libraryId: 1,
+          itemKey: "usage-b",
+          title: "Usage B",
+          tags: ["field:usage"],
+        },
+        {
+          libraryId: 2,
+          itemKey: "usage-group",
+          title: "Usage group",
+          tags: ["field:usage"],
+        },
+      ],
+    });
+    await service.saveTagVocabulary({
+      entries: [
+        { tag: "field:usage", facet: "field" },
+        { tag: "method:usage", facet: "method" },
+        { tag: "topic:unused", facet: "topic" },
+      ],
+    });
+
+    const input = await service.getSynthesisWorkbenchSurfaceInput("tags");
+    const usage = new Map(
+      (input.tags?.entries || []).map((entry) => [
+        entry.tag,
+        entry.usage_count,
+      ]),
+    );
+
+    assert.equal(usage.get("field:usage"), 2);
+    assert.equal(usage.get("method:usage"), 1);
+    assert.equal(usage.get("topic:unused"), 0);
   });
 });

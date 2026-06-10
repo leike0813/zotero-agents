@@ -97,13 +97,12 @@ describe("pass-through provider", function () {
       itemType: "journalArticle",
       fields: { title: "Pass Through E2E Parent" },
     });
-    const alerts: string[] = [];
     const win = {
       ZoteroPane: {
         getSelectedItems: () => [parent],
       },
       alert: (message: string) => {
-        alerts.push(message);
+        throw new Error(`unexpected modal alert: ${message}`);
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
@@ -111,10 +110,6 @@ describe("pass-through provider", function () {
       win,
       workflow: workflow!,
     });
-
-    assert.lengthOf(alerts, 1);
-    assert.include(alerts[0], "succeeded=1");
-    assert.include(alerts[0], "failed=0");
 
     const parentItem = Zotero.Items.get(parent.id)!;
     const notes = parentItem.getNotes();
@@ -136,7 +131,6 @@ describe("pass-through provider", function () {
       itemType: "journalArticle",
       fields: { title: "Pass Through Toast Parent" },
     });
-    const alerts: string[] = [];
     const toasts: string[] = [];
     const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
     const createdToolkit = !runtime.ztoolkit;
@@ -163,7 +157,7 @@ describe("pass-through provider", function () {
         getSelectedItems: () => [parent],
       },
       alert: (message: string) => {
-        alerts.push(message);
+        throw new Error(`unexpected modal alert: ${message}`);
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
@@ -180,7 +174,6 @@ describe("pass-through provider", function () {
       }
     }
 
-    assert.lengthOf(alerts, 1);
     assert.isAtLeast(toasts.length, 2);
     assert.isFalse(
       toasts.some((entry) => /Example Shortcuts/i.test(entry)),
@@ -193,6 +186,10 @@ describe("pass-through provider", function () {
     assert.isTrue(
       toasts.some((entry) => /job 1\/1 succeeded/i.test(entry)),
       `missing per-job toast in: ${JSON.stringify(toasts)}`,
+    );
+    assert.isTrue(
+      toasts.some((entry) => /succeeded=1, failed=0/i.test(entry)),
+      `missing summary toast in: ${JSON.stringify(toasts)}`,
     );
   });
 
@@ -208,7 +205,6 @@ describe("pass-through provider", function () {
       itemType: "journalArticle",
       fields: { title: "Pass Through Toast Fallback Parent" },
     });
-    const alerts: string[] = [];
     const toasts: string[] = [];
 
     const runtime = globalThis as {
@@ -254,7 +250,7 @@ describe("pass-through provider", function () {
         getSelectedItems: () => [parent],
       },
       alert: (message: string) => {
-        alerts.push(message);
+        throw new Error(`unexpected modal alert: ${message}`);
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
@@ -281,7 +277,6 @@ describe("pass-through provider", function () {
       }
     }
 
-    assert.lengthOf(alerts, 1);
     assert.isTrue(
       toasts.some(
         (entry) =>
@@ -299,6 +294,15 @@ describe("pass-through provider", function () {
           /workflow-execute-toast-job-success/i.test(entry),
       ),
       `missing per-job toast in fallback mode: ${JSON.stringify(toasts)}`,
+    );
+    assert.isTrue(
+      toasts.some(
+        (entry) =>
+          /succeeded=1, failed=0/i.test(entry) ||
+          /成功=1，失败=0/.test(entry) ||
+          /workflow-execute-summary/i.test(entry),
+      ),
+      `missing summary toast in fallback mode: ${JSON.stringify(toasts)}`,
     );
   });
 });

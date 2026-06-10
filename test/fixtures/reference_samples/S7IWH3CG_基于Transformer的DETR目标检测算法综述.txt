@@ -1,0 +1,107 @@
+［1 ］ KRIZHEVSKY A， SUTSKEVER I， HINTON G EImageNet classification with deep convolutional neuralnetworks［J］．CommunicationsoftheACM， 2017， 60（6）：84－90．
+
+［2 ］ REDMONJ， DIVVALAS， GIRSHICK R， etal．Youonlylook once： unified， real－time object detection ［C ］ ∥ProceedingsoftheIEEEConferenceonComputerVisionandPatternRecognition （CVPR ）．Washington D．C． USA ：IEEEPress， 2016： 779－788．
+
+［3 ］ LIU W， ANGUELOV D， ERHAN D， etal．SSD： singleshotmultiboxdetector ［C ］∥ProceedingsofECCV,16Berlin， Germany： SpringerInternationalPublishing， 2016：21－37．
+
+［4 ］ VASWANIA， SHAZEERN， PARMARN， etal．Attentionisallyouneed［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／1706．03762
+
+［5 ］ DOSOVITSKIY A， BEYER L， KOLESNIKOV A， etalAnimageisworth16×16 words： Transformersforimagerecognitionatscale［EB／OL］．［2024－01－14］．https：∥arxivorg／abs／2010．11929
+
+［6 ］ LIU Z， LIN Y T， CAO Y， etal．Swin Transformer：hierarchicalvisionTransformerusingshiftedwindows［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision （ICCV）．WashingtonD．C．， USA： IEEEPress 2021： 9992－10002
+
+［7 ］ CARIONN， MASSAF， SYNNAEVEG， etal．End－to－endobjectdetection with Transformers ［C ］∥ ProceedingsofECCV, 20． Berlin， Germany： Springer InternationalPublishing， 2020： 213－229
+
+［8 ］ HEK M， ZHANG X Y， RENSQ， etal．Deepresiduallearningforimagerecognition［C］∥ProceedingsoftheIEEEConferenceon Computer Vision and Pattern Recognition（CVPR）．WashingtonD．C．， USA：IEEEPress， 2016： 770－778．
+
+［9 ］ LIUYD， WANGYT， WANGSW， etal．CBNet： anovelcomposite backbone network architecture for objectdetection［C］∥ Proceedings ofthe AAAI Conference onArtificialIntelligence．PaloAlto， USA： AAAIPress， 2020：11653－11660．
+
+［10］ SUNZ Q， CAO S C， YANG Y M， etal．RethinkingTransformer－basedsetpredictionforobjectdetection［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision （ICCV）．WashingtonD．C．， USA： IEEEPress， 2021： 3591－3600
+
+［11］ GAOP， ZHENGMH， WANG XG， etal．FastconvergenceofDETRwithspatiallymodulatedco－attention［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceon Computer Vision（ICCV）．WashingtonD．C．， USA： IEEEPress， 2021： 3601－3610．
+
+［12］ YEMQ， KEL， LISY， etal．Cascade－DETR： delvingintohigh－qualityuniversalobjectdetection［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision（ICCV ）． Washington D．C．， USA： IEEE Press， 2023：6681－6691
+
+［13］ ROHB， SHINJ， SHINWC， etal．SparseDETR： efficientend－to－endobjectdetectionwithlearnablesparsity［EB／OL］［2024－01－14］．https：∥arxiv．org／abs／2111．14330
+
+［14］ ZHENGD H， DONG W H， HU H L， etal．Lessismore：focusattentionforefficientDETR［C］∥ProceedingsoftheIEEE／CVF International Conference on Computer Vision（ICCV ）． Washington D．C．， USA： IEEE Press， 2023：6651－6660
+
+［15］ 王国明 ， 贾代旺．基于 YOLOv8的 小 目标检测模型的 优 化［J］．计算机工程 ， 2025， 51（12）： 294－303．WANG G M， JIA D W． Optimization ofsmallobjectdetection model based on YOLOv8 ［J ］． ComputerEngineering， 2025， 51（12）： 294－303．（inChinese）
+
+［16］ 董刚 ， 谢维成 ， 黄小龙 ， 等．深度学习小目标检测算法综述［J］．计算机工程与应用 ， 2023， 59（11）： 16－27．DONGG， XIE W C， HUANGXL， etal．Reviewofsmallobjectdetection algorithms based on deeplearning［J］ComputerEngineeringandApplications， 2023， 59（11）： 16－27．（inChinese）
+
+［17］ ZHANGJ， HUANGJ， LUOZ， etal．DA－DETR： domainadaptivedetectionTransformerwithinformationfusion［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2103．17084
+
+［18］ WANG T， YUAN L， CHEN Y P， etal．PnP－DETR ：towardsefficientvisualanalysiswith Transformers［C ］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision （ICCV）．WashingtonD．C．， USA： IEEEPress， 2021： 4641－4650
+
+［19］ ZHANGC， LIU L， ZANG X， etal．DETR＋ ＋ ： tamingyourmulti－scaledetectionTransformer［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2206．02977
+
+［20］ TAN MX， PANGRM， LEQV．EfficientDet： scalableandefficientobjectdetection［C］∥ProceedingsoftheIEEE／CVFConferenceon Computer Vision and Pattern Recognition（CVPR）．WashingtonD．C．， USA：IEEEPress， 2020： 1－9
+
+［21］ ZONGZF， SONGGL， LIUY．DETRswithcollaborativehybridassignmentstraining［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision （ICCV）WashingtonD．C．， USA： IEEEPress， 2023： 6725－6735
+
+［22］ YAOZ， AIJ， LIB， etal．EfficientDETR： improvingend－to－endobjectdetectorwithdenseprior［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2104．01318
+
+［23］ MENGDP， CHENXK， FANZJ， etal．ConditionalDETRforfasttrainingconvergence［C］∥ProceedingsoftheIEEE／CVFInternationalConferenceonComputerVision （ICCV）WashingtonD．C．， USA： IEEEPress， 2021： 3631－3640
+
+［24］ CHENX， WEIF， ZENGG， etal．ConditionalDETRV2：efficientdetectionTransformerwithboxqueries［EB／OL］［2024－01－14］．https：∥arxiv．org／abs／2207．08914
+
+［25］ WANG Y M， ZHANG X Y， YANG T， etal．AnchorDETR ：querydesignforTransformer－baseddetector［C］∥Proceedings of the AAAI Conference on ArtificialIntelligence．Palo Alto， USA： AAAIPress， 2022： 2567－2575．
+
+［26］ LIUS， LIF， ZHANG H， etal．DAB－DETR： dynamicanchorboxesarebetterqueriesforDETR［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2201．12329．
+
+［27］ LIU Y， ZHANG Y， WANG Y X， etal．SAP－DETR ：
+
+bridgingthegapbetweensalientpointsandqueries－based Transformerdetectorforfast modelconvergency［C ］∥ ProceedingsoftheIEEE／CVF Conference on Computer VisionandPatternRecognition （CVPR）．WashingtonD．C．， USA： IEEEPress， 2023： 15539－15547
+
+［28］ LIF， ZHANG H， LIUSL， etal．DN－DETR： accelerateDETR training byintroducing query DeNoising ［C ］∥ProceedingsoftheIEEE／CVF Conference on ComputerVisionandPatternRecognition （CVPR）．WashingtonD．C．，USA： IEEEPress， 2022： 13609－13617
+
+［29］ ZHANG H， LI F， LIU S， etal．DINO： DETR withimproved denoising anchor boxes for end－to－end objectdetection［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2203．03605
+
+［30］ CHENQ， CHENXK， WANG J， etal．GroupDETR： fastDETRtrainingwithgroup－wiseone－to－manyassignment［C］∥Proceedingsofthe IEEE／CVF International Conference onComputerVision （ICCV）．Washington D．C．， USA： IEEEPress， 2023： 6610－6619．
+
+［31］ JIAD， YUAN Y H， HE H D， etal．DETRswithhybridmatching［C］∥ProceedingsoftheIEEE／CVFConferenceonComputer Vision and Pattern Recognition （CVPR ）WashingtonD．C．， USA： IEEEPress， 2023： 19702－19712
+
+［32］ 潘晓英 ， 贾凝心 ， 穆元震 ， 等．小目标检测研究综述 ［J］．中国图象图形学报 2023 28（9）： 2587－2615PANXY， JIANX， MUYZ， etal．Surveyofsmallobjectdetection［J］．JournalofImageandGraphics， 2023， 28（9）：2587－2615．（inChinese）
+
+［33］ 王福军 ， 王星 ， 王柯迪．基于双域查询增强 Transformer的遥 感 图 像 旋 转 小 目 标 检 测 ［J］．吉 林 大 学 学 报 （理 学 版 ） ，2025 63（5） 14181426WANGFJ， WANGX， WANGKD．Rotatedsmallobjectdetectionofremotesensingimagesbasedondual－domainqueryenhancedTransformer［J］．JournalofJilinUniversity（ScienceEdition）， 2025， 63（5）： 1418－1426．（inChinese）
+
+［34］ LIF， ZENG A L， LIU S L， etal．Lite DETR： aninterleaved multi－scaleencoderforefficientDETR ［C ］∥ProceedingsoftheIEEE／CVF Conference on ComputerVisionandPatternRecognition （CVPR）．WashingtonD．C．，USA： IEEEPress， 2023： 18558－18567
+
+［35］ ZHAOY， LÜ W， XUS， etal．DETRsbeatYOLOsonreal－timeobjectdetection ［EB／OL］． ［2024－01－14］．https： ∥arxiv．org／abs／2304．08069．
+
+［36］ ZHANGG， LUO Z， CUIK， etal．Meta－DETR： image－levelfew－shotobjectdetection withinter－classcorrelationexploitation［EB／OL］． ［2024－01－14］．https：∥arxiv．org／abs／2103．11731
+
+［37］ BULAT A， GUERRERO R， MARTINEZ B， etal．FS－DETR： few－shotdetectionTransformerwithpromptingandwithoutre－training［C ］∥ ProceedingsoftheIEEE／CVFInternational Conference on Computer Vision （ICCV ）WashingtonD．C．， USA： IEEEPress， 2023： 11759－11768．
+
+［38］ RADFORD A， KIM J， HALLACY C， etal．LearningTransferablevisualmodelsfromnaturallanguagesupervision［EB／OL］． ［2024－01－14］．https： ∥arxiv．org／abs／2103
+
+00020．
+
+［39］ RADFORD A， NARASIMHAN K．Improving language understandingbygenerativepre－training［EB／OL］． ［2024－ 01－14］．https：∥www．semanticscholar．org／paper／Improving－ Language－Understanding－by－Generative－Radford－Narasimhan／ cd18800a0fe0b668a1cc19f2ec95b5003d0a5035
+
+［40］ DEVLINJ， CHANG M W， LEE K， etal．BERT ： pre－training of deep bidirectional Transformers forlanguageunderstanding［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／1810．04805
+
+［41］ DAIZ G， CAIB L， LIN Y G， etal．Unsupervisedpre－trainingfordetectionTransformers［J］．IEEETransactionsonPatternAnalysisandMachineIntelligence， 2023， 45（11）：12772－12782
+
+［42］ CARON M， MISRAI， MAIRALJ， etal．Unsupervisedlearningofvisualfeaturesbycontrastingclusterassignments［EB／OL］． ［2024－01－14］．https： ∥arxiv．org／abs／2006．09882．
+
+［43］ CHENZR， HUANGGS， LIW， etal．SiameseDETR［C］∥ProceedingsoftheIEEE／CVFConferenceonComputerVisionandPatternRecognition （CVPR）．WashingtonD．C．， USA ：IEEEPress， 2023： 15722－15731．
+
+［44］ LIUSL， HUANGSJ， LIF， etal．DQ－DETR： dualquerydetectionTransformerforphraseextractionandgrounding［C］∥ProceedingsoftheAAAIConferenceonArtificialIntelligencePaloAlto USA AAAIPress 2023 17281736
+
+［45］ KAMATH A， SINGH M， LECUN Y， etal．MDETR—modulated detection for end－to－end multi－modalunderstanding ［ C ］ ∥ Proceedings of the IEEE／CVFInternational Conference on Computer Vision （ICCV ）WashingtonD．C．， USA： IEEEPress， 2021： 1760－1770
+
+［46］ SHIF Y， GAO R P， HUANG W L， etal．DynamicMDETR： adynamic multimodalTransformerdecoderforvisualgrounding［J］．IEEETransactionsonPatternAnalysisandMachineIntelligence 2024 46（2）： 1181－1198
+
+［47］ ZANG Y H， LI W， ZHOU K Y， etal．Open－vocabularyDETR withconditionalmatching［C ］∥ProceedingsoftheEuropeanConferenceonComputerVision．Berlin， Germany：SpringerNatureSwitzerland， 2022： 106－122
+
+［48］ WANGJ， SUN A， ZHANG H， etal．MS－DETR： naturallanguagevideolocalization withsampling moment－momentinteraction［EB／OL］．［2024－01－14］．https：∥arxiv．org／abs／2305．18969．
+
+［49］ 周丽娟 ， 毛嘉宁．视觉 Transformer识别任务研究综述 ［J］中国图象图形学报 ， 2023， 28（10）： 2969－3003．ZHOU L J， MAO J N． Vision Transformer－basedrecognitiontasks： acriticalreview［J］．JournalofImageandGraphics， 2023， 28（10）： 2969－3003．（inChinese）
+
+［50］ 王杨 ， 宋世佳 ， 王鹤琴 ， 等．基于改进 VisionTransformer的局部光照一致性估计 ［J］．计算机工程 ， 2025， 51（2）： 312－321．WANGY， SONGSJ， WANG H Q， etal．Estimationoflocalillumination consistency based onimproved VisionTransformer［J］．ComputerEngineering， 2025， 51（2）： 312－321．（inChinese）
+
+文字编辑 陆燕菲
+
+栏目编辑 赖玉玲

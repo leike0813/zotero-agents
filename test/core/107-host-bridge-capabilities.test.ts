@@ -233,7 +233,7 @@ describe("host bridge capability calls", function () {
 
     const parsed = await callBridgeCapability({
       token,
-      capability: "synthesis.get_reference_sidecar_index",
+      capability: "reference_index.get",
       input: { limit: 1 },
     });
 
@@ -241,7 +241,7 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(
       parsed.json.result.capability,
-      "synthesis.get_reference_sidecar_index",
+      "reference_index.get",
     );
     assert.strictEqual(parsed.json.result.approval, "none");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
@@ -257,10 +257,15 @@ describe("host bridge capability calls", function () {
     );
     const metricsRefresh = manifest.json.result.capabilities.find(
       (entry: { name?: string }) =>
-        entry.name === "synthesis.refresh_citation_graph_metrics",
+        entry.name === "citation_graph.refresh_metrics",
+    );
+    const topicReport = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "topics.get_report",
     );
     assert.isOk(metricsRefresh);
+    assert.isOk(topicReport);
     assert.strictEqual(metricsRefresh.approval, "zotero-ui-required");
+    assert.strictEqual(topicReport.approval, "none");
   });
 
   it("reports canonical resolve-resolver input contract errors", async function () {
@@ -270,7 +275,7 @@ describe("host bridge capability calls", function () {
 
     const missing = await callBridgeCapability({
       token,
-      capability: "synthesis.resolve_resolver",
+      capability: "resolvers.resolve",
       input: {},
     });
     assert.strictEqual(missing.status, 200);
@@ -282,7 +287,7 @@ describe("host bridge capability calls", function () {
 
     const legacy = await callBridgeCapability({
       token,
-      capability: "synthesis.resolve_resolver",
+      capability: "resolvers.resolve",
       input: {
         topic_resolver: {
           mode: "tag_query",

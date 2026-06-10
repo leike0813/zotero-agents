@@ -1,0 +1,335 @@
+Asano, Y. M., Rupprecht, C., and Vedaldi, A. A critical analysis of self-supervision, or what we can learn from a single image. arXiv preprint arXiv:1904.13132, 2019.
+
+Bachman, P., Hjelm, R. D., and Buchwalter, W. Learning representations by maximizing mutual information across views. In Advances in Neural Information Processing Systems, pp. 15509–15519, 2019.
+
+Becker, S. and Hinton, G. E. Self-organizing neural network that discovers surfaces in random-dot stereograms. Nature, 355 (6356):161–163, 1992.
+
+Berg, T., Liu, J., Lee, S. W., Alexander, M. L., Jacobs, D. W., and Belhumeur, P. N. Birdsnap: Large-scale fine-grained visual categorization of birds. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 2019–2026. IEEE, 2014.
+
+Berthelot, D., Carlini, N., Goodfellow, I., Papernot, N., Oliver, A., and Raffel, C. A. Mixmatch: A holistic approach to semisupervised learning. In Advances in Neural Information Processing Systems, pp. 5050–5060, 2019.
+
+Bossard, L., Guillaumin, M., and Van Gool, L. Food-101–mining discriminative components with random forests. In European conference on computer vision, pp. 446–461. Springer, 2014.
+
+Chen, T., Sun, Y., Shi, Y., and Hong, L. On sampling strategies for neural network-based collaborative filtering. In Proceedings of the 23rd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, pp. 767–776, 2017.
+
+Chen, T., Zhai, X., Ritter, M., Lucic, M., and Houlsby, N. Selfsupervised gans via auxiliary rotation loss. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 12154–12163, 2019.
+
+Cimpoi, M., Maji, S., Kokkinos, I., Mohamed, S., and Vedaldi, A. Describing textures in the wild. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 3606– 3613. IEEE, 2014.
+
+Cubuk, E. D., Zoph, B., Mane, D., Vasudevan, V., and Le, Q. V. Autoaugment: Learning augmentation strategies from data. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 113–123, 2019.
+
+DeVries, T. and Taylor, G. W. Improved regularization of convolutional neural networks with cutout. arXiv preprint arXiv:1708.04552, 2017.
+
+Doersch, C. and Zisserman, A. Multi-task self-supervised visual learning. In Proceedings of the IEEE International Conference on Computer Vision, pp. 2051–2060, 2017.
+
+Doersch, C., Gupta, A., and Efros, A. A. Unsupervised visual representation learning by context prediction. In Proceedings of the IEEE International Conference on Computer Vision, pp. 1422–1430, 2015.
+
+Donahue, J. and Simonyan, K. Large scale adversarial representation learning. In Advances in Neural Information Processing Systems, pp. 10541–10551, 2019.
+
+Donahue, J., Jia, Y., Vinyals, O., Hoffman, J., Zhang, N., Tzeng, E., and Darrell, T. Decaf: A deep convolutional activation feature for generic visual recognition. In International Conference on Machine Learning, pp. 647–655, 2014.
+
+Dosovitskiy, A., Springenberg, J. T., Riedmiller, M., and Brox, T. Discriminative unsupervised feature learning with convolutional neural networks. In Advances in neural information processing systems, pp. 766–774, 2014.
+
+Everingham, M., Van Gool, L., Williams, C. K., Winn, J., and Zisserman, A. The pascal visual object classes (voc) challenge. International Journal of Computer Vision, 88(2):303–338, 2010.
+
+Fei-Fei, L., Fergus, R., and Perona, P. Learning generative visual models from few training examples: An incremental bayesian approach tested on 101 object categories. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) Workshop on Generative-Model Based Vision, 2004.
+
+Gidaris, S., Singh, P., and Komodakis, N. Unsupervised representation learning by predicting image rotations. arXiv preprint arXiv:1803.07728, 2018.
+
+Goodfellow, I., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D., Ozair, S., Courville, A., and Bengio, Y. Generative adversarial nets. In Advances in neural information processing systems, pp. 2672–2680, 2014.
+
+Goyal, P., Dollár, P., Girshick, R., Noordhuis, P., Wesolowski, L., Kyrola, A., Tulloch, A., Jia, Y., and He, K. Accurate, large minibatch sgd: Training imagenet in 1 hour. arXiv preprint arXiv:1706.02677, 2017.
+
+Hadsell, R., Chopra, S., and LeCun, Y. Dimensionality reduction by learning an invariant mapping. In 2006 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (CVPR’06), volume 2, pp. 1735–1742. IEEE, 2006.
+
+He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 770–778, 2016.
+
+He, K., Fan, H., Wu, Y., Xie, S., and Girshick, R. Momentum contrast for unsupervised visual representation learning. arXiv preprint arXiv:1911.05722, 2019.
+
+Hénaff, O. J., Razavi, A., Doersch, C., Eslami, S., and Oord, A. v. d. Data-efficient image recognition with contrastive predictive coding. arXiv preprint arXiv:1905.09272, 2019.
+
+Hinton, G. E., Osindero, S., and Teh, Y.-W. A fast learning algorithm for deep belief nets. Neural computation, 18(7):1527– 1554, 2006.
+
+Hjelm, R. D., Fedorov, A., Lavoie-Marchildon, S., Grewal, K., Bachman, P., Trischler, A., and Bengio, Y. Learning deep representations by mutual information estimation and maximization. arXiv preprint arXiv:1808.06670, 2018.
+
+Howard, A. G. Some improvements on deep convolutional neural network based image classification. arXiv preprint arXiv:1312.5402, 2013.
+
+Ioffe, S. and Szegedy, C. Batch normalization: Accelerating deep network training by reducing internal covariate shift. arXiv preprint arXiv:1502.03167, 2015.
+
+Ji, X., Henriques, J. F., and Vedaldi, A. Invariant information clustering for unsupervised image classification and segmentation. In Proceedings of the IEEE International Conference on Computer Vision, pp. 9865–9874, 2019.
+
+Kingma, D. P. and Welling, M. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114, 2013.
+
+Kolesnikov, A., Zhai, X., and Beyer, L. Revisiting self-supervised visual representation learning. In Proceedings of the IEEE conference on Computer Vision and Pattern Recognition, pp. 1920–1929, 2019.
+
+Kornblith, S., Shlens, J., and Le, Q. V. Do better ImageNet models transfer better? In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 2661–2671, 2019.
+
+Krause, J., Deng, J., Stark, M., and Fei-Fei, L. Collecting a large-scale dataset of fine-grained cars. In Second Workshop on Fine-Grained Visual Categorization, 2013.
+
+Krizhevsky, A. and Hinton, G. Learning multiple layers of features from tiny images. Technical report, University of Toronto, 2009. URL https://www.cs.toronto.edu/\~kriz/ learning-features-2009-TR.pdf.
+
+Krizhevsky, A., Sutskever, I., and Hinton, G. E. Imagenet classification with deep convolutional neural networks. In Advances in neural information processing systems, pp. 1097–1105, 2012.
+
+Loshchilov, I. and Hutter, F. Sgdr: Stochastic gradient descent with warm restarts. arXiv preprint arXiv:1608.03983, 2016.
+
+Maaten, L. v. d. and Hinton, G. Visualizing data using t-sne. Journal of machine learning research, 9(Nov):2579–2605, 2008.
+
+Maji, S., Kannala, J., Rahtu, E., Blaschko, M., and Vedaldi, A. Fine-grained visual classification of aircraft. Technical report, 2013.
+
+Mikolov, T., Chen, K., Corrado, G., and Dean, J. Efficient estimation of word representations in vector space. arXiv preprint arXiv:1301.3781, 2013.
+
+Misra, I. and van der Maaten, L. Self-supervised learning of pretext-invariant representations. arXiv preprint arXiv:1912.01991, 2019.
+
+Nilsback, M.-E. and Zisserman, A. Automated flower classification over a large number of classes. In Computer Vision, Graphics & Image Processing, 2008. ICVGIP’08. Sixth Indian Conference on, pp. 722–729. IEEE, 2008.
+
+Noroozi, M. and Favaro, P. Unsupervised learning of visual representations by solving jigsaw puzzles. In European Conference on Computer Vision, pp. 69–84. Springer, 2016.
+
+Oord, A. v. d., Li, Y., and Vinyals, O. Representation learning with contrastive predictive coding. arXiv preprint arXiv:1807.03748, 2018.
+
+Parkhi, O. M., Vedaldi, A., Zisserman, A., and Jawahar, C. Cats and dogs. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 3498–3505. IEEE, 2012.
+
+Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S., Huang, Z., Karpathy, A., Khosla, A., Bernstein, M., et al. Imagenet large scale visual recognition challenge. International journal of computer vision, 115(3):211–252, 2015.
+
+Schroff, F., Kalenichenko, D., and Philbin, J. Facenet: A unified embedding for face recognition and clustering. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 815–823, 2015.
+
+Simonyan, K. and Zisserman, A. Very deep convolutional networks for large-scale image recognition. arXiv preprint arXiv:1409.1556, 2014.
+
+Sohn, K. Improved deep metric learning with multi-class n-pair loss objective. In Advances in neural information processing systems, pp. 1857–1865, 2016.
+
+Sohn, K., Berthelot, D., Li, C.-L., Zhang, Z., Carlini, N., Cubuk, E. D., Kurakin, A., Zhang, H., and Raffel, C. Fixmatch: Simplifying semi-supervised learning with consistency and confidence. arXiv preprint arXiv:2001.07685, 2020.
+
+Szegedy, C., Liu, W., Jia, Y., Sermanet, P., Reed, S., Anguelov, D., Erhan, D., Vanhoucke, V., and Rabinovich, A. Going deeper with convolutions. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp. 1–9, 2015.
+
+Tian, Y., Krishnan, D., and Isola, P. Contrastive multiview coding. arXiv preprint arXiv:1906.05849, 2019.
+
+Tschannen, M., Djolonga, J., Rubenstein, P. K., Gelly, S., and Lucic, M. On mutual information maximization for representation learning. arXiv preprint arXiv:1907.13625, 2019.
+
+Wu, Z., Xiong, Y., Yu, S. X., and Lin, D. Unsupervised feature learning via non-parametric instance discrimination. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 3733–3742, 2018.
+
+Xiao, J., Hays, J., Ehinger, K. A., Oliva, A., and Torralba, A. Sun database: Large-scale scene recognition from abbey to zoo. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 3485–3492. IEEE, 2010.
+
+Xie, Q., Dai, Z., Hovy, E., Luong, M.-T., and Le, Q. V. Unsupervised data augmentation. arXiv preprint arXiv:1904.12848, 2019.
+
+Ye, M., Zhang, X., Yuen, P. C., and Chang, S.-F. Unsupervised embedding learning via invariant and spreading instance feature. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 6210–6219, 2019.
+
+You, Y., Gitman, I., and Ginsburg, B. Large batch training of convolutional networks. arXiv preprint arXiv:1708.03888, 2017.
+
+Zhai, X., Oliver, A., Kolesnikov, A., and Beyer, L. S4l: Selfsupervised semi-supervised learning. In The IEEE International Conference on Computer Vision (ICCV), October 2019.
+
+Zhang, R., Isola, P., and Efros, A. A. Colorful image colorization. In European conference on computer vision, pp. 649–666. Springer, 2016.
+
+Zhuang, C., Zhai, A. L., and Yamins, D. Local aggregation for unsupervised learning of visual embeddings. In Proceedings of the IEEE International Conference on Computer Vision, pp. 6002–6012, 2019.
+
+## A. Data Augmentation Details
+
+In our default pretraining setting (which is used to train our best models), we utilize random crop (with resize and random flip), random color distortion, and random Gaussian blur as the data augmentations. The details of these three augmentations are provided below.
+
+Random crop and resize to 224x224 We use standard Inception-style random cropping (Szegedy et al., 2015). The crop of random size (uniform from 0.08 to 1.0 in area) of the original size and a random aspect ratio (default: of 3/4 to 4/3) of the original aspect ratio is made. This crop is finally resized to the original size. This has been implemented in Tensorflow as “slim.preprocessing.inception\_preprocessing.distorted\_bounding\_box\_crop”, or in Pytorch as “torchvision.transforms.RandomResizedCrop”. Additionally, the random crop (with resize) is always followed by a random horizontal/left-to-right flip with 50% probability. This is helpful but not essential. By removing this from our default augmentation policy, the top-1 linear evaluation drops from 64.5% to 63.4% for our ResNet-50 model trained in 100 epochs.
+
+Color distortion Color distortion is composed by color jittering and color dropping. We find stronger color jittering usually helps, so we set a strength parameter.
+
+A pseudo-code for color distortion using TensorFlow is as follows.
+
+```python
+import tensorflow as tf
+def color_distortion(image, s=1.0):
+# image is a tensor with value range in [0, 1].
+# s is the strength of color distortion.
+def color_jitter(x):
+# one can also shuffle the order of following augmentations
+# each time they are applied.
+x = tf.image.random_brightness(x, max_delta=0.8*s)
+x = tf.image.random_contrast(x, lower=1-0.8*s, upper=1+0.8*s)
+x = tf.image.random_saturation(x, lower=1-0.8*s, upper=1+0.8*s)
+x = tf.image.random_hue(x, max_delta=0.2*s)
+x = tf.clip_by_value(x, 0, 1)
+return x
+def color_drop(x):
+image = tf.image.rgb_to_grayscale(image)
+image = tf.tile(image, [1, 1, 3])
+# randomly apply transformation with probability p.
+image = random_apply(color_jitter, image, p=0.8)
+image = random_apply(color_drop, image, p=0.2)
+return image
+A pseudo-code for color distortion using Pytorch is as follows 12.
+from torchvision import transforms
+def get_color_distortion(s=1.0):
+# s is the strength of color distortion.
+color_jitter = transforms.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s)
+rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
+rnd_gray = transforms.RandomGrayscale(p=0.2)
+color_distort = transforms.Compose([
+rnd_color_jitter,
+rnd_gray])
+```
+
+return color\_distort
+
+Gaussian blur This augmentation is in our default policy. We find it helpful, as it improves our ResNet-50 trained for 100 epochs from 63.2% to 64.5%. We blur the image 50% of the time using a Gaussian kernel. We randomly sample σ ∈ [0.1, 2.0], and the kernel size is set to be 10% of the image height/width.
+
+## B. Additional Experimental Results
+
+## B.1. Batch Size and Training Steps
+
+Figure B.1 shows the top-5 accuracy on linear evaluation when trained with different batch sizes and training epochs. The conclusion is very similar to top-1 accuracy shown before, except that the differences between different batch sizes and training steps seems slightly smaller here.
+
+In both Figure 9 and Figure B.1, we use a linear scaling of learning rate similar to (Goyal et al., 2017) when training with different batch sizes. Although linear learning rate scaling is popular with SGD/Momentum optimizer, we find a square root learning rate scaling is more desirable with LARS optimizer. With square root learning rate scaling, we have√ LearningRate $: = 0 . 0 7 5 \times \sqrt { \mathrm { B a t c h S i z e } }$ , instead of LearningRate = 0.3 × BatchSize/256 in the linear scaling case, but the learning rate is the same under both scaling methods when batch size of 4096 (our default batch size). A comparison is presented in Table B.1, where we observe that square root learning rate scaling improves the performance for models trained with small batch sizes and in smaller number of epochs.
+
+<table><tr><td>Batch size\Epochs</td><td>100</td><td>200</td><td>400</td><td>800</td></tr><tr><td>256</td><td>57.5 / 62.8</td><td>61.9 / 64.3</td><td>64.7 / 65.7</td><td>66.6 / 66.5</td></tr><tr><td>512</td><td>60.7 / 63.8</td><td>64.0 / 65.6</td><td>66.2 / 66.7</td><td>67.8 / 67.4</td></tr><tr><td>1024</td><td>62.8 / 64.3</td><td>65.3 / 66.1</td><td>67.2/ 67.2</td><td>68.5 / 68.3</td></tr><tr><td>2048</td><td>64.0 / 64.7</td><td>66.1 / 66.8</td><td>68.1 / 67.9</td><td>68.9 / 68.8</td></tr><tr><td>4096</td><td>64.6 / 64.5</td><td>66.5 / 66.8</td><td>68.2 / 68.0</td><td>68.9 / 69.1</td></tr><tr><td>8192</td><td>64.8 / 64.8</td><td>66.6 / 67.0</td><td>67.8 / 68.3</td><td>69.0 / 69.1</td></tr></table>
+
+Table B.1. Linear evaluation (top-1) under different batch sizes and training epochs. On the left side of slash sign are models trained with linear LR scaling, and on the right are models trained with square root LR scaling. The result is bolded if it is more than 0.5% better. Square root LR scaling works better for smaller batch size trained in fewer epochs (with LARS optimizer).
+
+We also train with larger batch size (up to 32K) and longer (up to 3200 epochs), with the square root learning rate scaling. A shown in Figure B.2, the performance seems to saturate with a batch size of 8192, while training longer can still significantly improve the performance.
+
+![](Images_LYNP5J3H/a5693bbb8627932bfc9ae76f98f022dfcccd428d8e01dd1494a261c995546634.jpg)  
+Figure B.1. Linear evaluation (top-5) of ResNet-50 trained with different batch sizes and epochs. Each bar is a single run from scratch. See Figure 9 for top-1 accuracy.
+
+![](Images_LYNP5J3H/5a42eef9f380c3ba03ff61654e2686e8f88665895fd8d3b55d457410fcc1bd75.jpg)  
+Figure B.2. Linear evaluation (top-1) of ResNet-50 trained with different batch sizes and longer epochs. Here a square root learning rate, instead of a linear one, is utilized.
+
+## B.2. Broader composition of data augmentations further improves performance
+
+Our best results in the main text (Table 6 and 7) can be further improved when expanding the default augmentation policy to include the following: (1) Sobel filtering, (2) additional color distortion (equalize, solarize), and (3) motion blur. For linear evaluation protocol, the ResNet-50 models (1×, 2×, 4×) trained with broader data augmentations achieve 70.0 (+0.7), 74.4 (+0.2), 76.8 (+0.3), respectively.
+
+Table B.2 shows ImageNet accuracy obtained by fine-tuning the SimCLR model (see Appendix B.5 for the details of fine-tuning procedure). Interestingly, when fine-tuned on full (100%) ImageNet training set, our ResNet (4×) model achieves 80.4% top-1 / 95.4% top-5 13, which is significantly better than that (78.4% top-1 / 94.2% top-5) of training from scratch using the same set of augmentations (i.e. random crop and horizontal flip). For ResNet-50 (2×), fine-tuning our pre-trained ResNet-50 (2×) is also better than training from scratch (77.8% top-1 / 93.9% top-5). There is no improvement from fine-tuning for ResNet-50.
+
+<table><tr><td rowspan="2">Architecture</td><td colspan="6">Label fraction</td></tr><tr><td colspan="2">1%</td><td colspan="2">10%</td><td colspan="2">100%</td></tr><tr><td></td><td>Top 1</td><td>Top5</td><td>Top 1</td><td>Top 5</td><td>Top1</td><td>Top5</td></tr><tr><td>ResNet-50</td><td>49.4</td><td>76.6</td><td>66.1</td><td>88.1</td><td>76.0</td><td>93.1</td></tr><tr><td>ResNet-50 (2×)</td><td>59.4</td><td>83.7</td><td>71.8</td><td>91.2</td><td>79.1</td><td>94.8</td></tr><tr><td>ResNet-50 (4×)</td><td>64.1</td><td>86.6</td><td>74.8</td><td>92.8</td><td>80.4</td><td>95.4</td></tr></table>
+
+Table B.2. Classification accuracy obtained by fine-tuning the SimCLR (which is pretrained with broader data augmentations) on 1%, 10% and full of ImageNet. As a reference, our ResNet-50 (4×) trained from scratch on 100% labels achieves 78.4% top-1 / 94.2% top-5.
+
+## B.3. Effects of Longer Training for Supervised Models
+
+Here we perform experiments to see how training steps and stronger data augmentation affect supervised training. We test ResNet-50 and ResNet-50 (4×) under the same set of data augmentations (random crops, color distortion, 50% Gaussian blur) as used in our unsupervised models. Figure B.3 shows the top-1 accuracy. We observe that there is no significant benefit from training supervised models longer on ImageNet. Stronger data augmentation slightly improves the accuracy of ResNet-50 (4×) but does not help on ResNet-50. When stronger data augmentation is applied, ResNet-50 generally requires longer training (e.g. 500 epochs 14) to obtain the optimal result, while ResNet-50 (4×) does not benefit from longer training.
+
+<table><tr><td rowspan="2">Model</td><td rowspan="2">Training epochs</td><td colspan="3">Top1</td></tr><tr><td>Crop</td><td>+Color&#x27;</td><td>+Color+Blur</td></tr><tr><td rowspan="3">ResNet-50</td><td>90</td><td>76.5</td><td>75.6</td><td>75.3</td></tr><tr><td>500</td><td>76.2</td><td>76.5</td><td>76.7</td></tr><tr><td>1000</td><td>75.8</td><td>75.2</td><td>76.4</td></tr><tr><td rowspan="3">ResNet-50 (4×)</td><td>90</td><td>78.4</td><td>78.9</td><td>78.7</td></tr><tr><td>500</td><td>78.3</td><td>78.4</td><td>78.5</td></tr><tr><td>1000</td><td>77.9</td><td>78.2</td><td>78.3</td></tr></table>
+
+Table B.3. Top-1 accuracy of supervised models trained longer under various data augmentation procedures (from the same set of data augmentations for contrastive learning).
+
+## B.4. Understanding The Non-Linear Projection Head
+
+Figure B.3 shows the eigenvalue distribution of linear projection matrix $W \in R ^ { 2 0 4 8 \times 2 0 4 8 }$ used to compute $z = W h$ . This matrix has relatively few large eigenvalues, indicating that it is approximately low-rank.
+
+Figure B.4 shows t-SNE (Maaten & Hinton, 2008) visualizations of h and $z = g ( h )$ for randomly selected 10 classes by our best ResNet-50 (top-1 linear evaluation 69.3%). Classes represented by h are better separated compared to z.
+
+![](Images_LYNP5J3H/7ea89826fad1ca7484c7d8912fe17be677364273603c917825c4ec30bd83a1d5.jpg)  
+(a) Y-axis in uniform scale.
+
+![](Images_LYNP5J3H/ae67b2babef0bba52c1c2449a38ef68c3504cdf88a859aaaceb73841afe8d5a8.jpg)  
+(b) Y-axis in log scale.  
+Figure B.3. Squared real eigenvalue distribution of linear projection matrix $W \in \dot { R ^ { 2 0 4 8 \times 2 0 4 8 } }$ used to compute $g ( h ) = W h$
+
+![](Images_LYNP5J3H/8d8119a29fc2a2ebb2b41d0599bf37b00a9c7d6498ca194642479157a661fd9d.jpg)  
+Figure B.4. t-SNE visualizations of hidden vectors of images from a randomly selected 10 classes in the validation set.
+
+## B.5. Semi-supervised Learning via Fine-Tuning
+
+Fine-tuning Procedure We fine-tune using the Nesterov momentum optimizer with a batch size of 4096, momentum of 0.9, and a learning rate of 0.8 (following LearningRa $\mathrm { ; e = 0 . 0 5 \times B a t c h S i z e / 2 5 6 ) }$ without warmup. Only random cropping (with random left-to-right flipping and resizing to 224x224) is used for preprocessing. We do not use any regularization (including weight decay). For 1% labeled data we fine-tune for 60 epochs, and for 10% labeled data we fine-tune for 30 epochs. For the inference, we resize the given image to 256x256, and take a single center crop of 224x224.
+
+Table B.4 shows the comparisons of top-1 accuracy for different methods for semi-supervised learning. Our models significantly improve state-of-the-art.
+<table><tr><td>Method</td><td>Architecture</td><td colspan="2">Label fraction 1% 10% Top1</td></tr><tr><td>Supervised baseline</td><td>ResNet-50</td><td>25.4</td><td>56.4</td></tr><tr><td colspan="2">Methods using label-propagation:</td><td colspan="2"></td></tr><tr><td>UDA (w. RandAug)</td><td>ResNet-50</td><td></td><td>68.8</td></tr><tr><td>FixMatch (w. RandAug)</td><td>ResNet-50</td><td></td><td>71.5</td></tr><tr><td>S4L (Rot+VAT+Ent.Min.)</td><td>ResNet-50 (4×)</td><td>=</td><td>73.2</td></tr><tr><td colspan="2">Methods using self-supervised representation learning only:</td><td></td><td></td></tr><tr><td>CPC v2</td><td>ResNet-161(*)</td><td>52.7</td><td>73.1</td></tr><tr><td>SimCLR (ours)</td><td>ResNet-50</td><td>48.3</td><td>65.6</td></tr><tr><td>SimCLR (ours)</td><td>ResNet-50 (2×)</td><td>58.5</td><td>71.7</td></tr><tr><td>SimCLR (ours)</td><td>ResNet-50 (4×)</td><td>63.0</td><td>74.4</td></tr></table>
+
+Table B.4. ImageNet top-1 accuracy of models trained with few labels. See Table 7 for top-5 accuracy.
+
+## B.6. Linear Evaluation
+
+For linear evaluation, we follow similar procedure as fine-tuning (described in Appendix B.5), except that a larger learning rate of 1.6 (following LearningRate = 0.1 × BatchSize/256) and longer training of 90 epochs. Alternatively, using LARS optimizer with the pretraining hyper-parameters also yield similar results. Furthermore, we find that attaching the linear classifier on top of the base encoder (with a stop\_gradient on the input to linear classifier to prevent the label information from influencing the encoder) and train them simultaneously during the pretraining achieves similar performance.
+
+## B.7. Correlation Between Linear Evaluation and Fine-Tuning
+
+Here we study the correlation between linear evaluation and fine-tuning under different settings of training step and network architecture.
+
+Figure B.5 shows linear evaluation versus fine-tuning when training epochs of a ResNet-50 (using batch size of 4096) are varied from 50 to 3200 as in Figure B.2. While they are almost linearly correlated, it seems fine-tuning on a small fraction
+
+of labels benefits more from training longer.
+
+![](Images_LYNP5J3H/2d23cfed95a55931fb7eaa97eebc050892bab308222363c89963dd7480d91fd5.jpg)
+
+![](Images_LYNP5J3H/f317cd2807be6930f3edfeab3cbddfcf555091d81b707a7109263e0dd9fecdbb.jpg)  
+Figure B.5. Top-1 accuracy of models trained in different epochs (from Figure B.2), under linear evaluation and fine-tuning.
+
+Figure B.6 shows shows linear evaluation versus fine-tuning for different architectures of choice.  
+![](Images_LYNP5J3H/db515eb26b262abc2d6da540122148517a1861838b925b0d157aed9585f8349d.jpg)
+
+![](Images_LYNP5J3H/4ac029ef0e0147bf665ceac81c4baa6269c689bca8befc45b7b94a3fcef267ee.jpg)  
+Figure B.6. Top-1 accuracy of different architectures under linear evaluation and fine-tuning.
+
+## B.8. Transfer Learning
+
+We evaluated the performance of our self-supervised representation for transfer learning in two settings: linear evaluation, where a logistic regression classifier is trained to classify a new dataset based on the self-supervised representation learned on ImageNet, and fine-tuning, where we allow all weights to vary during training. In both cases, we follow the approach described by Kornblith et al. (2019), although our preprocessing differs slightly.
+
+## B.8.1. METHODS
+
+Datasets We investigated transfer learning performance on the Food-101 dataset (Bossard et al., 2014), CIFAR-10 and CIFAR-100 (Krizhevsky & Hinton, 2009), Birdsnap (Berg et al., 2014), the SUN397 scene dataset (Xiao et al., 2010), Stanford Cars (Krause et al., 2013), FGVC Aircraft (Maji et al., 2013), the PASCAL VOC 2007 classification task (Everingham et al., 2010), the Describable Textures Dataset (DTD) (Cimpoi et al., 2014), Oxford-IIIT Pets (Parkhi et al., 2012), Caltech-101 (Fei-Fei et al., 2004), and Oxford 102 Flowers (Nilsback & Zisserman, 2008). We follow the evaluation protocols in the papers introducing these datasets, i.e., we report top-1 accuracy for Food-101, CIFAR-10, CIFAR-100, Birdsnap, SUN397, Stanford Cars, and DTD; mean per-class accuracy for FGVC Aircraft, Oxford-IIIT Pets, Caltech-101, and Oxford 102 Flowers; and the 11-point mAP metric as defined in Everingham et al. (2010) for PASCAL VOC 2007. For DTD and SUN397, the dataset creators defined multiple train/test splits; we report results only for the first split. Caltech-101 defines no train/test split, so we randomly chose 30 images per class and test on the remainder, for fair comparison with previous work (Donahue et al., 2014; Simonyan & Zisserman, 2014).
+
+We used the validation sets specified by the dataset creators to select hyperparameters for FGVC Aircraft, PASCAL VOC
+
+2007, DTD, and Oxford 102 Flowers. For other datasets, we held out a subset of the training set for validation while performing hyperparameter tuning. After selecting the optimal hyperparameters on the validation set, we retrained the model using the selected parameters using all training and validation images. We report accuracy on the test set.
+
+Transfer Learning via a Linear Classifier We trained an \`2-regularized multinomial logistic regression classifier on features extracted from the frozen pretrained network. We used L-BFGS to optimize the softmax cross-entropy objective and we did not apply data augmentation. As preprocessing, all images were resized to 224 pixels along the shorter side using bicubic resampling, after which we took a 224 × 224 center crop. We selected the $\ell _ { 2 }$ regularization parameter from a range of 45 logarithmically spaced values between $1 0 ^ { - 6 }$ and $1 0 ^ { 5 }$
+
+Transfer Learning via Fine-Tuning We fine-tuned the entire network using the weights of the pretrained network as initialization. We trained for 20,000 steps at a batch size of 256 using SGD with Nesterov momentum with a momentum parameter of 0.9. We set the momentum parameter for the batch normalization statistics to max $( 1 - 1 0 / s , 0 . 9 )$ where s is the number of steps per epoch. As data augmentation during fine-tuning, we performed only random crops with resize and flips; in contrast to pretraining, we did not perform color augmentation or blurring. At test time, we resized images to 256 pixels along the shorter side and took a 224 × 224 center crop. (Additional accuracy improvements may be possible with further optimization of data augmentation, particularly on the CIFAR-10 and CIFAR-100 datasets.) We selected the learning rate and weight decay, with a grid of 7 logarithmically spaced learning rates between 0.0001 and 0.1 and 7 logarithmically spaced values of weight decay between $1 0 ^ { - 6 }$ and $1 0 ^ { - 3 }$ , as well as no weight decay. We divide these values of weight decay by the learning rate.
+
+Training from Random Initialization We trained the network from random initialization using the same procedure as for fine-tuning, but for longer, and with an altered hyperparameter grid. We chose hyperparameters from a grid of 7 logarithmically spaced learning rates between 0.001 and 1.0 and 8 logarithmically spaced values of weight decay between $1 0 ^ { - 5 }$ and $1 0 ^ { - 1 . 5 }$ . Importantly, our random initialization baselines are trained for 40,000 steps, which is sufficiently long to achieve near-maximal accuracy, as demonstrated in Figure 8 of Kornblith et al. (2019).
+
+On Birdsnap, there are no statistically significant differences among methods, and on Food-101, Stanford Cars, and FGVC Aircraft datasets, fine-tuning provides only a small advantage over training from random initialization. However, on the remaining 8 datasets, pretraining has clear advantages.
+
+Supervised Baselines We compare against architecturally identical ResNet models trained on ImageNet with standard cross-entropy loss. These models are trained with the same data augmentation as our self-supervised models (crops, strong color augmentation, and blur) and are also trained for 1000 epochs. We found that, although stronger data augmentation and longer training time do not benefit accuracy on ImageNet, these models performed significantly better than a supervised baseline trained for 90 epochs and ordinary data augmentation for linear evaluation on a subset of transfer datasets. The supervised ResNet-50 baseline achieves 76.3% top-1 accuracy on ImageNet, vs. 69.3% for the self-supervised counterpart, while the ResNet-50 (4×) baseline achieves 78.3%, vs. 76.5% for the self-supervised model.
+
+Statistical Significance Testing We test for the significance of differences between model with a permutation test. Given predictions of two models, we generate 100,000 samples from the null distribution by randomly exchanging predictions for each example and computing the difference in accuracy after performing this randomization. We then compute the percentage of samples from the null distribution that are more extreme than the observed difference in predictions. For top-1 accuracy, this procedure yields the same result as the exact McNemar test. The assumption of exchangeability under the null hypothesis is also valid for mean per-class accuracy, but not when computing average precision curves. Thus, we perform significance testing for a difference in accuracy on VOC 2007 rather than a difference in mAP. A caveat of this procedure is that it does not consider run-to-run variability when training the models, only variability arising from using a finite sample of images for evaluation.
+
+## B.8.2. RESULTS WITH STANDARD RESNET
+
+The ResNet-50 (4×) results shown in Table 8 of the text show no clear advantage to the supervised or self-supervised models. With the narrower ResNet-50 architecture, however, supervised learning maintains a clear advantage over self-supervised learning. The supervised ResNet-50 model outperforms the self-supervised model on all datasets with linear evaluation, and most (10 of 12) datasets with fine-tuning. The weaker performance of the ResNet model compared to the ResNet (4×)
+
+A Simple Framework for Contrastive Learning of Visual Representations
+<table><tr><td></td><td>Food</td><td>CIFAR10 CIFAR100 Birdsnap</td><td></td><td></td><td>SUN397</td><td></td><td>Cars Aircraft</td><td>VOC2007</td><td>DTD</td><td>Pets</td><td>Caltech-101</td><td>Flowers</td></tr><tr><td>Linear evaluation:</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>SimCLR (ours） 68.4</td><td></td><td>90.6</td><td>71.6</td><td>37.4</td><td>58.8</td><td>50.3</td><td>50.3</td><td>80.5</td><td></td><td>74.583.6</td><td>90.3</td><td>91.2</td></tr><tr><td>Supervised</td><td>72.3</td><td>93.6</td><td>78.3</td><td>53.7</td><td>61.9</td><td>66.7</td><td>61.0</td><td>82.8</td><td>74.9</td><td>91.5</td><td>94.5</td><td>94.7</td></tr><tr><td>Fine-tuned:</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>SimCLR (ours)</td><td>88.2</td><td>97.7</td><td>85.9</td><td>75.9</td><td>63.5</td><td>91.3</td><td>88.1</td><td>84.1</td><td>73.2</td><td>89.2</td><td>92.1</td><td>97.0</td></tr><tr><td>Supervised</td><td>88.3</td><td>97.5</td><td>86.4</td><td>75.8</td><td>64.3</td><td>92.1</td><td>86.0</td><td>85.0</td><td>74.6</td><td>92.1</td><td>93.3</td><td>97.6</td></tr><tr><td>Random init</td><td>86.9</td><td>95.9</td><td>80.2</td><td>76.1</td><td>53.6</td><td>91.4</td><td>85.9</td><td>67.3</td><td>64.8</td><td>81.5</td><td>72.6</td><td>92.0</td></tr></table>
+
+Table B.5. Comparison of transfer learning performance of our self-supervised approach with supervised baselines across 12 natural image datasets, using ImageNet-pretrained ResNet models. See also Figure 8 for results with the ResNet (4×) architecture.
+
+model may relate to the accuracy gap between the supervised and self-supervised models on ImageNet. The self-supervised ResNet gets 69.3% top-1 accuracy, 6.8% worse than the supervised model in absolute terms, whereas the self-supervised ResNet (4×) model gets 76.5%, which is only 1.8% worse than the supervised model.
+
+## B.9. CIFAR-10
+
+While we focus on using ImageNet as the main dataset for pretraining our unsupervised model, our method also works with other datasets. We demonstrate it by testing on CIFAR-10 as follows.
+
+Setup As our goal is not to optimize CIFAR-10 performance, but rather to provide further confirmation of our observations on ImageNet, we use the same architecture (ResNet-50) for CIFAR-10 experiments. Because CIFAR-10 images are much smaller than ImageNet images, we replace the first 7x7 Conv of stride 2 with 3x3 Conv of stride 1, and also remove the first max pooling operation. For data augmentation, we use the same Inception crop (flip and resize to 32x32) as ImageNet,15 and color distortion (strength=0.5), leaving out Gaussian blur. We pretrain with learning rate in {0.5, 1.0, 1.5}, temperature in {0.1, 0.5, 1.0}, and batch size in {256, 512, 1024, 2048, 4096}. The rest of the settings (including optimizer, weight decay, etc.) are the same as our ImageNet training.
+
+Our best model trained with batch size 1024 can achieve a linear evaluation accuracy of 94.0%, compared to 95.1% from the supervised baseline using the same architecture and batch size. The best self-supervised model that reports linear evaluation result on CIFAR-10 is AMDIM (Bachman et al., 2019), which achieves 91.2% with a model 25× larger than ours. We note that our model can be improved by incorporating extra data augmentations as well as using a more suitable base network.
+
+Performance under different batch sizes and training steps Figure B.7 shows the linear evaluation performance under different batch sizes and training steps. The results are consistent with our observations on ImageNet, although the largest batch size of 4096 seems to cause a small degradation in performance on CIFAR-10.
+
+![](Images_LYNP5J3H/c4577129384a342712adbb6218eee58149fa31e771a594ffdfade4d2422e6b81.jpg)
+
+Figure B.7. Linear evaluation of ResNet-50 (with adjusted stem) trained with different batch size and epochs on CIFAR-10 dataset. Each bar is averaged over 3 runs with different learning rates (0.5, 1.0, 1.5) and temperature τ = 0.5. Error bar denotes standard deviation.
+
+Optimal temperature under different batch sizes Figure B.8 shows the linear evaluation of model trained with three different temperatures under various batch sizes. We find that when training to convergence (e.g. training epochs > 300), the optimal temperature in {0.1, 0.5, 1.0} is 0.5 and seems consistent regardless of the batch sizes. However, the performance with τ = 0.1 improves as batch size increases, which may suggest a small shift of optimal temperature towards 0.1.
+
+![](Images_LYNP5J3H/ca77407f0cc936d7af069b44dda4340c353609f23853a30f9d113542cc8633ed.jpg)  
+(a) Training epochs ≤ 300
+
+![](Images_LYNP5J3H/3201eaaa99ab2dc647e7548d05379b8db4f284a72554c2ee92bd311bd76dc4ab.jpg)  
+(b) Training epochs > 300  
+Figure B.8. Linear evaluation of the model (ResNet-50) trained with three temperatures on different batch sizes on CIFAR-10. Each bar is averaged over multiple runs with different learning rates and total train epochs. Error bar denotes standard deviation.
+
+## B.10. Tuning For Other Loss Functions
+
+The learning rate that works best for NT-Xent loss may not be a good learning rate for other loss functions. To ensure a fair comparison, we also tune hyperparameters for both margin loss and logistic loss. Specifically, we tune learning rate in {0.01, 0.1, 0.3, 0.5, 1.0} for both loss functions. We further tune the margin in {0, 0.4, 0.8, 1.6} for margin loss, the temperature in {0.1, 0.2, 0.5, 1.0} for logistic loss. For simplicity, we only consider the negatives from one augmentation view (instead of both sides), which slightly impairs performance but ensures fair comparison.
+
+## C. Further Comparison to Related Methods
+
+As we have noted in the main text, most individual components of SimCLR have appeared in previous work, and the improved performance is a result of a combination of these design choices. Table C.1 provides a high-level comparison of the design choices of our method with those of previous methods. Compared with previous work, our design choices are generally simpler.
+<table><tr><td>Model</td><td>Data Augmentation</td><td>Base Encoder</td><td>Projection Head</td><td>Loss</td><td>Batch Size</td><td>Train Epochs</td></tr><tr><td>CPC v2</td><td>Custom</td><td>ResNet-161 (modified)</td><td>PixelCNN</td><td>Xent</td><td> $5 1 2 ^ { \# }$ </td><td>~200</td></tr><tr><td>AMDIM</td><td>Fast AutoAug.</td><td>Custom ResNet</td><td>Non-linear MLP</td><td> Xent w/ clip,reg</td><td> $1 0 0 8 ^ { \# }$ </td><td>150</td></tr><tr><td>CMC</td><td>Fast AutoAug.</td><td>ResNet-50 (2×,L+ab)</td><td>Linear layer</td><td>Xent w/  $\ell _ { 2 } , \tau$ </td><td>156*</td><td>280</td></tr><tr><td>MoCo</td><td>Crop+color</td><td>ResNet-50 (4×)</td><td>Linear layer</td><td>Xent w/  $\ell _ { 2 } , \tau$ </td><td> $2 5 6 ^ { * }$ </td><td>200</td></tr><tr><td>PIRL</td><td>Crop+color</td><td>ResNet-50 (2×)</td><td>Linear layer</td><td>Xent w/  $\ell _ { 2 } , \tau$ </td><td> $1 0 2 4 ^ { * }$ </td><td>800</td></tr><tr><td>SimCLR</td><td>Crop+color+blur</td><td>ResNet-50 (4×)</td><td>Non-linear MLP</td><td>Xent w/  $\ell _ { 2 } , \tau$ </td><td>4096</td><td>1000</td></tr></table>
+
+Table C.1. A high-level comparison of design choices and training setup (for best result on ImageNet) for each method. Note that descriptions provided here are general; even when they match for two methods, formulations and implementations may differ (e.g. for color augmentation). Refer to the original papers for more details. #Examples are split into multiple patches, which enlarges the effective batch size. ∗A memory bank is employed.
+
+In below, we provide an in-depth comparison of our method to the recently proposed contrastive representation learning methods:
+
+• DIM/AMDIM (Hjelm et al., 2018; Bachman et al., 2019) achieve global-to-local/local-to-neighbor prediction by predicting the middle layer of ConvNet. The ConvNet is a ResNet that has bewen modified to place significant constraints on the receptive fields of the network (e.g. replacing many 3x3 Convs with 1x1 Convs). In our framework, we decouple the prediction task and encoder architecture, by random cropping (with resizing) and using the final representations of two augmented views for prediction, so we can use standard and more powerful ResNets. Our NT-Xent loss function leverages normalization and temperature to restrict the range of similarity scores, whereas they use a tanh function with regularization. We use a simpler data augmentation policy, while they use FastAutoAugment for their best result.
+
+• CPC v1 and v2 (Oord et al., 2018; Hénaff et al., 2019) define the context prediction task using a deterministic strategy to split examples into patches, and a context aggregation network (a PixelCNN) to aggregate these patches. The base encoder network sees only patches, which are considerably smaller than the original image. We decouple the prediction task and the encoder architecture, so we do not require a context aggregation network, and our encoder can look at the images of wider spectrum of resolutions. In addition, we use the NT-Xent loss function, which leverages normalization and temperature, whereas they use an unnormalized cross-entropy-based objective. We use simpler data augmentation.
+
+• InstDisc, MoCo, PIRL (Wu et al., 2018; He et al., 2019; Misra & van der Maaten, 2019) generalize the Exemplar approach originally proposed by Dosovitskiy et al. (2014) and leverage an explicit memory bank. We do not use a memory bank; we find that, with a larger batch size, in-batch negative example sampling suffices. We also utilize a nonlinear projection head, and use the representation before the projection head. Although we use similar types of augmentations (e.g., random crop and color distortion), we expect specific parameters may be different.
+
+• CMC (Tian et al., 2019) uses a separated network for each view, while we simply use a single network shared for all randomly augmented views. The data augmentation, projection head and loss function are also different. We use larger batch size instead of a memory bank.
+
+• Whereas Ye et al. (2019) maximize similarity between augmented and unaugmented copies of the same image, we apply data augmentation symmetrically to both branches of our framework (Figure 2). We also apply a nonlinear projection on the output of base feature network, and use the representation before projection network, whereas Ye et al. (2019) use the linearly projected final hidden vector as the representation. When training with large batch sizes using multiple accelerators, we use global BN to avoid shortcuts that can greatly decrease representation quality.

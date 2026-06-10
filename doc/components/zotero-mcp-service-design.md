@@ -644,19 +644,19 @@ reads.
 
 Bounded behavior:
 
-- `synthesis.get_reference_sidecar_index` supports `sourceRefs`, `cursor`, and
+- `reference_index.get` supports `sourceRefs`, `cursor`, and
   `limit`. Responses include cache diagnostics and do not imply Zotero Library
   sync.
-- `synthesis.resolve_resolver` supports `cursor` and `limit` and returns
+- `resolvers.resolve` supports `cursor` and `limit` and returns
   `next_cursor`, `has_more`, `returned`, and `total`.
   Its input must contain a top-level `resolver` object; `topic_resolver` is a
   workflow bundle field and is not accepted by the MCP/Host Bridge tool.
-- `synthesis.get_library_index` returns a bounded paper page by default.
+- `library_index.get` returns a bounded paper page by default.
   `includeTags`, `includeCollections`, and `includeItems` opt into larger
   sections. The result is a cache view and may be stale or empty.
-- `synthesis.get_topic_context` is summary-first. Full markdown, manifest, or
+- `topics.get_context` is summary-first. Full markdown, manifest, or
   structured artifact bodies require explicit include flags.
-- `synthesis.get_review_input` enforces graph/text bounds and records truncation
+- `topics.get_review_input` enforces graph/text bounds and records truncation
   diagnostics.
 
 Read tools must not start sidecar refresh, enqueue background work, or write

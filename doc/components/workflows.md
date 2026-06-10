@@ -181,8 +181,8 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 - 两者同时存在时，优先 `hooks.buildRequest`。
 - `provider` 必须显式声明，是 workflow 可用 backend 类型的唯一推断来源；`request.kind` 只描述请求协议/形状，不参与 backend 兼容性推断。
 - `execution.feedback.showNotifications`（可选，默认 `true`）语义：
-  - `false`：禁用 workflow 执行提醒（开始/单任务 Toast + 结束汇总 alert）；
-  - `true` 或缺省：保持默认提醒行为。
+  - `false`：禁用 workflow 执行提醒 Toast（开始、单任务、结束汇总、跳过/失败提示）；
+  - `true` 或缺省：显示非阻塞 sticky Toast，用户点击后关闭；同时最多显示 3 个 workflow 执行提醒 Toast。
 - `execution.skillrunner_mode`（`auto|interactive`）语义：
   - 对 SkillRunner job 请求形状生效（`request.kind=skillrunner.job.v1`）；
   - 使用 `skillrunner.job.v1` 的 workflow 必填；

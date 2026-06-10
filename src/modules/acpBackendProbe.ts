@@ -3,12 +3,20 @@ import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
 } from "./acpConnectionAdapter";
-import type { SessionModelState, SessionModeState } from "./acpProtocol";
+import type {
+  AcpSessionConfigOption,
+  SessionModelState,
+  SessionModeState,
+} from "./acpProtocol";
 import {
   foldAcpModelOptions,
   normalizeAcpModelOption,
   type AcpSelectableOption,
 } from "./acpModelOptionFolding";
+import {
+  buildAcpRuntimeOptionsStateFromConfigOptions,
+  hasAcpRuntimeOptionSelectors,
+} from "./acpSessionConfigOptions";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -127,10 +135,20 @@ function normalizeModeOptions(modes?: SessionModeState | null) {
 }
 
 export function buildAcpRuntimeOptionsCache(args: {
+  configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
   refreshedAt?: string;
 }) {
+  const configOptionState = buildAcpRuntimeOptionsStateFromConfigOptions(
+    args.configOptions,
+  );
+  if (hasAcpRuntimeOptionSelectors(configOptionState)) {
+    return {
+      refreshedAt: args.refreshedAt || new Date().toISOString(),
+      ...configOptionState,
+    };
+  }
   const modeState = normalizeModeOptions(args.modes);
   const rawModelOptions = Array.isArray(args.models?.availableModels)
     ? args.models!.availableModels
@@ -152,6 +170,26 @@ export function buildAcpRuntimeOptionsCache(args: {
     reasoningEfforts: folded.reasoningEffortOptions,
     currentReasoningEffortId: folded.currentReasoningEffort?.id || "",
   };
+}
+
+function selectRuntimeOptionsCache(args: {
+  backend: BackendInstance;
+  cache: NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"];
+}) {
+  if (hasAcpRuntimeOptionSelectors(args.cache || {})) {
+    return args.cache;
+  }
+  const existing = args.backend.acp?.runtimeOptionsCache;
+  return existing && hasAcpRuntimeOptionSelectors(existing)
+    ? existing
+    : args.cache;
+}
+
+function preserveExistingRuntimeOptionsCache(backend: BackendInstance) {
+  const existing = backend.acp?.runtimeOptionsCache;
+  return existing && hasAcpRuntimeOptionSelectors(existing)
+    ? existing
+    : undefined;
 }
 
 export async function probeAcpBackendRuntimeOptions(args: {
@@ -182,6 +220,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
     await adapter.initialize();
     const session = await adapter.newSession();
     const cache = buildAcpRuntimeOptionsCache({
+      configOptions: session.configOptions,
       modes: session.modes,
       models: session.models,
       refreshedAt: timestamp,
@@ -197,7 +236,10 @@ export async function probeAcpBackendRuntimeOptions(args: {
             testedAt: timestamp,
             configFingerprint: fingerprint,
           },
-          runtimeOptionsCache: cache,
+          runtimeOptionsCache: selectRuntimeOptionsCache({
+            backend: args.backend,
+            cache,
+          }),
         },
       },
     };
@@ -216,7 +258,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
             configFingerprint: fingerprint,
             error: message,
           },
-          runtimeOptionsCache: undefined,
+          runtimeOptionsCache: preserveExistingRuntimeOptionsCache(args.backend),
         },
       },
     };

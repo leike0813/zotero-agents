@@ -407,7 +407,7 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(skillText, "zotero-bridge synthesis list-topics");
+    assert.include(skillText, "zotero-bridge topics list");
     assert.include(skillText, "title/description/aliases");
     assert.include(skillText, "ACP interactive confirmation");
     assert.include(skillText, "analysis_manifest_path");
@@ -436,7 +436,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.notInclude(skillText, "synthesis.query_citation_graph");
     assert.include(
       skillText,
-      "zotero-bridge synthesis export-filtered-paper-artifacts",
+      "zotero-bridge paper-artifacts export-filtered",
     );
     assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
     assert.notInclude(skillText, "synthesis.read_paper_artifacts");
@@ -468,14 +468,14 @@ describe("Synthesize topic workflow contract", function () {
 
     assert.match(
       skillText,
-      /topicSeed[\s\S]+zotero-bridge synthesis list-topics/,
+      /topicSeed[\s\S]+zotero-bridge topics list/,
     );
     assert.match(skillText, /title\/description\/aliases/);
     assert.match(skillText, /疑似重复[\s\S]+topic_synthesis_canceled/);
     assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
     assert.match(skillText, /不得内嵌 `markdown`/);
-    assert.match(skillText, /zotero-bridge synthesis resolve-resolver/);
+    assert.match(skillText, /zotero-bridge resolvers resolve/);
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
     assert.include(runner.entrypoint.prompts.common, "next_action");
     assert.include(runner.entrypoint.prompts.common, "instruction_refs");
@@ -563,7 +563,7 @@ describe("Synthesize topic workflow contract", function () {
       assert.include(skillText, "库内覆盖不足");
       assert.include(skillText, "外部文献用于背景、覆盖判断和入库建议");
       assert.include(skillText, "topic_synthesis_canceled");
-      assert.include(skillText, "zotero-bridge synthesis");
+      assert.include(skillText, "zotero-bridge topics");
       assert.include(skillText, "scripts/gate_runtime.py");
       assert.include(skillText, "scripts/stage_runtime.py");
       assert.include(
@@ -610,12 +610,12 @@ describe("Synthesize topic workflow contract", function () {
     }
 
     assert.include(createSkill, "topicSeed");
-    assert.include(createSkill, "zotero-bridge synthesis list-topics");
-    assert.include(createSkill, "zotero-bridge synthesis resolve-resolver");
-    assert.include(createSkill, "zotero-bridge synthesis get-library-index");
+    assert.include(createSkill, "zotero-bridge topics list");
+    assert.include(createSkill, "zotero-bridge resolvers resolve");
+    assert.include(createSkill, "zotero-bridge library-index get");
     assert.include(
       createSkill,
-      "zotero-bridge synthesis get-citation-graph-metrics",
+      "zotero-bridge citation-graph get-metrics",
     );
     assert.include(createSkill, "这些读取只作为上下文，不写入");
     assert.include(createSkill, "has_more");
@@ -633,11 +633,11 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(updateSkill, "updateScope");
     assert.include(updateSkill, "updateMode");
     assert.include(updateSkill, "updateReason");
-    assert.include(updateSkill, "zotero-bridge synthesis get-topic-context");
-    assert.include(updateSkill, "zotero-bridge synthesis resolve-resolver");
+    assert.include(updateSkill, "zotero-bridge topics get-context");
+    assert.include(updateSkill, "zotero-bridge resolvers resolve");
     assert.include(updateSkill, "recommended_update");
     assert.include(updateSkill, "Patch 模式不得静默改变 paper set");
-    assert.notInclude(updateSkill, "synthesis list-topics --input '{}'");
+    assert.notInclude(updateSkill, "topics list --input '{}'");
     assert.notInclude(updateSkill, "duplicate check。写");
     assert.include(
       updateSkill,
@@ -661,7 +661,7 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(skillText, "zotero-bridge synthesis get-topic-context");
+    assert.include(skillText, "zotero-bridge topics get-context");
     assert.include(skillText, "recommended_update");
     assert.include(skillText, "update_full");
     assert.include(skillText, "update_patch");

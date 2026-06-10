@@ -37,7 +37,7 @@ def main() -> int:
     parser.add_argument(
         "--action",
         default="gate",
-        choices=["gate", "run", "submit", "cancel", "audit"],
+        choices=["gate", "run", "submit", "cancel"],
         help="Gate action. Omit for the next instruction.",
     )
     args = parser.parse_args()
@@ -86,16 +86,6 @@ def main() -> int:
                     "message": "Topic synthesis was canceled.",
                     "skill_id": skill_id,
                 }
-            )
-            return 0
-        if args.action == "audit":
-            _print_json(
-                build_current_instruction(
-                    skill_root=skill_root,
-                    db_path=args.db,
-                    input_path=args.input,
-                    audit=True,
-                )
             )
             return 0
         raise AssertionError(f"unsupported action: {args.action}")

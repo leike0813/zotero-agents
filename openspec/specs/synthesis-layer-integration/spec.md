@@ -5,6 +5,7 @@ TBD - created by archiving change harden-synthesis-layer-v1-integration. Update 
 ## Requirements
 ### Requirement: Topic synthesis results persist through a plugin-side service
 
+
 Applying a topic synthesis result SHALL persist structured topic content as the
 canonical current artifact and Markdown as a compatibility export.
 
@@ -108,8 +109,8 @@ canonical current artifact and Markdown as a compatibility export.
 - **WHEN** the stored `digest_ref` no longer resolves to a readable digest
 - **THEN** the host SHALL return a bounded unavailable/error DTO
 - **AND** it SHALL NOT fail the entire structured topic artifact read.
-
 ### Requirement: Workflow hooks delegate formal persistence to hostApi
+
 
 The builtin topic synthesis workflow hook SHALL delegate formal persistence to
 `runtime.hostApi.synthesis.applyTopicSynthesisResult`.
@@ -125,8 +126,8 @@ The builtin topic synthesis workflow hook SHALL delegate formal persistence to
 - **WHEN** applyResult receives a result bundle without host synthesis service
 - **THEN** the hook SHALL fail explicitly instead of pretending the result was
   persisted.
-
 ### Requirement: Synthesis reads use persisted service state
+
 
 MCP, UI, and review workflow input SHALL read topic synthesis data from the same
 persisted service state.
@@ -143,8 +144,8 @@ persisted service state.
 - **WHEN** a topic synthesis bundle has been persisted
 - **THEN** review input SHALL include the persisted topic Markdown, resolver,
   resolved paper set, registry artifact coverage, and citation graph slice.
-
 ### Requirement: Zotero mirror runtime smoke is covered
+
 
 Synthesis Layer integration SHALL include a smoke test that exercises the Zotero
 mirror adapter against Zotero item/note APIs or the project Zotero mock.
@@ -167,8 +168,8 @@ mirror adapter against Zotero item/note APIs or the project Zotero mock.
 - **WHEN** a shard listed in the mirror manifest is removed from Zotero
 - **THEN** snapshot sync assessment SHALL report a degraded mirror
 - **AND** canonical assets SHALL remain intact.
-
 ### Requirement: Topic synthesis artifacts support soft delete and purge
+
 
 The Synthesis service SHALL support soft deletion of active topic synthesis
 artifacts and physical purge of previously deleted topic artifacts.
@@ -195,8 +196,8 @@ artifacts and physical purge of previously deleted topic artifacts.
 - **WHEN** delete or purge changes canonical state but mirror refresh fails
 - **THEN** the service SHALL keep the canonical mutation
 - **AND** it SHALL return a warning instead of silently reporting full success.
-
 ### Requirement: Topic synthesis freshness is deterministically tracked
+
 
 The Synthesis service SHALL persist and update topic synthesis freshness from
 plugin-owned deterministic dependency snapshots.
@@ -239,8 +240,8 @@ plugin-owned deterministic dependency snapshots.
 - **WHEN** the Synthesis mirror is refreshed
 - **THEN** artifact freshness state SHALL be included in mirror shards
 - **AND** mirror failures SHALL NOT change the computed freshness result.
-
 ### Requirement: Apply decision uses operation-appropriate optimistic checks
+
 
 Workflow apply decisions SHALL use bundle-level base-hash checks for create and
 full-update operations, and section read-set checks for update-patch operations.
@@ -271,8 +272,8 @@ full-update operations, and section read-set checks for update-patch operations.
 - **AND** every section listed in `read_section_hashes` still matches current
 - **THEN** applyResult SHALL NOT reject the patch solely due to full artifact hash
   drift.
-
 ### Requirement: Zotero mirror contains complete current topic state
+
 
 The Synthesis mirror SHALL include enough current canonical state to recover
 active topic synthesis artifacts when the local canonical root is missing.
@@ -302,3 +303,16 @@ active topic synthesis artifacts when the local canonical root is missing.
 - **THEN** the mirror SHALL include a manifest shard listing all data shards,
   asset identities, sequence metadata, payload hashes, encoded hashes, and note
   keys.
+### Requirement: Topic synthesis apply stores current artifacts
+
+
+The synthesis layer SHALL persist topic synthesis structured artifacts without a
+separate compatibility Markdown export.
+
+#### Scenario: Topic detail DTO exposes report body, not markdown export
+
+- **WHEN** a persisted topic detail is read
+- **THEN** the DTO SHALL expose the structured sections including
+  `synthesis_report`
+- **AND** it SHALL NOT expose `markdown_export`
+- **AND** it SHALL NOT expose markdown/export hashes.

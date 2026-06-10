@@ -15,7 +15,10 @@ import {
   updateWorkflowSettings,
 } from "../../src/modules/workflowSettings";
 import { loadBackendsRegistry } from "../../src/backends/registry";
-import { computeAcpBackendConfigFingerprint } from "../../src/modules/acpBackendProbe";
+import {
+  buildAcpRuntimeOptionsCache,
+  computeAcpBackendConfigFingerprint,
+} from "../../src/modules/acpBackendProbe";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
@@ -904,6 +907,116 @@ describe("workflow settings execution", function () {
       assert.deepEqual(context.providerOptions, {
         acpModeId: "default",
         acpModelId: "opus",
+      });
+    },
+  );
+
+  itNodeOnly(
+    "exposes ACP settings options from configOptions-derived runtime cache",
+    async function () {
+      const acpBackend = {
+        id: "acp-config-options",
+        displayName: "ACP Config Options",
+        type: "acp",
+        baseUrl: "local://acp-config-options",
+        command: "npx",
+        args: ["opencode-ai@latest", "acp"],
+      };
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              ...acpBackend,
+              acp: {
+                connectionTest: {
+                  status: "passed",
+                  testedAt: "2026-04-29T00:00:00.000Z",
+                  configFingerprint: computeAcpBackendConfigFingerprint(
+                    acpBackend as any,
+                  ),
+                },
+                runtimeOptionsCache: buildAcpRuntimeOptionsCache({
+                  configOptions: [
+                    {
+                      id: "mode",
+                      name: "Mode",
+                      category: "mode",
+                      type: "select",
+                      currentValue: "ask",
+                      options: [
+                        { value: "ask", name: "Ask" },
+                        { value: "build", name: "Build" },
+                      ],
+                    },
+                    {
+                      id: "model",
+                      name: "Model",
+                      category: "model",
+                      type: "select",
+                      currentValue: "anthropic/claude",
+                      options: [
+                        { value: "openai/gpt-5", name: "GPT-5" },
+                        { value: "anthropic/claude", name: "Claude" },
+                      ],
+                    },
+                    {
+                      id: "effort",
+                      name: "Reasoning",
+                      category: "thought_level",
+                      type: "select",
+                      currentValue: "high",
+                      options: [
+                        { value: "low", name: "Low" },
+                        { value: "high", name: "High" },
+                      ],
+                    },
+                  ],
+                  refreshedAt: "2026-04-29T00:00:00.000Z",
+                }),
+              },
+            },
+          ],
+        }),
+        true,
+      );
+      updateWorkflowSettings("literature-digest", {
+        backendId: "acp-config-options",
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-digest",
+      );
+      assert.isOk(workflow);
+
+      const registry = await loadBackendsRegistry();
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      const modeEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModeId",
+      );
+      const modelEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelId",
+      );
+      const effortEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpReasoningEffort",
+      );
+
+      assert.deepEqual(modeEntry?.enumValues, ["ask", "build"]);
+      assert.deepEqual(modelEntry?.enumValues, [
+        "openai/gpt-5",
+        "anthropic/claude",
+      ]);
+      assert.deepEqual(effortEntry?.enumValues, ["low", "high"]);
+      assert.isFalse(effortEntry?.disabled);
+      assert.deepEqual(descriptor.providerOptions, {
+        acpModeId: "ask",
+        acpModelId: "anthropic/claude",
+        acpReasoningEffort: "high",
       });
     },
   );

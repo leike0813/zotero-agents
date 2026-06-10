@@ -52,7 +52,6 @@ export type SynthesisUiBindingStatusFilter =
 
 export type SynthesisUiReviewTab =
   | "reference_matching"
-  | "index_cleanup"
   | "concepts"
   | "topic_graph";
 
@@ -61,7 +60,8 @@ export type SynthesisUiReviewStatusFilter =
   | "all"
   | "accepted"
   | "rejected"
-  | "superseded";
+  | "superseded"
+  | "retargeted";
 
 export type SynthesisUiReviewKindFilter =
   | "all"
@@ -143,10 +143,14 @@ export type SynthesisUiRegistryReferenceRow = {
 export type SynthesisUiReferenceMatchProposalRow = {
   proposal_id: string;
   kind: "zotero_binding" | "canonical_merge";
-  status: "open" | "accepted" | "rejected" | "superseded";
+  status: "open" | "accepted" | "rejected" | "superseded" | "retargeted";
   source_canonical_reference_id: string;
+  source_effective_canonical_reference_id?: string;
+  source_projected_literature_item_id?: string;
   source_raw_reference_ids: string[];
   target_canonical_reference_id?: string;
+  target_effective_canonical_reference_id?: string;
+  target_projected_literature_item_id?: string;
   target_library_id?: number;
   target_item_key?: string;
   confidence?: string;
@@ -156,6 +160,29 @@ export type SynthesisUiReferenceMatchProposalRow = {
   diagnostics?: unknown[];
   updated_at?: string;
 };
+
+export type SynthesisUiReferenceMatchTargetCandidate =
+  | {
+      kind: "zotero_item";
+      libraryId: number;
+      itemKey: string;
+      title: string;
+      year?: string;
+      paperRef?: string;
+    }
+  | {
+      kind: "canonical_reference";
+      canonicalReferenceId: string;
+      title: string;
+    year?: string;
+    rawReferenceIds?: string[];
+    bindingStatus?: SynthesisUiBindingStatus;
+    bindingTarget?: {
+      libraryId: number;
+      itemKey: string;
+      paperRef?: string;
+    };
+  };
 
 export type SynthesisUiCleanupProposalRow = {
   proposal_id: string;
@@ -247,7 +274,8 @@ export type SynthesisUiTopicGraphEdgeStatus =
   | "suggested"
   | "confirmed"
   | "rejected"
-  | "stale";
+  | "stale"
+  | "deleted";
 
 export type SynthesisUiTopicGraphMode =
   | "hierarchy"
@@ -257,6 +285,9 @@ export type SynthesisUiTopicGraphMode =
 export type SynthesisUiTopicGraphNode = {
   topic_id: string;
   title: string;
+  short_definition?: string;
+  definition?: string;
+  summary?: string;
   aliases: string[];
   node_type: "materialized" | "placeholder";
   definition_status?: "has_synthesis" | "placeholder" | "deleted" | "stale";
@@ -281,7 +312,7 @@ export type SynthesisUiTopicGraphEdge = {
 
 export type SynthesisUiTopicGraphReviewItem = {
   review_id: string;
-  status: "open" | "approved" | "rejected";
+  status: "open" | "approved" | "rejected" | "deleted";
   source_topic_id: string;
   target_topic_id: string;
   target_title?: string;
@@ -368,6 +399,13 @@ export type SynthesisUiConceptReviewItem = {
   reason: "low_confidence_concept" | "ambiguous_concept_match";
   topic_id: string;
   label: string;
+  short_definition?: string;
+  definition?: string;
+  concept_type?: string;
+  domain?: string;
+  topic_relevance?: unknown;
+  evidence?: unknown;
+  diagnostics?: unknown[];
   confidence: "high" | "medium" | "low";
   candidate_concept_ids: string[];
 };
@@ -609,6 +647,15 @@ export type SynthesisUiState = {
     editingStagedTag?: {
       originalTag: string;
       draftTag: string;
+      draftFacet?: string;
+      draftNote: string;
+      status: "idle" | "pending" | "saved" | "failed";
+      error?: string;
+    };
+    editingVocabularyTag?: {
+      originalTag: string;
+      draftTag: string;
+      draftFacet: string;
       draftNote: string;
       status: "idle" | "pending" | "saved" | "failed";
       error?: string;
@@ -665,6 +712,7 @@ export type SynthesisUiSnapshotInput = {
     rows?: SynthesisUiRegistryRow[];
     cleanupProposals?: SynthesisUiCleanupProposalRow[];
     matchProposals?: SynthesisUiReferenceMatchProposalRow[];
+    matchTargetCandidates?: SynthesisUiReferenceMatchTargetCandidate[];
     cacheStatus?: Partial<SynthesisUiCacheStatus>;
   };
   tags?: {
@@ -761,6 +809,7 @@ export type SynthesisUiSnapshot = {
     visibleRows: SynthesisUiRegistryRow[];
     cleanupProposals: SynthesisUiCleanupProposalRow[];
     matchProposals: SynthesisUiReferenceMatchProposalRow[];
+    matchTargetCandidates: SynthesisUiReferenceMatchTargetCandidate[];
     cacheStatus: SynthesisUiCacheStatus;
   };
   reviews: {
@@ -851,9 +900,7 @@ export type SynthesisUiAction = {
 
 export type SynthesisUiHostCommandName =
   | "openTopicArtifact"
-  | "openCanonicalMarkdown"
-  | "copyTopicMarkdownExport"
-  | "openSynthesisFolder"
+  | "exportTopicSynthesisReport"
   | "runSynthesizeTopic"
   | "openZoteroItem"
   | "runMissingArtifactWorkflow"
@@ -865,11 +912,14 @@ export type SynthesisUiHostCommandName =
   | "applyTagVocabularyImport"
   | "exportTagVocabulary"
   | "updateStagedTagSuggestion"
+  | "updateTagVocabularyEntry"
+  | "deleteTagVocabularyEntry"
   | "promoteStagedTagSuggestions"
   | "discardStagedTagSuggestions"
   | "clearStagedTagSuggestions"
   | "rebuildTagVocabularyIndex"
   | "rebuildConceptKbIndex"
+  | "deleteConceptEntry"
   | "applyConceptReviewAction"
   | "updateConceptDisplayText"
   | "rebuildTopicGraphIndex"
@@ -935,9 +985,7 @@ export type SynthesisUiActionResult = {
 
 const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "openTopicArtifact",
-  "openCanonicalMarkdown",
-  "copyTopicMarkdownExport",
-  "openSynthesisFolder",
+  "exportTopicSynthesisReport",
   "runSynthesizeTopic",
   "openZoteroItem",
   "runMissingArtifactWorkflow",
@@ -949,11 +997,14 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "applyTagVocabularyImport",
   "exportTagVocabulary",
   "updateStagedTagSuggestion",
+  "updateTagVocabularyEntry",
+  "deleteTagVocabularyEntry",
   "promoteStagedTagSuggestions",
   "discardStagedTagSuggestions",
   "clearStagedTagSuggestions",
   "rebuildTagVocabularyIndex",
   "rebuildConceptKbIndex",
+  "deleteConceptEntry",
   "applyConceptReviewAction",
   "updateConceptDisplayText",
   "rebuildTopicGraphIndex",
@@ -984,9 +1035,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
 
 const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   openTopicArtifact: "Open topic",
-  openCanonicalMarkdown: "Open markdown",
-  copyTopicMarkdownExport: "Copy markdown",
-  openSynthesisFolder: "Open folder",
+  exportTopicSynthesisReport: "Export report",
   runSynthesizeTopic: "Create topic",
   openZoteroItem: "Open Zotero item",
   runMissingArtifactWorkflow: "Run workflow",
@@ -998,11 +1047,14 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   applyTagVocabularyImport: "Apply tag import",
   exportTagVocabulary: "Export tags",
   updateStagedTagSuggestion: "Update staged tag",
+  updateTagVocabularyEntry: "Update vocabulary tag",
+  deleteTagVocabularyEntry: "Delete vocabulary tag",
   promoteStagedTagSuggestions: "Promote staged tags",
   discardStagedTagSuggestions: "Discard staged tags",
   clearStagedTagSuggestions: "Clear staged tags",
   rebuildTagVocabularyIndex: "Rebuild tag index",
   rebuildConceptKbIndex: "Rebuild concept index",
+  deleteConceptEntry: "Delete concept",
   applyConceptReviewAction: "Apply concept review",
   updateConceptDisplayText: "Update concept text",
   rebuildTopicGraphIndex: "Rebuild topic graph index",
@@ -1054,6 +1106,8 @@ export function getSynthesisUiOperationKey(
       return `${command}:${normalizeLayoutAlgorithm(args.algorithm || args.preset)}`;
     case "applyConceptReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
+    case "deleteConceptEntry":
+      return `${command}:${keyPart(Array.isArray(args.conceptIds) ? args.conceptIds.join("_") : args.conceptId)}`;
     case "applyTopicGraphReviewAction":
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyReferenceMatchProposalAction":
@@ -1069,6 +1123,8 @@ export function getSynthesisUiOperationKey(
     case "applyTagVocabularyImport":
       return `${command}:${keyPart(args.action)}`;
     case "updateStagedTagSuggestion":
+    case "updateTagVocabularyEntry":
+    case "deleteTagVocabularyEntry":
       return `${command}:${keyPart(args.originalTag || args.tag)}`;
     case "promoteStagedTagSuggestions":
     case "discardStagedTagSuggestions":
@@ -1076,8 +1132,7 @@ export function getSynthesisUiOperationKey(
     case "submitTopicSynthesisUpdate":
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
     case "openTopicArtifact":
-    case "openCanonicalMarkdown":
-    case "copyTopicMarkdownExport":
+    case "exportTopicSynthesisReport":
     case "deleteTopicArtifact":
     case "resolveTopicPaperDigest":
       return `${command}:${keyPart(args.topicId)}`;
@@ -1178,7 +1233,11 @@ function normalizeRegistryScopeFilter(
   value: unknown,
 ): SynthesisUiRegistryScopeFilter {
   const normalized = cleanString(value);
-  if (normalized === "all" || normalized === "library" || normalized === "referenced") {
+  if (
+    normalized === "all" ||
+    normalized === "library" ||
+    normalized === "referenced"
+  ) {
     return normalized;
   }
   if (normalized === "reference-only") {
@@ -1191,7 +1250,11 @@ function normalizeBindingStatusFilter(
   value: unknown,
 ): SynthesisUiBindingStatusFilter {
   const normalized = cleanString(value);
-  if (normalized === "auto" || normalized === "confirmed" || normalized === "matched") {
+  if (
+    normalized === "auto" ||
+    normalized === "confirmed" ||
+    normalized === "matched"
+  ) {
     return "accepted";
   }
   if (normalized === "unresolved" || normalized === "suggested") {
@@ -1244,12 +1307,14 @@ function normalizeExpandedRows(value: unknown) {
     return {};
   }
   const rows: Record<string, boolean> = {};
-  Object.entries(value as Record<string, unknown>).forEach(([key, expanded]) => {
-    const normalizedKey = cleanString(key);
-    if (normalizedKey && expanded === true) {
-      rows[normalizedKey] = true;
-    }
-  });
+  Object.entries(value as Record<string, unknown>).forEach(
+    ([key, expanded]) => {
+      const normalizedKey = cleanString(key);
+      if (normalizedKey && expanded === true) {
+        rows[normalizedKey] = true;
+      }
+    },
+  );
   return rows;
 }
 
@@ -1271,9 +1336,39 @@ function normalizeEditingStagedTag(
     status === "pending" || status === "saved" || status === "failed"
       ? status
       : "idle";
+  const draftFacet = cleanString(row.draftFacet);
   return {
     originalTag,
     draftTag: cleanString(row.draftTag),
+    ...(draftFacet ? { draftFacet } : {}),
+    draftNote: cleanString(row.draftNote),
+    status: normalizedStatus,
+    error: cleanString(row.error) || undefined,
+  };
+}
+
+function normalizeEditingVocabularyTag(
+  value: unknown,
+): SynthesisUiState["tags"]["editingVocabularyTag"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const row = value as Record<string, unknown>;
+  const originalTag = cleanString(row.originalTag);
+  if (!originalTag) {
+    return undefined;
+  }
+  const status = cleanString(row.status);
+  const normalizedStatus: NonNullable<
+    SynthesisUiState["tags"]["editingVocabularyTag"]
+  >["status"] =
+    status === "pending" || status === "saved" || status === "failed"
+      ? status
+      : "idle";
+  return {
+    originalTag,
+    draftTag: cleanString(row.draftTag),
+    draftFacet: cleanString(row.draftFacet) || "topic",
     draftNote: cleanString(row.draftNote),
     status: normalizedStatus,
     error: cleanString(row.error) || undefined,
@@ -1510,10 +1605,7 @@ function deriveUpdateIntent(row: {
     return {
       topicId: row.id,
       language,
-      updateScope:
-        section === "external_literature_analysis"
-          ? "external_literature"
-          : section,
+      updateScope: section,
       updateMode: "update_patch",
       updateReason: missingSections.length
         ? "incomplete_sections"
@@ -1540,11 +1632,7 @@ function deriveUpdateIntent(row: {
 
 function normalizeReviewTab(value: unknown): SynthesisUiReviewTab {
   const normalized = cleanString(value);
-  if (
-    normalized === "index_cleanup" ||
-    normalized === "concepts" ||
-    normalized === "topic_graph"
-  ) {
+  if (normalized === "concepts" || normalized === "topic_graph") {
     return normalized;
   }
   return "reference_matching";
@@ -1558,14 +1646,17 @@ function normalizeReviewStatusFilter(
     normalized === "all" ||
     normalized === "accepted" ||
     normalized === "rejected" ||
-    normalized === "superseded"
+    normalized === "superseded" ||
+    normalized === "retargeted"
   ) {
     return normalized;
   }
   return "open";
 }
 
-function normalizeReviewKindFilter(value: unknown): SynthesisUiReviewKindFilter {
+function normalizeReviewKindFilter(
+  value: unknown,
+): SynthesisUiReviewKindFilter {
   const normalized = cleanString(value);
   if (normalized === "zotero_binding" || normalized === "canonical_merge") {
     return normalized;
@@ -1769,17 +1860,26 @@ function normalizeReferenceMatchProposals(
       status:
         row.status === "accepted" ||
         row.status === "rejected" ||
-        row.status === "superseded"
+        row.status === "superseded" ||
+        row.status === "retargeted"
           ? row.status
           : ("open" as const),
       source_canonical_reference_id: cleanString(
         row.source_canonical_reference_id,
       ),
+      source_effective_canonical_reference_id:
+        cleanString(row.source_effective_canonical_reference_id) || undefined,
+      source_projected_literature_item_id:
+        cleanString(row.source_projected_literature_item_id) || undefined,
       source_raw_reference_ids: normalizeStringList(
         row.source_raw_reference_ids,
       ),
       target_canonical_reference_id:
         cleanString(row.target_canonical_reference_id) || undefined,
+      target_effective_canonical_reference_id:
+        cleanString(row.target_effective_canonical_reference_id) || undefined,
+      target_projected_literature_item_id:
+        cleanString(row.target_projected_literature_item_id) || undefined,
       target_library_id: Math.max(
         0,
         Math.floor(Number(row.target_library_id) || 0),
@@ -1802,6 +1902,65 @@ function normalizeReferenceMatchProposals(
         (right.updated_at || "").localeCompare(left.updated_at || "") ||
         left.proposal_id.localeCompare(right.proposal_id),
     );
+}
+
+function normalizeReferenceMatchTargetCandidates(
+  rows: SynthesisUiReferenceMatchTargetCandidate[] | undefined,
+) {
+  return [...(rows || [])]
+    .map((row) => {
+      if (row.kind === "canonical_reference") {
+        return {
+          kind: "canonical_reference" as const,
+          canonicalReferenceId: cleanString(row.canonicalReferenceId),
+          title:
+            cleanString(row.title) ||
+            cleanString(row.canonicalReferenceId) ||
+            "Untitled canonical",
+          year: cleanString(row.year) || undefined,
+          rawReferenceIds: normalizeStringList(row.rawReferenceIds),
+          bindingStatus: normalizeReferenceBindingStatus(row.bindingStatus),
+          bindingTarget: row.bindingTarget
+            ? {
+                libraryId: Math.max(
+                  0,
+                  Math.floor(Number(row.bindingTarget.libraryId) || 0),
+                ),
+                itemKey: cleanString(row.bindingTarget.itemKey),
+                paperRef: cleanString(row.bindingTarget.paperRef) || undefined,
+              }
+            : undefined,
+        };
+      }
+      return {
+        kind: "zotero_item" as const,
+        libraryId: Math.max(0, Math.floor(Number(row.libraryId) || 0)),
+        itemKey: cleanString(row.itemKey),
+        title: cleanString(row.title) || cleanString(row.itemKey) || "Untitled",
+        year: cleanString(row.year) || undefined,
+        paperRef: cleanString(row.paperRef) || undefined,
+      };
+    })
+    .filter((row) =>
+      row.kind === "canonical_reference"
+        ? Boolean(row.canonicalReferenceId)
+        : Boolean(row.itemKey),
+    )
+    .sort((left, right) => {
+      const leftTitle = cleanString(left.title).toLocaleLowerCase();
+      const rightTitle = cleanString(right.title).toLocaleLowerCase();
+      return (
+        leftTitle.localeCompare(rightTitle) ||
+        (left.kind === "canonical_reference"
+          ? left.canonicalReferenceId
+          : `${left.libraryId}:${left.itemKey}`
+        ).localeCompare(
+          right.kind === "canonical_reference"
+            ? right.canonicalReferenceId
+            : `${right.libraryId}:${right.itemKey}`,
+        )
+      );
+    });
 }
 
 function normalizeTagWarnings(
@@ -1953,7 +2112,12 @@ function normalizeTopicGraphStatus(
   value: unknown,
 ): SynthesisUiTopicGraphEdgeStatus {
   const status = cleanString(value);
-  if (status === "confirmed" || status === "rejected" || status === "stale") {
+  if (
+    status === "confirmed" ||
+    status === "rejected" ||
+    status === "stale" ||
+    status === "deleted"
+  ) {
     return status;
   }
   return "suggested";
@@ -1981,6 +2145,9 @@ function normalizeTopicGraphNodes(
       return {
         topic_id: topicId,
         title: cleanString(node.title) || topicId,
+        short_definition: cleanString((node as any).short_definition) || undefined,
+        definition: cleanString((node as any).definition) || undefined,
+        summary: cleanString((node as any).summary) || undefined,
         aliases: normalizeStringList(node.aliases),
         node_type: nodeType as SynthesisUiTopicGraphNode["node_type"],
         definition_status:
@@ -2000,7 +2167,9 @@ function normalizeTopicGraphNodes(
         last_synthesis_at: cleanString(node.last_synthesis_at) || undefined,
         relation_statuses: normalizeStringList(node.relation_statuses).filter(
           (entry): entry is SynthesisUiTopicGraphEdgeStatus =>
-            ["suggested", "confirmed", "rejected", "stale"].includes(entry),
+            ["suggested", "confirmed", "rejected", "stale", "deleted"].includes(
+              entry,
+            ),
         ),
       };
     })
@@ -2050,7 +2219,7 @@ function normalizeTopicGraphReviewStatus(
   value: unknown,
 ): SynthesisUiTopicGraphReviewItem["status"] {
   const status = cleanString(value);
-  if (status === "approved" || status === "rejected") {
+  if (status === "approved" || status === "rejected" || status === "deleted") {
     return status;
   }
   return "open";
@@ -2142,7 +2311,7 @@ function topicGraphInspector(
   const suggestedRelations: SynthesisUiTopicGraphInspector["suggestedRelations"] =
     [];
   for (const edge of edges) {
-    if (edge.status === "rejected") {
+    if (edge.status === "rejected" || edge.status === "deleted") {
       continue;
     }
     if (edge.relation === "broader_than") {
@@ -2257,7 +2426,9 @@ function filterTopicGraph(
       edges
         .filter(
           (edge) =>
-            edge.relation === "broader_than" && edge.status !== "rejected",
+            edge.relation === "broader_than" &&
+            edge.status !== "rejected" &&
+            edge.status !== "deleted",
         )
         .map((edge) => edge.target_topic_id),
     );
@@ -2278,6 +2449,7 @@ function filterTopicGraph(
   const visibleEdges = edges.filter(
     (edge) =>
       edge.status !== "rejected" &&
+      edge.status !== "deleted" &&
       visibleIds.has(edge.source_topic_id) &&
       visibleIds.has(edge.target_topic_id),
   );
@@ -2433,6 +2605,15 @@ function normalizeConceptReviewItems(
       reason: normalizeConceptReviewReason(row.reason),
       topic_id: cleanString(row.topic_id),
       label: cleanString(row.label) || cleanString(row.review_id),
+      short_definition: cleanString((row as any).short_definition) || undefined,
+      definition: cleanString((row as any).definition) || undefined,
+      concept_type: cleanString((row as any).concept_type) || undefined,
+      domain: cleanString((row as any).domain) || undefined,
+      topic_relevance: (row as any).topic_relevance,
+      evidence: (row as any).evidence,
+      diagnostics: Array.isArray((row as any).diagnostics)
+        ? (row as any).diagnostics
+        : [],
       confidence: normalizeConceptConfidence(row.confidence),
       candidate_concept_ids: normalizeStringList(row.candidate_concept_ids),
     }))
@@ -2640,10 +2821,7 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       role: "all",
       layoutAlgorithm: "force",
       neighborhoodDepth: 1,
-      nodeKinds: [
-        "library_paper",
-        "external_reference",
-      ],
+      nodeKinds: ["library_paper", "external_reference"],
       showLowSignalReferences: false,
     },
     reader: {
@@ -2668,18 +2846,20 @@ export function mergeSynthesisUiSnapshotInput(
     ...patch,
     libraryId: patch.libraryId || base.libraryId,
   };
-  ([
-    "maintenance",
-    "storage",
-    "preferences",
-    "sync",
-    "deletedArtifacts",
-    "registry",
-    "tags",
-    "topicGraph",
-    "concepts",
-    "graph",
-  ] as const).forEach((key) => {
+  (
+    [
+      "maintenance",
+      "storage",
+      "preferences",
+      "sync",
+      "deletedArtifacts",
+      "registry",
+      "tags",
+      "topicGraph",
+      "concepts",
+      "graph",
+    ] as const
+  ).forEach((key) => {
     const baseValue = base[key];
     const patchValue = patch[key];
     if (
@@ -3136,6 +3316,9 @@ export function buildSynthesisUiSnapshot(
   const matchProposals = normalizeReferenceMatchProposals(
     input.registry?.matchProposals,
   );
+  const matchTargetCandidates = normalizeReferenceMatchTargetCandidates(
+    input.registry?.matchTargetCandidates,
+  );
   const tagWarnings = normalizeTagWarnings(input.tags?.validationWarnings);
   const tagRows = normalizeTagRows(input.tags?.entries, tagWarnings);
   const stagedTagRows = normalizeStagedTagRows(input.tags?.staged);
@@ -3150,14 +3333,16 @@ export function buildSynthesisUiSnapshot(
   const selectedTag =
     tagRows.find((row) => row.tag === state.tags.selectedTag) ||
     visibleTagRows[0];
-  const topicGraphEdges = normalizeTopicGraphEdges(input.topicGraph?.edges);
+  const topicGraphEdges = normalizeTopicGraphEdges(
+    input.topicGraph?.edges,
+  ).filter((edge) => edge.status !== "deleted");
   const topicGraphNodes = attachTopicGraphStatuses(
     normalizeTopicGraphNodes(input.topicGraph?.nodes),
     topicGraphEdges,
   );
   const topicGraphReviewItems = normalizeTopicGraphReviewItems(
     input.topicGraph?.reviewItems,
-  );
+  ).filter((item) => item.status !== "deleted");
   const filteredTopicGraph = filterTopicGraph(
     topicGraphNodes,
     topicGraphEdges,
@@ -3278,6 +3463,7 @@ export function buildSynthesisUiSnapshot(
       visibleRows: filterRegistry(registryRows, state.registry),
       cleanupProposals,
       matchProposals,
+      matchTargetCandidates,
       cacheStatus: normalizeCacheStatus(
         input.registry?.cacheStatus,
         "reference-sidecar:library",
@@ -3631,6 +3817,11 @@ export function applySynthesisUiAction(
       if ("editingStagedTag" in filters) {
         next.tags.editingStagedTag = normalizeEditingStagedTag(
           filters.editingStagedTag,
+        );
+      }
+      if ("editingVocabularyTag" in filters) {
+        next.tags.editingVocabularyTag = normalizeEditingVocabularyTag(
+          filters.editingVocabularyTag,
         );
       }
       if ("expandedRows" in filters) {

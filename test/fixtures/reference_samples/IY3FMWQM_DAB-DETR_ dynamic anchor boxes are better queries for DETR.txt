@@ -1,0 +1,146 @@
+Alexey Bochkovskiy, Chien-Yao Wang, and Hong-Yuan Mark Liao. Yolov4: Optimal speed and accuracy of object detection. arXiv preprint arXiv:2004.10934, 2020.   
+Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-end object detection with transformers. In European Conference on Computer Vision, pp. 213–229. Springer, 2020.   
+Xiyang Dai, Yinpeng Chen, Jianwei Yang, Pengchuan Zhang, Lu Yuan, and Lei Zhang. Dynamic detr: End-to-end object detection with dynamic attention. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), pp. 2988–2997, October 2021.   
+Peng Gao, Minghang Zheng, Xiaogang Wang, Jifeng Dai, and Hongsheng Li. Fast convergence of detr with spatially modulated co-attention. arXiv preprint arXiv:2101.07448, 2021.   
+Zheng Ge, Songtao Liu, Feng Wang, Zeming Li, and Jian Sun. Yolox: Exceeding yolo series in 2021. arXiv preprint arXiv:2107.08430, 2021.   
+Ross Girshick. Fast r-cnn. In 2015 IEEE International Conference on Computer Vision (ICCV), pp. 1440–1448, 2015.   
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification. In 2015 IEEE International Conference on Computer Vision (ICCV), pp. 1026–1034, 2015.
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In 2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 770–778, 2016.
+
+Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In ´ European conference on computer vision, pp. 740–755. Springer, 2014.
+
+Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object detection. IEEE Transactions on Pattern Analysis and Machine Intelligence, 42(2):318– 327, 2020.
+
+Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations, 2018.
+
+Depu Meng, Xiaokang Chen, Zejia Fan, Gang Zeng, Houqiang Li, Yuhui Yuan, Lei Sun, and Jingdong Wang. Conditional detr for fast training convergence. arXiv preprint arXiv:2108.06152, 2021.
+
+Joseph Redmon, Santosh Divvala, Ross Girshick, and Ali Farhadi. You only look once: Unified, real-time object detection. In 2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 779–788, 2016.
+
+Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. IEEE Transactions on Pattern Analysis and Machine Intelligence, 39(6):1137–1149, 2017.
+
+Hamid Rezatofighi, Nathan Tsoi, JunYoung Gwak, Amir Sadeghian, Ian Reid, and Silvio Savarese. Generalized intersection over union: A metric and a loss for bounding box regression. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 658–666, 2019.
+
+Peize Sun, Rufeng Zhang, Yi Jiang, Tao Kong, Chenfeng Xu, Wei Zhan, Masayoshi Tomizuka, Lei Li, Zehuan Yuan, Changhu Wang, and Ping Luo. Sparse r-cnn: End-to-end object detection with learnable proposals. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 14454–14463, 2021.
+
+Zhiqing Sun, Shengcao Cao, Yiming Yang, and Kris Kitani. Rethinking transformer-based set prediction for object detection. arXiv preprint arXiv:2011.10881, 2020.
+
+Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. Fcos: Fully convolutional one-stage object detection. In 2019 IEEE/CVF International Conference on Computer Vision (ICCV), pp. 9627– 9636, 2019.
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in neural information processing systems, pp. 5998–6008, 2017.
+
+Yingming Wang, Xiangyu Zhang, Tong Yang, and Jian Sun. Anchor detr: Query design for transformer-based detector. arXiv preprint arXiv:2109.07107, 2021.
+
+Zhuyu Yao, Jiangbo Ai, Boxun Li, and Chi Zhang. Efficient detr: Improving end-to-end object detector with dense prior. arXiv preprint arXiv:2104.01318, 2021.
+
+Xingyi Zhou, Dequan Wang, and Philipp Krahenb ¨ uhl. Objects as points. ¨ arXiv preprint arXiv:1904.07850, 2019.
+
+Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable detr: Deformable transformers for end-to-end object detection. In ICLR 2021: The Ninth International Conference on Learning Representations, 2021.
+
+# Appendix for DAB-DETR
+
+# A TRAINING DETAILS
+
+Architecture. Our model is almost the same as DETR which includes a CNN backbone, multiple Transformer (Vaswani et al., 2017) encoders and decoders, and two prediction heads for boxes and labels. We use ImageNet-pretrained ResNet (He et al., 2016) as our backbones, and 6 Transformer encoders and 6 Transformer decoders in our implementations. We follow previous works to report results over four backbones: ResNet-50, ResNet-101, and their $1 6 \times$ -resolution extensions ResNet50-DC5 and ResNet-101-DC5. As we need to predict boxes and labels in each decoder layer, the MLP networks for box and label predictions share the same parameters across different decoder layers. As inspired by Anchor DETR, we also leverage multiple pattern embeddings to perform multiple predictions at one position and the number of patterns is set as 3 which is the same as Anchor DETR. We also leverage PReLU (He et al., 2015) as our activations.
+
+Following Deformable DETR and Conditional DETR, we use 300 anchors as queries. We select 300 predicted boxes and labels with the largest classification logits for evaluation as well. We also use focal loss (Lin et al., 2020) with $\alpha = 0 . 2 5$ , $\gamma = 2$ for classification. The same loss terms are used in bipartite matching and final loss calculating, but with different coefficients. Classification loss with coefficient 2.0 is used in pipartite matching but 1.0 in the final loss. L1 loss with coefficient 5.0 and GIOU loss (Rezatofighi et al., 2019) with coefficient 2.0 are consistent in both the matching and the final loss calculation procedures. All models are trained on 16 GPUs with 1 image per GPU and AdamW (Loshchilov & Hutter, 2018) is used for training with weight decay $1 0 ^ { - 4 }$ . The learning rates for backbone and other modules are set to $1 0 ^ { - 5 }$ and $1 0 ^ { - 4 }$ respectively. We train our models for 50 epochs and drop the learning rate by 0.1 after 40 epochs. All models are trained on Nvidia A100 GPU. We search hyperparameters with batch size 64 and all results in our paper are reported with batch size 16. For better reproducing our results, we provide the memory needed and batch size/GPU in Table 4.
+
+Dataset. We conduct the experiments on the COCO (Lin et al., 2014) object detection dataset. All models are trained on the train2017 split and evaluated on the val2017 split.
+
+Table 4: GPU memory usage of each model.   
+
+<table><tr><td>Model</td><td>Batch Size/GPU</td><td>GPUMemory (MB)</td></tr><tr><td>DAB-DETR-R50</td><td>2</td><td>6527</td></tr><tr><td>DAB-DETR-R50*</td><td>1</td><td>3573</td></tr><tr><td>DAB-DETR-R50-DC5</td><td>1</td><td>13745</td></tr><tr><td>DAB-DETR-R50-DC5*</td><td>1</td><td>15475</td></tr><tr><td>DAB-DETR-R101</td><td>2</td><td>6913</td></tr><tr><td>DAB-DETR-R101*</td><td>1</td><td>4369</td></tr><tr><td>DAB-DETR-R101-DC5</td><td>1</td><td>13148</td></tr><tr><td>DAB-DETR-R101-DC5*</td><td>1</td><td>16744</td></tr></table>
+
+# B COMPARISON OF DETR-LIKE MODELS
+
+In this section, we provide a more detailed comparison of DETR-like models, including DETR (Carion et al., 2020), Conditional DETR (Meng et al., 2021), Anchor DETR (Wang et al., 2021), Deformable DETR (Zhu et al., 2021), our proposed DAB-DETR, and DAB-Deformable-DETR. Their model designs are illustrated in Fig. 8. We will discuss the difference between previous models and our models.
+
+Anchor DETR (Wang et al., 2021) improves DETR by introducing 2D anchor points, which are updated layer by layer. It shares a similar motivation with our work. But it leaves the object scale information unconsidered and thus cannot modulate the cross-attention to make it adapt to objects of different scales. Moreover, the positional queries in its framework are of high dimension and passed to the self-attention modules in all layers without any adaptation. See the brown colored part in Fig. 8 (d) for details. This design might be sub-optimal as the self-attention modules cannot leverage the refined anchor points in different layers.
+
+Deformable DETR (Zhu et al., 2021) introduces 4D anchor boxes and updates them layer by layer, which is called iterative bounding box refinement in its paper. Its algorithm is mainly developed based on deformable attention, which requires reference points to sample attention points and meanwhile utilizes box width and height to modulate attention areas. However, as iterative bounding box refinement is closely coupled with the special design of deformable attention, it is nontrivial to apply it to general Transformer decoder-based DETR models. This is probably the reason why few work after Deformable DETR adopts this idea. Moreover, the position queries in Deformable DETR are passed to both the self-attention modules and the cross-attention modules in all layers without any adaptation.
+
+See the brown colored part in Fig. 8 (e) for details. As the result, both its self-attention modules and cross-attention modules cannot fully leverage the refined anchor boxes in different layers.
+
+To verify our analysis, we develop a variant of Deformable-DETR by formulating its queries as dynamic anchor boxes as in DAB-DETR. We call this variant as DAB-Deformable-DETR, which is illustrated in Fig. 8 (f). Under exactly the same setting using R50 as backbone, DAB-DeformableDETR improves Deformable-DETR by 0.5 AP (46.3 to 46.8) on COCO. See Table 5 for the performance comparison and Sec. C for more implementation details.
+
+Dynamic DETR (Dai et al., 2021) is another interesting improvement of DETR. It also leverages anchor boxes to pool features, but it uses ROI pooling for feature extraction, which makes it less general to DETR-like models compared with our dynamic anchor boxes. Moreover, compared with cross-attention in Transformer decoders, which performs global feature pooling in a soft manner (based on attention map), the ROI pooling operation only performs local feature pooling within a ROI window. In our opinion, the ROI pooling operation can help faster convergence as it enforces each query to associate with a specific spatial position. But it may lead to sub-optimal result due to its ignorance of global context outside a ROI window.
+
+# C DAB-DEFORMABLE-DETR
+
+To further demonstrate the effectiveness of our dynamic anchor boxes, we develop DABDeformable-DETR by adding our dynamic anchor boxes design to Deformable DETR (Zhu et al., 2021) 2. The difference between Deformable DETR and DAB-Deformable-DETR is shown in Fig. 8 (e) and (f). The results of Deformable DETR and DAB-Deformable-DETR are shown in Table 5. With no more than 10 lines of code modified, our DAB-Deformable-DETR (row 4) results in a significant performance improvement $( + 0 . 5$ AP) compared with the original Deformable DETR (row 3). All other settings except the query formulation are exactly the same in this experiment.
+
+We also compare the speed of convergence in Fig. 9. It shows that our proposed dynamic anchor boxes speed up the training as well (left in Fig. 9). We believe one of the reasons for better performance is the update of learned queries. We plot the change of total loss, which is the sum-up of losses of all decoder layers, during training in the middle figure of Fig. 9. Interestingly, it shows that the total loss of DAB-Deformable-DETR is larger than Deformable DETR. However, the loss of the final layer of DAB-Deformable-DETR is lower than that in Deformable DETR (right in Fig. 9), which is a good indicator of the better performance of DAB-Deformable-DETR as the inference result only takes from the last layer.
+
+# D ANCHORS VISUALIZATION
+
+We visualize the learned anchor boxes in Fig. 10. When learning anchor points as queries, the learned points are distributed evenly around the image, while the centers seem to distribute randomly when learning anchor boxes directly. This might be because the centers are coupled with anchor sizes. The right-most figure shows the visualization of the learned anchor boxes. We only show a partial set for the visualization clarity. Most boxes are of medium size and no particular pattern is found in the distribution of boxes.
+
+![](Images_K2CUC6HQ/2f874a661f0077ebab33b42d2ec4f95b3b8aeea4509a20ccab81cfb3c8803b35.jpg)  
+Figure 8: Comparison of DETR-like models. For clarity, we only show two layers of Transformer decoder and omit the FFN blocks. We mark the modules with difference in purple and marked the learned high-dimensional queries in brown. DAB-DETR (c) is proposed in our paper, and DABDeformable-DETR (f) is a variant of Deformable DETR modified by introducing our dynamic anchors boxes. All previous models (a,b,d,e) leverage high-dimensional queries (shaded in brown) to pass positional information to each layers, which are semantic ambiguous and are not updated layer by layer. In contrast, DAB-DETR (c) directly uses dynamically updated anchor boxes to provide both a reference query point $( x , y )$ and a reference anchor size $( w , h )$ to improve the cross-attention computation. DAB-Deformable-DETR (f) uses dynamically updated anchor boxes to formulate its queries as well.
+
+<table><tr><td># row</td><td>Model</td><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td><td>Params</td></tr><tr><td>1</td><td>Deformable DETR</td><td>43.8</td><td>62.6</td><td>47.7</td><td>26.4</td><td>47.1</td><td>58.0</td><td>40M</td></tr><tr><td>2</td><td>Deformable DETR+</td><td>45.4</td><td>64.7</td><td>49.0</td><td>26.8</td><td>48.3</td><td>61.7</td><td>40M</td></tr><tr><td>3</td><td>Deformable DETR+ (open source)</td><td>46.3</td><td>65.3</td><td>50.2</td><td>28.6</td><td>49.3</td><td>62.1</td><td>47M</td></tr><tr><td>4</td><td>DAB-Deformable-DETR(Ours)</td><td>46.8</td><td>66.0</td><td>50.4</td><td>29.1</td><td>49.8</td><td>62.3</td><td>47M</td></tr></table>
+
+Table 5: Comparison of the results of Deformable DETR and DAB-Deformable-DETR. The models in row 1 and row 2 are copied from the original paper, and the models in row 3 and row 4 are tested under the same standard R50 multi-scale setting. Deformable ${ \mathrm { D E T R } } +$ means the Deformable DETR model with iterative bounding box refinement and the result of Deformable ${ \mathrm { D E T R } } +$ (open source) is reported by us using the open-source code. The only difference between row 3 and row 4 is the formulation of queries.
+
+![](Images_K2CUC6HQ/3430213ad9e47dcaf4cb749924abde0accf5b8aabc5fd139dd09753f55880f09.jpg)  
+Figure 9: Comparison of the training of Deformable DETR and DAB-Deformable-DETR models. We plot the change of AP (left), the loss of all layers (middle), and the loss of the last layer (right) during training, respectively. With no more than 10 lines of code modified, DAB-Deformable-DETR results in a better performance compared with the original Deformable DETR model (see the left figure). While the loss of all layers of DAB-Deformable-DETR is larger than that in Deformable DETR (see the middle figure), our models have a lower loss of the last layer (see the right figure), which is the most important as the inference result only takes from the last layer. The two models are tested under the same standard R50 multi-scale setting.
+
+![](Images_K2CUC6HQ/6b449d76f2700c4df12edfa6a844bcaa811a563c587bb63c23bfd8c27c1289e1.jpg)  
+Figure 10: Learned anchor points when learning 2D coordinates only (left), and anchor center points (middle) and partial anchor boxes (right) when learning anchor boxes directly.
+
+# E RESULTS WITH DIFFERENT TEMPERATURES
+
+Table 6 shows the results of models using different temperatures in the positional encoding function. As larger temperature generates more flattened attention maps, it leads to better performances for larger objects. For example, the model with $T = 2$ and the model with $T = 1 0 0 0 0$ have similar AP results, but the former has better performances on $\mathsf { A P } _ { S }$ and $\mathsf { A P } _ { M }$ , while the latter works better on $\mathsf { A P } _ { L }$ , which also validates the role of positional priors in DETR.
+
+<table><tr><td>Temperature</td><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td></tr><tr><td>2</td><td>39.6</td><td>60.7</td><td>41.9</td><td>19.3</td><td>43.3</td><td>58.0</td></tr><tr><td>5</td><td>40.0</td><td>61.1</td><td>42.1</td><td>19.5</td><td>43.4</td><td>58.9</td></tr><tr><td>10</td><td>40.0</td><td>61.1</td><td>42.3</td><td>19.7</td><td>43.5</td><td>59.3</td></tr><tr><td>20</td><td>40.1</td><td>61.1</td><td>42.8</td><td>19.8</td><td>43.7</td><td>58.6</td></tr><tr><td>50</td><td>39.8</td><td>61.0</td><td>42.2</td><td>19.7</td><td>43.2</td><td>58.8</td></tr><tr><td>100</td><td>39.8</td><td>60.8</td><td>42.1</td><td>19.3</td><td>43.3</td><td>58.4</td></tr><tr><td>10000</td><td>39.5</td><td>60.7</td><td>41.7</td><td>18.9</td><td>42.6</td><td>58.9</td></tr></table>
+
+Table 6: Comparison of models with different temperatures. All models are trained with the ResNet50 backbone, batch size 64, no multiple pattern embeddings, and no modulated attentions. Default Settings are used for the rest of the parameters.
+
+# F RESULTS WITH LESS DECODER LAYERS
+
+Table 7 shows the results of models with different decoder layers. All models are trained under our standard ResNet-50-DC setting except the number of decoder layers.   
+Table 7: Comparison of models with different number of decoder layers. All models are trained under our standard ResNet-50-DC setting except the number of decoder layers.   
+
+<table><tr><td>decoder layers</td><td>GFLOPs</td><td>Parmas</td><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td></tr><tr><td>2</td><td>202</td><td>36M</td><td>40.2</td><td>59.0</td><td>42.9</td><td>22.2</td><td>43.5</td><td>55.4</td></tr><tr><td>3</td><td>206</td><td>38M</td><td>43.9</td><td>63.4</td><td>47.4</td><td>24.6</td><td>47.8</td><td>60.5</td></tr><tr><td>4</td><td>210</td><td>40M</td><td>44.9</td><td>64.5</td><td>48.2</td><td>25.9</td><td>48.5</td><td>61.0</td></tr><tr><td>5</td><td>213</td><td>42M</td><td>45.2</td><td>65.5</td><td>48.6</td><td>26.6</td><td>48.9</td><td>62.3</td></tr><tr><td>6</td><td>216</td><td>44M</td><td>45.7</td><td>66.2</td><td>49.0</td><td>26.1</td><td>49.4</td><td>63.1</td></tr></table>
+
+# G FIXED $x , y$ FOR BETTER PERFORMANCE
+
+We provide in this section an interesting experiment. As we all know, all box coordinates $x , y , h , w$ are learned from data. When we fix $x , y$ of the anchor boxes with the random initialization, the model’s performance increases consistently. The comparison of standard DAB-DETR and DABDETR with fixed $x , y$ coordinates are shown in Table 8. Note that we only fix $x , y$ at the first layer to prevent them from learning information from data. But $x , y$ will be updated in other layers. We conjecture that the randomly initialized and fixed $x , y$ coordinates can help to avoid overfitting, which may account for this phenomenon.
+
+# H COMPARISON OF BOX UPDATE
+
+To further demonstrate the effectiveness of our dynamic anchor box design, we plot the layer-bylayer update result of boxes of DAB-DETR and Conditional DETR in Fig. 11. All DETR-like models have a stacked layers structure. Hence the outputs of each layer can be viewed as a refining procedure. However, due to the high-dimensional queries that are shared across all layers, the update of queries between layers is not stable. As shaded in yellow in Fig. 11 (b), some boxes predicted in latter layers are worse than their previous layers.
+
+# I ANALYSIS OF FAILURE CASES
+
+Fig. 12 presents some samples where our model does not predict well. We find our model may have some troubles when facing dense objects, very small objects, or very large objects in an image. To
+
+<table><tr><td>Model</td><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td></tr><tr><td>DAB-DETR-R50*</td><td>42.6</td><td>63.2</td><td>45.6</td><td>21.8</td><td>46.2</td><td>61.1</td></tr><tr><td>DAB-DETR-R50*-fixedx&amp;y</td><td>42.9(+0.3)</td><td>63.7</td><td>45.3</td><td>22.0</td><td>46.8</td><td>60.9</td></tr><tr><td>DAB-DETR-DC5-R50</td><td>44.5</td><td>65.1</td><td>47.7</td><td>25.3</td><td>48.2</td><td>62.3</td></tr><tr><td>DAB-DETR-DC5-R50-fixedx&amp;y</td><td>44.7(+0.2)</td><td>65.3</td><td>47.9</td><td>24.9</td><td>48.2</td><td>62.0</td></tr><tr><td>DAB-DETR-DC5-R50*</td><td>45.7</td><td>66.2</td><td>49.0</td><td>26.1</td><td>49.4</td><td>63.1</td></tr><tr><td>DAB-DETR-DC5-R50*-fixedx&amp;y</td><td>45.8(+0.1)</td><td>66.5</td><td>48.9</td><td>26.4</td><td>49.6</td><td>62.7</td></tr><tr><td>DAB-DETR-R101*</td><td>44.1</td><td>64.7</td><td>47.2</td><td>24.1</td><td>48.2</td><td>62.9</td></tr><tr><td>DAB-DETR-R101*-fixedx&amp;y</td><td>44.8(+0.7)</td><td>65.4</td><td>48.2</td><td>25.1</td><td>48.9</td><td>63.1</td></tr><tr><td>DAB-DETR-DC5-R101*</td><td>46.6</td><td>67.0</td><td>50.2</td><td>28.1</td><td>50.5</td><td>64.1</td></tr><tr><td>DAB-DETR-DC5-R101*-fixedx&amp;y</td><td>46.7(+0.1)</td><td>67.3</td><td>50.7</td><td>27.3</td><td>50.9</td><td>64.1</td></tr></table>
+
+Table 8: Comparison of DAB-DETR and DAB-DETR with fixed anchor centers $x , y$ . When fixing $x , y$ of queries with random values, the performance of the models is improved consistently. The models with superscript ∗ use 3 pattern embeddings as in Anchor DETR.
+
+![](Images_K2CUC6HQ/2ed1d3393d511768d5bf16888da728cf819c3e3b5c58794605e602b553432d5a.jpg)  
+Figure 11: We compare the layer-by-layer update of boxes of DAB-DETR (a) and Conditional DETR (b). The green boxes are ground truth annotations while red boxes are model predictions. The boxes of Conditional DETR have larger variances and we mark some boundaries of boxes with a large change in yellow.
+
+improve the performance of our model, we will introduce a multi-scale technique into our model to improve the detection performance on small and large objects.
+
+# J COMPARISON OF RUNTIME
+
+We compare the runtime of DETR, Conditional DETR, and our proposed DAB-DETR in Table 9. Their runtime speeds are reported on a single Nvidia A100 GPU. Our DAB-DETR has a similar inference speed but better performance compared with Conditional DETR, which is our direct competitor.
+
+![](Images_K2CUC6HQ/f9ef2b0aa11f8feeb170a2534e75d5513568c77358a34f102a588c6505e9e977.jpg)  
+Figure 12: We visualize some images where our model does not predict well, including dense objects (a,b,c), very small objects (d), and very large objects (e,f). The green boxes are ground truth annotations while red boxes are predictions of models.
+
+<table><tr><td>Model</td><td>time(s/img)</td><td>epoches</td><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td><td>Parmas</td></tr><tr><td>DETR-R50</td><td>0.048</td><td>500</td><td>42.0</td><td>62.4</td><td>44.2</td><td>20.5</td><td>45.8</td><td>61.1</td><td>41M</td></tr><tr><td>Conditional DETR-R50</td><td>0.057</td><td>50</td><td>40.9</td><td>61.8</td><td>43.3</td><td>20.8</td><td>44.6</td><td>59.2</td><td>44M</td></tr><tr><td>DAB-DETR-R50</td><td>0.059</td><td>50</td><td>42.2</td><td>63.1</td><td>44.7</td><td>21.5</td><td>45.7</td><td>60.3</td><td>44M</td></tr><tr><td>DETR-R101</td><td>0.074</td><td>500</td><td>43.5</td><td>63.8</td><td>46.4</td><td>21.9</td><td>48.0</td><td>61.8</td><td>60M</td></tr><tr><td>Conditional DETR-R101</td><td>0.082</td><td>50</td><td>42.8</td><td>63.7</td><td>46.0</td><td>21.7</td><td>46.6</td><td>60.9</td><td>63M</td></tr><tr><td>DAB-DETR-R101</td><td>0.085</td><td>50</td><td>43.5</td><td>63.9</td><td>46.6</td><td>23.6</td><td>47.3</td><td>61.5</td><td>63M</td></tr></table>
+
+Table 9: Comparison of the runtime of DETR, Conditional DETR, and our proposed DAB-DETR. All speeds are reported on a single Nvidia A100 GPU.
+
+# K COMPARISON OF MODEL CONVERGENCE
+
+We present convergence curves of DETR, Conditional DETR, and out DAB-DETR in Fig. 13. All models are trained under standard R50(DC5) setting. The results demonstrate the effectiveness of our model. Our DAB-DETR is trained with our f ix x&y variants. see Appendix G for more details about the f ix x&y results. Both the Conditional DETR and our DAB-DETR use 300 queries, while DETR leverages 100 queries.
+
+Our DAB-DETR converges faster than Conditional DETR, especially on the early epochs, as shown in Fig. 13.
+
+![](Images_K2CUC6HQ/0dc341a8fbf06022f22ebc716eb5558c371b4dba748896429a5d089a3946c0df.jpg)  
+Figure 13: Convergence curves of DETR, Conditional DETR, and our DAB-DETR. All models are trained under the R50(DC5) settinng.

@@ -4,31 +4,27 @@
 TBD - created by archiving change refactor-synthesis-workbench-surface-refresh-architecture. Update Purpose after archive.
 ## Requirements
 ### Requirement: Workbench loads Shell, Chrome, and Surfaces independently
+
+
 Synthesis Workbench SHALL separate shell structure, chrome status, and named surface read models.
 
-#### Scenario: Workbench iframe is ready
-- **WHEN** the Workbench sends the `ready` action
-- **THEN** the host SHALL send lightweight shell/chrome state without constructing a full Synthesis snapshot
-- **AND** the host SHALL request or serve only the initially selected surface.
+#### Scenario: Topic synthesis workflow completes
 
-#### Scenario: User selects a tab
-- **WHEN** the user selects a Workbench tab
-- **THEN** the frontend SHALL switch the shell state immediately
-- **AND** the host SHALL load only that tab's named surface when it is missing or dirty
-- **AND** a loaded clean surface SHALL be served from the cached read model without a service reload.
+- **WHEN** a create or update topic synthesis command completes
+- **THEN** the Workbench SHALL mark Home, Topics, Topic Graph, and Review
+  surfaces dirty
+- **AND** it SHALL immediately reload the active surface when that surface is
+  one of the invalidated surfaces.
 
-#### Scenario: Operation invalidates hidden surfaces
-- **WHEN** an operation completes and invalidates surfaces that are not currently visible
-- **THEN** those surfaces SHALL be marked dirty
-- **AND** they SHALL NOT be reloaded until viewed or explicitly refreshed.
+#### Scenario: Topic graph relation decision completes
 
-#### Scenario: Zotero Library item metadata changes
-- **WHEN** Zotero emits a parent item add, modify, delete, trash, or refresh notification
-- **THEN** the Workbench host SHALL mark the Index surface dirty because its Zotero Library metadata is direct-read SSOT
-- **AND** it MAY debounce and reload only the Index surface when Index is visible
-- **AND** it SHALL NOT start Reference Sidecar refresh, rebuild Citation Graph/Tag/Concept caches, or change `synt_cache_basis`.
-
+- **WHEN** a topic graph relation proposal or relation review item is accepted,
+  rejected, approved, or rejected
+- **THEN** the Workbench SHALL mark Home, Topic Graph, and Review surfaces dirty
+- **AND** it SHALL immediately reload the active surface when that surface is
+  one of the invalidated surfaces.
 ### Requirement: Surface refresh is scoped to one area
+
 Workbench surface updates SHALL refresh only the requested surface container.
 
 #### Scenario: Index surface updates
@@ -40,8 +36,8 @@ Workbench surface updates SHALL refresh only the requested surface container.
 - **WHEN** operation progress changes
 - **THEN** the host SHALL send chrome state only
 - **AND** content surfaces SHALL NOT be refreshed.
-
 ### Requirement: Workbench warmup is phased and non-blocking
+
 Synthesis Workbench warmup SHALL run in bounded phases that yield to Zotero's event loop.
 
 #### Scenario: Startup warmup runs
@@ -53,12 +49,11 @@ Synthesis Workbench warmup SHALL run in bounded phases that yield to Zotero's ev
 - **WHEN** a user opens a surface before warmup has loaded it
 - **THEN** the UI SHALL show a preparing state
 - **AND** the host SHALL prioritize loading that surface without running a full snapshot.
-
 ### Requirement: Full snapshot is debug-only
+
 Full Workbench snapshot construction SHALL NOT be an active UI hot path.
 
 #### Scenario: Active Workbench host code handles UI actions
 - **WHEN** `ready`, `selectTab`, `setFilters`, progress polling, or local review actions are handled
 - **THEN** the code SHALL NOT call the debug full snapshot API
 - **AND** it SHALL NOT request `refreshFromService: true` as a shorthand for full UI refresh.
-

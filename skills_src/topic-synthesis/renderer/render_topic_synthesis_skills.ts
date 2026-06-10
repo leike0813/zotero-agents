@@ -43,6 +43,12 @@ type StageGuidance = {
     purpose: string;
   }>;
   required_read_notes?: string[];
+  hard_constraints?: string[];
+  subagent_delegation?: {
+    recommendation?: string;
+    constraints?: string[];
+    prompt?: string;
+  };
   field_guidance?: Record<string, string>;
   quality_checks?: string[];
   common_pitfalls?: string[];
@@ -106,11 +112,11 @@ function skillQualityGoals(skill: SkillContract): string {
     "create-topic-synthesis-prepare": [
       "topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。",
       "duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。",
-      "resolver proposal 要可复现、边界清楚；runtime 负责执行 resolver cascade，LLM 不手写 resolver result。",
-      "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest、caveats 和 diagnostics，不提前写跨文献综合。",
+      "resolver proposal 要可复现、边界清楚；runtime 负责执行 `resolvers resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
+      "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
     ],
     "update-topic-synthesis-prepare": [
-      "topic context 必须忠实保留 Host 返回的 topic id、definition、hashes、section hashes 和 recommended_update。",
+      "topic context 必须忠实保留 Host 返回的 topic id、definition 和 recommended_update。",
       "update assessment 只判断当前 update scope，说明 full/patch/unknown 的原因和 changed sections。",
       "resolver proposal 仍要服务既有 topic 的边界，不能把 create duplicate check 逻辑套到 update。",
       "update path 当前保持 skeleton 边界：只写本 skill schema 接受的准备 payload，不承诺后续完整 update runtime 已实现。",
@@ -118,12 +124,12 @@ function skillQualityGoals(skill: SkillContract): string {
     "topic-synthesis-core-enrichment": [
       "taxonomy 必须解释研究路线、机制、边界、代表论文、成熟度、优势和局限，不是标签表。",
       "timeline_events 必须解释历史递进和里程碑逻辑，不是年份列表。",
-      "claims、debates、gaps 和 improvement dimensions 必须是 topic-level synthesis，并用 source_paper_refs 指向当前 evidence index 中的文献。",
+      "claims、debates、future directions 和 improvement dimensions 必须是 topic-level synthesis，并用 source_paper_refs 指向当前 evidence index 中的文献。",
       "KG enrichment 只补全当前 core synthesis 产生的概念、候选 topic 关系和 matching terms，不写 sidecars 或 canonical KG。",
     ],
     "topic-synthesis-finalize": [
       "coverage verdict 必须解释当前库内材料的覆盖档位，并区分领域真实空白、库内覆盖不足、artifact 证据不足和评价口径缺口。",
-      "reliability summary 必须说明本次 synthesis 的证据边界，不能把文献数量或 citation metrics 机械当作可靠性。",
+      "coverage caveats 必须说明本次 synthesis 的证据边界，不能把文献数量或 citation metrics 机械当作可靠性。",
       "external context summary 和 collection suggestions 只服务覆盖判断和入库建议，不能重写 core synthesis。",
       "final summary 必须基于 runtime 已渲染的 synthesis report，不新增未在 report 中出现的 claim。",
     ],
@@ -140,12 +146,12 @@ function llmRuntimeBoundary(skill: SkillContract): {
       llm: [
         "create topic intent 和 duplicate check 判断。",
         "resolver proposal 设计。",
-        "per-paper triage：relevance、quality、core_digest、caveats、diagnostics。",
+        "per-paper triage：relevance、quality、core_digest、caveats。",
       ],
       runtime: [
-        "初始化 SQLite、stage state、action receipts、artifact registry 和 hashes。",
-        "执行 resolver cascade：`resolve-resolver`、citation metrics、filtered artifact export。",
-        "校验并登记 create topic context、resolver proposal 和 paper triage payload。",
+        "初始化 SQLite 和 stage state。",
+        "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "校验 create topic context、resolver proposal 和 paper triage payload。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
     },
@@ -153,35 +159,35 @@ function llmRuntimeBoundary(skill: SkillContract): {
       llm: [
         "读取 Host topic context 后写 update scope 判断。",
         "resolver proposal 设计。",
-        "per-paper triage：relevance、quality、core_digest、caveats、diagnostics。",
+        "per-paper triage：relevance、quality、core_digest、caveats。",
       ],
       runtime: [
-        "初始化或校验 SQLite、stage state、action receipts、artifact registry 和 hashes。",
-        "执行 resolver cascade：`resolve-resolver`、citation metrics、filtered artifact export。",
-        "校验并登记 update topic context、resolver proposal 和 paper triage payload。",
+        "初始化或校验 SQLite 和 stage state。",
+        "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "校验 update topic context、resolver proposal 和 paper triage payload。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff；深度 update diff/patch 语义后续单独完善。",
       ],
     },
     "topic-synthesis-core-enrichment": {
       llm: [
-        "core synthesis：taxonomy、timeline、positioning、claims、improvement dimensions、debates、gaps、review_outline。",
-        "KG enrichment：concept_details、topic_relation_candidates、topic_matching_terms。",
+        "core synthesis：taxonomy、timeline、claims、improvement dimensions、debates、future_directions、review_outline。",
+        "KG enrichment：concept_details、existing_topic_relation_proposals、prospective_topic_relation_proposals、topic_matching_terms。",
       ],
       runtime: [
-        "校验 prepare handoff、DB、artifact hash 和必需 runtime views。",
-        "校验并登记 core synthesis 和 KG enrichment payload。",
+        "校验 prepare handoff、DB 和必需 runtime views。",
+        "校验 core synthesis 和 KG enrichment payload。",
         "生成 concept candidate context、KG sidecars、topic-interest metadata 和 core handoff。",
       ],
     },
     "topic-synthesis-finalize": {
       llm: [
-        "coverage verdict、coverage reason、reliability summary、coverage caveats。",
+        "coverage verdict、coverage reason、coverage caveats。",
         "external context summary 和 collection suggestions。",
         "最终 summary_brief、summary_overview 和 key_takeaways。",
       ],
       runtime: [
         "校验 core handoff、sidecars、finalize context 和 report context。",
-        "校验并登记 coverage 和 summary payload。",
+        "校验 coverage 和 summary payload。",
         "生成完整 Host apply-ready result sections、synthesis report、topic-analysis manifest 和 final-output candidate。",
       ],
     },
@@ -276,15 +282,15 @@ function renderOutputContractBody(skill: SkillContract): string {
       `本技能输出一个用于 \`${skill.handoff}\` 的 \`topic_synthesis_handoff\` JSON 对象。`,
       "",
       "- 返回对象必须符合 `assets/output.schema.json`。",
-      "- handoff manifest path 和 hash 用来标识本 skill 的持久化输出。",
-      "- 大段正文、业务状态和 hashes 仍以 SQLite 与文件为真源。",
+      "- handoff manifest path 用来标识本 skill 的持久化输出。",
+      "- 大段正文和业务状态以 SQLite 与 runtime 文件为真源。",
     ].join("\n");
   }
   return [
     "本技能输出一个 `topic_synthesis` JSON 对象，或一个 `topic_synthesis_canceled` JSON 对象。",
     "",
     "- 返回对象必须符合 `assets/output.schema.json`。",
-    "- 成功输出包含 operation、language、artifact metadata 和 analysis manifest path。",
+    "- 成功输出包含 operation、language、topic definition 和 analysis manifest path。",
     "- 运行器负责把通过校验的结果接受为 `result/result.json`。",
   ].join("\n");
 }
@@ -339,6 +345,32 @@ async function renderStage(
       lines.push(...renderFieldGuidance(guidance.field_guidance));
     }
   }
+  if (guidance.hard_constraints?.length) {
+    lines.push("");
+    lines.push("硬性约束：");
+    lines.push("");
+    lines.push(...renderBulletList(guidance.hard_constraints));
+  }
+  if (guidance.subagent_delegation) {
+    lines.push("");
+    lines.push("Subagent 委派建议：");
+    lines.push("");
+    if (guidance.subagent_delegation.recommendation) {
+      lines.push(guidance.subagent_delegation.recommendation);
+      lines.push("");
+    }
+    if (guidance.subagent_delegation.constraints?.length) {
+      lines.push(...renderBulletList(guidance.subagent_delegation.constraints));
+      lines.push("");
+    }
+    if (guidance.subagent_delegation.prompt) {
+      lines.push("委派 prompt 模板：");
+      lines.push("");
+      lines.push("```text");
+      lines.push(guidance.subagent_delegation.prompt.trim());
+      lines.push("```");
+    }
+  }
   if (guidance.quality_checks?.length) {
     lines.push("");
     lines.push("质量检查：");
@@ -366,7 +398,7 @@ async function renderStage(
       guidance.example ??
       (Array.isArray(schema.examples) ? schema.examples[0] : {});
     lines.push("");
-    lines.push("Payload JSON 示例：");
+    lines.push("Payload JSON 示例（可提交结构样例）：");
     lines.push("");
     lines.push("```json");
     lines.push(JSON.stringify(example, null, 2));
@@ -567,9 +599,7 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
       "operation",
       "db_path",
       "handoff_manifest_path",
-      "handoff_manifest_hash",
       "next_skill_id",
-      "diagnostics",
     ],
     properties: {
       kind: { const: "topic_synthesis_handoff" },
@@ -577,11 +607,9 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
       operation: operationSchemaForSkill(skill),
       db_path: { const: "runtime/topic-synthesis.sqlite" },
       handoff_manifest_path: { type: "string", minLength: 1 },
-      handoff_manifest_hash: { type: "string", pattern: "^sha256:.+" },
       next_skill_id: skill.next_skill_id
         ? { const: skill.next_skill_id }
         : { type: "string" },
-      diagnostics: { type: "array", items: { type: "object" } },
     },
   };
 }
@@ -600,16 +628,14 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
         title: "Completed create topic synthesis",
         type: "object",
         additionalProperties: false,
-        not: { required: ["base_hashes"] },
         required: [
           "kind",
           "operation",
           "language",
           "topic_definition",
           "resolver_manifest_path",
-          "resolver_diagnostics",
-          "artifact_metadata",
           "analysis_manifest_path",
+          "candidate_output_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
@@ -624,13 +650,10 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
             },
           },
           resolver_manifest_path: { type: "string", minLength: 1 },
-          resolver_diagnostics: { type: "object" },
-          artifact_metadata: { type: "object" },
           analysis_manifest_path: { type: "string", minLength: 1 },
           candidate_output_path: {
             const: "result/final-output.candidate.json",
           },
-          diagnostics: { type: "array", items: { type: "object" } },
         },
       },
       {
@@ -641,18 +664,15 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "kind",
           "operation",
           "language",
-          "base_hashes",
           "topic_definition",
           "resolver_manifest_path",
-          "resolver_diagnostics",
-          "artifact_metadata",
           "analysis_manifest_path",
+          "candidate_output_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
           operation: { const: "update_full" },
           language: { type: "string", minLength: 1 },
-          base_hashes: { type: "object" },
           topic_definition: {
             type: "object",
             required: ["id", "title"],
@@ -662,13 +682,10 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
             },
           },
           resolver_manifest_path: { type: "string", minLength: 1 },
-          resolver_diagnostics: { type: "object" },
-          artifact_metadata: { type: "object" },
           analysis_manifest_path: { type: "string", minLength: 1 },
           candidate_output_path: {
             const: "result/final-output.candidate.json",
           },
-          diagnostics: { type: "array", items: { type: "object" } },
         },
       },
       {
@@ -679,15 +696,15 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "kind",
           "operation",
           "language",
-          "read_section_hashes",
-          "artifact_metadata",
+          "topic_definition",
+          "resolver_manifest_path",
           "analysis_manifest_path",
+          "candidate_output_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
           operation: { const: "update_patch" },
           language: { type: "string", minLength: 1 },
-          read_section_hashes: { type: "object" },
           topic_definition: {
             type: "object",
             required: ["id", "title"],
@@ -697,13 +714,10 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
             },
           },
           resolver_manifest_path: { type: "string", minLength: 1 },
-          resolver_diagnostics: { type: "object" },
-          artifact_metadata: { type: "object" },
           analysis_manifest_path: { type: "string", minLength: 1 },
           candidate_output_path: {
             const: "result/final-output.candidate.json",
           },
-          diagnostics: { type: "array", items: { type: "object" } },
         },
       },
       {

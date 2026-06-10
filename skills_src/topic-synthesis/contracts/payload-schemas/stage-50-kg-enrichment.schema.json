@@ -6,18 +6,88 @@
   "additionalProperties": false,
   "required": [
     "concept_details",
-    "topic_relation_candidates",
-    "topic_matching_terms",
-    "diagnostics"
+    "existing_topic_relation_proposals",
+    "prospective_topic_relation_proposals",
+    "topic_matching_terms"
   ],
+  "$defs": {
+    "relation_type": {
+      "type": "string",
+      "enum": [
+        "target_is_broader_topic_candidate",
+        "target_is_narrower_topic_candidate",
+        "related_topic_candidate",
+        "overlap_topic_candidate",
+        "contrast_topic_candidate"
+      ]
+    }
+  },
   "properties": {
     "concept_details": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object"
+      }
     },
-    "topic_relation_candidates": {
+    "existing_topic_relation_proposals": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_topic_id",
+          "relation_type",
+          "confidence",
+          "rationale",
+          "source_paper_refs"
+        ],
+        "properties": {
+          "target_topic_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target_topic_title": {
+            "type": "string"
+          },
+          "relation_type": {
+            "$ref": "#/$defs/relation_type"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_paper_refs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "prospective_topic_relation_proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target_topic_seed", "relation_type"],
+        "properties": {
+          "target_topic_seed": {
+            "type": "string",
+            "minLength": 1
+          },
+          "relation_type": {
+            "$ref": "#/$defs/relation_type"
+          }
+        }
+      }
     },
     "topic_matching_terms": {
       "type": "object",
@@ -26,34 +96,77 @@
         "include_terms",
         "must_have_terms",
         "methods",
-        "exclude_terms",
-        "diagnostics"
+        "exclude_terms"
       ],
       "properties": {
-        "include_terms": { "type": "array", "items": { "type": "string" } },
+        "include_terms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "must_have_terms": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "methods": { "type": "array", "items": { "type": "string" } },
-        "exclude_terms": { "type": "array", "items": { "type": "string" } },
-        "diagnostics": { "type": "array", "items": { "type": "object" } }
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "exclude_terms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
-    },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    }
   },
   "examples": [
     {
-      "concept_details": [],
-      "topic_relation_candidates": [],
+      "concept_details": [
+        {
+          "label": "Object detection",
+          "aliases": ["目标检测"],
+          "concept_type": "task",
+          "definition": "在图像或视频中定位并识别目标，是 Computer Vision 的下位任务。",
+          "topic_relevance": "当前 workset 覆盖较多的 Computer Vision 子域。"
+        }
+      ],
+      "existing_topic_relation_proposals": [
+        {
+          "relation_type": "target_is_narrower_topic_candidate",
+          "target_topic_id": "object-detection",
+          "target_topic_title": "Object Detection",
+          "confidence": 0.88,
+          "rationale": "Object Detection 是 Computer Vision 的下位任务；即使当前 workset 偏向检测，Computer Vision 的语义范围仍更宽。",
+          "source_paper_refs": ["1:DETR"]
+        }
+      ],
+      "prospective_topic_relation_proposals": [
+        {
+          "target_topic_seed": "visual representation learning",
+          "relation_type": "target_is_narrower_topic_candidate"
+        }
+      ],
       "topic_matching_terms": {
-        "include_terms": [],
-        "must_have_terms": [],
-        "methods": [],
-        "exclude_terms": [],
-        "diagnostics": []
-      },
-      "diagnostics": []
+        "include_terms": [
+          "computer vision",
+          "object detection",
+          "segmentation"
+        ],
+        "must_have_terms": ["visual perception"],
+        "methods": ["query-based detection", "mask prediction"],
+        "exclude_terms": ["computer graphics rendering"]
+      }
     }
   ]
 }

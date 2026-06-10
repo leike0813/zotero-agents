@@ -1,0 +1,48 @@
+[1] C. Fu, X. Fan, J. Xiao, W. Yuan, R. Liu, and Z. Luo, “Learning heavilydegraded prior for underwater object detection,” IEEE TCSVT, pp. 1–1, 2023.   
+[2] R. Liu, X. Fan, M. Zhu, M. Hou, and Z. Luo, “Real-world underwater enhancement: Challenges, benchmarks, and solutions under natural light,” IEEE TCSVT, vol. 30, no. 12, pp. 4861–4875, 2020.   
+[3] L. Chen, Z. Jiang, L. Tong, Z. Liu, A. Zhao, Q. Zhang, J. Dong, and H. Zhou, “Perceptual underwater image enhancement with deep learning and physical priors,” IEEE TCSVT, vol. 31, no. 8, pp. 3078–3092, 2021.   
+[4] C. Liu, Z. Wang, S. Wang, T. Tang, Y. Tao, C. Yang, H. Li, X. Liu, and X. Fan, “A new dataset, poisson gan and aquanet for underwater object grabbing,” IEEE TCSVT, vol. 32, no. 5, pp. 2831–2844, 2022.   
+[5] H. Lu, Y. Li, X. Xu, J. Lin, Z. Liu, X. Li, J. Yang, and S. Serikawa, “Underwater image enhancement method using weighted guided trigonometric filtering and artificial light correction,” J. Vis. Commun. Image Represent., vol. 38, pp. 504–516, 2016.   
+[6] H. Lu, Y. Li, Y. Zhang, M. Chen, S. Serikawa, and H. Kim, “Underwater optical image processing: a comprehensive review,” Mob. Networks Appl., vol. 22, no. 6, pp. 1204–1211, 2017.   
+[7] R. Geirhos, P. Rubisch, C. Michaelis, M. Bethge, F. A. Wichmann, and W. Brendel, “Imagenet-trained cnns are biased towards texture; increasing shape bias improves accuracy and robustness,” in ICLR, 2019.   
+[8] Z. Cai and N. Vasconcelos, “Cascade R-CNN: delving into high quality object detection,” in CVPR, 2018, pp. 6154–6162.   
+[9] X. Lu, B. Li, Y. Yue, Q. Li, and J. Yan, “Grid R-CNN,” in CVPR, 2019, pp. 7363–7372.   
+[10] J. Wang, K. Chen, S. Yang, C. C. Loy, and D. Lin, “Region proposal by guided anchoring,” in CVPR, 2019, pp. 2965–2974.   
+[11] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and S. Zagoruyko, “End-to-end object detection with transformers,” in ECCV, vol. 12346, 2020, pp. 213–229.   
+[12] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo, “Swin transformer: Hierarchical vision transformer using shifted windows,” in ICCV, 2021, pp. 9992–10 002.   
+[13] W. Wang, E. Xie, X. Li, D. Fan, K. Song, D. Liang, T. Lu, P. Luo, and L. Shao, “Pyramid vision transformer: A versatile backbone for dense prediction without convolutions,” in ICCV, 2021, pp. 548–558.   
+[14] M. Everingham, L. V. Gool, C. K. I. Williams, J. M. Winn, and A. Zisserman, “The pascal visual object classes (VOC) challenge,” Int. J. Comput. Vis., vol. 88, no. 2, pp. 303–338, 2010.   
+[15] T. Lin, M. Maire, S. J. Belongie, J. Hays, P. Perona, D. Ramanan, P. Dollar, and C. L. Zitnick, “Microsoft COCO: common objects in ´ context,” in ECCV, vol. 8693, 2014, pp. 740–755.   
+[16] B. Fan, W. Chen, Y. Cong, and J. Tian, “Dual refinement underwater object detection network,” in ECCV, vol. 12365, 2020, pp. 275–291.   
+[17] L. Jiang, Y. Wang, Q. Jia, S. Xu, Y. Liu, X. Fan, H. Li, R. Liu, X. Xue, and R. Wang, “Underwater species detection using channel sharpening attention,” in ACM MM, pages $= 4 2 5 9 { \ - } 4 2 6 7 .$ , year $= 2 0 2 I$ .   
+[18] D. Akkaynak and T. Treibitz, “Sea-thru: A method for removing water from underwater images,” in CVPR, 2019, pp. 1682–1691.   
+[19] D. Berman, D. Levy, S. Avidan, and T. Treibitz, “Underwater single image color restoration using haze-lines and a new quantitative dataset,” IEEE TPAMI, vol. 43, no. 8, pp. 2822–2837, 2021.   
+[20] M. J. Islam, Y. Xia, and J. Sattar, “Fast underwater image enhancement for improved visual perception,” IEEE Robotics Autom. Lett., vol. 5, no. 2, pp. 3227–3234, 2020.   
+[21] Z. Bao, M. Hebert, and Y.-X. Wang, “Generative modeling for multi-task visual learning,” in ICML, 2022, pp. 1537–1554.   
+[22] C. Doersch and A. Zisserman, “Multi-task self-supervised visual learning,” in ICCV, 2017, pp. 2070–2079.   
+[23] M. Teichmann, M. Weber, J. M. Zollner, R. Cipolla, and R. Urtasun, ¨ “Multinet: Real-time joint semantic reasoning for autonomous driving,” in IEEE Intelligent Vehicles Symposium, 2018, pp. 1013–1020.   
+[24] A. Kendall, Y. Gal, and R. Cipolla, “Multi-task learning using uncertainty to weigh losses for scene geometry and semantics,” in CVPR, 2018, pp. 7482–7491.   
+[25] J. Redmon, S. K. Divvala, R. B. Girshick, and A. Farhadi, “You only look once: Unified, real-time object detection,” in CVPR, 2016, pp. 779– 788.   
+[26] W. Liu, D. Anguelov, D. Erhan, C. Szegedy, S. E. Reed, C. Fu, and A. C. Berg, “SSD: single shot multibox detector,” in ECCV, vol. 9905, 2016, pp. 21–37.   
+[27] T. Lin, P. Goyal, R. B. Girshick, K. He, and P. Dollar, “Focal loss for ´ dense object detection,” IEEE TPAMI, vol. 42, no. 2, pp. 318–327, 2020.   
+[28] C. Zhu, Y. He, and M. Savvides, “Feature selective anchor-free module for single-shot object detection,” in CVPR, 2019, pp. 840–849.   
+[29] X. Zhang, F. Wan, C. Liu, R. Ji, and Q. Ye, “Freeanchor: Learning to match anchors for visual object detection,” in NIPS, 2019, pp. 147–155.   
+[30] T. Kong, F. Sun, H. Liu, Y. Jiang, L. Li, and J. Shi, “Foveabox: Beyound anchor-based object detection,” IEEE TIP, vol. 29, pp. 7389–7398, 2020.   
+[31] R. L. Wanqi Yuan, Chenping Fu and X. Fan, “Ssob: Searching a scene-oriented architecture for underwater object detection,” The Visual Computer, 2022.   
+[32] R. Liu, J. Gao, J. Zhang, D. Meng, and Z. Lin, “Investigating bi-level optimization for learning and vision from a unified perspective: A survey and beyond,” IEEE TPAMI, 2021.   
+[33] P. Ochs, R. Ranftl, T. Brox, and T. Pock, “Bilevel optimization with nonsmooth lower level problems,” in SSVM, vol. 9087, 2015, pp. 654– 665.   
+[34] T. Lin, P. Goyal, R. B. Girshick, K. He, and P. Dollar, “Focal loss for ´ dense object detection,” in ICCV, 2017, pp. 2999–3007.   
+[35] T. Lin, P. Dollar, R. B. Girshick, K. He, B. Hariharan, and S. J. Belongie, ´ “Feature pyramid networks for object detection,” in CVPR, 2017, pp. 936–944.   
+[36] C. Fu, R. Liu, X. Fan, P. Chen, H. Fu, W. Yuan, M. Zhu, and Z. Luo, “Rethinking general underwater object detection: Datasets, challenges, and solutions,” Neurocomputing, vol. 517, pp. 243–256, 2023.   
+[37] C. Li, C. Guo, W. Ren, R. Cong, J. Hou, S. Kwong, and D. Tao, “An underwater image enhancement benchmark dataset and beyond,” IEEE TIP, vol. 29, pp. 4376–4389, 2020.   
+[38] H. Blasinski, T. Lian, and J. E. Farrell, “Underwater image systems simulation,” Rundbrief Der Gi-fachgruppe 5.10 Informationssystemarchitekturen, 2017.   
+[39] A. Duarte, F. Codevilla, J. D. O. Gaya, and S. S. C. Botelho, “A dataset to evaluate underwater image restoration methods,” in OCEANS, 2016, pp. 1–6.   
+[40] C. Li, S. Anwar, and F. Porikli, “Underwater scene prior inspired deep underwater image and video enhancement,” Pattern Recognit., vol. 98, 2020.   
+[41] M. Cordts, M. Omran, S. Ramos, T. Rehfeld, M. Enzweiler, R. Benenson, U. Franke, S. Roth, and B. Schiele, “The cityscapes dataset for semantic urban scene understanding,” in CVPR, 2016, pp. 3213–3223.   
+[42] J. Deng, W. Dong, R. Socher, L. Li, K. Li, and L. Fei-Fei, “Imagenet: A large-scale hierarchical image database,” in CVPR, 2009, pp. 248–255.   
+[43] H. Song, L. Chang, Z. Chen, and P. Ren, “Enhancement-registrationhomogenization (ERH): A comprehensive underwater visual reconstruction paradigm,” IEEE TPAMI, vol. 44, no. 10, pp. 6953–6967, 2022.   
+[44] C. Fu, R. Liu, X. Fan, P. Chen, H. Fu, W. Yuan, M. Zhu, and Z. Luo, “Rethinking general underwater object detection: Datasets, challenges, and solutions,” Neurocomputing, vol. 517, pp. 243–256, 2023.   
+[45] S. Wang, K. Ma, H. Yeganeh, Z. Wang, and W. Lin, “A patch-structure representation method for quality assessment of contrast changed images,” IEEE Signal Process. Lett., vol. 22, no. 12, pp. 2387–2390, 2015.   
+[46] K. Panetta, C. Gao, and S. Agaian, “Human-visual-system-inspired underwater image quality measures,” IEEE Journal of Oceanic Engineering, vol. 41, no. 3, pp. 541–551, 2016.   
+[47] A. Mittal, R. Soundararajan, and A. C. Bovik, “Making a ”completely blind” image quality analyzer,” IEEE Signal Process. Lett., vol. 20, no. 3, pp. 209–212, 2013.   
+[48] P. D. Jr., E. R. Nascimento, S. S. C. Botelho, and M. F. M. Campos, “Underwater depth estimation and image restoration based on single images,” IEEE Computer Graphics and Applications, vol. 36, no. 2, pp. 24–35, 2016.

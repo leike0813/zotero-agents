@@ -1,0 +1,58 @@
+[1] K. He, X. Zhang, S. Ren, and J. Sun, “Spatial pyramid pooling in deep convolutional networks for visual recognition,” in Proc. 13th Eur. Conf. Comput. Vis., 2014 pp. 346–361.   
+[2] R. Girshick, “Fast R-CNN,” in Proc. IEEE Int. Conf. Comput. Vis., 2015, pp. 1440–1448.   
+[3] K. Simonyan and A. Zisserman, “Very deep convolutional networks for large-scale image recognition,” in Proc. Int. Conf. Learn. Representations, 2015.   
+[4] J. R. Uijlings, K. E. van de Sande, T. Gevers, and A. W. Smeulders, “Selective search for object recognition,” Int. J. Comput. Vis., vol. 104, no. 2, pp. 154–171, Sep. 2013.   
+[5] R. Girshick, J. Donahue, T. Darrell, and J. Malik, “Rich feature hierarchies for accurate object detection and semantic segmentation,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2014, pp. 580–587.   
+[6] C. L. Zitnick and P. Dollar, “Edge boxes: Locating object proposals -from edges,” in Proc. 13th Eur. Conf. Comput. Vis., 2014, pp. 391– 405.   
+[7] J. Long, E. Shelhamer, and T. Darrell, “Fully convolutional networks for semantic segmentation,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognition, 2015, pp. 3431–3440.   
+[8] P. F. Felzenszwalb, R. B. Girshick, D. McAllester, and D. Ramanan, “Object detection with discriminatively trained part-based models,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 32, no. 9, pp. 1627– 1645, Sep. 2010.   
+[9] P. Sermanet, D. Eigen, X. Zhang, M. Mathieu, R. Fergus, and Y. LeCun, “Overfeat: Integrated recognition, localization and detection using convolutional networks,” in Proc. Int. Conf. Learn. Representations, 2014.   
+[10] S. Ren, K. He, R. Girshick, and J. Sun, “Faster R-CNN: Towards real-time object detection with region proposal networks,” in Proc. Neural Inf. Process. Syst., 2015, pp. 91–99.   
+[11] M. Everingham, L. Van Gool, C. K. I. Williams, J. Winn, and A. Zisserman, “The PASCAL Visual Object Classes Challenge Results,” Int. J. Comput. Vis., vol. 88, no. 2, pp. 303–338, Jun. 2007.   
+[12] T.-Y. Lin, M. Maire, S. Belongie, J. Hays, P. Perona, D. Ramanan, P. Dollar, and C. L. Zitnick, “Microsoft COCO: Common objects -in context,” in Proc. Eur. Conf. Comput. Vis., 2014, pp. 740–755.   
+[13] S. Song and J. Xiao, “Deep sliding shapes for amodal 3d object detection in RGB-D images,” arXiv:1511.02300, 2015.   
+[14] J. Zhu, X. Chen, and A. L. Yuille, “DeePM: A deep part-based model for object detection and semantic part localization,” arXiv:1511.07131, 2015.   
+[15] J. Dai, K. He, and J. Sun, “Instance-aware semantic segmentation via multi-task network cascades,” arXiv:1512.04412, 2015.   
+[16] J. Johnson, A. Karpathy, and L. Fei-Fei, “Densecap: Fully convolutional localization networks for dense captioning,” arXiv:1511.07571, 2015.   
+[17] D. Kislyuk, Y. Liu, D. Liu, E. Tzeng, and Y. Jing, “Human curation and convnets: Powering item-to-item recommendations on pinterest,” arXiv:1511.04003, 2015.   
+[18] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” arXiv:1512.03385, 2015.   
+[19] J. Hosang, R. Benenson, and B. Schiele, “How good are detection proposals, really?” presented at Proc. Brit. Mach. Vis. Conf., Nottingham, England, 2014.   
+[20] J. Hosang, R. Benenson, P. Dollar, and B. Schiele, “What makes for -effective detection proposals?” IEEE Trans. Pattern Anal. Mach. Intell., vol. 38, no. 4, pp. 814–830, Apr. 2015.   
+[21] N. Chavali, H. Agrawal, A. Mahendru, and D. Batra, “Object-proposal evaluation protocol is ’gameable’,” arXiv: 1505.05836, 2015.   
+[22] J. Carreira and C. Sminchisescu, “CPMC: Automatic object segmentation using constrained parametric min-cuts,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 34, no. 7, pp. 1312–1328, Jul. 2012.   
+[23] P. Arbelaez, J. Pont-Tuset, J. T. Barron, F. Marques, and J. Malik, -“Multiscale combinatorial grouping,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2014, pp. 328–335.   
+[24] B. Alexe, T. Deselaers, and V. Ferrari, “Measuring the objectness of image windows,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 34, no. 11, pp. 2189–2202, Nov. 2012.   
+[25] C. Szegedy, A. Toshev, and D. Erhan, “Deep neural networks for object detection,” in Proc. Neural Inform. Process. Syst., 2013, pp. 2553–2561.   
+[26] D. Erhan, C. Szegedy, A. Toshev, and D. Anguelov, “Scalable object detection using deep neural networks,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2014, pp. 2155–2162.   
+[27] C. Szegedy, S. Reed, D. Erhan, and D. Anguelov, “Scalable, highquality object detection,” arXiv:1412.1441 (v1), 2015.   
+[28] P. O. Pinheiro, R. Collobert, and P. Dollar, “Learning to segment object candidates,” in Proc. Adv. Neural Inform. Process. Syst., 2015, pp. 1981–1989.   
+[29] J. Dai, K. He, and J. Sun, “Convolutional feature masking for joint object and stuff segmentation,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2015, pp. 3992–4000.   
+[30] S. Ren, K. He, R. Girshick, X. Zhang, and J. Sun, “Object detection networks on convolutional feature maps,” arXiv:1504.06066, 2015.   
+[31] J. K. Chorowski, D. Bahdanau, D. Serdyuk, K. Cho, and Y. Bengio, “Attention-based models for speech recognition,” in Proc. Adv. Neural Inform. Process. Syst., 2015, pp. 577–585.   
+[32] M. D. Zeiler and R. Fergus, “Visualizing and understanding convolutional neural networks,” in Proc. 13th Eur. Conf. Comput. Vis., 2014, pp. 818–833.   
+[33] V. Nair and G. E. Hinton, “Rectified linear units improve restricted Boltzmann machines,” in Proc. 27th Int. Conf. Mach. Learn., 2010, pp. 807–814.   
+[34] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, D. Anguelov, D. Erhan, and A. Rabinovich, “Going deeper with convolutions,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognition, 2015, pp. 1–9.   
+[35] Y. LeCun, et al., “Backpropagation applied to handwritten zip code recognition,” Neural Comput., vol. 1, pp. 541–551, 1989.   
+[36] O. Russakovsky, et al., “ImageNet Large Scale Visual Recognition Challenge,” Int. J. Comput. Vis, vol. 115, pp. 211–252, 2015.   
+[37] A. Krizhevsky, I. Sutskever, and G. Hinton, “Imagenet classification with deep convolutional neural networks,” in Proc. Neural Inf. Process. Syst., 2012, pp. 1097–1105.   
+[38] Y. Jia, E. Shelhamer, J. Donahue, S. Karayev, J. Long, R. Girshick, S. Guadarrama, and T. Darrell, “Caffe: Convolutional architecture for fast feature embedding,” in Proc. 22nd ACM Int. Conf. Multimedia, 2014, pp. 675–678.   
+[39] K. Lenc and A. Vedaldi, “R-CNN minus $\mathrm { R } , { } ^ { \prime \prime }$ in Proc. Brit. Mach. Vis. Conf., 2015, pp. 5.1–5.12.   
+[40] D. Hoiem, Y. Chodpathumwan, and Q. Dai, “Diagnosing error in object detectors,” in Proc. 12th Eur. Conf. Comput. Vis., 2012, pp. 340–353.
+
+![](Images_HCZHAYPP/8d609ee28e3f7687b8db22a3f79bb09cbab86217a25e3fb91fc0e0734decda80.jpg)
+
+Shaoqing Ren received the BS degree from the University of Science and Technology of China in 2011. He received the PhD degree in a joint PhD program between University of Science and Technology of China and Microsoft Research Asia. His research interests are in computer vision, especially in detection and localization of general objects and faces.
+
+![](Images_HCZHAYPP/be1651cd363406bce30851d13ed2e5787962018d1bd6992b543a42591f99c3e0.jpg)
+
+Kaiming He received the BS degree from Tsinghua University in 2007, and the PhD degree from the Chinese University of Hong Kong in 2011. He is a lead researcher at Microsoft Research Asia. He joined Microsoft Research Asia in 2011. His current research interests are deep learning for visual recognition, including image classification, object detection, and semantic segmentation. He has won the Best Paper Award at CVPR 2009.
+
+![](Images_HCZHAYPP/868ee19a6a7ea7408e931e4aad10a8c50474684164d5cca51ddecc927848c692.jpg)
+
+Ross Girshick is a research scientist at Facebook AI Research (FAIR). He holds a PhD and MS in computer science, both from the University of Chicago where he studied under Pedro Felzenszwalb. Prior to joining FAIR, Ross was a Researcher at Microsoft Research and a Postdoctoral Fellow at the University of California, Berkeley where he collaborated with Jitendra Malik and Trevor Darrell. During the course of PASCAL VOC object detection challenge, Ross participated in multiple winning object detection entries and was awarded a “lifetime achievement” prize for his work on the widely used Deformable Part Models. More recently, his framework for Region-based Convolution Networks (R-CNN) has more than doubled the accuracy of previous state-of-the-art object detection methods.
+
+Jian Sun received the BS, MS, and PhD degrees from Xian Jiaotong University in 1997, 2000, and 2003. He is a principal researcher at Microsoft Research Asia. He joined Microsoft Research Asia in July, 2003. His current major research interests are computer vision, computational photography, and deep learning. He has won the Best Paper Award at CVPR 2009.
+
+![](Images_HCZHAYPP/a9d244685eecb6e8ef1d613e6608c47a79dc72213bd9e7682855e8535b61a3f2.jpg)
+
+$\triangleright$ For more information on this or any other computing topic, please visit our Digital Library at www.computer.org/publications/dlib.

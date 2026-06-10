@@ -1,0 +1,42 @@
+[1] X. Zhou, D. Wang, and P. Krahenb ¨ uhl. Objects as points. ¨ ArXiv, abs/1904.07850, 2019.   
+[2] T. Wang, X. Zhu, J. Pang, and D. Lin. FCOS3D: Fully convolutional one-stage monocular 3d object detection. arXiv:2104.10956, 2021.   
+[3] Z. Tian, C. Shen, H. Chen, and T. He. FCOS: Fully convolutional one-stage object detection. In Proc. Int. Conf. Computer Vision (ICCV), 2019.   
+[4] C. Godard, O. Mac Aodha, M. Firman, and G. J. Brostow. Digging into self-supervised monocular depth prediction. In ICCV, 2019.   
+[5] J. H. Lee, M.-K. Han, D. W. Ko, and I. H. Suh. From big to small: Multi-scale local planar guidance for monocular depth estimation. arXiv:1907.10326, 2019.   
+[6] V. Guizilini, R. Ambrus, S. Pillai, A. Raventos, and A. Gaidon. 3d packing for self-supervised monocular depth estimation. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2020.   
+[7] A. Simonelli, S. Rota Bulo, L. Porzi, P. Kontschieder, and E. Ricci. Demystifying pseudo-lidar \` for monocular 3d object detection, 12 2020.   
+[8] K. He, X. Zhang, S. Ren, and J. Sun. Deep residual learning for image recognition. In The IEEE Conference on Computer Vision and Pattern Recognition Recognition (CVPR), 2016.   
+[9] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems (NeurIPS), 2017.   
+[10] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and S. Zagoruyko. End-to-end object detection with transformers. In ECCV, 2020.   
+[11] Anonymous. Object dgcnn: 3d object detection using dynamic graphs. 2021.   
+[12] R. Girshick, J. Donahue, T. Darrell, and J. Malik. Rich feature hierarchies for accurate object detection and semantic segmentation. In The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2014.   
+[13] S. Ren, K. He, R. Girshick, and J. Sun. Faster R-CNN: Towards real-time object detection with region proposal networks. In Neural Information Processing Systems (NeurIPS), 2015.   
+[14] K. He, G. Gkioxari, P. Dollar, and R. Girshick. Mask R-CNN. In ´ The International Conference on Computer Vision (ICCV), 2017.   
+[15] W. Liu, D. Anguelov, D. Erhan, C. Szegedy, S. Reed, C.-Y. Fu, and A. C. Berg. SSD: Single shot multibox detector. In The European Conference on Computer Vision (ECCV), 2016.   
+[16] J. Redmon, S. K. Divvala, R. B. Girshick, and A. Farhadi. You only look once: Unified, realtime object detection. In The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016.   
+[17] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai. Deformable $\{ { \mathrm { d e t r } } \}$ : Deformable transformers for end-to-end object detection. In International Conference on Learning Representations, 2021. URL https://openreview.net/forum?id=gZ9hCDWe6ke.   
+[18] Z. Sun, S. Cao, Y. Yang, and K. Kitani. Rethinking transformer-based set prediction for object detection. ArXiv, abs/2011.10881, 2020.   
+[19] P. Sun, R. Zhang, Y. Jiang, T. Kong, C. Xu, W. Zhan, M. Tomizuka, L. Li, Z. Yuan, C. Wang, and P. Luo. SparseR-CNN: End-to-end object detection with learnable proposals. arXiv:2011.12450, 2020.   
+[20] P. Sun, Y. Jiang, E. Xie, Z. Yuan, C. Wang, and P. Luo. OneNet: Towards end-to-end one-stage object detection. arXiv: 2012.05780, 2020.   
+[21] X. Chen, K. Kundu, Z. Zhang, H. Ma, S. Fidler, and R. Urtasun. Monocular 3d object detection for autonomous driving. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 2147–2156, 2016.   
+[22] T. Roddick, A. Kendall, and R. Cipolla. Orthographic feature transform for monocular 3d object detection. arXiv:1811.08188, 2018.   
+[23] A. Mousavian, D. Anguelov, J. Flynn, and J. Kosecka. 3d bounding box estimation using deep learning and geometry. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pages 7074–7082, 2017.   
+[24] W. Kehl, F. Manhardt, F. Tombari, S. Ilic, and N. Navab. Ssd-6d: Making rgb-based 3d detection and 6d pose estimation great again. In Proceedings of the IEEE international conference on computer vision, pages 1521–1529, 2017.   
+[25] J. Ku, A. D. Pon, and S. L. Waslander. Monocular 3d object detection leveraging accurate proposals and shape reconstruction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 11867–11876, 2019.   
+[26] D. Beker, H. Kato, M. A. Morariu, T. Ando, T. Matsuoka, W. Kehl, and A. Gaidon. Monocular differentiable rendering for self-supervised 3d object detection. arXiv:2009.14524, 2020.   
+[27] I. Barabanau, A. Artemov, E. Burnaev, and V. Murashkin. Monocular 3d object detection via geometric reasoning on keypoints. arXiv:1905.05618, 2019.   
+[28] Z. Liu, Z. Wu, and R. Toth. Smoke: single-stage monocular 3d object detection via keypoint ´ estimation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops, pages 996–997, 2020.   
+[29] T.-Y. Lin, P. Dollar, R. Girshick, K. He, B. Hariharan, and S. Belongie. Feature pyramid net- ´ works for object detection. In The IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2017.   
+[30] R. Stewart, M. Andriluka, and A. Y. Ng. End-to-end people detection in crowded scenes. In 2016 IEEE Conference on Computer Vision and Pattern Recognition CVPR, pages 2325–2333. IEEE Computer Society, 2016. doi:10.1109/CVPR.2016.255. URL https://doi.org/10.1109/CVPR.2016.255.   
+[31] T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Dollar. Focal Loss for Dense Object Detection. ´ In The International Conference on Computer Vision (ICCV), 2017.   
+[32] H. W. Kuhn and B. Yaw. The hungarian method for the assignment problem. Naval Res. Logist. Quart, pages 83–97, 1955.   
+[33] H. Caesar, V. Bankiti, A. H. Lang, S. Vora, V. E. Liong, Q. Xu, A. Krishnan, Y. Pan, G. Baldan, and O. Beijbom. nuscenes: A multimodal dataset for autonomous driving. arXiv:1903.11027, 2019.   
+[34] J. Dai, H. Qi, Y. Xiong, Y. Li, G. Zhang, H. Hu, and Y. Wei. Deformable convolutional networks. In The International Conference on Computer Vision (ICCV), 2017.   
+[35] L. J. Ba, J. R. Kiros, and G. E. Hinton. Layer normalization. CoRR, 2016.   
+[36] I. Loshchilov and F. Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations, 2019. URL https://openreview.net/forum?id=Bkg6RiCqY7.   
+[37] D. Park, R. Ambrus, V. Guizilini, J. Li, and A. Gaidon. Is pseudo-lidar needed for monocular 3d object detection? In IEEE/CVF International Conference on Computer Vision (ICCV), 2021.   
+[38] F. Yu, D. Wang, E. Shelhamer, and T. Darrell. Deep layer aggregation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2018.   
+[39] B. Zhu, Z. Jiang, X. Zhou, Z. Li, and G. Yu. Class-balanced Grouping and Sampling for Point Cloud 3D Object Detection. arXiv e-prints, art. arXiv:1908.09492, Aug 2019.   
+[40] T. Wang, X. ZHU, J. Pang, and D. Lin. Probabilistic and geometric depth: Detecting objects in perspective. In 5th Annual Conference on Robot Learning, 2021. URL https: //openreview.net/forum?id=bEito8UUUmf.   
+[41] T. Yin, X. Zhou, and P. Krahenb ¨ uhl. Center-based 3d object detection and tracking. ¨ CVPR, 2021.   
+[42] Y. Wang, W.-L. Chao, D. Garg, B. Hariharan, M. Campbell, and K. Weinberger. Pseudo-lidar from visual depth estimation: Bridging the gap in 3d object detection for autonomous driving. In CVPR, 2019.

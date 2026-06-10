@@ -215,6 +215,17 @@ export type ProviderExecutionDeferredResult = {
   responseJson?: unknown;
 };
 
+export type ProviderExecutionTerminalErrorResult = {
+  status: "failed" | "canceled";
+  requestId: string;
+  fetchType: "bundle" | "result";
+  error?: string;
+  bundleBytes?: undefined;
+  resultJson?: unknown;
+  responseJson?: unknown;
+};
+
 export type ProviderExecutionResult =
   | ProviderExecutionSucceededResult
-  | ProviderExecutionDeferredResult;
+  | ProviderExecutionDeferredResult
+  | ProviderExecutionTerminalErrorResult;

@@ -1,5 +1,6 @@
 /* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
+import fs from "node:fs/promises";
 import { config } from "../../package.json";
 import {
   ACP_OPENCODE_BACKEND_ID,
@@ -60,6 +61,8 @@ import {
 import { configureZoteroMcpServerForTests } from "../../src/modules/zoteroMcpServer";
 import type {
   AcpPermissionOption,
+  AcpSessionConfigCategory,
+  AcpSessionConfigOption,
   RequestPermissionOutcome,
   SessionNotification,
 } from "../../src/modules/acpProtocol";
@@ -75,6 +78,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly sessionIds: string[] = [];
   readonly modelSelections: string[] = [];
   readonly modeSelections: string[] = [];
+  readonly configOptionSelections: string[] = [];
   readonly loadSessionIds: string[] = [];
   readonly resumeSessionIds: string[] = [];
   readonly authenticateCalls: string[] = [];
@@ -117,6 +121,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
       },
     ],
   };
+  sessionConfigOptions: AcpSessionConfigOption[] | null = null;
   omitSessionRuntimeOptions = false;
   emptySessionRuntimeOptions = false;
   connected = false;
@@ -233,6 +238,10 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
           }
         : this.omitSessionRuntimeOptions
           ? {}
+          : this.sessionConfigOptions
+            ? {
+                configOptions: this.sessionConfigOptions,
+              }
           : {
               modes: {
                 currentModeId: "plan",
@@ -490,14 +499,13 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
         });
       }
     } else {
-      const visibleEcho = args.message.split("\n[Zotero Host Bridge CLI]")[0];
       await this.emitUpdate({
         sessionId: args.sessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
           content: {
             type: "text",
-            text: `Echo: ${visibleEcho}`,
+            text: `Echo: ${args.message}`,
           },
         },
       });
@@ -522,6 +530,24 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   async setModel(args: { sessionId: string; modelId: string }) {
     this.modelSelections.push(`${args.sessionId}:${args.modelId}`);
+  }
+
+  async setConfigOption(args: {
+    sessionId: string;
+    category: AcpSessionConfigCategory;
+    value: string;
+  }) {
+    const option = this.sessionConfigOptions?.find(
+      (entry) => entry.category === args.category,
+    );
+    if (!option) {
+      return false;
+    }
+    option.currentValue = args.value;
+    this.configOptionSelections.push(
+      `${args.sessionId}:${args.category}:${args.value}`,
+    );
+    return true;
   }
 
   async authenticate(args: { methodId: string }) {
@@ -751,6 +777,174 @@ describe("acp session manager", function () {
       ["low", "high"],
     );
     assert.equal(snapshot.currentModel?.id, "opus@high");
+  });
+
+  it("projects ACP config options into chat runtime selectors and updates them from notifications", async function () {
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      lastFactoryArgs = args;
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.sessionConfigOptions = [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "ask",
+          options: [
+            { value: "ask", name: "Ask" },
+            { value: "build", name: "Build" },
+          ],
+        },
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "openai/gpt-5",
+          options: [
+            { value: "openai/gpt-5", name: "GPT-5" },
+            { value: "anthropic/claude", name: "Claude" },
+          ],
+        },
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: "low",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "high", name: "High" },
+          ],
+        },
+      ];
+      return lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await connectAcpConversation();
+    let snapshot = getAcpConversationSnapshot();
+
+    assert.deepEqual(snapshot.modeOptions.map((entry) => entry.id), [
+      "ask",
+      "build",
+    ]);
+    assert.equal(snapshot.currentMode?.id, "ask");
+    assert.deepEqual(snapshot.displayModelOptions.map((entry) => entry.id), [
+      "openai/gpt-5",
+      "anthropic/claude",
+    ]);
+    assert.equal(snapshot.currentDisplayModel?.id, "openai/gpt-5");
+    assert.deepEqual(snapshot.reasoningEffortOptions.map((entry) => entry.id), [
+      "low",
+      "high",
+    ]);
+    assert.equal(snapshot.currentReasoningEffort?.id, "low");
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: snapshot.sessionId,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "build",
+            options: [
+              { value: "ask", name: "Ask" },
+              { value: "build", name: "Build" },
+            ],
+          },
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "anthropic/claude",
+            options: [
+              { value: "openai/gpt-5", name: "GPT-5" },
+              { value: "anthropic/claude", name: "Claude" },
+            ],
+          },
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            type: "select",
+            currentValue: "high",
+            options: [
+              { value: "low", name: "Low" },
+              { value: "high", name: "High" },
+            ],
+          },
+        ],
+      },
+    });
+    snapshot = getAcpConversationSnapshot();
+
+    assert.equal(snapshot.lastLifecycleEvent, "config_option_update");
+    assert.equal(snapshot.currentMode?.id, "build");
+    assert.equal(snapshot.currentDisplayModel?.id, "anthropic/claude");
+    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+  });
+
+  it("uses ACP config option controls before legacy mode and model setters", async function () {
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      lastFactoryArgs = args;
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.sessionConfigOptions = [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "ask",
+          options: [
+            { value: "ask", name: "Ask" },
+            { value: "build", name: "Build" },
+          ],
+        },
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "openai/gpt-5",
+          options: [
+            { value: "openai/gpt-5", name: "GPT-5" },
+            { value: "anthropic/claude", name: "Claude" },
+          ],
+        },
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: "low",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "high", name: "High" },
+          ],
+        },
+      ];
+      return lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await connectAcpConversation();
+    await setAcpConversationMode({ modeId: "build" });
+    await setAcpConversationModel({ modelId: "anthropic/claude" });
+    await setAcpConversationReasoningEffort({ effortId: "high" });
+
+    assert.deepEqual(lastAdapter?.configOptionSelections, [
+      "session-1:mode:build",
+      "session-1:model:anthropic/claude",
+      "session-1:thought_level:high",
+    ]);
+    assert.deepEqual(lastAdapter?.modeSelections, []);
+    assert.deepEqual(lastAdapter?.modelSelections, []);
   });
 
   it("connects and disconnects the active ACP conversation explicitly", async function () {
@@ -1258,8 +1452,20 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
     assert.equal(lastAdapter?.prompts.length, 1);
     assert.include(lastAdapter?.prompts[0] || "", "Hello ACP");
-    assert.include(lastAdapter?.prompts[0] || "", "[Zotero Host Bridge CLI]");
-    assert.include(lastAdapter?.prompts[0] || "", ".zotero-bridge/README.md");
+    assert.notInclude(
+      lastAdapter?.prompts[0] || "",
+      "[Zotero Host Bridge CLI]",
+    );
+    const chatWrapperSkill = await fs.readFile(
+      `${expectedStoragePaths.agentWorkspaceDir}/.agents/skills/zotero-bridge-cli/SKILL.md`,
+      "utf8",
+    );
+    assert.include(chatWrapperSkill, "Zotero Bridge CLI");
+    assert.isOk(
+      snapshot.diagnostics.find(
+        (entry) => entry.kind === "host_bridge_cli_wrapper_skill_ready",
+      ),
+    );
     assert.isString(lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE);
     assert.include(
       lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
@@ -1364,12 +1570,12 @@ describe("acp session manager", function () {
       "Echo: hello two",
     );
     assert.include(adapters.get("acp-one")?.prompts[0] || "", "hello one");
-    assert.include(
+    assert.notInclude(
       adapters.get("acp-one")?.prompts[0] || "",
       "[Zotero Host Bridge CLI]",
     );
     assert.include(adapters.get("acp-two")?.prompts[0] || "", "hello two");
-    assert.include(
+    assert.notInclude(
       adapters.get("acp-two")?.prompts[0] || "",
       "[Zotero Host Bridge CLI]",
     );

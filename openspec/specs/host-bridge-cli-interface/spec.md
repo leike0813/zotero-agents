@@ -4,33 +4,38 @@
 TBD - created by archiving change introduce-host-bridge-cli-interface. Update Purpose after archive.
 ## Requirements
 ### Requirement: Rust CLI calls the Host Bridge
+
+
 The system SHALL provide a Rust `zotero-bridge` CLI contract that communicates with the plugin Host Bridge over HTTP JSON using UTF-8 request bodies.
 
 #### Scenario: CLI sends non-ASCII JSON without corruption
 - **WHEN** the CLI sends JSON input containing non-ASCII text
 - **THEN** the Host Bridge SHALL decode the request body as UTF-8 bytes selected by `Content-Length`
 - **AND** the capability handler SHALL receive the original text without mojibake.
-
 ### Requirement: Rust CLI exposes semantic command groups
+
 The CLI SHALL provide semantic commands for common Zotero host operations rather
 than forcing agents to use generic capability calls.
 
-#### Scenario: Agent discovers command usage
-- **WHEN** a user or agent runs `zotero-bridge --help` or any subcommand
-  `--help`
-- **THEN** the CLI SHALL return detailed help for that command level, including
-  purpose, usage, options, input fields, output shape, examples, related
-  commands, and stable error categories.
+#### Scenario: Agent uses domain Host Bridge command families
+- **WHEN** a user or agent needs topic, graph, artifact, resolver, reference,
+  schema, concept, index, or aggregate insight data
+- **THEN** the CLI SHALL expose domain command families such as `topics`,
+  `citation-graph`, `paper-artifacts`, `resolvers`, `reference-index`,
+  `schemas`, `concepts`, `library-index`, and `insights`
+- **AND** the CLI SHALL NOT expose the old public `synthesis` semantic command
+  family.
 
-#### Scenario: Agent uses item and note commands
-- **WHEN** a user runs item or note commands such as `item search`, `item get`,
-  `item notes`, `item attachments`, `note get`, `note payloads`, or
-  `note payload`
-- **THEN** the CLI SHALL map the semantic command to the appropriate Host Bridge
-  capability or endpoint
-- **AND** the caller MUST NOT need to know the internal broker object path.
-
+#### Scenario: Agent ranks graph-derived insights
+- **WHEN** a user or agent runs `citation-graph rank-external-references`,
+  `citation-graph rank-library-papers`, or `insights attention-queue`
+- **THEN** the CLI SHALL call the corresponding read-only Host Bridge insight
+  capability
+- **AND** the command SHALL NOT trigger graph rebuild, artifact generation, or
+  Zotero mutations.
 ### Requirement: Rust CLI exposes workflow and file commands
+
+
 The system SHALL define CLI commands for workflow listing, workflow submission,
 task listing, and registered file downloads.
 
@@ -49,8 +54,9 @@ task listing, and registered file downloads.
   bridge authorizes the file handle.
 - **AND** the command SHALL fail by default if the output path already exists
 - **AND** overwrite SHALL require an explicit `--force` option.
-
 ### Requirement: Rust CLI reports structured failures
+
+
 The CLI SHALL map bridge and transport failures to stable exit behavior and
 machine-readable error output.
 
@@ -85,28 +91,34 @@ machine-readable error output.
 - **THEN** the CLI SHALL exit non-zero
 - **AND** it SHALL report an authorization error without printing the configured
   token.
-
 ### Requirement: ACP agent runs receive a Host Bridge CLI injection bundle
+
+
+
 The system SHALL make `zotero-bridge` available to ACP agent runs without
 requiring user-level CLI installation.
 
 #### Scenario: ACP run is materialized
+
 - **WHEN** the plugin prepares an ACP agent run workspace
-- **THEN** it SHALL write `.zotero-bridge/profile.json` and
-  `.zotero-bridge/README.md`
+- **THEN** it SHALL write `.zotero-bridge/profile.json`, a short
+  `.zotero-bridge/README.md`, and CLI shims when the CLI binary is available
 - **AND** it SHALL inject `PATH`, `ZOTERO_BRIDGE_PROFILE`, and
   `ZOTERO_BRIDGE_TOKEN` into the agent runtime environment
 - **AND** the profile SHALL reference the token through an environment-variable
-  reference rather than storing the token in clear text by default.
+  reference rather than storing the token in clear text by default
+- **AND** detailed Host Bridge command guidance SHALL come from the built-in
+  `zotero-bridge-cli` wrapper skill, not from ACP prompt injection.
 
 #### Scenario: ACP run prompt is generated
-- **WHEN** the plugin generates agent prompt guidance
-- **THEN** it SHALL include concise `zotero-bridge` usage instructions and
-  direct the agent to subcommand `--help` and `.zotero-bridge/README.md`
-- **AND** the prompt MUST NOT include the bearer token or absolute CLI binary
-  path.
 
+- **WHEN** the plugin generates the ACP run prompt or engine instruction file
+- **THEN** it SHALL NOT append Host Bridge CLI command guidance directly
+- **AND** the run-local skill roots or shared catalog SHALL expose the
+  `zotero-bridge-cli` wrapper skill when Zotero host access is enabled.
 ### Requirement: Host Bridge CLI approvals route by ACP scope
+
+
 
 The system SHALL route write-capable Host Bridge CLI approval requests to the UI
 that owns the scoped ACP context.
@@ -141,8 +153,9 @@ that owns the scoped ACP context.
 - **THEN** Zotero SHALL present the approval request in the global Zotero
   approval UI
 - **AND** the approval decision SHALL report `permission.channel` as `global`.
-
 ### Requirement: CLI binaries are bundled and installable
+
+
 The plugin SHALL carry platform `zotero-bridge` binaries for agent use and
 offer a user-facing installation action for terminal use.
 
@@ -165,28 +178,31 @@ offer a user-facing installation action for terminal use.
 - **WHEN** the CLI detects that the Host Bridge does not support the expected
   `host-bridge.v1` protocol
 - **THEN** it SHALL exit non-zero and report `incompatible_bridge_protocol`.
-
 ### Requirement: Remote Host Bridge profiles use stable master tokens
+
+
 Remote CLI documentation and generated profile examples MUST support a profile containing a LAN endpoint and a master bearer token.
 
 #### Scenario: User copies remote profile
 - **WHEN** LAN access is configured with a fixed port and master token
 - **THEN** the copied profile contains `endpoint` and `auth.token`
 - **AND** the endpoint uses the advertised host or `<zotero-host-ip>` placeholder
-
 ### Requirement: File download command works with remote profiles
+
+
 The CLI file download command MUST continue to accept only broker-issued file ids and MUST work when the configured endpoint is remote.
 
 #### Scenario: Remote endpoint configured
 - **WHEN** a profile points to `http://<host>:<port>/bridge/v1`
 - **THEN** `file download <fileId>` calls `GET /files/{fileId}` with bearer auth
 - **AND** it does not accept local filesystem paths as file ids
-
 ### Requirement: Host Bridge CLI documentation SHALL stay aligned with broker capabilities
 
+
+
 The repository SHALL provide a local check that guards Host Bridge CLI docs,
-runtime prompt docs, wrapper skill guidance, MCP tool wiring, and CLI semantic
-mapping against obvious capability drift.
+wrapper skill guidance, MCP tool wiring, and CLI semantic mapping against
+obvious capability drift.
 
 #### Scenario: Doc-sync check
 
@@ -194,4 +210,15 @@ mapping against obvious capability drift.
 - **THEN** it SHALL read Host Bridge capability names from the capability
   registry source
 - **AND** it SHALL fail when core capability names are missing from the CLI docs,
-  injected README, wrapper skill, CLI source, or MCP mirror wiring
+  wrapper skill reference, CLI source, or MCP mirror wiring
+- **AND** it SHALL fail when removed Host Bridge ACP prompt templates or the old
+  wrapper skill asset path still exist.
+
+#### Scenario: Generated surface sections are checked
+
+- **WHEN** the Host Bridge surface render check runs in `--check` mode
+- **THEN** it SHALL derive a catalog from the capability registry and Rust CLI
+  mappings
+- **AND** it SHALL fail when generated sections in CLI docs, the built-in
+  wrapper skill, the wrapper skill reference, or topic-synthesis fragments are
+  stale.

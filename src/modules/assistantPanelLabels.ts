@@ -10,16 +10,25 @@ export function buildAssistantPanelLabels() {
     actions: {
       send: l("assistant-panel-action-send", "Send"),
       cancel: l("assistant-panel-action-cancel", "Cancel"),
-      cancelRun: l("assistant-panel-action-cancel-run", "Cancel Run"),
+      cancelRun: l("assistant-panel-action-cancel-run", "Cancel Task"),
       archive: l("assistant-panel-action-archive", "Archive"),
       close: l("assistant-panel-action-close", "Close"),
       details: l("assistant-panel-action-details", "Details"),
       runs: l("assistant-panel-action-runs", "Runs"),
       sessions: l("assistant-panel-action-sessions", "Sessions"),
-      manageBackends: l("assistant-panel-action-manage-backends", "Manage Backends"),
+      manageBackends: l(
+        "assistant-panel-action-manage-backends",
+        "Manage Backends",
+      ),
       copyId: l("assistant-panel-action-copy-id", "Copy ID"),
-      copyDiagnostics: l("assistant-panel-action-copy-diagnostics", "Copy Diagnostics"),
-      openWorkspace: l("assistant-panel-action-open-workspace", "Open Workspace"),
+      copyDiagnostics: l(
+        "assistant-panel-action-copy-diagnostics",
+        "Copy Diagnostics",
+      ),
+      openWorkspace: l(
+        "assistant-panel-action-open-workspace",
+        "Open Workspace",
+      ),
       connect: l("assistant-panel-action-connect", "Connect"),
       disconnect: l("assistant-panel-action-disconnect", "Disconnect"),
       authenticate: l("assistant-panel-action-authenticate", "Authenticate"),
@@ -29,8 +38,14 @@ export function buildAssistantPanelLabels() {
       target: l("assistant-panel-field-target", "Target"),
       agent: l("assistant-panel-field-agent", "Agent"),
       session: l("assistant-panel-field-session", "Session"),
-      remoteSession: l("assistant-panel-field-remote-session", "Remote session"),
-      remoteRestore: l("assistant-panel-field-remote-restore", "Remote restore"),
+      remoteSession: l(
+        "assistant-panel-field-remote-session",
+        "Remote session",
+      ),
+      remoteRestore: l(
+        "assistant-panel-field-remote-restore",
+        "Remote restore",
+      ),
       stopReason: l("assistant-panel-field-stop-reason", "Stop reason"),
       workspace: l("assistant-panel-field-workspace", "Workspace"),
       hostContext: l("assistant-panel-field-host-context", "Host context"),
@@ -44,10 +59,19 @@ export function buildAssistantPanelLabels() {
       requestId: l("assistant-panel-field-request-id", "Request ID"),
       taskKey: l("assistant-panel-field-task-key", "Task key"),
       runtimeState: l("assistant-panel-field-runtime-state", "Runtime state"),
-      auditArtifact: l("assistant-panel-field-audit-artifact", "Audit artifact"),
-      resultArtifact: l("assistant-panel-field-result-artifact", "Result artifact"),
+      auditArtifact: l(
+        "assistant-panel-field-audit-artifact",
+        "Audit artifact",
+      ),
+      resultArtifact: l(
+        "assistant-panel-field-result-artifact",
+        "Result artifact",
+      ),
       validation: l("assistant-panel-field-validation", "Validation"),
-      runtimeDependencies: l("assistant-panel-field-runtime-dependencies", "Runtime Dependencies"),
+      runtimeDependencies: l(
+        "assistant-panel-field-runtime-dependencies",
+        "Runtime Dependencies",
+      ),
       repairRounds: l("assistant-panel-field-repair-rounds", "Repair rounds"),
       errors: l("assistant-panel-field-errors", "Errors"),
       conversation: l("assistant-panel-field-conversation", "Conversation"),
@@ -59,7 +83,10 @@ export function buildAssistantPanelLabels() {
       latest: l("assistant-panel-field-latest", "Latest"),
       count: l("assistant-panel-field-count", "Count"),
       messages: l("assistant-panel-field-messages", "Messages"),
-      latestTimestamp: l("assistant-panel-field-latest-timestamp", "Latest timestamp"),
+      latestTimestamp: l(
+        "assistant-panel-field-latest-timestamp",
+        "Latest timestamp",
+      ),
       latestKind: l("assistant-panel-field-latest-kind", "Latest kind"),
       commandLine: l("assistant-panel-field-command-line", "Command line"),
       stderr: l("assistant-panel-field-stderr", "stderr"),
@@ -80,47 +107,119 @@ export function buildAssistantPanelLabels() {
       runPaths: l("assistant-panel-details-section-run-paths", "Run paths"),
       runner: l("assistant-panel-details-section-runner", "Runner"),
       validation: l("assistant-panel-details-section-validation", "Validation"),
-      runtimeDependencies: l("assistant-panel-details-section-runtime-dependencies", "Runtime Dependencies"),
-      outputRevisions: l("assistant-panel-details-section-output-revisions", "Output Revisions"),
-      runtimeLogs: l("assistant-panel-details-section-runtime-logs", "Runtime Logs"),
-      resultJson: l("assistant-panel-details-section-result-json", "Result JSON"),
+      runtimeDependencies: l(
+        "assistant-panel-details-section-runtime-dependencies",
+        "Runtime Dependencies",
+      ),
+      outputRevisions: l(
+        "assistant-panel-details-section-output-revisions",
+        "Output Revisions",
+      ),
+      runtimeLogs: l(
+        "assistant-panel-details-section-runtime-logs",
+        "Runtime Logs",
+      ),
+      resultJson: l(
+        "assistant-panel-details-section-result-json",
+        "Result JSON",
+      ),
       run: l("assistant-panel-details-section-run", "Run"),
       pending: l("assistant-panel-details-section-pending", "Pending"),
-      conversationSummary: l("assistant-panel-details-section-conversation-summary", "Conversation Summary"),
-      revisionSummary: l("assistant-panel-details-section-revision-summary", "Revision Summary"),
-      diagnostics: l("assistant-panel-details-section-diagnostics", "Diagnostics"),
-      recentDiagnostics: l("assistant-panel-details-summary-recent-diagnostics", "Recent runtime diagnostics"),
-      revisionCandidates: l("assistant-panel-details-summary-revision-candidates", "revision candidates"),
-      recentLogs: l("assistant-panel-details-summary-recent-logs", "Recent runtime log entries"),
-      validatedOutput: l("assistant-panel-details-summary-validated-output", "Validated workflow output"),
-      compactRevision: l("assistant-panel-details-summary-compact-revision", "Compact revision metadata"),
+      conversationSummary: l(
+        "assistant-panel-details-section-conversation-summary",
+        "Conversation Summary",
+      ),
+      revisionSummary: l(
+        "assistant-panel-details-section-revision-summary",
+        "Revision Summary",
+      ),
+      diagnostics: l(
+        "assistant-panel-details-section-diagnostics",
+        "Diagnostics",
+      ),
+      recentDiagnostics: l(
+        "assistant-panel-details-summary-recent-diagnostics",
+        "Recent runtime diagnostics",
+      ),
+      revisionCandidates: l(
+        "assistant-panel-details-summary-revision-candidates",
+        "revision candidates",
+      ),
+      recentLogs: l(
+        "assistant-panel-details-summary-recent-logs",
+        "Recent runtime log entries",
+      ),
+      validatedOutput: l(
+        "assistant-panel-details-summary-validated-output",
+        "Validated workflow output",
+      ),
+      compactRevision: l(
+        "assistant-panel-details-summary-compact-revision",
+        "Compact revision metadata",
+      ),
     },
     reply: {
-      placeholderAcpSkill: l("assistant-panel-reply-placeholder-acp-skill", "Reply to this ACP skill conversation..."),
-      placeholderSkillRunner: l("assistant-panel-reply-placeholder-skillrunner", "Reply to the pending SkillRunner interaction..."),
-      shortcut: l("assistant-panel-reply-shortcut", "Ctrl+Enter / Cmd+Enter to send"),
+      placeholderAcpSkill: l(
+        "assistant-panel-reply-placeholder-acp-skill",
+        "Reply to this ACP skill conversation...",
+      ),
+      placeholderSkillRunner: l(
+        "assistant-panel-reply-placeholder-skillrunner",
+        "Reply to the pending SkillRunner interaction...",
+      ),
+      shortcut: l(
+        "assistant-panel-reply-shortcut",
+        "Ctrl+Enter / Cmd+Enter to send",
+      ),
     },
     permission: {
-      zoteroWriteApproval: l("assistant-panel-permission-zotero-write-approval", "Zotero write approval"),
-      acpToolApproval: l("assistant-panel-permission-acp-tool-approval", "ACP tool approval"),
-      acpBackendApproval: l("assistant-panel-permission-acp-backend-approval", "ACP backend requests approval."),
-      acpSkillApproval: l("assistant-panel-permission-acp-skill-approval", "ACP skill run requests approval."),
-      viewFullRequest: l("assistant-panel-permission-view-full-request", "View details"),
-      waitingReply: l("assistant-panel-permission-waiting-reply", "Agent is waiting for your reply."),
+      zoteroWriteApproval: l(
+        "assistant-panel-permission-zotero-write-approval",
+        "Zotero write approval",
+      ),
+      acpToolApproval: l(
+        "assistant-panel-permission-acp-tool-approval",
+        "ACP tool approval",
+      ),
+      acpBackendApproval: l(
+        "assistant-panel-permission-acp-backend-approval",
+        "ACP backend requests approval.",
+      ),
+      acpSkillApproval: l(
+        "assistant-panel-permission-acp-skill-approval",
+        "ACP skill run requests approval.",
+      ),
+      viewFullRequest: l(
+        "assistant-panel-permission-view-full-request",
+        "View details",
+      ),
+      waitingReply: l(
+        "assistant-panel-permission-waiting-reply",
+        "Agent is waiting for your reply.",
+      ),
     },
     transcript: {
       empty: l("assistant-panel-transcript-empty", "No messages yet."),
       thinking: l("assistant-panel-transcript-thinking", "Thinking"),
       status: l("assistant-panel-transcript-status", "Status"),
       tool: l("assistant-panel-transcript-tool", "Tool"),
-      toolActivity: l("assistant-panel-transcript-tool-activity", "Tool activity"),
-      workspaceActivity: l("assistant-panel-transcript-workspace-activity", "Workspace update"),
+      toolActivity: l(
+        "assistant-panel-transcript-tool-activity",
+        "Tool activity",
+      ),
+      workspaceActivity: l(
+        "assistant-panel-transcript-workspace-activity",
+        "Workspace update",
+      ),
       tools: l("assistant-panel-transcript-tools", "tools"),
       failed: l("assistant-panel-transcript-failed", "failed"),
       running: l("assistant-panel-transcript-running", "running"),
       pending: l("assistant-panel-transcript-pending", "pending"),
       revised: l("assistant-panel-transcript-revised", "Revised"),
-      latestRevision: l("assistant-panel-transcript-latest-revision", "Latest output revision"),
+      latestRevision: l(
+        "assistant-panel-transcript-latest-revision",
+        "Latest output revision",
+      ),
     },
     usage: {
       unavailable: l("assistant-panel-usage-unavailable", "N/A"),
@@ -130,7 +229,10 @@ export function buildAssistantPanelLabels() {
     status: {
       running: l("assistant-panel-status-running", "Running"),
       completed: l("assistant-panel-status-completed", "Completed"),
-      backendUnavailable: l("assistant-panel-status-backend-unavailable", "Backend unavailable"),
+      backendUnavailable: l(
+        "assistant-panel-status-backend-unavailable",
+        "Backend unavailable",
+      ),
     },
   };
 }

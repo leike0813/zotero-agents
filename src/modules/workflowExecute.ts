@@ -79,7 +79,9 @@ export async function executeWorkflowFromCurrentSelection(args: {
       if (String(backend.type || "").trim() !== "skillrunner") {
         return true;
       }
-      return !isSkillRunnerBackendReconcileFlagged(String(backend.id || "").trim());
+      return !isSkillRunnerBackendReconcileFlagged(
+        String(backend.id || "").trim(),
+      );
     });
     const configurable = await isWorkflowConfigurable({
       workflow: args.workflow,
@@ -113,7 +115,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
                 }),
           },
         });
-        if (!canceled) {
+        if (!canceled && showWorkflowNotifications) {
           alertWindow(
             args.win,
             buildWorkflowCannotRunMessage({
@@ -248,7 +250,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
           request,
           backend: preparation.prepared.executionContext.backend,
           providerId: preparation.prepared.executionContext.providerId,
-          providerOptions: preparation.prepared.executionContext.providerOptions,
+          providerOptions:
+            preparation.prepared.executionContext.providerOptions,
           job: queueJob,
         });
       }

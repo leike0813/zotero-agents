@@ -14,7 +14,10 @@ import {
 import { createUnavailableBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
-import type { ProviderProgressEvent } from "../providers/types";
+import type {
+  ProviderOrchestrationContext,
+  ProviderProgressEvent,
+} from "../providers/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   type PluginSkillRegistrySnapshot,
@@ -86,12 +89,22 @@ import {
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
-import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
+import {
+  listWorkflowTasks,
+  updateWorkflowTaskStateByRequest,
+} from "./taskRuntime";
 import {
   listRuntimeChildren,
   readRuntimeTextFile,
   statRuntimePath,
 } from "./runtimePersistence";
+import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
+import {
+  getSequenceRunStateByStepRequest,
+  getSequenceStepIndexByRequestId,
+  markSequenceRunTerminal,
+  recordSequenceStepSucceeded,
+} from "./workflowExecution/sequenceStateStore";
 
 export type AcpSkillRunnerExecutionSnapshot = {
   requestId: string;
@@ -299,7 +312,6 @@ function resolveJobId(request: AcpSkillRunRequestV1) {
 async function buildRunPrompt(args: {
   context: AcpSkillRunnerRunContext;
   repairPrompt?: string;
-  hostBridgeCliPromptSnippet?: string;
 }) {
   if (args.repairPrompt) {
     return args.repairPrompt;
@@ -321,8 +333,7 @@ async function buildRunPrompt(args: {
     inputContext: context.inputContext,
     parameterContext: context.parameterContext,
   });
-  const snippet = normalizeString(args.hostBridgeCliPromptSnippet);
-  return snippet ? `${basePrompt}\n${snippet}` : basePrompt;
+  return basePrompt;
 }
 
 function resolveExecutionMode(
@@ -735,6 +746,13 @@ async function runPrompt(args: {
         modelId: args.runtimeOptions.rawModelId,
       });
     }
+    if (args.runtimeOptions?.reasoningEffort) {
+      await args.adapter.setConfigOption?.({
+        sessionId,
+        category: "thought_level",
+        value: args.runtimeOptions.reasoningEffort,
+      });
+    }
   } else {
     upsertAcpSkillRun({
       requestId: args.requestId,
@@ -796,19 +814,41 @@ async function resolveWorkflowById(workflowId: string) {
 function resolveRecoveredWorkflowId(
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
 ) {
-  const request = record.requestPayload as
-    | {
-        skill_id?: unknown;
-        parameter?: { workflowId?: unknown } | null;
-      }
-    | null
-    | undefined;
-  return (
-    normalizeString(record.workflowId) ||
-    normalizeString(request?.parameter?.workflowId) ||
-    normalizeString(record.skillId) ||
-    normalizeString(request?.skill_id)
+  return normalizeString(record.workflowId);
+}
+
+function resolveRecoveredWorkflowIdFromTask(
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
+) {
+  const requestId = normalizeString(record.requestId);
+  if (!requestId) {
+    return "";
+  }
+  const task = listWorkflowTasks().find(
+    (entry) => normalizeString(entry.requestId) === requestId,
   );
+  return normalizeString(task?.workflowId);
+}
+
+async function resolveRecoveredWorkflow(
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
+) {
+  const candidates = [
+    resolveRecoveredWorkflowId(record),
+    resolveRecoveredWorkflowIdFromTask(record),
+  ].filter(Boolean);
+  const attempted: string[] = [];
+  for (const candidate of candidates) {
+    if (attempted.includes(candidate)) {
+      continue;
+    }
+    attempted.push(candidate);
+    const workflow = await resolveWorkflowById(candidate);
+    if (workflow) {
+      return { workflow, workflowId: candidate, attempted };
+    }
+  }
+  return { workflow: null, workflowId: "", attempted };
 }
 
 async function applyRecoveredAcpSkillResult(args: {
@@ -825,11 +865,15 @@ async function applyRecoveredAcpSkillResult(args: {
       requestId: args.record.requestId,
     };
   }
-  const workflowId = resolveRecoveredWorkflowId(args.record);
-  const workflow = await resolveWorkflowById(workflowId);
+  const resolvedWorkflow = await resolveRecoveredWorkflow(args.record);
+  const workflowId = resolvedWorkflow.workflowId;
+  const workflow = resolvedWorkflow.workflow;
   if (!workflow) {
+    const attempted = resolvedWorkflow.attempted.length
+      ? resolvedWorkflow.attempted.join(", ")
+      : "(none)";
     throw new Error(
-      `workflow not found for ACP skill recovery apply: ${workflowId}`,
+      `workflow not found for ACP skill recovery apply: requestId=${args.record.requestId}; storedWorkflowId=${normalizeString(args.record.workflowId) || "(empty)"}; skillId=${normalizeString(args.record.skillId) || "(empty)"}; attempted=${attempted}`,
     );
   }
   const request = args.record.requestPayload;
@@ -914,6 +958,161 @@ async function applyRecoveredAcpSkillResult(args: {
       state: "failed",
       error: message,
     });
+    throw error;
+  }
+}
+
+async function continueRecoveredSequenceStep(args: {
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
+  resultJson: Record<string, unknown>;
+  dependencies?: AcpSkillRunnerDependencies;
+}) {
+  const sequenceStepId = normalizeString(args.record.sequenceStepId);
+  const sequenceFinalStepId = normalizeString(args.record.sequenceFinalStepId);
+  if (!sequenceStepId || !sequenceFinalStepId) {
+    return applyRecoveredAcpSkillResult({
+      record: args.record,
+      resultJson: args.resultJson,
+    });
+  }
+  if (sequenceStepId === sequenceFinalStepId) {
+    const apply = await applyRecoveredAcpSkillResult({
+      record: args.record,
+      resultJson: args.resultJson,
+    });
+    const sequenceState = getSequenceRunStateByStepRequest(
+      args.record.requestId,
+    );
+    if (apply.ok && sequenceState?.rootRequestId) {
+      const stepIndex = getSequenceStepIndexByRequestId(
+        sequenceState,
+        args.record.requestId,
+      );
+      if (stepIndex >= 0) {
+        recordSequenceStepSucceeded({
+          sequenceRunId: sequenceState.sequenceRunId,
+          stepIndex,
+          requestId: args.record.requestId,
+          output: args.resultJson,
+          result: {
+            status: "succeeded",
+            requestId: args.record.requestId,
+            fetchType: "result",
+            resultJson: args.resultJson,
+            responseJson: {
+              provider: "acp",
+              recovered: true,
+            },
+          },
+        });
+      }
+      updateWorkflowTaskStateByRequest({
+        backendId: args.record.backendId,
+        requestId: sequenceState.rootRequestId,
+        state: "succeeded",
+      });
+      markSequenceRunTerminal({
+        sequenceRunId: sequenceState.sequenceRunId,
+        status: "completed",
+      });
+    }
+    return apply;
+  }
+
+  const sequenceState = getSequenceRunStateByStepRequest(args.record.requestId);
+  if (!sequenceState) {
+    throw new Error(
+      `sequence state not found for recovered ACP step: requestId=${args.record.requestId}; workflowId=${normalizeString(args.record.workflowId) || "(empty)"}; skillId=${normalizeString(args.record.skillId) || "(empty)"}; sequenceStepId=${sequenceStepId}`,
+    );
+  }
+  const stepIndex = getSequenceStepIndexByRequestId(
+    sequenceState,
+    args.record.requestId,
+  );
+  if (stepIndex < 0) {
+    throw new Error(
+      `sequence step not found for recovered ACP step: requestId=${args.record.requestId}; workflowId=${normalizeString(args.record.workflowId) || "(empty)"}; skillId=${normalizeString(args.record.skillId) || "(empty)"}; sequenceStepId=${sequenceStepId}`,
+    );
+  }
+  const recoveredResult: ProviderExecutionResult = {
+    status: "succeeded",
+    requestId: args.record.requestId,
+    fetchType: "result",
+    resultJson: args.resultJson,
+    responseJson: {
+      provider: "acp",
+      recovered: true,
+      workspaceDir: args.record.workspaceDir,
+      resultJsonPath: args.record.resultJsonPath,
+    },
+  };
+  recordSequenceStepSucceeded({
+    sequenceRunId: sequenceState.sequenceRunId,
+    stepIndex,
+    requestId: args.record.requestId,
+    output: args.resultJson,
+    result: recoveredResult,
+  });
+  const backend = await resolveBackendForRecoveredRun(args.record.backendId);
+  try {
+    const continuationResult = await continueSkillRunnerSequence({
+      sequenceRunId: sequenceState.sequenceRunId,
+      startIndex: stepIndex + 1,
+      backend,
+      providerOptions:
+        sequenceState.providerOptions || args.record.providerOptions,
+      appendRuntimeLog,
+      executeWithProvider: (input) =>
+        executeAcpSkillRunnerJob({
+          ...input,
+          dependencies: args.dependencies,
+        }),
+    });
+    if (continuationResult.status !== "succeeded") {
+      return {
+        ok: true,
+        status: "deferred",
+        requestId: continuationResult.requestId,
+        workflowId: sequenceState.workflowId,
+      };
+    }
+    const finalRecord =
+      getAcpSkillRunRecord(continuationResult.requestId) || args.record;
+    const finalResultJson = isJsonObject(continuationResult.resultJson)
+      ? continuationResult.resultJson
+      : args.resultJson;
+    const apply = await applyRecoveredAcpSkillResult({
+      record: {
+        ...finalRecord,
+        status: "succeeded",
+        resultJson: finalResultJson,
+      },
+      resultJson: finalResultJson,
+    });
+    if (apply.ok && sequenceState.rootRequestId) {
+      updateWorkflowTaskStateByRequest({
+        backendId: args.record.backendId,
+        requestId: sequenceState.rootRequestId,
+        state: "succeeded",
+      });
+    }
+    return apply;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
+    markSequenceRunTerminal({
+      sequenceRunId: sequenceState.sequenceRunId,
+      status: "failed",
+      error: message,
+    });
+    if (sequenceState.rootRequestId) {
+      updateWorkflowTaskStateByRequest({
+        backendId: args.record.backendId,
+        requestId: sequenceState.rootRequestId,
+        state: "failed",
+        error: message,
+      });
+    }
     throw error;
   }
 }
@@ -1208,7 +1407,18 @@ async function applyRecoveredRuntimeOptions(args: {
       modelId: args.runtimeOptions.rawModelId,
     });
   }
-  if (args.runtimeOptions.modeId || args.runtimeOptions.rawModelId) {
+  if (args.runtimeOptions.reasoningEffort) {
+    await args.adapter.setConfigOption?.({
+      sessionId: args.sessionId,
+      category: "thought_level",
+      value: args.runtimeOptions.reasoningEffort,
+    });
+  }
+  if (
+    args.runtimeOptions.modeId ||
+    args.runtimeOptions.rawModelId ||
+    args.runtimeOptions.reasoningEffort
+  ) {
     upsertAcpSkillRun({
       requestId: args.requestId,
       event: {
@@ -1229,10 +1439,7 @@ async function applyRecoveredRuntimeOptions(args: {
 export async function recoverAcpSkillRunConversation(args: {
   requestId: string;
   reason?: "connect" | "reply";
-  dependencies?: Pick<
-    AcpSkillRunnerDependencies,
-    "createAdapter" | "dependencyProbe" | "mcpPreflight" | "maxRepairRounds"
-  >;
+  dependencies?: AcpSkillRunnerDependencies;
 }) {
   const requestId = normalizeString(args.requestId);
   if (!requestId) {
@@ -1537,13 +1744,14 @@ export async function recoverAcpSkillRunConversation(args: {
         });
         const afterFinal = getAcpSkillRunRecord(requestId) || latest;
         if (afterFinal.applyResultState !== "succeeded") {
-          await applyRecoveredAcpSkillResult({
+          await continueRecoveredSequenceStep({
             record: {
               ...afterFinal,
               status: "succeeded",
               resultJson: convergence.resultJson,
             },
             resultJson: convergence.resultJson,
+            dependencies: args.dependencies,
           });
         }
         return;
@@ -1712,6 +1920,8 @@ export async function recoverAcpSkillRunConversation(args: {
       setModel: async ({ sessionId, modelId }) => {
         await adapter.setModel({ sessionId, modelId });
       },
+      setConfigOption: async ({ sessionId, category, value }) =>
+        (await adapter.setConfigOption?.({ sessionId, category, value })) === true,
     });
     upsertAcpSkillRun({
       requestId,
@@ -1773,21 +1983,28 @@ export async function executeAcpSkillRunnerJob(args: {
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
   onProgress?: (event: ProviderProgressEvent) => void;
+  orchestrationContext?: ProviderOrchestrationContext;
   dependencies?: AcpSkillRunnerDependencies;
 }): Promise<ProviderExecutionResult> {
   const request = assertAcpSkillRunRequest(args.request);
   const workspaceFactory =
     args.dependencies?.createWorkspace || createAcpSkillRunnerWorkspace;
+  const workflowId =
+    normalizeString(args.orchestrationContext?.workflowId) ||
+    normalizeString(request.parameter?.workflowId) ||
+    request.skill_id;
+  const workflowLabel =
+    normalizeString(args.orchestrationContext?.workflowLabel) ||
+    normalizeString(request.parameter?.workflowLabel);
+  const jobId =
+    normalizeString(args.orchestrationContext?.jobId) || resolveJobId(request);
+  const runId = normalizeString(args.orchestrationContext?.workflowRunId);
   const workspace = await workspaceFactory({
     backendId: args.backend.id,
-    workflowId:
-      normalizeString(request.parameter?.workflowId) || request.skill_id,
-    jobId: resolveJobId(request),
+    workflowId,
+    jobId,
     workflowWorkspace: resolveWorkflowWorkspaceIntent(request),
   });
-  const workflowId =
-    normalizeString(request.parameter?.workflowId) || request.skill_id;
-  const workflowLabel = normalizeString(request.parameter?.workflowLabel);
   const taskName = normalizeString(request.taskName) || resolveJobId(request);
   const frozenRuntimeOptions = resolveFrozenAcpRuntimeOptions({
     backend: args.backend,
@@ -1801,6 +2018,10 @@ export async function executeAcpSkillRunnerJob(args: {
     backendLabel: normalizeString(args.backend.displayName) || args.backend.id,
     workflowId,
     workflowLabel,
+    runId,
+    jobId,
+    sequenceStepId: args.orchestrationContext?.sequenceStepId,
+    sequenceFinalStepId: args.orchestrationContext?.finalStepId,
     taskName,
     skillId: request.skill_id,
     requestPayload: request,
@@ -2152,6 +2373,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let cleanupDone = false;
   let cancellationRequested = false;
   let interruptionRequested = false;
+  let disconnectRequested = false;
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
   let currentTurnAssistantText = "";
@@ -2393,6 +2615,26 @@ export async function executeAcpSkillRunnerJob(args: {
       }
     },
     disconnect: async () => {
+      disconnectRequested = true;
+      if (pendingReplyRejecter) {
+        pendingReplyRejecter(
+          new Error("ACP skill run disconnected while waiting for user reply."),
+        );
+        pendingReplyResolver = null;
+        pendingReplyRejecter = null;
+      }
+      const current = upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "disconnect-turn-requested",
+          message:
+            "ACP skill run local connection detach requested; active turn will stop first.",
+          level: "info",
+        },
+      });
+      if (captureAssistantText && current.sessionId) {
+        await adapter.cancel({ sessionId: current.sessionId });
+      }
       await cleanupLiveSession({
         conversationState: "closed",
         closeAdapter: true,
@@ -2419,6 +2661,8 @@ export async function executeAcpSkillRunnerJob(args: {
     setModel: async ({ sessionId, modelId }) => {
       await adapter.setModel({ sessionId, modelId });
     },
+    setConfigOption: async ({ sessionId, category, value }) =>
+      (await adapter.setConfigOption?.({ sessionId, category, value })) === true,
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {
     handleAcpSkillRunPermissionRequest({
@@ -2513,7 +2757,6 @@ export async function executeAcpSkillRunnerJob(args: {
           sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
           sharedSkillCatalog: materialization.sharedSkillCatalog,
         },
-        hostBridgeCliPromptSnippet: hostBridgeCliInjection.promptSnippet,
       });
     upsertAcpSkillRun({
       requestId: workspace.requestId,
@@ -2528,7 +2771,6 @@ export async function executeAcpSkillRunnerJob(args: {
     });
     let nextPrompt = await buildRunPrompt({
       context,
-      hostBridgeCliPromptSnippet: hostBridgeCliInjection.promptSnippet,
     });
     const maxRepairRounds = Math.max(
       0,
@@ -2538,6 +2780,63 @@ export async function executeAcpSkillRunnerJob(args: {
     let convergence: AcpSkillOutputConvergenceResult | null = null;
     while (true) {
       const promptResult = await promptExistingSession(nextPrompt);
+      if (disconnectRequested) {
+        keepConversationAlive = true;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "running",
+          activePrompt: false,
+          replyState: "idle",
+          error: "",
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+          event: {
+            stage: "disconnect-completed",
+            message: "ACP skill run local connection detached.",
+            level: "info",
+          },
+        });
+        return {
+          status: "succeeded",
+          requestId: workspace.requestId,
+          fetchType: "result",
+          responseJson: {
+            provider: "acp",
+            requestId: workspace.requestId,
+            status: "disconnected",
+          },
+        };
+      }
+      if (interruptionRequested) {
+        keepConversationAlive = true;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "running",
+          activePrompt: false,
+          replyState: "idle",
+          error: "",
+          conversationState: "active",
+          conversationRecoveryState: "connected",
+          event: {
+            stage: "interrupt-completed",
+            message: "ACP skill run current turn interrupted.",
+            level: "warn",
+            details: {
+              reason: "current turn canceled after prompt returned",
+            },
+          },
+        });
+        return {
+          status: "succeeded",
+          requestId: workspace.requestId,
+          fetchType: "result",
+          responseJson: {
+            provider: "acp",
+            requestId: workspace.requestId,
+            status: "interrupted",
+          },
+        };
+      }
       convergence = await convergeAcpSkillTurnOutput({
         assistantText: promptResult.assistantText,
         executionMode,
@@ -2840,6 +3139,36 @@ export async function executeAcpSkillRunnerJob(args: {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
+    if (disconnectRequested) {
+      keepConversationAlive = true;
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        activePrompt: false,
+        replyState: "idle",
+        error: "",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        event: {
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: {
+            reason: message,
+          },
+        },
+      });
+      return {
+        status: "succeeded",
+        requestId: workspace.requestId,
+        fetchType: "result",
+        responseJson: {
+          provider: "acp",
+          requestId: workspace.requestId,
+          status: "disconnected",
+        },
+      };
+    }
     if (interruptionRequested) {
       keepConversationAlive = true;
       upsertAcpSkillRun({

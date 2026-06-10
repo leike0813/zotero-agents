@@ -50,6 +50,10 @@ import {
   materializeHostBridgeCliRunInjection,
 } from "../../src/modules/hostBridgeCliInjection";
 import {
+  initializeSequenceRunState,
+  recordSequenceStepRequestCreated,
+} from "../../src/modules/workflowExecution/sequenceStateStore";
+import {
   ACP_SKILL_PATCH_TEMPLATES,
   loadAcpSkillPatchTemplate,
 } from "../../src/modules/acpSkillPatchTemplates";
@@ -59,6 +63,7 @@ import {
   loadAcpRuntimePromptTemplate,
   renderAcpRuntimePromptTemplate,
 } from "../../src/modules/acpRuntimePromptTemplates";
+import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import {
   buildAcpSkillOutputRepairPrompt,
   validateAcpSkillFinalPayload,
@@ -113,11 +118,13 @@ function makeAcpWorkflowTaskJob(args: {
   requestId: string;
   state?: JobRecord["state"];
   updatedAt?: string;
+  workflowId?: string;
+  backendId?: string;
 }) {
   const updatedAt = args.updatedAt || "2026-05-23T01:00:00.000Z";
   return {
     id: "job-" + args.requestId,
-    workflowId: "demo-acp-workflow",
+    workflowId: args.workflowId || "demo-acp-workflow",
     request: {},
     meta: {
       runId: "run-" + args.requestId,
@@ -125,7 +132,7 @@ function makeAcpWorkflowTaskJob(args: {
       taskName: "Demo ACP Task",
       providerId: "acp",
       requestKind: ACP_SKILL_RUN_REQUEST_KIND,
-      backendId: "backend-acp",
+      backendId: args.backendId || "backend-acp",
       backendType: "acp",
       requestId: args.requestId,
     },
@@ -142,9 +149,11 @@ async function createSkill(
     executionModes?: string[];
     declareSchemas?: boolean;
     mcpRequiredTools?: string[];
+    skillId?: string;
   },
 ) {
-  const skillDir = path.join(root, "skills", "demo-skill");
+  const skillId = args?.skillId || "demo-skill";
+  const skillDir = path.join(root, "skills", skillId);
   await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
@@ -166,7 +175,7 @@ async function createSkill(
   await fs.writeFile(
     path.join(skillDir, "assets", "runner.json"),
     JSON.stringify({
-      id: "demo-skill",
+      id: skillId,
       execution_modes: args?.executionModes || ["auto"],
       runtime: {
         dependencies: args?.dependencies || [],
@@ -191,13 +200,163 @@ async function createSkill(
   return {
     skillDir,
     entry: {
-      skillId: "demo-skill",
+      skillId,
       description: "Demo skill description",
       sourceKind: "user" as const,
       sourceDir: skillDir,
       skillMdPath: path.join(skillDir, "SKILL.md"),
       runnerJsonPath: path.join(skillDir, "assets", "runner.json"),
       checksum: "sha256:test",
+      diagnostics: [],
+    },
+  };
+}
+
+async function createRecoveryApplyWorkflowRoot(root: string) {
+  const workflowId = "recovered-sequence-apply-workflow";
+  const workflowsDir = path.join(root, "workflows");
+  const workflowDir = path.join(workflowsDir, workflowId);
+  await fs.mkdir(path.join(workflowDir, "hooks"), { recursive: true });
+  await fs.writeFile(
+    path.join(workflowDir, "workflow.json"),
+    JSON.stringify({
+      id: workflowId,
+      label: "Recovered Sequence Apply Workflow",
+      provider: "acp",
+      trigger: { requiresSelection: false },
+      request: {
+        kind: "skillrunner.sequence.v1",
+        sequence: {
+          steps: [
+            {
+              id: "finalize",
+              skill_id: "topic-synthesis-finalize",
+              workspace: "reuse-workflow",
+            },
+          ],
+        },
+      },
+      execution: { mode: "auto", skillrunner_mode: "interactive" },
+      result: { final_step_id: "finalize" },
+      hooks: { applyResult: "hooks/applyResult.mjs" },
+    }),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(workflowDir, "hooks", "applyResult.mjs"),
+    [
+      "export async function applyResult({ manifest, runResult }) {",
+      "  return { ok: true, workflowId: manifest.id, kind: runResult.resultJson?.kind || '' };",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  return { workflowsDir, workflowId };
+}
+
+function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  return {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake",
+      canLoadSession: true,
+      canResumeSession: true,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    },
+    onClose: () => () => undefined,
+    onDiagnostics: () => () => undefined,
+    onPermissionRequest: () => () => undefined,
+    newSession: async () => ({ sessionId: "unused" }),
+    loadSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    resumeSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    prompt: async ({ sessionId }: { sessionId: string }) => {
+      await updateListener?.({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({
+              __SKILL_DONE__: true,
+              ...resultJson,
+            }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    },
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async () => undefined,
+    authenticate: async () => undefined,
+    close: async () => undefined,
+  } satisfies AcpConnectionAdapter;
+}
+
+async function createHostBridgeWrapperSkill(root: string) {
+  const skillId = "zotero-bridge-cli";
+  const skillDir = path.join(root, "skills_builtin", skillId);
+  await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
+  await fs.mkdir(path.join(skillDir, "references"), { recursive: true });
+  await fs.writeFile(
+    path.join(skillDir, "SKILL.md"),
+    [
+      "---",
+      `name: ${skillId}`,
+      "description: Host Bridge CLI wrapper",
+      "---",
+      "",
+      "# Zotero Bridge CLI",
+      "",
+      "Read references/host-bridge-cli.md.",
+    ].join("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "references", "host-bridge-cli.md"),
+    "# Host Bridge CLI Reference\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "assets", "output.schema.json"),
+    JSON.stringify({ type: "object", additionalProperties: true }),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(skillDir, "assets", "runner.json"),
+    JSON.stringify({
+      id: skillId,
+      execution_modes: ["auto"],
+      schemas: { output: "assets/output.schema.json" },
+    }),
+    "utf8",
+  );
+  return {
+    skillDir,
+    entry: {
+      skillId,
+      description: "Host Bridge CLI wrapper",
+      sourceKind: "builtin" as const,
+      sourceDir: skillDir,
+      skillMdPath: path.join(skillDir, "SKILL.md"),
+      runnerJsonPath: path.join(skillDir, "assets", "runner.json"),
+      checksum: "sha256:host-bridge-wrapper",
       diagnostics: [],
     },
   };
@@ -477,6 +636,126 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isUndefined(record?.removedAt);
   });
 
+  it("ignores stale assistant text returned after current turn cancel", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let promptCalls = 0;
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-interrupt-return" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCalls += 1;
+        if (promptCalls === 1) {
+          await updateListener?.({
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: "not valid json after cancel",
+              },
+            },
+          });
+          resolvePromptStarted();
+          await new Promise<void>((resolve) => {
+            releasePrompt = resolve;
+          });
+          return { stopReason: "cancelled" };
+        }
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+
+    try {
+      const runPromise = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await promptStarted;
+      const requestId = listAcpSkillRuns()[0]?.requestId || "";
+
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const result = await runPromise;
+      const record = getAcpSkillRunRecord(requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.deepInclude(result.responseJson as Record<string, unknown>, {
+        status: "interrupted",
+      });
+      assert.equal(record?.status, "running");
+      assert.equal(record?.conversationRecoveryState, "connected");
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 0);
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "result-file-fallback-skipped");
+      assert.notInclude(stages, "repair-started");
+
+      await replyAcpSkillRun({
+        requestId,
+        message: "continue after turn cancel",
+      });
+      assert.equal(promptCalls, 2);
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("builds Skill-Runner-aligned ACP repair prompts with target contract details", function () {
     const prompt = buildAcpSkillOutputRepairPrompt({
       executionMode: "interactive",
@@ -535,12 +814,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("loads ACP runtime prompt templates separately from ACP Skill patch templates", async function () {
     assert.sameMembers(
       ACP_RUNTIME_PROMPT_TEMPLATES.map((template) => template.id),
-      [
-        "mcp_required_guard",
-        "recovered_continuation_guard",
-        "host_bridge_cli_readme",
-        "host_bridge_cli_prompt",
-      ],
+      ["mcp_required_guard", "recovered_continuation_guard"],
     );
     for (const template of ACP_RUNTIME_PROMPT_TEMPLATES) {
       const content = await loadAcpRuntimePromptTemplate(template);
@@ -552,7 +826,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.mcp_required_guard,
       ),
       replacements: {
-        REQUIRED_TOOLS_INLINE: "synthesis.list_topics",
+        REQUIRED_TOOLS_INLINE: "topics.list",
       },
       requiredPlaceholders: ["REQUIRED_TOOLS_INLINE"],
     });
@@ -560,7 +834,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       guardPrompt,
       "The host has already completed MCP availability preflight",
     );
-    assert.include(guardPrompt, "Required MCP tools: synthesis.list_topics");
+    assert.include(guardPrompt, "Required MCP tools: topics.list");
 
     const continuationPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(
@@ -589,39 +863,6 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(continuationPrompt, "same remote ACP session");
     assert.include(continuationPrompt, "continue");
 
-    const hostBridgeReadme = renderAcpRuntimePromptTemplate({
-      template: await loadAcpRuntimePromptTemplate(
-        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.host_bridge_cli_readme,
-      ),
-      replacements: {
-        ENDPOINT: "http://127.0.0.1:26570/bridge/v1",
-        CLI_AVAILABILITY_LINE: "CLI availability: available.",
-      },
-      requiredPlaceholders: ["ENDPOINT", "CLI_AVAILABILITY_LINE"],
-    });
-    assert.include(hostBridgeReadme, "Zotero Bridge CLI");
-    assert.include(hostBridgeReadme, "zotero-bridge item search");
-    assert.include(hostBridgeReadme, "http://127.0.0.1:26570/bridge/v1");
-
-    const hostBridgePrompt = renderAcpRuntimePromptTemplate({
-      template: await loadAcpRuntimePromptTemplate(
-        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.host_bridge_cli_prompt,
-      ),
-      replacements: {
-        PROFILE_PATH: ".zotero-bridge/profile.json",
-        README_PATH: ".zotero-bridge/README.md",
-        CLI_UNAVAILABLE_LINE: "",
-      },
-      requiredPlaceholders: [
-        "PROFILE_PATH",
-        "README_PATH",
-        "CLI_UNAVAILABLE_LINE",
-      ],
-    });
-    assert.include(hostBridgePrompt, "[Zotero Host Bridge CLI]");
-    assert.include(hostBridgePrompt, ".zotero-bridge/README.md");
-    assert.include(hostBridgePrompt, ".zotero-bridge/profile.json");
-
     const orchestratorSource = await fs.readFile(
       "src/modules/acpSkillRunnerOrchestrator.ts",
       "utf8",
@@ -645,7 +886,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.notInclude(adapterSource, "mcp-gateway");
   });
 
-  it("materializes Host Bridge CLI run profile, README, env, and prompt guidance without leaking token", async function () {
+  it("materializes Host Bridge CLI run profile, runtime README, and env without leaking token", async function () {
     const root = await mkTempRoot();
     const cliPath = path.join(
       root,
@@ -693,7 +934,6 @@ describe("ACP SkillRunner-compatible runner", function () {
       await fs.readFile(injection.profilePath, "utf8"),
     );
     const readme = await fs.readFile(injection.readmePath, "utf8");
-    const prompt = injection.promptSnippet;
 
     assert.isTrue(injection.available);
     assert.isFalse(injection.autoApproveWrites);
@@ -701,10 +941,13 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.strictEqual(profile.scope.kind, "acp-skill-run");
     assert.isUndefined(profile.scope.autoApproveWrites);
     assert.notInclude(JSON.stringify(profile), "secret-token");
-    assert.include(readme, "zotero-bridge item search");
-    assert.include(prompt, "zotero-bridge --help");
-    assert.include(prompt, ".zotero-bridge/README.md");
-    assert.notInclude(prompt, "secret-token");
+    assert.include(
+      readme,
+      "Host Bridge CLI guidance is provided by the built-in `zotero-bridge-cli` wrapper skill.",
+    );
+    assert.include(readme, "references/host-bridge-cli.md");
+    assert.notInclude(readme, "zotero-bridge item search");
+    assert.notInclude(readme, "secret-token");
     assert.strictEqual(injection.env.ZOTERO_BRIDGE_TOKEN, "secret-token");
     assert.isString(injection.shimDir);
     const shellShim = await fs.readFile(
@@ -1204,7 +1447,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("does not run runner-declared MCP preflight by default when HTTP MCP is unavailable", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
-      mcpRequiredTools: ["synthesis.list_topics"],
+      mcpRequiredTools: ["topics.list"],
     });
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     let newSessionCount = 0;
@@ -1305,7 +1548,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("does not block default runs when declared MCP tools are missing", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
-      mcpRequiredTools: ["synthesis.missing_tool"],
+      mcpRequiredTools: ["topics.missing_tool"],
     });
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     let newSessionCount = 0;
@@ -1399,6 +1642,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("records workflow-declared MCP tools without preflight or guarded business prompt by default", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
+    const { entry: wrapperEntry } = await createHostBridgeWrapperSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     const promptMessages: string[] = [];
     const order: string[] = [];
@@ -1459,10 +1703,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         fetch_type: "bundle",
         runtime_options: {
           workflow_mcp: {
-            required_tools: [
-              "synthesis.list_topics",
-              "synthesis.export_filtered_paper_artifacts",
-            ],
+            required_tools: ["topics.list", "paper_artifacts.export_filtered"],
           },
           zotero_host_access: {
             auto_approve_writes: true,
@@ -1471,8 +1712,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       },
       dependencies: {
         scanRegistry: async () => ({
-          entries: [entry],
-          entriesById: { "demo-skill": entry },
+          entries: [entry, wrapperEntry],
+          entriesById: {
+            "demo-skill": entry,
+            "zotero-bridge-cli": wrapperEntry,
+          },
           diagnostics: [],
         }),
         createWorkspace: (args) =>
@@ -1499,8 +1743,6 @@ describe("ACP SkillRunner-compatible runner", function () {
               ZOTERO_BRIDGE_PROFILE: ".zotero-bridge/profile.json",
               ZOTERO_BRIDGE_TOKEN: "secret",
             },
-            promptSnippet:
-              "[Zotero Host Bridge CLI]\nUse zotero-bridge for Zotero host access.",
           };
         },
         sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
@@ -1518,22 +1760,38 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.notInclude(promptMessages[0], "Do not search MCP configuration");
     assert.include(promptMessages[0], "demo-skill");
-    assert.include(promptMessages[0], "[Zotero Host Bridge CLI]");
-    const response = result.responseJson as { workspaceDir?: string };
+    assert.notInclude(promptMessages[0], "[Zotero Host Bridge CLI]");
+    const response = result.responseJson as {
+      workspaceDir?: string;
+      sharedSkillCatalogPath?: string;
+    };
     const runInstructions = await fs.readFile(
       path.join(response.workspaceDir || "", "AGENTS.md"),
       "utf8",
     );
-    assert.include(
-      runInstructions,
-      "<!-- zotero-skills-zotero-host-access:start -->",
+    assert.notInclude(runInstructions, "[Zotero Host Bridge CLI]");
+    const wrapperSkill = await fs.readFile(
+      path.join(
+        response.workspaceDir || "",
+        ".codex",
+        "skills",
+        "zotero-bridge-cli",
+        "SKILL.md",
+      ),
+      "utf8",
     );
-    assert.include(runInstructions, "[Zotero Host Bridge CLI]");
-    assert.equal(
-      runInstructions.split("<!-- zotero-skills-zotero-host-access:start -->")
-        .length - 1,
-      1,
+    const wrapperReference = await fs.readFile(
+      path.join(
+        response.sharedSkillCatalogPath || "",
+        "skills",
+        "zotero-bridge-cli",
+        "references",
+        "host-bridge-cli.md",
+      ),
+      "utf8",
     );
+    assert.include(wrapperSkill, "Zotero Bridge CLI");
+    assert.include(wrapperReference, "Host Bridge CLI Reference");
     const run = listAcpSkillRuns().find(
       (entry) => entry.requestId === result.requestId,
     );
@@ -1542,8 +1800,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       (event) => event.stage === "host-access-mode",
     );
     assert.deepEqual((hostAccess?.details as any)?.requiredMcpTools, [
-      "synthesis.list_topics",
-      "synthesis.export_filtered_paper_artifacts",
+      "topics.list",
+      "paper_artifacts.export_filtered",
     ]);
     assert.equal(
       (hostAccess?.details as any)?.mcpCompatibility,
@@ -1551,7 +1809,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
-  it("skips Host Bridge materialization, env, prompt, and instruction snippet when Zotero host access is disabled", async function () {
+  it("skips Host Bridge materialization and env when Zotero host access is disabled", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
@@ -1654,10 +1912,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       path.join(response.workspaceDir || "", "AGENTS.md"),
       "utf8",
     );
-    assert.notInclude(
-      runInstructions,
-      "<!-- zotero-skills-zotero-host-access:start -->",
-    );
+    assert.notInclude(runInstructions, "Host Bridge CLI");
     const run = listAcpSkillRuns().find(
       (entry) => entry.requestId === result.requestId,
     );
@@ -3065,6 +3320,328 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("records parent workflow identity from host orchestration context for sequence steps", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          parameter: { language: "zh-CN" },
+        },
+        orchestrationContext: {
+          workflowId: "create-topic-synthesis",
+          workflowLabel: "Create Topic Synthesis",
+          workflowRunId: "workflow-run-create-1",
+          jobId: "job-create-1",
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => createFinalOutputAdapter({ ok: true }),
+          dependencyProbe: async () => ({ ok: true }),
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      assert.equal(result.status, "succeeded");
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(record?.workflowId, "create-topic-synthesis");
+      assert.equal(record?.workflowLabel, "Create Topic Synthesis");
+      assert.equal(record?.runId, "workflow-run-create-1");
+      assert.equal(record?.jobId, "job-create-1");
+      assert.equal(record?.skillId, "topic-synthesis-finalize");
+      assert.equal(
+        (record?.requestPayload as { parameter?: Record<string, unknown> })
+          ?.parameter?.workflowId,
+        undefined,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers sequence final-step apply from workflow task ownership when stored workflow id is the skill id", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      workflowId: "topic-synthesis-finalize",
+      jobId: "job-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+    try {
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      recordWorkflowTaskUpdate(
+        makeAcpWorkflowTaskJob({
+          requestId: workspace.requestId,
+          workflowId: recoveryWorkflow.workflowId,
+          backendId: ACP_OPENCODE_BACKEND_ID,
+          state: "running",
+        }),
+      );
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: "topic-synthesis-finalize",
+        skillId: "topic-synthesis-finalize",
+        requestedSkillId: "topic-synthesis-finalize",
+        sessionId: "session-recovered-finalize",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "pending",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => createFinalOutputAdapter({ ok: true }),
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue finalize",
+      });
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(recovered?.status, "succeeded");
+      assert.equal(recovered?.applyResultState, "succeeded");
+      assert.equal(recovered?.workflowId, "topic-synthesis-finalize");
+      assert.includeMembers(
+        (recovered?.events || []).map((event) => event.stage),
+        ["recovered-output-validation-succeeded", "apply-succeeded"],
+      );
+      assert.equal(
+        listWorkflowTasks().find(
+          (task) => task.requestId === workspace.requestId,
+        )?.state,
+        "succeeded",
+      );
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("continues downstream sequence steps after a recovered non-final step succeeds", async function () {
+    const root = await mkTempRoot();
+    const prepare = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "prepare-skill",
+    });
+    const core = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "core-skill",
+    });
+    const finalize = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "finalize-skill",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-sequence-recovery";
+    const jobId = "job-sequence-recovery";
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        { id: "prepare", skill_id: "prepare-skill", workspace: "new" as const },
+        {
+          id: "core",
+          skill_id: "core-skill",
+          workspace: "reuse-workflow" as const,
+        },
+        {
+          id: "finalize",
+          skill_id: "finalize-skill",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      workflowId: recoveryWorkflow.workflowId,
+      jobId,
+      workflowWorkspace: {
+        mode: "new",
+        workflowRunId,
+      },
+    });
+    const adapterOutputs = [
+      { ok: true, step: "prepare" },
+      { ok: true, step: "core" },
+      { ok: true, step: "finalize" },
+    ];
+    try {
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "sequence-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      recordSequenceStepRequestCreated({
+        sequenceRunId: workflowRunId,
+        stepIndex: 0,
+        requestId: workspace.requestId,
+      });
+      recordWorkflowTaskUpdate(
+        makeAcpWorkflowTaskJob({
+          requestId: workspace.requestId,
+          workflowId: recoveryWorkflow.workflowId,
+          backendId: ACP_OPENCODE_BACKEND_ID,
+          state: "running",
+        }),
+      );
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        runId: workflowRunId,
+        jobId,
+        sequenceStepId: "prepare",
+        sequenceFinalStepId: "finalize",
+        skillId: "prepare-skill",
+        requestedSkillId: "prepare-skill",
+        sessionId: "session-recovered-prepare",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: prepare.entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "pending",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "prepare-skill",
+          fetch_type: "result",
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [prepare.entry, core.entry, finalize.entry],
+            entriesById: {
+              "prepare-skill": prepare.entry,
+              "core-skill": core.entry,
+              "finalize-skill": finalize.entry,
+            },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () =>
+            createFinalOutputAdapter(adapterOutputs.shift() || { ok: true }),
+          dependencyProbe: async () => ({ ok: true }),
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue prepare",
+      });
+
+      const runs = listAcpSkillRuns();
+      const coreRun = runs.find((run) => run.sequenceStepId === "core");
+      const finalizeRun = runs.find((run) => run.sequenceStepId === "finalize");
+      assert.equal(
+        getAcpSkillRunRecord(workspace.requestId)?.status,
+        "succeeded",
+      );
+      assert.equal(coreRun?.status, "succeeded");
+      assert.equal(finalizeRun?.status, "succeeded");
+      assert.equal(finalizeRun?.applyResultState, "succeeded");
+      assert.equal(coreRun?.workflowId, recoveryWorkflow.workflowId);
+      assert.equal(finalizeRun?.workflowId, recoveryWorkflow.workflowId);
+      assert.equal(coreRun?.sequenceFinalStepId, "finalize");
+      assert.equal(finalizeRun?.skillId, "finalize-skill");
+      assert.equal(
+        listWorkflowTasks().find(
+          (task) => task.requestId === workspace.requestId,
+        )?.state,
+        "succeeded",
+      );
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("starts a fresh recovered prompt after a previous reply rejected", async function () {
     const root = await mkTempRoot();
     const workspace = await createAcpSkillRunnerWorkspace({
@@ -3195,6 +3772,115 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(disconnected);
     assert.equal(record?.conversationState, "closed");
     assert.equal(record?.conversationRecoveryState, "available");
+  });
+
+  it("disconnects an active ACP skill prompt without validating stale output", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-disconnect-active" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "not valid json after disconnect",
+            },
+          },
+        });
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled" };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+
+    try {
+      const runPromise = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await promptStarted;
+      const requestId = listAcpSkillRuns()[0]?.requestId || "";
+
+      await disconnectAcpSkillRun(requestId);
+      const result = await runPromise;
+      const record = getAcpSkillRunRecord(requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.deepInclude(result.responseJson as Record<string, unknown>, {
+        status: "disconnected",
+      });
+      assert.equal(record?.status, "running");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "result-file-fallback-skipped");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("cancels and hides a detached recoverable run without requiring a live controller", async function () {

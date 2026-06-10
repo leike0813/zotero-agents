@@ -8,6 +8,7 @@ export const ACP_AGENT_METHODS = {
   session_new: "session/new",
   session_prompt: "session/prompt",
   session_resume: "session/resume",
+  session_set_config_option: "session/set_config_option",
   session_set_mode: "session/set_mode",
   session_set_model: "session/set_model",
 } as const;
@@ -117,10 +118,39 @@ export type SessionModelState = {
   currentModelId: string;
 };
 
+export type AcpSessionConfigCategory =
+  | "mode"
+  | "model"
+  | "thought_level"
+  | string;
+
+export type AcpSessionConfigSelectOption = {
+  value: string;
+  name: string;
+  description?: string | null;
+};
+
+export type AcpSessionConfigSelectGroup = {
+  group: string;
+  name: string;
+  options: AcpSessionConfigSelectOption[];
+};
+
+export type AcpSessionConfigOption = {
+  id: string;
+  name: string;
+  description?: string | null;
+  category?: AcpSessionConfigCategory | null;
+  type: "select" | string;
+  currentValue: string;
+  options?: Array<AcpSessionConfigSelectOption | AcpSessionConfigSelectGroup>;
+};
+
 export type NewSessionResponse = {
   sessionId: string;
   title?: string | null;
   updatedAt?: string | null;
+  configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
 };
@@ -128,6 +158,7 @@ export type NewSessionResponse = {
 export type SessionAttachResponse = {
   title?: string | null;
   updatedAt?: string | null;
+  configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
 } | null;
@@ -213,6 +244,7 @@ export type AcpCurrentModeUpdate = {
 
 export type AcpConfigOptionUpdate = {
   optionId?: string | null;
+  configOptions?: AcpSessionConfigOption[] | null;
 };
 
 export type AcpSessionInfoUpdate = {

@@ -4,6 +4,18 @@ Topic synthesis skills expose a schema-first executable contract for create and 
 ## Requirements
 ### Requirement: Topic synthesis skills expose a minimum executable contract
 
+
+
+
+
+
+
+
+
+
+
+
+
 `create-topic-synthesis` and `update-topic-synthesis` SHALL provide a
 `SKILL.md` that is sufficient to execute the skill without reading references.
 For every stage that writes a payload, the stage instruction SHALL present a
@@ -16,8 +28,19 @@ compact payload schema skeleton before semantic explanation and command usage.
   stage and action
 - **AND** it SHALL show a compact JSON payload skeleton before describing field
   semantics, input sources, prohibitions, and command examples.
-
 ### Requirement: Topic synthesis skills keep detailed references schema-first
+
+
+
+
+
+
+
+
+
+
+
+
 
 Create and update topic synthesis reference documents SHALL put payload shape
 before semantic guidance.
@@ -30,8 +53,19 @@ before semantic guidance.
   stage
 - **AND** detailed field semantics, examples, empty-output behavior, and
   anti-patterns SHALL follow that schema context.
-
 ### Requirement: Topic synthesis skills use canonical stage and action names
+
+
+
+
+
+
+
+
+
+
+
+
 
 The primary create/update skill instructions SHALL use the canonical stage names
 from `runtime_db.STAGES` and the canonical actions returned by the gate.
@@ -42,8 +76,19 @@ from `runtime_db.STAGES` and the canonical actions returned by the gate.
   executable main path
 - **THEN** headings and commands SHALL use canonical stage/action names
 - **AND** legacy aliases SHALL appear only in explicit compatibility notes.
-
 ### Requirement: Topic synthesis skills expose operation-specific output contracts
+
+
+
+
+
+
+
+
+
+
+
+
 
 Create and update topic synthesis skills SHALL use an operation-discriminated
 output schema that separates create absence checks from update CAS checks.
@@ -68,8 +113,19 @@ output schema that separates create absence checks from update CAS checks.
 - **THEN** the output schema SHALL require `read_section_hashes`
 - **AND** the skill guidance SHALL describe section-level CAS as scoped to
   sections read while producing the patch.
-
 ### Requirement: Topic synthesis agent payloads are minimal and stage-local
+
+
+
+
+
+
+
+
+
+
+
+
 
 Create/update skill stage payloads SHALL avoid agent-authored fields that are
 owned by runtime, host bridge, persistence, or deterministic materializers.
@@ -107,7 +163,7 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
 
 - **WHEN** the update skill gate requests `persist_topic_context`
 - **THEN** the agent-facing payload SHALL store the host
-  `synthesis.get_topic_context` response under `topic_context`
+  `topics.get_context` response under `topic_context`
 - **AND** any agent-authored update judgment SHALL be limited to compact
   `update_assessment` fields
 - **AND** runtime SHALL derive internal `topic_definition`, `base_hashes`,
@@ -120,15 +176,26 @@ owned by runtime, host bridge, persistence, or deterministic materializers.
   with a top-level canonical `resolver`, optional reasoning, operation intent,
   and diagnostics
 - **AND** runtime SHALL compile that proposal to the Host Bridge
-  `synthesis.resolve_resolver` input contract
+  `resolvers.resolve` input contract
 - **AND** runtime SHALL execute the Host Bridge resolver command and write the
   resolver execution manifest, resolved paper set, and paper workset
 - **AND** runtime SHALL continue the same action by collecting citation graph
   metrics and exporting filtered paper artifacts for the paper workset
 - **AND** the skill gate SHALL NOT expose independent Stage 3 or Stage 4
   actions or schemas for graph metrics or artifact manifests.
-
 ### Requirement: Stage 5 is lightweight paper triage
+
+
+
+
+
+
+
+
+
+
+
+
 
 The paper-level agent task SHALL be limited to relevance, quality, and
 `core_digest` assessment.
@@ -148,8 +215,19 @@ The paper-level agent task SHALL be limited to relevance, quality, and
   current agent has subagent capability
 - **AND** it SHALL provide a prompt skeleton that restricts subagents to
   per-paper triage only.
-
 ### Requirement: Core synthesis is submitted as one payload
+
+
+
+
+
+
+
+
+
+
+
+
 
 The old route/timeline and core-section split SHALL be replaced by a single
 core synthesis payload.
@@ -169,8 +247,19 @@ core synthesis payload.
 - **THEN** it SHALL write `improvement_dimension_summary` and
   `improvement_dimensions[]`
 - **AND** it SHALL NOT be required to fill a `comparison_matrix`.
-
 ### Requirement: KG proposal authoring is enrichment-oriented
+
+
+
+
+
+
+
+
+
+
+
+
 
 KG proposal sidecars SHALL remain required main-path outputs, but the agent
 SHALL author enrichment payloads rather than sidecar schema wrappers.
@@ -190,8 +279,19 @@ SHALL author enrichment payloads rather than sidecar schema wrappers.
 - **AND** it SHALL NOT provide concept source paper refs, concept confidence,
   sidecar schema ids, local ids, topic ids, canonical concept ids, or seed paper
   refs.
-
 ### Requirement: Final summary coverage payload is interpretive only
+
+
+
+
+
+
+
+
+
+
+
+
 
 The last semantic agent payload SHALL not ask the agent to hand-author
 statistics, canonical external references, or the final synthesis report.
@@ -203,8 +303,19 @@ statistics, canonical external references, or the final synthesis report.
   caveats, external context summary, and collection suggestions
 - **AND** runtime SHALL materialize statistics, external literature analysis
   structure, source artifacts, and `synthesis_report`.
-
 ### Requirement: Split topic synthesis apply remains strict and diagnosable
+
+
+
+
+
+
+
+
+
+
+
+
 
 The Host apply path SHALL accept split final candidates only when their
 referenced analysis manifest can produce a valid persisted topic artifact.
@@ -224,8 +335,19 @@ referenced analysis manifest can produce a valid persisted topic artifact.
 - **WHEN** the final candidate omits legacy top-level sidecar path fields
 - **THEN** apply SHALL use the manifest sidecar paths for concept cards, topic
   graph relation proposals, and topic interest metadata.
-
 ### Requirement: Topic details exposes structured artifact provenance
+
+
+
+
+
+
+
+
+
+
+
+
 
 The topic details page SHALL render complete split-runtime topic artifacts with
 clear grouped content and provenance.
@@ -238,8 +360,19 @@ clear grouped content and provenance.
 - **THEN** it SHALL expose coverage, evidence, report, and provenance summary
 - **AND** missing optional legacy fields SHALL render empty states instead of
   blank or broken layouts.
-
 ### Requirement: Topic synthesis skill suite renders self-contained packages
+
+
+
+
+
+
+
+
+
+
+
+
 
 The topic synthesis multi-skill suite SHALL keep its shared contracts,
 payload schemas, templates, package-local runtime sources, and stage guidance
@@ -292,8 +425,19 @@ packages under `skills_builtin/` from that source.
 - **AND** finalize instructions SHALL require
   `runtime/views/external-literature-context.md` for coverage and collection
   suggestion work.
-
 ### Requirement: Split create runtime is gate-directed
+
+
+
+
+
+
+
+
+
+
+
+
 
 The generated topic synthesis split-skill packages SHALL support a real
 gate-directed create runtime path.
@@ -338,8 +482,19 @@ gate-directed create runtime path.
 
 - **WHEN** a generated package script is inspected
 - **THEN** it SHALL NOT import or read `skills_src`.
-
 ### Requirement: DETR create playbook is gate-truth
+
+
+
+
+
+
+
+
+
+
+
+
 
 The repository SHALL provide a DETR create topic synthesis playbook generated
 from an actual split-skill gate/runtime run.
@@ -373,4 +528,328 @@ from an actual split-skill gate/runtime run.
 - **THEN** it SHALL produce `result/final-output.candidate.json`
 - **AND** that output SHALL be `kind: "topic_synthesis"` for a create
   operation, not `topic_synthesis_handoff`.
+### Requirement: Split skill instructions omit audit and hash contracts
 
+
+
+
+
+
+
+
+
+
+
+
+
+Generated split topic synthesis skill instructions SHALL focus on executable
+stage order, payload authoring, and runtime-owned outputs.
+
+#### Scenario: Generated SKILL.md is inspected
+
+- **WHEN** any generated split topic synthesis `SKILL.md` is inspected
+- **THEN** it SHALL NOT instruct the agent to maintain artifact registries
+- **AND** it SHALL NOT require the agent to reason about payload hashes, content
+  hashes, audit reports, or action receipts.
+### Requirement: Split schemas omit runtime audit fields
+
+
+
+
+
+
+
+
+
+
+
+
+
+Split topic synthesis payload and output schemas SHALL not make audit metadata a
+business contract.
+
+#### Scenario: Generated schemas are inspected
+
+- **WHEN** generated split topic synthesis schemas are inspected
+- **THEN** final outputs SHALL NOT require `__SKILL_DONE__`
+- **AND** final outputs SHALL NOT require payload/file hash fields
+- **AND** `digest_ref.payload_hash` SHALL NOT be required.
+### Requirement: Split skill instructions expose only local stage inputs
+
+
+
+
+
+
+
+
+
+
+
+
+Generated split topic synthesis skills SHALL describe only the inputs and
+runtime files relevant to the current skill.
+
+#### Scenario: Context views are scoped to the consuming skill
+
+- **WHEN** split skill packages are rendered
+- **THEN** the core enrichment skill SHALL reference
+  `runtime/views/cross-paper-context.md`
+- **AND** it SHALL NOT reference
+  `runtime/views/external-literature-context.md`
+- **AND** the finalize skill SHALL reference
+  `runtime/views/external-literature-context.md`.
+
+#### Scenario: Prepare instructions describe runtime-owned context generation
+
+- **WHEN** prepare skill packages are rendered
+- **THEN** Stage 30 instructions SHALL explain that the runtime materializes
+  cross-paper context, external-literature context, a context manifest, and a
+  source evidence index after paper triage submit.
+### Requirement: Split skill instructions are current-state only
+
+
+
+
+
+
+
+
+
+
+
+Generated topic synthesis split skill instructions MUST describe the current
+`source_paper_refs` workflow without historical migration wording.
+
+#### Scenario: Core instructions name current reference field
+
+- **WHEN** the split skill suite is rendered
+- **THEN** the core enrichment skill explains that topic-level sections use
+  `source_paper_refs`
+- **AND** generated skill docs do not document historical evidence fields
+### Requirement: Split finalize runtime materializes source papers
+
+
+
+
+
+
+
+
+
+
+
+The split finalize runtime MUST materialize source paper metadata and preserve
+topic-section `source_paper_refs`.
+
+#### Scenario: Multiple source refs remain distinct
+
+- **WHEN** a core synthesis payload references different papers from different
+  topic-level rows
+- **THEN** the final sections keep those distinct `source_paper_refs`
+- **AND** final output includes `result/sections/source-papers.json`
+### Requirement: Stage 50 KG enrichment payload
+
+
+
+
+
+
+
+
+The split topic synthesis core enrichment skill SHALL use direction-explicit relation proposal types.
+
+#### Scenario: Existing topic proposal direction is explicit
+
+- **GIVEN** Stage 50 is ready for payload submission
+- **WHEN** the agent writes `existing_topic_relation_proposals`
+- **THEN** every relation type is interpreted from the current synthesis topic toward the target topic
+- **AND** `target_is_broader_topic_candidate` means the target topic is broader than the current topic
+- **AND** `target_is_narrower_topic_candidate` means the target topic is narrower than the current topic
+
+#### Scenario: Overlap is only for non-containing scopes
+
+- **GIVEN** the agent compares the current synthesis topic with a target topic
+- **WHEN** one topic clearly contains the other topic
+- **THEN** the Stage 50 instructions direct the agent to use a broader or narrower relation
+- **AND** `overlap_topic_candidate` is reserved for partially intersecting scopes where neither topic contains the other
+
+#### Scenario: Skill instructions are current-state only
+
+- **GIVEN** generated split skill instructions
+- **WHEN** the agent reads Stage 50 guidance
+- **THEN** the instructions describe only current relation types and commands
+- **AND** they do not include historical migration wording
+### Requirement: Split runtime gate validation
+
+
+
+
+
+
+
+
+
+The split topic synthesis runtime SHALL reject invalid stage payloads at the stage gate before advancing runtime state.
+
+#### Scenario: Schema keywords are enforced
+
+- **GIVEN** a stage payload schema declares nested required fields, enum values, min lengths, array item schemas, or numeric ranges
+- **WHEN** the agent submits a payload that violates those constraints
+- **THEN** the gate rejects the payload
+- **AND** the current stage is not marked complete
+
+#### Scenario: Runtime-source references are enforced
+
+- **GIVEN** a stage payload references resolved source papers
+- **WHEN** any `source_paper_refs` entry is empty or absent where required, or does not exist in the current workset
+- **THEN** the gate rejects the payload before finalization
+
+#### Scenario: Final apply requirements are checked at source stage
+
+- **GIVEN** Host apply requires complete taxonomy, claim, timeline, coverage, external, and summary fields
+- **WHEN** the corresponding stage payload omits those fields
+- **THEN** the stage submit fails before the final candidate is generated
+### Requirement: Core synthesis instructions
+
+
+
+
+
+
+
+The split topic synthesis core enrichment skill SHALL instruct the agent to preserve the user topic semantic boundary when the library workset is biased toward a subdomain.
+
+#### Scenario: Workset does not redefine topic scope
+
+- **GIVEN** the current topic definition describes a broad topic
+- **AND** the resolved workset mostly covers a narrower subdomain
+- **WHEN** the agent writes Stage 40 core synthesis
+- **THEN** the skill instructions require the agent to treat the workset as evidence coverage
+- **AND** the skill instructions require the agent to preserve the topic definition and scope boundary as the topic identity
+
+#### Scenario: Relation proposals use semantic topic scope
+
+- **GIVEN** the current topic has a broader semantic scope than the resolved papers suggest
+- **WHEN** the agent writes Stage 50 relation proposals
+- **THEN** the skill instructions require relation direction to be judged from the current topic semantic scope
+- **AND** the skill instructions do not let the dense library subdomain redefine the current topic
+
+#### Scenario: Coverage captures sample bias
+
+- **GIVEN** the workset under-covers important parts of the topic scope
+- **WHEN** the agent writes Stage 60 coverage and collection suggestions
+- **THEN** the skill instructions require that gap to be described as library coverage bias
+- **AND** collection suggestions identify missing topic directions
+### Requirement: Split skill payload examples
+
+
+
+
+
+
+Generated topic synthesis split skill instructions SHALL render payload examples that match the current stage gate contract.
+
+#### Scenario: Inline examples cover gate-required nested fields
+
+- **GIVEN** a generated `SKILL.md` renders an inline JSON example for a payload stage
+- **WHEN** the stage gate requires nested fields for final apply readiness
+- **THEN** the inline example includes those nested fields
+- **AND** the example is usable as a submit-ready structure sample, not merely a shallow payload shape
+
+#### Scenario: Schema examples are not shallow placeholders
+
+- **GIVEN** a payload schema includes `examples[0]`
+- **WHEN** that example is used as an agent-facing reference
+- **THEN** it satisfies the same stable nested field requirements represented by the stage schema
+
+#### Scenario: Guidance examples pass runtime gate
+
+- **GIVEN** the split runtime has a valid workset and upstream handoffs
+- **WHEN** guidance examples are submitted for Stage 40, Stage 60, and Stage 70
+- **THEN** the runtime gate accepts them without requiring additional deep-field repair
+### Requirement: Stage 30 paper triage execution
+
+
+
+
+
+Stage 30 paper triage instructions SHALL require the agent to perform paper-local LLM judgment from the provided paper artifacts instead of delegating triage to generated scripts.
+
+#### Scenario: Skill instruction exposes the hard rule
+
+- **GIVEN** a generated prepare skill `SKILL.md`
+- **WHEN** Stage 30 is rendered
+- **THEN** it includes a hard constraint that paper triage is written by LLM judgment after reading each paper artifact
+- **AND** it states that the agent must not generate or run scripts to batch-produce triage payload content
+
+#### Scenario: Gate instruction exposes the hard rule
+
+- **GIVEN** a prepare skill run is at `stage_30_prepare_analysis_context`
+- **WHEN** the agent runs `scripts/gate.py`
+- **THEN** the returned gate JSON includes Stage 30 hard rules with the same no-scripted-triage constraint
+
+#### Scenario: Skill instruction recommends bounded subagent delegation
+
+- **GIVEN** a generated prepare skill `SKILL.md`
+- **WHEN** Stage 30 is rendered
+- **THEN** it recommends subagent batching when available
+- **AND** it includes a delegation prompt that confines each subagent to assigned paper artifacts and per-paper assessment rows
+
+#### Scenario: Gate instruction exposes subagent delegation guidance
+
+- **GIVEN** a prepare skill run is at `stage_30_prepare_analysis_context`
+- **WHEN** the agent runs `scripts/gate.py`
+- **THEN** the returned gate JSON includes subagent delegation guidance for Stage 30
+### Requirement: Stage 30 paper artifact reads
+
+
+
+
+Stage 30 paper triage instructions SHALL point agents to the actual filtered artifact manifest and artifact files generated by the runtime resolver cascade.
+
+#### Scenario: Gate required reads match runtime output
+
+- **GIVEN** a prepare skill run has completed Stage 20
+- **WHEN** the agent runs gate for `stage_30_prepare_analysis_context`
+- **THEN** `required_reads` includes `runtime/payloads/paper-artifacts-manifest-batch-1.json`
+- **AND** `required_reads` includes `runtime/payloads/artifacts/`
+- **AND** it does not require `runtime/views/filtered-paper-artifacts/`
+
+#### Scenario: Skill instruction describes manifest-first artifact reading
+
+- **GIVEN** a generated prepare skill `SKILL.md`
+- **WHEN** Stage 30 is rendered
+- **THEN** it instructs the agent to read the paper artifact manifest first
+- **AND** it instructs the agent to follow each paper artifact `content_file` path for digest, references, and citation-analysis
+### Requirement: Core synthesis payload
+
+
+
+Stage 40 core synthesis SHALL author review-writing strategies and SHALL NOT
+author a top-level `positioning` payload field.
+
+#### Scenario: Stage 40 current payload shape
+
+- **WHEN** the core enrichment skill renders Stage 40 instructions and schema
+- **THEN** the payload requires `review_outline`
+- **AND** the payload does not include `positioning`
+- **AND** `review_outline.writing_strategies[]` requires `id`, `title`,
+  `review_thesis`, `writing_strategy`, `section_plan`, `best_for`, `risks`,
+  and `source_paper_refs`
+- **AND** `recommended_strategy_id` must match a strategy id
+### Requirement: Finalize coverage payload
+
+
+Stage 60 coverage payload SHALL author the current coverage fields directly and
+SHALL NOT include duplicated reliability or derived coverage summary fields.
+
+#### Scenario: Stage 60 minimal current payload
+
+- **WHEN** the finalize skill renders Stage 60 instructions and schema
+- **THEN** the payload requires `coverage_verdict`, `coverage_reason`,
+  `coverage_caveats`, `external_context_summary`, and
+  `suggested_collection_directions`
+- **AND** the payload does not include `reliability_summary`
+- **AND** the instructions describe `external_context_summary` as the direct
+  external coverage summary

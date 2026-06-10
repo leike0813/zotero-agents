@@ -183,6 +183,20 @@ describe("plugin skill registry", function () {
     assert.match(registry.entriesById["user-demo"].checksum, /^sha256:/);
   });
 
+  it("discovers the Host Bridge CLI wrapper as a valid built-in skill", async function () {
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const entry = registry.entriesById["zotero-bridge-cli"];
+
+    assert.isOk(entry);
+    assert.equal(entry.sourceKind, "builtin");
+    assert.include(
+      entry.sourceDir.replace(/\\/g, "/"),
+      "skills_builtin/zotero-bridge-cli",
+    );
+    assert.include(entry.description, "Host Bridge CLI");
+    assert.match(entry.checksum, /^sha256:/);
+  });
+
   it("hides debug-only skills when debug mode is disabled", async function () {
     const builtinRoot = path.join(tempRoot, "skills_builtin");
     const userRoot = path.join(tempRoot, "skills");

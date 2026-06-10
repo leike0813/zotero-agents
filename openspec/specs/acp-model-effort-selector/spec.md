@@ -5,6 +5,7 @@ TBD - created by archiving change split-acp-model-reasoning-effort-selector. Upd
 ## Requirements
 ### Requirement: Model variants SHALL be folded into display model and effort selectors
 
+
 When raw ACP model options contain multiple recognized effort variants for the same base model, the ACP chat frontend SHALL show one display model option and a separate reasoning effort selector.
 
 #### Scenario: Recognized suffix variants are folded
@@ -20,31 +21,24 @@ When raw ACP model options contain multiple recognized effort variants for the s
 - **WHEN** the ACP snapshot is projected for the sidebar
 - **THEN** the display model selector SHALL show the raw models
 - **AND** the reasoning selector SHALL be hidden or unavailable
-
 ### Requirement: Frontend selections SHALL map back to raw ACP model IDs
 
-Changing display model or reasoning effort SHALL call existing ACP `session/set_model` with the matching raw `modelId`.
 
-#### Scenario: Changing effort maps to variant model ID
+Changing display model or reasoning effort SHALL apply the matching ACP model or
+configuration value through the control mechanism advertised by the active ACP
+session.
 
-- **GIVEN** the current raw model is `gpt-5@high`
-- **WHEN** the user selects reasoning effort `medium`
-- **THEN** the ACP adapter SHALL receive `setModel` with `modelId="gpt-5@medium"`
+#### Scenario: Changing effort maps to advertised config option
 
-#### Scenario: Changing model preserves effort when possible
+- **GIVEN** the active ACP session advertises a `thought_level` config option
+- **WHEN** the user selects a reasoning effort
+- **THEN** the ACP adapter SHALL call `session/set_config_option` with the
+  thought-level config id and selected value.
 
-- **GIVEN** the current effort is `high`
-- **WHEN** the user selects a display model that supports `high`
-- **THEN** the ACP adapter SHALL receive that model's `high` variant
-- **WHEN** the selected display model does not support `high`
-- **THEN** the ACP adapter SHALL fall back to `default` or the first available variant
+#### Scenario: Legacy model variant mapping remains available
 
-### Requirement: The ACP protocol surface SHALL remain unchanged
-
-This feature SHALL NOT require ACP `configOptions`, `thought_level`, or `session/set_config_option`.
-
-#### Scenario: Existing model control remains the wire-level mechanism
-
-- **WHEN** the user changes model or reasoning effort
-- **THEN** the frontend SHALL use the existing `session/set_model` adapter path
-
+- **GIVEN** the active ACP session does not advertise a model or thought-level
+  config option
+- **WHEN** the user changes display model or reasoning effort
+- **THEN** the frontend SHALL map the selection to a raw ACP model id and use
+  the existing model control path.

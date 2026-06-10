@@ -8,7 +8,8 @@ import type { CitationGraph } from "../../src/modules/synthesis/citationGraph";
 const graph: CitationGraph = {
   schema_id: "synthesis.unified_citation_graph",
   schema_version: "1.0.0",
-  graph_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  graph_hash:
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   nodes: [
     {
       node_id: "zotero:item:A",
@@ -82,10 +83,14 @@ describe("Synthesis review input workflow DTO", function () {
         structured_topic: {
           artifact: {
             schema_id: "synthesis.topic_synthesis_artifact",
-            claims: [{ id: "claim-1", text: "Alpha claim", evidence_refs: ["ev-a"] }],
+            claims: [
+              { id: "claim-1", text: "Alpha claim", evidence_refs: ["ev-a"] },
+            ],
             timeline_events: {
               summary: { text: "Alpha timeline summary." },
-              events: [{ id: "event-1", year: "2024", evidence_refs: ["ev-a"] }],
+              events: [
+                { id: "event-1", year: "2024", evidence_refs: ["ev-a"] },
+              ],
             },
             paper_evidence: [
               {
@@ -99,7 +104,13 @@ describe("Synthesis review input workflow DTO", function () {
             ],
             external_literature_analysis: { summary: "External context." },
             coverage: { status: "partial" },
-            gaps: [{ id: "gap-1", description: "Gap." }],
+            future_directions: [
+              {
+                id: "future-1",
+                title: "Future direction.",
+                source_paper_refs: ["1:A"],
+              },
+            ],
           },
           manifest: { schema_id: "synthesis.topic_analysis_manifest" },
           metadata: { artifact_hash: "sha256:topic" },
@@ -149,11 +160,15 @@ describe("Synthesis review input workflow DTO", function () {
       ["claim-1"],
     );
     assert.deepEqual(
-      (input.structured_topic?.timeline_events as any).events.map((event: any) => event.id),
+      (input.structured_topic?.timeline_events as any).events.map(
+        (event: any) => event.id,
+      ),
       ["event-1"],
     );
     assert.deepEqual(
-      input.structured_topic?.paper_evidence.map((evidence: any) => evidence.id),
+      input.structured_topic?.paper_evidence.map(
+        (evidence: any) => evidence.id,
+      ),
       ["ev-a"],
     );
     assert.equal(
@@ -162,10 +177,15 @@ describe("Synthesis review input workflow DTO", function () {
     );
     assert.equal((input.structured_topic?.coverage as any).status, "partial");
     assert.deepEqual(
-      input.structured_topic?.gaps.map((gap: any) => gap.id),
-      ["gap-1"],
+      input.structured_topic?.future_directions.map(
+        (direction: any) => direction.id,
+      ),
+      ["future-1"],
     );
-    assert.notInclude(JSON.stringify(input.structured_topic), "digest_markdown");
+    assert.notInclude(
+      JSON.stringify(input.structured_topic),
+      "digest_markdown",
+    );
   });
 
   it("reports missing artifacts as diagnostics without blocking DTO construction", function () {
@@ -220,7 +240,10 @@ describe("Synthesis review input workflow DTO", function () {
     assert.notProperty(input as any, "method_lineage_graph");
     assert.notProperty(input as any, "claim_conflict_graph");
     assert.notProperty(input as any, "research_gap_graph");
-    assert.notProperty(input.citation_graph_slice as any, "method_lineage_graph");
+    assert.notProperty(
+      input.citation_graph_slice as any,
+      "method_lineage_graph",
+    );
   });
 
   it("projects citation graph slices for resolved library papers", function () {

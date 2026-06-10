@@ -45,6 +45,10 @@ describe("MCP Host Bridge capability mirror", function () {
     assert.include(names, "context.get_current_view");
     assert.include(names, "library.get_item_detail");
     assert.include(names, "diagnostic.get_status");
+    assert.include(names, "topics.list");
+    assert.include(names, "topics.get_report");
+    assert.include(names, "citation_graph.rank_external_references");
+    assert.notInclude(names, "synthesis.list_topics");
     assert.notInclude(names, "get_current_view");
     assert.notInclude(names, "get_item_detail");
   });

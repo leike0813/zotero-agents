@@ -10,7 +10,10 @@ import {
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
-async function createWorkflowRoot(args: { id: string; applyResultBody: string }) {
+async function createWorkflowRoot(args: {
+  id: string;
+  applyResultBody: string;
+}) {
   const root = await mkTempDir(`zotero-skills-log-instrumentation-${args.id}`);
   const workflowRoot = joinPath(root, args.id);
   await writeUtf8(
@@ -77,12 +80,13 @@ describe("workflow runtime log instrumentation", function () {
       itemType: "journalArticle",
       fields: { title: "Log Instrument Success Parent" },
     });
-    const alerts: string[] = [];
     const win = {
       ZoteroPane: {
         getSelectedItems: () => [parent],
       },
-      alert: (message: string) => alerts.push(message),
+      alert: (message: string) => {
+        throw new Error(`unexpected modal alert: ${message}`);
+      },
     } as unknown as _ZoteroTypes.MainWindow;
 
     await executeWorkflowFromCurrentSelection({
@@ -90,7 +94,6 @@ describe("workflow runtime log instrumentation", function () {
       workflow: workflow!,
     });
 
-    assert.lengthOf(alerts, 1);
     const stages = new Set(
       listRuntimeLogs({
         workflowId: workflow!.manifest.id,
@@ -116,7 +119,11 @@ describe("workflow runtime log instrumentation", function () {
     assert.isTrue(providerStages.has("provider-dispatch-succeeded"));
     assert.isTrue(providerStages.has("provider-execute-start"));
     assert.isTrue(providerStages.has("provider-execute-succeeded"));
-    assert.isTrue(providerEntries.every((entry) => String(entry.providerId || "").trim().length > 0));
+    assert.isTrue(
+      providerEntries.every(
+        (entry) => String(entry.providerId || "").trim().length > 0,
+      ),
+    );
   });
 
   it("records normalized apply failure logs", async function () {
@@ -139,12 +146,13 @@ describe("workflow runtime log instrumentation", function () {
       itemType: "journalArticle",
       fields: { title: "Log Instrument Failed Parent" },
     });
-    const alerts: string[] = [];
     const win = {
       ZoteroPane: {
         getSelectedItems: () => [parent],
       },
-      alert: (message: string) => alerts.push(message),
+      alert: (message: string) => {
+        throw new Error(`unexpected modal alert: ${message}`);
+      },
     } as unknown as _ZoteroTypes.MainWindow;
 
     await executeWorkflowFromCurrentSelection({
@@ -152,8 +160,6 @@ describe("workflow runtime log instrumentation", function () {
       workflow: workflow!,
     });
 
-    assert.lengthOf(alerts, 1);
-    assert.include(alerts[0], "failed=1");
     const entries = listRuntimeLogs({
       workflowId: workflow!.manifest.id,
     });

@@ -1,0 +1,153 @@
+[1] LECUN Y，BOTTOU L.Gradient-based learning applied todocument recognition[J].Proceedings of the IEEE，1998，86（11）：2278-2324.
+
+[2] 周飞燕，金林鹏，董军.卷积神经网络研究综述[J].计算机学报，2017，40（6）：1229-1251.ZHOU F Y，JIN L P，DONG J.Review of convolutionalneural networks[J].Chinese Journal of Computers，2017，40（6）：1229-1251.
+
+[3] GOODFELLOW I J，POUGET-ABADIE J，MIRZA M，et al. Generative adversarial networks[J].Advances in Neural Information Processing Systems，2014，3：2672-2680.
+
+[4] VASWANI A，SHAZEER N，PARMAR N，et al.Attention is all you need[C]//Advances in Neural Information Processing Systems，2017：5998-6008.
+
+[5] PARMAR N，VASWANI A，USZKOREIT J，et al.Imagetransformer[C]//International Conference on Machine Learn-ing，2018：4055-4064.
+
+[6] CARION N，MASSA F，SYNNAEVE G，et al.End-to-end object detection with transformers[C]//European Conference on Computer Vision.Cham：Springer，2020：213-229.
+
+[7] CHEN M，RADFORD A，CHILD R，et al.Generative pretraining from pixels[C]//International Conference on Machine Learning，2020：1691-1703.
+
+[8] DOSOVITSKIY A，BEYER L，KOLESNIKOV A，et al.An image is worth 16×16 words：transformers for image recognition at scale[J].arXiv：2010.11929，2020.
+
+[9] ESSER P，ROMBACH R，OMMER B.Taming transform-ers for high- resolution image synthesis[C]//Proceedings ofthe IEEE/CVF Conference on Computer Vision and Pat-tern Recognition，2021：12873-12883.
+
+[10] RADFORD A，WU J，CHILD R，et al.Language modelsare unsupervised multitask learners[J].OpenAI Blog，2019，1（8）：9.
+
+[11] TSAI Y H，BAI S，LIANG P.Multimodal transformer for unaligned multimodal language sequences[J].arXiv：1906. 00295，2019.
+
+[12] 杨丽，吴雨茜，王俊丽.循环神经网络研究综述[J].计算机应用，2018，38（S2）：1-6.YANG L，WU Y Q，WANG J L.Research on recurrentneural network[J].Journal of Computer Applications，2018，38（S2）：1-6.
+
+[13] 任欢，王旭光.注意力机制综述[J].计算机应用，2021，41（S1）：1-6.
+
+REN H，WANG X G.Review of attention mechanism[J].Journal of Computer Applications，2021，41（S1）：1-6.
+
+[14] 刘金花.基于主动半监督极限学习机多类图像分类方法 研究[D].南京：东南大学，2016. LIU J H.Active and semi- supervised learning based on ELM for multi-class image classification[D].Nanjing：Southeast University，2016.
+
+[15] 王红，史金钏，张志伟.基于注意力机制的LSTM的语义关系抽取[J]. 计算机应用研究，2018，35（5）：1417-1420.WANG H，SHI J C，ZHANG Z W.Text semantic relationextraction of LSTM based on attention mechanism[J].Application Research of Computers，2018，35（5）：1417-1420.
+
+[16] 唐海桃，薛嘉宾，韩纪庆.一种多尺度前向注意力模型的语音识别方法[J]. 电子学报，2020，48（7）：1255-1260.TANG H T，XUE J B，HAN J Q.A method of multi-scale forward attention model for speech recognition[J].Acta Electronica Sinica，2020，48（7）：1255-1260.
+
+[17] WANG W，SHEN J，YU Y，et al.Stereoscopic thumbnail creation via efficient stereo saliency detection[J].IEEE Transactions on Visualization and Computer Graphics， 2016，23（8）：2014-2027.
+
+[18] LIN Z，FENG M，SANTOS C N，et al.A structured selfattentive sentence embedding[C]//Proceedings of the International Conference on Learning Representations，Toulon， France，2017.
+
+[19] HAN K，WANG Y，CHEN H，et al.A survey on visualtransformer[J].arXiv：2012.12556，2020.
+
+[20] KHAN S，NASEER M，HAYAT M，et al.Transformers invision：a survey[J].arXiv：2101.01169，2021.
+
+[21] HAN K，XIAO A，WU E，et al.Transformer in transformer[J].arXiv：2103.00112，2021.
+
+[22] YUAN L，CHEN Y，WANG T，et al.Tokens-to-token vit： training vision transformers from scratch on imagenet[J]. arXiv：2101.11986，2021.
+
+[23] JIANG Z，HOU Q，YUAN L，et al.Token labeling：training a 85.5% top-1 accuracy vision transformer with 56 m parameters on imagenet[J].arXiv：2104.10858，2021.
+
+[24] ZHOU D，KANG B，JIN X，et al.Deepvit：towards deepervision transformer[J].arXiv：2103.11886，2021.
+
+[25] ZHU X，SU W，LU L，et al.Deformable DETR：deformable transformers for end-to-end object detection[J].arXiv： 2010.04159，2020.
+
+[26] SUN Z，CAO S，YANG Y.Rethinking transformer-based set prediction for object detection[J].arXiv：2011.10881，2020.
+
+[27] DAI Z，CAI B，LIN Y，et al.UP-DETR：unsupervised pretraining for object detection with transformers[J].arXiv： 2011.09094，2020.
+
+[28] ZHENG M，GAO P，WANG X，et al.End-to-end object detection with adaptive clustering transformer[J].arXiv： 2011.09315，2020.
+
+[29] ZHENG S，LU J，ZHAO H，et al.Rethinking semantic segmentation from a sequence-to-sequence perspective with
+
+transformers[J].arXiv：2012.15840，2020.
+
+[30] STRUDEL R，GARCIA R，LAPTEV I，et al.Segmenter：transformer for semantic segmentation[J].arXiv：2105.05633，2021.
+
+[31] XIE E，WANG W，YU Z，et al.SegFormer：simple and efficient design for semantic segmentation with transformers[J].arXiv：2105.15203，2021.
+
+[32] WANG H，ZHU Y，ADAM H，et al.MaX-DeepLab：endto-end panoptic segmentation with mask transformers[J]. arXiv：2012.00759，2020.
+
+[33] WANG Y，XU Z，WANG X，et al.End-to-end video instance segmentation with transformers[J].arXiv：2011.14503，2020.
+
+[34] MA F，SUN B，LI S.Robust facial expression recognition with convolutional visual transformers[J].arXiv：2103. 16854，2021.
+
+[35] ZHENG C，ZHU S，MENDIETA M，et al.3d human pose estimation with spatial and temporal transformers[J].arXiv： 2103.10455，2021.
+
+[36] HE S，LUO H，WANG P，et al.TransReID：transformerbased object re-identification[J].arXiv：2102.04378，2021.
+
+[37] LIU R，YUAN Z，LIU T，et al.End-to-end lane shape prediction with transformers[C]//Proceedings of the IEEE/ CVF Winter Conference on Applications of Computer Vision，2021：3694-3702.
+
+[38] CHEN H，WANG Y，GUO T，et al.Pre-trained image processing transformer[J].arXiv：2012.00364，2020.
+
+[39] YANG F，YANG H，FU J，et al.Learning texture transformer network for image super- resolution[C]//Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition，2020：5791-5800.
+
+[40] JIANG Y，CHANG S，WANG Z.Transgan：two transform-ers can make one strong gan[J].arXiv：2102.07074，2021.
+
+[41] CHEN Y，CAO Y，HU H，et al.Memory enhanced globallocal aggregation for video object detection[C]//Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition，2020：10337-10346.
+
+[42] ZENG Y，FU J，CHAO H.Learning joint spatial-temporal transformations for video inpainting[C]//European Conference on Computer Vision.Cham：Springer，2020：528-543.
+
+[43] BERTASIUS G，WANG H，TORRESANI L.Is space-time attention all you need for video understanding?[J].arXiv： 2102.05095，2021.
+
+[44] LIU Z，LUO S，LI W，et al.ConvTransformer：a convolu-tional transformer network for video frame synthesis[J].arXiv：2011.10185，2020.
+
+[45] DEVLIN J，CHANG M W，LEE K，et al.Bert：pre-training of deep bidirectional transformers for language understanding[J].arXiv：1810.04805，2018.
+
+[46] ZAGORUYKO S，KOMODAKIS N.Wide residual networks[C]//British Machine Vision Conference，2016.
+
+[47] TAN M，LE Q.Efficientnet：rethinking model scaling for convolutional neural networks[C]//International Confer-
+
+ence on Machine Learning，2019：6105-6114.
+
+[48] KOLESNIKOV A，BEYER L，ZHAI X，et al.Big transfer（bit）：general visual representation learning[C]//16th Euro-pean Conference on Computer Vision（ECCV 2020），Glasgow，UK，August 23-28，2020：491-507.
+
+[49] HE K，ZHANG X，REN S，et al.Deep residual learning for image recognition[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition， 2016：770-778.
+
+[50] HOWARD A G，ZHU M，CHEN B.Mobilenets：efficient convolutional neural networks for mobile vision applications[J].arXiv：1704.04861，2017.
+
+[51] SANDLER M，HOWARD A，ZHU M，et al.Mobilenetv2： inverted residuals and linear bottlenecks[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition，2018：4510-4520.
+
+[52] YUN S，OH S J，HEO B.Re- labeling imagenet：from single to multi-labels，from global to localized labels[C]// Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition，2021：2340-2350.
+
+[53] GIRSHICK R，DONAHUE J，DARRELL T，et al.Rich feature hierarchies for accurate object detection and semantic segmentation[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition，2014：580-587.
+
+[54] REDMON J，DIVVALA S，GIRSHICK R，et al.You only look once：unified，real-time object detection[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition，2016：779-788.
+
+[55] 李彦冬.基于卷积神经网络的计算机视觉关键技术研究[D].成都：电子科技大学，2017.LI Y D.Convolutional neural networks based researchon image understanding[D].Chengdu：University of Elec-tronic Science and Technology of China，2017.
+
+[56] DAI J，QI H，XIONG Y，et al.Deformable convolutional networks[C]//Proceedings of the IEEE International Conference on Computer Vision，2017：764-773.
+
+[57] LIN T Y，DOLLÁR P，GIRSHICK R，et al.Feature pyramid networks for object detection[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition，2017：2117-2125.
+
+[58] TIAN Z，SHEN C，CHEN H，et al.Fcos：fully convolutional onestage object detection[C]//Proceedings of the IEEE/CVF International Conference on Computer Vision， 2019：9627-9636.
+
+[59] CHEN Y，WANG Z，PENG Y，et al.Cascaded pyramid network for multi- person pose estimation[C]//Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition，2018：7103-7112.
+
+[60] DING X，GUO Y，DING G，et al.ACNet：strengthening the kernel skeletons for powerful CNN via asymmetric convolution blocks[C]//Proceedings of the IEEE/CVF International Conference on Computer Vision，2019：1911-1920.
+
+[61] YANG L，FAN Y，XU N.Video instance segmentation[C]//Proceedings of the IEEE/CVF International Conferenceon Computer Vision，2019：5188-5197.
+
+[62] WANG K，PENG X，YANG J，et al.Suppressing uncertainties for large-scale facial expression recognition[C]// Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition，2020：6897-6906.
+
+[63] LIN K，WANG L，LIU Z.End-to-end human pose andmesh reconstruction with transformers[C]//Proceedings ofthe IEEE/CVF Conference on Computer Vision and Pat-tern Recognition，2021：1954-1963.
+
+[64] HAO L.Bags of tricks and a strong baseline for deep person re- identification[C]//2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops （CVPRW），2019.
+
+[65] CHEN T，DING S，XIE J，et al.Abd- net：attentive but diverse person re- identification[C]//Proceedings of the IEEE/CVF International Conference on Computer Vision， 2019：8351-8361.
+
+[66] MIAO J，WU Y，LIU P，et al.Pose-guided feature alignment for occluded person re- identification[C]//Proceedings of the IEEE/CVF International Conference on Computer Vision，2019：542-551.
+
+[67] KHORRAMSHAHI P，PERI N，CHEN J，et al.The devil is in the details：self-supervised attention for vehicle reidentification[C]//European Conference on Computer Vision. Cham：Springer，2020：369-386.
+
+[68] TABELINI L，BERRIEL R，PAIXAO T M，et al.Polylanenet：lane estimation via deep polynomial regression[C]//202025th International Conference on Pattern Recognition（ICPR），2021：6150-6156.
+
+[69] LI X，LI J，HU X，et al.Line- CNN：end- to- end traffic line detection with line proposal unit[J].IEEE Transactions on Intelligent Transportation Systems，2019，21（1）： 248-258.
+
+[70] GOODFELLOW I J，POUGET-ABADIE J，MIRZA M， et al.Generative adversarial networks[J].Advances in Neural Information Processing Systems，2014，3：2672-2680.
+
+[71] KARRAS T，LAINE S，AITTALA M，et al.Analyzing and improving the image quality of stylegan[C]//Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition，2020：8110-8119.
+
+[72] FEICHTENHOFER C，FAN H，MALIK J，et al.Slowfast networks for video recognition[C]//Proceedings of the IEEE/CVF International Conference on Computer Vision， 2019：6202-6211.
+
+[73] LIU Z，YEH R A，TANG X，et al.Video frame synthesis using deep voxel flow[C]//Proceedings of the IEEE International Conference on Computer Vision，2017：4463-4471.
+
+[74] VILLEGAS R，YANG J，HONG S，et al.Decomposing motion and content for natural video sequence prediction[J].arXiv：1706.08033，2017.

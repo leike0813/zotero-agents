@@ -1589,9 +1589,6 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
     currentMetadata: topicId
       ? joinPath(topicRoot, "current", "metadata.json")
       : "",
-    currentExportMarkdown: topicId
-      ? joinPath(topicRoot, "current", "export.md")
-      : "",
     currentSectionsRoot: topicId
       ? joinPath(topicRoot, "current", "sections")
       : "",
@@ -1668,8 +1665,5 @@ function resolveSynthesisPersistenceRoot(root: string) {
 
 export function resolveSynthesisRuntimeFileRoot(root: string) {
   const persistenceRoot = resolveSynthesisPersistenceRoot(root);
-  return joinPath(
-    getRuntimePersistencePaths(persistenceRoot).runtimeRoot,
-    "synthesis",
-  );
+  return getRuntimePersistencePaths(persistenceRoot).synthesisDataRoot;
 }

@@ -34,10 +34,10 @@ import {
   ZOTERO_MCP_TOOL_PREPARE_PAPER_READING_CONTEXT,
   ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
   ZOTERO_MCP_TOOL_SEARCH_ITEMS,
-  ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
-  ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
-  ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
-  ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+  ZOTERO_MCP_TOOL_LIBRARY_INDEX_GET,
+  ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED,
+  ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
+  ZOTERO_MCP_TOOL_TOPICS_LIST,
   ZOTERO_MCP_TOOL_UPDATE_MARKDOWN_NOTE,
 } from "../../src/modules/zoteroMcpProtocol";
 
@@ -2701,19 +2701,19 @@ describe("embedded Zotero MCP server protocol", function () {
     );
     assert.include(
       JSON.stringify(finished?.details || {}),
-      ZOTERO_MCP_TOOL_SYNTHESIS_LIST_TOPICS,
+      ZOTERO_MCP_TOOL_TOPICS_LIST,
     );
     assert.include(
       JSON.stringify(finished?.details || {}),
-      ZOTERO_MCP_TOOL_SYNTHESIS_GET_LIBRARY_INDEX,
+      ZOTERO_MCP_TOOL_LIBRARY_INDEX_GET,
     );
     assert.include(
       JSON.stringify(finished?.details || {}),
-      ZOTERO_MCP_TOOL_SYNTHESIS_RESOLVE_RESOLVER,
+      ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
     );
     assert.include(
       JSON.stringify(finished?.details || {}),
-      ZOTERO_MCP_TOOL_SYNTHESIS_EXPORT_FILTERED_PAPER_ARTIFACTS,
+      ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED,
     );
     assert.match(JSON.stringify(finished?.details || {}), /"responseBytes":\d+/);
     assert.match(JSON.stringify(finished?.details || {}), /"contentLength":\d+/);

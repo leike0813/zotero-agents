@@ -113,8 +113,8 @@ describe("Manuscript Literature Framing workflow contract", function () {
     const prompt = runner.entrypoint?.prompts?.common || "";
 
     for (const text of [skill, prompt]) {
-      assert.include(text, "synthesis.list_topics");
-      assert.include(text, "synthesis.get_review_input");
+      assert.include(text, "topics.list");
+      assert.include(text, "topics.get_review_input");
       assert.include(text, "prepare_paper_reading_context");
       assert.include(text, "manuscript intent");
       assert.include(text, "material");

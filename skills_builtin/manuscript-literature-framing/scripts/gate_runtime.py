@@ -85,10 +85,10 @@ def build_gate(state_path: str) -> dict:
             action="persist_material_plan",
             payload="material-plan",
             note=(
-                "Call synthesis.list_topics, optionally inspect Zotero coverage, then write a material "
+                "Call topics.list, optionally inspect Zotero coverage, then write a material "
                 "collection plan with 1-5 topic recommendations and rationale."
             ),
-            required_reads=["synthesis.list_topics", "list_library_items", "search_items"],
+            required_reads=["topics.list", "list_library_items", "search_items"],
         )
     if not state.get("material_scope_confirmed"):
         return next_step(
@@ -106,15 +106,15 @@ def build_gate(state_path: str) -> dict:
             action="persist_evidence_inventory",
             payload="evidence-inventory",
             note=(
-                "For confirmed topics call synthesis.get_review_input. Use registry, graph, digest, "
+                "For confirmed topics call topics.get_review_input. Use registry, graph, digest, "
                 "and Zotero item tools only to fill citekeys, inspect core evidence, or resolve ambiguity."
             ),
             required_reads=[
-                "synthesis.get_review_input",
-                "synthesis.get_reference_sidecar_index",
-                "synthesis.get_citation_graph_metrics",
-                "synthesis.get_citation_graph_slice",
-                "synthesis.resolve_topic_paper_digest",
+                "topics.get_review_input",
+                "reference_index.get",
+                "citation_graph.get_metrics",
+                "citation_graph.get_slice",
+                "paper_artifacts.resolve_topic_digest",
                 "get_item_detail",
                 "prepare_paper_reading_context",
             ],

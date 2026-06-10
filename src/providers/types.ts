@@ -13,6 +13,15 @@ export type ProviderProgressEvent =
       [key: string]: unknown;
     };
 
+export type ProviderOrchestrationContext = {
+  workflowId?: string;
+  workflowLabel?: string;
+  workflowRunId?: string;
+  jobId?: string;
+  sequenceStepId?: string;
+  finalStepId?: string;
+};
+
 export type ProviderSupportsArgs = {
   requestKind: string;
   backend: BackendInstance;
@@ -24,6 +33,7 @@ export type ProviderExecuteArgs = {
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
   onProgress?: (event: ProviderProgressEvent) => void;
+  orchestrationContext?: ProviderOrchestrationContext;
 };
 
 export type ProviderRuntimeOptionType = "string" | "number" | "boolean";

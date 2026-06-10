@@ -11,8 +11,11 @@ import {
   assertRequestKindProviderCompatible,
 } from "./requestContracts";
 import { SkillRunnerProvider } from "./skillrunner/provider";
-import type { ProviderProgressEvent } from "./types";
-import type { Provider } from "./types";
+import type {
+  Provider,
+  ProviderOrchestrationContext,
+  ProviderProgressEvent,
+} from "./types";
 
 const providers: Provider[] = [
   new SkillRunnerProvider(),
@@ -22,7 +25,9 @@ const providers: Provider[] = [
 ];
 
 export function registerProvider(provider: Provider) {
-  const existingIndex = providers.findIndex((entry) => entry.id === provider.id);
+  const existingIndex = providers.findIndex(
+    (entry) => entry.id === provider.id,
+  );
   if (existingIndex >= 0) {
     providers.splice(existingIndex, 1, provider);
     return;
@@ -141,6 +146,7 @@ export async function executeWithProvider(args: {
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
   onProgress?: (event: ProviderProgressEvent) => void;
+  orchestrationContext?: ProviderOrchestrationContext;
 }): Promise<ProviderExecutionResult> {
   const provider = resolveProvider(args);
   assertProviderRequestDispatchContract({

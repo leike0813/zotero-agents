@@ -901,7 +901,37 @@ function bytesToBinaryString(bytes: Uint8Array) {
 }
 
 function headerSafeFilename(filename: string) {
-  return String(filename || "download.bin").replace(/["\r\n]/g, "_");
+  return String(filename || "download.bin").replace(
+    /["\r\n\u0000-\u001f\u007f]/g,
+    "_",
+  );
+}
+
+function asciiContentDispositionFilename(filename: string) {
+  const safe = headerSafeFilename(filename);
+  const ascii = safe.replace(/[^\x20-\x7e]/g, "_").trim();
+  const extension = safe.match(/(\.[A-Za-z0-9]{1,16})$/)?.[1] || ".bin";
+  const stem = ascii.replace(/(\.[A-Za-z0-9]{1,16})$/, "");
+  if (/[A-Za-z0-9]/.test(stem)) {
+    return ascii || `download${extension}`;
+  }
+  return `download${extension}`;
+}
+
+function encodeContentDispositionFilename(filename: string) {
+  const safe = headerSafeFilename(filename);
+  return encodeURIComponent(safe)
+    .replace(
+      /['()]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+    )
+    .replace(/\*/g, "%2A");
+}
+
+function contentDispositionHeader(filename: string) {
+  const fallback = asciiContentDispositionFilename(filename);
+  const encoded = encodeContentDispositionFilename(filename || fallback);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 function buildFileHttpResponse(args: {
@@ -915,7 +945,7 @@ function buildFileHttpResponse(args: {
       "HTTP/1.1 200 OK",
       `Content-Type: ${args.contentType || "application/octet-stream"}`,
       `Content-Length: ${args.bytes.byteLength}`,
-      `Content-Disposition: attachment; filename="${headerSafeFilename(args.filename)}"`,
+      `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
       "Connection: close",
       "",
       bodyText,

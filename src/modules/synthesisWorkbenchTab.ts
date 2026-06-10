@@ -1,10 +1,11 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
-import { resolveAddonRef } from "../utils/runtimeBridge";
+import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { getDefaultSynthesisService } from "./synthesis/service";
+import { writeRuntimeTextFile } from "./runtimePersistence";
 import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
@@ -31,7 +32,6 @@ type SynthesisBridgeMessageType =
   | "synthesis:chrome"
   | "synthesis:surface"
   | "synthesis:surface-error"
-  | "synthesis:artifact"
   | "synthesis:topic-detail"
   | "synthesis:digest";
 
@@ -39,15 +39,6 @@ type SynthesisWorkbenchActionEnvelope = {
   type: "synthesis:action";
   action: string;
   payload?: Record<string, unknown>;
-};
-
-type SynthesisArtifactReaderDto = {
-  topicId: string;
-  title: string;
-  markdown: string;
-  metadata: Record<string, unknown>;
-  hash?: string;
-  updated_at?: string;
 };
 
 type SynthesisTopicDetailDto = Record<string, unknown>;
@@ -66,6 +57,18 @@ type ZoteroTabs = {
   };
   select?: (id: string) => unknown;
   close?: (id: string) => unknown;
+};
+
+type ToolkitFilePickerCtor = new (
+  title: string,
+  mode: string,
+  filters: [string, string][],
+  suggestion: string,
+  window: Window | undefined,
+  filterMask?: string,
+  directory?: string,
+) => {
+  open: () => Promise<unknown> | unknown;
 };
 
 const SYNTHESIS_WORKBENCH_BRIDGE_KEY = "__zoteroSkillsSynthesisWorkbenchBridge";
@@ -257,39 +260,6 @@ function clearSynthesisWorkbenchBridge(runtime: SynthesisWorkbenchRuntime) {
   writeSynthesisWorkbenchBridgeTarget(wrappedTarget, undefined);
 }
 
-function openPathInSystem(pathValue: string, label: string) {
-  const normalizedPath = String(pathValue || "").trim();
-  if (!normalizedPath) {
-    throw new Error(`${label} path is empty`);
-  }
-  const pathToFile = (globalThis as any).Zotero?.File?.pathToFile;
-  if (typeof pathToFile !== "function") {
-    throw new Error("Zotero.File.pathToFile is unavailable");
-  }
-  const file = pathToFile(normalizedPath) as
-    | {
-        exists?: () => boolean;
-        launch?: () => unknown;
-        reveal?: () => unknown;
-      }
-    | undefined;
-  if (!file) {
-    throw new Error(`failed to resolve ${label} path: ${normalizedPath}`);
-  }
-  if (typeof file.exists === "function" && !file.exists()) {
-    throw new Error(`${label} path does not exist: ${normalizedPath}`);
-  }
-  if (typeof file.reveal === "function") {
-    file.reveal();
-    return;
-  }
-  if (typeof file.launch === "function") {
-    file.launch();
-    return;
-  }
-  throw new Error("nsIFile launch/reveal is unavailable");
-}
-
 function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
   const libraryId = Number(
     (globalThis as any).Zotero?.Libraries?.userLibraryID || 1,
@@ -446,7 +416,9 @@ export function notifySynthesisWorkbenchLibraryItemsChanged(args: {
   const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] = ["index"];
   for (const runtime of synthesisWorkbenchRuntimes) {
     runtime.libraryReadModelRevision = synthesisLibraryReadModelRevision;
-    invalidatedSurfaces.forEach((surface) => markSurfaceDirty(runtime, surface));
+    invalidatedSurfaces.forEach((surface) =>
+      markSurfaceDirty(runtime, surface),
+    );
     scheduleLibraryReadModelSurfaceRefresh(runtime, invalidatedSurfaces);
   }
   return {
@@ -465,7 +437,9 @@ function handleSynthesisWorkbenchSidecarChanged(
   const invalidatedSurfaces: SynthesisWorkbenchSurfaceName[] =
     args.graphMayHaveChanged === false ? ["index"] : ["index", "graph"];
   for (const runtime of synthesisWorkbenchRuntimes) {
-    invalidatedSurfaces.forEach((surface) => markSurfaceDirty(runtime, surface));
+    invalidatedSurfaces.forEach((surface) =>
+      markSurfaceDirty(runtime, surface),
+    );
     scheduleLibraryReadModelSurfaceRefresh(runtime, invalidatedSurfaces);
     void sendChrome(runtime, { refreshFromService: true }).catch((error) =>
       reportWorkbenchError(error, runtime.window),
@@ -822,7 +796,11 @@ async function sendChrome(
       .catch((error) => buildSnapshotErrorInput(error));
     mergeRuntimeSnapshotInput(runtime, input);
   }
-  postWorkbenchMessage(runtime, "synthesis:chrome", snapshotForRuntime(runtime));
+  postWorkbenchMessage(
+    runtime,
+    "synthesis:chrome",
+    snapshotForRuntime(runtime),
+  );
 }
 
 async function sendSurface(
@@ -876,40 +854,6 @@ function scheduleActiveSurfaceRefresh(
   }, 0);
 }
 
-async function sendArtifactReader(
-  runtime: SynthesisWorkbenchRuntime,
-  topicId: string,
-) {
-  if (!runtime?.frameWindow) {
-    return;
-  }
-  const artifact = await getDefaultSynthesisService().readTopicArtifact({
-    topicId,
-  });
-  const metadata = {
-    ...((artifact.metadata || {}) as Record<string, unknown>),
-  };
-  const dto: SynthesisArtifactReaderDto = {
-    topicId,
-    title:
-      String(metadata.title || metadata.topic_title || "").trim() || topicId,
-    markdown: String(artifact.markdown || ""),
-    metadata,
-    hash:
-      String(metadata.hash || metadata.markdown_hash || "").trim() || undefined,
-    updated_at: String(metadata.updated_at || "").trim() || undefined,
-  };
-  const result = applySynthesisUiAction(runtime.state, {
-    action: "showArtifactReader",
-    payload: { topicId },
-  });
-  runtime.state = result.state;
-  await sendSurface(runtime, "reader", {
-    refreshFromService: false,
-  });
-  postWorkbenchMessage(runtime, "synthesis:artifact", dto);
-}
-
 async function sendTopicDetail(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
@@ -947,23 +891,92 @@ async function sendTopicDigest(
   postWorkbenchMessage(runtime, "synthesis:digest", digest);
 }
 
-async function openSynthesisFolderFromWorkbench(args: {
-  payload?: Record<string, unknown>;
-}) {
-  const commandArgs = commandArgsFromPayload(args.payload);
-  const topicId = String(commandArgs.topicId || "").trim();
-  if (topicId) {
-    const artifact = await getDefaultSynthesisService().readTopicArtifact({
-      topicId,
-    });
-    openPathInSystem(artifact.paths.topicRoot, "synthesis topic folder");
+function cleanReportExportString(value: unknown) {
+  return String(value || "").trim();
+}
+
+function safeTopicReportExportFileName(value: unknown) {
+  const base = cleanReportExportString(value)
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
+  return `${base || "synthesis-report"}-synthesis-report.md`;
+}
+
+function ensureMarkdownExportPath(pathRaw: string) {
+  const path = cleanReportExportString(pathRaw);
+  if (!path) {
+    return "";
+  }
+  return /\.md$/i.test(path) ? path : `${path}.md`;
+}
+
+function resolveWorkbenchFilePicker() {
+  const toolkit = resolveRuntimeToolkit() as
+    | {
+        FilePicker?: ToolkitFilePickerCtor;
+      }
+    | undefined;
+  return typeof toolkit?.FilePicker === "function" ? toolkit.FilePicker : null;
+}
+
+async function pickTopicReportExportPath(
+  runtime: SynthesisWorkbenchRuntime,
+  suggestedFileName: string,
+) {
+  const FilePicker = resolveWorkbenchFilePicker();
+  if (!FilePicker) {
+    throw new Error("Zotero file picker is unavailable.");
+  }
+  const selected = await new FilePicker(
+    "Export synthesis report",
+    "save",
+    [
+      ["Markdown", "*.md"],
+      ["All files", "*.*"],
+    ],
+    suggestedFileName,
+    (runtime.frameWindow || runtime.hostWindow || runtime.window) as
+      | Window
+      | undefined,
+  ).open();
+  return typeof selected === "string" && selected.trim()
+    ? ensureMarkdownExportPath(selected)
+    : "";
+}
+
+async function exportTopicSynthesisReport(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+) {
+  if (!topicId) {
+    throw new Error("exportTopicSynthesisReport requires topicId");
+  }
+  const report = await getDefaultSynthesisService().getTopicReport({
+    topicId,
+  });
+  const markdown = cleanReportExportString(
+    (report as Record<string, unknown>).markdown,
+  );
+  if (!markdown) {
+    throw new Error("Synthesis report body is unavailable.");
+  }
+  const title =
+    cleanReportExportString((report as Record<string, unknown>).title) ||
+    topicId;
+  const outputPath = await pickTopicReportExportPath(
+    runtime,
+    safeTopicReportExportFileName(title),
+  );
+  if (!outputPath) {
     return;
   }
-  const chromeInput =
-    await getDefaultSynthesisService().getSynthesisWorkbenchChromeInput(
-      createDefaultSynthesisUiState(),
-    );
-  openPathInSystem(chromeInput.storage?.rootPath || "", "synthesis folder");
+  await writeRuntimeTextFile(
+    outputPath,
+    markdown.endsWith("\n") ? markdown : `${markdown}\n`,
+  );
 }
 
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
@@ -1159,7 +1172,9 @@ function handleAction(
     );
     return;
   }
-  if (result.hostCommand?.command === "refreshCitationGraphCacheIncrementalNow") {
+  if (
+    result.hostCommand?.command === "refreshCitationGraphCacheIncrementalNow"
+  ) {
     runWorkbenchCommandOnce(
       runtime,
       "refreshCitationGraphCacheIncrementalNow",
@@ -1343,6 +1358,28 @@ function handleAction(
     void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
+  if (result.hostCommand?.command === "deleteConceptEntry") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const conceptIds = Array.isArray(commandArgs.conceptIds)
+      ? commandArgs.conceptIds
+          .map((conceptId) => String(conceptId || "").trim())
+          .filter(Boolean)
+      : [String(commandArgs.conceptId || "").trim()].filter(Boolean);
+    if (conceptIds.length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "deleteConceptEntry",
+        { conceptId: conceptIds[0], conceptIds },
+        () =>
+          getDefaultSynthesisService().deleteConceptEntries({
+            conceptIds,
+          }),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
   if (result.hostCommand?.command === "refreshReferenceSidecarNow") {
     runWorkbenchCommandOnce(
       runtime,
@@ -1406,16 +1443,47 @@ function handleAction(
               | "reverse_accept"
               | "reject"
               | "reopen"
-              | "delete" =
+              | "delete"
+              | "manual_target" =
               requestedAction === "reject" ||
               requestedAction === "reverse_accept" ||
               requestedAction === "reopen" ||
-              requestedAction === "delete"
+              requestedAction === "delete" ||
+              requestedAction === "manual_target"
                 ? requestedAction
                 : "accept";
-            return { proposalId, action };
+            const target =
+              entry.target &&
+              typeof entry.target === "object" &&
+              !Array.isArray(entry.target)
+                ? (entry.target as Record<string, unknown>)
+                : {};
+            const normalizedTarget =
+              String(target.kind || "") === "canonical_reference"
+                ? {
+                    kind: "canonical_reference" as const,
+                    canonicalReferenceId: String(
+                      target.canonicalReferenceId ||
+                        target.canonical_reference_id ||
+                        "",
+                    ).trim(),
+                  }
+                : String(target.kind || "") === "zotero_item"
+                  ? {
+                      kind: "zotero_item" as const,
+                      libraryId: Number(target.libraryId || target.library_id),
+                      itemKey: String(target.itemKey || target.item_key || "").trim(),
+                    }
+                  : undefined;
+            return action === "manual_target"
+              ? { proposalId, action, target: normalizedTarget }
+              : { proposalId, action };
           })
-          .filter((entry) => entry.proposalId)
+          .filter(
+            (entry) =>
+              entry.proposalId &&
+              (entry.action !== "manual_target" || Boolean(entry.target)),
+          )
       : [];
     if (decisions.length) {
       runWorkbenchCommandOnce(
@@ -1522,7 +1590,9 @@ function handleAction(
   }
   if (result.hostCommand?.command === "updateStagedTagSuggestion") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const originalTag = String(commandArgs.originalTag || commandArgs.tag || "").trim();
+    const originalTag = String(
+      commandArgs.originalTag || commandArgs.tag || "",
+    ).trim();
     const tag = String(commandArgs.tag || "").trim();
     if (tag) {
       runWorkbenchCommandOnce(
@@ -1539,7 +1609,9 @@ function handleAction(
             entries: [
               {
                 tag,
-                facet: String(commandArgs.facet || tag.split(":")[0] || "topic"),
+                facet: String(
+                  commandArgs.facet || tag.split(":")[0] || "topic",
+                ),
                 note: String(commandArgs.note || ""),
                 source_flow: String(
                   commandArgs.source_flow || "tag-regulator-suggest",
@@ -1549,6 +1621,80 @@ function handleAction(
                   : [],
               },
             ],
+          });
+        },
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "updateTagVocabularyEntry") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const originalTag = String(
+      commandArgs.originalTag || commandArgs.tag || "",
+    ).trim();
+    const tag = String(commandArgs.tag || "").trim();
+    if (originalTag && tag) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "updateTagVocabularyEntry",
+        { originalTag },
+        async () => {
+          const service = getDefaultSynthesisService();
+          const snapshot = await service.loadTagVocabulary();
+          const nextEntries = snapshot.entries.map((entry) =>
+            entry.tag === originalTag
+              ? {
+                  ...entry,
+                  tag,
+                  facet: String(
+                    commandArgs.facet || tag.split(":")[0] || entry.facet,
+                  ),
+                  note: String(commandArgs.note || ""),
+                }
+              : entry,
+          );
+          if (!nextEntries.some((entry) => entry.tag === tag)) {
+            nextEntries.push({
+              tag,
+              facet: String(commandArgs.facet || tag.split(":")[0] || "topic"),
+              note: String(commandArgs.note || ""),
+            });
+          }
+          return service.saveTagVocabulary({
+            entries: nextEntries,
+            aliases: snapshot.aliases,
+            abbrev: snapshot.abbrev,
+            protocol: snapshot.protocol,
+            transactionId: `tag-vocabulary-update-${Date.now()}`,
+          });
+        },
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "deleteTagVocabularyEntry") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const originalTag = String(
+      commandArgs.originalTag || commandArgs.tag || "",
+    ).trim();
+    if (originalTag) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "deleteTagVocabularyEntry",
+        { originalTag },
+        async () => {
+          const service = getDefaultSynthesisService();
+          const snapshot = await service.loadTagVocabulary();
+          return service.saveTagVocabulary({
+            entries: snapshot.entries.filter((entry) => entry.tag !== originalTag),
+            aliases: snapshot.aliases,
+            abbrev: snapshot.abbrev,
+            protocol: snapshot.protocol,
+            transactionId: `tag-vocabulary-delete-${Date.now()}`,
           });
         },
       );
@@ -1567,7 +1713,8 @@ function handleAction(
         runtime,
         "promoteStagedTagSuggestions",
         { tag: tags[0], tags },
-        () => getDefaultSynthesisService().promoteStagedTagSuggestions({ tags }),
+        () =>
+          getDefaultSynthesisService().promoteStagedTagSuggestions({ tags }),
       );
       return;
     }
@@ -1584,7 +1731,8 @@ function handleAction(
         runtime,
         "discardStagedTagSuggestions",
         { tag: tags[0], tags },
-        () => getDefaultSynthesisService().discardStagedTagSuggestions({ tags }),
+        () =>
+          getDefaultSynthesisService().discardStagedTagSuggestions({ tags }),
       );
       return;
     }
@@ -1628,23 +1776,16 @@ function handleAction(
     );
     return;
   }
-  if (result.hostCommand?.command === "openCanonicalMarkdown") {
+  if (result.hostCommand?.command === "exportTopicSynthesisReport") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
-    void sendArtifactReader(runtime, topicId).catch((error) =>
-      reportWorkbenchError(error, runtime.window),
+    runWorkbenchCommandOnce(
+      runtime,
+      "exportTopicSynthesisReport",
+      { topicId },
+      () => exportTopicSynthesisReport(runtime, topicId),
+      { refreshFromService: false },
     );
-    return;
-  }
-  if (result.hostCommand?.command === "copyTopicMarkdownExport") {
-    const commandArgs = commandArgsFromPayload(envelope.payload);
-    const topicId = String(commandArgs.topicId || "").trim();
-    void getDefaultSynthesisService()
-      .readTopicArtifact({ topicId })
-      .then((artifact) =>
-        runtime.hostWindow.navigator?.clipboard?.writeText?.(artifact.markdown),
-      )
-      .catch((error) => reportWorkbenchError(error, runtime.window));
     return;
   }
   if (result.hostCommand?.command === "resolveTopicPaperDigest") {
@@ -1652,12 +1793,6 @@ function handleAction(
     void sendTopicDigest(runtime, commandArgs).catch((error) =>
       reportWorkbenchError(error, runtime.window),
     );
-    return;
-  }
-  if (result.hostCommand?.command === "openSynthesisFolder") {
-    void openSynthesisFolderFromWorkbench({
-      payload: envelope.payload,
-    }).catch((error) => reportWorkbenchError(error, runtime.window));
     return;
   }
   if (result.hostCommand?.command === "deleteTopicArtifact") {
@@ -1739,18 +1874,36 @@ function surfacesInvalidatedByCommand(
     command === "previewTagVocabularyImport" ||
     command === "applyTagVocabularyImport" ||
     command === "updateStagedTagSuggestion" ||
+    command === "updateTagVocabularyEntry" ||
+    command === "deleteTagVocabularyEntry" ||
     command === "promoteStagedTagSuggestions" ||
     command === "discardStagedTagSuggestions" ||
     command === "clearStagedTagSuggestions"
   ) {
     return ["tags"];
   }
-  if (command === "rebuildConceptKbIndex") {
-    return ["concepts"];
+  if (
+    command === "rebuildConceptKbIndex" ||
+    command === "deleteConceptEntry" ||
+    command === "updateConceptDisplayText" ||
+    command === "applyConceptReviewAction"
+  ) {
+    return ["concepts", "review"];
   }
   if (
     command === "runSynthesizeTopic" ||
-    command === "submitTopicSynthesisUpdate" ||
+    command === "submitTopicSynthesisUpdate"
+  ) {
+    return ["home", "topics", "graph", "review"];
+  }
+  if (
+    command === "acceptTopicGraphRelation" ||
+    command === "rejectTopicGraphRelation" ||
+    command === "applyTopicGraphReviewAction"
+  ) {
+    return ["home", "graph", "review"];
+  }
+  if (
     command === "deleteTopicArtifact" ||
     command === "purgeDeletedTopicArtifacts"
   ) {
@@ -2016,11 +2169,11 @@ export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
 }
 
-export function prewarmSynthesisWorkbenchSurfaces(args: {
-  surfaces?: SynthesisWorkbenchSurfaceName[];
-} = {}): Promise<
-  SynthesisUiSnapshotInput | undefined
-> {
+export function prewarmSynthesisWorkbenchSurfaces(
+  args: {
+    surfaces?: SynthesisWorkbenchSurfaceName[];
+  } = {},
+): Promise<SynthesisUiSnapshotInput | undefined> {
   if (prewarmSynthesisSurfacesPromise) {
     return prewarmSynthesisSurfacesPromise;
   }

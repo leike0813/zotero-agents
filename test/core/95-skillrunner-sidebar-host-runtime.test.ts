@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -8,7 +12,9 @@ async function readProjectFile(relativePath: string) {
 
 describe("skillrunner sidebar host runtime", function () {
   it("uses the unified Assistant workspace as the only active sidebar browser host", async function () {
-    const ts = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
     assert.include(ts, "FRAME_WINDOW_WAIT_TIMEOUT_MS");
     assert.include(ts, "waitForPaneFrameWindow");
     assert.include(ts, "createSidebarContainer");
@@ -22,7 +28,9 @@ describe("skillrunner sidebar host runtime", function () {
   });
 
   it("keeps SkillRunner, ACP Chat, and ACP Skills wired through the workspace host bridge", async function () {
-    const ts = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
     assert.include(ts, "__zsAssistantWorkspaceBridge");
     assert.include(ts, "wrappedJSObject");
     assert.include(ts, "assistant-workspace:init");
@@ -37,7 +45,9 @@ describe("skillrunner sidebar host runtime", function () {
   });
 
   it("keeps live subscriptions and waiting-task feedback in the unified workspace host", async function () {
-    const ts = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
     assert.include(ts, "subscribeAcpFrontendSnapshots");
@@ -46,22 +56,40 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "maybeShowAcpSkillWaitingToasts");
     assert.include(ts, "showWorkflowToast");
     assert.include(ts, "updateSidebarBadges");
-    assert.include(en, "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner run needs your input");
-    assert.include(en, "task-dashboard-run-sidebar-toast-waiting-auth = SkillRunner run needs authentication");
-    assert.include(zh, "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner 运行需要你的输入");
-    assert.include(zh, "task-dashboard-run-sidebar-toast-waiting-auth = SkillRunner 运行需要认证");
+    assert.include(
+      en,
+      "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner run needs your input",
+    );
+    assert.include(
+      en,
+      "task-dashboard-run-sidebar-toast-waiting-auth = SkillRunner run needs authentication",
+    );
+    assert.include(
+      zh,
+      "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner 运行需要你的输入",
+    );
+    assert.include(
+      zh,
+      "task-dashboard-run-sidebar-toast-waiting-auth = SkillRunner 运行需要认证",
+    );
   });
 
   it("keeps SkillRunner drawer semantics in the shared model instead of the deprecated host", async function () {
-    const workspaceHost = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
-    const runDialog = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    const sidebarModel = await readProjectFile("src/modules/skillRunnerSidebarModel.ts");
+    const workspaceHost = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+    const sidebarModel = await readProjectFile(
+      "src/modules/skillRunnerSidebarModel.ts",
+    );
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
 
     assert.include(workspaceHost, "drawer: {");
     assert.include(workspaceHost, "drawerCompletedCollapsed");
-    assert.include(workspaceHost, "\"toggle-drawer-section\"");
+    assert.include(workspaceHost, '"toggle-drawer-section"');
     assert.include(workspaceHost, "task-dashboard-run-running-tasks-title");
     assert.include(workspaceHost, "task-dashboard-run-completed-tasks-title");
     assert.include(sidebarModel, "activeTasks:");
@@ -75,8 +103,12 @@ describe("skillrunner sidebar host runtime", function () {
   });
 
   it("keeps pane containers and toolbar affordances owned by the unified workspace host", async function () {
-    const sidebarTs = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
-    const toolbarTs = await readProjectFile("src/modules/dashboardToolbarButton.ts");
+    const sidebarTs = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const toolbarTs = await readProjectFile(
+      "src/modules/dashboardToolbarButton.ts",
+    );
     const localeTs = await readProjectFile("src/utils/locale.ts");
     const paneCss = await readProjectFile("addon/content/zoteroPane.css");
     assert.include(sidebarTs, "SKILLRUNNER_ICON_URI");
@@ -85,12 +117,63 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(sidebarTs, "close-sidebar");
     assert.include(sidebarTs, "closeActiveSidebarHost");
     assert.include(sidebarTs, "applySidebarPaneContainerStyles");
-    assert.include(sidebarTs, "createSidebarFrame(doc, resolveSidebarPageUrl())");
+    assert.include(
+      sidebarTs,
+      "createSidebarFrame(doc, resolveSidebarPageUrl())",
+    );
     assert.include(toolbarTs, "export const SKILLRUNNER_ICON_URI");
     assert.include(toolbarTs, "export function applyToolbarButtonStyling");
     assert.include(toolbarTs, "export function syncToolbarButtonIconFill");
-    assert.include(localeTs, "export { initLocale, getString, getLocaleID, getStringOrFallback };");
-    assert.include(paneCss, "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button");
-    assert.include(paneCss, "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button > .toolbarbutton-icon");
+    assert.include(
+      localeTs,
+      "export { initLocale, getString, getLocaleID, getStringOrFallback };",
+    );
+    assert.include(
+      paneCss,
+      "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button",
+    );
+    assert.include(
+      paneCss,
+      "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button > .toolbarbutton-icon",
+    );
+  });
+
+  it("hosts SkillRunner management UI inside the Dashboard backend tab", async function () {
+    const taskManager = await readProjectFile(
+      "src/modules/taskManagerDialog.ts",
+    );
+    const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
+    const dashboardApp = await readProjectFile(
+      "addon/content/dashboard/app.js",
+    );
+    const dashboardCss = await readProjectFile(
+      "addon/content/dashboard/styles.css",
+    );
+
+    assert.include(taskManager, "selectedBackendSubviewById");
+    assert.include(taskManager, "managementUiUrl");
+    assert.include(workspaceTab, "initialDashboardTabKey");
+    assert.include(workspaceTab, "initialDashboardBackendSubview");
+    assert.include(workspaceTab, "pendingDashboardSelection");
+    assert.include(workspaceTab, "runtime.dashboardRuntime.selectTab");
+    assert.include(workspaceTab, "createManagementHost");
+    assert.include(workspaceTab, "skillrunner-management-workspace-host");
+    assert.include(workspaceTab, "skillrunner-management-workspace-frame");
+    assert.include(workspaceTab, "clearManagementOverlay");
+    assert.include(taskManager, 'action === "open-management"');
+    assert.include(taskManager, 'action === "show-runs"');
+    assert.include(taskManager, 'action === "mount-management-host"');
+    assert.include(taskManager, 'action === "open-management-external"');
+    assert.include(taskManager, "args.managementHost.mount");
+    assert.notInclude(taskManager, "openSkillRunnerManagementDialog");
+    assert.include(dashboardApp, "renderSkillRunnerManagementSubview");
+    assert.include(dashboardApp, "skillrunner-management-dashboard-host");
+    assert.include(dashboardApp, 'sendAction("mount-management-host"');
+    assert.notInclude(dashboardApp, 'document.createElement("iframe")');
+    assert.include(dashboardApp, 'sendAction("show-runs"');
+    assert.include(dashboardApp, 'sendAction("open-management-external"');
+    assert.include(dashboardCss, ".management-host-panel");
+    assert.include(dashboardCss, ".management-host-mount");
+    assert.include(dashboardCss, ".management-host-frame");
   });
 });

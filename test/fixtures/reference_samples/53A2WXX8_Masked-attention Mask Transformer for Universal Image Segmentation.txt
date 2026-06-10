@@ -1,0 +1,296 @@
+[1] Pablo Arbelaez, Jordi Pont-Tuset, Jonathan T Barron, Fer- ´ ran Marques, and Jitendra Malik. Multiscale combinatorial grouping. In CVPR, 2014.
+
+[2] Hangbo Bao, Li Dong, and Furu Wei. BEiT: BERT pretraining of image transformers. arXiv, 2021.
+
+[3] Daniel Bolya, Chong Zhou, Fanyi Xiao, and Yong Jae Lee. YOLACT++: Better real-time instance segmentation, 2019.
+
+[4] Zhaowei Cai and Nuno Vasconcelos. Cascade R-CNN: Delving into high quality object detection. In CVPR, 2018.
+
+[5] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-toend object detection with transformers. In ECCV, 2020.
+
+[6] Kai Chen, Jiangmiao Pang, Jiaqi Wang, Yu Xiong, Xiaoxiao Li, Shuyang Sun, Wansen Feng, Ziwei Liu, Jianping Shi, Wanli Ouyang, et al. Hybrid task cascade for instance segmentation. In CVPR, 2019.
+
+[7] Liang-Chieh Chen, George Papandreou, Iasonas Kokkinos, Kevin Murphy, and Alan L Yuille. DeepLab: Semantic image segmentation with deep convolutional nets, atrous convolution, and fully connected CRFs. PAMI, 2018.
+
+[8] Liang-Chieh Chen, George Papandreou, Florian Schroff, and Hartwig Adam. Rethinking atrous convolution for semantic image segmentation. arXiv:1706.05587, 2017.
+
+[9] Liang-Chieh Chen, Huiyu Wang, and Siyuan Qiao. Scaling wide residual networks for panoptic segmentation. arXiv:2011.11675, 2020.
+
+[10] Liang-Chieh Chen, Yukun Zhu, George Papandreou, Florian Schroff, and Hartwig Adam. Encoder-decoder with atrous separable convolution for semantic image segmentation. In ECCV, 2018.
+
+[11] Bowen Cheng, Maxwell D Collins, Yukun Zhu, Ting Liu, Thomas S Huang, Hartwig Adam, and Liang-Chieh Chen. Panoptic-DeepLab: A simple, strong, and fast baseline for bottom-up panoptic segmentation. In CVPR, 2020.
+
+[12] Bowen Cheng, Ross Girshick, Piotr Dollar, Alexander C ´ Berg, and Alexander Kirillov. Boundary iou: Improving object-centric image segmentation evaluation. In CVPR, 2021.
+
+[13] Bowen Cheng, Omkar Parkhi, and Alexander Kirillov. Pointly-supervised instance segmentation. arXiv, 2021.
+
+[14] Bowen Cheng, Alexander G. Schwing, and Alexander Kirillov. Per-pixel classification is not all you need for semantic segmentation. In NeurIPS, 2021.
+
+[15] Franc¸ois Chollet. Xception: Deep learning with depthwise separable convolutions. In CVPR, 2017.
+
+[16] Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler, Rodrigo Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele. The Cityscapes dataset for semantic urban scene understanding. In CVPR, 2016.
+
+[17] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. In ICLR, 2021.
+
+[18] Xianzhi Du, Barret Zoph, Wei-Chih Hung, and Tsung-Yi Lin. Simple training strategies and model scaling for object detection. arXiv preprint arXiv:2107.00057, 2021.
+
+[19] Mark Everingham, SM Ali Eslami, Luc Van Gool, Christopher KI Williams, John Winn, and Andrew Zisserman. The PASCAL visual object classes challenge: A retrospective. IJCV, 2015.
+
+[20] Yuxin Fang, Shusheng Yang, Xinggang Wang, Yu Li, Chen Fang, Ying Shan, Bin Feng, and Wenyu Liu. Instances as queries. In ICCV, 2021.
+
+[21] Jun Fu, Jing Liu, Haijie Tian, Yong Li, Yongjun Bao, Zhiwei Fang, and Hanqing Lu. Dual attention network for scene segmentation. In CVPR, 2019.
+
+[22] Peng Gao, Minghang Zheng, Xiaogang Wang, Jifeng Dai, and Hongsheng Li. Fast convergence of detr with spatially modulated co-attention. In ICCV, 2021.
+
+[23] Golnaz Ghiasi, Yin Cui, Aravind Srinivas, Rui Qian, Tsung-Yi Lin, Ekin D Cubuk, Quoc V Le, and Barret Zoph. Simple copy-paste is a strong data augmentation method for instance segmentation. In CVPR, 2021.
+
+[24] Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Gir- ´ shick. Mask R-CNN. In ICCV, 2017.
+
+[25] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In CVPR, 2016.
+
+[26] Zilong Huang, Xinggang Wang, Lichao Huang, Chang Huang, Yunchao Wei, and Wenyu Liu. CCNet: Criss-cross attention for semantic segmentation. In ICCV, 2019.
+
+[27] Alexander Kirillov, Ross Girshick, Kaiming He, and Piotr Dollar. Panoptic feature pyramid networks. In ´ CVPR, 2019.
+
+[28] Alexander Kirillov, Kaiming He, Ross Girshick, Carsten Rother, and Piotr Dollar. Panoptic segmentation. In ´ CVPR, 2019.
+
+[29] Alexander Kirillov, Evgeny Levinkov, Bjoern Andres, Bogdan Savchynskyy, and Carsten Rother. InstanceCut: from edges to instances with multicut. In CVPR, 2017.
+
+[30] Alexander Kirillov, Yuxin Wu, Kaiming He, and Ross Girshick. PointRend: Image segmentation as rendering. In CVPR, 2020.
+
+[31] Yanwei Li, Hengshuang Zhao, Xiaojuan Qi, Yukang Chen, Lu Qi, Liwei Wang, Zeming Li, Jian Sun, and Jiaya Jia. Fully convolutional networks for panoptic segmentation with point-based supervision. arXiv preprint arXiv:2108.07682, 2021.
+
+[32] Zhiqi Li, Wenhai Wang, Enze Xie, Zhiding Yu, Anima Anandkumar, Jose M Alvarez, Tong Lu, and Ping Luo. Panoptic segformer. arXiv preprint arXiv:2109.03814, 2021.
+
+[33] Tsung-Yi Lin, Piotr Dollar, Ross Girshick, Kaiming He, ´ Bharath Hariharan, and Serge Belongie. Feature pyramid networks for object detection. In CVPR, 2017.
+
+[34] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object detection. In ´ ICCV, 2017.
+
+[35] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence ´ Zitnick. Microsoft COCO: Common objects in context. In ECCV, 2014.
+
+[36] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. arXiv:2103.14030, 2021.
+
+[37] Jonathan Long, Evan Shelhamer, and Trevor Darrell. Fully convolutional networks for semantic segmentation. In CVPR, 2015.
+
+[38] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In ICLR, 2019.
+
+[39] Shihua Huang Zhichao Lu, Ran Cheng, and Cheng He. Fapn: Feature-aligned pyramid network for dense image prediction. arXiv, 2021.
+
+[40] Depu Meng, Xiaokang Chen, Zejia Fan, Gang Zeng, Houqiang Li, Yuhui Yuan, Lei Sun, and Jingdong Wang. Conditional detr for fast training convergence. In ICCV, 2021.
+
+[41] Fausto Milletari, Nassir Navab, and Seyed-Ahmad Ahmadi. V-Net: Fully convolutional neural networks for volumetric medical image segmentation. In 3DV, 2016.
+
+[42] Gerhard Neuhold, Tobias Ollmann, Samuel Rota Bulo, and \` Peter Kontschieder. The mapillary vistas dataset for semantic understanding of street scenes. In CVPR, 2017.
+
+[43] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster R-CNN: Towards real-time object detection with region proposal networks. In NeurIPS, 2015.
+
+[44] Olga Russakovsky, Jia Deng, Hao Su, Jonathan Krause, Sanjeev Satheesh, Sean Ma, Zhiheng Huang, Andrej Karpathy, Aditya Khosla, Michael Bernstein, Alexander C. Berg, and Li Fei-Fei. ImageNet Large Scale Visual Recognition Challenge. IJCV, 2015.
+
+[45] Robin Strudel, Ricardo Garcia, Ivan Laptev, and Cordelia Schmid. Segmenter: Transformer for semantic segmentation. In ICCV, 2021.
+
+[46] Zhiqing Sun, Shengcao Cao, Yiming Yang, and Kris M Kitani. Rethinking transformer-based set prediction for object detection. In ICCV, 2021.
+
+[47] Mingxing Tan, Ruoming Pang, and Quoc V Le. Efficientdet: Scalable and efficient object detection. In CVPR, 2020.
+
+[48] Andrew Tao, Karan Sapra, and Bryan Catanzaro. Hierarchical multi-scale attention for semantic segmentation. arXiv:2005.10821, 2020.
+
+[49] Zhi Tian, Chunhua Shen, and Hao Chen. Conditional convolutions for instance segmentation. In ECCV, 2020.
+
+[50] Jasper RR Uijlings, Koen EA Van De Sande, Theo Gevers, and Arnold WM Smeulders. Selective search for object recognition. IJCV, 2013.
+
+[51] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017.
+
+[52] Huiyu Wang, Yukun Zhu, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. MaX-DeepLab: End-to-end panoptic segmentation with mask transformers. In CVPR, 2021.
+
+[53] Jingdong Wang, Ke Sun, Tianheng Cheng, Borui Jiang, Chaorui Deng, Yang Zhao, Dong Liu, Yadong Mu, Mingkui Tan, Xinggang Wang, Wenyu Liu, and Bin Xiao. Deep high-resolution representation learning for visual recognition. PAMI, 2019.
+
+[54] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao. Pvtv2: Improved baselines with pyramid vision transformer. arXiv preprint arXiv:2106.13797, 2021.
+
+[55] Xiaolong Wang, Ross Girshick, Abhinav Gupta, and Kaiming He. Non-local neural networks. In CVPR, 2018.
+
+[56] Xinlong Wang, Rufeng Zhang, Tao Kong, Lei Li, and Chunhua Shen. SOLOv2: Dynamic and fast instance segmentation. NeurIPS, 2020.
+
+[57] Yuxin Wu, Alexander Kirillov, Francisco Massa, Wan-Yen Lo, and Ross Girshick. Detectron2. https://github. com/facebookresearch/detectron2, 2019.
+
+[58] Tete Xiao, Yingcheng Liu, Bolei Zhou, Yuning Jiang, and Jian Sun. Unified perceptual parsing for scene understanding. In ECCV, 2018.
+
+[59] Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar, Jose M Alvarez, and Ping Luo. Segformer: Simple and efficient design for semantic segmentation with transformers. In NeurIPS, 2021.
+
+[60] Yuwen Xiong, Renjie Liao, Hengshuang Zhao, Rui Hu, Min Bai, Ersin Yumer, and Raquel Urtasun. Upsnet: A unified panoptic segmentation network. In CVPR, 2019.
+
+[61] Yuhui Yuan, Lang Huang, Jianyuan Guo, Chao Zhang, Xilin Chen, and Jingdong Wang. OCNet: Object context for semantic segmentation. IJCV, 2021.
+
+[62] Wenwei Zhang, Jiangmiao Pang, Kai Chen, and Chen Change Loy. K-net: Towards unified image segmentation. In NeurIPS, 2021.
+
+[63] Hengshuang Zhao, Jianping Shi, Xiaojuan Qi, Xiaogang Wang, and Jiaya Jia. Pyramid scene parsing network. In CVPR, 2017.
+
+[64] Sixiao Zheng, Jiachen Lu, Hengshuang Zhao, Xiatian Zhu, Zekun Luo, Yabiao Wang, Yanwei Fu, Jianfeng Feng, Tao Xiang, Philip HS Torr, et al. Rethinking semantic segmentation from a sequence-to-sequence perspective with transformers. In CVPR, 2021.
+
+[65] Bolei Zhou, Hang Zhao, Xavier Puig, Sanja Fidler, Adela Barriuso, and Antonio Torralba. Scene parsing through ADE20K dataset. In CVPR, 2017.
+
+[66] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable detr: Deformable transformers for end-to-end object detection. In ICLR, 2021.
+
+## Appendix
+
+We first provide more results for Mask2Former with different backbones as well as test-set performance on standard benchmarks (Appendix A): We use COCO panoptic [28] for panoptic, COCO [35] for instance, and ADE20K [65] for semantic segmentation. Then, we provide more detailed results on additional datasets (Appendix B). Finally, we provide additional ablation studies (Appendix C) and visualization of Mask2Former predictions for all three segmentation tasks (Appendix D).
+
+## A. Additional results
+
+Here, we provide more results of Mask2Former with different backbones on COCO panoptic [28] for panoptic segmentation, COCO [35] for instance segmentation and ADE20K [65] for semantic segmentation. More specifically, for each benckmark, we evaluate Mask2Former with ResNet [25] with 50 and 101 layers, as well as Swin [36] Tiny, Small, Base and Large variants as backbones. We use ImageNet [44] pre-trained checkpoints to initialize backbones.
+
+## A.1. Panoptic segmentation.
+
+In Table I, we report Mask2Former with various backbones on COCO panoptic val2017. Mask2Former outperforms all existing panoptic segmentation models with various backbones. Our best model sets a new state-of-theart of 57.8 PQ.
+
+In Table II, we further report the best Mask2Former model on the test-dev set. Note that Mask2Former trained only with the standard train2017 data, achieves the absolute new state-of-the-art performance on both validation and test set. Mask2Former even outperforms the best COCO competition entry which uses extra training data and test-time augmentation.
+
+## A.2. Instance segmentation.
+
+In Table III, we report Mask2Former results obtained with various backbones on COCO val2017. Mask2Former outperforms the best single-scale model, HTC++ [6, 36]. Note that it is non-trivial to do multi-scale inference for instance-level segmentation tasks without introducing complex post-processing like non-maximum suppression. Thus, we only compare Mask2Former with other single-scale inference models. We believe multi-scale inference can further improve Mask2Former performance and it remains an interesting future work.
+
+In Table IV, we further report the best Mask2Former model on the test-dev set. Mask2Former achieves the absolute new state-of-the-art performance on both validation and test set. On the one hand, Mask2Former is extremely good at segmenting large objects: we can even outperform the challenge winner (which uses extra training data, model ensemble, etc.) on $\mathsf { A P } ^ { \mathrm { L } }$ by a large margin without any bells-and-whistles. On the other hand, the poor performance on small objects leaves room for further improvement in the future.
+
+## A.3. Semantic segmentation.
+
+In Table V, we report Mask2Former results obtained with various backbones on ADE20K val. Mask2Former outperforms all existing semantic segmentation models with various backbones. Our best model sets a new stateof-the-art of 57.7 mIoU.
+
+In Table VI, we further report the best Mask2Former model on the test set. Following [14], we train Mask2Former on the union of ADE20K train and val set with ImageNet-22K pre-trained checkpoint and use multi-scale inference. Mask2Former is able to outperform previous state-of-the-art methods on all metrics.
+
+## B. Additional datasets
+
+We study Mask2Former on three image segmentation tasks (panoptic, instance and semantic segmentation) using four datasets. Here we report additional results on Cityscapes [16], ADE20K [65] and Mapillary Vistas [42] as well as more detailed training settings.
+
+## B.1. Cityscapes
+
+Cityscapes is an urban egocentric street-view dataset with high-resolution images (1024 × 2048 pixels). It contains 2975 images for training, 500 images for validation and 1525 images for testing with a total of 19 classes.
+
+Training settings. For all three segmentation tasks: we use a crop size of 512 × 1024, a batch size of 16 and train all models for 90k iterations. During inference, we operate on the whole image (1024 × 2048). Other implementation details largely follow Section 4.1 (panoptic and instance segmentation follow semantic segmentation training settings), except that we use 200 queries for panoptic and instance segmentation models with Swin-L backbone. All other backbones or semantic segmentation models use 100 queries.
+
+Results. In Table VII, we report Mask2Former results obtained with various backbones on Cityscapes for three segmentation tasks and compare it with other state-of-the-art methods without using extra data. For panoptic segmentation, Mask2Former with Swin-L backbone outperforms the state-of-the-art Panoptic-DeepLab [11] with SWideRnet [9] using single-scale inference. For semantic segmentation, Mask2Former with Swin-B backbone outperforms the state-of-the-art SegFormer [59].
+
+<table><tr><td></td><td>method</td><td>backbone</td><td>search space</td><td>epochs</td><td>PQ</td><td> $\mathrm { P Q } ^ { \mathrm { T h } }$ </td><td> $\mathrm { P Q } ^ { \mathrm { S t } }$ </td><td> $\mathsf { A P } _ { \mathsf { p a n } } ^ { \mathrm { T h } }$ </td><td> $\mathrm { \ m I o U _ { p a n } } |$ </td><td>#params.</td><td>FLOPs</td></tr><tr><td rowspan="7">Gegeens rtrrrr riirses</td><td rowspan="2">DETR [5]</td><td>R50</td><td>100 queries</td><td>500+25</td><td>43.4</td><td>48.2</td><td>36.3</td><td>31.1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>R101</td><td>100 queries</td><td>500+25</td><td>45.1</td><td>50.5</td><td>37.0</td><td>33.0</td><td>1</td><td>1</td><td>-</td></tr><tr><td rowspan="2">K-Net [62] Panoptic SegFormer [32]</td><td>R50</td><td>100 queries</td><td>36</td><td>47.1</td><td>51.7</td><td>40.3</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>R50</td><td>400queries</td><td>50</td><td>50.0</td><td>56.1</td><td>40.8</td><td>-</td><td>1</td><td>47M</td><td>246G</td></tr><tr><td rowspan="2">MaskFormer [14]</td><td>R50</td><td>100 queries</td><td>300</td><td>46.5</td><td>51.0</td><td>39.8</td><td>33.0</td><td>57.8</td><td>45M</td><td>181G</td></tr><tr><td>R101</td><td>100 queries</td><td>300</td><td>47.6</td><td>52.5</td><td>40.3</td><td>34.1</td><td>59.3</td><td>64M</td><td>248G</td></tr><tr><td rowspan="2">Mask2Former (ours)</td><td>R50</td><td>100 queries</td><td>50</td><td>51.9</td><td>57.7</td><td>43.0</td><td>41.7</td><td>61.7</td><td>44M</td><td>226G</td></tr><tr><td>R101</td><td>100 queries</td><td>50</td><td>52.6</td><td>58.5</td><td>43.7</td><td>42.6</td><td>62.4</td><td>63M</td><td>293G</td></tr><tr><td rowspan="10"></td><td rowspan="2">Max-DeepLab [52]</td><td>Max-S</td><td>128 queries</td><td>216</td><td>48.4</td><td>53.0</td><td>41.5</td><td>：</td><td>1</td><td>62M</td><td>324G</td></tr><tr><td>Max-L</td><td>128 queries</td><td>216</td><td>51.1</td><td>57.0</td><td>42.2</td><td>-</td><td>-</td><td>451M</td><td>3692G</td></tr><tr><td rowspan="2">Panoptic SegFormer [32] K-Net [62]</td><td>PVTv2-B5[54]</td><td>400 queries</td><td>50</td><td>54.1</td><td>60.4</td><td>44.6</td><td></td><td>-</td><td>101M</td><td>391G</td></tr><tr><td>Swin-L</td><td>100 queries</td><td>36</td><td>54.6</td><td>60.2</td><td>46.0</td><td>1</td><td>1</td><td>1</td><td>-</td></tr><tr><td rowspan="5">MaskFormer [14]</td><td>Swin-T</td><td>100 queries</td><td>300</td><td>47.7</td><td>51.7</td><td>41.7</td><td>33.6</td><td>60.4</td><td>42M</td><td>179G</td></tr><tr><td>Swin-S</td><td>100 queries</td><td>300</td><td>49.7</td><td>54.4</td><td>42.6</td><td>36.1</td><td>61.3</td><td>63M</td><td>259G</td></tr><tr><td>Swin-B</td><td>100 queries</td><td>300</td><td>51.1</td><td>56.3</td><td>43.2</td><td>37.8</td><td>62.6</td><td>102M</td><td>411G</td></tr><tr><td> $\mathrm { S w i n - B } ^ { \dagger }$ </td><td>100 queries</td><td>300</td><td>51.8</td><td>56.9</td><td>44.1</td><td>38.5</td><td>63.6</td><td>102M</td><td>411G</td></tr><tr><td> $\mathrm { S w i n - L } ^ { \dagger }$ </td><td>100 queries</td><td>300</td><td>52.7</td><td>58.5</td><td>44.0</td><td>40.1</td><td>64.8</td><td>212M</td><td>792G</td></tr><tr><td rowspan="5">Mask2Former (ours)</td><td>Swin-T</td><td>100 queries</td><td>50</td><td>53.2</td><td>59.3</td><td>44.0</td><td>43.3</td><td>63.2</td><td>47M</td><td>232G</td></tr><tr><td>Swin-S</td><td></td><td>100 queries</td><td>50</td><td>54.6</td><td>60.6</td><td>45.7</td><td>44.7</td><td>64.2</td><td>69M</td><td>313G</td></tr><tr><td></td><td>Swin-B</td><td>100 queries</td><td>50</td><td>55.1</td><td>61.0</td><td>46.1</td><td>45.2</td><td>65.1</td><td>107M</td><td>466G</td></tr><tr><td>Swin-B†</td><td>100 queries</td><td>50</td><td>56.4</td><td></td><td>62.4</td><td>47.3</td><td>46.3</td><td>67.1</td><td>107M</td><td>466G</td></tr><tr><td> $\mathrm { S w i n - L } ^ { \dagger }$ </td><td>200 queries</td><td>100</td><td>57.8</td><td>64.2</td><td>48.1</td><td></td><td>48.6</td><td>67.4</td><td>216M</td><td>868G</td></tr></table>
+
+Table I. Panoptic segmentation on COCO panoptic val2017 with 133 categories. Mask2Former outperforms all existing panoptic segmentation models by a large margin with different backbones on all metrics. Our best model sets a new state-of-the-art of 57.8 PQ. Besides PQ for panoptic segmentation, we also report $\mathsf { A P } _ { \mathsf { p a n } } ^ { \mathrm { T h } }$ (the AP evaluated on the 80 “thing” categories using instance segmentation annotation) and $\mathrm { \ m I o U _ { p a n } }$ (the mIoU evaluated on the 133 categories for semantic segmentation converted from panoptic segmentation annotation) of the same model trained for panoptic segmentation (note: we train all our models with panoptic segmentation annotation only). Backbones pre-trained on ImageNet-22K are marked with †.
+<table><tr><td>method</td><td>backbone</td><td>PQ</td><td> $\mathrm { P Q } ^ { \mathrm { T h } }$ </td><td> $\mathrm { P Q } ^ { \mathrm { S t } }$ </td><td>SQ</td><td>RQ</td></tr><tr><td>Max-DeepLab [52]</td><td>Max-L</td><td>51.3</td><td>57.2</td><td>42.4</td><td>82.5</td><td>61.3</td></tr><tr><td>Panoptic FCN [31]</td><td>Swin-L</td><td>52.7</td><td>59.4</td><td>42.5</td><td>-</td><td>1</td></tr><tr><td>MaskFormer [14]</td><td>Swin-L</td><td>53.3</td><td>59.1</td><td>44.5</td><td>82.0</td><td>64.1</td></tr><tr><td>Panoptic SegFormer [32]</td><td>PVTv2-B5 [54]</td><td>54.4</td><td>61.1</td><td>44.3</td><td>83.3</td><td>64.6</td></tr><tr><td>K-Net [62]</td><td>Swin-L</td><td>55.2</td><td>61.2</td><td>46.2</td><td>-</td><td>-</td></tr><tr><td>Megvii (challenge winner)</td><td>-</td><td>54.7</td><td>64.6</td><td>39.8</td><td>83.6</td><td>64.3</td></tr><tr><td>Mask2Former(ours)</td><td>Swin-L</td><td>58.3</td><td>65.1</td><td>48.1</td><td>84.1</td><td>68.6</td></tr></table>
+
+Table II. Panoptic segmentation on COCO panoptic test-dev with 133 categories. Mask2Former, without any bells-and-whistles, outperforms the challenge winner (which uses extra training data, model ensemble, etc.) on the test-dev set. We only train our model on the COCO train2017 set with ImageNet-22K pre-trained checkpoint.
+
+## B.2. ADE20K
+
+Training settings. For panoptic and instance segmentation, we use the exact same training parameters as we used for semantic segmentation, except that we always use a crop size of $6 4 0 \times 6 4 0$ for all backbones. Other implementation details largely follow Section 4.1 , except that we use 200 queries for panoptic and instance segmentation models with Swin-L backbone. All other backbones or semantic segmentation models use 100 queries.
+
+Results. In Table VIII, we report the results of Mask2Former obtained with various backbones on ADE20K for three segmentation tasks and compare it with other state-of-the-art methods. Mask2Former with Swin-L backbone sets a new state-of-the-art performance on ADE20K for panoptic segmentation. As there are few papers reporting results on ADE20K, we hope this experiment could set up a useful benchmark for future research.
+
+## B.3. Mapillary Vistas
+
+Mapillary Vistas is a large-scale urban street-view dataset with 18k, 2k and 5k images for training, validation and testing. It contains images with a variety of resolutions, ranging from 1024 × 768 to 4000 × 6000. We only report panoptic and semantic segmentation results for this dataset. Training settings. For both panoptic and semantic segmentation, we follow the same data augmentation of [14]: standard random scale jittering between 0.5 and 2.0, random horizontal flipping, random cropping with a crop size of 1024 × 1024 as well as random color jittering. We train our model for 300k iterations with a batch size of 16 using the “poly” learning rate schedule [7]. During inference, we resize the longer side to 2048 pixels. Our panoptic segmentation model with a Swin-L backbone uses 200 queries. All other backbones or semantic segmentation models use 100 queries.
+
+<table><tr><td></td><td>method</td><td>backbone</td><td>search space</td><td>epochs</td><td>AP</td><td> $\mathbf { A P } ^ { \mathrm { S } }$ </td><td> $\mathsf { A P } ^ { \mathrm { M } }$ </td><td> $\mathbf { A P } ^ { \mathrm { L } }$ </td><td> $\mathrm { A P } ^ { \mathrm { b o u n d a r y } }$ </td><td>#params.</td><td>FLOPs</td></tr><tr><td rowspan="5">Cheedees</td><td rowspan="4">Mask R-CNN [24]</td><td>R50</td><td>dense anchors</td><td>36</td><td>37.2</td><td>18.6</td><td>39.5</td><td>53.3</td><td>23.1</td><td>44M</td><td>201G</td></tr><tr><td>R50</td><td>dense anchors</td><td>400</td><td>42.5</td><td>23.8</td><td>45.0</td><td>60.0</td><td>28.0</td><td>46M</td><td>358G</td></tr><tr><td>R101</td><td>dense anchors</td><td>36</td><td>38.6</td><td>19.5</td><td>41.3</td><td>55.3</td><td>24.5</td><td>63M</td><td>266G</td></tr><tr><td>R101</td><td>dense anchors</td><td>400</td><td>43.7</td><td>24.6</td><td>46.4</td><td>61.8</td><td>29.1</td><td>65M</td><td>423G</td></tr><tr><td>R50 Mask2Former (ours)</td><td>100 queries</td><td>50</td><td>43.7</td><td>23.4</td><td>47.2</td><td>64.8</td><td>30.6</td><td>44M</td><td>226G</td></tr><tr><td rowspan="6">Trrirrrrrgrrirseees</td><td></td><td>R101</td><td>100 queries</td><td>50</td><td>44.2</td><td>23.8</td><td>47.7</td><td>66.7</td><td>31.1</td><td>63M</td><td>293G</td></tr><tr><td>QueryInst[20]</td><td>Swin-L</td><td>300 queries</td><td>50</td><td>48.9</td><td>30.8</td><td>52.6</td><td>68.3</td><td>33.5</td><td>-</td><td>·</td></tr><tr><td>Swin-HTC++ [6,36]</td><td>Swin-B</td><td>dense anchors</td><td>36</td><td>49.1</td><td>：</td><td>1</td><td>：</td><td>：</td><td>160M</td><td>1043G</td></tr><tr><td rowspan="4"></td><td>Swin-L†</td><td>dense anchors</td><td>72</td><td>49.5</td><td>31.0</td><td>52.4</td><td>67.2</td><td>34.1</td><td>284M</td><td>1470G</td></tr><tr><td>Swin-T</td><td>100 queries</td><td>50</td><td>45.0</td><td>24.5</td><td>48.3</td><td>67.4</td><td>31.8</td><td>47M</td><td>232G</td></tr><tr><td>Swin-S</td><td>100 queries 100 queries</td><td>50</td><td>46.3</td><td>25.3</td><td>50.3</td><td>68.4</td><td>32.9</td><td>69M</td><td>313G</td></tr><tr><td>Mask2Former (ours) Swin-B</td><td></td><td>50</td><td></td><td>46.7 26.1</td><td></td><td>50.5</td><td>68.8</td><td>33.2</td><td>107M</td><td>466G</td></tr><tr><td></td><td></td><td>Swin-B</td><td>100 queries</td><td>50</td><td>48.1</td><td>27.8</td><td>52.0</td><td>71.1</td><td>34.4</td><td>107M</td><td>466G</td></tr><tr><td></td><td></td><td>Swin-L</td><td>200 queries</td><td>100</td><td>50.1</td><td>29.9</td><td>53.9</td><td>72.1</td><td>36.2</td><td>216M</td><td>868G</td></tr></table>
+
+Table III. Instance segmentation on COCO val2017 with 80 categories. Mask2Former outperforms strong Mask R-CNN [24] baselines with 8× fewer training epochs for both AP and $\mathrm { A P ^ { b o u n d a r y } }$ [12] metrics. Our best model is also competitive to the state-of-the-art specialized instance segmentation model on COCO and has higher boundary quality. For a fair comparison, we only consider single-scale inference and models trained using only COCO train2017 set data. Backbones pre-trained on ImageNet-22K are marked with †.
+<table><tr><td>method</td><td>backbone</td><td>AP</td><td>AP50</td><td>AP75</td><td> $\mathrm { A P ^ { S } }$ </td><td> $\mathbf { A P } ^ { \mathrm { M } }$ </td><td> $\mathbf { A P } ^ { \mathrm { L } }$ </td></tr><tr><td>QueryInst [20]</td><td>Swin-L</td><td>49.1</td><td>74.2</td><td>53.8</td><td>31.5</td><td>51.8</td><td>63.2</td></tr><tr><td>Swin-HTC++ [6,36]</td><td>Swin-L</td><td>50.2</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Swin-HTC++ [6,36] (multi-scale)</td><td>Swin-L</td><td>51.1</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Megvii (challenge winner)</td><td>-</td><td>53.1</td><td>76.8</td><td>58.6</td><td>36.6</td><td>56.5</td><td>67.7</td></tr><tr><td>Mask2Former(ours)</td><td>Swin-L</td><td>50.5</td><td>74.9</td><td>54.9</td><td>29.1</td><td>53.8</td><td>71.2</td></tr></table>
+
+Table IV. Instance segmentation on COCO test-dev with 80 categories. Mask2Former is extremely good at segmenting large objects: we can even outperform the challenge winner (which uses extra training data, model ensemble, etc.) on $\mathbf { A P } ^ { \mathrm { L } }$ by a large margin without any bells-and-whistles. We only train our model on the COCO train2017 set with ImageNet-22K pre-trained checkpoint.
+
+Results. In Table IX, we report Mask2Former results obtained with various backbones on Mapillary Vistas for panoptic and semantic segmentation tasks and compare it with other state-of-the-art methods. Our Mask2Former is very competitive compared to state-of-the art specialized models even if it is not designed for Mapillary Vistas.
+
+## C. Additional ablation studies
+
+We perform additional ablation studies of Mask2Former using the same settings that we used in the main paper: a single ResNet-50 backbone [25].
+
+## C.1. Convergence analysis
+
+We train Mask2Former with 12, 25, 50 and 100 epochs with either standard scale augmentation (Standard Aug.) [57] or the more recent large-scale jittering augmentation (LSJ Aug.) [18, 23]. As shown in Figure IV, Mask2Former converges in 25 epochs using standard augmentation and almost converges in 50 epochs using largescale jittering augmentation. This shows that Mask2Former with our proposed Transformer decoder converges faster than models using the standard Transformer decoder: e.g., DETR [5] and MaskFormer [14] require 500 epochs and 300 epochs respectively.
+
+![](Images_GIZHYMAL/e2974cc63d15e18cea1970364b4100003dae798193f5639b3c3e4c469c259df8.jpg)
+
+(a) Visualization of cross-attention (top) and masked attention (bottom) for different resolutions.
+<table><tr><td rowspan="2"></td><td colspan="2">1/32</td><td colspan="2">1/16</td><td colspan="2">1/8</td><td colspan="2">average</td></tr><tr><td>fg</td><td>bg</td><td>fg</td><td>bg</td><td>fg</td><td>bg</td><td>fg</td><td>bg</td></tr><tr><td>cross-attention</td><td>0.23</td><td>0.77</td><td>0.23</td><td>0.77</td><td>0.15</td><td>0.85</td><td>0.20</td><td>0.80</td></tr><tr><td>masked attention</td><td>0.53</td><td>0.47</td><td>0.61</td><td>0.39</td><td>0.64</td><td>0.36</td><td>0.59</td><td>0.41</td></tr></table>
+
+(b) Cumulative attention weights on foreground (fg) and background (bg) regions for different resolutions.  
+Figure I. Masked attention analysis.
+
+## C.2. Masked attention analysis
+
+We quantitatively and qualitatively analyzed the COCO panoptic model with the R50 backbone. First, we visualize the last three attention maps of our model using crossattention (Figure Ia top) and masked attention (Figure Ia bottom) of a single query that predicts the “cat.” With cross-attention, the attention map spreads over the entire image and the region with highest response is outside the object of interest. We believe this is because the softmax used in cross-attention never attains zero, and small attention weights on large background regions start to dominate. Instead, masked attention limits the attention weights to focus on the object. We validate this hypothesis in Table Ib: we compute the cumulative attention weights on foreground (defined by the matching ground truth to each prediction) and background for all queries on the entire COCO val set. On average, only 20% of the attention weights in crossattention focus on the foreground while masked attention increases this ratio to almost 60%. Second, we plot the panoptic segmentation performance using output from each Transformer decoder layer (Figure II). We find masked attention with a single Transformer decoder layer already outperforms cross-attention with 9 layers. We hope the effectiveness of masked attention, together with this analysis, leads to better attention design.
+
+<table><tr><td></td><td>method</td><td>backbone</td><td>crop size</td><td>mIoU (s.s.)</td><td>mIoU (m.s.)</td><td>#params.</td><td>FLOPs</td></tr><tr><td rowspan="4">NNO</td><td rowspan="2">MaskFormer [14]</td><td>R50</td><td> $\overline { { 5 1 2 \times 5 1 2 } }$ </td><td>44.5</td><td>46.7</td><td>41M</td><td>53G</td></tr><tr><td>R101</td><td> $5 1 2 \times 5 1 2$ </td><td>45.5</td><td>47.2</td><td>60M</td><td>73G</td></tr><tr><td rowspan="2">Mask2Former (ours)</td><td>R50</td><td> $\overline { { 5 1 2 \times 5 1 2 } }$ </td><td>47.2</td><td>49.2</td><td>44M</td><td>71G</td></tr><tr><td>R101</td><td> $5 1 2 \times 5 1 2$ </td><td>47.8</td><td>50.1</td><td>63M</td><td>90G</td></tr><tr><td rowspan="10">Trrirrrergrreireers</td><td rowspan="2">Swin-UperNet [36,58] FaPN-MaskFormer [14,39]</td><td>Swin-L</td><td> $6 4 0 \times 6 4 0$ </td><td>-</td><td>53.5</td><td>234M</td><td>647G</td></tr><tr><td> $\mathrm { S w i n - L } ^ { \dagger }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>55.2</td><td>56.7</td><td>1</td><td>-</td></tr><tr><td rowspan="2">BEiT-UperNet [2,58]</td><td> $\mathrm { B E i T - L ^ { \dagger } }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>-</td><td>57.0</td><td>502M</td><td>-</td></tr><tr><td> $\overline { { \operatorname { S w i n - T } } }$ </td><td> $\overline { { 5 1 2 \times 5 1 2 } }$ </td><td>46.7</td><td>48.8</td><td>42M</td><td>55G</td></tr><tr><td rowspan="4">MaskFormer [14]</td><td> $\operatorname { S w i n - S }$ </td><td> $5 1 2 \times 5 1 2$ </td><td>49.8</td><td>51.0</td><td>63M</td><td>79G</td></tr><tr><td> $\mathrm { S w i n - B }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>51.1</td><td>52.3</td><td>102M</td><td>195G</td></tr><tr><td> $\mathbf { S } \mathbf { w i n } \mathbf { - } \mathbf { B } ^ { \dagger }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>52.7</td><td>53.9</td><td>102M</td><td>195G</td></tr><tr><td>Swin-L</td><td> $6 4 0 \times 6 4 0$ </td><td>54.1</td><td>55.6</td><td>212M</td><td>375G</td></tr><tr><td rowspan="6">Mask2Former (ours)</td><td>Swin-T</td><td> $\overline { { 5 1 2 \times 5 1 2 } }$ </td><td>47.7</td><td>49.6</td><td>47M</td><td>74G</td></tr><tr><td>Swin-S</td><td> $5 1 2 \times 5 1 2$ </td><td>51.3</td><td>52.4</td><td>69M</td><td>98G</td></tr><tr><td> $\mathrm { S w i n - B }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>52.4</td><td>53.7</td><td>107M</td><td>223G</td></tr><tr><td> $\mathbf { S } \mathbf { w i n } \mathbf { - } \mathbf { B } ^ { \dagger }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>53.9</td><td>55.1</td><td>107M</td><td>223G</td></tr><tr><td> $\mathrm { S w i n - L } ^ { \dagger }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>56.1</td><td>57.3</td><td>215M</td><td>403G</td></tr><tr><td> $\scriptstyle \mathrm { S w i n - L - F a P N } ^ { \dagger }$ </td><td> $6 4 0 \times 6 4 0$ </td><td>56.4</td><td>57.7</td><td>217M</td><td>-</td></tr></table>
+
+Table V. Semantic segmentation on ADE20K val with 150 categories. Mask2Former consistently outperforms MaskFormer [14] by a large margin with different backbones (all Mask2Former models use MSDeformAttn [66] as pixel decoder, except Swin-L-FaPN uses FaPN [39]). Our best model outperforms the best specialized model, BEiT [2], with less than half of the parameters. We report both single-scale (s.s.) and multi-scale (m.s.) inference results. Backbones pre-trained on ImageNet-22K are marked with †.
+<table><tr><td>method</td><td>backbone</td><td>P.A.</td><td>mIoU</td><td>score</td></tr><tr><td>SETR [64]</td><td>ViT-L</td><td>78.35</td><td>45.03</td><td>61.69</td></tr><tr><td>Swin-UperNet [36,58]</td><td>Swin-L</td><td>78.42</td><td>47.07</td><td>62.75</td></tr><tr><td>MaskFormer [14]</td><td>Swin-L</td><td>79.36</td><td>49.67</td><td>64.51</td></tr><tr><td>Mask2Former (ours)</td><td>Swin-L-FaPN</td><td>79.80</td><td>49.72</td><td>64.76</td></tr></table>
+
+Table VI. Semantic segmentation on ADE20K test with 150 categories. Mask2Former outperforms previous state-of-the-art methods on all three metrics: pixel accuracy (P.A.), mIoU, as well as the final test score (average of P.A. and mIoU). We train our model on the union of ADE20K train and val set with ImageNet-22K pre-trained checkpoint following [14] and use multi-scale inference.
+
+![](Images_GIZHYMAL/c689d9f113d6fb6193738ffbfaf59d0c726058d480a2db10b9e4f30b1a0cc49b.jpg)  
+Figure II. Panoptic segmentation performance of each Transformer decoder layer.
+
+## C.3. Object query analysis
+
+Object queries play an important role in Mask2Former. We ablate different design choices of object queries including the number of queries and making queries learnable. Number of queries. We study the effect of different number of queries for three image segmentation tasks in Table Xa. For instance and semantic segmentation, using 100 queries achieves the best performance, while using 200 queries can further improve panoptic segmentation results. As panoptic segmentation is a combination of instance and semantic segmentation, it has more segments per image than the other two tasks. This ablation suggests that picking the number of queries for Mask2Former may depend on the number of segments per image for a particular task or dataset.
+
+<table><tr><td rowspan="2">method</td><td rowspan="2">backbone</td><td colspan="4">panoptic model</td><td colspan="2">instance model</td><td colspan="2">semantic model</td></tr><tr><td> $\mathrm { P Q } \left( \mathrm { s } . \mathrm { s } . \right)$ </td><td> $\mathrm { P Q } \ \mathrm { ( m . s . ) }$ </td><td> $\displaystyle \frac { \mathbf { A P } _ { \mathrm { p a n } } ^ { \mathrm { T h } } } { \mathrm { p a n } }$ </td><td> $\mathrm { \ m H o U _ { p a n } }$ </td><td>AP</td><td>AP50</td><td>mIoU (s.s.)</td><td>mIoU (m.s.)</td></tr><tr><td rowspan="3">Panoptic-DeepLab [11]</td><td>R50</td><td>60.3</td><td>-</td><td>32.1</td><td>78.7</td><td>-</td><td>-</td><td></td><td>-</td></tr><tr><td>X71 [15]</td><td>63.0</td><td>64.1</td><td>35.3</td><td>80.5</td><td>-</td><td>-</td><td></td><td>=</td></tr><tr><td>SWideRNet [9]</td><td>66.4</td><td>67.5</td><td>40.1</td><td>82.2</td><td>-</td><td>-</td><td></td><td>-</td></tr><tr><td>Panoptic FCN [31]</td><td>Swin-L</td><td>65.9</td><td>1</td><td>-</td><td>-</td><td>1</td><td>-</td><td></td><td>-</td></tr><tr><td>Segmenter [45]</td><td>ViT-L</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1</td><td>81.3</td></tr><tr><td>SETR [64]</td><td>ViT-L</td><td>-</td><td></td><td></td><td>-</td><td>=</td><td>=</td><td>=</td><td>82.2</td></tr><tr><td>SegFormer [59]</td><td>MiT-B5</td><td>-</td><td></td><td>-</td><td>-</td><td>-</td><td>-</td><td>：</td><td>84.0</td></tr><tr><td rowspan="6">Mask2Former (ours)</td><td>R50</td><td>62.1</td><td></td><td>37.3</td><td>77.5</td><td>37.4</td><td>61.9</td><td>79.4</td><td>82.2</td></tr><tr><td>R101</td><td>62.4</td><td></td><td>37.7</td><td>78.6</td><td>38.5</td><td>63.9</td><td>80.1</td><td>81.9</td></tr><tr><td>Swin-T</td><td>63.9</td><td></td><td>39.1</td><td>80.5</td><td>39.7</td><td>66.9</td><td>82.1</td><td>83.0</td></tr><tr><td>Swin-S</td><td>64.8</td><td></td><td>40.7</td><td>81.8</td><td>41.8</td><td>70.4</td><td>82.6</td><td>83.6</td></tr><tr><td>Swin-B</td><td>66.1</td><td></td><td>42.8</td><td>82.7</td><td>42.0</td><td>68.8</td><td>83.3</td><td>84.5</td></tr><tr><td> ${ \bf S } { \bf w i n { - } } { \bf L } ^ { \dagger }$ </td><td>66.6</td><td></td><td>43.6</td><td>82.9</td><td>43.7</td><td>71.4</td><td>83.3</td><td>84.3</td></tr></table>
+
+Table VII. Image segmentation results on Cityscapes val. We report both single-scale (s.s.) and multi-scale (m.s.) inference results for PQ and mIoU. All other metrics are evaluated with single-scale inference. Since Mask2Former is an end-to-end model, we only use single-scale inference for instance-level segmentation tasks to avoid the need for further post-processing (e.g., NMS).
+<table><tr><td></td><td></td><td colspan="3">panoptic model</td><td colspan="3">instance model</td><td colspan="2">semantic model</td></tr><tr><td>method</td><td>backbone</td><td>PQ</td><td> $\mathsf { A P } _ { \mathsf { p a n } } ^ { \mathrm { T h } }$ </td><td> $\mathrm { \ m H o U _ { p a n } }$ </td><td> $\mathbf { A P }$ </td><td> $\mathrm { A P ^ { S } }$ </td><td> $\mathsf { A P } ^ { \mathrm { M } }$ </td><td> $\mathbf { A P } ^ { \mathrm { L } }$ </td><td>mIoU (s.s.) mIoU (m.s.)</td></tr><tr><td>MaskFormer [14]</td><td>R50</td><td>34.7</td><td></td><td></td><td></td><td></td><td></td><td></td><td>-</td></tr><tr><td>Panoptic-DeepLab [11]</td><td>SWideRNet [9]</td><td>37.9*</td><td></td><td>50.0*</td><td></td><td></td><td></td><td>=</td><td>-</td></tr><tr><td>Swin-UperNet [36,58]</td><td>Swin-L</td><td>-</td><td></td><td>-</td><td>-</td><td>=</td><td></td><td>-</td><td>53.5</td></tr><tr><td>MaskFormer [14]</td><td>Swin-L</td><td>-</td><td></td><td>-</td><td>=</td><td></td><td></td><td>54.1</td><td>55.6</td></tr><tr><td>FaPN-MaskFormer[14,39]</td><td>Swin-L</td><td>1</td><td></td><td>-</td><td>-</td><td></td><td></td><td>55.2</td><td>56.7</td></tr><tr><td>BEiT-UperNet[2,58]</td><td>BEiT-L</td><td>-</td><td></td><td>-</td><td>-</td><td></td><td></td><td>-</td><td>57.0</td></tr><tr><td rowspan="3">Mask2Former (ours)</td><td>R50</td><td>39.7</td><td>26.5</td><td>46.1</td><td>26.4</td><td>10.4</td><td>28.9 43.1</td><td>47.2</td><td>49.2</td></tr><tr><td>Swin-L</td><td>48.1</td><td>34.2</td><td>54.5</td><td>34.9</td><td>16.3</td><td>40.0 54.7</td><td>56.1</td><td>57.3</td></tr><tr><td> $\scriptstyle \mathrm { S w i n - L - F a P N } ^ { \dagger }$ </td><td>46.2</td><td>33.2</td><td>55.4</td><td>33.4</td><td>14.6</td><td>37.6 54.6</td><td>56.4</td><td>57.7</td></tr></table>
+
+Table VIII. Image segmentation results on ADE20K val. Mask2Former is competitive to specialized models on ADE20K. Panoptic segmentation models use single-scale inference by default, multi-scale numbers are marked with ∗. For semantic segmentation, we report both single-scale (s.s.) and multi-scale (m.s.) inference results.
+
+Learnable queries. An object query consists of two parts: object query features and object query positional embeddings. Object query features are only used as the initial input to the Transformer decoder and are updated through decoder layers; whereas query positional embeddings are added to query features in every Transformer decoder layer when computing the attention weights. In DETR [5], query features are zero-initialized and query positional embeddings are learnable. Furthermore, there is no direct supervision on these query features before feeding them into the Transformer (since they are zero vectors). In our Mask2Former, we still make query positional embeddings learnable. In addition, we make query features learnable as well and directly apply losses on these learnable query features before feeding them into the Transformer decoder.
+
+In Table Xb, we compare our learnable query features with zero-initialized query features in DETR. We find it is important to directly supervise object queries even before feeding them into the Transformer decoder. Learnable queries without supervision perform similarly well as zeroinitialized queries in DETR.
+
+## C.4. MaskFormer vs. Mask2Former
+
+Mask2Former builds upon the same meta architecture as MaskFormer [14] with two major differences: 1) We use more advanced training parameters summarized in Table XIa; and 2) we propose a new Transformer decoder with masked attention, instead of using the standard Transformer decoder, as well as some optimization improvements summarized in Table XIb. To better understand Mask2Former’s improvements over MaskFormer, we perform ablation studies on training parameter improvements and Transformer decoder improvements in isolation.
+
+In Table XIc, we study our new training parameters. We train the MaskFormer model with either its original training parameters in [14] or our new training parameters. We observe significant improvements of using our new training parameters for MaskFormer as well. This shows the new training parameters are also generally applicable to other models.
+
+<table><tr><td rowspan="2">method</td><td rowspan="2">backbone</td><td colspan="2">panoptic model</td><td colspan="2">semantic model</td></tr><tr><td>PQ</td><td> $\mathrm { \ m I o U _ { p a n } }$ </td><td> $\mathrm { m I o U \left( s . s . \right) }$ </td><td>mIoU (m.s.)</td></tr><tr><td rowspan="3">Panoptic-DeepLab [11]</td><td>ensemble</td><td> $\overline { { 4 2 . 2 ^ { * } } }$ </td><td> ${ \overline { { 5 8 . 7 ^ { * } } } }$ </td><td></td><td></td></tr><tr><td>SWideRNet [9]</td><td> $4 3 . 7$ </td><td>59.4</td><td></td><td></td></tr><tr><td>SWideRNet [9]</td><td> $4 4 . 8 ^ { * }$ </td><td> ${ 6 0 . 0 } ^ { * }$ </td><td></td><td>1</td></tr><tr><td>Panoptic FCN [31]</td><td>Swin-L</td><td>45.7</td><td>1</td><td>-</td><td>-</td></tr><tr><td>MaskFormer [14]</td><td>R50</td><td>-</td><td></td><td>53.1</td><td>55.4</td></tr><tr><td>HMSANet [48]</td><td>HRNet [53]</td><td>-</td><td>-</td><td>-</td><td>61.1</td></tr><tr><td rowspan="2">Mask2Former (ours)</td><td>R50</td><td>36.3</td><td>50.7</td><td>57.4</td><td>59.0</td></tr><tr><td> $\operatorname { S w i n - L } ^ { \dagger }$ </td><td>45.5</td><td>60.8</td><td>63.2</td><td>64.7</td></tr></table>
+
+Table IX. Image segmentation results on Mapillary Vistas val. Mask2Former is competitive to specialized models on Mapillary Vistas. Panoptic segmentation models use single-scale inference by default, multi-scale numbers are marked with ∗. For semantic segmentation, we report both single-scale (s.s.) and multi-scale (m.s.) inference results.
+
+![](Images_GIZHYMAL/6f87af260c85c49f3b56b02718a07094026d07f3b4ed0fb089f16acf3dd1a2aa.jpg)  
+Figure III. MaskFormer [14] vs. Mask2Former (ours) with different Swin Transformer backbones.
+
+## D. Visualization
+
+In Table XId, we study our new Transformer decoder. We train a MaskFormer model and a Mask2Former model with the exact same backbone, i.e., a ResNet-50; pixel decoder, i.e., a FPN; and training parameters. That is, the only difference is in the Transformer decoder, summarized in Table XIb. We observe improvements for all three tasks, suggesting that the new Transformer decoder itself is indeed better than the standard Transformer decoder.
+
+While computational efficiency was not our primary goal, we find that Mask2Former actually has a better compute-performance trade-off compared to MaskFormer (Figure III). Even the lightest instantiation of Mask2Former outperforms the heaviest MaskFormer instantiation, using ${ \frac { 1 } { 4 } } ^ { \mathrm { t h } }$ the FLOPs.
+
+We visualize sample predictions of the Mask2Former model with Swin-L [36] backbone on three tasks: COCO panoptic val2017 set for panoptic segmentation (57.8 PQ) in Figure V, COCO val2017 set for instance segmentation (50.1 AP) in Figure VI and ADE20K validation set for semantic segmentation (57.7 mIoU, multi-scale inference) in Figure VII.
+
+![](Images_GIZHYMAL/c66f728e5932a5996271cea42d8229ee05cbdc646120addcffdbfa54ad9e9e78.jpg)  
+Figure IV. Convergence analysis. We train Mask2Former with different epochs using either standard scale augmentation (Standard Aug.) [57] or the more recent large-scale jittering augmentation (LSJ Aug.) [18, 23]. Mask2Former converges in 25 epochs using standard augmentation and almost converges in 50 epochs using large-scale jittering augmentation. Using LSJ also improves performance with longer training epochs (i.e., with more than 25 epochs).
+
+<table><tr><td></td><td>AP (COCO)</td><td>PQ (COCO)</td><td>mIoU (ADE20K)</td><td>FLOPs (COCO)</td></tr><tr><td>50</td><td>42.4</td><td>50.5</td><td>46.2</td><td>217G</td></tr><tr><td>100</td><td>43.7</td><td>51.9</td><td>47.2</td><td>226G</td></tr><tr><td>200</td><td>43.5</td><td>52.2</td><td>47.0</td><td>246G</td></tr><tr><td>300</td><td>43.5</td><td>52.1</td><td>46.5</td><td>265G</td></tr><tr><td>1000</td><td>40.3</td><td>50.7</td><td>44.8</td><td>405G</td></tr></table>
+
+(a) Number of queries ablation. For instance and semantic segmentation, using 100 queries achieves the best performance while using 200 queries can further improve panoptic segmentation results.
+
+<table><tr><td></td><td>AP (COCO)</td><td>PQ (COCO)</td><td>mIoU (ADE20K)</td><td>FLOPs (COCO)</td></tr><tr><td>zero-initialized (DETR [5])</td><td>42.9</td><td>51.2</td><td>45.5</td><td>226G</td></tr><tr><td>learnable w/o supervision</td><td>42.9</td><td>51.2</td><td>47.0</td><td>226G</td></tr><tr><td>learnable w/ supervision</td><td>43.7</td><td>51.9</td><td>47.2</td><td>226G</td></tr></table>
+
+(b) Learnable queries ablation. It is important to supervise object queries before feeding them into the Transformer decoder. Learnable queries without supervision perform similarly well as zero-initialized queries in DETR.
+
+Table X. Analysis of object queries. Table Xa: ablation on number of queries. Table Xb: ablation on using learnable queries.
+<table><tr><td>training parameters</td><td>MaskFormer</td><td>Mask2Former (ours)</td></tr><tr><td>learning rate</td><td>0.0001</td><td>0.0001</td></tr><tr><td>weight decay</td><td>0.0001</td><td>0.05</td></tr><tr><td>batch size</td><td>16*</td><td>16</td></tr><tr><td>epochs</td><td>75*</td><td>50</td></tr><tr><td>data augmentation</td><td>standard scale aug.w/ crop</td><td>LSJ aug.</td></tr><tr><td> $\lambda _ { \mathrm { c l s } }$ </td><td>1.0</td><td>2.0</td></tr><tr><td> $\lambda _ { \mathrm { f o c a l } } / \lambda _ { \mathrm { c e } }$ </td><td>20.0/-</td><td>-/5.0</td></tr><tr><td> $\lambda _ { \mathrm { d i c e } }$ </td><td>1.0</td><td>5.0</td></tr><tr><td>mask loss</td><td>mask</td><td>12544 sampled points</td></tr></table>
+
+(a) Comparison of training parameters for MaskFormer [14] and our Mask2Former on the COCO dataset. ∗: in the original MaskFormer implementation, the model is trained with a batch size of 64 for 300 epochs. We find MaskFormer achieves similar performance when trained with a batch size of 16 for 75 epochs, i.e., the same number of iterations with a smaller batch size.
+
+<table><tr><td>Transformer decoder</td><td>MaskFormer</td><td>Mask2Former (ours)</td></tr><tr><td>#of layers</td><td>6</td><td>9</td></tr><tr><td>single layer</td><td>SA-CA-FFN</td><td>MA-SA-FFN</td></tr><tr><td>dropout</td><td>0.1</td><td>0.0</td></tr><tr><td>feature resolution</td><td> $\{ 1 / 3 2 \} \times 6$ </td><td> $\{ 1 / 3 2 , 1 / 1 6 , 1 / 8 \} \times 3$ </td></tr><tr><td>input query features</td><td>zero init.</td><td>learnable</td></tr><tr><td>query p.e.</td><td>learnable</td><td>learnable</td></tr></table>
+
+(b) Comparison of Transformer decoder in MaskFormer [14] and our Mask2Former. SA: self-attention, CA: cross-attention, FFN: feed-forward network, MA: masked attention, p.e.: positional embedding.
+<table><tr><td rowspan="2">model</td><td rowspan="2">training params.</td><td rowspan="2">AP (COCO)</td><td rowspan="2">PQ (COCO)</td><td rowspan="2">mIoU (ADE20K)</td><td colspan="2">Transformer decoder</td><td rowspan="2">AP (COCO)</td><td rowspan="2">PQ (COCO)</td><td rowspan="2">mIoU (ADE20K)</td></tr><tr><td></td><td>rpixel decoder</td></tr><tr><td>MaskFormer</td><td>MaskFormer</td><td>34.0</td><td>46.5</td><td>44.5</td><td>MaskFormer</td><td>FPN</td><td>37.8</td><td>48.2</td><td>45.3</td></tr><tr><td>MaskFormer</td><td>Mask2Former</td><td>37.8 (+3.8)</td><td>48.2 (+1.7)</td><td>45.3 (+0.8)</td><td>Mask2Former</td><td>FPN</td><td>41.5 (+3.7)</td><td>50.7 (+2.5)</td><td>45.6 (+0.3)</td></tr></table>
+
+(c) Improvements from better training parameters.  
+(d) Improvements from better Transformer decoder.
+
+Table XI. MaskFormer vs. Mask2Former. Table XIa and Table XIb provide an in-depth comparison between MaskFormer and our Mask2Former settings. Table XIc: MaskFormer benefits from our new training parameters as well. Table XId: Comparison between MaskFormer and our Mask2Former with the exact same backbone, pixel decoder and training parameters. The improvements solely come from a better Transformer decoder.
+
+![](Images_GIZHYMAL/3039f9a59804e170167f5ff4a360e74f238f5877c7e588a87cafc7523ad23ba8.jpg)  
+Figure V. Visualization of panoptic segmentation predictions on the COCO panoptic dataset: Mask2Former with Swin-L backbone which achieves 57.8 PQ on the validation set. First and third columns: ground truth. Second and fourth columns: prediction. Last row shows failure cases.
+
+![](Images_GIZHYMAL/f8a619ac5015c7910cb1e11bd48593486572883e7fdbc0c7272a58b530d03976.jpg)  
+Figure VI. Visualization of instance segmentation predictions on the COCO dataset: Mask2Former with Swin-L backbone which achieves 50.1 AP on the validation set. First and third columns: ground truth. Second and fourth columns: prediction. Last row shows failure cases. We show predictions with confidence scores greater than 0.5.
+
+![](Images_GIZHYMAL/d12f62694c26e4f040d22fd1ce7efc404d8e7e4c45e4f25ac6be9f78e364770b.jpg)  
+Figure VII. Visualization of semantic segmentation predictions on the ADE20K dataset: Mask2Former with Swin-L backbone which achieves 57.7 mIoU (multi-scale) on the validation set. First and third columns: ground truth. Second and fourth columns: prediction. Last row shows failure cases.

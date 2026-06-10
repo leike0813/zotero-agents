@@ -21,10 +21,6 @@ type RunPromptContext = {
   sharedSkillCatalog: AcpSharedSkillCatalog;
 };
 
-const ZOTERO_HOST_ACCESS_START =
-  "<!-- zotero-skills-zotero-host-access:start -->";
-const ZOTERO_HOST_ACCESS_END = "<!-- zotero-skills-zotero-host-access:end -->";
-
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -98,24 +94,6 @@ function renderHermesSkillList(context: RunPromptContext) {
     );
   }
   return lines.join("\n");
-}
-
-function appendZoteroHostAccessSnippet(args: {
-  renderedInstructions: string;
-  snippet?: string;
-}) {
-  const snippet = normalizeString(args.snippet);
-  if (!snippet) {
-    return `${args.renderedInstructions}\n`;
-  }
-  return [
-    args.renderedInstructions,
-    "",
-    ZOTERO_HOST_ACCESS_START,
-    snippet,
-    ZOTERO_HOST_ACCESS_END,
-    "",
-  ].join("\n");
 }
 
 function resolveSkillInvokeLine(family: AcpAgentFamily, skillId: string) {
@@ -241,7 +219,6 @@ function renderSimpleEntrypointTemplate(args: {
 
 export async function materializeAcpRunExecutionInstructions(args: {
   context: RunPromptContext;
-  hostBridgeCliPromptSnippet?: string;
 }) {
   const template = await loadAcpSkillPatchTemplate(
     ACP_SKILL_PATCH_TEMPLATES_BY_MODULE.run_execution_instructions,
@@ -265,10 +242,7 @@ export async function materializeAcpRunExecutionInstructions(args: {
   );
   await writeRuntimeTextFile(
     path,
-    appendZoteroHostAccessSnippet({
-      renderedInstructions: `${rendered}${renderHermesSkillList(args.context)}`,
-      snippet: args.hostBridgeCliPromptSnippet,
-    }),
+    `${rendered}${renderHermesSkillList(args.context)}\n`,
   );
   return path;
 }

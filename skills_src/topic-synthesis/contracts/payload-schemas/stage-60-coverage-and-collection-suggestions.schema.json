@@ -7,11 +7,9 @@
   "required": [
     "coverage_verdict",
     "coverage_reason",
-    "reliability_summary",
     "coverage_caveats",
     "external_context_summary",
-    "suggested_collection_directions",
-    "diagnostics"
+    "suggested_collection_directions"
   ],
   "properties": {
     "coverage_verdict": {
@@ -23,12 +21,23 @@
         "unknown"
       ]
     },
-    "coverage_reason": { "type": "string" },
-    "reliability_summary": { "type": "string" },
-    "coverage_caveats": { "type": "array", "items": { "type": "object" } },
-    "external_context_summary": { "type": "string" },
+    "coverage_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "coverage_caveats": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "external_context_summary": {
+      "type": "string",
+      "minLength": 1
+    },
     "suggested_collection_directions": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -39,34 +48,48 @@
           "priority"
         ],
         "properties": {
-          "direction": { "type": "string" },
-          "reason": { "type": "string" },
+          "direction": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
           "example_titles_or_terms": {
             "type": "array",
-            "items": { "type": "string" }
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
-          "priority": { "enum": ["high", "medium", "low", "unknown"] }
+          "priority": {
+            "enum": ["high", "medium", "low", "unknown"]
+          }
         }
       }
-    },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    }
   },
   "examples": [
     {
       "coverage_verdict": "partial",
-      "coverage_reason": "",
-      "reliability_summary": "",
-      "coverage_caveats": [],
-      "external_context_summary": "",
-      "suggested_collection_directions": [
+      "coverage_reason": "当前库内材料覆盖核心路线，但仍缺少效率和部署方向的代表文献。",
+      "coverage_caveats": [
         {
-          "direction": "",
-          "reason": "",
-          "example_titles_or_terms": [],
-          "priority": "medium"
+          "type": "library_coverage_gap",
+          "note": "效率导向和部署导向的变体覆盖不足。"
         }
       ],
-      "diagnostics": []
+      "external_context_summary": "外部 context 指向若干邻近变体，可作为后续补充方向。",
+      "suggested_collection_directions": [
+        {
+          "direction": "补充效率导向的 DETR 变体。",
+          "reason": "这些文献有助于解释部署和 latency tradeoff。",
+          "example_titles_or_terms": ["Deformable DETR"],
+          "priority": "medium"
+        }
+      ]
     }
   ]
 }

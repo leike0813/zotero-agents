@@ -18,6 +18,10 @@ import {
   scanPersistenceIntegrity,
 } from "../../src/modules/persistenceIntegrity";
 import {
+  buildSynthesisKnowledgeGraphPaths,
+  buildSynthesisStoragePaths,
+} from "../../src/modules/synthesis/foundation";
+import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   PLUGIN_TASK_DOMAIN_ACP,
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
@@ -99,6 +103,42 @@ describe("runtime persistence governance", function () {
     assert.include(
       paths.acpSkillRunsDir.replace(/\\/g, "/"),
       "/acp/skill-runs",
+    );
+  });
+
+  it("resolves durable synthesis canonical paths under data, not runtime", function () {
+    const paths = getRuntimePersistencePaths();
+    const topicPaths = buildSynthesisStoragePaths(paths.root, "topic-alpha");
+    const topicPathsFromData = buildSynthesisStoragePaths(
+      paths.dataDir,
+      "topic-alpha",
+    );
+    const topicPathsFromSynthesisData = buildSynthesisStoragePaths(
+      paths.synthesisDataRoot,
+      "topic-alpha",
+    );
+    const graphPaths = buildSynthesisKnowledgeGraphPaths(paths.root);
+
+    assert.equal(topicPaths.synthesisRoot, paths.synthesisDataRoot);
+    assert.equal(topicPathsFromData.synthesisRoot, paths.synthesisDataRoot);
+    assert.equal(
+      topicPathsFromSynthesisData.synthesisRoot,
+      paths.synthesisDataRoot,
+    );
+    assert.equal(graphPaths.synthesisRoot, paths.synthesisDataRoot);
+    assert.equal(
+      topicPaths.currentManifest,
+      path.join(
+        paths.synthesisDataRoot,
+        "topics",
+        "topic-alpha",
+        "current",
+        "manifest.json",
+      ),
+    );
+    assert.notInclude(
+      topicPaths.currentManifest.replace(/\\/g, "/"),
+      "/runtime/synthesis/",
     );
   });
 

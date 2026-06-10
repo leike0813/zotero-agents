@@ -1,0 +1,136 @@
+Joshua Ainslie, Santiago Ontanon, Chris Alberti, Philip Pham, Anirudh Ravula, and Sumit Sanghai. Etc: Encoding long and structured data in transformers. arXiv preprint arXiv:2004.08483, 2020.
+
+Iz Beltagy, Matthew E Peters, and Arman Cohan. Longformer: The long-document transformer. arXiv preprint arXiv:2004.05150, 2020.
+
+Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-end object detection with transformers. In ECCV, 2020.
+
+Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. Generating long sequences with sparse transformers. arXiv preprint arXiv:1904.10509, 2019.
+
+Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Jared Davis, Tamas Sarlos, David Belanger, Lucy Colwell, and Adrian Weller. Masked language modeling for proteins via linearly scalable long-context transformers. arXiv preprint arXiv:2006.03555, 2020.
+
+Jifeng Dai, Haozhi Qi, Yuwen Xiong, Yi Li, Guodong Zhang, Han Hu, and Yichen Wei. Deformable convolutional networks. In ICCV, 2017.
+
+Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In CVPR, 2009.
+
+Golnaz Ghiasi, Tsung-Yi Lin, and Quoc V Le. Nas-fpn: Learning scalable feature pyramid architecture for object detection. In CVPR, 2019.
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In CVPR, 2016.
+
+Jonathan Ho, Nal Kalchbrenner, Dirk Weissenborn, and Tim Salimans. Axial attention in multidimensional transformers. arXiv preprint arXiv:1912.12180, 2019.
+
+Han Hu, Zheng Zhang, Zhenda Xie, and Stephen Lin. Local relation networks for image recognition. In ICCV, 2019.
+
+Zilong Huang, Xinggang Wang, Lichao Huang, Chang Huang, Yunchao Wei, and Wenyu Liu. Ccnet: Criss-cross attention for semantic segmentation. In ICCV, 2019.
+
+Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and Franc¸ois Fleuret. Transformers are rnns: Fast autoregressive transformers with linear attention. arXiv preprint arXiv:2006.16236, 2020.
+
+Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In ICLR, 2015.
+
+Nikita Kitaev, Łukasz Kaiser, and Anselm Levskaya. Reformer: The efficient transformer. In ICLR, 2020.
+
+Tao Kong, Fuchun Sun, Chuanqi Tan, Huaping Liu, and Wenbing Huang. Deep feature pyramid reconfiguration for object detection. In ECCV, 2018.
+
+Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In ´ ECCV, 2014.
+
+Tsung-Yi Lin, Piotr Dollar, Ross Girshick, Kaiming He, Bharath Hariharan, and Serge Belongie. ´ Feature pyramid networks for object detection. In CVPR, 2017a.
+
+Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object ´ detection. In ICCV, 2017b.
+
+Li Liu, Wanli Ouyang, Xiaogang Wang, Paul Fieguth, Jie Chen, Xinwang Liu, and Matti Pietikainen. ¨ Deep learning for generic object detection: A survey. IJCV, 2020.
+
+Peter J Liu, Mohammad Saleh, Etienne Pot, Ben Goodrich, Ryan Sepassi, Lukasz Kaiser, and Noam Shazeer. Generating wikipedia by summarizing long sequences. In ICLR, 2018a.
+
+Shu Liu, Lu Qi, Haifang Qin, Jianping Shi, and Jiaya Jia. Path aggregation network for instance segmentation. In CVPR, 2018b.
+
+Niki Parmar, Ashish Vaswani, Jakob Uszkoreit, Łukasz Kaiser, Noam Shazeer, Alexander Ku, and Dustin Tran. Image transformer. In ICML, 2018.
+
+Jiezhong Qiu, Hao Ma, Omer Levy, Scott Wen-tau Yih, Sinong Wang, and Jie Tang. Blockwise self-attention for long document understanding. arXiv preprint arXiv:1911.02972, 2019.
+
+Prajit Ramachandran, Niki Parmar, Ashish Vaswani, Irwan Bello, Anselm Levskaya, and Jonathon Shlens. Stand-alone self-attention in vision models. In NeurIPS, 2019.
+
+Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. In NeurIPS, 2015.
+
+Aurko Roy, Mohammad Saffar, Ashish Vaswani, and David Grangier. Efficient content-based sparse attention with routing transformers. arXiv preprint arXiv:2003.05997, 2020.
+
+Guanglu Song, Yu Liu, and Xiaogang Wang. Revisiting the sibling head in object detector. In CVPR, 2020.   
+Mingxing Tan, Ruoming Pang, and Quoc V Le. Efficientdet: Scalable and efficient object detection. In CVPR, 2020.   
+Yi Tay, Dara Bahri, Liu Yang, Donald Metzler, and Da-Cheng Juan. Sparse sinkhorn attention. In ICML, 2020a.   
+Yi Tay, Mostafa Dehghani, Dara Bahri, and Donald Metzler. Efficient transformers: A survey. arXiv preprint arXiv:2009.06732, 2020b.   
+Zachary Teed and Jia Deng. Raft: Recurrent all-pairs field transforms for optical flow. In ECCV, 2020.   
+Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. Fcos: Fully convolutional one-stage object detection. In ICCV, 2019.   
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017.   
+Huiyu Wang, Yukun Zhu, Bradley Green, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. Axial-deeplab: Stand-alone axial-attention for panoptic segmentation. arXiv preprint arXiv:2003.07853, 2020a.   
+Sinong Wang, Belinda Li, Madian Khabsa, Han Fang, and Hao Ma. Linformer: Self-attention with linear complexity. arXiv preprint arXiv:2006.04768, 2020b.   
+Felix Wu, Angela Fan, Alexei Baevski, Yann N Dauphin, and Michael Auli. Pay less attention with lightweight and dynamic convolutions. In ICLR, 2019.   
+Saining Xie, Ross Girshick, Piotr Dollar, Zhuowen Tu, and Kaiming He. Aggregated residual trans- ´ formations for deep neural networks. In CVPR, 2017.   
+Hang Xu, Lewei Yao, Wei Zhang, Xiaodan Liang, and Zhenguo Li. Auto-fpn: Automatic network architecture adaptation for object detection beyond classification. In ICCV, 2019.   
+Manzil Zaheer, Guru Guruganesh, Avinava Dubey, Joshua Ainslie, Chris Alberti, Santiago Ontanon, Philip Pham, Anirudh Ravula, Qifan Wang, Li Yang, et al. Big bird: Transformers for longer sequences. arXiv preprint arXiv:2007.14062, 2020.   
+Shifeng Zhang, Cheng Chi, Yongqiang Yao, Zhen Lei, and Stan Z Li. Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection. In CVPR, 2020.   
+Qijie Zhao, Tao Sheng, Yongtao Wang, Zhi Tang, Ying Chen, Ling Cai, and Haibin Ling. M2det: A single-shot object detector based on multi-level feature pyramid network. In AAAI, 2019.   
+Xizhou Zhu, Dazhi Cheng, Zheng Zhang, Stephen Lin, and Jifeng Dai. An empirical study of spatial attention mechanisms in deep networks. In ICCV, 2019a.   
+Xizhou Zhu, Han Hu, Stephen Lin, and Jifeng Dai. Deformable convnets v2: More deformable, better results. In CVPR, 2019b.
+
+# A APPENDIX
+
+# A.1 COMPLEXITY FOR DEFORMABLE ATTENTION
+
+Supposes the number of query elements is $N _ { q }$ , in the deformable attention module (see Equation 2), the complexity for calculating the sampling coordinate offsets $\Delta { p } _ { m q k }$ and attention weights $A _ { m q k }$ is of $O ( 3 N _ { q } C M K )$ . Given the sampling coordinate offsets and attention weights, the complexity of computing Equation 2 is $O ( N _ { q } C ^ { 2 } + N _ { q } K C ^ { 2 } + 5 N _ { q } K C )$ , where the factor of 5 in $5 N _ { q } K C$ is because of bilinear interpolation and the weighted sum in attention. On the other hand, we can also calculate $\pmb { W } _ { m } ^ { \prime } \pmb { x }$ before sampling, as it is independent to query, and the complexity of computing Equation 2 will become as $O ( \tilde { N _ { q } } C ^ { 2 ^ { - } } { + } H W C ^ { 2 } { + } \tilde { 5 } N _ { q } K C )$ . So the overall complexity of deformable attention is $O ( N _ { q } C ^ { 2 } + \operatorname * { m i n } ( H W C ^ { 2 } , N _ { q } K C ^ { 2 } ) + 5 N _ { q } K C + 3 N _ { q } C M K )$ . In our experiments, $M = 8 , K \le \dot { 4 }$ and $C \ = \ 2 5 6$ by default, thus $5 K + 3 M K < C$ and the complexity is of $O ( 2 N _ { q } C ^ { 2 } + \operatorname* { m i n } ( { H W C ^ { 2 } } , N _ { q } K C ^ { 2 } ) )$ ).
+
+# A.2 CONSTRUCTING MULT-SCALE FEATURE MAPS FOR DEFORMABLE DETR
+
+As discussed in Section 4.1 and illustrated in Figure 4, the input multi-scale feature maps of the encoder $\{ \pmb { x } ^ { l } \} _ { l = 1 } ^ { L - 1 }$ $( L = 4 )$ are extracted from the output feature maps of stages $C _ { 3 }$ through $C _ { 5 }$ in ResNet (He et al., 2016) (transformed by a $1 \times 1$ convolution). The lowest resolution feature map $\pmb { x } ^ { L }$ is obtained via a $3 \times 3$ stride 2 convolution on the final $C _ { 5 }$ stage. Note that FPN (Lin et al., 2017a) is not used, because our proposed multi-scale deformable attention in itself can exchange information among multi-scale feature maps.
+
+![](Images_GR7NPD7G/5ad43c71e284180418b84ede6789b3d619354a9c51df17febce271ec5faa561c.jpg)  
+Figure 4: Constructing mult-scale feature maps for Deformable DETR.
+
+# A.3 BOUNDING BOX PREDICTION IN DEFORMABLE DETR
+
+Since the multi-scale deformable attention module extracts image features around the reference point, we design the detection head to predict the bounding box as relative offsets w.r.t. the reference point to further reduce the optimization difficulty. The reference point is used as the initial guess of the box center. The detection head predicts the relative offsets w.r.t. the reference point $\hat { p } _ { q } =$ $( \hat { p } _ { q x } , \hat { p } _ { q y } )$ , i.e., $\hat { b } _ { q } = \{ \sigma \left( b _ { q x } + \sigma ^ { - 1 } ( \hat { p } _ { q x } ) \right) , \sigma \left( b _ { q y } + \sigma ^ { - 1 } ( \hat { p } _ { q y } ) \right) , \sigma ( b _ { q w } ) , \sigma ( b _ { q h } ) \}$ , where $b _ { q \{ x , y , w , h \} } \in$ $\mathbb { R }$ are predicted by the detection head. $\sigma$ and $\sigma ^ { - 1 }$ denote the sigmoid and the inverse sigmoid function, respectively. The usage of $\sigma$ and $\sigma ^ { - 1 }$ is to ensure $\hat { b }$ is of normalized coordinates, as $\hat { b } _ { q } \in [ 0 , 1 ] ^ { 4 }$ . In this way, the learned decoder attention will have strong correlation with the predicted bounding boxes, which also accelerates the training convergence.
+
+# A.4 MORE IMPLEMENTATION DETAILS
+
+Iterative Bounding Box Refinement. Here, each decoder layer refines the bounding boxes based on the predictions from the previous layer. Suppose there are $D$ number of decoder layers (e.g., $D = 6$ ), given a normalized bounding box $\hat { b } _ { q } ^ { d - 1 }$ predicted by the $( d - 1 )$ -th decoder layer, the $d$ -th
+
+decoder layer refines the box as
+
+ˆb $\begin{array} { r } { \ d _ { q } ^ { d } = \{ \sigma ( \Delta b _ { q x } ^ { d } + \sigma ^ { - 1 } ( \hat { b } _ { q x } ^ { d - 1 } ) ) , \sigma ( \Delta b _ { q y } ^ { d } + \sigma ^ { - 1 } ( \hat { b } _ { q y } ^ { d - 1 } ) ) , \sigma ( \Delta b _ { q w } ^ { d } + \sigma ^ { - 1 } ( \hat { b } _ { q w } ^ { d - 1 } ) ) , \sigma ( \Delta b _ { q h } ^ { d } + \sigma ^ { - 1 } ( \hat { b } _ { q h } ^ { d - 1 } ) ) \} , } \end{array}$ where $d \in \{ 1 , 2 , . . . , D \}$ , $\Delta b _ { q \{ x , y , w , h \} } ^ { d } \ \in \ \mathbb { R }$ are predicted at the $d$ -th decoder layer. Prediction heads for different decoder layers do not share parameters. The initial box is set as $\hat { b } _ { q x } ^ { 0 } = \hat { p } _ { q x }$ , $\hat { b } _ { q y } ^ { 0 } = \hat { p } _ { q y }$ , $\hat { b } _ { q w } ^ { 0 } = 0 . 1$ , and $\hat { b } _ { q h } ^ { 0 } = 0 . 1$ . The system is robust to the choice of $b _ { q w } ^ { 0 }$ and $b _ { q h } ^ { 0 }$ . We tried setting them as 0.05, 0.1, 0.2, 0.5, and achieved similar performance. To stabilize training, similar to Teed & Deng (2020), the gradients only back propagate through $\Delta b _ { q \{ x , y , w , h \} } ^ { d }$ , and are blocked at $\sigma ^ { - 1 } ( \hat { b } _ { q \{ x , y , w , h \} } ^ { d - 1 } ) .$ .
+
+In iterative bounding box refinement, for the $d$ -th decoder layer, we sample key elements respective to the box $\hat { b } _ { q } ^ { d - 1 }$ predicted from the $( d - 1 )$ -th decoder layer. For Equation 3 in the cross-attention moduoffset $d$ -th decoder layer,  also modulated b $( \hat { b } _ { q x } ^ { d - 1 } , \hat { b } _ { q y } ^ { d - 1 } )$ ser, as The sampling. Such modifi$\Delta { { p } _ { m l q k } }$ $( \Delta p _ { m l q k x } \hat { b } _ { q w } ^ { d - 1 } , \Delta p _ { m l q k y } \hat { b } _ { q h } ^ { d - 1 } )$ cations make the sampling locations related to the center and size of previously predicted boxes.
+
+Two-Stage Deformable DETR. In the first stage, given the output feature maps of the encoder, a detection head is applied to each pixel. The detection head is of a 3-layer FFN for bounding box regression, and a linear projection for bounding box binary classification (i.e., foreground and background), respectively. Let $i$ index a pixel from feature level $l _ { i } \in \{ 1 , 2 , . . . , L \}$ with 2-d normalized coordinates $\bar { \pmb { p } } _ { i } = ( \hat { p _ { i x } } , \hat { p } _ { i y } ) \in [ 0 , 1 ] ^ { 2 }$ , its corresponding bounding box is predicted by
+
+$$
+\begin{array} { r } { \nu _ { i } = \{ \sigma ( \Delta b _ { i x } + \sigma ^ { - 1 } ( \hat { p } _ { i x } ) ) , \sigma ( \Delta b _ { i y } + \sigma ^ { - 1 } ( \hat { p } _ { i y } ) ) , \sigma ( \Delta b _ { i w } + \sigma ^ { - 1 } ( 2 ^ { l _ { i } - 1 } s ) ) , \sigma ( \Delta b _ { i h } + \sigma ^ { - 1 } ( 2 ^ { l _ { i } - 1 } s ) ) \} , } \end{array}
+$$
+
+where the base object scale $s$ is set as 0.05, $\Delta b _ { i \{ x , y , w , h \} } \in \mathbb { R }$ are predicted by the bounding box regression branch. The Hungarian loss in DETR is used for training the detection head.
+
+Given the predicted bounding boxes in the first stage, top scoring bounding boxes are picked as region proposals. In the second stage, these region proposals are fed into the decoder as initial boxes for the iterative bounding box refinement, where the positional embeddings of object queries are set as positional embeddings of region proposal coordinates.
+
+Initialization for Multi-scale Deformable Attention. In our experiments, the number of attention heads is set as $M \ = \ 8$ . In multi-scale deformable attention modules, $W _ { m } ^ { \prime } \ \in \ \mathbb { R } ^ { C _ { v } \times C }$ and $W _ { m } ~ \in ~ \mathbb { R } ^ { C \times C _ { v } }$ are randomly initialized. Weight parameters of the linear projection for predicting $A _ { m l q k }$ and $\Delta { { p } _ { m l q k } }$ are initialized to zero. Bias parameters of the linear projection are initialized to make $\begin{array} { r } { A _ { m l q k } = \frac { 1 } { L K } } \end{array}$ and $\{ \Delta \pmb { p } _ { 1 l q k } = ( - k , - k ) , \Delta \pmb { p } _ { 2 l q k } = ( - k , 0 ) , \Delta \pmb { p } _ { 3 l q k } =$ ( $\begin{array} { r } { - k , k ) , \Delta p _ { 4 l q k } = ( 0 , - k ) , \Delta p _ { 5 l q k } = ( 0 , k ) , \Delta p _ { 6 l q k } = ( k , - k ) , \Delta p _ { 7 l q k } = ( k , 0 ) , \Delta p _ { 8 l q k } = ( k , 0 ) , \Delta p _ { 9 l q k } = ( k , 0 ) , } \end{array}$ $( k , k ) \}$ $( k \in \{ \bar { 1 } , 2 , . . . K \} ,$ ) at initialization.
+
+For iterative bounding box refinement, the initialized bias parameters for $\Delta { { p } _ { m l q k } }$ prediction in the decoder are further multiplied with $\textstyle { \frac { 1 } { 2 K } }$ , so that all the sampling points at initialization are within the corresponding bounding boxes predicted from the previous decoder layer.
+
+# A.5 WHAT DEFORMABLE DETR LOOKS AT?
+
+For studying what Deformable DETR looks at to give final detection result, we draw the gradient norm of each item in final prediction (i.e., x/y coordinate of object center, width/height of object bounding box, category score of this object) with respect to each pixel in the image, as shown in Fig. 5. According to Taylor’s theorem, the gradient norm can reflect how much the output would be changed relative to the perturbation of the pixel, thus it could show us which pixels the model mainly relys on for predicting each item.
+
+The visualization indicates that Deformable DETR looks at extreme points of the object to determine its bounding box, which is similar to the observation in DETR (Carion et al., 2020). More concretely, Deformable DETR attends to left/right boundary of the object for x coordinate and width, and top/bottom boundary for y coordinate and height. Meanwhile, different to DETR (Carion et al., 2020), our Deformable DETR also looks at pixels inside the object for predicting its category.
+
+![](Images_GR7NPD7G/a9fe12c309c2d1336b9bf0f4799115b0dd2a918d29465d4a0d7f3661775e6f3e.jpg)  
+Figure 5: The gradient norm of each item (coordinate of object center $( x , y )$ , width/height of object bounding box $w / h$ , category score $c$ of this object) in final detection result with respect to each pixel in input image $I$ .
+
+# A.6 VISUALIZATION OF MULTI-SCALE DEFORMABLE ATTENTION
+
+For better understanding learned multi-scale deformable attention modules, we visualize sampling points and attention weights of the last layer in encoder and decoder, as shown in Fig. 6. For readibility, we combine the sampling points and attention weights from feature maps of different resolutions into one picture.
+
+Similar to DETR (Carion et al., 2020), the instances are already separated in the encoder of Deformable DETR. While in the decoder, our model is focused on the whole foreground instance instead of only extreme points as observed in DETR (Carion et al., 2020). Combined with the visualization of $\| \frac { \partial c } { \partial I } \|$ in Fig. 5, we can guess the reason is that our Deformable DETR needs not only extreme points but also interior points to detemine object category. The visualization also demonstrates that the proposed multi-scale deformable attention module can adapt its sampling points and attention weights according to different scales and shapes of the foreground object.
+
+![](Images_GR7NPD7G/92f45f16c4c4f54c269c75a44de5084118b752a87da461c186942903ac8cc2b2.jpg)  
+Figure 6: Visualization of multi-scale deformable attention. For readibility, we draw the sampling points and attention weights from feature maps of different resolutions in one picture. Each sampling point is marked as a filled circle whose color indicates its correspoinding attention weight. The reference point is shown as green cross marker, which is also equivalent to query point in encoder. In decoder, the predicted bounding box is shown as a green rectangle and the category and confidence score are texted just above it.
+
+# A.7 NOTATIONS
+
+Table 4: Lookup table for notations in the paper.   
+
+<table><tr><td>Notation</td><td>Description</td></tr><tr><td>m</td><td>indexforattentionhead</td></tr><tr><td>1</td><td>index for feature level of key element</td></tr><tr><td>q</td><td>index for query element</td></tr><tr><td>k</td><td>index for key element</td></tr><tr><td>Nq</td><td>number of query elements</td></tr><tr><td>Nk</td><td>number of key elements</td></tr><tr><td>M</td><td>number of attention heads</td></tr><tr><td>L</td><td>number of input feature levels</td></tr><tr><td>K</td><td>number of sampled keys in each feature level for each attention head</td></tr><tr><td>C</td><td>input feature dimension</td></tr><tr><td>C</td><td>feature dimension at each attention head</td></tr><tr><td>H</td><td>height of input feature map</td></tr><tr><td>W</td><td>width of input feature map</td></tr><tr><td>H</td><td>height of input feature map of lth feature level</td></tr><tr><td>Wl</td><td>width of input feature map of lth feature level</td></tr><tr><td>Amqk</td><td>attention weight of qth query to kth key at mth head</td></tr><tr><td>Amlqk</td><td> attention weight of qth query to kth key in lth feature level at mth head</td></tr><tr><td>2q</td><td>input feature of qth query</td></tr><tr><td>Pq</td><td> 2-d coordinate of reference point for qth query</td></tr><tr><td>pq</td><td> normalized 2-d coordinate of reference point for qth query</td></tr><tr><td>C</td><td>input feature map (input feature of key elements)</td></tr><tr><td>Xk</td><td>input feature of kth key</td></tr><tr><td>xl</td><td>input feature map of lth feature level</td></tr><tr><td>△pmqk</td><td> sampling offset of qth query to kth key at mth head</td></tr><tr><td>△pmlqk</td><td> sampling offset of qth query to kth key in lth feature level at mth head</td></tr><tr><td>Wm</td><td>output projection matrix at mth head</td></tr><tr><td>Um</td><td>input query projection matrix at mth head</td></tr><tr><td>Vm</td><td>input key projection matrix at mth head</td></tr><tr><td>Wm</td><td>input value projection matrix at mth head</td></tr><tr><td>(p)</td><td>unnormalized 2-d coordinate of p in lth feature level</td></tr><tr><td>exp</td><td>exponential function</td></tr><tr><td>0</td><td>sigmoid function</td></tr><tr><td>9-1</td><td>inverse sigmoid function</td></tr></table>

@@ -216,6 +216,7 @@
         tr.appendChild(workflowCell);
 
         const statusCell = document.createElement("td");
+        statusCell.className = "center-cell";
         statusCell.appendChild(renderStatusBadge(row.state, row.stateLabel));
         tr.appendChild(statusCell);
 
@@ -225,6 +226,7 @@
         tr.appendChild(requestCell);
 
         const updatedCell = document.createElement("td");
+        updatedCell.className = "center-cell";
         updatedCell.textContent = formatTime(row.updatedAt);
         tr.appendChild(updatedCell);
 
@@ -529,10 +531,12 @@
           tr.appendChild(backendCell);
 
           const statusCell = document.createElement("td");
+          statusCell.className = "center-cell";
           statusCell.appendChild(renderStatusBadge(row.state, row.stateLabel));
           tr.appendChild(statusCell);
 
           const updatedCell = document.createElement("td");
+          updatedCell.className = "center-cell";
           updatedCell.textContent = formatTime(row.updatedAt);
           tr.appendChild(updatedCell);
         },
@@ -679,6 +683,34 @@
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(el("h2", "page-title", backend.title));
     const actionWrap = el("div", "toolbar-actions");
+    if (backend.selectedSubview === "management") {
+      const showRuns = el(
+        "button",
+        "btn",
+        labels.closeManagement || "Back to Runs",
+      );
+      showRuns.addEventListener("click", function () {
+        sendAction("show-runs", {
+          backendId: backend.backendId,
+        });
+      });
+      actionWrap.appendChild(showRuns);
+      const openExternal = el(
+        "button",
+        "btn",
+        labels.openManagementExternal || "Open in Browser",
+      );
+      openExternal.addEventListener("click", function () {
+        sendAction("open-management-external", {
+          backendId: backend.backendId,
+        });
+      });
+      actionWrap.appendChild(openExternal);
+      toolbar.appendChild(actionWrap);
+      main.appendChild(toolbar);
+      renderSkillRunnerManagementSubview(main, snapshot);
+      return;
+    }
     const refreshModelCache = el(
       "button",
       "btn",
@@ -732,6 +764,7 @@
           tr.appendChild(engineCell);
 
           const statusCell = document.createElement("td");
+          statusCell.className = "center-cell";
           statusCell.appendChild(renderStatusBadge(row.state, row.stateLabel));
           tr.appendChild(statusCell);
 
@@ -741,6 +774,7 @@
           tr.appendChild(requestCell);
 
           const updatedCell = document.createElement("td");
+          updatedCell.className = "center-cell";
           updatedCell.textContent = formatTime(row.updatedAt);
           tr.appendChild(updatedCell);
 
@@ -780,6 +814,39 @@
         },
       }),
     );
+  }
+
+  function renderSkillRunnerManagementSubview(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const backend = snapshot.backendView;
+    const managementUrl = String((backend && backend.managementUiUrl) || "");
+    const panel = el("section", "management-host-panel");
+    if (!managementUrl) {
+      panel.appendChild(
+        el(
+          "div",
+          "error-banner",
+          labels.managementLoadFailed || "Management UI failed to load.",
+        ),
+      );
+      main.appendChild(panel);
+      return;
+    }
+    const mount = el("div", "management-host-mount");
+    mount.setAttribute("data-zs-role", "skillrunner-management-dashboard-host");
+    mount.dataset.backendId = backend.backendId || "";
+    mount.dataset.managementUiUrl = managementUrl;
+    mount.appendChild(
+      el("div", "management-host-loading", "Loading management UI..."),
+    );
+    panel.appendChild(mount);
+    main.appendChild(panel);
+    window.setTimeout(function () {
+      sendAction("mount-management-host", {
+        backendId: backend.backendId,
+        managementUiUrl: managementUrl,
+      });
+    }, 0);
   }
 
   function renderAcpSkillRunnerBackend(main, snapshot) {
@@ -830,6 +897,7 @@
           tr.appendChild(engineCell);
 
           const statusCell = document.createElement("td");
+          statusCell.className = "center-cell";
           statusCell.appendChild(renderStatusBadge(row.state, row.stateLabel));
           tr.appendChild(statusCell);
 
@@ -839,6 +907,7 @@
           tr.appendChild(requestCell);
 
           const updatedCell = document.createElement("td");
+          updatedCell.className = "center-cell";
           updatedCell.textContent = formatTime(row.updatedAt);
           tr.appendChild(updatedCell);
 

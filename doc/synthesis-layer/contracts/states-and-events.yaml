@@ -225,7 +225,7 @@ sequences:
   - id: seq.sidecar.digest_apply_sync
     owner: sidecar_cache_service
     trigger: literature_digest_apply_succeeded
-    output: scoped_artifact_reference_and_matching_projection
+    output: scoped_artifact_reference_projection_and_stale_graph_related_sync_diagnostics
   - id: seq.topic.source_check
     owner: topic_source_check_service
     trigger: topic_source_check_requested
@@ -237,11 +237,11 @@ sequences:
   - id: seq.reference.sidecar_refresh
     owner: reference_sidecar_service
     trigger: reference_sidecar_refresh_requested
-    output: reference_sidecar_ready_and_visible_citation_graph_incremental_refresh_or_bootstrap
+    output: reference_sidecar_ready_and_stale_graph_related_sync_diagnostics
   - id: seq.graph.cache_incremental_refresh
     owner: citation_graph_cache
-    trigger: graph_affecting_sidecar_facts_changed
-    output: affected_graph_projection_slices_and_ready_cache_basis
+    trigger: stale_graph_refresh_requested_or_graph_affecting_review_facts_changed
+    output: affected_graph_projection_slices_ready_cache_basis_and_optional_scoped_related_items_sync
   - id: seq.graph.cache_rebuild
     owner: citation_graph_cache
     trigger: graph_cache_rebuild_requested

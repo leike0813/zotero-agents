@@ -1,0 +1,182 @@
+Lei Jimmy Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016.
+
+Alexei Baevski and Michael Auli. Adaptive input representations for neural language modeling. In ICLR (Poster). OpenReview.net, 2019.
+
+Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-end object detection with transformers. In ECCV, 2020.
+
+Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. Generating long sequences with sparse transformers. CoRR, abs/1904.10509, 2019a.
+
+Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. Generating long sequences with sparse transformers. CoRR, abs/1904.10509, 2019b.
+
+Krzysztof Marcin Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Andreea Gane, Tamas Sarl ´ os, Peter Hawkins, Jared Quincy Davis, Afroz Mohiuddin, Lukasz Kaiser, ´ David Benjamin Belanger, Lucy J. Colwell, and Adrian Weller. Rethinking attention with performers. In ICLR. OpenReview.net, 2021.
+
+Jifeng Dai, Yi Li, Kaiming He, and Jian Sun. R-FCN: object detection via region-based fully convolutional networks. In NIPS, pp. 379–387, 2016.
+
+Jifeng Dai, Haozhi Qi, Yuwen Xiong, Yi Li, Guodong Zhang, Han Hu, and Yichen Wei. Deformable convolutional networks. In ICCV, 2017.
+
+Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In CVPR, 2009.
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In CVPR, 2016.
+
+Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross B. Girshick. Mask R-CNN. In ´ ICCV, 2017.
+
+Dan Hendrycks and Kevin Gimpel. Bridging nonlinearities and stochastic regularizers with gaussian error linear units. CoRR, abs/1606.08415, 2016.
+
+Jonathan Ho, Nal Kalchbrenner, Dirk Weissenborn, and Tim Salimans. Axial attention in multidimensional transformers. CoRR, abs/1912.12180, 2019.
+
+Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and Franc¸ois Fleuret. Transformers are rnns: Fast autoregressive transformers with linear attention. In ICML, volume 119 of Proceedings of Machine Learning Research, pp. 5156–5165. PMLR, 2020.
+
+Nikita Kitaev, Lukasz Kaiser, and Anselm Levskaya. Reformer: The efficient transformer. In ICLR. OpenReview.net, 2020.
+
+Chen-Yu Lee, Saining Xie, Patrick Gallagher, Zhengyou Zhang, and Zhuowen Tu. DeeplySupervised Nets. In Guy Lebanon and S. V. N. Vishwanathan (eds.), Proceedings of the Eighteenth International Conference on Artificial Intelligence and Statistics, volume 38 of Proceedings of Machine Learning Research, pp. 562–570, San Diego, California, USA, 09–12 May 2015. PMLR.
+
+Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In ´ ECCV, 2014.
+
+Tsung-Yi Lin, Piotr Dollar, Ross Girshick, Kaiming He, Bharath Hariharan, and Serge Belongie. ´ Feature pyramid networks for object detection. In CVPR, 2017.
+
+Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In ICCV, 2021.
+
+Bowen Pan, Yifan Jiang, Rameswar Panda, Zhangyang Wang, Rogerio Feris, and Aude Oliva. ´ IA-RED2: Interpretability-aware redundancy reduction for vision transformers. arXiv preprint arXiv:2106.12620, 2021.
+
+Niki Parmar, Ashish Vaswani, Jakob Uszkoreit, Lukasz Kaiser, Noam Shazeer, Alexander Ku, and Dustin Tran. Image transformer. In ICML, volume 80 of Proceedings of Machine Learning Research, pp. 4052–4061. PMLR, 2018.
+
+Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. DynamicViT: efficient vision transformers with dynamic token sparsification. arXiv preprint arXiv:2106.02034, 2021.
+
+Shaoqing Ren, Kaiming He, Ross B. Girshick, and Jian Sun. Faster R-CNN: towards real-time object detection with region proposal networks. In NIPS, pp. 91–99, 2015.
+
+Byungseok Roh, Wuhyun Shin, Ildoo Kim, and Sungwoong Kim. Spatilly consistent representation learning. In CVPR. IEEE, 2021.
+
+Peize Sun, Yi Jiang, Enze Xie, Wenqi Shao, Zehuan Yuan, Changhu Wang, and Ping Luo. What makes for end-to-end object detection? In ICML, volume 139, pp. 9934–9944, 2021.
+
+Christian Szegedy, Wei Liu, Yangqing Jia, Pierre Sermanet, Scott E. Reed, Dragomir Anguelov, Dumitru Erhan, Vincent Vanhoucke, and Andrew Rabinovich. Going deeper with convolutions. In CVPR, pp. 1–9. IEEE Computer Society, 2015.
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017.
+
+Huiyu Wang, Yukun Zhu, Bradley Green, Hartwig Adam, Alan L. Yuille, and Liang-Chieh Chen. Axial-deeplab: Stand-alone axial-attention for panoptic segmentation. In ECCV (4), volume 12349 of Lecture Notes in Computer Science, pp. 108–126. Springer, 2020.
+
+Qiang Wang, Bei Li, Tong Xiao, Jingbo Zhu, Changliang Li, Derek F. Wong, and Lidia S. Chao. Learning deep transformer models for machine translation. In ACL (1), pp. 1810–1822. Association for Computational Linguistics, 2019.
+
+Tao Wang, Li Yuan, Yunpeng Chen, Jiashi Feng, and Shuicheng Yan. PnP-DETR: towards efficient visual analysis with transformers. In ICCV, 2021.
+
+Zhuyu Yao, Jiangbo Ai, Boxun Li, and Chi Zhang. Efficient DETR: improving end-to-end object detector with dense prior. arXiv preprint arXiv:2104.01318, 2021.
+
+Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable DETR: deformable transformers for end-to-end object detection. In ICLR, 2021.
+
+# A APPENDIX
+
+# A.1 IMPLEMENTATION DETAILS OF THE SCORING NETWORK
+
+The scoring network is consists of 4 linear layers where Layer Normalization (Ba et al., 2016) comes before the first layer and every layer except for the last one is followed by GELU (Hendrycks & Gimpel, 2016) activation. The output dimension of the 1st layer is 256 and halved to 128 and 64 at the 2nd and 3rd layers. The last layer outputs 1-d logit for the BCE loss. Since the network locally processes the input tokens in a token-wise manner, the final decisions may overlook global statistics without additional treatment. To remedy this issue, we set aside half of the output dimension of the first layer as a global feature, and average them across the whole token set, then concatenate it with each of the remained local features to maintain the original dimension. We also exclude the tokens that correspond to the zero-padded area when selecting top- $\cdot \rho \%$ scores, thereby we can prevent those tokens from participating in Hungarian matching process and getting meaningless gradients from the detection objective.
+
+# A.2 DAM CREATION IN DEFORMABLE ATTENTION
+
+As attention offset calculated in deformable attention is a fractional position, deformable attention uses bilinear interpolation to get values. Thus, we also use bilinear interpolation to obtain DAM.
+
+Assume that, one of the attention offsets, weights and the reference point of decoder object query $q$ is calculated as $p , A$ and $r$ , respectively. Then, deformable attention takes values as:
+
+$$
+\sum _ { x } A \cdot G ( x , r + p ) \cdot v ( x )
+$$
+
+, where $x$ enumerates all integral spatial locations in the feature map, $G ( \cdot , \cdot )$ is the bilinear interpolation kernel defined as $G ( a , b ) = \operatorname* { m a x } ( 0 , 1 - | a _ { x } - b _ { x } | ) \cdot \operatorname* { m a x } ( 0 , 1 - | a _ { y } - b _ { y } | )$ and $v$ is the values. Similarly, we accumulate DAM-value for location $x$ as:
+
+$$
+\sum _ { ( p , A , r ) } A \cdot G ( x , r + p )
+$$
+
+. Then, we accumulate DAM over every decoder object query.
+
+# A.3 ALTERNATIVE OBJECTIVES FOR DAM-BASED MODEL
+
+As a training objective of the scoring network using DAM, we can consider other alternatives as long as they can encourage the predicted scores to represent the relative saliency of the encoder tokens. One of the naive alternatives is the regression loss by which the scoring network directly predicts the values in DAM. The ranking loss can be another choice with which the network focuses more on learning the relativeness rather than estimating the set of salient tokens.
+
+Figure 8 shows the default BCE loss outperforms the alternatives. First, it is well-known that the regression problem is much harder than classification. Furthermore, since the value of DAM changes during training, the regression loss to predict the accurate value is more difficult. In case of the pairwise ranking loss, ranking the DAM elements may also be unstable as DAM gradually evolves. Meanwhile, the BCE loss may reduce those element-level noises down to the set-level in that its binary (keep or drop) targets retain more consistency compared to the exact values or ranks. Refer to Table 2 to see the exact values of the points represented in Figure 8.
+
+![](Images_J728TKKV/a916061eaf67de7468b2873f911a6fefd0d820c8815b41c27dd685994c99c8eb.jpg)  
+Figure 8: DAM loss ablation
+
+Table 2: Comparision between the alternative objectives for DAM-based scoring network.   
+
+<table><tr><td>Loss</td><td>Keeping ratio (p)</td><td>AP AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td></tr><tr><td rowspan="4">smoothed L1</td><td>10%</td><td>47.8 68.9</td><td>51.7</td><td>29.8</td><td>50.9</td><td>64.0</td></tr><tr><td>20%</td><td>48.4 69.0</td><td>52.5</td><td>31.1</td><td>51.4</td><td>64.7</td></tr><tr><td>30%</td><td>48.6 69.0</td><td>52.6</td><td>31.1</td><td>51.9</td><td>64.7</td></tr><tr><td>40%</td><td>48.6 69.3</td><td>52.9</td><td>33.4</td><td>51.8</td><td>64.5</td></tr><tr><td rowspan="4">ranking</td><td>10%</td><td>48.0 69.1</td><td>52.1</td><td>29.9</td><td>51.4</td><td>64.6</td></tr><tr><td>20%</td><td>48.7 69.5</td><td>53.0</td><td>31.1</td><td>51.8</td><td>65.1</td></tr><tr><td>30%</td><td>48.8 69.2</td><td>52.8</td><td>31.4</td><td>52.0</td><td>64.9</td></tr><tr><td>40%</td><td>48.9 69.3</td><td>53.1</td><td>31.5</td><td>52.2</td><td>64.7</td></tr><tr><td rowspan="4">BCE</td><td>10%</td><td>48.2 69.2</td><td>52.3</td><td>29.8</td><td>51.2</td><td>64.5</td></tr><tr><td>20%</td><td>48.8 69.4</td><td>53.0</td><td>30.4</td><td>51.9</td><td>64.8</td></tr><tr><td>30%</td><td>49.1 69.5</td><td>53.5</td><td>31.4</td><td>52.5</td><td>65.1</td></tr><tr><td>40%</td><td>49.2 69.5</td><td>53.5</td><td>31.4</td><td>52.9</td><td>64.8</td></tr></table>
+
+Table 3: Comparison between token selection criteria.   
+
+<table><tr><td>Scoring method</td><td>Keeping</td><td colspan="6"></td><td colspan="3"></td></tr><tr><td rowspan="2"></td><td rowspan="2">ratio (p) ResNet-50 backbone:</td><td>AP AP50</td><td></td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td><td>params</td><td>FLOPs</td><td>FPS</td></tr><tr><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td rowspan="2">N/A</td><td>100%</td><td>46.3</td><td>65.8</td><td>50.1</td><td>29.0</td><td>49.4</td><td>61.7</td><td>41M</td><td>177G</td><td>18.2</td></tr><tr><td>0%</td><td>42.2</td><td>63.0</td><td>45.6</td><td>25.9</td><td>45.3</td><td>56.5</td><td>36M</td><td>91G</td><td>35.0</td></tr><tr><td rowspan="4">random</td><td>10% 20%</td><td>43.6 44.0</td><td>64.3 64.8</td><td>47.2 47.8</td><td>26.7 27.3</td><td>46.9</td><td>58.4</td><td>41M</td><td>102G</td><td>27.7</td></tr><tr><td>30%</td><td>44.0</td><td></td><td></td><td></td><td>47.0</td><td>58.4</td><td>41M</td><td>110G</td><td>25.6</td></tr><tr><td></td><td></td><td>64.9</td><td>47.5</td><td>27.4</td><td>47.4</td><td>58.2</td><td>41M</td><td>117G</td><td>24.1</td></tr><tr><td>40% 50%</td><td>44.5 44.4</td><td>65.1</td><td>48.0 48.0</td><td>27.3 27.8</td><td>47.8 47.4</td><td>59.8 59.2</td><td>41M 41M</td><td>125G</td><td>22.5 21.1</td></tr><tr><td rowspan="5">OS</td><td>10%</td><td>44.9</td><td>64.8 65.2</td><td>48.7</td><td>27.9</td><td>47.8</td><td>60.4</td><td>41M</td><td>133G 106G</td><td>26.6</td></tr><tr><td>20%</td><td>45.5</td><td>65.5</td><td>49.3</td><td>28.7</td><td>48.3</td><td>60.5</td><td>41M</td><td>114G</td><td>24.7</td></tr><tr><td>30%</td><td>45.7</td><td>65.8</td><td>49.5</td><td>29.7</td><td>48.5</td><td>60.8</td><td>41M</td><td>121G</td><td>23.2</td></tr><tr><td>40%</td><td>45.8</td><td>65.5</td><td>49.8</td><td>29.1</td><td>48.8</td><td></td><td>41M</td><td></td><td>21.8</td></tr><tr><td>50%</td><td>46.0</td><td>65.9</td><td>49.8</td><td>28.8</td><td>48.9</td><td>60.5 60.6</td><td>41M</td><td>129G 136G</td><td>20.6</td></tr><tr><td rowspan="5">DAM</td><td>10%</td><td>45.3</td><td>65.8</td><td>49.3</td><td>28.4</td><td>48.3</td><td>60.1</td><td>41M</td><td>105G</td><td>26.5</td></tr><tr><td>20%</td><td>45.6</td><td>65.8</td><td>49.6</td><td>28.5</td><td>48.6</td><td>60.4</td><td>41M</td><td>113G</td><td>24.8</td></tr><tr><td>30%</td><td>46.0</td><td>65.9</td><td>49.7</td><td>29.1</td><td>49.1</td><td>60.6</td><td>41M</td><td>121G</td><td>23.2</td></tr><tr><td>40%</td><td>46.2</td><td>66.0</td><td>50.3</td><td>28.7</td><td>49.0</td><td>61.4</td><td>41M</td><td>128G</td><td>21.8</td></tr><tr><td>50%</td><td>46.3</td><td>66.0</td><td>50.1</td><td>29.0</td><td>49.5</td><td>60.8</td><td>41M</td><td>136G</td><td>20.5</td></tr><tr><td colspan="2">Swin-T backbone:</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td rowspan="2">N/A</td><td>100% 0%</td><td>49.4 43.7</td><td>69.4</td><td>53.5</td><td>31.9</td><td>52.6</td><td>65.1</td><td>41M</td><td>185G</td><td>15.4</td></tr><tr><td>10%</td><td>45.5</td><td>65.8</td><td>46.9</td><td>27.0</td><td>46.7</td><td>60.0</td><td>37M</td><td>96G</td><td>26.5</td></tr><tr><td rowspan="5">random</td><td>20%</td><td>45.6</td><td>67.6</td><td>48.8</td><td>28.4</td><td>48.5</td><td>62.2</td><td>41M</td><td>110G</td><td>22.1</td></tr><tr><td>30%</td><td></td><td>67.5</td><td>49.2</td><td>28.6</td><td>49.1</td><td>62.2</td><td>41M</td><td>118G</td><td>20.8</td></tr><tr><td></td><td>46.2</td><td>68.1</td><td>49.7</td><td>29.5</td><td>49.7</td><td>63.0</td><td>41M</td><td>125G</td><td>19.7</td></tr><tr><td>40%</td><td>46.5</td><td>68.2</td><td>50.0</td><td>29.9</td><td>49.8</td><td>63.0</td><td>41M</td><td>133G</td><td>18.7</td></tr><tr><td>50%</td><td>47.2</td><td>68.3</td><td>50.9</td><td>29.1</td><td>50.4</td><td>63.9</td><td>41M</td><td>141G</td><td>17.7</td></tr><tr><td rowspan="5">OS</td><td>10%</td><td>48.0</td><td>69.1</td><td>52.1</td><td>29.9</td><td>51.1</td><td>64.4</td><td>42M</td><td>114G</td><td>21.4</td></tr><tr><td>20%</td><td>48.3</td><td>69.1</td><td>52.5</td><td>30.4</td><td>51.6</td><td>64.2</td><td>42M</td><td>122G</td><td>20.2</td></tr><tr><td>30%</td><td>48.6</td><td>69.2</td><td>53.0</td><td>31.0</td><td>52.0</td><td>64.6</td><td>42M</td><td>129G</td><td>18.6</td></tr><tr><td>40%</td><td>48.9</td><td>69.4</td><td>53.1</td><td>33.0</td><td>51.9</td><td>64.5</td><td>42M</td><td>137G</td><td>18.2</td></tr><tr><td>50%</td><td>49.0</td><td>69.2</td><td>53.5</td><td>31.2</td><td>52.4</td><td>65.0</td><td>42M</td><td>145G</td><td>17.2</td></tr><tr><td rowspan="5">DAM</td><td>10%</td><td>48.2</td><td>69.2</td><td>52.3</td><td>29.8</td><td>51.2</td><td>64.5</td><td>41M</td><td>113G</td><td>21.2</td></tr><tr><td>20%</td><td>48.8</td><td>69.4</td><td>53.0</td><td>30.4</td><td>51.9</td><td>64.8</td><td>41M</td><td>121G</td><td>20.0</td></tr><tr><td>30%</td><td>49.1</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.5</td><td>65.1</td><td>41M</td><td>129G</td><td>18.9</td></tr><tr><td>40%</td><td>49.2</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.9</td><td>64.8</td><td>41M</td><td>136G</td><td>18.0</td></tr><tr><td>50%</td><td>49.3</td><td>69.5</td><td>53.3</td><td>32.0</td><td>52.7</td><td>64.9</td><td>41M</td><td>144G</td><td>17.2</td></tr></table>
+
+![](Images_J728TKKV/13d5745ebe68019dffbea99293309ee106ffe06960286b4382b811395b614a6f.jpg)  
+Figure 9: Layerwise gradient norm in DETR variants. An observation of the vanishing gradient problem on DETR variants with different backbones by measuring $\ell ^ { 2 }$ -norm of gradients in a layerwise manner. The first letter in $x$ -axis label represents module name, specifically, ‘B’ for the backbone and ‘E’ for the encoder, and the second number represents $i$ -th layer in that module. (a), (b): Layerwise gradient norm of DETR with ResNet-50 backbone. With the default settings(PostLN), the gradient scale generally decreases as more encoder layers are stacked, while the Pre-LN technique preserves gradient magnitude even in deeper early layers. (c) : Layerwise gradient norm of Deformable-DETR with Swin-T backbone. In this case, the Pre-LN fails to prevent vanishing gradient while the encoder auxiliary loss(denoted as Post-LN $^ +$ EncAux) proposed in this paper effectively resolves this issue.
+
+# A.4 EXPERIMENTAL DETAILS FOR DIFFERENT TOKEN SELECTION CRITERIA
+
+Table 3 contains the specific values used to plot (a) ResNet-50 and (b) Swin-T backbone in Figure 4. Additionally, they also include a lower-bound baseline that has no scoring method with keeping ratio $0 \%$ , meaning that the entire encoder block is removed and the backbone features are directly passed to the decoder. Even with the lowest keeping ratio $10 \%$ , all the scoring methods including random criterion outperform this lower-bound baseline. Note that all experiments reported in Table 3 except for the keeping ratio $0 \%$ use the encoder auxiliary loss for training.
+
+# A.5 VANISHING GRADIENT PROBLEM IN THE DEEP END-TO-END DETECTORS
+
+As shown in Section 4.2 in Carion et al. (2020), they observe that the performance of DETR gradually improves with more encoder layers. To reproduce this result, we used the default settings of the official code, but only changed the number of encoder layers. However, we fail to train the DETR model when using more than 9 encoder layers, which is probably due to different hyperparameters from the ones used in their experiments. Interestingly, we also found that the DETR model converges stably with the Pre-LN architecture(Baevski & Auli, 2019; Child et al., 2019b; Wang et al., 2019) that is known to be a better choice than the canonical Post-LN when the number of layers of transformer increases. We used the pre norm option the authors already have implemented in their code.
+
+Table 4: Effectiveness of the encoder auxiliary loss using Swin-T. When the number of encoder layers is more than 9, the model training fails, but if the encoder auxiliary loss is adopted, the model training is feasible regardless of the number of encoder layers, and accuracy is improved.   
+
+<table><tr><td rowspan="2">#of encoder</td><td rowspan="2">Keeping ratio (p)</td><td rowspan="2">Aux. loss</td><td colspan="6"></td><td rowspan="2"></td><td colspan="2"></td></tr><tr><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td><td>params FLOPs</td><td>FPS</td></tr><tr><td rowspan="9">6</td><td>100%</td><td></td><td>48.0</td><td>68.0</td><td>52</td><td>30.3</td><td>51.4</td><td>63.7</td><td>41M</td><td>185G</td><td>15.4</td></tr><tr><td>100%</td><td>√</td><td>49.4</td><td>69.4</td><td>53.5</td><td>31.9</td><td>52.6</td><td>65.1</td><td>41M</td><td>185G</td><td>15.4</td></tr><tr><td>10%</td><td></td><td>46.8</td><td>68.0</td><td>50.6</td><td>29.7</td><td>49.7</td><td>63.3</td><td>41M</td><td>113G</td><td>21.2</td></tr><tr><td>20%</td><td></td><td>47.5</td><td>68.3</td><td>51.4</td><td>31.4</td><td>50.4</td><td>64.4</td><td>41M</td><td>121G</td><td>20.0</td></tr><tr><td>30%</td><td></td><td>47.6</td><td>67.9</td><td>51.4</td><td>29.9</td><td>51.1</td><td>63.9</td><td>41M</td><td>129G</td><td>18.9</td></tr><tr><td>40%</td><td></td><td>47.6</td><td>68.2</td><td>51.5</td><td>30.3</td><td>50.8</td><td>64.0</td><td>41M</td><td>136G</td><td>18.0</td></tr><tr><td>10%</td><td></td><td>48.2</td><td>69.2</td><td>52.3</td><td>29.8</td><td>51.2</td><td>64.5</td><td>41M</td><td>113G</td><td>21.2</td></tr><tr><td>20%</td><td></td><td>48.8</td><td>69.4</td><td>53.0</td><td>30.4</td><td>51.9</td><td>64.8</td><td>41M</td><td>121G</td><td>20.0</td></tr><tr><td>30%</td><td></td><td>49.1</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.5</td><td>65.1</td><td>41M</td><td>129G</td><td>18.9</td></tr><tr><td>9</td><td>40%</td><td></td><td>49.2</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.9</td><td>64.8</td><td>41M</td><td>136G</td><td>18.0</td></tr><tr><td rowspan="5">12</td><td>100%</td><td>√</td><td>49.7</td><td>69.4</td><td>54.1</td><td>32.4</td><td>52.9</td><td>65.4</td><td>44M</td><td>220G</td><td>12.8</td></tr><tr><td>100%</td><td>√</td><td>50.1</td><td>69.6</td><td>54.6</td><td>32.2</td><td>53.4</td><td>65.8</td><td>46M</td><td>261G</td><td>11.0</td></tr><tr><td>10%</td><td></td><td>49.0</td><td>69.5 69.6</td><td>53.5 53.5</td><td>31.6</td><td>52.2</td><td>65.2</td><td>46M</td><td>128G</td><td>19.2</td></tr><tr><td>20% 30%</td><td>公</td><td>49.4 49.3</td><td>69.4</td><td>53.6</td><td>31.9 31.7</td><td>52.8 52.5</td><td>65.4 65.6</td><td>46M 46M</td><td>143G 158G</td><td>17.5</td></tr><tr><td>40%</td><td></td><td>49.8</td><td>69.8</td><td>54.3</td><td>33.1</td><td>53.4</td><td>65.4</td><td>46M</td><td>173G</td><td>15.6 14.6</td></tr></table>
+
+Figure 9(a) and 9(b) illustrate that gradient norm of each layer from bottom to top in 6 and 12 encoder layers when using Post-LN and Pre-LN, respectively. We compute the $\ell ^ { 2 }$ -norm of the gradients for all parameters in a particular layer, as if they are concatenated into a single vector. To see training dynamics in the early stage of training, we track the gradients computed on a fixed set of training data and average them over the first 150 steps with a batch size of 2. Note that we applied Pre-LN only to the encoder module for a fair comparison between only the early modules although it could be used in any other transformer modules, e.g. backbone or decoder.
+
+We found that the vanishing gradient issue is generally observed regardless of the encoder size. When we double the size of the encoder, as one can expect, the gradient in the early layers ends up with an even smaller scale, which may have caused the convergence failure. Meanwhile, the PreLN technique seems to significantly alleviate this issue even for the deeper encoder by maintaining the gradient scale evenly through the encoder layers and conveying a strong training signal to the backbone layers.
+
+On the other hand, as shown in Figure 9(c), Deformable-DETR suffers from the same problem of vanishing gradient and even the Pre-LN technique does not help in this case. Meanwhile, the encoder auxiliary loss proposed in our paper drastically amplifies the gradient magnitude in the early layers by providing aggressive intermediate objectives for each encoder layer. Note that it also creates good synergy with our main sparsification strategy owing to reduced training cost. We claim that this observation supports our motivation of introducing the encoder auxiliary loss.
+
+# A.6 EXPERIMENTAL DETAILS FOR EFFECTIVENESS OF THE ENCODER AUXILIARY LOSS
+
+Table 4 presents the detailed values of Figure 4. As shown in the Table 4 and discussed in Section A.5, training of a deeper encoder of more than 9 layers fails without the auxiliary loss, but if it is adopted, the convergence becomes feasible as the intermediate gradients provided to the early encoder layers augment the vanishing gradient back-propagated from the decoder module.
+
+Table 5: Detection results of Sparse DETR with SCRL initialization using ResNet-50. The same environment and hyperparameters as Experiments section are used, except for initializing the backbone with SCRL (Roh et al., 2021) model. The results marked by $\ S$ mean that the backbone network is initialized by SCRL instead of the ImageNet (Deng et al., 2009) pre-trained one.   
+
+<table><tr><td rowspan="2">Method</td><td rowspan="2">Keeping ratio (p)</td><td colspan="6"></td><td rowspan="2"></td><td colspan="2"></td></tr><tr><td>AP</td><td>AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td><td>params FLOPs</td><td>FPS</td></tr><tr><td rowspan="5">Sparse-DETR</td><td>10%</td><td>45.3</td><td>65.8</td><td>49.3</td><td>28.4</td><td>48.3</td><td>60.1</td><td>41M</td><td>105G</td><td>25.3</td></tr><tr><td>20%</td><td>45.6</td><td>65.8</td><td>49.6</td><td>28.5</td><td>48.6</td><td>60.4</td><td>41M</td><td>113G</td><td>24.8</td></tr><tr><td>30%</td><td>46.0</td><td>65.9</td><td>49.7</td><td>29.1</td><td>49.1</td><td>60.6</td><td>41M</td><td>121G</td><td>23.2</td></tr><tr><td>40%</td><td>46.2</td><td>66.0</td><td>50.3</td><td>28.7</td><td>49.0</td><td>61.4</td><td>41M</td><td>128G</td><td>21.8</td></tr><tr><td>50%</td><td>46.3</td><td>66.0</td><td>50.1</td><td>29.0</td><td>49.5</td><td>60.8</td><td>41M</td><td>136G</td><td>20.5</td></tr><tr><td rowspan="5">Sparse-DETR$</td><td>10%</td><td>46.9</td><td>67.2</td><td>51.0</td><td>30.2</td><td>49.7</td><td>62.3</td><td>41M</td><td>105G</td><td>25.3</td></tr><tr><td>20%</td><td>47.3</td><td>67.1</td><td>51.4</td><td>29.7</td><td>50.3</td><td>62.7</td><td>41M</td><td>113G</td><td>24.8</td></tr><tr><td>30%</td><td>47.4</td><td>67.3</td><td>51.4</td><td>30.1</td><td>50.5</td><td>62.4</td><td>41M</td><td>121G</td><td>23.2</td></tr><tr><td>40%</td><td>47.7</td><td>67.4</td><td>51.6</td><td>30.0</td><td>50.8</td><td>62.9</td><td>41M</td><td>128G</td><td>21.8</td></tr><tr><td>50%</td><td>47.9</td><td>67.5</td><td>52.1</td><td>30.5</td><td>51.2</td><td>63.2</td><td>41M</td><td>136G</td><td>20.5</td></tr></table>
+
+Table 6: Performance of Sparse DETR with Swin-B. The same environment and hyperparameters as Experiments section are used, except for changing the backbone to a larger scale. Note that Aux. loss means only the ones applied to the encoder layers.   
+A.7 EFFECTIVENESS OF USING A DENSE REPRESENTATION AS BACKBONE INITIALIZATION   
+
+<table><tr><td rowspan="2">Backbone</td><td rowspan="2">Keeping ratio (p)</td><td rowspan="2">Aux. loss</td><td colspan="5"></td><td rowspan="2"></td><td colspan="2">FLOPs</td></tr><tr><td>AP</td><td>AP50</td><td>AP75 APs</td><td>APM</td><td>APL</td><td>params</td><td>FPS</td></tr><tr><td rowspan="5">Swin-T</td><td>100%</td><td></td><td>48.0</td><td>68.0</td><td>52.0</td><td>30.3</td><td>51.4</td><td>63.7</td><td>41M</td><td>185G</td><td>15.4</td></tr><tr><td>10%</td><td></td><td>48.2</td><td>69.2</td><td>52.3</td><td>29.8</td><td>51.2</td><td>64.5</td><td>41M</td><td>113G</td><td>21.2</td></tr><tr><td>20%</td><td></td><td>48.8</td><td>69.4</td><td>53.0</td><td>30.4</td><td>51.9</td><td>64.8</td><td>41M</td><td>121G</td><td>20.0</td></tr><tr><td>30%</td><td></td><td>49.1</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.5</td><td>65.1</td><td>41M</td><td>129G</td><td>18.9</td></tr><tr><td>40%</td><td></td><td>49.2</td><td>69.5</td><td>53.5</td><td>31.4</td><td>52.9</td><td>64.8</td><td>41M</td><td>136G</td><td>18.0</td></tr><tr><td rowspan="5">Swin-B</td><td>100%</td><td></td><td>52.5</td><td>72.9</td><td>56.9</td><td>34.7</td><td>56.5</td><td>69.6</td><td>101M</td><td>400G</td><td>7.6</td></tr><tr><td>10%</td><td></td><td>52.2</td><td>73.5</td><td>57.0</td><td>34.0</td><td>56.3</td><td>70.3</td><td>101M</td><td>335G</td><td>8.8</td></tr><tr><td>20%</td><td></td><td>53.1</td><td>73.8</td><td>57.9</td><td>34.6</td><td>56.9</td><td>70.6</td><td>101M</td><td>343G</td><td>8.6</td></tr><tr><td>30%</td><td></td><td>53.2</td><td>73.7</td><td>57.7</td><td>35.3</td><td>56.8</td><td>70.8</td><td>101M</td><td>350G</td><td>8.4</td></tr><tr><td>40%</td><td></td><td>53.3</td><td>73.4</td><td>58.0</td><td>36.3</td><td>57.2</td><td>70.9</td><td>101M</td><td>358G</td><td>8.2</td></tr></table>
+
+Recently, many self-supervised learning methods through contrastive learning have been studied, and in particular, methods for obtaining dense representations with better performance for localization downstream tasks such as object detection are in the spotlight. In order to check whether our proposed method is effective even when such dense representation is used, the backbone network is initialized with the SCRL (Roh et al., 2021) model that aims to learn dense representations in a selfsupervised way instead of initializing with the ImageNet (Deng et al., 2009) pre-trained one. Just as the SCRL model outperformed the ImageNet pre-trained model in various localization downstream tasks, our proposed method, Sparse DETR, also shows better performance in all keeping ratios $( \rho )$ without the influence of encoder token sparsification as shown in Table 5.
+
+# A.8 USING A LARGER TRANSFORMER-BASED BACKBONE(SWIN-B)
+
+We perform experiments on Sparse DETR with Swin-Base(Liu et al., 2021) backbone to see if our method shows similar efficiency and performance gain even when using a heavier transformer-based backbone. Table 6 illustrates a comparison of COCO detection performance between Swin-T and Swin-B backbone under the varied sparsity. Due to the increased capacity, using Swin-B backbone significantly boosts up the baseline AP up to 52.5 $( + 4 . 5 ) $ but with $2 . 4 \times$ parameters and $2 . 1 \times$ com
+
+![](Images_J728TKKV/50d21d233c5c397cd03c8dec750c35d8a8c1394d4585babe06ae4a870f271084.jpg)  
+Figure 10: Distribution of the ratio of non-zero values of DAM on COCO 2017 val set.
+
+Table 7: Two-stage encoder token sparsification with a varied keeping ratio. COCO detection performance when the encoder tokens are sparsified at the later stage with the top- ${ \cdot \rho \% }$ binarized DAMs pre-computed from the former stage. All models are Deformable-DETR $^ +$ with Swin-T backbone and the encoder auxiliary loss is not applied. Note that the performance of the $50 \%$ model(47.9 AP) hardly degenerates compared to the baseline(48.0 AP).
+
+<table><tr><td>Keeping ratio (p)</td><td>AP AP50</td><td>AP75</td><td>APs</td><td>APM</td><td>APL</td></tr><tr><td>100%</td><td>48.0 68.0</td><td>52.0</td><td>30.3</td><td>51.4</td><td>63.7</td></tr><tr><td>10%</td><td>44.0 66.0</td><td>47.2</td><td>26.9</td><td>46.8</td><td>61.0</td></tr><tr><td>20%</td><td>44.9 66.3</td><td>48.3</td><td>28.2</td><td>48.2</td><td>61.4</td></tr><tr><td>30%</td><td>46.5 67.3</td><td>50.2</td><td>30.9</td><td>49.7</td><td>62.3</td></tr><tr><td>40%</td><td>47.3 67.9</td><td>51.3</td><td>30.7</td><td>50.7</td><td>63.4</td></tr><tr><td>50%</td><td>47.9 67.8</td><td>52.0</td><td>29.8</td><td>51.4</td><td>63.7</td></tr></table>
+
+putational cost. With the keeping ratio of $40 \%$ and the encoder auxiliary loss, the performance gap remains at a similar leve $( + 4 . 1 )$ . We can also observe consistent performance gains as the keeping ratio gets higher while the increasing gap converges more quickly than Swin-T. It may be because a single visual token of Swin-B can incorporate a wider range of information due to the deeper attention hierarchies and a smaller number of tokens is required to fully represent all the objects in an image. Note that the efficiency of a backbone network is behind the scope of this paper. Our work is orthogonal to the backbone sparsification approaches, e.g. DynamicViT (Rao et al., 2021), and we leave the integration with those works as future work.
+
+A.9 THE PRELIMINARY EXPERIMENTS: WHY PURSUE A SPARSE ENCODER?
+
+Using a model trained with Deformable-DETR, we have analyzed the number of encoder output tokens referenced by the decoder’s object query. Unlike using the bilinear interpolation described in the appendix A.2 to generate DAMs for training with pseudo-labels, in this analysis, we do not use bilinear interpolation to calculate how many encoder tokens are directly referenced by the decoder object query. To analyze the non-zero values of DAM, we use a Deforamble DETR model trained with Top- $k$ sampling strategy (Yao et al., 2021) and bounding box refinement (Zhu et al., 2021) using ResNet-50 backbone. Fig. 10 illustrates the distribution of the ratio of non-zero values of DAM on COCO val2017 dataset. As shown in Fig. 10, on average, only $45 \%$ of encoder tokens were referenced by object queries.
+
+This observation naturally raises a question: Can we preserve the detection performance even if we focus, in the first place, only on the encoder tokens that the decoder might have preferred? As a preliminary experiment to answer this question, we trained the detector restricting token updates to the subset to which the decoder could have referred if there had been no such restriction. To this end, we performed the two-stage learning as follows: (i) We first obtained the DAMs of the entire training data by feeding them to a fully-trained Deformable-DETR model. (ii) Then, we retrained another model from the scratch by updating only a subset of tokens determined by the binarized DAM preserving top- $\rho \%$ of the elements(refer to Section3.3 for more details). Table 7 shows the performance on COCO detection for different keeping ratio $\rho$ . We found that the two-stage model almost catches up with the baseline $\rho = 1 0 0 \%$ as the keeping ratio is raised close to $45 \%$ , namely the percentage of non-zero values in DAM computed on the validation dataset earlier.
+
+These observations have strongly motivated us to develop the encoder token sparsification method presented in the main text. Note that our main algorithm differs from this preliminary experiment in some aspects: (a) A DAM is obtained from the jointly learning decoder, not from the separately trained decoder, and (b) a binarized DAM is utilized as a prediction target of the scoring network rather than used directly as a sparsification mask.
+
+# A.10 VISUALIZATIONS OF SELECTED ENCODER TOKENS
+
+We visualize selected encoder tokens and top- $k$ decoder queries for each criterion, OS, and DAM. In the first row, selected encoder tokens from the backbone feature map are visualized as yellow regions, whereas unselected tokens are visualized as purple regions. In the second row, selected top$k$ decoder queries from encoder output are visualized in the same manner. In the final row, DAM values and Corr metrics are visualized. Corr is measured as in Section 4.2.
+
+Interestingly, the DAM-based selection seems to better capture the objects than OS-based selection. The OS-based selection also captures objects well, but it typically focuses on the high-frequency edges that are not only in the foreground but also in the background. On the other hand, the DAMbased selection captures the boundary of the objects and also their inner areas and is less distracted from the background edges. We analyze that DAM focuses on the boundary of objects to lower the regression loss, and attends to the inside of objects to lower the classification loss. Finally, the scoring network predicts such a DAM well, and refining the encoder tokens according to it finally helps achieve better detection performance.
+
+![](Images_J728TKKV/db3fcb083a6db7fa55e575f3a6008d1eee51e7ce13c52eaada6c78de054e68d5.jpg)  
+Figure 11: Visualization of selected tokens and DAM for COCO validation image #289960
+
+![](Images_J728TKKV/74212157348619d917dc1803253b5fa5e8344e6ea8b6369fff21f3a7afaaf2e3.jpg)  
+Figure 12: Visualization of selected tokens and DAM for COCO validation image #22396
+
+![](Images_J728TKKV/61855b25d5b49f547f146ad6aafa6b746f66abf0f62830202ddccd8738b26e9b.jpg)  
+Figure 13: Visualization of selected tokens and DAM for COCO validation image #46252
+
+![](Images_J728TKKV/2c815809cb5bb6a802985f4f6667578f1f4dbe9282e6d9e0b1e2cdfb7704160e.jpg)  
+Figure 14: Visualization of selected tokens and DAM for COCO validation image #6040
+
+![](Images_J728TKKV/fbad7fa1312c01c90ebb55120ad992f755d97538c6d69f9c1980cc4dcad5503b.jpg)  
+Figure 15: Visualization of selected tokens and DAM for COCO validation image #17379

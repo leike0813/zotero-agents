@@ -10,8 +10,7 @@
     "handoff",
     "stage",
     "db_path",
-    "artifacts",
-    "diagnostics"
+    "artifacts"
   ],
   "properties": {
     "schema_id": { "const": "synthesis.skill_handoff" },
@@ -26,16 +25,11 @@
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "hash"],
+        "required": ["path"],
         "properties": {
-          "path": { "type": "string", "minLength": 1 },
-          "hash": { "type": "string", "pattern": "^sha256:.+" }
+          "path": { "type": "string", "minLength": 1 }
         }
       }
-    },
-    "diagnostics": {
-      "type": "array",
-      "items": { "type": "object" }
     }
   }
 }

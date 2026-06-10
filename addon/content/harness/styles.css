@@ -1,0 +1,43 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #eef2f6;
+}
+
+.harness-frame-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 28vw);
+  width: 100vw;
+  height: 100vh;
+  gap: 1px;
+  background: #cbd5e1;
+}
+
+.harness-primary-frame,
+.harness-sidebar-frame {
+  min-width: 0;
+  min-height: 0;
+  background: #ffffff;
+}
+
+.harness-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+@media (max-width: 980px) {
+  .harness-frame-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(320px, 38vh);
+  }
+}

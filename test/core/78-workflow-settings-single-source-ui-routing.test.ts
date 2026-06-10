@@ -47,12 +47,14 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, "isStructuralDraftChange");
     assert.include(ts, "toRunOptionsFormValues");
     assert.include(ts, "normalizeWorkflowRunOptions(raw.runOptions)");
+    assert.include(ts, "showAcpRuntimeCacheRefreshToast");
+    assert.include(ts, "showWorkflowToast");
+    assert.include(ts, 'if (action === "refresh-acp-runtime-cache")');
     assert.include(ts, "changedSection");
     assert.include(ts, "changedKey");
-    assert.include(
-      ts,
-      'Object.prototype.hasOwnProperty.call(envelope.payload, "executionOptions")',
-    );
+    assert.include(ts, "Object.prototype.hasOwnProperty.call");
+    assert.include(ts, '"executionOptions"');
+    assert.notInclude(ts, 'ACP config cache refresh failed");');
     assert.notInclude(ts, ".addButton(");
   });
 

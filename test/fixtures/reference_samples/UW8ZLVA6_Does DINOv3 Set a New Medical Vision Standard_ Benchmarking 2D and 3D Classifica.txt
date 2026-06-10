@@ -1,0 +1,235 @@
+[1] OpenAI, “Chatgpt,” 2022. [Online]. Available: https://openai.com/blog/chatgpt
+
+[2] J. Kaplan, S. McCandlish, T. Henighan, T. B. Brown, B. Chess, R. Child, S. Gray, A. Radford, J. Wu, and D. Amodei, “Scaling laws for neural language models,” arXiv preprint arXiv:2001.08361, 2020.
+
+[3] I. M. Alabdulmohsin, B. Neyshabur, and X. Zhai, “Revisiting neural scaling laws in language and vision,” Advances in Neural Information Processing Systems, vol. 35, pp. 22 300–22 312, 2022.
+
+[4] Z. Xie, Z. Zhang, Y. Cao, Y. Lin, Y. Wei, Q. Dai, and H. Hu, “On data scaling in masked image modeling,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2023, pp. 10 365–10 374.
+
+[5] A. El-Nouby, M. Klein, S. Zhai, M. A. Bautista, A. Toshev, V. Shankar, J. M. Susskind, and A. Joulin, “Scalable pre-training of large autoregressive image models,” arXiv preprint arXiv:2401.08541, 2024.
+
+[6] J. Pan, B. Jian, P. Hager, Y. Zhang, C. Liu, F. Jungmann, H. B. Li, C. You, J. Wu, J. Zhu et al., “Beyond benchmarks: Dynamic, automatic and systematic red-teaming agents for trustworthy medical language models,” arXiv preprint arXiv:2508.00923, 2025.
+
+[7] J. Pan, C. Liu, J. Wu, F. Liu, J. Zhu, H. B. Li, C. Chen, C. Ouyang, and D. Rueckert, “Medvlm-r1: Incentivizing medical reasoning capability of vision-language models (vlms) via reinforcement learning,” arXiv preprint arXiv:2502.19634, 2025.
+
+[8] D. Fan, S. Tong, J. Zhu, K. Sinha, Z. Liu, X. Chen, M. Rabbat, N. Ballas, Y. LeCun, A. Bar et al., “Scaling language-free visual representation learning,” arXiv preprint arXiv:2504.01017, 2025.
+
+[9] M. Oquab, T. Darcet, T. Moutakanni, H. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza, F. Massa, A. El-Nouby et al., “Dinov2: Learning robust visual features without supervision,” arXiv preprint arXiv:2304.07193, 2023.
+
+[10] M. Caron, H. Touvron, I. Misra, H. Jégou, J. Mairal, P. Bojanowski, and A. Joulin, “Emerging properties in self-supervised vision transformers,” in Proceedings of ICCV, 2021, pp. 9650–9660.
+
+[11] O. Siméoni, H. V. Vo, M. Seitzer, F. Baldassarre, M. Oquab, C. Jose, V. Khalidov, M. Szafraniec, S. Yi, M. Ramamonjisoa et al., “Dinov3,” arXiv preprint arXiv:2508.10104, 2025.
+
+[12] S. Yang, H. Wang, Z. Xing, S. Chen, and L. Zhu, “Segdino: An efficient design for medical and natural image segmentation with dino-v3,” arXiv preprint arXiv:2509.00833, 2025.
+
+[13] Y. Li, Y. Wu, Y. Lai, M. Hu, and X. Yang, “Meddinov3: How to adapt vision foundation models for medical image segmentation?” arXiv preprint arXiv:2509.02379, 2025.
+
+[14] X. Wang, Y. Peng, L. Lu, Z. Lu, M. Bagheri, and R. M. Summers, “Chestx-ray8: Hospital-scale chest x-ray database and benchmarks on weakly-supervised classification and localization of common thorax diseases,” in Proceedings of CVPR, 2017, pp. 3462–3471.
+
+[15] M. Y. Lu, B. Chen, D. F. Williamson, R. J. Chen, I. Liang, T. Ding, G. Jaume, I. Odintsov, L. P. Le, G. Gerber et al., “A visual-language foundation model for computational pathology,” Nature medicine, vol. 30, no. 3, pp. 863–874, 2024.
+
+[16] I. E. Hamamci, S. Er, C. Wang, F. Almas, A. G. Simsek, S. N. Esirgun, I. Doga, O. F. Durugol, W. Dai, M. Xu et al., “Developing generalist foundation models from a multimodal dataset for 3d computed tomography,” arXiv preprint arXiv:2403.17834, 2024.
+
+[17] S. Zhang, Y. Xu, N. Usuyama, J. Bagga, R. Tinn, S. Preston, R. Rao, M. Wei, N. Valluri, C. Wong et al., “Largescale domain-specific pretraining for biomedical vision-language processing,” arXiv preprint arXiv:2303.00915, 2023.
+
+[18] A. Stein, C. Wu, C. Carr, G. Shih, J. Dulkowski, kalpathy, L. Chen, L. Prevedello, M. Kohli, M. McDonald, Peter, P. Culliton, S. Halabi, and T. Xia, “RSNA pneumonia detection challenge,” https://www.kaggle.com/competitions/rsna-pneumonia-detection-challenge, 2018. [Online]. Available: https: //www.kaggle.com/competitions/rsna-pneumonia-detection-challenge
+
+[19] F. Wang, Y. Zhou, S. Wang, V. Vardhanabhuti, and L. Yu, “Multi-granularity cross-modal alignment for generalized medical visual representation learning,” Advances in neural information processing systems, vol. 35, pp. 33 536–33 549, 2022.
+
+[20] B. E. Bejnordi, M. Veta, P. J. Van Diest, B. Van Ginneken, N. Karssemeijer, G. Litjens, J. A. Van Der Laak, M. Hermsen, Q. F. Manson, M. Balkenhol et al., “Diagnostic assessment of deep learning algorithms for detection of lymph node metastases in women with breast cancer,” Jama, vol. 318, no. 22, pp. 2199–2210, 2017.
+
+[21] P. Bandi, O. Geessink, Q. Manson, M. Van Dijk, M. Balkenhol, M. Hermsen, B. E. Bejnordi, B. Lee, K. Paeng, A. Zhong et al., “From detection of individual metastases to classification of lymph node status at the patient level: the camelyon17 challenge,” IEEE transactions on medical imaging, vol. 38, no. 2, pp. 550–560, 2018.
+
+[22] L. Cai, S. Huang, Y. Zhang, J. Lu, and Y. Zhang, “Attrimil: Revisiting attention-based multiple instance learning for whole-slide pathological image classification from a perspective of instance attributes,” Medical Image Analysis, p. 103631, 2025.
+
+[23] F. Xu, C. Zhu, W. Tang, Y. Wang, Y. Zhang, J. Li, H. Jiang, Z. Shi, J. Liu, and M. Jin, “Predicting axillary lymph node metastasis in early breast cancer using deep learning on primary tumor biopsy slides,” Frontiers in oncology, vol. 11, p. 759007, 2021.
+
+[24] M. Y. Lu, D. F. Williamson, T. Y. Chen, R. J. Chen, M. Barbieri, and F. Mahmood, “Data-efficient and weakly supervised computational pathology on whole-slide images,” Nature biomedical engineering, vol. 5, no. 6, pp. 555–570, 2021.
+
+[25] P. H. Smedsrud, V. Thambawita, S. A. Hicks, H. Gjestang, O. O. Nedrejord, E. Næss, H. Borgli, D. Jha, T. J. D. Berstad, S. L. Eskeland, M. Lux, H. Espeland, A. Petlund, D. T. D. Nguyen, E. Garcia-Ceja, D. Johansen, P. T. Schmidt, E. Toth, H. L. Hammer, T. de Lange, M. A. Riegler, and P. Halvorsen, “Kvasir-Capsule, a video capsule endoscopy dataset,” Scientific Data, vol. 8, no. 1, p. 142, 2021.
+
+[26] Z. Wang, B. Lu, Y. Long, F. Zhong, T. H. Cheung, Q. Dou, and Y. Liu, “Autolaparo: A new dataset of integrated multi-tasks for image-guided surgical automation in laparoscopic hysterectomy,” CoRR, vol. abs/2208.02049, 2022.
+
+[27] S. Leclerc, E. Smistad, J. Pedrosa, A. Østvik, F. Cervenansky, F. Espinosa, T. Espeland, E. A. R. Berg, P.-M. Jodoin, T. Grenier et al., “Deep learning for segmentation using an open large-scale dataset in 2d echocardiography,” IEEE transactions on medical imaging, vol. 38, no. 9, pp. 2198–2210, 2019.
+
+[28] M. Allan, S. Kondo, S. Bodenstedt, S. Leger, R. Kadkhodamohammadi, I. Luengo, F. Fuentes-Hurtado, E. Flouty, A. K. Mohammed, M. Pedersen, A. Kori, A. Varghese, G. Krishnamurthi, D. Rauber, R. Mendel, C. Palm, S. Bano, G. Saibro, C. Shih, H. Chiang, J. Zhuang, J. Yang, V. Iglovikov, A. Dobrenkii, M. Reddiboina, A. Reddy, X. Liu, C. Gao, M. Unberath, M. Azizian, D. Stoyanov, L. Maier-Hein, and S. Speidel, “2018 robotic scene segmentation challenge,” CoRR, vol. abs/2001.11190, 2020. [Online]. Available: https://arxiv.org/abs/2001.11190
+
+[29] C. González, L. Bravo-Sánchez, and P. Arbelaez, “Isinet: an instance-based approach for surgical instrument segmentation,” in Medical Image Computing and Computer Assisted Intervention–MICCAI 2020: 23rd International Conference, Lima, Peru, October 4–8, 2020, Proceedings, Part III 23. Springer, 2020, pp. 595–605.
+
+[30] S. Ali, B. Braden, D. Lamarque, S. Realdon, A. Bailey, R. Cannizzaro, N. Ghatwary, J. Rittscher, C. Daul, and J. East, “Endoscopy disease detection and segmentation (edd2020),” 2020. [Online]. Available: https://ieee-dataport.org/competitions/endoscopy-disease-detection-and-segmentation-edd2020
+
+[31] G. Müller-Franzes, F. Khader, R. Siepmann, T. Han, J. N. Kather, S. Nebelung, and D. Truhn, “Medical slice transformer for improved diagnosis and explainability on 3d medical images with dinov2,” Scientific Reports, vol. 15, no. 1, p. 23979, 2025.
+
+[32] M. Antonelli, A. Reinke, S. Bakas, K. Farahani, A. Kopp-Schneider, B. A. Landman, G. Litjens, B. Menze, O. Ronneberger, R. M. Summers et al., “The medical segmentation decathlon,” Nature communications, vol. 13, no. 1, p. 4128, 2022.
+
+[33] L. Wu, J. Zhuang, and H. Chen, “Voco: A simple-yet-effective volume contrastive learning framework for 3d medical image analysis,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 2024, pp. 22 873–22 882.
+
+[34] CREMI, “Miccai challenge on circuit reconstruction from electron microscopy images,” https://cremi.org/, 2016.
+
+[35] N. Kasthuri, K. J. Hayworth, D. R. Berger, R. L. Schalek, J. A. Conchello, S. Knowles-Barley, D. Lee, A. Vázquez-Reina, V. Kaynig, T. R. Jones et al., “Saturated reconstruction of a volume of neocortex,” Cell, vol. 162, no. 3, pp. 648–661, 2015.
+
+[36] K. T. Gatidis S, “A whole-body fdg-pet/ct dataset with manually annotated tumor lesions (fdg-pet-ct-lesions),” The Cancer Imaging Archive, vol. 226, 2022.
+
+[37] V. Oreiller, V. Andrearczyk, M. Jreige, S. Boughdad, H. Elhalawani, J. Castelli, M. Vallieres, S. Zhu, J. Xie, Y. Peng et al., “Head and neck tumor segmentation in pet/ct: the hecktor challenge,” Medical image analysis, vol. 77, p. 102336, 2022.
+
+[38] O. Bernard, A. Lalande, C. Zotti, F. Cervenansky, X. Yang, P.-A. Heng, I. Cetin, K. Lekadir, O. Camara, M. A. Gonzalez Ballester, G. Sanroma, S. Napel, S. Petersen, G. Tziritas, E. Grinias, M. Khened, V. A. Kollerathu, G. Krishnamurthi, M.-M. Rohé, X. Pennec, M. Sermesant, F. Isensee, P. Jäger, K. H. Maier-Hein, P. M. Full, I. Wolf, S. Engelhardt, C. F. Baumgartner, L. M. Koch, J. M. Wolterink, I. Išgum, Y. Jang, Y. Hong, J. Patravali, S. Jain, O. Humbert, and P.-M. Jodoin, “Deep learning techniques for automatic mri cardiac multi-structures segmentation and diagnosis: Is the problem solved?” IEEE Transactions on Medical Imaging, vol. 37, no. 11, pp. 2514–2525, 2018.
+
+[39] M. Ilse, J. Tomczak, and M. Welling, “Attention-based deep multiple instance learning,” in International conference on machine learning. PMLR, 2018, pp. 2127–2136.
+
+[40] J. Funke, F. Tschopp, W. Grisaitis, A. Sheridan, C. Singh, S. Saalfeld, and S. C. Turaga, “Large scale image segmentation with structured loss based deep learning for connectome reconstruction,” IEEE transactions on pattern analysis and machine intelligence, vol. 41, no. 7, pp. 1669–1680, 2018.
+
+[41] X. Song, X. Xu, and P. Yan, “Dino-reg: General purpose image encoder for training-free multi-modal deformable medical image registration,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2024, pp. 608–617.
+
+[42] J. Nunez-Iglesias, R. Kennedy, T. Parag, J. Shi, and D. B. Chklovskii, “Machine learning of hierarchical clustering to segment 2d and 3d images,” PloS one, vol. 8, no. 8, p. e71715, 2013.
+
+[43] I. Arganda-Carreras, S. C. Turaga, D. R. Berger, D. Cireşan, A. Giusti, L. M. Gambardella, J. Schmidhuber, D. Laptev, S. Dwivedi, J. M. Buhmann et al., “Crowdsourcing the creation of image segmentation algorithms for connectomics,” Frontiers in neuroanatomy, vol. 9, p. 152591, 2015.
+
+[44] R. J. Chen, T. Ding, M. Y. Lu, D. F. Williamson, G. Jaume, A. H. Song, B. Chen, A. Zhang, D. Shao, M. Shaban et al., “Towards a general-purpose foundation model for computational pathology,” Nature medicine, vol. 30, no. 3, pp. 850–862, 2024.
+
+[45] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2016, pp. 770–778.
+
+[46] J. Joseph, S. N. George, and K. Raja, “Vapcaps: A novel variance-based attention network with imbalance aware loss for better pathology detection in video capsule endoscopy,” Neurocomputing, vol. 655, p. 131325, 2025. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S0925231225019976
+
+[47] Y. Li, G. Zhao, C. Li, W. Shi, Z. Jiang, Z. Zhang, and G. Feng, “Stsanet: Spatial temporal-self-aggregation network for surgical phase recognition,” Information Fusion, vol. 126, p. 103646, 2026. [Online]. Available: https://www.sciencedirect.com/science/article/pii/S1566253525007183
+
+[48] A. Srivastava, S. Chanda, D. Jha, U. Pal, and S. Ali, “Gmsrf-net: An improved generalizability with global multi-scale residual fusion network for polyp segmentation,” in 2022 26th International Conference on Pattern Recognition (ICPR), 2022, pp. 4321–4327.
+
+[49] A. Trockman and J. Kolter, “Patches are all you need?” Transactions on Machine Learning Research, 2022.
+
+[50] S. d’Ascoli, H. Touvron, M. Leavitt, A. Morcos, G. Biroli, and L. Sagun, “Convit: Improving vision transformers with soft convolutional inductive biases,” Journal of Statistical Mechanics: Theory and Experiment, vol. 2022, no. 11, p. 114005, 2022.
+
+[51] X. Dong, J. Bao, D. Chen, W. Zhang, N. Yu, L. Yuan, D. Chen, and B. Guo, “Cswin transformer: A general vision transformer backbone with cross-shaped windows,” in 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). IEEE Computer Society, 2022, pp. 12 114–12 124.
+
+[52] A. Srivastava, N. Tomar, and D. Jha, “Video capsule endoscopy classification using focal modulation guided convolutional neural network,” in Proceedings. IEEE International Symposium on Computer-Based Medical Systems, vol. 2022, 2022, pp. 323–328.
+
+[53] A. Vats, M. Pedersen, A. Mohammed, and Ø. Hovde., “Learning more for free - a multi task learning approach for improved pathology classification in capsule endoscopy,” in Medical Image Computing and Computer Assisted Intervention – MICCAI 2021, M. de Bruijne, P. Cattin, S. Cotin, N. Padoy, S. Speidel, Y. Zheng, and C. Essert, Eds. Cham: Springer International Publishing, 2021, pp. 3–13.
+
+[54] O. Yet, T. Rassem, M. Rahman, and M. Rahman, “Improved attentive pairwise interaction (api-net) for finegrained image classification,” in 2021 Emerging Technology in Computing, Communication and Electronics (ETCCE), 2021, pp. 1–6.
+
+[55] Y. Jin, Q. Dou, H. Chen, L. Yu, J. Qin, C.-W. Fu, and P.-A. Heng, “Sv-rcnet: Workflow recognition from surgical videos using recurrent convolutional network,” IEEE Transactions on Medical Imaging, vol. 37, no. 5, pp. 1114–1126, 2018.
+
+[56] Y. Jin, Y. Long, C. Chen, Z. Zhao, Q. Dou, and P.-A. Heng, “Temporal memory relation network for workflow recognition from surgical video,” IEEE Transactions on Medical Imaging, vol. 40, no. 7, pp. 1911–1923, 2021.
+
+[57] X. Gao, Y. Jin, Y. Long, Q. Dou, and P. Heng, “Trans-svnet: Accurate phase recognition from surgical videos via hybrid embedding aggregation transformer,” in Medical Image Computing and Computer Assisted Intervention - MICCAI 2021 - 24th International Conference, Strasbourg, France, September 27 - October 1, 2021, Proceedings, Part IV, ser. Lecture Notes in Computer Science, M. de Bruijne, P. C. Cattin, S. Cotin, N. Padoy, S. Speidel, Y. Zheng, and C. Essert, Eds., vol. 12904. Springer, 2021, pp. 593–603.
+
+[58] Y. Liu, M. Boels, L. Garcia-Peraza-Herrera, T. Vercauteren, P. Dasgupta, A. Granados, and S. Ourselin, “Lovit: Long video transformer for surgical phase recognition,” Medical Image Analysis, vol. 99, p. 103366, 2025.
+
+[59] J. Yu, A. Wang, W. Dong, M. Xu, M. Islam, J. Wang, L. Bai, and H. Ren, “Sam 2 in robotic surgery: An empirical evaluation for robustness and generalization in surgical video segmentation,” 2024. [Online]. Available: https://arxiv.org/abs/2408.04593
+
+[60] O. Ronneberger, P. Fischer, and T. Brox, “U-net: Convolutional networks for biomedical image segmentation,” in Medical Image Computing and Computer-Assisted Intervention–MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18. Springer, 2015, pp. 234–241.
+
+[61] A. A. Shvets, A. Rakhlin, A. A. Kalinin, and V. I. Iglovikov, “Automatic instrument segmentation in robotassisted surgery using deep learning,” in 2018 17th IEEE International Conference on Machine Learning and Applications (ICMLA), 2018, pp. 624–628.
+
+[62] Y. Jin, K. Cheng, Q. Dou, and P.-A. Heng, “Incorporating temporal prior from motion flow for instrument segmentation in minimally invasive surgery video,” in Medical Image Computing and Computer Assisted Intervention– MICCAI 2019: 22nd International Conference, Shenzhen, China, October 13–17, 2019, Proceedings, Part V 22. Springer, 2019, pp. 440–448.
+
+[63] A. Wang, M. Islam, M. Xu, and H. Ren, “Rethinking surgical instrument segmentation: A background image can be all you need,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2022, pp. 355–364.
+
+[64] M. Islam, V. Vibashan, C. M. Lim, and H. Ren, “St-mtl: Spatio-temporal multitask learning model to predict scanpath while tracking instruments in robotic surgery,” Medical Image Analysis, vol. 67, p. 101837, 2021.
+
+[65] M. Islam, V. Vibashan, and H. Ren, “Ap-mtl: Attention pruned multi-task learning model for real-time instrument detection and segmentation in robot-assisted surgery,” in 2020 IEEE international conference on robotics and automation (ICRA). IEEE, 2020, pp. 8433–8439.
+
+[66] L. Seenivasan, S. Mitheran, M. Islam, and H. Ren, “Global-reasoned multi-task learning model for surgical scene understanding,” IEEE Robotics and Automation Letters, vol. 7, no. 2, pp. 3858–3865, 2022.
+
+[67] Z. Zhao, Y. Jin, and P.-A. Heng, “Trasetr: track-to-segment transformer with contrastive query for instance-level instrument segmentation in robotic surgery,” in 2022 International Conference on Robotics and Automation (ICRA). IEEE, 2022, pp. 11 186–11 193.
+
+[68] B. Baby, D. Thapar, M. Chasmai, T. Banerjee, K. Dargan, A. Suri, S. Banerjee, and C. Arora, “From forks to forceps: A new framework for instance segmentation of surgical instruments,” in Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision, 2023, pp. 6191–6201.
+
+[69] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo et al., “Segment anything,” arXiv preprint arXiv:2304.02643, 2023.
+
+[70] N. Ravi, V. Gabeur, Y.-T. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. Rädle, C. Rolland, L. Gustafson et al., “Sam 2: Segment anything in images and videos,” arXiv preprint arXiv:2408.00714, 2024.
+
+[71] J. Chen, Y. Lu, Q. Yu, X. Luo, E. Adeli, Y. Wang, L. Lu, A. L. Yuille, and Y. Zhou, “Transunet: Transformers make strong encoders for medical image segmentation,” arXiv preprint arXiv:2102.04306, 2021.
+
+[72] C.-H. Huang, H.-Y. Wu, and Y.-L. Lin, “Hardnet-mseg: A simple encoder-decoder polyp segmentation neural network that achieves over 0.9 mean dice and 86 fps,” 2021. [Online]. Available: https://arxiv.org/abs/2101.07172
+
+[73] A. Hatamizadeh, V. Nath, Y. Tang, D. Yang, H. R. Roth, and D. Xu, “Swin unetr: Swin transformers for semantic segmentation of brain tumors in mri images,” in International MICCAI brainlesion workshop. Springer, 2022, pp. 272–284.
+
+[74] Q. Chang, D. Ahmad, J. Toth, R. Bascom, and W. E. Higgins, “Esfpnet: efficient deep learning architecture for real-time lesion segmentation in autofluorescence bronchoscopic video,” in Medical Imaging 2023: Biomedical Applications in Molecular, Structural, and Functional Imaging, B. S. Gimi and A. Krol, Eds. SPIE, Apr. 2023. [Online]. Available: http://dx.doi.org/10.1117/12.2647897
+
+[75] F. Tang, Q. Huang, J. Wang, X. Hou, J. Su, and J. Liu, “Duat: Dual-aggregation transformer network for medical image segmentation,” 2022. [Online]. Available: https://arxiv.org/abs/2212.11677
+
+[76] E. Sanderson and B. J. Matuszewski, “Fcn-transformer feature fusion for polyp segmentation,” in Annual Conference on Medical Image Understanding and Analysis. Springer, 2022, pp. 892–907.
+
+[77] A. Srivastava, D. Jha, S. Chanda, U. Pal, H. D. Johansen, D. Johansen, M. A. Riegler, S. Ali, and P. Halvorsen, “Msrf-net: A multi-scale residual fusion network for biomedical image segmentation,” 2022. [Online]. Available: https://arxiv.org/abs/2105.07451
+
+[78] A. Srivastava, S. Chanda, D. Jha, U. Pal, and S. Ali, “Gmsrf-net: An improved generalizability with global multi-scale residual fusion network for polyp segmentation,” 2021. [Online]. Available: https://arxiv.org/abs/2111.10614
+
+[79] D. Bo, W. Wenhai, F. Deng-Ping, L. Jinpeng, F. Huazhu, and S. Ling, “Polyp-pvt: Polyp segmentation with pyramidvision transformers,” CAAI AIR, 2023.
+
+[80] G.-P. Ji, G. Xiao, Y.-C. Chou, D.-P. Fan, K. Zhao, G. Chen, and L. Van Gool, “Video polyp segmentation: A deep learning perspective,” Machine Intelligence Research, vol. 19, no. 6, p. 531–549, Nov. 2022. [Online]. Available: http://dx.doi.org/10.1007/s11633-022-1371-y
+
+[81] Y. Pang, Y. Long, Z. Chen, Y. Hu, H. Chen, and Q. Wang, “Endoscopic adaptive transformer for enhanced polyp segmentation in endoscopic imaging,” IEEE Transactions on Medical Imaging, pp. 1–1, 2025.
+
+[82] I. E. Hamamci, S. Er, C. Wang, F. Almas, A. G. Simsek, S. N. Esirgun, I. Doga, O. F. Durugol, W. Dai, M. Xu et al., “Developing generalist foundation models from a multimodal dataset for 3d computed tomography,” arXiv preprint arXiv:2403.17834, 2024.
+
+[83] R. L. Draelos, D. Dov, M. A. Mazurowski, J. Y. Lo, R. Henao, G. D. Rubin, and L. Carin, “Machine-learning-based multiple abnormality prediction with large-scale chest computed tomography volumes,” Medical Image Analysis, vol. 67, p. 101857, 2021.
+
+[84] F. Isensee, P. F. Jaeger, S. A. Kohl, J. Petersen, and K. H. Maier-Hein, “nnu-net: a self-configuring method for deep learning-based biomedical image segmentation,” Nature methods, vol. 18, no. 2, pp. 203–211, 2021.
+
+[85] Ö. Çiçek, A. Abdulkadir, S. S. Lienkamp, T. Brox, and O. Ronneberger, “3d u-net: learning dense volumetric segmentation from sparse annotation,” in International conference on medical image computing and computerassisted intervention. Springer, 2016, pp. 424–432.
+
+[86] F. Milletari, N. Navab, and S.-A. Ahmadi, “V-net: Fully convolutional neural networks for volumetric medical image segmentation,” in 2016 fourth international conference on 3D vision (3DV). IEEE, 2016, pp. 565–571.
+
+[87] A. Hatamizadeh, Y. Tang, V. Nath, D. Yang, A. Myronenko, B. Landman, H. R. Roth, and D. Xu, “Unetr: transformers for 3d medical image segmentation,” in Proceedings of the IEEE/CVF winter conference on applications of computer vision, 2022, pp. 1748–1758.
+
+[88] K. He, X. Chen, S. Xie, Y. Li, P. Dollár, and R. Girshick, “Masked autoencoders are scalable vision learners,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 2022, pp. 16 000–16 009.
+
+[89] T. Chen, S. Kornblith, M. Norouzi, and G. Hinton, “A simple framework for contrastive learning of visual representations,” in International conference on machine learning. PMLR, 2020, pp. 1597–1607.
+
+[90] X. Chen, S. Xie, and K. He, “An empirical study of training self-supervised vision transformers,” arXiv preprint arXiv:2104.02057, 2021.
+
+[91] M. Caron, I. Misra, J. Mairal, P. Goyal, P. Bojanowski, and A. Joulin, “Unsupervised learning of visual features by contrasting cluster assignments,” vol. 33, pp. 9912–9924, 2020.
+
+[92] J.-B. Grill, F. Strub, F. Altché, C. Tallec, P. Richemond, E. Buchatskaya, C. Doersch, B. A. Pires, Z. Guo, M. G. Azar et al., “Bootstrap your own latent: A new approach to self-supervised learning,” vol. 33, pp. 21 271–21 284, 2020.
+
+[93] Ö. Çiçek, A. Abdulkadir, S. S. Lienkamp, T. Brox, and O. Ronneberger, “3d u-net: learning dense volumetric segmentation from sparse annotation,” in Medical Image Computing and Computer-Assisted Intervention–MICCAI 2016: 19th International Conference, Athens, Greece, October 17-21, 2016, Proceedings, Part II 19. Springer, 2016, pp. 424–432.
+
+[94] F. Milletari, N. Navab, and S.-A. Ahmadi, “V-net: Fully convolutional neural networks for volumetric medical image segmentation,” in 2016 fourth international conference on 3D vision (3DV). Ieee, 2016, pp. 565–571.
+
+[95] K. Lee, J. Zung, P. Li, V. Jain, and H. S. Seung, “Superhuman accuracy on the snemi3d connectomics challenge,” arXiv preprint arXiv:1706.00120, 2017.
+
+[96] W. Huang, S. Deng, C. Chen, X. Fu, and Z. Xiong, “Learning to model pixel-embedded affinity for homogeneous instance segmentation,” in Proceedings of the AAAI Conference on Artificial Intelligence, vol. 36, no. 1, 2022, pp. 1007–1015.
+
+[97] R. Sun, N. Luo, Y. Pan, H. Mai, T. Zhang, Z. Xiong, and F. Wu, “Appearance prompt vision transformer for connectome reconstruction.” in IJCAI, 2023, pp. 1423–1431.
+
+[98] A. Sheridan, T. M. Nguyen, D. Deb, W.-C. A. Lee, S. Saalfeld, S. C. Turaga, U. Manor, and J. Funke, “Local shape descriptors for neuron segmentation,” Nature methods, vol. 20, no. 2, pp. 295–303, 2023.
+
+[99] X. Liu, M. Cai, Y. Chen, Y. Zhang, T. Shi, R. Zhang, X. Chen, and Z. Xiong, “Cross-dimension affinity distillation for 3d em neuron segmentation,” in 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). IEEE Computer Society, 2024, pp. 11 104–11 113.
+
+[100] Y. Tang, D. Yang, W. Li, H. R. Roth, B. A. Landman, D. Xu, V. Nath, and A. Hatamizadeh, “Self-supervised pre-training of swin transformers for 3d medical image analysis,” Proceedings of CVPR, pp. 20 698–20 708, 2021.
+
+[101] T. Liu, Q. Bai, D. A. Torigian, Y. Tong, and J. K. Udupa, “Vsmtrans: A hybrid paradigm integrating self-attention and convolution for 3d medical image segmentation,” Medical image analysis, vol. 98, p. 103295, 2024.
+
+[102] A. M. Shaker, M. Maaz, H. Rasheed, S. Khan, M.-H. Yang, and F. S. Khan, “Unetr++: delving into efficient and accurate 3d medical image segmentation,” IEEE Transactions on Medical Imaging, 2024.
+
+[103] C. Li et al., “U-kan makes strong backbone for medical image segmentation and generation,” in Proceedings of the AAAI Conference on Artificial Intelligence, vol. 39, no. 5, 2025, pp. 4652–4660.
+
+[104] Z. Xing, L. Yu, L. Wan, T. Han, and L. Zhu, “Nestedformer: Nested modality-aware transformer for brain tumor segmentation,” in International conference on medical image computing and computer-assisted intervention. Springer, 2022, pp. 140–150.
+
+[105] Z. Wang and Y. Hong, “A2fseg: Adaptive multi-modal fusion network for medical image segmentation,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2023, pp. 673–681.
+
+[106] J. Shi et al., “H-denseformer: An efficient hybrid densely connected transformer for multimodal tumor segmentation,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2023, pp. 692–702.
+
+[107] G. Balakrishnan, A. Zhao, M. R. Sabuncu, J. Guttag, and A. V. Dalca, “Voxelmorph: a learning framework for deformable medical image registration,” IEEE transactions on medical imaging, vol. 38, no. 8, pp. 1788–1800, 2019.
+
+[108] H. Siebert, L. Hansen, and M. P. Heinrich, “Fast 3d registration with accurate optimisation and little learning for learn2reg 2021,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2021, pp. 174–179.
+
+[109] N. Dey, B. Billot, H. E. Wong, C. J. Wang, M. Ren, P. E. Grant, A. V. Dalca, and P. Golland, “Learning general-purpose biomedical volume representations using randomized synthesis,” 2024. [Online]. Available: https://arxiv.org/abs/2411.02372
+
+[110] D. Bolya, P.-Y. Huang, P. Sun, J. H. Cho, A. Madotto, C. Wei, T. Ma, J. Zhi, J. Rajasegaran, H. Rasheed et al., “Perception encoder: The best visual embeddings are not at the output of the network,” arXiv preprint arXiv:2504.13181, 2025.
+
+[111] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, W. Chen et al., “Lora: Low-rank adaptation of large language models.” ICLR, vol. 1, no. 2, p. 3, 2022.
+
+[112] J. Ma, Y. He, F. Li, L. Han, C. You, and B. Wang, “Segment anything in medical images,” Nature Communications, vol. 15, no. 1, p. 654, 2024.
+
+[113] Y. Zhang, P. Hager, C. Liu, S. Shit, C. Chen, D. Rueckert, and J. Pan, “Towards cardiac mri foundation models: Comprehensive visual-tabular representations for whole-heart assessment and beyond,” arXiv preprint arXiv:2504.13037, 2025.
+
+[114] Y. Zhang, C. Chen, S. Shit, S. Starck, D. Rueckert, and J. Pan, “Whole heart 3d+ t representation learning through sparse 2d cardiac mr images,” in International Conference on Medical Image Computing and Computer-Assisted Intervention. Springer, 2024, pp. 359–369.
+
+[115] B. Jian, J. Pan, Y. Li, F. Bongratz, R. Li, D. Rueckert, B. Wiestler, and C. Wachinger, “Timeflow: Longitudinal brain image registration and aging progression analysis,” arXiv preprint arXiv:2501.08667, 2025.
+
+[116] N. Bubeck, S. Shit, C. Chen, C. Zhao, P. Guo, D. Yang, G. Zitzlsberger, D. Xu, B. Kainz, D. Rueckert et al., “Latent interpolation learning using diffusion models for cardiac volume reconstruction,” arXiv preprint arXiv:2508.13826, 2025.
+
+## Acknowledgement
+
+The LaTeX template is built upon Meta’s original template.

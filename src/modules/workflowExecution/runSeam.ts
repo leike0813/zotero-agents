@@ -77,6 +77,7 @@ export function runWorkflowExecutionSeam(
           backend: args.prepared.executionContext.backend,
           providerOptions: args.prepared.executionContext.providerOptions,
           workflowId: args.prepared.workflow.manifest.id,
+          workflowLabel: args.prepared.workflow.manifest.label,
           workflowRunId: `${runId}-${job.id}`,
           jobId: job.id,
           executeWithProvider: resolved.executeWithProvider,
@@ -132,11 +133,7 @@ export function runWorkflowExecutionSeam(
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
         const backendType = String(executionContext.backend.type || "").trim();
-        if (
-          isSkillRunnerJob &&
-          backendType === "skillrunner" &&
-          requestId
-        ) {
+        if (isSkillRunnerJob && backendType === "skillrunner" && requestId) {
           void resolved.focusSkillRunnerWorkspace({
             backend: executionContext.backend,
             requestId,

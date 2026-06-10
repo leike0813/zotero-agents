@@ -384,6 +384,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
       resolved.papers.map((paper) => paper.paper_ref),
       [`${alpha.libraryID}:${alpha.key}`],
     );
+    assert.equal(resolved.papers[0].year, "2024");
     assert.equal(resolved.diagnostics.final_count, 1);
     assert.deepEqual(
       artifacts.artifacts.map((artifact) => artifact.artifact_type).sort(),
@@ -391,8 +392,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     );
     assert.equal(
       artifacts.artifacts.every(
-        (artifact) =>
-          artifact.probe_source === "synthesis.read_paper_artifacts",
+        (artifact) => artifact.probe_source === "paper_artifacts.read",
       ),
       true,
     );
@@ -521,7 +521,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
       topicId: "topic-alpha",
     });
     const mcpResponse: any = await handleZoteroMcpRequestForTests(
-      mcpRequest(1, "synthesis.get_reference_sidecar_index"),
+      mcpRequest(1, "reference_index.get"),
       { resolveSynthesisService: () => service },
     );
     assert.equal(snapshot.artifacts.rows[0].id, "topic-alpha");

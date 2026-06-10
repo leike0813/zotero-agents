@@ -1,36 +1,43 @@
-import {
-  canonicalizeJson,
-  hashCanonicalJson,
-  hashMarkdown,
-} from "./foundation";
+import { canonicalizeJson, hashCanonicalJson } from "./foundation";
 
 const COMPLETE_SECTIONS = [
   "topic",
   "summary",
-  "positioning",
   "taxonomy",
-  "improvement_dimension_summary",
   "improvement_dimensions",
   "claims",
   "timeline_events",
-  "paper_evidence",
-  "external_literature_analysis",
+  "source_papers",
   "debates",
   "coverage",
-  "gaps",
+  "future_directions",
   "review_outline",
   "statistics",
   "synthesis_report",
-  "evidence_map",
   "source_artifacts",
   "diagnostics",
 ] as const;
+
+const LEGACY_EVIDENCE_FIELDS = new Set([
+  "paper_evidence",
+  "evidence_map",
+  "evidence_refs",
+  "paper_evidence_refs",
+  "evidence_map_refs",
+]);
 
 const PATCHABLE_SECTIONS: Set<string> = new Set(
   COMPLETE_SECTIONS.filter((section) => section !== "topic"),
 );
 
 type SectionName = (typeof COMPLETE_SECTIONS)[number];
+
+const REMOVED_COMPLETE_SECTIONS = new Set([
+  "improvement_dimension_summary",
+  "external_literature_analysis",
+  "gaps",
+  "positioning",
+]);
 
 type ValidationResult<T> =
   | { ok: true; errors: []; manifest?: T; artifact?: T }
@@ -66,9 +73,6 @@ function sectionEntryErrors(section: string, value: unknown) {
   if (!cleanString(value.path)) {
     errors.push(`${section}.path is required`);
   }
-  if (!cleanString(value.hash)) {
-    errors.push(`${section}.hash is required`);
-  }
   if (cleanString(value.content_type) !== "json") {
     errors.push(`${section}.content_type must be json`);
   }
@@ -82,9 +86,6 @@ function sidecarEntryErrors(sidecar: string, value: unknown) {
   }
   if (!cleanString(value.path)) {
     errors.push(`sidecars.${sidecar}.path is required`);
-  }
-  if (!cleanString(value.hash)) {
-    errors.push(`sidecars.${sidecar}.hash is required`);
   }
   if (cleanString(value.content_type) !== "json") {
     errors.push(`sidecars.${sidecar}.content_type must be json`);
@@ -102,6 +103,7 @@ function validateSidecars(input: Record<string, unknown>) {
     "topic_interest_metadata",
     "concept_cards_proposal",
     "topic_graph_relation_proposals",
+    "prospective_topic_relation_proposals",
   ]) {
     if (!(sidecar in sidecars)) {
       errors.push(`sidecars.${sidecar} is required`);
@@ -198,6 +200,11 @@ export function validateTopicAnalysisManifest(
     errors.push("manifest language is required");
   }
   const sections = isObject(input.sections) ? input.sections : {};
+  for (const section of REMOVED_COMPLETE_SECTIONS) {
+    if (section in sections) {
+      errors.push(`sections.${section} is not part of the current contract`);
+    }
+  }
   for (const section of COMPLETE_SECTIONS) {
     if (!(section in sections)) {
       errors.push(`sections.${section} is required`);
@@ -211,14 +218,34 @@ export function validateTopicAnalysisManifest(
     : { ok: true, errors: [], manifest: input };
 }
 
-function evidenceIds(artifact: Record<string, unknown>) {
-  const rows = Array.isArray(artifact.paper_evidence)
-    ? artifact.paper_evidence
+function legacyEvidenceFieldErrors(value: unknown, path = "artifact") {
+  const errors: string[] = [];
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      errors.push(...legacyEvidenceFieldErrors(item, `${path}[${index}]`));
+    });
+    return errors;
+  }
+  if (!isObject(value)) {
+    return errors;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (LEGACY_EVIDENCE_FIELDS.has(key)) {
+      errors.push(`${path}.${key} is not part of source_paper_refs contract`);
+    }
+    errors.push(...legacyEvidenceFieldErrors(child, `${path}.${key}`));
+  }
+  return errors;
+}
+
+function sourcePaperIds(artifact: Record<string, unknown>) {
+  const rows = Array.isArray(artifact.source_papers)
+    ? artifact.source_papers
     : [];
   return new Set(
     rows
       .filter(isObject)
-      .map((entry) => cleanString(entry.id))
+      .map((entry) => cleanString(entry.paper_ref))
       .filter(Boolean),
   );
 }
@@ -233,32 +260,37 @@ function timelineEventRows(value: unknown) {
   return [];
 }
 
-function validateEvidenceRefs(args: {
+function improvementDimensionRows(value: unknown) {
+  if (isObject(value)) {
+    return Array.isArray(value.dimensions) ? value.dimensions : [];
+  }
+  return Array.isArray(value) ? value : [];
+}
+
+function validateSourcePaperRefs(args: {
   label: string;
   rows: unknown;
-  knownEvidence: Set<string>;
+  knownSourcePapers: Set<string>;
+  requireProperty?: boolean;
 }) {
   const errors: string[] = [];
   for (const row of Array.isArray(args.rows) ? args.rows : []) {
     if (!isObject(row)) {
       continue;
     }
-    const refs = Array.isArray(row.evidence_refs)
-      ? row.evidence_refs.map(cleanString)
+    const hasRefs = "source_paper_refs" in row;
+    const refs = Array.isArray(row.source_paper_refs)
+      ? row.source_paper_refs.map(cleanString).filter(Boolean)
       : [];
-    if (!refs.length) {
+    if (args.requireProperty && !hasRefs) {
       errors.push(
-        `${args.label} ${cleanString(row.id)} requires evidence_refs`,
+        `${args.label} ${cleanString(row.id)} requires source_paper_refs`,
       );
     }
     for (const ref of refs) {
-      if (ref.startsWith("external:")) {
+      if (!args.knownSourcePapers.has(ref)) {
         errors.push(
-          `${args.label} ${cleanString(row.id)} must not use external references as library paper evidence`,
-        );
-      } else if (!args.knownEvidence.has(ref)) {
-        errors.push(
-          `${args.label} ${cleanString(row.id)} references missing paper_evidence ${ref}`,
+          `${args.label} ${cleanString(row.id)} references missing source_papers ${ref}`,
         );
       }
     }
@@ -288,88 +320,80 @@ export function validateTopicSynthesisArtifact(
   ) {
     errors.push(`artifact language must be ${options.expectedLanguage}`);
   }
+  errors.push(...legacyEvidenceFieldErrors(input));
+  for (const section of REMOVED_COMPLETE_SECTIONS) {
+    if (section in input) {
+      errors.push(`artifact.${section} is not part of the current contract`);
+    }
+  }
   for (const section of COMPLETE_SECTIONS) {
     if (!(section in input)) {
       errors.push(`artifact.${section} is required`);
     }
   }
-  const knownEvidence = evidenceIds(input);
-  const knownEvidenceMap = evidenceMapIds(input);
+  const knownSourcePapers = sourcePaperIds(input);
   errors.push(
-    ...validateEvidenceRefs({
+    ...validateSourcePaperRefs({
       label: "claim",
       rows: input.claims,
-      knownEvidence,
+      knownSourcePapers,
+      requireProperty: true,
     }),
-    ...validateEvidenceRefs({
+    ...validateSourcePaperRefs({
       label: "timeline",
       rows: timelineEventRows(input.timeline_events),
-      knownEvidence,
+      knownSourcePapers,
+      requireProperty: true,
     }),
-    ...validateEvidenceMapRefs({
-      label: "claim",
-      rows: input.claims,
-      knownEvidenceMap,
-    }),
-    ...validateEvidenceMapRefs({
-      label: "timeline",
-      rows: timelineEventRows(input.timeline_events),
-      knownEvidenceMap,
-    }),
-    ...validateEvidenceMapRefs({
+    ...validateSourcePaperRefs({
       label: "debate",
       rows: input.debates,
-      knownEvidenceMap,
+      knownSourcePapers,
+      requireProperty: true,
     }),
-    ...validateEvidenceMapRefs({
-      label: "gap",
-      rows: input.gaps,
-      knownEvidenceMap,
+    ...validateSourcePaperRefs({
+      label: "future_directions",
+      rows: input.future_directions,
+      knownSourcePapers,
+      requireProperty: true,
     }),
   );
-  const paperEvidence = Array.isArray(input.paper_evidence)
-    ? input.paper_evidence
+  const sourcePapers = Array.isArray(input.source_papers)
+    ? input.source_papers
     : [];
-  for (const entry of paperEvidence) {
+  for (const entry of sourcePapers) {
     if (!isObject(entry)) {
-      errors.push("paper_evidence entries must be objects");
+      errors.push("source_papers entries must be objects");
       continue;
     }
-    if ("digest_markdown" in entry || "digest" in entry) {
-      errors.push("paper_evidence must not embed digest_markdown bodies");
+    if (!cleanString(entry.paper_ref)) {
+      errors.push("source_papers.paper_ref is required");
     }
     const digestRef = isObject(entry.digest_ref) ? entry.digest_ref : {};
     if (cleanString(digestRef.payload_type) !== "digest-markdown") {
       errors.push(
-        "paper_evidence.digest_ref.payload_type must be digest-markdown",
+        "source_papers.digest_ref.payload_type must be digest-markdown",
       );
     }
-    if (!cleanString(digestRef.payload_hash)) {
-      errors.push("paper_evidence.digest_ref.payload_hash is required");
-    }
-  }
-  const external = isObject(input.external_literature_analysis)
-    ? input.external_literature_analysis
-    : {};
-  if (!("summary" in external)) {
-    errors.push("external_literature_analysis summary is required");
   }
   errors.push(...validateContentDepth(input));
+  errors.push(...reviewOutlineErrors(input));
   errors.push(
-    ...validateNestedEvidenceMapRefs(
+    ...validateNestedSourcePaperRefs(
       "taxonomy",
       input.taxonomy,
-      knownEvidenceMap,
+      knownSourcePapers,
     ),
-    ...validateEvidenceMapRefs({
+    ...validateSourcePaperRefs({
       label: "improvement_dimensions",
-      rows: input.improvement_dimensions,
-      knownEvidenceMap,
+      rows: improvementDimensionRows(input.improvement_dimensions),
+      knownSourcePapers,
+      requireProperty: true,
     }),
-    ...validateNestedEvidenceMapRefs(
+    ...validateNestedSourcePaperRefs(
       "review_outline",
       input.review_outline,
-      knownEvidenceMap,
+      knownSourcePapers,
     ),
   );
   return errors.length
@@ -429,9 +453,9 @@ function reportDimensionErrors(artifact: Record<string, unknown>) {
     errors.push("core findings");
   }
 
-  const improvementDimensions = Array.isArray(artifact.improvement_dimensions)
-    ? artifact.improvement_dimensions
-    : [];
+  const improvementDimensions = improvementDimensionRows(
+    artifact.improvement_dimensions,
+  );
   const debates = Array.isArray(artifact.debates) ? artifact.debates : [];
   if (!improvementDimensions.length && !debates.length) {
     errors.push("improvement dimensions/debates");
@@ -440,25 +464,71 @@ function reportDimensionErrors(artifact: Record<string, unknown>) {
   const coverage = isObject(artifact.coverage) ? artifact.coverage : {};
   if (
     !cleanString(coverage.coverage_verdict) ||
-    !hasAnyKey(coverage, [
-      "route_coverage_summary",
-      "claim_coverage_summary",
-      "timeline_coverage_summary",
-    ])
+    !cleanString(coverage.coverage_reason) ||
+    !Array.isArray(coverage.coverage_caveats) ||
+    !cleanString(coverage.external_context_summary) ||
+    !Array.isArray(coverage.suggested_collection_directions)
   ) {
-    errors.push("gaps/coverage");
+    errors.push("coverage");
   }
+  return errors;
+}
 
-  const external = isObject(artifact.external_literature_analysis)
-    ? artifact.external_literature_analysis
+function reviewOutlineErrors(artifact: Record<string, unknown>) {
+  const errors: string[] = [];
+  const outline = isObject(artifact.review_outline)
+    ? artifact.review_outline
     : {};
-  if (
-    !cleanString(external.summary) ||
-    !Array.isArray(external.themes) ||
-    !external.themes.length ||
-    !Array.isArray(external.suggested_additions)
-  ) {
-    errors.push("external literature/collection suggestion");
+  if (!cleanString(outline.topic_importance)) {
+    errors.push("review_outline.topic_importance is required");
+  }
+  const strategies = Array.isArray(outline.writing_strategies)
+    ? outline.writing_strategies
+    : [];
+  if (!strategies.length) {
+    errors.push("review_outline.writing_strategies is required");
+  }
+  const ids = new Set<string>();
+  strategies.forEach((strategy, index) => {
+    if (!isObject(strategy)) {
+      errors.push(
+        `review_outline.writing_strategies[${index}] must be an object`,
+      );
+      return;
+    }
+    const id = cleanString(strategy.id);
+    if (id) {
+      ids.add(id);
+    } else {
+      errors.push(`review_outline.writing_strategies[${index}].id is required`);
+    }
+    for (const key of [
+      "title",
+      "review_thesis",
+      "writing_strategy",
+      "best_for",
+      "risks",
+    ]) {
+      if (!cleanString(strategy[key])) {
+        errors.push(
+          `review_outline.writing_strategies[${index}].${key} is required`,
+        );
+      }
+    }
+    if (
+      !Array.isArray(strategy.section_plan) ||
+      !strategy.section_plan.some((entry) => cleanString(entry))
+    ) {
+      errors.push(
+        `review_outline.writing_strategies[${index}].section_plan is required`,
+      );
+    }
+  });
+  const recommended = cleanString(outline.recommended_strategy_id);
+  if (!recommended || !ids.has(recommended)) {
+    errors.push(
+      "review_outline.recommended_strategy_id must match a strategy id",
+    );
   }
   return errors;
 }
@@ -533,11 +603,7 @@ function validateContentDepth(artifact: Record<string, unknown>) {
       definition: ["definition", "route_definition", "description"],
       core_problem: ["core_problem", "problem", "target_problem"],
       mechanism: ["mechanism", "technical_mechanism", "core_mechanism"],
-      representative_papers: [
-        "representative_papers",
-        "paper_refs",
-        "evidence_refs",
-      ],
+      source_paper_refs: ["source_paper_refs"],
       strengths: ["strengths", "advantages"],
       limitations: ["limitations", "weaknesses"],
       maturity: ["maturity", "status", "development_stage"],
@@ -613,26 +679,6 @@ function validateContentDepth(artifact: Record<string, unknown>) {
     }
   }
 
-  const external = isObject(artifact.external_literature_analysis)
-    ? artifact.external_literature_analysis
-    : {};
-  if (!Array.isArray(external.themes) || !external.themes.length) {
-    errors.push("external_literature_analysis themes are required");
-  }
-  if (!Array.isArray(external.representative_references)) {
-    errors.push(
-      "external_literature_analysis representative_references are required",
-    );
-  }
-  if (!hasAnyKey(external, ["coverage_verdict", "coverage_judgment"])) {
-    errors.push("external_literature_analysis coverage_verdict is required");
-  }
-  if (!Array.isArray(external.suggested_additions)) {
-    errors.push(
-      "external_literature_analysis suggested_additions are required",
-    );
-  }
-
   const statistics = isObject(artifact.statistics) ? artifact.statistics : {};
   for (const key of [
     "paper_count",
@@ -672,52 +718,10 @@ function validateContentDepth(artifact: Record<string, unknown>) {
   return errors;
 }
 
-function evidenceMapIds(artifact: Record<string, unknown>) {
-  const evidenceMap = isObject(artifact.evidence_map)
-    ? artifact.evidence_map
-    : {};
-  const direct = Array.isArray(evidenceMap.candidate_ids)
-    ? evidenceMap.candidate_ids.map(cleanString)
-    : [];
-  const candidates = isObject(evidenceMap.candidates)
-    ? Object.keys(evidenceMap.candidates)
-    : [];
-  return new Set([...direct, ...candidates].filter(Boolean));
-}
-
-function validateEvidenceMapRefs(args: {
-  label: string;
-  rows: unknown;
-  knownEvidenceMap: Set<string>;
-}) {
-  const errors: string[] = [];
-  for (const row of Array.isArray(args.rows) ? args.rows : []) {
-    if (!isObject(row)) {
-      continue;
-    }
-    const refs = Array.isArray(row.evidence_map_refs)
-      ? row.evidence_map_refs.map(cleanString).filter(Boolean)
-      : [];
-    if (!refs.length) {
-      errors.push(
-        `${args.label} ${cleanString(row.id)} requires evidence_map_refs`,
-      );
-    }
-    for (const ref of refs) {
-      if (!args.knownEvidenceMap.has(ref)) {
-        errors.push(
-          `${args.label} ${cleanString(row.id)} references missing evidence_map ${ref}`,
-        );
-      }
-    }
-  }
-  return errors;
-}
-
-function validateNestedEvidenceMapRefs(
+function validateNestedSourcePaperRefs(
   label: string,
   value: unknown,
-  knownEvidenceMap: Set<string>,
+  knownSourcePapers: Set<string>,
 ) {
   const errors: string[] = [];
   const walk = (entry: unknown) => {
@@ -730,19 +734,14 @@ function validateNestedEvidenceMapRefs(
     if (!isObject(entry)) {
       return;
     }
-    if ("evidence_map_refs" in entry) {
-      const refs = Array.isArray(entry.evidence_map_refs)
-        ? entry.evidence_map_refs.map(cleanString).filter(Boolean)
+    if ("source_paper_refs" in entry) {
+      const refs = Array.isArray(entry.source_paper_refs)
+        ? entry.source_paper_refs.map(cleanString).filter(Boolean)
         : [];
-      if (!refs.length) {
-        errors.push(
-          `${label} ${cleanString(entry.id || entry.title)} requires evidence_map_refs`,
-        );
-      }
       for (const ref of refs) {
-        if (!knownEvidenceMap.has(ref)) {
+        if (!knownSourcePapers.has(ref)) {
           errors.push(
-            `${label} ${cleanString(entry.id || entry.title)} references missing evidence_map ${ref}`,
+            `${label} ${cleanString(entry.id || entry.title)} references missing source_papers ${ref}`,
           );
         }
       }
@@ -761,132 +760,17 @@ export function assembleTopicArtifact(args: {
 }) {
   const artifact = {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "2.0.0",
+    schema_version: "3.0.0",
     language: cleanString(args.manifest.language) || "auto",
     ...args.sections,
   };
   return artifact;
 }
 
-export function renderTopicMarkdownExport(artifact: Record<string, unknown>) {
-  const hasRenderableObjectContent = (value: Record<string, unknown>) => {
-    for (const [key, entry] of Object.entries(value)) {
-      if (key === "schema_id" || key === "schema_version") {
-        continue;
-      }
-      if (Array.isArray(entry) && entry.length) {
-        return true;
-      }
-      if (isObject(entry) && Object.keys(entry).length) {
-        return true;
-      }
-      if (cleanString(entry)) {
-        return true;
-      }
-    }
-    return false;
-  };
-  const topic = isObject(artifact.topic) ? artifact.topic : {};
-  const summary = isObject(artifact.summary) ? artifact.summary : {};
-  const title =
-    cleanString(topic.title) || cleanString(topic.id) || "Topic Synthesis";
-  const lines = [`# ${title}`, ""];
-  const brief = cleanString(summary.brief || summary.summary);
-  if (brief) {
-    lines.push(brief, "");
-  }
-  const claims = Array.isArray(artifact.claims) ? artifact.claims : [];
-  if (claims.length) {
-    lines.push("## Claims", "");
-    for (const claim of claims) {
-      if (isObject(claim)) {
-        lines.push(`- ${cleanString(claim.text) || cleanString(claim.id)}`);
-      }
-    }
-    lines.push("");
-  }
-  const taxonomy = isObject(artifact.taxonomy) ? artifact.taxonomy : {};
-  if (hasRenderableObjectContent(taxonomy)) {
-    lines.push(
-      "## Taxonomy",
-      "",
-      "```json",
-      canonicalizeJson(taxonomy),
-      "```",
-      "",
-    );
-  }
-  const improvementDimensions = Array.isArray(artifact.improvement_dimensions)
-    ? artifact.improvement_dimensions
-    : [];
-  if (improvementDimensions.length) {
-    lines.push(
-      "## Improvement Dimensions",
-      "",
-      "```json",
-      canonicalizeJson(improvementDimensions),
-      "```",
-      "",
-    );
-  }
-  const events = timelineEventRows(artifact.timeline_events);
-  if (events.length) {
-    lines.push("## Timeline", "");
-    for (const event of events) {
-      if (isObject(event)) {
-        const year = cleanString(event.year);
-        const label = cleanString(event.label || event.title);
-        lines.push(`- ${year ? `${year}: ` : ""}${label}`);
-      }
-    }
-    lines.push("");
-  }
-  const external = isObject(artifact.external_literature_analysis)
-    ? artifact.external_literature_analysis
-    : {};
-  const externalSummary = cleanString(external.summary);
-  if (externalSummary) {
-    lines.push("## External Literature Analysis", "", externalSummary, "");
-  }
-  const debates = Array.isArray(artifact.debates) ? artifact.debates : [];
-  if (debates.length) {
-    lines.push("## Debates", "");
-    for (const debate of debates) {
-      if (isObject(debate)) {
-        lines.push(
-          `- ${cleanString(debate.title || debate.text || debate.id)}`,
-        );
-      }
-    }
-    lines.push("");
-  }
-  const gaps = Array.isArray(artifact.gaps) ? artifact.gaps : [];
-  if (gaps.length) {
-    lines.push("## Gaps", "");
-    for (const gap of gaps) {
-      if (isObject(gap)) {
-        lines.push(`- ${cleanString(gap.title || gap.text || gap.id)}`);
-      }
-    }
-    lines.push("");
-  }
-  const report = isObject(artifact.synthesis_report)
-    ? artifact.synthesis_report
-    : {};
-  const reportBody = cleanString(
-    report.body || report.markdown || report.text || report.report,
-  );
-  if (reportBody) {
-    lines.push("## Synthesis Report", "", reportBody, "");
-  }
-  return `${lines.join("\n").replace(/\n+$/g, "")}\n`;
-}
-
 export function computeTopicCurrentHashes(args: {
   manifest: unknown;
   artifact: unknown;
   metadata: unknown;
-  exportMarkdown: string;
   sections: Record<string, unknown>;
 }) {
   const section_hashes = Object.fromEntries(
@@ -896,13 +780,10 @@ export function computeTopicCurrentHashes(args: {
     ]),
   );
   const structuredHash = hashCanonicalJson(args.artifact);
-  const markdownHash = hashMarkdown(args.exportMarkdown);
   return {
     manifest_hash: hashCanonicalJson(args.manifest),
     structured_hash: structuredHash,
     artifact_hash: structuredHash,
-    markdown_hash: markdownHash,
-    export_hash: markdownHash,
     metadata_hash: hashCanonicalJson(args.metadata),
     section_hashes,
   };

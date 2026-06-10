@@ -1,0 +1,15 @@
+{
+  "id": "zotero-bridge-cli",
+  "name": "Zotero Bridge CLI",
+  "description": "Wrapper skill for Zotero host access through the Zotero Skills Host Bridge CLI.",
+  "version": "0.1.0",
+  "execution_modes": ["auto"],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Read SKILL.md and references/host-bridge-cli.md. Use zotero-bridge for Zotero host access when needed. Never expose bearer tokens. If this wrapper skill is invoked directly, return one JSON object summarizing the Host Bridge CLI discovery or diagnostic result."
+    }
+  }
+}

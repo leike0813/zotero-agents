@@ -153,6 +153,35 @@ body {
   overflow: hidden;
 }
 
+.management-host-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.management-host-mount,
+.management-host-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  background: var(--panel);
+}
+
+.management-host-loading {
+  margin: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .page-title {
   margin: 0 0 14px;
   font-size: 18px;
@@ -371,14 +400,28 @@ thead {
 th,
 td {
   border-bottom: 1px solid var(--line);
-  text-align: left;
   padding: 8px 10px;
   vertical-align: top;
 }
 
+td {
+  text-align: left;
+}
+
+td.center-cell,
+th.center-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+
 th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--zs-panel-alt);
   color: var(--zs-text-soft);
   font-weight: 600;
+  text-align: center;
 }
 
 tr:hover td {
@@ -944,6 +987,7 @@ tr.clickable {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--zs-text-soft);
+  text-align: center;
 }
 
 .logs-table td {

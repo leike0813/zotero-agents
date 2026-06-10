@@ -232,10 +232,6 @@ function expectedPathForAssetId(assetId: string) {
   if (match) {
     return `topics/${match[1]}/current/artifact.json`;
   }
-  match = assetId.match(/^topic:([^:]+):current-export$/);
-  if (match) {
-    return `topics/${match[1]}/current/export.md`;
-  }
   match = assetId.match(/^topic:([^:]+):section:([^:]+)$/);
   if (match) {
     return `topics/${match[1]}/current/sections/${match[2]}.json`;

@@ -1,0 +1,89 @@
+[1] Xinlong Wang, Tao Kong, Chunhua Shen, Yuning Jiang, and Lei Li. SOLO: Segmenting objects by locations. In Proc. Eur. Conf. Comp. Vis., 2020.
+
+[2] Daniel Bolya, Chong Zhou, Fanyi Xiao, and Yong Jae Lee. YOLACT: Real-time instance segmentation. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[3] Yi Li, Haozhi Qi, Jifeng Dai, Xiangyang Ji, and Yichen Wei. Fully convolutional instance-aware semantic segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2017.
+
+[4] Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross B. Girshick. Mask R-CNN. In Proc. IEEE Int. Conf. Comp. Vis., 2017.
+
+[5] Shu Liu, Lu Qi, Haifang Qin, Jianping Shi, and Jiaya Jia. Path aggregation network for instance segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2018.
+
+[6] Zhaojin Huang, Lichao Huang, Yongchao Gong, Chang Huang, and Xinggang Wang. Mask scoring R-CNN. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[7] Xinlei Chen, Ross Girshick, Kaiming He, and Piotr Dollar. TensorMask: A foundation for dense object segmentation. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[8] Hao Chen, Kunyang Sun, Zhi Tian, Chunhua Shen, Yongming Huang, and Youliang Yan. BlendMask: Top-down meets bottom-up for instance segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2020.
+
+[9] Rufeng Zhang, Zhi Tian, Chunhua Shen, Mingyu You, and Youliang Yan. Mask encoding for single shot instance segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2020.
+
+[10] Enze Xie, Peize Sun, Xiaoge Song, Wenhai Wang, Xuebo Liu, Ding Liang, Chunhua Shen, and Ping Luo. PolarMask: Single shot instance segmentation with polar representation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2020.
+
+[11] Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. FCOS: Fully convolutional one-stage object detection. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[12] Alejandro Newell, Zhiao Huang, and Jia Deng. Associative embedding: End-to-end learning for joint detection and grouping. In Proc. Advances in Neural Inf. Process. Syst., 2017.
+
+[13] Bert De Brabandere, Davy Neven, and Luc Van Gool. Semantic instance segmentation with a discriminative loss function. arXiv:1708.02551, 2017.
+
+[14] Shu Liu, Jiaya Jia, Sanja Fidler, and Raquel Urtasun. Sequential grouping networks for instance segmentation. In Proc. IEEE Int. Conf. Comp. Vis., 2017.
+
+[15] Naiyu Gao, Yanhu Shan, Yupei Wang, Xin Zhao, Yinan Yu, Ming Yang, and Kaiqi Huang. SSAP: Single-shot instance segmentation with affinity pyramid. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[16] Max Jaderberg, Karen Simonyan, Andrew Zisserman, and Koray Kavukcuoglu. Spatial transformer networks. In Proc. Advances in Neural Inf. Process. Syst., 2015.
+
+[17] Xu Jia, Bert De Brabandere, Tinne Tuytelaars, and Luc Van Gool. Dynamic filter networks. In Proc. Advances in Neural Inf. Process. Syst., 2016.
+
+[18] Jifeng Dai, Haozhi Qi, Yuwen Xiong, Yi Li, Guodong Zhang, Han Hu, and Yichen Wei. Deformable convolutional networks. In Proc. IEEE Int. Conf. Comp. Vis., 2017.
+
+[19] Linjie Yang, Yanran Wang, Xuehan Xiong, Jianchao Yang, and Aggelos K. Katsaggelos. Efficient video object segmentation via network modulation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2018.
+
+[20] Konstantin Sofiiuk, Olga Barinova, and Anton Konushin. AdaptIS: Adaptive instance selection network. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[21] Zhi Tian, Chunhua Shen, and Hao Chen. Conditional convolutions for instance segmentation. In Proc. Eur. Conf. Comp. Vis., 2020.
+
+[22] Navaneeth Bodla, Bharat Singh, Rama Chellappa, and Larry Davis. Soft-NMS: improving object detection with one line of code. In Proc. IEEE Int. Conf. Comp. Vis., 2017.
+
+[23] Songtao Liu, Di Huang, and Yunhong Wang. Adaptive NMS: Refining pedestrian detection in a crowd. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[24] Yihui He, Chenchen Zhu, Jianren Wang, Marios Savvides, and Xiangyu Zhang. Bounding box regression with uncertainty for accurate object detection. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[25] Lile Cai, Bin Zhao, Zhe Wang, Jie Lin, Chuan Sheng Foo, Mohamed M. Sabry Aly, and Vijay Chandrasekhar. Maxpoolnms: Getting rid of NMS bottlenecks in two-stage object detectors. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[26] Rosanne Liu, Joel Lehman, Piero Molino, Felipe Petroski Such, Eric Frank, Alex Sergeev, and Jason Yosinski. An intriguing failing of convolutional neural networks and the coordconv solution. In Proc. Advances in Neural Inf. Process. Syst., 2018.
+
+[27] Alexander Kirillov, Ross Girshick, Kaiming He, and Piotr Dollár. Panoptic feature pyramid networks. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[28] Yuxin Wu and Kaiming He. Group normalization. In Proc. Eur. Conf. Comp. Vis., 2018.
+
+[29] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollár. Focal loss for dense object detection. In Proc. IEEE Int. Conf. Comp. Vis., 2017.
+
+[30] Liang-Chieh Chen, Alexander Hermans, George Papandreou, Florian Schroff, Peng Wang, and Hartwig Adam. Masklab: Instance segmentation by refining object detection with semantic and direction features. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2018.
+
+[31] Yuqing Wang, Zhaoliang Xu, Hao Shen, Baoshan Cheng, and Lirong Yang. Centermask: single shot instance segmentation with point representation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2020.
+
+[32] Tsung-Yi Lin, Michael Maire, Serge J. Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C. Lawrence Zitnick. Microsoft COCO: common objects in context. In Proc. Eur. Conf. Comp. Vis., 2014.
+
+[33] Agrim Gupta, Piotr Dollar, and Ross Girshick. LVIS: A dataset for large vocabulary instance segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[34] Md Amirul Islam, Sen Jia, and Neil D. B. Bruce. How much position information do convolutional neural networks encode? In Proc. Int. Conf. Learn. Representations, 2020.
+
+[35] Yanwei Li, Xinze Chen, Zheng Zhu, Lingxi Xie, Guan Huang, Dalong Du, and Xingang Wang. Attentionguided unified network for panoptic segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[36] Yuwen Xiong, Renjie Liao, Hengshuang Zhao, Rui Hu, Min Bai, Ersin Yumer, and Raquel Urtasun. UPSNet: A unified panoptic segmentation network. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2019.
+
+[37] Bowen Cheng, Maxwell Collins, Yukun Zhu, Ting Liu, Thomas Huang, Hartwig Adam, and Liang-Chieh Chen. Panoptic-deeplab: A simple, strong, and fast baseline for bottom-up panoptic segmentation. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2020.
+
+[38] Joseph Redmon and Ali Farhadi. Yolov3: An incremental improvement. arXiv:1804.02767, 2018.
+
+[39] Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Scott Reed, Cheng-Yang Fu, and Alexander C Berg. Ssd: Single shot multibox detector. In Proc. Eur. Conf. Comp. Vis., 2016.
+
+[40] Shifeng Zhang, Longyin Wen, Xiao Bian, Zhen Lei, and Stan Z Li. Single-shot refinement neural network for object detection. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2018.
+
+[41] Tsung-Yi Lin, Piotr Dollár, Ross B. Girshick, Kaiming He, Bharath Hariharan, and Serge J. Belongie. Feature pyramid networks for object detection. In Proc. IEEE Conf. Comp. Vis. Patt. Recogn., 2017.
+
+[42] Tao Kong, Fuchun Sun, Huaping Liu, Yuning Jiang, and Jianbo Shi. Foveabox: Beyond anchor-based object detector. arXiv:1904.03797, 2019.
+
+[43] Ze Yang, Shaohui Liu, Han Hu, Liwei Wang, and Stephen Lin. Reppoints: Point set representation for object detection. In Proc. IEEE Int. Conf. Comp. Vis., 2019.
+
+[44] Xingyi Zhou, Dequan Wang, and Philipp Krähenbühl. Objects as points. arXiv:1904.07850, 2019.
+
+[45] Kai Chen, Jiaqi Wang, Jiangmiao Pang, Yuhang Cao, Yu Xiong, Xiaoxiao Li, Shuyang Sun, Wansen Feng, Ziwei Liu, Jiarui Xu, Zheng Zhang, Dazhi Cheng, Chenchen Zhu, Tianheng Cheng, Qijie Zhao, Buyu Li, Xin Lu, Rui Zhu, Yue Wu, Jifeng Dai, Jingdong Wang, Jianping Shi, Wanli Ouyang, Chen Change Loy, and Dahua Lin. MMDetection: Open mmlab detection toolbox and benchmark. arXiv:1906.07155, 2019.

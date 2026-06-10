@@ -11,6 +11,7 @@ import {
 } from "./workflowSettings";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
+import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import type { LoadedWorkflow } from "../workflows/types";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
@@ -190,10 +191,12 @@ export async function triggerWorkflowFromUnifiedEntry(args: {
       },
       error,
     });
-    alertWindow(
-      args.win,
-      buildTriggerFailureMessage(args.workflow.manifest.label, error),
-    );
+    if (shouldShowWorkflowNotifications(args.workflow.manifest)) {
+      alertWindow(
+        args.win,
+        buildTriggerFailureMessage(args.workflow.manifest.label, error),
+      );
+    }
   }
 }
 

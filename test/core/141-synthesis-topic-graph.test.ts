@@ -121,6 +121,19 @@ describe("Synthesis topic graph", function () {
       topicId: "topic-child",
       title: "Child",
     });
+    for (const [topicId, title] of [
+      ["topic-parent", "Parent"],
+      ["topic-grandchild", "Grandchild"],
+      ["topic-peer", "Peer"],
+      ["topic-overlap", "Overlap"],
+      ["topic-contrast", "Contrast"],
+    ]) {
+      await service.upsertMaterializedTopic({
+        transactionId: `topic-target-${topicId}`,
+        topicId,
+        title,
+      });
+    }
 
     const result = await service.ingestRelationProposals({
       sourceTopicId: "topic-child",
@@ -129,40 +142,238 @@ describe("Synthesis topic graph", function () {
         schema_id: "synthesis.topic_graph_relation_proposals",
         proposals: [
           {
-            proposal_type: "broader_topic_candidate",
+            relation_type: "target_is_broader_topic_candidate",
             target_topic_id: "topic-parent",
             target_title: "Parent",
           },
           {
-            proposal_type: "related_topic_candidate",
+            relation_type: "target_is_narrower_topic_candidate",
+            target_topic_id: "topic-grandchild",
+            target_title: "Grandchild",
+          },
+          {
+            relation_type: "related_topic_candidate",
             target_topic_id: "topic-peer",
           },
           {
-            proposal_type: "overlap_topic_candidate",
+            relation_type: "overlap_topic_candidate",
             target_topic_id: "topic-overlap",
           },
           {
-            proposal_type: "contrast_topic_candidate",
+            relation_type: "contrast_topic_candidate",
             target_topic_id: "topic-contrast",
           },
         ],
       },
     });
 
-    assert.lengthOf(result.accepted_edges, 4);
+    assert.lengthOf(result.accepted_edges, 5);
     const snapshot = await service.loadTopicGraph();
-    const broader = snapshot.edges.find(
+    const broaderEdges = snapshot.edges.filter(
       (edge) => edge.relation === "broader_than",
     );
-    assert.equal(broader?.source_topic_id, "topic-parent");
-    assert.equal(broader?.target_topic_id, "topic-child");
+    assert.deepInclude(
+      broaderEdges.map((edge) => ({
+        source_topic_id: edge.source_topic_id,
+        target_topic_id: edge.target_topic_id,
+        relation: edge.relation,
+      })),
+      {
+        source_topic_id: "topic-parent",
+        target_topic_id: "topic-child",
+        relation: "broader_than",
+      },
+    );
+    assert.deepInclude(
+      broaderEdges.map((edge) => ({
+        source_topic_id: edge.source_topic_id,
+        target_topic_id: edge.target_topic_id,
+        relation: edge.relation,
+      })),
+      {
+        source_topic_id: "topic-child",
+        target_topic_id: "topic-grandchild",
+        relation: "broader_than",
+      },
+    );
     assert.includeMembers(
       snapshot.edges.map((edge) => edge.relation),
       ["related_to", "overlaps_with", "contrasts_with"],
     );
     assert.includeMembers(
       snapshot.nodes.map((node) => node.topic_id),
-      ["topic-parent", "topic-peer", "topic-overlap", "topic-contrast"],
+      [
+        "topic-parent",
+        "topic-grandchild",
+        "topic-peer",
+        "topic-overlap",
+        "topic-contrast",
+      ],
+    );
+  });
+
+  it("does not create placeholder nodes for unknown relation targets", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({ root });
+    await service.upsertMaterializedTopic({
+      transactionId: "topic-source",
+      topicId: "topic-child",
+      title: "Child",
+    });
+
+    const result = await service.ingestRelationProposals({
+      sourceTopicId: "topic-child",
+      transactionId: "topic-proposals",
+      payload: {
+        schema_id: "synthesis.topic_graph_relation_proposals",
+        proposals: [
+          {
+            relation_type: "related_topic_candidate",
+            target_topic_id: "future-topic",
+          },
+        ],
+      },
+    });
+
+    assert.lengthOf(result.accepted_edges, 0);
+    assert.deepEqual(
+      result.diagnostics.map((entry) => entry.code),
+      ["unknown_target_topic"],
+    );
+    const snapshot = await service.loadTopicGraph();
+    assert.notInclude(
+      snapshot.nodes.map((node) => node.topic_id),
+      "future-topic",
+    );
+  });
+
+  it("marks and purges topic relation proposals when a topic is deleted", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T02:00:00.000Z",
+    });
+    await service.importTopicGraphCheckpoint({
+      nodes: [
+        {
+          topic_id: "topic-a",
+          title: "A",
+          aliases: [],
+          node_type: "materialized",
+          definition_status: "deleted",
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+        {
+          topic_id: "topic-b",
+          title: "B",
+          aliases: [],
+          node_type: "materialized",
+          definition_status: "has_synthesis",
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+        {
+          topic_id: "topic-c",
+          title: "C",
+          aliases: [],
+          node_type: "materialized",
+          definition_status: "has_synthesis",
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+      ],
+      edges: [
+        {
+          edge_id: "edge:related_to:topic-a:topic-b",
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "related_to",
+          status: "confirmed",
+          provenance: [],
+          evidence_refs: [],
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+        {
+          edge_id: "edge:related_to:topic-b:topic-c",
+          source_topic_id: "topic-b",
+          target_topic_id: "topic-c",
+          relation: "related_to",
+          status: "confirmed",
+          provenance: [],
+          evidence_refs: [],
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+      ],
+      reviewItems: [
+        {
+          review_id: "review:related_to:topic-a:topic-b",
+          status: "open",
+          source_topic_id: "topic-a",
+          target_topic_id: "topic-b",
+          relation: "related_to",
+          provenance: [],
+          evidence_refs: [],
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+        {
+          review_id: "review:related_to:topic-b:topic-c",
+          status: "open",
+          source_topic_id: "topic-b",
+          target_topic_id: "topic-c",
+          relation: "related_to",
+          provenance: [],
+          evidence_refs: [],
+          created_at: "2026-05-24T00:00:00.000Z",
+          updated_at: "2026-05-24T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const marked = await service.markTopicRelationsDeleted("topic-a");
+    let snapshot = await service.loadTopicGraph();
+
+    assert.equal(marked.deleted_edges, 1);
+    assert.equal(marked.deleted_review_items, 1);
+    assert.equal(
+      snapshot.edges.find(
+        (edge) => edge.edge_id === "edge:related_to:topic-a:topic-b",
+      )?.status,
+      "deleted",
+    );
+    assert.equal(
+      snapshot.review_items.find(
+        (item) => item.review_id === "review:related_to:topic-a:topic-b",
+      )?.status,
+      "deleted",
+    );
+    assert.equal(
+      snapshot.edges.find(
+        (edge) => edge.edge_id === "edge:related_to:topic-b:topic-c",
+      )?.status,
+      "confirmed",
+    );
+
+    const purged = await service.purgeDeletedTopicRelations(["topic-a"]);
+    snapshot = await service.loadTopicGraph();
+
+    assert.equal(purged.purged_nodes, 1);
+    assert.equal(purged.purged_edges, 1);
+    assert.equal(purged.purged_review_items, 1);
+    assert.notInclude(
+      snapshot.nodes.map((node) => node.topic_id),
+      "topic-a",
+    );
+    assert.deepEqual(
+      snapshot.edges.map((edge) => edge.edge_id),
+      ["edge:related_to:topic-b:topic-c"],
+    );
+    assert.deepEqual(
+      snapshot.review_items.map((item) => item.review_id),
+      ["review:related_to:topic-b:topic-c"],
     );
   });
 
@@ -193,11 +404,11 @@ describe("Synthesis topic graph", function () {
             target_topic_id: "topic-a",
           },
           {
-            proposal_type: "broader_topic_candidate",
+            proposal_type: "target_is_broader_topic_candidate",
             target_topic_id: "topic-b",
           },
           {
-            proposal_type: "broader_topic_candidate",
+            proposal_type: "target_is_broader_topic_candidate",
             target_topic_id: "topic-a",
           },
         ],
@@ -218,7 +429,7 @@ describe("Synthesis topic graph", function () {
       payload: {
         proposals: [
           {
-            proposal_type: "broader_topic_candidate",
+            proposal_type: "target_is_broader_topic_candidate",
             target_topic_id: "topic-a",
           },
         ],
@@ -227,6 +438,71 @@ describe("Synthesis topic graph", function () {
     assert.deepEqual(
       preserved.diagnostics.map((entry) => entry.code),
       ["user_decision_preserved"],
+    );
+  });
+
+  it("ignores deleted broader edges when checking proposal cycles", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTopicGraphService({
+      root,
+      now: () => "2026-05-24T00:00:00.000Z",
+    });
+    await service.saveTopicGraph({
+      transactionId: "seed-deleted-reverse-broader-edge",
+      nodes: [
+        {
+          topic_id: "computer-vision",
+          title: "Computer Vision",
+          node_type: "materialized",
+        },
+        {
+          topic_id: "object-detection",
+          title: "Object Detection",
+          node_type: "materialized",
+        },
+      ],
+      edges: [
+        {
+          source_topic_id: "object-detection",
+          target_topic_id: "computer-vision",
+          relation: "broader_than",
+          status: "deleted",
+        },
+      ],
+    });
+
+    const result = await service.ingestRelationProposals({
+      sourceTopicId: "computer-vision",
+      payload: {
+        proposals: [
+          {
+            relation_type: "target_is_narrower_topic_candidate",
+            target_topic_id: "object-detection",
+            confidence: 0.92,
+          },
+        ],
+      },
+    });
+
+    assert.notInclude(
+      result.diagnostics.map((entry) => entry.code),
+      "broader_cycle_rejected",
+    );
+    assert.deepEqual(
+      result.accepted_edges.map((edge) => [
+        edge.source_topic_id,
+        edge.target_topic_id,
+        edge.relation,
+        edge.status,
+      ]),
+      [
+        [
+          "computer-vision",
+          "object-detection",
+          "broader_than",
+          "suggested",
+        ],
+      ],
     );
   });
 
@@ -321,6 +597,10 @@ describe("Synthesis topic graph", function () {
       topicId: "topic-source",
       title: "Source",
     });
+    await graph.upsertMaterializedTopic({
+      topicId: "topic-target",
+      title: "Target",
+    });
 
     const queued = await graph.ingestRelationProposals({
       sourceTopicId: "topic-source",
@@ -359,6 +639,14 @@ describe("Synthesis topic graph", function () {
   it("rejects topic graph review items without creating edges", async function () {
     const root = await makeRuntimeRoot();
     const graph = createSynthesisTopicGraphService({ root });
+    await graph.upsertMaterializedTopic({
+      topicId: "topic-source",
+      title: "Source",
+    });
+    await graph.upsertMaterializedTopic({
+      topicId: "topic-target",
+      title: "Target",
+    });
     await graph.ingestRelationProposals({
       sourceTopicId: "topic-source",
       payload: {

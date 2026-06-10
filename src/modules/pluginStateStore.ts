@@ -12,6 +12,10 @@ import {
   registerPluginTaskScopeClearer,
   registerPluginTaskScopeCounter,
 } from "./runtimePersistence";
+import {
+  getGuardedSqliteConnection,
+  resetGuardedSqliteForTests,
+} from "./guardedSqlite";
 
 type SqlPrimitive = string | number | null;
 type SqlParams = Record<string, SqlPrimitive>;
@@ -35,6 +39,7 @@ type PluginTaskScope =
 export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
 export const PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS = "workflow-products";
+export const PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE = "workflow-sequence";
 
 export type PluginTaskRequestEntry = {
   requestId: string;
@@ -609,10 +614,11 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
     };
   };
   const file = runtime.Zotero?.File?.pathToFile?.(dbPath);
-  const conn = runtime.Services?.storage?.openDatabase?.(file);
-  if (!conn) {
-    throw new Error("Services.storage.openDatabase is unavailable");
-  }
+  const conn = getGuardedSqliteConnection({
+    dbPath,
+    file,
+    storage: runtime.Services?.storage,
+  });
   const bindParams = (statement: any, sql: string, params?: SqlParams) => {
     const placeholderSequence = collectPlaceholderSequence(sql);
     if (placeholderSequence.length === 0) {
@@ -700,11 +706,17 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
   };
   return {
     run(sql, params) {
-      const statement = conn.createStatement(sql);
       const placeholders = collectNamedPlaceholders(sql);
       try {
-        bindParams(statement, sql, params);
-        statement.execute();
+        conn.execute(() => {
+          const statement = conn.createStatement(sql) as any;
+          try {
+            bindParams(statement, sql, params);
+            statement.execute();
+          } finally {
+            statement.finalize();
+          }
+        });
       } catch (error) {
         throw buildStorageExecutionError({
           operation: "run.execute",
@@ -714,30 +726,34 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           dbPath,
           cause: error,
         });
-      } finally {
-        statement.finalize();
       }
     },
     all(sql, params) {
-      const statement = conn.createStatement(sql);
       const placeholders = collectNamedPlaceholders(sql);
       try {
-        bindParams(statement, sql, params);
-        const rows: SqlRow[] = [];
-        while (true) {
-          const hasRow = statement.executeStep();
-          if (!hasRow) {
-            break;
+        return conn.execute(() => {
+          const statement = conn.createStatement(sql) as any;
+          try {
+            bindParams(statement, sql, params);
+            const rows: SqlRow[] = [];
+            while (true) {
+              const hasRow = statement.executeStep();
+              if (!hasRow) {
+                break;
+              }
+              const row: SqlRow = {};
+              const count = Number(statement.columnCount || 0);
+              for (let index = 0; index < count; index += 1) {
+                const name = String(statement.getColumnName(index) || "");
+                row[name] = readValue(statement, index);
+              }
+              rows.push(row);
+            }
+            return rows;
+          } finally {
+            statement.finalize();
           }
-          const row: SqlRow = {};
-          const count = Number(statement.columnCount || 0);
-          for (let index = 0; index < count; index += 1) {
-            const name = String(statement.getColumnName(index) || "");
-            row[name] = readValue(statement, index);
-          }
-          rows.push(row);
-        }
-        return rows;
+        });
       } catch (error) {
         throw buildStorageExecutionError({
           operation: "all.executeStep",
@@ -747,8 +763,6 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           dbPath,
           cause: error,
         });
-      } finally {
-        statement.finalize();
       }
     },
     get(sql, params) {
@@ -756,19 +770,7 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
       return rows.length > 0 ? rows[0] : null;
     },
     transaction(fn) {
-      conn.executeSimpleSQL("BEGIN IMMEDIATE");
-      try {
-        const result = fn();
-        conn.executeSimpleSQL("COMMIT");
-        return result;
-      } catch (error) {
-        try {
-          conn.executeSimpleSQL("ROLLBACK");
-        } catch {
-          // ignore rollback failure
-        }
-        throw error;
-      }
+      return conn.transaction(fn);
     },
   };
 }
@@ -1594,7 +1596,10 @@ function estimateEntryBytes(entry: Record<string, unknown>) {
 }
 
 function estimateEntriesBytes(entries: Array<Record<string, unknown>>) {
-  return entries.reduce<number>((sum, entry) => sum + estimateEntryBytes(entry), 0);
+  return entries.reduce<number>(
+    (sum, entry) => sum + estimateEntryBytes(entry),
+    0,
+  );
 }
 
 function sumPluginTaskRowBytesForScopes(
@@ -1836,14 +1841,19 @@ export function estimatePluginTaskScopeBytes(
 }
 
 export function resetPluginStateStoreForTests() {
-  if (!adapter) {
-    return;
+  resetGuardedSqliteForTests();
+  if (adapter) {
+    const db = getAdapter();
+    db.run("DELETE FROM plugin_task_requests");
+    db.run("DELETE FROM plugin_task_contexts");
+    db.run("DELETE FROM plugin_task_rows");
+    db.run("DELETE FROM plugin_meta");
   }
-  const db = getAdapter();
-  db.run("DELETE FROM plugin_task_requests");
-  db.run("DELETE FROM plugin_task_contexts");
-  db.run("DELETE FROM plugin_task_rows");
-  db.run("DELETE FROM plugin_meta");
+  memoryTables.requests.clear();
+  memoryTables.contexts.clear();
+  memoryTables.rows.clear();
+  memoryTables.meta.clear();
+  adapter = null;
   initialized = false;
 }
 

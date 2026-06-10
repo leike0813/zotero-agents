@@ -80,9 +80,9 @@ Canonical merge proposals must show readable source and target reference titles 
 - Show all library nodes by default.
 - Show shared external nodes with incoming degree greater than 1.
 - Keep single-degree external nodes hover-only by default.
-- If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; full rebuild remains the fallback when no delta is recorded.
+- If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
-- If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Source-slice graph refresh may happen as a separate visible operation after sidecar-changing actions.
+- If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
 - If graph structure exists but layout is missing/stale, draw what is available and offer `manualRecomputeLayout`.
 - If graph cache is stale, failed, or missing, show a visible cache badge and keep topic workflows available.
 - Graph search is explicit: typing in the control does not refresh the surface until `Search` is pressed; `Clear` resets search immediately.

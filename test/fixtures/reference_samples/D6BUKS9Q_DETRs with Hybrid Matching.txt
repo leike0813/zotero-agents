@@ -1,0 +1,300 @@
+[1] Xuyang Bai, Zeyu Hu, Xinge Zhu, Qingqiu Huang, Yilun Chen, Hongbo Fu, and Chiew-Lan Tai. Transfusion: Robust lidar-camera fusion for 3d object detection with transformers. In CVPR, 2022. 1, 2
+
+[2] Guillem Braso, Nikita Kister, and Laura Leal-Taix ´ e. The ´ center of attention: Center-keypoint grouping via attention for multi-person pose estimation. In ICCV, 2021. 2
+
+[3] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Giancarlo Baldan, and Oscar Beijbom. nuscenes: A multimodal dataset for autonomous driving. In CVPR, 2020. 12
+
+[4] Xipeng Cao, Peng Yuan, Bailan Feng, Kun Niu, and Yao Zhao. Cf-detr: Coarse-to-fine transformers for end-to-end object detection. In AAAI, 2022. 1, 2
+
+[5] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-toend object detection with transformers. In ECCV, 2020. 1, 2, 3
+
+[6] Qiang Chen, Xiaokang Chen, Gang Zeng, and Jingdong Wang. Group detr: Fast training convergence with decoupled one-to-many label assignment. arXiv:2207.13085, 2022. 8
+
+[7] Xin Chen, Bin Yan, Jiawen Zhu, Dong Wang, Xiaoyun Yang, and Huchuan Lu. Transformer tracking. In CVPR, 2021. 1
+
+[8] Bowen Cheng, Anwesa Choudhuri, Ishan Misra, Alexander Kirillov, Rohit Girdhar, and Alexander G Schwing. Mask2former for video instance segmentation. arXiv:2112.10764, 2021. 1, 2
+
+[9] Bowen Cheng, Ishan Misra, Alexander G Schwing, Alexander Kirillov, and Rohit Girdhar. Maskedattention mask transformer for universal image segmentation. arXiv:2112.01527, 2021. 1, 2, 3
+
+[10] Angela Dai, Angel X Chang, Manolis Savva, Maciej Halber, Thomas Funkhouser, and Matthias Nießner. Scannet: Richly-annotated 3d reconstructions of indoor scenes. In CVPR, 2017. 12
+
+[11] Xiyang Dai, Yinpeng Chen, Jianwei Yang, Pengchuan Zhang, Lu Yuan, and Lei Zhang. Dynamic detr: End-toend object detection with dynamic attention. In ICCV, 2021. 2
+
+[12] Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, and Christopher Re. FlashAttention: Fast and memory-efficient ´ exact attention with IO-awareness. In NeurIPS, 2022. 7
+
+[13] Bin Dong, Fangao Zeng, Tiancai Wang, Xiangyu Zhang, and Yichen Wei. Solq: Segmenting objects by learning queries. NeurIPS, 2021. 1
+
+[14] Yuxin Fang, Shusheng Yang, Xinggang Wang, Yu Li, Chen Fang, Ying Shan, Bin Feng, and Wenyu Liu. Instances as queries. In ICCV, 2021. 1
+
+[15] Peng Gao, Minghang Zheng, Xiaogang Wang, Jifeng Dai, and Hongsheng Li. Fast convergence of detr with spatially modulated co-attention. In ICCV, 2021. 1, 2
+
+[16] Ziteng Gao, Limin Wang, Bing Han, and Sheng Guo. Adamixer: A fast-converging query-based object detector. In CVPR, 2022. 1
+
+[17] Ross Girshick. Fast r-cnn. In ICCV, 2015. 2
+
+[18] Brent A Griffin and Jason J Corso. Depth from camera motion and object detection. In CVPR, 2021. 1
+
+[19] Agrim Gupta, Piotr Dollar, and Ross Girshick. Lvis: A dataset for large vocabulary instance segmentation. In CVPR, 2019. 12
+
+[20] Junjie Huang and Guan Huang. Bevdet4d: Exploit temporal cues in multi-camera 3d object detection. arXiv:2203.17054, 2022. 2
+
+[21] Junjie Huang, Guan Huang, Zheng Zhu, and Dalong Du. Bevdet: High-performance multi-camera 3d object detection in bird-eye-view. arXiv:2112.11790, 2021. 2
+
+[22] Aishwarya Kamath, Mannat Singh, Yann LeCun, Gabriel Synnaeve, Ishan Misra, and Nicolas Carion. Mdetrmodulated detection for end-to-end multi-modal understanding. In ICCV, 2021. 1
+
+[23] Youngwan Lee and Jongyoul Park. Centermask: Real-time anchor-free instance segmentation. In CVPR, 2020. 2
+
+[24] Feng Li, Hao Zhang, Shilong Liu, Jian Guo, Lionel M Ni, and Lei Zhang. Dn-detr: Accelerate detr training by introducing query denoising. arXiv:2203.01305, 2022. 1, 2, 3
+
+[25] Feng Li, Hao Zhang, Shilong Liu, Lei Zhang, Lionel M Ni, Heung-Yeung Shum, et al. Mask dino: Towards a unified transformer-based framework for object detection and segmentation. arXiv:2206.02777, 2022. 1, 2
+
+[26] Ke Li, Shijie Wang, Xiang Zhang, Yifan Xu, Weijian Xu, and Zhuowen Tu. Pose recognition with cascade transformers. In CVPR, 2021. 1, 2
+
+[27] Yanghao Li, Chao-Yuan Wu, Haoqi Fan, Karttikeya Mangalam, Bo Xiong, Jitendra Malik, and Christoph Feichtenhofer. Improved multiscale vision transformers for classification and detection. arXiv:2112.01526, 2021. 8
+
+[28] Yanjie Li, Shoukui Zhang, Zhicheng Wang, Sen Yang, Wankou Yang, Shu-Tao Xia, and Erjin Zhou. Tokenpose: Learning keypoint tokens for human pose estimation. In ICCV, 2021. 2
+
+[29] Zhenyu Li, Zehui Chen, Xianming Liu, and Junjun Jiang. Depthformer: Exploiting long-range correlation and local information for accurate monocular depth estimation. arXiv:2203.14211, 2022. 1
+
+[30] Zhiqi Li, Wenhai Wang, Hongyang Li, Enze Xie, Chonghao Sima, Tong Lu, Qiao Yu, and Jifeng Dai. Bevformer: Learning bird’s-eye-view representation from multi-camera images via spatiotemporal transformers. arXiv:2203.17270, 2022. 1, 2
+
+[31] Zhiqi Li, Wenhai Wang, Enze Xie, Zhiding Yu, Anima Anandkumar, Jose M Alvarez, Ping Luo, and Tong Lu. Panoptic segformer: Delving deeper into panoptic segmentation with transformers. In CVPR, 2022. 1, 2, 3
+
+[32] Zhenyu Li, Xuyang Wang, Xianming Liu, and Junjun Jiang. Binsformer: Revisiting adaptive bins for monocular depth estimation. arXiv:2204.00987, 2022. 3
+
+[33] Tingting Liang, Xiaojie Chu, Yudong Liu, Yongtao Wang, Zhi Tang, Wei Chu, Jingdong Chen, and Haibin Ling. Cbnet: A composite backbone network architecture for object detection. TIP, 2022. 8
+
+[34] Tingting Liang, Hongwei Xie, Kaicheng Yu, Zhongyu Xia, Zhiwei Lin, Yongtao Wang, Tao Tang, Bing Wang, and Zhi
+
+Tang. Bevfusion: A simple and robust lidar-camera fusion framework. arXiv:2205.13790, 2022. 2
+
+[35] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object detection. In ´ ICCV, 2017. 2
+
+[36] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence ´ Zitnick. Microsoft coco: Common objects in context. In ECCV, 2014. 12
+
+[37] Shilong Liu, Feng Li, Hao Zhang, Xiao Yang, Xianbiao Qi, Hang Su, Jun Zhu, and Lei Zhang. Dab-detr: Dynamic anchor boxes are better queries for detr. arXiv:2201.12329, 2022. 1, 2
+
+[38] Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Scott Reed, Cheng-Yang Fu, and Alexander C Berg. Ssd: Single shot multibox detector. In ECCV, 2016. 2
+
+[39] Yingfei Liu, Tiancai Wang, Xiangyu Zhang, and Jian Sun. Petr: Position embedding transformation for multi-view 3d object detection. arXiv:2203.05625, 2022. 2
+
+[40] Yingfei Liu, Junjie Yan, Fan Jia, Shuailin Li, Qi Gao, Tiancai Wang, Xiangyu Zhang, and Jian Sun. Petrv2: A unified framework for 3d perception from multi-camera images. arXiv:2206.01256, 2022. 1, 2, 5, 6
+
+[41] Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia Ning, Yue Cao, Zheng Zhang, Li Dong, et al. Swin transformer v2: Scaling up capacity and resolution. In CVPR, 2022. 5
+
+[42] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In ICCV, 2021. 8
+
+[43] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the 2020s. In CVPR, 2022. 8
+
+[44] Zhijian Liu, Haotian Tang, Alexander Amini, Xinyu Yang, Huizi Mao, Daniela Rus, and Song Han. Bevfusion: Multitask multi-sensor fusion with unified bird’s-eye view representation. arXiv:2205.13542, 2022. 2
+
+[45] Ze Liu, Zheng Zhang, Yue Cao, Han Hu, and Xin Tong. Group-free 3d object detection via transformers. In ICCV, 2021. 2
+
+[46] Shangbang Long, Siyang Qin, Dmitry Panteleev, Alessandro Bissacco, Yasuhisa Fujii, and Michalis Raptis. Towards endto-end unified scene text detection and layout analysis. In CVPR, 2022. 1
+
+[47] Qian Lou, Yen-Chang Hsu, Burak Uzkent, Ting Hua, Yilin Shen, and Hongxia Jin. Lite-mdetr: A lightweight multimodal detector. In CVPR, 2022. 1
+
+[48] Weian Mao, Yongtao Ge, Chunhua Shen, Zhi Tian, Xinlong Wang, and Zhibin Wang. Tfpose: Direct human pose estimation with transformers. arXiv:2103.15320, 2021. 2
+
+[49] Tim Meinhardt, Alexander Kirillov, Laura Leal-Taixe, and Christoph Feichtenhofer. Trackformer: Multi-object tracking with transformers. In CVPR, 2022. 1, 2, 3
+
+[50] Depu Meng, Xiaokang Chen, Zejia Fan, Gang Zeng, Houqiang Li, Yuhui Yuan, Lei Sun, and Jingdong Wang. Conditional detr for fast training convergence. In ICCV, 2021. 1, 2
+
+[51] Anton Milan, Laura Leal-Taixe, Ian Reid, Stefan Roth, and ´ Konrad Schindler. Mot16: A benchmark for multi-object tracking. arXiv:1603.00831, 2016. 12
+
+[52] Ishan Misra, Rohit Girdhar, and Armand Joulin. An endto-end transformer model for 3d object detection. In ICCV, 2021. 1, 2
+
+[53] Alexander Neubeck and Luc Van Gool. Efficient nonmaximum suppression. In ICPR, 2006. 2
+
+[54] Kemal Oksuz, Baris Can Cam, Sinan Kalkan, and Emre Akbas. One metric to measure them all: Localisation recall precision (lrp) for evaluating visual detection tasks. TPAMI, 2021. 6
+
+[55] Zobeir Raisi, Mohamed A Naiel, Georges Younes, Steven Wardell, and John S Zelek. Transformer-based text detection in the wild. In CVPR, 2021. 1
+
+[56] Zobeir Raisi, Georges Younes, and John Zelek. Arbitrary shape text detection using transformers. arXiv:2202.11221, 2022. 1
+
+[57] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. NeurIPS, 2015. 2
+
+[58] Byungseok Roh, JaeWoong Shin, Wuhyun Shin, and Saehoon Kim. Sparse detr: Efficient end-to-end object detection with learnable sparsity. arXiv:2111.14330, 2021. 1
+
+[59] Dahu Shi, Xing Wei, Liangqi Li, Ye Ren, and Wenming Tan. End-to-end multi-person pose estimation with transformers. In CVPR, 2022. 1, 2, 3, 5, 6
+
+[60] Lucas Stoffl, Maxime Vidal, and Alexander Mathis. End-toend trainable multi-instance pose estimation with transformers. arXiv:2103.12115, 2021. 1, 2
+
+[61] Peize Sun, Jinkun Cao, Yi Jiang, Rufeng Zhang, Enze Xie, Zehuan Yuan, Changhu Wang, and Ping Luo. Transtrack: Multiple object tracking with transformer. arXiv:2012.15460, 2020. 1, 2, 3, 5, 6, 12
+
+[62] Zhi Tian, Chunhua Shen, Hao Chen, and Tong He. Fcos: Fully convolutional one-stage object detection. In ICCV, 2019. 2
+
+[63] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017. 2
+
+[64] Huiyu Wang, Yukun Zhu, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. Max-deeplab: End-to-end panoptic segmentation with mask transformers. In CVPR, 2021. 1
+
+[65] Jianfeng Wang, Lin Song, Zeming Li, Hongbin Sun, Jian Sun, and Nanning Zheng. End-to-end object detection with fully convolutional network. In CVPR, 2021. 1, 2
+
+[66] Wen Wang, Jing Zhang, Yang Cao, Yongliang Shen, and Dacheng Tao. Towards data-efficient detection transformers. arXiv:2203.09507, 2022. 2
+
+[67] Yue Wang, Vitor Campagnolo Guizilini, Tianyuan Zhang, Yilun Wang, Hang Zhao, and Justin Solomon. Detr3d: 3d object detection from multi-view images via 3d-to-2d queries. In CoRL, 2022. 1, 2
+
+[68] Yingming Wang, Xiangyu Zhang, Tong Yang, and Jian Sun. Anchor detr: Query design for transformer-based detector. arXiv:2109.07107, 2021. 1, 2
+
+[69] Jiannan Wu, Yi Jiang, Peize Sun, Zehuan Yuan, and Ping Luo. Language as queries for referring video object segmentation. arXiv:2201.00487, 2022. 1
+
+[70] Junfeng Wu, Yi Jiang, Wenqing Zhang, Xiang Bai, and Song Bai. Seqformer: a frustratingly simple model for video instance segmentation. arXiv:2112.08275, 2021. 1
+
+[71] Yifan Xu, Weijian Xu, David Cheung, and Zhuowen Tu. Line segment detection using transformers without edges. In CVPR, 2021. 1
+
+[72] Bin Yan, Houwen Peng, Jianlong Fu, Dong Wang, and Huchuan Lu. Learning spatio-temporal transformer for visual tracking. In ICCV, 2021. 2
+
+[73] Chenglin Yang, Siyuan Qiao, Qihang Yu, Xiaoding Yuan, Yukun Zhu, Alan Yuille, Hartwig Adam, and Liang-Chieh Chen. Moat: Alternating mobile convolution and attention brings strong vision models. arXiv:2210.01820, 2022. 8
+
+[74] Zhao Yang, Jiaqi Wang, Yansong Tang, Kai Chen, Hengshuang Zhao, and Philip HS Torr. Lavt: Language-aware vision transformer for referring image segmentation. In CVPR, 2022. 1
+
+[75] Qihang Yu, Huiyu Wang, Dahun Kim, Siyuan Qiao, Maxwell Collins, Yukun Zhu, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. Cmt-deeplab: Clustering mask transformers for panoptic segmentation. In CVPR, 2022. 1
+
+[76] Qihang Yu, Huiyu Wang, Dahun Kim, Siyuan Qiao, Maxwell Collins, Yukun Zhu, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. Cmt-deeplab: Clustering mask transformers for panoptic segmentation. In CVPR, 2022. 2
+
+[77] Qihang Yu, Huiyu Wang, Siyuan Qiao, Maxwell Collins, Yukun Zhu, Hartwig Adam, Alan Yuille, and Liang-Chieh Chen. k-means mask transformer. In ECCV, 2022. 2
+
+[78] Xiaodong Yu, Dahu Shi, Xing Wei, Ye Ren, Tingqun Ye, and Wenming Tan. Soit: Segmenting objects with instance-aware transformers. arXiv:2112.11037, 2021. 1
+
+[79] Yuhui Yuan, Xilin Chen, and Jingdong Wang. Objectcontextual representations for semantic segmentation. In ECCV, 2020. 1
+
+[80] Fangao Zeng, Bin Dong, Tiancai Wang, Xiangyu Zhang, and Yichen Wei. Motr: End-to-end multiple-object tracking with transformer. arXiv:2105.03247, 2021. 2
+
+[81] Gongjie Zhang, Zhipeng Luo, Yingchen Yu, Kaiwen Cui, and Shijian Lu. Accelerating DETR convergence via semantic-aligned matching. In CVPR, 2022. 1
+
+[82] Hao Zhang, Feng Li, Shilong Liu, Lei Zhang, Hang Su, Jun Zhu, Lionel M Ni, and Heung-Yeung Shum. Dino: Detr with improved denoising anchor boxes for end-to-end object detection. arXiv:2203.03605, 2022. 1, 2, 3, 7, 8
+
+[83] Jianfeng Zhang, Yujun Cai, Shuicheng Yan, Jiashi Feng, et al. Direct multi-view multi-person 3d pose estimation. NeurIPS, 2021. 2
+
+[84] Shifeng Zhang, Cheng Chi, Yongqiang Yao, Zhen Lei, and Stan Z Li. Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection. In CVPR, 2020. 2
+
+[85] Xiang Zhang, Yongwen Su, Subarna Tripathi, and Zhuowen Tu. Text spotting transformers. In CVPR, 2022. 1
+
+[86] Moju Zhao, Kei Okada, and Masayuki Inaba. Trtr: Visual tracking with transformer. arXiv:2105.03817, 2021. 2
+
+[87] Xingyi Zhou, Rohit Girdhar, Armand Joulin, Phillip Krahenb ¨ uhl, and Ishan Misra. Detecting twenty-thousand ¨ classes using image-level supervision. arXiv:2201.02605, 2022. 12
+
+[88] Benjin Zhu, Jianfeng Wang, Zhengkai Jiang, Fuhang Zong, Songtao Liu, Zeming Li, and Jian Sun. Autoassign: Differentiable label assignment for dense object detection. arXiv:2007.03496, 2020. 2
+
+[89] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable detr: Deformable transformers for end-to-end object detection. arXiv:2010.04159, 2020. 1, 2, 3, 5
+
+## Supplementary
+
+## A. Datasets
+
+COCO [36]. The COCO object detection dataset consists of 123K images with 896K annotated bounding boxes belonging to 80 thing classes and 53 stuff classes, where the train set contains 118K images and the val set contains 5K images. We report the 2D object detection performance on the val set. The COCO pose estimation benchmark consists of more than 200K images and 250K person instances labeled with 17 keypoints, where train set consists of 57K images and 150K person instances, val set consists of 5K images, and test-dev set consists of 20K images, respectively.
+
+LVIS [19]. This dataset consists of 100K images annotated with both object detection bounding boxes and instance segmentation masks for 1203 classes. We follow the very recent work Detic [87] to only use the bounding box supervision for training.
+
+nuScenes [3]. This is a large-scale autonomous driving dataset consisting of 1000 driving sequences with each one about 20s long, where the multimodel dataset is collected from 6 cameras, 1 lidar, and 5 radars. We partition the 1000 driving sequences to 700, 150, and 150 sequences for train, val, and test respectively. We report both the numbers of nuScenes Detection Score (NDS) and mean Average Precision (mAP) to measure the 3D object detection performance.
+
+ScanNetV2 [10]. This dataset consists of 1513 indoor scenes labeled with per-point instance ids, semantic categories and 3D bounding boxes for around 18 categories. We use 1201 and 312 scenes for train and val, respectively. We mainly report the mAP scores under two different IoU thresholds, i.e., 0.25 and 0.5.
+
+MOT17 [51]. This dataset consists of 14 pedestrian tracking videos annotated with rich bounding boxes and their corresponding track ids. We use 7 videos for train and the other 7 videos for test. Following TransTrack [61], we split the second half of each train video to form a val set. We report the multi-object tracking performance on both val and test.
+
+## B. More Hyper-parameter Details
+
+We illustrate the detailed hyper-parameter settings when applying our hybrid branch approach to different DETRbased approaches and different benchmarks in Table 14.
+
+## C. Panoptic Segmentation Results
+
+To verify the effectiveness of our approach to the panoptic segmentation task, we first construct a simple baseline, i.e., Mask-Deformable-DETR, by adding a mask prediction head to the Deformable-DETR. Then, we apply our hybrid branch scheme to the Mask-Deformable-DETR following the H-Deformable-DETR, thus resulting in H-Mask-Deformable-DETR. We summarize the detailed comparison results in Table 15. Accordingly, we can see that our hybrid matching scheme consistently improves ResNet50, Swin-T, and Swin-L under various training epochs.
+
+Table 14. Illustrating the hyper-parameter settings. 2×FFN: increase FFN dimension from 1, 024 to 2, 048. DP0: setting the drop out rate within transformer as 0. MQS: mixed query selection. LFT: look forward twice.
+<table><tr><td rowspan=1 colspan=1>Method</td><td rowspan=1 colspan=1>2×FFN</td><td rowspan=1 colspan=1>DPO</td><td rowspan=1 colspan=1>MQs</td><td rowspan=1 colspan=1>LFT</td><td rowspan=1 colspan=1>Dataset</td><td rowspan=1 colspan=1>m</td><td rowspan=1 colspan=1>T</td><td rowspan=1 colspan=1>K</td><td rowspan=1 colspan=1>入</td></tr><tr><td rowspan=2 colspan=1>H-Deformable-DETR</td><td rowspan=2 colspan=1>√</td><td rowspan=2 colspan=1>√</td><td rowspan=2 colspan=1>√</td><td rowspan=2 colspan=1>√</td><td rowspan=1 colspan=1>Coco</td><td rowspan=1 colspan=1>300</td><td rowspan=1 colspan=1>1500</td><td rowspan=1 colspan=1>6</td><td rowspan=1 colspan=1>1.0</td></tr><tr><td rowspan=1 colspan=1>LVIS</td><td rowspan=1 colspan=1>300</td><td rowspan=1 colspan=1>900</td><td rowspan=1 colspan=1>5</td><td rowspan=1 colspan=1>1.0</td></tr><tr><td rowspan=1 colspan=1>H-PETR</td><td rowspan=1 colspan=1>√</td><td rowspan=1 colspan=1>√</td><td rowspan=1 colspan=1></td><td rowspan=1 colspan=1>×</td><td rowspan=1 colspan=1>CoCo</td><td rowspan=1 colspan=1>300</td><td rowspan=1 colspan=1>900</td><td rowspan=1 colspan=1>51</td><td rowspan=1 colspan=1>.0</td></tr><tr><td rowspan=1 colspan=1>H-PETRv2</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>nuScenes</td><td rowspan=1 colspan=1>900</td><td rowspan=1 colspan=1>1800</td><td rowspan=1 colspan=1>4</td><td rowspan=1 colspan=1>1.0</td></tr><tr><td rowspan=1 colspan=1>H-TransTrack</td><td rowspan=1 colspan=1>×</td><td rowspan=1 colspan=1>×</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>X</td><td rowspan=1 colspan=1>MOT17</td><td rowspan=1 colspan=1>500</td><td rowspan=1 colspan=1>1000</td><td rowspan=1 colspan=1>5</td><td rowspan=1 colspan=1>0.5</td></tr></table>
+
+Table 15. Panoptic segmentation results on COCO val.
+<table><tr><td rowspan=1 colspan=1>Model</td><td rowspan=1 colspan=1>Backbone</td><td rowspan=1 colspan=1>#epochs</td><td rowspan=1 colspan=1>PQ</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>R50R50</td><td rowspan=1 colspan=1>1212</td><td rowspan=1 colspan=1>47.048.5+1.5</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>R50R50</td><td rowspan=1 colspan=1>5050</td><td rowspan=1 colspan=1>51.552.1+0.6</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>R50R50</td><td rowspan=1 colspan=1>100100</td><td rowspan=1 colspan=1>52.252.6+0.4</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>Swin-TSwin-T</td><td rowspan=1 colspan=1>5050</td><td rowspan=1 colspan=1>52.953.5+0.6</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>Swin-TSwin-T</td><td rowspan=1 colspan=1>100100</td><td rowspan=1 colspan=1>53.854.2+0.4</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>Swin-LSwin-L</td><td rowspan=1 colspan=1>5050</td><td rowspan=1 colspan=1>56.757.0+0.3</td></tr><tr><td rowspan=1 colspan=1>Mask-Deformable-DETRH-Mask-Deformable-DETR</td><td rowspan=1 colspan=1>Swin-LSwin-L</td><td rowspan=1 colspan=1>100100</td><td rowspan=1 colspan=1>56.957.2+0.3</td></tr></table>
+
+For example, -Mask-Deformable-DETR gains +0.3% over Mask-Deformable-DETR equipped with Swin-L when trained for 50 epochs.We guess the relatively limited gains when compared to object detection tasks, are due to that the transformer encoder receives much more dense and informative training signals from the extra introduced mask branch, which consists of the dense interactions between the query embeddings and the high-resolution feature maps output by the transformer encoder. We also have verified that better training of the transformer encoder is the key factor to the performance improvements.
+
+## D. More Ablation Results
+
+\- First, we illustrate the curves of training losses and validation losses based on Deformable-DETR in Figure 5. We also report the detection performance of Deformable-DETR under various training schedules from 12× epochs to 75× epochs in Figure 6. Accordingly, we observe that (i) simply increasing the number of training epochs fails to improve the performance, and (ii) Deformable-DETR can not benefit from exploring more positive queries that are matched with ground truth during the additional training epochs, which further verifies the advantage of our hybrid matching scheme.
+
+![](Images_EZS7ZMAP/38623654c43b15ce487e01c76e6201d011374bfc0c5b1cd18558681e471d410a.jpg)
+
+![](Images_EZS7ZMAP/b151ed9814801e3d0627aa1477f4e27d71eebef629fdd5d75f3db940b9019c47.jpg)  
+Figure 5. Illustrating the loss curves of Deformable-DETR on train and val. We can see that, with longer training epochs, e.g., from 50 epochs to 75 epochs, the training loss consistently decreases while the validation loss saturates on COCO object detection benchmark.
+
+![](Images_EZS7ZMAP/8236d6514f7c0a27573d4ef666a3add3baae0c2f3f6e4e1f2bbf8f2cf58f5b95.jpg)  
+Figure 6. Illustrating the AP scores of Deformable-DETR on train and val under longer training epochs. We can see that, with longer training epochs, e.g., from 50 epochs to 75 epochs, the AP scores on train set consistently improves while the AP scores on val set saturates on COCO object detection benchmark.
+
+Table 16. Influence of λ of our approach on COCO 2017 val under 12× epochs training schedule. We set $K = 6$ and $T =$ 1500.
+<table><tr><td rowspan=1 colspan=1>入</td><td rowspan=1 colspan=1>0.1</td><td rowspan=1 colspan=1>0.2</td><td rowspan=1 colspan=1>0.5</td><td rowspan=1 colspan=1>1</td><td rowspan=1 colspan=1>2</td><td rowspan=1 colspan=1>5</td></tr><tr><td rowspan=1 colspan=1>AP</td><td rowspan=1 colspan=1>47.8</td><td rowspan=1 colspan=1>48.0</td><td rowspan=1 colspan=1>48.4</td><td rowspan=1 colspan=1>48.7</td><td rowspan=1 colspan=1>48.5</td><td rowspan=1 colspan=1>48.3</td></tr></table>
+
+Table 17. Influence of sharing parameters for DINO framework.
+<table><tr><td>trans. encoder</td><td>trans. decoder</td><td>box head</td><td>cls head</td><td>AP</td></tr><tr><td>√</td><td>√</td><td>√</td><td>√</td><td>49.1</td></tr><tr><td>√</td><td>√</td><td>√</td><td>X</td><td> $4 8 . 9 ^ { - 0 . 2 }$ </td></tr><tr><td>√</td><td>√</td><td>X</td><td>X</td><td> $4 9 . 2 ^ { + 0 . 1 }$ </td></tr><tr><td>√</td><td>X</td><td>X</td><td>×</td><td> $4 9 . 0 ^ { - 0 . 1 }$ </td></tr><tr><td>X</td><td>X</td><td>×</td><td>×</td><td> $4 8 . 5 ^ { - 0 . 6 }$ </td></tr></table>
+
+\- Second, we study the influence of the loss weight λ associated with the one-to-many matching loss $\mathcal { L } _ { \mathrm { o n e 2 m a n y } }$ in Table 16. We can see that our approach is not sensitive to the choice of λ and we simply choose λ=1 for all experiments by default.
+
+\- Third, to investigate why hybrid matching fails to improve the performance when choosing $K = 1$ We empirically find that the bounding boxes located at the top 300 ∼ 600 are of poor localization quality, where simply replacing the top $0 \sim 3 0 0$ bounding box predictions with top 300 ∼ 600 bounding box predictions during training and evaluation causes a significant performance drop (47% vs. 42.5%). To address this problem, we study the influence of a more advanced selection scheme within one-tomany matching branch: (i) use two independent classification heads on the output of the transformer encoder to perform one-to-one/one-to-many (here we use $K + 1$ groups of ground truth in one-to-many branch) matching and select top $3 0 0 / 3 0 0 { \times } ( K + 1 )$ predictions respectively, (ii) use the remaining $3 0 0 \times ( K )$ predictions in the one-to-many matching branch by filtering out the duplicated ones presented in the top 300 predictions of the one-to-one matching branch. Based on the above-improved selection scheme, we achieve 47.9% when choosing $K = 1$ and observe no advantages when choosing $K = 6$ compared to the original selection strategy.
+
+![](Images_EZS7ZMAP/7af471f2f9c3ab1b47168d30d8f1c3a1b6aa3f64c06dcdf2a037f1225d6524df.jpg)  
+Figure 7. Illustrating the Precision-Recall curves. We can see that our approach consistently improves the recall of the baseline under two different IoU thresholds
+
+\- Fourth, to verify whether this observation still holds on DINO-DETR, Table 17 reports the detailed ablation results on DINO-DETR. We can see that the gains of (contrast) query denoising also mainly comes from the better optimization of the transformer encoder instead of the decoder.
+
+![](Images_EZS7ZMAP/06c7c675cc0ac47f08e8573619316f71dfef1a72d989818e6bd7d6f1dc65c3d5.jpg)
+
+![](Images_EZS7ZMAP/6d33471d0dc430d1b0c1e890c32c848038167238922a533ede6ead4b8546a4c4.jpg)
+
+![](Images_EZS7ZMAP/d2ec081330d8338f008b87d74d64b0afe4765b1aa30fef26934fa30aa23a9356.jpg)
+
+![](Images_EZS7ZMAP/5d3e7769a1d9e718fec6019d6f2f7d41e9f02738a4777a1fab2b57cca19e48e5.jpg)
+
+![](Images_EZS7ZMAP/48f5baf3d0722849745500d947907279e1f2e3de66e0cb0d6fad98c0e1c85e6d.jpg)
+
+![](Images_EZS7ZMAP/e84b8f78562be6c91b739bb83542a4755b8b2f12254925a2168fe6e5d4c1fa50.jpg)  
+Figure 8. Illustrating the loss curves on train and val. Our approach helps the optimization of Deformable-DETR, thus decreasing the loss values on both train and val of COCO object detection benchmark.
+
+Algorithm 1 Hybrid Matching Loss Function.   
+1 def naive hybrid loss(   
+2 outputs one2one,   
+3 outputs one2many,   
+4 targets,   
+5 k repeated targets):   
+6 loss dict one2one = criterion(   
+7 outputs one2one, targets)   
+8 loss dict one2many = criterion(   
+9 outputs one2many, k repeated targets)   
+10 def criterion(   
+11 prediction,   
+12 target):   
+13 cost matrix = compute cost()   
+14 indices = hungarian matching(cost matrix)   
+15 loss(prediction, target, indices)   
+16   
+17   
+18 def optimized hybrid loss(   
+19 outputs one2one,   
+20 outputs one2many,   
+21 targets,   
+22 k repeated targets):   
+23 cost matrix one2one, cost matrix one2many =   
+24 compute cost(   
+25 concatenate(outputs one2one, outputs one2many),   
+26 concatenate(targets, k repeated targets)   
+27 )   
+28 indices one2one = hungarian matching(   
+29 cost matrix one2one)   
+30 indices one2many = hungarian matching(   
+31 cost matrix one2many)   
+32 loss(   
+33 concatenate(outputs one2one, outputs one2many),   
+34 concatenate(target, k repeated targets),   
+35 concatenate(indices one2one, indices one2many))
+
+For example, using independent transformer decoders and independent box & classification heads only suffers from 0.1%  drop (49.1%  49.0%) while further using an independent transformer encoder contributes to another 0.5% drop (49.1% → 48.5%).
+
+\- Fifth, we illustrate the loss curves of our -Deformable-DETR and the baseline Deformable-DETR in Figure 8. To ensure fairness, we only consider the $\mathcal { L } _ { \mathrm { o n e 2 o n e } }$ through the whole training procedure. Accordingly, we can see our approach achieves both lower training loss values and lower validation loss values, which shows that the additional oneto-many matching branch could ease the optimization of the one-to-one matching branch.
+
+\- Sixth, we compare the precision-recall curves of the baseline and our hybrid matching scheme in Figure 7. It can be seen that our approach mainly improves the recall rate of the baseline method, thus also ensuring the lower false negative rates.
+
+## E. Accelerate Hybrid Matching
+
+In the original implementation, we simply perform the one-to-one/one-to-many matching and loss computation with two independent functions, thus increasing the overall training time of each epoch from 75min to 85min when compared to the baseline that uses the same total number of queries. To decrease the additional latency, we merge the computation of their cost matrices and loss functions in Algorithm 1. Based on the accelerated implementation, we decrease the original training time from 85min to 80min.
+
+## Acknowledgement
+
+We thank Di He, Zheng Zhang, Jin-Ge Yao, Yue Cao, and Yili Wang for helpful discussions. Especially, Yili Wang helps to verify the proposed method for multi-person pose estimation tasks at the early stage.

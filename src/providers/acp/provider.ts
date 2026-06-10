@@ -1,5 +1,9 @@
 import type { ProviderExecutionResult, AcpPromptRequestV1 } from "../contracts";
-import type { Provider, ProviderSupportsArgs } from "../types";
+import type {
+  Provider,
+  ProviderExecuteArgs,
+  ProviderSupportsArgs,
+} from "../types";
 import {
   ACP_BACKEND_TYPE,
   ACP_PROMPT_REQUEST_KIND,
@@ -8,7 +12,6 @@ import {
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
-import { isAcpBackendConnectionTestPassed } from "../../modules/acpBackendProbe";
 import {
   buildAcpFoldedModelGroups,
   normalizeAcpEffortId,
@@ -55,7 +58,7 @@ export class AcpProvider implements Provider {
   }) {
     const backend = args.backend;
     const cache = backend?.acp?.runtimeOptionsCache;
-    if (!backend || !isAcpBackendConnectionTestPassed(backend) || !cache) {
+    if (!backend || !cache) {
       return [];
     }
     const key = String(args.key || "").trim();
@@ -156,12 +159,7 @@ export class AcpProvider implements Provider {
     );
   }
 
-  async execute(args: {
-    requestKind: string;
-    request: unknown;
-    backend: import("../../backends/types").BackendInstance;
-    providerOptions?: Record<string, unknown>;
-  }): Promise<ProviderExecutionResult> {
+  async execute(args: ProviderExecuteArgs): Promise<ProviderExecutionResult> {
     if (!this.supports(args)) {
       throw new Error(
         `Unsupported request kind/backend for AcpProvider: requestKind=${args.requestKind}, backendType=${args.backend.type}`,
@@ -171,7 +169,8 @@ export class AcpProvider implements Provider {
       return executeAcpSkillRunnerJob(args);
     }
     if (
-      String(args.requestKind || "").trim() === SKILLRUNNER_SEQUENCE_REQUEST_KIND
+      String(args.requestKind || "").trim() ===
+      SKILLRUNNER_SEQUENCE_REQUEST_KIND
     ) {
       throw new Error(
         "skillrunner.sequence.v1 must be executed by workflow runtime orchestration",

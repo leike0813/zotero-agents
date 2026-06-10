@@ -5,6 +5,7 @@ TBD - created by archiving change govern-acp-skills-runtime-options. Update Purp
 ## Requirements
 ### Requirement: ACP Backend Connection Test
 
+
 ACP Skills MUST require an ACP backend connection test to pass before workflow execution can use that backend.
 
 #### Scenario: Untested Backend
@@ -19,27 +20,43 @@ Given an ACP backend had passed connection test metadata
 And the ACP launch configuration changes
 When a workflow attempts to execute through ACP Skills
 Then the backend MUST be treated as stale until the connection test is run again.
-
 ### Requirement: Runtime Option Cache
 
-ACP connection tests MUST cache supported modes, models, and derived reasoning effort choices.
 
-#### Scenario: Successful Probe
+ACP connection tests MUST cache supported modes, models, and derived reasoning
+effort choices from ACP session configuration state.
 
-When an ACP backend probe succeeds
-Then the backend MUST persist a passing connection test and runtime options cache.
+#### Scenario: Successful probe from config options
 
+- **WHEN** an ACP backend probe succeeds and `session/new` returns select
+  `configOptions` for mode, model, or thought level
+- **THEN** the backend MUST persist a passing connection test and runtime
+  options cache derived from those config options
+- **AND** old `modes` / `models` fields MUST remain supported when config
+  options are absent.
+
+#### Scenario: Empty or failed refresh preserves existing cache
+
+- **GIVEN** an ACP backend already has a non-empty runtime options cache
+- **WHEN** a refresh fails or returns no selectable mode/model data
+- **THEN** the backend MUST NOT replace the existing runtime options cache with
+  an empty or missing cache.
 ### Requirement: Workflow Submission Options
 
-ACP Skills workflow submission MUST expose cached mode, model, and reasoning options for selected ACP backends.
 
-#### Scenario: Cached Options
+ACP Skills workflow submission MUST expose cached mode, model, and reasoning
+options for selected ACP backends, regardless of whether the cache originated
+from ACP `configOptions` or legacy `modes` / `models`.
 
-Given a selected ACP backend has cached runtime options
-When the workflow submit dialog is rendered
-Then the dialog MUST show mode, model, and reasoning controls from the cache.
+#### Scenario: Config option cache drives settings controls
 
+- **GIVEN** a selected ACP backend has cached runtime options derived from
+  `configOptions`
+- **WHEN** the workflow submit dialog is rendered
+- **THEN** the dialog MUST show mode, model, and reasoning controls from the
+  cache.
 ### Requirement: Frozen Run Runtime Options
+
 
 ACP Skills runs MUST freeze selected runtime options at submission time.
 
@@ -49,8 +66,8 @@ Given a workflow is submitted with ACP mode/model/reasoning options
 When the ACP task session is created
 Then the runner MUST apply the selected mode/model before sending the prompt
 And the run snapshot MUST display the frozen choices.
-
 ### Requirement: ACP Skills SHALL expose auto-approve permission runtime option
+
 
 ACP provider runtime options SHALL include a default-off boolean option for
 auto-approving ACP backend permission requests during ACP Skill runs.
@@ -67,8 +84,8 @@ auto-approving ACP backend permission requests during ACP Skill runs.
 - **AND** `autoApproveAcpPermissions` is `true`
 - **THEN** the normalized options SHALL preserve `autoApproveAcpPermissions:
   true`.
-
 ### Requirement: ACP Skills settings SHALL warn on auto-approve permission option
+
 
 Workflow settings UIs SHALL visually distinguish the ACP permission
 auto-approval option as high risk.
@@ -78,4 +95,3 @@ auto-approval option as high risk.
 - **WHEN** workflow settings render `autoApproveAcpPermissions`
 - **THEN** the option display text SHALL be bold and red
 - **AND** the checkbox control behavior SHALL remain unchanged.
-

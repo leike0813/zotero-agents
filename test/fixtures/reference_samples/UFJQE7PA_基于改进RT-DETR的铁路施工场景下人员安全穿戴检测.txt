@@ -1,0 +1,51 @@
+［］李晓健，陈雍君，邱实，等 复杂地区铁路工程建设风险知识 图谱的建立与分析方法［ ］铁道学报， ［ 15] .http://kns.cnki.net/kcms/detail/11.2104.u.20240619. 1705.002.html. LI Xiaojian，CHEN Yongjun，QIU Shi，et al.Establishment and Analysis Method of Risk Knowledge Graph of Railway Engineering Construction in Complex Areas [J/OL].Journal of the China Railway Society,2024 [2024-11-15] .htp://kns. cnki.net/kcms/detail/11.2104.u.20240619.1705.002.html.
+
+［］鲁帅，侯继伟，高春风，等 分布式视频监控系统在铁路站前工程的应用与研究 ［］铁路计算机应用， ， ( ) :12-16.LU Shuai,HOU Jiwei,GAO Chunfeng,et al.Distributed VideoMonitoringSystemAppliedtoRailwayConstruction［］  ， ， ( ) :12-16.
+
+［］曹燕 基于深度学习的建筑工人安全帽检测方法研究［ ］苏州: 苏州科技大学，CAO Yan. Research on Detection Methods of Construction
+
+47’       ［ ］ Suzhou: Suzhou University of Science and Technology，2021.
+
+［］黄志清，张煜森，张严心，等 基于改进型  的室内安全帽佩戴状态检测算法［］天津大学学报( 自然科学与工程技术版) ， ， ( ) :HUANG Zhiqing,ZHANG Yusen,ZHANG Yanxin,et al.IndoorSafety Helmet-wearing Detection Algorithm Based on ImprovedYolov4[] .Journal of Tianjin University（ Science and Tech-) ， ， ( ) :
+
+［］张学立，贾新春，王美刚，等 安全帽与反光衣的轻量化检测: 改进 的算法［］计算机工程与应用， ，( ) :ZHANG Xueli，JIA Xinchun，WANGMeigang，etal.Lightweight Detection of Helmets and Reflective Clothings: Im-proved YOLOv5s Algorithm[] .Computer Engineering and， ， ( ) :
+
+[ WANG S,HAI X,CAO Y Y.Reflective Safety Clothes Wearing Detection in Hydraulic Engineering Using YOLOv3-CCD. Asian Journal of Research in Computer Science,2O23,15(2) : 11-24.
+
+［］李天宇，吴浩，毛艳玲，等 改进  的安全帽佩戴检测方法［］计算机工程与设计， ， ( ) :LI Tianyu,WU Hao,MAO Yanling,et al.Helmet Wearing De-tection Method Based on Improve YOLOv4’s[] .Computer， ， ( ) :
+
+BREDMON J,DIVVALA S,GIRSHICK R,et al.You Only Look Once:Unified,Real-time Object Detection[C] //2016 IEEE Conference on Computer Vision and Pattern Recognition.Pisca-: ， :
+
+［ ］ ， : ， ，[] //2017 IEEE Conference on Computer Vision and PatternRecognition.Piscataway:IEEE,2017:7263-7271.
+
+[10] REDMON J,FARHADI A. Yolov3: an Incremental Improve-［ ］ ( ) ［ ］ :org/abs/1804.02767.
+
+[1] WANG C Y,BOCHKOVSKIY A,LIAO H Y M. Scaled-:      ［ ］ IEEE/CVF Conference on Computer Vision and Pattern Recognition.Piscataway:IEEE,2021:13024-13033.
+
+[12] SALSCHEIDERNO.FeatureNMS:Non-maximum Suppression by Learning Feature Embeddings[C] //2020 25th International Conference on Pattern Recognition.Piscataway:IEEE,2021: 7848-7854.
+
+[13] CARION N，MASSA F,SYNNAEVE G，et al. End-to-End Object Detection with Transformers EB/OL].(2020-05-28) [2024-08-17] . https: //arxiv.org/abs /2005.12872.
+
+[14]VASWANI A，SHAZEER N,PARMAR N，et al. Attention ［ ］ ( ) ［ ］ tps://arxiv.org/abs/1706.03762.
+
+2 RT-DETR［ ］  ，  ，  ，Real-Time Object Detection [C] //2024 IEEE/CVF Confer-enceonComputerVisionandPatternRecognition.Piscataway:IEEE,2024:16965-16974.
+
+［ ］管岭，贾利民，谢征宇 融合注意力机制的轨道入侵异物检测轻量级模型研究［］铁道学报， ， ( ) :GUAN Ling，JIA Limin，XIE Zhengyu.ResearchonLightweight Model for Railway Intrusion Detection IntegratingAttention Mechanism [ .Journal of the China Railway Soci-， ， ( ) :
+
+［ ］  ，  ，  ， :oryEfficient Vision Transformer with Cascaded GroupAttention [C] //2O23 IEEE/CVF Conference on ComputerVision and Pattern Recognition.Piscataway:IEEE,2023:14420-14430.
+
+[8]REZATOFIGHI H,TSOI N,GWAK J,et al.Generalized Intersection over Union:a Metric and a Loss for Bounding Box Regression [] //2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition.Piscataway:IEEE，2019: 658-666.
+
+［ ］  ， ， ，   :
+
+Faster and Better Learning for Bounding Box Regression. ProceedingsoftheAAAI ConferenceonArtificial ， ， ( ) :
+
+［ ］ ， ，   :Intersection over Union Loss with Auxiliary Bounding Box［ ］ ( ) ［ ］ :abs /2311.02877.
+
+［ ］  ，  ，  ，  :Extremely Efficient Convolutional Neural Network for MobileDevices [Cl //Proceedings of the IEEE Conference on Com-puter Vision and Pattern Recognition.Piscataway: IEEE,2018:6848-6856.
+
+［ ］  ，  ， ，  :Efficient Convolutional Neural Networks for Mobile Vision［ ］ ( ) ［ ］https://arxiv.org/abs/1704.04861v1.
+
+［ ］ ， ， ，   :Real-Time Object Detection with Region Proposal Networks[.IEEE Transactions on Pattern Analysis and Machine In-， ， ( ) :
+
+( 责任编辑 李嘉懿)

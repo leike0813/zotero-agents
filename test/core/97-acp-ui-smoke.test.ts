@@ -1682,6 +1682,8 @@ describe("acp ui smoke", function () {
         status: "running",
         conversationState: "active",
         sessionId: "session-1",
+        taskName: "Selected Paper Title",
+        workflowLabel: "Digest",
         acpModeId: "plan",
         acpModelId: "opus",
         acpReasoningEffort: "high",
@@ -1707,6 +1709,7 @@ describe("acp ui smoke", function () {
         {
           requestId: "acp-skill-1",
           status: "running",
+          taskName: "Selected Paper Title",
           workflowLabel: "Digest",
           skillId: "literature-digest",
           backendId: "backend-a",
@@ -1715,6 +1718,7 @@ describe("acp ui smoke", function () {
         {
           requestId: "acp-skill-2",
           status: "succeeded",
+          taskName: "Completed Paper Title",
           workflowLabel: "Explain",
           skillId: "literature-explainer",
           backendId: "backend-a",
@@ -1742,12 +1746,14 @@ describe("acp ui smoke", function () {
       skillPanel.context.indicators.map((entry: any) => entry.id),
       "mcp",
     );
+    assert.equal(skillPanel.context.title, "Selected Paper Title");
     assert.equal(skillPanel.drawers.layout, "workspace-task-drawer");
     assert.equal(skillPanel.drawers.sections[0].id, "running");
     assert.equal(skillPanel.drawers.sections[1].id, "completed");
     assert.equal(skillPanel.drawers.sections[1].collapsed, true);
     assert.equal(skillPanel.drawers.sections[0].groups[0].backendDisplayName, "Backend A");
     assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].requestId, "acp-skill-1");
+    assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].title, "Selected Paper Title");
     assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].action, "select-run");
     assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].attention, "");
     assert.deepEqual(skillPanel.drawers.sections[0].groups[0].activeTasks[0].payload, {
@@ -1755,6 +1761,7 @@ describe("acp ui smoke", function () {
     });
     assert.isUndefined(skillPanel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0]);
     assert.equal(skillPanel.drawers.sections[1].groups[0].finishedTasks[0].requestId, "acp-skill-2");
+    assert.equal(skillPanel.drawers.sections[1].groups[0].finishedTasks[0].title, "Completed Paper Title");
     assert.equal(
       skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0].action,
       "archive-run",
@@ -1768,7 +1775,7 @@ describe("acp ui smoke", function () {
     assert.equal(skillActions["connect-run"].enabled, false);
     assert.equal(skillActions["disconnect-run"].enabled, true);
     assert.equal(skillActions["cancel-run"].enabled, true);
-    assert.equal(skillActions["cancel-run"].label, "Cancel Run");
+    assert.equal(skillActions["cancel-run"].label, "Cancel Task");
     assert.notProperty(skillActions, "end-session");
     assert.equal(skillPanel.reply.enabled, true);
     assert.equal(skillPanel.reply.inputEnabled, false);

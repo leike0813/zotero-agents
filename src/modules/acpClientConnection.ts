@@ -3,6 +3,7 @@ import {
   ACP_CLIENT_METHODS,
   type AcpInitializeRequest,
   type AcpInitializeResponse,
+  type AcpSessionConfigOption,
   type JsonRpcErrorObject,
   type JsonRpcId,
   type JsonRpcMessage,
@@ -345,6 +346,16 @@ export class AcpClientConnection {
       ACP_AGENT_METHODS.session_set_model,
       params,
     );
+  }
+
+  async setSessionConfigOption(params: {
+    sessionId: string;
+    configId: string;
+    value: string;
+  }) {
+    return await this.sendRequest<{
+      configOptions?: AcpSessionConfigOption[] | null;
+    }>(ACP_AGENT_METHODS.session_set_config_option, params);
   }
 
   async authenticate(params: { methodId: string }) {

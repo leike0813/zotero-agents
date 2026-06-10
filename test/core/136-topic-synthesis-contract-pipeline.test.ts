@@ -592,6 +592,16 @@ function createAnalysisManifest(sections: Record<string, unknown>) {
         content_type: "json",
         schema_id: "synthesis.topic_graph_relation_proposals",
       },
+      prospective_topic_relation_proposals: {
+        path: "result/sidecars/prospective-topic-relation-proposals.json",
+        hash: hashCanonicalJson({
+          schema_id: "synthesis.prospective_topic_relation_proposals",
+          schema_version: "1.0.0",
+          proposals: [],
+        }),
+        content_type: "json",
+        schema_id: "synthesis.prospective_topic_relation_proposals",
+      },
     },
     sections: Object.fromEntries(
       Object.entries(sections).map(([section, value]) => [
@@ -687,6 +697,15 @@ async function createRunWorkspace(args: {
       source_topic_id: "object-detection",
       proposals: [],
       diagnostics: [],
+    },
+  );
+  await writeJsonFile(
+    runRoot,
+    "result/sidecars/prospective-topic-relation-proposals.json",
+    {
+      schema_id: "synthesis.prospective_topic_relation_proposals",
+      schema_version: "1.0.0",
+      proposals: [],
     },
   );
   for (const [section, value] of Object.entries(args.sections)) {

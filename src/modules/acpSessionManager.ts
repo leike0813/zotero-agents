@@ -1,6 +1,7 @@
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE, ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
+import { joinPath } from "../utils/path";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -23,6 +24,10 @@ import {
 } from "./acpConversationStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
+  buildAcpRuntimeOptionsStateFromConfigOptions,
+  hasAcpRuntimeOptionSelectors,
+} from "./acpSessionConfigOptions";
+import {
   cloneAcpConversationItem,
   cloneAcpSelectableOption,
   createEmptyAcpConversationSnapshot,
@@ -44,7 +49,13 @@ import {
   type AcpSelectableOption,
 } from "./acpTypes";
 import type { RequestPermissionOutcome } from "./acpProtocol";
-import { ensureRuntimeDirectory } from "./runtimePersistence";
+import {
+  copyRuntimeDirectory,
+  ensureRuntimeDirectory,
+  runtimePathExists,
+} from "./runtimePersistence";
+import { buildAcpSkillInjectionPlan } from "./acpAgentFamilyResolver";
+import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
   getZoteroMcpHealthSnapshot,
   getZoteroMcpServerStatus,
@@ -74,7 +85,6 @@ export type AcpSessionSlot = {
   unsubscribeDiagnostics: (() => void) | null;
   unsubscribePermission: (() => void) | null;
   unsubscribeHostBridgePermission: (() => void) | null;
-  hostBridgeCliPromptSnippet: string;
   suppressCloseEvent: boolean;
   promptCancelInFlight: boolean;
   promptCancelCloseExpected: boolean;
@@ -108,6 +118,7 @@ const frontendListeners = new Set<AcpFrontendSnapshotListener>();
 const MAX_DIAGNOSTICS = 40;
 const STREAMING_UI_EMIT_THROTTLE_MS = 80;
 const STREAMING_PERSIST_THROTTLE_MS = 1500;
+const HOST_BRIDGE_CLI_WRAPPER_SKILL_ID = "zotero-bridge-cli";
 
 function nowIso() {
   return new Date().toISOString();
@@ -125,6 +136,15 @@ function normalizeBackendId(value: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function resolveRuntimeCwd() {
+  const runtime = globalThis as { process?: { cwd?: () => string } };
+  try {
+    return normalizeString(runtime.process?.cwd?.());
+  } catch {
+    return "";
+  }
 }
 
 function compactError(error: unknown) {
@@ -309,7 +329,6 @@ function getOrCreateSlot(backendIdRaw?: string) {
     unsubscribeDiagnostics: null,
     unsubscribePermission: null,
     unsubscribeHostBridgePermission: null,
-    hostBridgeCliPromptSnippet: "",
     suppressCloseEvent: false,
     promptCancelInFlight: false,
     promptCancelCloseExpected: false,
@@ -999,6 +1018,93 @@ function applyRuntimeOptionsCache(
   }
 }
 
+function applyCurrentReasoningEffort(
+  snapshot: AcpConversationSnapshot,
+  effortIdRaw: string,
+) {
+  const effortId = normalizeEffortId(effortIdRaw);
+  if (!effortId) {
+    return;
+  }
+  snapshot.currentReasoningEffort =
+    snapshot.reasoningEffortOptions.find((entry) => entry.id === effortId) || {
+      id: effortId,
+      label: toTitleCase(effortId),
+    };
+}
+
+function applySessionConfigOptionsState(
+  slot: AcpSessionSlot,
+  configOptions: unknown,
+) {
+  const state = buildAcpRuntimeOptionsStateFromConfigOptions(
+    Array.isArray(configOptions) ? configOptions : null,
+  );
+  if (!hasAcpRuntimeOptionSelectors(state) && state.reasoningEfforts.length === 0) {
+    return {
+      modeApplied: false,
+      modelApplied: false,
+      reasoningApplied: false,
+    };
+  }
+
+  let modeApplied = false;
+  let modelApplied = false;
+  let reasoningApplied = false;
+  if (state.modes.length > 0) {
+    slot.snapshot.modeOptions = state.modes.map((entry) => ({ ...entry }));
+    const currentModeId = String(
+      state.currentModeId || slot.snapshot.currentMode?.id || "",
+    ).trim();
+    slot.snapshot.currentMode =
+      slot.snapshot.modeOptions.find((entry) => entry.id === currentModeId) ||
+      slot.snapshot.modeOptions[0];
+    modeApplied = true;
+  }
+
+  if (state.rawModels.length > 0) {
+    slot.snapshot.modelOptions = state.rawModels.map((entry) => ({ ...entry }));
+    const currentRawModelId = String(
+      state.currentRawModelId || slot.snapshot.currentModel?.id || "",
+    ).trim();
+    slot.snapshot.currentModel =
+      slot.snapshot.modelOptions.find(
+        (entry) => entry.id === currentRawModelId,
+      ) || slot.snapshot.modelOptions[0];
+    deriveModelEffortState(slot.snapshot);
+    if (state.displayModels.length > 0) {
+      slot.snapshot.displayModelOptions = state.displayModels.map((entry) => ({
+        ...entry,
+      }));
+      slot.snapshot.currentDisplayModel =
+        slot.snapshot.displayModelOptions.find(
+          (entry) => entry.id === state.currentDisplayModelId,
+        ) || slot.snapshot.displayModelOptions[0];
+    }
+    modelApplied = true;
+  }
+
+  if (state.reasoningEfforts.length > 0) {
+    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map((entry) => ({
+      ...entry,
+    }));
+    applyCurrentReasoningEffort(
+      slot.snapshot,
+      state.currentReasoningEffortId ||
+        slot.snapshot.currentReasoningEffort?.id ||
+        state.reasoningEfforts[0]?.id ||
+        "",
+    );
+    reasoningApplied = true;
+  }
+
+  return {
+    modeApplied,
+    modelApplied,
+    reasoningApplied,
+  };
+}
+
 function applyModeState(
   slot: AcpSessionSlot,
   value: {
@@ -1471,11 +1577,21 @@ function handleSessionUpdate(
     }
     case "config_option_update": {
       slot.snapshot.lastLifecycleEvent = "config_option_update";
-      upsertStatusItem(slot, {
-        level: "info",
-        label: "Config",
-        text: "Session configuration options updated.",
-      });
+      const applied = applySessionConfigOptionsState(
+        slot,
+        update.configOptions,
+      );
+      if (
+        !applied.modeApplied &&
+        !applied.modelApplied &&
+        !applied.reasoningApplied
+      ) {
+        upsertStatusItem(slot, {
+          level: "info",
+          label: "Config",
+          text: "Session configuration options updated.",
+        });
+      }
       emitSlotSnapshot(slot);
       return;
     }
@@ -1586,6 +1702,140 @@ async function disconnectSlotAdapter(slot: AcpSessionSlot) {
   }
 }
 
+async function materializeAcpChatHostBridgeSupportSkill(args: {
+  slot: AcpSessionSlot;
+  backend: BackendInstance;
+  workspaceDir: string;
+}) {
+  const workspaceDir = normalizeString(args.workspaceDir);
+  if (!workspaceDir) {
+    return;
+  }
+  const injectionPlan = buildAcpSkillInjectionPlan({
+    backend: args.backend,
+    workspaceDir,
+  });
+  if (injectionPlan.skillRoots.length === 0) {
+    appendDiagnostic(args.slot, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "host_bridge_cli_wrapper_skill_unavailable",
+      level: "warn",
+      message:
+        "Host Bridge CLI wrapper skill was not materialized for ACP Chat because this backend does not use project skill roots.",
+      detail: injectionPlan.family,
+      raw: {
+        family: injectionPlan.family,
+        skillRoots: injectionPlan.skillRoots,
+      },
+    });
+    return;
+  }
+  try {
+    const cwd = resolveRuntimeCwd();
+    const cwdSkillRoot = cwd
+      ? joinPath(cwd, "skills_builtin", HOST_BRIDGE_CLI_WRAPPER_SKILL_ID)
+      : "";
+    const cwdSkillAvailable =
+      !!cwdSkillRoot &&
+      (await runtimePathExists(joinPath(cwdSkillRoot, "SKILL.md"))) &&
+      (await runtimePathExists(
+        joinPath(cwdSkillRoot, "assets", "runner.json"),
+      ));
+    if (cwdSkillAvailable) {
+      const targetDirs: string[] = [];
+      for (const root of injectionPlan.skillRoots) {
+        const targetDir = joinPath(root, HOST_BRIDGE_CLI_WRAPPER_SKILL_ID);
+        await copyRuntimeDirectory({
+          sourceDir: cwdSkillRoot,
+          targetDir,
+        });
+        targetDirs.push(targetDir);
+      }
+      appendDiagnostic(args.slot, {
+        id: nextOpaqueId("acp-diag"),
+        ts: nowIso(),
+        kind: "host_bridge_cli_wrapper_skill_ready",
+        level: "info",
+        message: "Host Bridge CLI wrapper skill materialized for ACP Chat.",
+        detail: targetDirs.join(", "),
+        raw: {
+          skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+          family: injectionPlan.family,
+          skillRoots: injectionPlan.skillRoots,
+          targetDirs,
+          source: "cwd",
+        },
+      });
+      return;
+    }
+    const registry = await scanPluginSkillRegistry();
+    const fallbackRegistry =
+      registry.entriesById[HOST_BRIDGE_CLI_WRAPPER_SKILL_ID] || !cwd
+        ? null
+        : await scanPluginSkillRegistry({ cwd });
+    const effectiveRegistry = fallbackRegistry || registry;
+    const entry =
+      effectiveRegistry.entriesById[HOST_BRIDGE_CLI_WRAPPER_SKILL_ID];
+    if (!entry) {
+      appendDiagnostic(args.slot, {
+        id: nextOpaqueId("acp-diag"),
+        ts: nowIso(),
+        kind: "host_bridge_cli_wrapper_skill_unavailable",
+        level: "warn",
+        message:
+          "Host Bridge CLI wrapper skill was not found in the plugin skill registry.",
+        detail: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+        raw: {
+          skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+          diagnostics: [
+            ...registry.diagnostics,
+            ...(fallbackRegistry?.diagnostics || []),
+          ],
+        },
+      });
+      return;
+    }
+    const targetDirs: string[] = [];
+    for (const root of injectionPlan.skillRoots) {
+      const targetDir = joinPath(root, HOST_BRIDGE_CLI_WRAPPER_SKILL_ID);
+      await copyRuntimeDirectory({
+        sourceDir: entry.sourceDir,
+        targetDir,
+      });
+      targetDirs.push(targetDir);
+    }
+    appendDiagnostic(args.slot, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "host_bridge_cli_wrapper_skill_ready",
+      level: "info",
+      message: "Host Bridge CLI wrapper skill materialized for ACP Chat.",
+      detail: targetDirs.join(", "),
+      raw: {
+        skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+        family: injectionPlan.family,
+        skillRoots: injectionPlan.skillRoots,
+        targetDirs,
+      },
+    });
+  } catch (error) {
+    appendDiagnostic(args.slot, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "host_bridge_cli_wrapper_skill_unavailable",
+      level: "warn",
+      message: "Host Bridge CLI wrapper skill materialization failed.",
+      detail: compactError(error),
+      raw: {
+        skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+        family: injectionPlan.family,
+        skillRoots: injectionPlan.skillRoots,
+      },
+    });
+  }
+}
+
 async function ensureAdapter(backendId?: string) {
   ensureInitialized();
   const slot = getOrCreateSlot(backendId || activeBackendId);
@@ -1614,16 +1864,16 @@ async function ensureAdapter(backendId?: string) {
     );
     await ensureRuntimeDirectory(slot.snapshot.conversationStorageDir);
     await ensureRuntimeDirectory(slot.snapshot.runtimeDir);
+    const workspaceDir =
+      slot.snapshot.agentWorkspaceDir ||
+      slot.snapshot.workspaceDir ||
+      slot.snapshot.sessionCwd;
     const hostBridgeCliInjection = await materializeHostBridgeCliRunInjection({
-      workspaceDir:
-        slot.snapshot.agentWorkspaceDir ||
-        slot.snapshot.workspaceDir ||
-        slot.snapshot.sessionCwd,
+      workspaceDir,
       requestId: slot.snapshot.conversationId || nextOpaqueId("acp-chat"),
       scopeKind: "acp-chat",
     });
     bindHostBridgePermissionForSlot(slot);
-    slot.hostBridgeCliPromptSnippet = hostBridgeCliInjection.promptSnippet;
     appendDiagnostic(slot, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
@@ -1636,6 +1886,11 @@ async function ensureAdapter(backendId?: string) {
         : "Host Bridge CLI is unavailable for ACP Chat; MCP fallback is disabled by default.",
       detail: hostBridgeCliInjection.fallbackReason || "",
       raw: summarizeHostBridgeCliRunInjection(hostBridgeCliInjection),
+    });
+    await materializeAcpChatHostBridgeSupportSkill({
+      slot,
+      backend,
+      workspaceDir,
     });
     const backendWithHostBridgeCli = applyHostBridgeCliEnvToBackend({
       backend,
@@ -1708,6 +1963,7 @@ function applyAttachedSessionResult(
     sessionId: string;
     sessionTitle?: string;
     sessionUpdatedAt?: string;
+    configOptions?: unknown;
     modes?: Parameters<typeof applyModeState>[1] | null;
     models?: Parameters<typeof applyModelState>[1] | null;
   },
@@ -1718,8 +1974,16 @@ function applyAttachedSessionResult(
     String(slot.snapshot.remoteSessionId || "").trim();
   slot.snapshot.sessionTitle = String(result.sessionTitle || "").trim();
   slot.snapshot.sessionUpdatedAt = String(result.sessionUpdatedAt || "").trim();
-  applyModeState(slot, result.modes || {});
-  applyModelState(slot, result.models || {});
+  const configApplied = applySessionConfigOptionsState(
+    slot,
+    result.configOptions,
+  );
+  if (!configApplied.modeApplied) {
+    applyModeState(slot, result.modes || {});
+  }
+  if (!configApplied.modelApplied) {
+    applyModelState(slot, result.models || {});
+  }
   const backend =
     slot.snapshot.backend ||
     cachedAcpBackends.find((entry) => entry.id === slot.backendId);
@@ -2155,14 +2419,9 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSlotSnapshot(slot);
   try {
-    const hostBridgeCliPromptSnippet = normalizeString(
-      slot.hostBridgeCliPromptSnippet,
-    );
     const response = await adapter.prompt({
       sessionId: slot.snapshot.sessionId,
-      message: hostBridgeCliPromptSnippet
-        ? `${message}\n${hostBridgeCliPromptSnippet}`
-        : message,
+      message,
     });
     slot.snapshot.busy = false;
     slot.snapshot.status = "connected";
@@ -2479,7 +2738,15 @@ export async function setAcpConversationMode(args: {
   const { slot, adapter } = await ensureSession(
     args.backendId || activeBackendId,
   );
-  await adapter.setMode({ sessionId: slot.snapshot.sessionId, modeId });
+  const applied =
+    (await adapter.setConfigOption?.({
+      sessionId: slot.snapshot.sessionId,
+      category: "mode",
+      value: modeId,
+    })) === true;
+  if (!applied) {
+    await adapter.setMode({ sessionId: slot.snapshot.sessionId, modeId });
+  }
   applyModeState(slot, { currentModeId: modeId });
   emitSlotSnapshot(slot);
 }
@@ -2504,11 +2771,19 @@ export async function setAcpConversationModel(args: {
     modelId,
     slot.snapshot.currentReasoningEffort?.id,
   );
-  await adapter.setModel({
-    sessionId: slot.snapshot.sessionId,
-    modelId: rawModelId,
-  });
-  applyModelState(slot, { currentModelId: rawModelId });
+  const applied =
+    (await adapter.setConfigOption?.({
+      sessionId: slot.snapshot.sessionId,
+      category: "model",
+      value: modelId,
+    })) === true;
+  if (!applied) {
+    await adapter.setModel({
+      sessionId: slot.snapshot.sessionId,
+      modelId: rawModelId,
+    });
+  }
+  applyModelState(slot, { currentModelId: applied ? modelId : rawModelId });
   emitSlotSnapshot(slot);
 }
 
@@ -2540,11 +2815,21 @@ export async function setAcpConversationReasoningEffort(args: {
     displayModelId,
     effortId,
   );
-  await adapter.setModel({
-    sessionId: slot.snapshot.sessionId,
-    modelId: rawModelId,
-  });
-  applyModelState(slot, { currentModelId: rawModelId });
+  const applied =
+    (await adapter.setConfigOption?.({
+      sessionId: slot.snapshot.sessionId,
+      category: "thought_level",
+      value: effortId,
+    })) === true;
+  if (applied) {
+    applyCurrentReasoningEffort(slot.snapshot, effortId);
+  } else {
+    await adapter.setModel({
+      sessionId: slot.snapshot.sessionId,
+      modelId: rawModelId,
+    });
+    applyModelState(slot, { currentModelId: rawModelId });
+  }
   emitSlotSnapshot(slot);
 }
 

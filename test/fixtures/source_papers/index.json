@@ -1,0 +1,626 @@
+[
+  {
+    "parent_key": "S86GB385",
+    "parent_title": "Accelerating DETR convergence via semantic-aligned matching",
+    "status": "ok",
+    "source_file": "S86GB385_Accelerating DETR convergence via semantic-aligned matching.md",
+    "source_type": "md",
+    "source_bytes": 51054,
+    "source_filename": "Zhang 等 - 2022 - Accelerating DETR Convergence via Semantic-Aligned Matching.md"
+  },
+  {
+    "parent_key": "JMWG9XVD",
+    "parent_title": "An end-to-end transformer model for 3D object detection",
+    "status": "ok",
+    "source_file": "JMWG9XVD_An end-to-end transformer model for 3D object detection.md",
+    "source_type": "md",
+    "source_bytes": 64902,
+    "source_filename": "Misra 等 - 2021 - An End-to-End Transformer Model for 3D Object Detection.md"
+  },
+  {
+    "parent_key": "W4CDLU28",
+    "parent_title": "Conditional DETR for fast training convergence",
+    "status": "ok",
+    "source_file": "W4CDLU28_Conditional DETR for fast training convergence.md",
+    "source_type": "md",
+    "source_bytes": 50989,
+    "source_filename": "Meng 等 - 2021 - Conditional DETR for Fast Training Convergence.md"
+  },
+  {
+    "parent_key": "3JUY9GBQ",
+    "parent_title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+    "status": "ok",
+    "source_file": "3JUY9GBQ_DETR3D_ 3D object detection from multi-view images via 3D-to-2D queries.md",
+    "source_type": "md",
+    "source_bytes": 49803,
+    "source_filename": "Wang 等 - 2022 - DETR3D 3D Object Detection from Multi-view Images via 3D-to-2D Queries.md"
+  },
+  {
+    "parent_key": "CBJWE4JX",
+    "parent_title": "DETRs beat YOLOs on real-time object detection",
+    "status": "ok",
+    "source_file": "CBJWE4JX_DETRs beat YOLOs on real-time object detection.md",
+    "source_type": "md",
+    "source_bytes": 51892,
+    "source_filename": "Zhao 等 - 2024 - DETRs Beat YOLOs on Real-time Object Detection.md"
+  },
+  {
+    "parent_key": "7AERRYC7",
+    "parent_title": "DETRs with collaborative hybrid assignments training",
+    "status": "ok",
+    "source_file": "7AERRYC7_DETRs with collaborative hybrid assignments training.md",
+    "source_type": "md",
+    "source_bytes": 63826,
+    "source_filename": "Zong 等 - 2023 - DETRs with Collaborative Hybrid Assignments Training.md"
+  },
+  {
+    "parent_key": "NXLIGKF5",
+    "parent_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+    "status": "ok",
+    "source_file": "NXLIGKF5_DN-DETR_ accelerate DETR training by introducing query DeNoising.md",
+    "source_type": "md",
+    "source_bytes": 45630,
+    "source_filename": "Li 等 - 2022 - DN-DETR Accelerate DETR Training by Introducing Query DeNoising.md"
+  },
+  {
+    "parent_key": "M3AU5AC9",
+    "parent_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+    "status": "ok",
+    "source_file": "M3AU5AC9_Faster R-CNN_ towards real-time object detection with region proposal networks.md",
+    "source_type": "md",
+    "source_bytes": 71975,
+    "source_filename": "Ren 等 - 2017 - Faster R-CNN Towards Real-Time Object Detection with Region Proposal Networks.md"
+  },
+  {
+    "parent_key": "KSM65VAD",
+    "parent_title": "MOTR: end-to-end multiple-object tracking with transformer",
+    "status": "download_error",
+    "error": "bridge protocol: invalid utf-8 in response header (filename contains special chars)"
+  },
+  {
+    "parent_key": "RPRBE2QN",
+    "parent_title": "Panoptic SegFormer: delving deeper into panoptic segmentation with transformers",
+    "status": "ok",
+    "source_file": "RPRBE2QN_Panoptic SegFormer_ delving deeper into panoptic segmentation with transformers.md",
+    "source_type": "md",
+    "source_bytes": 57514,
+    "source_filename": "Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers.md"
+  },
+  {
+    "parent_key": "VI9JURUB",
+    "parent_title": "Rethinking detection based table structure recognition for visually rich document images",
+    "status": "ok",
+    "source_file": "VI9JURUB_Rethinking detection based table structure recognition for visually rich documen.md",
+    "source_type": "md",
+    "source_bytes": 120381,
+    "source_filename": "Xiao 等 - 2025 - Rethinking detection based table structure recognition for visually rich document images.md"
+  },
+  {
+    "parent_key": "29IBKEUR",
+    "parent_title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+    "status": "ok",
+    "source_file": "29IBKEUR_Sparse DETR_ efficient end-to-end object detection with learnable sparsity.md",
+    "source_type": "md",
+    "source_bytes": 75241,
+    "source_filename": "Roh 等 - 2022 - Sparse DETR Efficient End-to-End Object Detection with Learnable Sparsity.md"
+  },
+  {
+    "parent_key": "5HBHAWIV",
+    "parent_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+    "status": "ok",
+    "source_file": "5HBHAWIV_Deformable DETR_ deformable transformers for end-to-end object detection.md",
+    "source_type": "md",
+    "source_bytes": 59475,
+    "source_filename": "Zhu 等 - 2021 - Deformable DETR Deformable Transformers for End-to-End Object Detection.md"
+  },
+  {
+    "parent_key": "EIMSDEU3",
+    "parent_title": "End-to-end object detection with transformers",
+    "status": "ok",
+    "source_file": "EIMSDEU3_End-to-end object detection with transformers.md",
+    "source_type": "md",
+    "source_bytes": 49752,
+    "source_filename": "Carion 等 - 2020 - End-to-End Object Detection with Transformers.md"
+  },
+  {
+    "parent_key": "HPLZ65Z2",
+    "parent_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+    "status": "ok",
+    "source_file": "HPLZ65Z2_DINO_ DETR with improved DeNoising anchor boxes for end-to-end object detection.md",
+    "source_type": "md",
+    "source_bytes": 64709,
+    "source_filename": "Zhang 等 - 2022 - DINO DETR with Improved DeNoising Anchor Boxes for End-to-End Object Detection.md"
+  },
+  {
+    "parent_key": "GHWYS7AF",
+    "parent_title": "RT-DETRv3: real-time end-to-end object detection with hierarchical dense positive supervision",
+    "status": "ok",
+    "source_file": "GHWYS7AF_RT-DETRv3_ real-time end-to-end object detection with hierarchical dense positiv.md",
+    "source_type": "md",
+    "source_bytes": 41938,
+    "source_filename": "Wang 等 - 2024 - RT-DETRv3 Real-time End-to-End Object Detection with Hierarchical Dense Positive Supervision.md"
+  },
+  {
+    "parent_key": "SZ3GNWT9",
+    "parent_title": "RF-DETR: neural architecture search for real-time detection transformers",
+    "status": "ok",
+    "source_file": "SZ3GNWT9_RF-DETR_ neural architecture search for real-time detection transformers.md",
+    "source_type": "md",
+    "source_bytes": 99803,
+    "source_filename": "Robinson 等 - 2025 - RF-DETR Neural Architecture Search for Real-Time Detection Transformers.md"
+  },
+  {
+    "parent_key": "IY3FMWQM",
+    "parent_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+    "status": "ok",
+    "source_file": "IY3FMWQM_DAB-DETR_ dynamic anchor boxes are better queries for DETR.md",
+    "source_type": "md",
+    "source_bytes": 64158,
+    "source_filename": "Liu 等 - 2022 - DAB-DETR Dynamic Anchor Boxes are Better Queries for DETR.md"
+  },
+  {
+    "parent_key": "4IUAXCCZ",
+    "parent_title": "Joint perceptual learning for enhancement and object detection in underwater scenarios",
+    "status": "ok",
+    "source_file": "4IUAXCCZ_Joint perceptual learning for enhancement and object detection in underwater sce.md",
+    "source_type": "md",
+    "source_bytes": 50263,
+    "source_filename": "Fu 等 - 2023 - Joint Perceptual Learning for Enhancement and Object Detection in Underwater Scenarios.md"
+  },
+  {
+    "parent_key": "8838AH6P",
+    "parent_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+    "status": "ok",
+    "source_file": "8838AH6P_LW-DETR_ a transformer replacement to YOLO for real-time detection.md",
+    "source_type": "md",
+    "source_bytes": 75137,
+    "source_filename": "Chen 等 - 2024 - LW-DETR A Transformer Replacement to YOLO for Real-Time Detection.md"
+  },
+  {
+    "parent_key": "CGJBFE6C",
+    "parent_title": "Enhancing DETRs variants through improved content query and similar query aggregation",
+    "status": "ok",
+    "source_file": "CGJBFE6C_Enhancing DETRs variants through improved content query and similar query aggreg.md",
+    "source_type": "md",
+    "source_bytes": 56092,
+    "source_filename": "Zhang 等 - 2024 - Enhancing DETRs Variants through Improved Content Query and Similar Query Aggregation.md"
+  },
+  {
+    "parent_key": "ABTG2CFC",
+    "parent_title": "YOLOv7: Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object Detectors",
+    "status": "ok",
+    "source_file": "ABTG2CFC_YOLOv7_ Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object.md",
+    "source_type": "md",
+    "source_bytes": 67698,
+    "source_filename": "Wang 等 - 2023 - YOLOv7 Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object Detectors.md"
+  },
+  {
+    "parent_key": "P5NLH47E",
+    "parent_title": "UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers",
+    "status": "ok",
+    "source_file": "P5NLH47E_UP-DETR_ Unsupervised Pre-Training for Object Detection With Transformers.md",
+    "source_type": "md",
+    "source_bytes": 49590,
+    "source_filename": "Dai 等 - 2021 - UP-DETR Unsupervised Pre-Training for Object Detection With Transformers.md"
+  },
+  {
+    "parent_key": "DBYQ4LWE",
+    "parent_title": "Group DETR: Fast DETR Training with Group-Wise One-to-Many Assignment",
+    "status": "ok",
+    "source_file": "DBYQ4LWE_Group DETR_ Fast DETR Training with Group-Wise One-to-Many Assignment.md",
+    "source_type": "md",
+    "source_bytes": 52345,
+    "source_filename": "Chen 等 - 2023 - Group DETR Fast DETR Training with Group-Wise One-to-Many Assignment.md"
+  },
+  {
+    "parent_key": "3YG8UNCI",
+    "parent_title": "Rank-DETR for high quality object detection",
+    "status": "ok",
+    "source_file": "3YG8UNCI_Rank-DETR for high quality object detection.md",
+    "source_type": "md",
+    "source_bytes": 63506,
+    "source_filename": "Pu 等 - 2023 - Rank-DETR for high quality object detection.md"
+  },
+  {
+    "parent_key": "VHBU3NI6",
+    "parent_title": "Efficient DETR: improving end-to-end object detector with dense prior",
+    "status": "ok",
+    "source_file": "VHBU3NI6_Efficient DETR_ improving end-to-end object detector with dense prior.md",
+    "source_type": "md",
+    "source_bytes": 50028,
+    "source_filename": "Yao 等 - 2021 - Efficient DETR improving end-to-end object detector with dense prior.md"
+  },
+  {
+    "parent_key": "I4ZU2PCY",
+    "parent_title": "DETR for crowd pedestrian detection",
+    "status": "ok",
+    "source_file": "I4ZU2PCY_DETR for crowd pedestrian detection.md",
+    "source_type": "md",
+    "source_bytes": 48064,
+    "source_filename": "Lin 等 - 2021 - DETR for crowd pedestrian detection.md"
+  },
+  {
+    "parent_key": "VQ2WLIDR",
+    "parent_title": "Mask DINO: towards a unified transformer-based framework for object detection and segmentation",
+    "status": "ok",
+    "source_file": "VQ2WLIDR_Mask DINO_ towards a unified transformer-based framework for object detection an.md",
+    "source_type": "md",
+    "source_bytes": 54060,
+    "source_filename": "Li 等 - 2023 - Mask DINO towards a unified transformer-based framework for object detection and segmentation.md"
+  },
+  {
+    "parent_key": "8YS3DEMI",
+    "parent_title": "Real-time object detection meets DINOv3",
+    "status": "ok",
+    "source_file": "8YS3DEMI_Real-time object detection meets DINOv3.md",
+    "source_type": "md",
+    "source_bytes": 34328,
+    "source_filename": "Huang 等 - 2026 - Real-time object detection meets DINOv3.md"
+  },
+  {
+    "parent_key": "HDDAIKQQ",
+    "parent_title": "SAM 3: segment anything with concepts",
+    "status": "ok",
+    "source_file": "HDDAIKQQ_SAM 3_ segment anything with concepts.md",
+    "source_type": "md",
+    "source_bytes": 325820,
+    "source_filename": "Carion 等 - 2026 - SAM 3 segment anything with concepts.md"
+  },
+  {
+    "parent_key": "8PP8HQMY",
+    "parent_title": "RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer",
+    "status": "ok",
+    "source_file": "8PP8HQMY_RT-DETRv2_ Improved Baseline with Bag-of-Freebies for Real-Time Detection Transf.md",
+    "source_type": "md",
+    "source_bytes": 15850,
+    "source_filename": "Lv 等 - 2024 - RT-DETRv2 Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer.md"
+  },
+  {
+    "parent_key": "MERSIDHN",
+    "parent_title": "D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement",
+    "status": "ok",
+    "source_file": "MERSIDHN_D-FINE_ Redefine Regression Task in DETRs as Fine-grained Distribution Refinemen.md",
+    "source_type": "md",
+    "source_bytes": 68915,
+    "source_filename": "Peng 等 - 2024 - D-FINE Redefine Regression Task in DETRs as Fine-grained Distribution Refinement.md"
+  },
+  {
+    "parent_key": "D6BUKS9Q",
+    "parent_title": "DETRs with Hybrid Matching",
+    "status": "ok",
+    "source_file": "D6BUKS9Q_DETRs with Hybrid Matching.md",
+    "source_type": "md",
+    "source_bytes": 78377,
+    "source_filename": "Jia 等 - 2023 - DETRs with Hybrid Matching.md"
+  },
+  {
+    "parent_key": "4FUJYLNY",
+    "parent_title": "Object Detection with Transformers: A Review",
+    "status": "ok",
+    "source_file": "4FUJYLNY_Object Detection with Transformers_ A Review.md",
+    "source_type": "md",
+    "source_bytes": 168810,
+    "source_filename": "Shehzadi 等 - 2025 - Object Detection with Transformers A Review.md"
+  },
+  {
+    "parent_key": "UVI9ULI2",
+    "parent_title": "Mask R-CNN",
+    "status": "ok",
+    "source_file": "UVI9ULI2_Mask R-CNN.md",
+    "source_type": "md",
+    "source_bytes": 62393,
+    "source_filename": "He 等 - 2017 - Mask R-CNN.md"
+  },
+  {
+    "parent_key": "2KUGMFL2",
+    "parent_title": "YOLACT: Real-time Instance Segmentation",
+    "status": "ok",
+    "source_file": "2KUGMFL2_YOLACT_ Real-time Instance Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 49184,
+    "source_filename": "Bolya 等 - 2019 - YOLACT Real-time Instance Segmentation.md"
+  },
+  {
+    "parent_key": "76BD6UYE",
+    "parent_title": "SOLO: Segmenting Objects by Locations",
+    "status": "ok",
+    "source_file": "76BD6UYE_SOLO_ Segmenting Objects by Locations.md",
+    "source_type": "md",
+    "source_bytes": 42534,
+    "source_filename": "Wang 等 - 2020 - SOLO Segmenting Objects by Locations.md"
+  },
+  {
+    "parent_key": "4DB3YS8Y",
+    "parent_title": "SOLOv2: Dynamic and Fast Instance Segmentation",
+    "status": "ok",
+    "source_file": "4DB3YS8Y_SOLOv2_ Dynamic and Fast Instance Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 59324,
+    "source_filename": "Wang 等 - 2020 - SOLOv2 Dynamic and Fast Instance Segmentation.md"
+  },
+  {
+    "parent_key": "8AXAW2GX",
+    "parent_title": "Conditional Convolutions for Instance Segmentation",
+    "status": "ok",
+    "source_file": "8AXAW2GX_Conditional Convolutions for Instance Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 55461,
+    "source_filename": "Tian 等 - 2020 - Conditional Convolutions for Instance Segmentation.md"
+  },
+  {
+    "parent_key": "USRNFHXP",
+    "parent_title": "Per-Pixel Classification is Not All You Need for Semantic Segmentation",
+    "status": "ok",
+    "source_file": "USRNFHXP_Per-Pixel Classification is Not All You Need for Semantic Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 81667,
+    "source_filename": "Cheng 等 - 2021 - Per-Pixel Classification is Not All You Need for Semantic Segmentation.md"
+  },
+  {
+    "parent_key": "53A2WXX8",
+    "parent_title": "Masked-attention Mask Transformer for Universal Image Segmentation",
+    "status": "ok",
+    "source_file": "53A2WXX8_Masked-attention Mask Transformer for Universal Image Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 101519,
+    "source_filename": "Cheng 等 - 2022 - Masked-attention Mask Transformer for Universal Image Segmentation.md"
+  },
+  {
+    "parent_key": "8WM66ZL3",
+    "parent_title": "Segment Anything",
+    "status": "ok",
+    "source_file": "8WM66ZL3_Segment Anything.md",
+    "source_type": "md",
+    "source_bytes": 177821,
+    "source_filename": "Kirillov 等 - 2023 - Segment Anything.md"
+  },
+  {
+    "parent_key": "CHPBJDLU",
+    "parent_title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
+    "status": "ok",
+    "source_file": "CHPBJDLU_PolarNet_ An Improved Grid Representation for Online LiDAR Point Clouds Semantic.md",
+    "source_type": "md",
+    "source_bytes": 62454,
+    "source_filename": "Zhang 等 - 2020 - PolarNet An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation.md"
+  },
+  {
+    "parent_key": "DDT5Q9QF",
+    "parent_title": "Panoptic-PolarNet: Proposal-free LiDAR Point Cloud Panoptic Segmentation",
+    "status": "ok",
+    "source_file": "DDT5Q9QF_Panoptic-PolarNet_ Proposal-free LiDAR Point Cloud Panoptic Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 64471,
+    "source_filename": "Zhou 等 - 2021 - Panoptic-PolarNet Proposal-free LiDAR Point Cloud Panoptic Segmentation.md"
+  },
+  {
+    "parent_key": "XKJFVI8H",
+    "parent_title": "Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation in CTA Images",
+    "status": "ok",
+    "source_file": "XKJFVI8H_Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation i.md",
+    "source_type": "md",
+    "source_bytes": 21136,
+    "source_filename": "Bencevic 等 - 2022 - Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation in CTA Images.md"
+  },
+  {
+    "parent_key": "J6DSFFBH",
+    "parent_title": "Center-based 3D Object Detection and Tracking",
+    "status": "ok",
+    "source_file": "J6DSFFBH_Center-based 3D Object Detection and Tracking.md",
+    "source_type": "md",
+    "source_bytes": 62239,
+    "source_filename": "Yin 等 - 2021 - Center-based 3D Object Detection and Tracking.md"
+  },
+  {
+    "parent_key": "AHF2RU48",
+    "parent_title": "PolarStream: Streaming Lidar Object Detection and Segmentation with Polar Pillars",
+    "status": "ok",
+    "source_file": "AHF2RU48_PolarStream_ Streaming Lidar Object Detection and Segmentation with Polar Pillar.md",
+    "source_type": "md",
+    "source_bytes": 56713,
+    "source_filename": "Chen 等 - 2021 - PolarStream Streaming Lidar Object Detection and Segmentation with Polar Pillars.md"
+  },
+  {
+    "parent_key": "TWR6CC4I",
+    "parent_title": "DINOv3",
+    "status": "download_error",
+    "error": "bridge protocol: invalid utf-8 in response header (filename contains special chars)"
+  },
+  {
+    "parent_key": "BBIY57N3",
+    "parent_title": "MedDINOv3: How to adapt vision foundation models for medical image segmentation?",
+    "status": "ok",
+    "source_file": "BBIY57N3_MedDINOv3_ How to adapt vision foundation models for medical image segmentation_.md",
+    "source_type": "md",
+    "source_bytes": 38994,
+    "source_filename": "Li 等 - 2025 - MedDINOv3 How to adapt vision foundation models for medical image segmentation.md"
+  },
+  {
+    "parent_key": "7T29H6SR",
+    "parent_title": "SegDINO: An Efficient Design for Medical and Natural Image Segmentation with DINO-V3",
+    "status": "ok",
+    "source_file": "7T29H6SR_SegDINO_ An Efficient Design for Medical and Natural Image Segmentation with DIN.md",
+    "source_type": "md",
+    "source_bytes": 39329,
+    "source_filename": "Yang 等 - 2025 - SegDINO An Efficient Design for Medical and Natural Image Segmentation with DINO-V3.md"
+  },
+  {
+    "parent_key": "8DP4884A",
+    "parent_title": "DINO Soars: DINOv3 for Open-Vocabulary Semantic Segmentation of Remote Sensing Imagery",
+    "status": "download_error",
+    "error": "bridge protocol: invalid utf-8 in response header (filename contains special chars)"
+  },
+  {
+    "parent_key": "UW8ZLVA6",
+    "parent_title": "Does DINOv3 Set a New Medical Vision Standard? Benchmarking 2D and 3D Classification, Segmentation, and Registration",
+    "status": "ok",
+    "source_file": "UW8ZLVA6_Does DINOv3 Set a New Medical Vision Standard_ Benchmarking 2D and 3D Classifica.md",
+    "source_type": "md",
+    "source_bytes": 109497,
+    "source_filename": "Liu 等 - 2026 - Does DINOv3 Set a New Medical Vision Standard Benchmarking 2D and 3D Classification, Segmentation,.md"
+  },
+  {
+    "parent_key": "M68XPFA9",
+    "parent_title": "Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation",
+    "status": "ok",
+    "source_file": "M68XPFA9_Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Ima.md",
+    "source_type": "md",
+    "source_bytes": 114752,
+    "source_filename": "Xu 等 - 2026 - Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation.md"
+  },
+  {
+    "parent_key": "9CBBDH3Y",
+    "parent_title": "DinoDental: Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Analysis",
+    "status": "ok",
+    "source_file": "9CBBDH3Y_DinoDental_ Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Ana.md",
+    "source_type": "md",
+    "source_bytes": 129365,
+    "source_filename": "Tang 等 - 2026 - DinoDental Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Analysis.md"
+  },
+  {
+    "parent_key": "Z25GLKZV",
+    "parent_title": "Attention is All you Need",
+    "status": "ok",
+    "source_file": "Z25GLKZV_Attention is All you Need.md",
+    "source_type": "md",
+    "source_bytes": 37467,
+    "source_filename": "Vaswani 等 - 2017 - Attention is All you Need.md"
+  },
+  {
+    "parent_key": "LUM266YT",
+    "parent_title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "status": "ok",
+    "source_file": "LUM266YT_An Image is Worth 16x16 Words_ Transformers for Image Recognition at Scale.md",
+    "source_type": "md",
+    "source_bytes": 73420,
+    "source_filename": "Dosovitskiy 等 - 2020 - An Image is Worth 16x16 Words Transformers for Image Recognition at Scale.md"
+  },
+  {
+    "parent_key": "95F26DIX",
+    "parent_title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows",
+    "status": "ok",
+    "source_file": "95F26DIX_Swin Transformer_ Hierarchical Vision Transformer using Shifted Windows.md",
+    "source_type": "md",
+    "source_bytes": 79820,
+    "source_filename": "Liu 等 - 2021 - Swin Transformer Hierarchical Vision Transformer using Shifted Windows.md"
+  },
+  {
+    "parent_key": "34WIW5FH",
+    "parent_title": "Deep Residual Learning for Image Recognition",
+    "status": "ok",
+    "source_file": "34WIW5FH_Deep Residual Learning for Image Recognition.md",
+    "source_type": "md",
+    "source_bytes": 65845,
+    "source_filename": "He 等 - 2015 - Deep Residual Learning for Image Recognition.md"
+  },
+  {
+    "parent_key": "I6XI39WA",
+    "parent_title": "A ConvNet for the 2020s",
+    "status": "ok",
+    "source_file": "I6XI39WA_A ConvNet for the 2020s.md",
+    "source_type": "md",
+    "source_bytes": 84796,
+    "source_filename": "Liu 等 - 2022 - A ConvNet for the 2020s.md"
+  },
+  {
+    "parent_key": "URSNH83W",
+    "parent_title": "YOLOv3: An Incremental Improvement",
+    "status": "download_error",
+    "error": "bridge protocol: invalid utf-8 in response header (filename contains special chars)"
+  },
+  {
+    "parent_key": "8ET4QJ6S",
+    "parent_title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+    "status": "ok",
+    "source_file": "8ET4QJ6S_U-Net_ Convolutional Networks for Biomedical Image Segmentation.md",
+    "source_type": "md",
+    "source_bytes": 20637,
+    "source_filename": "Ronneberger 等 - 2015 - U-Net Convolutional Networks for Biomedical Image Segmentation.md"
+  },
+  {
+    "parent_key": "ANFVBN87",
+    "parent_title": "A Simple Framework for Contrastive Learning of Visual Representations",
+    "status": "ok",
+    "source_file": "ANFVBN87_A Simple Framework for Contrastive Learning of Visual Representations.md",
+    "source_type": "md",
+    "source_bytes": 86414,
+    "source_filename": "Chen 等 - 2020 - A Simple Framework for Contrastive Learning of Visual Representations.md"
+  },
+  {
+    "parent_key": "V3TMPN22",
+    "parent_title": "SSD: Single Shot MultiBox Detector",
+    "status": "ok",
+    "source_file": "V3TMPN22_SSD_ Single Shot MultiBox Detector.md",
+    "source_type": "md",
+    "source_bytes": 53162,
+    "source_filename": "Liu 等 - 2016 - SSD Single Shot MultiBox Detector.md"
+  },
+  {
+    "parent_key": "B3REC7HH",
+    "parent_title": "ImageNet Large Scale Visual Recognition Challenge",
+    "status": "ok",
+    "source_file": "B3REC7HH_ImageNet Large Scale Visual Recognition Challenge.md",
+    "source_type": "md",
+    "source_bytes": 214267,
+    "source_filename": "Russakovsky 等 - 2015 - ImageNet Large Scale Visual Recognition Challenge.md"
+  },
+  {
+    "parent_key": "VA9QJETD",
+    "parent_title": "Fully convolutional networks for semantic segmentation",
+    "status": "ok",
+    "source_file": "VA9QJETD_Fully convolutional networks for semantic segmentation.md",
+    "source_type": "md",
+    "source_bytes": 51351,
+    "source_filename": "Long 等 - 2015 - Fully convolutional networks for semantic segmentation.md"
+  },
+  {
+    "parent_key": "RWXIXM24",
+    "parent_title": "Very Deep Convolutional Networks for Large-Scale Image Recognition",
+    "status": "download_error",
+    "error": "bridge protocol: invalid utf-8 in response header (filename contains special chars)"
+  },
+  {
+    "parent_key": "ELUGCCPA",
+    "parent_title": "基于计算机视觉的Transformer研究进展",
+    "status": "ok",
+    "source_file": "test/fixtures/source_papers/ELUGCCPA_基于计算机视觉的Transformer研究进展.md",
+    "source_type": "md",
+    "source_bytes": 82195,
+    "source_filename": "刘文婷和卢新明 - 2022 - 基于计算机视觉的Transformer研究进展.md"
+  },
+  {
+    "parent_key": "VP3VWENB",
+    "parent_title": "深度学习下的单阶段通用目标检测算法研究综述",
+    "status": "ok",
+    "source_file": "test/fixtures/source_papers/VP3VWENB_深度学习下的单阶段通用目标检测算法研究综述.md",
+    "source_type": "md",
+    "source_bytes": 128121,
+    "source_filename": "王宁和智敏 - 2025 - 深度学习下的单阶段通用目标检测算法研究综述.md"
+  },
+  {
+    "parent_key": "S7IWH3CG",
+    "parent_title": "基于Transformer的DETR目标检测算法综述",
+    "status": "ok",
+    "source_file": "test/fixtures/source_papers/S7IWH3CG_基于Transformer的DETR目标检测算法综述.md",
+    "source_type": "md",
+    "source_bytes": 96770,
+    "source_filename": "李沂杨 等 - 2026 - 基于Transformer的DETR目标检测算法综述.md"
+  },
+  {
+    "parent_key": "7WIXRD9R",
+    "parent_title": "面向标签稀缺场景的DINO特征迁移月球岩石薄片图像分类",
+    "status": "ok",
+    "source_file": "test/fixtures/source_papers/7WIXRD9R_面向标签稀缺场景的DINO特征迁移月球岩石薄片图像分类.md",
+    "source_type": "md",
+    "source_bytes": 44541,
+    "source_filename": "戴旻昊 等 - 2025 - 面向标签稀缺场景的DINO特征迁移月球岩石薄片图像分类.md"
+  },
+  {
+    "parent_key": "UFJQE7PA",
+    "parent_title": "基于改进RT-DETR的铁路施工场景下人员安全穿戴检测",
+    "status": "ok",
+    "source_file": "test/fixtures/source_papers/UFJQE7PA_基于改进RT-DETR的铁路施工场景下人员安全穿戴检测.md",
+    "source_type": "md",
+    "source_bytes": 40313,
+    "source_filename": "冯爽 等 - 2025 - 基于改进RT-DETR的铁路施工场景下人员安全穿戴检测.md"
+  }
+]

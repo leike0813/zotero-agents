@@ -5,13 +5,15 @@ TBD - created by archiving change add-zotero-mcp-tool-suite. Update Purpose afte
 ## Requirements
 ### Requirement: Formal broker-backed Zotero MCP tool registry
 
-The system SHALL expose Zotero MCP tools from a registry that defines tool metadata, input schema, and handler behavior.
+The system SHALL expose Zotero MCP tools by mirroring the Host Bridge
+capability registry.
 
 #### Scenario: Tool listing includes formal tool suite
 
 - **WHEN** an MCP client calls `tools/list`
-- **THEN** the server SHALL return the formal Zotero read and mutation tools with JSON schemas
-- **AND** tool definitions SHALL be generated from the registry rather than hard-coded per response.
+- **THEN** the server SHALL return Host Bridge capability names with JSON schemas
+- **AND** tool definitions SHALL be generated from the Host Bridge capability
+  registry rather than hard-coded per response.
 
 #### Scenario: Unknown tool is rejected
 
@@ -19,19 +21,23 @@ The system SHALL expose Zotero MCP tools from a registry that defines tool metad
 - **THEN** the server SHALL return a JSON-RPC invalid params error
 - **AND** no broker read or write call SHALL be executed.
 
-### Requirement: JSON-safe read MCP tools
+### Requirement: JSON-safe read MCP capabilities
 
-The system SHALL expose read-only Zotero MCP tools through `hostApi.context` and `hostApi.library`.
+The system SHALL expose read-only Host Bridge context and library capabilities
+as MCP tools.
 
 #### Scenario: Current view and selected items
 
-- **WHEN** an MCP client calls `zotero.get_current_view` or `zotero.get_selected_items`
+- **WHEN** an MCP client calls `context.get_current_view` or
+  `context.get_selected_items`
 - **THEN** the tool SHALL return JSON-safe broker DTOs
 - **AND** raw Zotero objects SHALL NOT be returned.
 
 #### Scenario: Library query tools
 
-- **WHEN** an MCP client calls `zotero.search_items`, `zotero.get_item_detail`, `zotero.get_item_notes`, or `zotero.get_item_attachments`
+- **WHEN** an MCP client calls `library.search_items`,
+  `library.get_item_detail`, `library.get_item_notes`, or
+  `library.get_item_attachments`
 - **THEN** the tool SHALL call the corresponding `hostApi.library` API
 - **AND** the result SHALL include compact text content and structured JSON content.
 
@@ -41,7 +47,7 @@ The system SHALL return attachment access metadata without embedding file conten
 
 #### Scenario: Local file attachment
 
-- **WHEN** `zotero.get_item_attachments` returns a file attachment with a local path
+- **WHEN** `library.get_item_attachments` returns a file attachment with a local path
 - **THEN** the MCP result SHALL include `access.mode = "local-path"` and `access.path`
 - **AND** the MCP result SHALL NOT include the file content.
 
@@ -277,22 +283,23 @@ callable-smoke prompt.
 - **THEN** the runner SHALL send the guarded business prompt directly
 - **AND** it SHALL NOT send a separate callable-smoke prompt.
 
-### Requirement: High-risk artifact read tool is not public
+### Requirement: Paper artifact read capability is public and bounded
 
-The Zotero MCP tool registry SHALL NOT expose
-`synthesis.read_paper_artifacts` as a public tool.
+The Zotero MCP tool registry SHALL expose `paper_artifacts.read`
+when the Host Bridge capability registry exposes it.
 
-#### Scenario: Tool listing excludes read_paper_artifacts
+#### Scenario: Tool listing includes read_paper_artifacts
 
 - **WHEN** an MCP client calls `tools/list`
-- **THEN** the returned tool names SHALL NOT include
-  `synthesis.read_paper_artifacts`.
+- **THEN** the returned tool names SHALL include
+  `paper_artifacts.read`.
 
-#### Scenario: Direct call is rejected
+#### Scenario: Direct call dispatches through Host Bridge
 
 - **WHEN** an MCP client calls `tools/call` with
-  `synthesis.read_paper_artifacts`
-- **THEN** the response SHALL be an unknown-tool JSON-RPC error.
+  `paper_artifacts.read`
+- **THEN** the response SHALL be produced by the Host Bridge capability handler
+- **AND** the response SHALL retain bounded artifact output semantics.
 
 ### Requirement: Synthesis tool suite supports review-ready topic artifacts
 
@@ -315,7 +322,7 @@ The Zotero MCP server SHALL list only the current public synthesis tools.
 
 - **WHEN** an MCP client calls `tools/list`
 - **THEN** the returned tool names SHALL include
-  `synthesis.export_filtered_paper_artifacts`
+  `paper_artifacts.export_filtered`
 - **AND** SHALL NOT include `synthesis.export_paper_artifact_bundle`.
 
 #### Scenario: Unknown old export tool is rejected
@@ -365,4 +372,3 @@ The embedded Zotero MCP server SHALL parse JSON-RPC HTTP request bodies from raw
 - **WHEN** an MCP request body is not valid UTF-8
 - **THEN** the server SHALL return a stable parse/bad-request response
 - **AND** it SHALL NOT pass mojibake text to the JSON-RPC dispatcher.
-

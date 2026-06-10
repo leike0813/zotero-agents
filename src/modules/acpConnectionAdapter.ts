@@ -16,6 +16,8 @@ import { launchAcpTransport } from "./acpTransport";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
   ACP_PROTOCOL_VERSION,
+  type AcpSessionConfigCategory,
+  type AcpSessionConfigOption,
   type NewSessionResponse,
   type RequestPermissionOutcome,
   RequestError,
@@ -23,6 +25,10 @@ import {
   type SessionModeState,
   type SessionNotification,
 } from "./acpProtocol";
+import {
+  findAcpSessionConfigOptionByCategory,
+  normalizeAcpSessionConfigOptions,
+} from "./acpSessionConfigOptions";
 import {
   ensureZoteroMcpServer,
   markZoteroMcpServerDescriptorInjected,
@@ -79,6 +85,7 @@ export type AcpConnectionNewSessionResult = {
   sessionId: string;
   sessionTitle?: string;
   sessionUpdatedAt?: string;
+  configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
 };
@@ -87,6 +94,7 @@ export type AcpConnectionAttachSessionResult = {
   sessionId: string;
   sessionTitle?: string;
   sessionUpdatedAt?: string;
+  configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
 };
@@ -105,6 +113,11 @@ export type AcpConnectionAdapter = {
     message: string;
   }) => Promise<{ stopReason: string }>;
   cancel: (args: { sessionId: string }) => Promise<void>;
+  setConfigOption?: (args: {
+    sessionId: string;
+    category: AcpSessionConfigCategory;
+    value: string;
+  }) => Promise<boolean>;
   setMode: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel: (args: { sessionId: string; modelId: string }) => Promise<void>;
   authenticate: (args: { methodId: string }) => Promise<void>;
@@ -244,6 +257,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private canUseHttpMcp = false;
   private canUseSseMcp = false;
   private currentSessionId = "";
+  private latestConfigOptions: AcpSessionConfigOption[] = [];
   private closing = false;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
@@ -552,6 +566,12 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         };
       },
       sessionUpdate: async (params) => {
+        const update = params?.update as
+          | { sessionUpdate?: string; configOptions?: unknown }
+          | undefined;
+        if (String(update?.sessionUpdate || "").trim() === "config_option_update") {
+          this.updateLatestConfigOptions(update?.configOptions);
+        }
         for (const listener of this.updateListeners) {
           await listener(params);
         }
@@ -735,6 +755,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         title?: string | null;
         updatedAt?: string | null;
       };
+      const configOptions = this.updateLatestConfigOptions(response.configOptions);
       this.emitDiagnostic({
         kind: "session_created",
         message: `Created ACP session ${String(response.sessionId || "").trim()}`,
@@ -746,6 +767,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           String(response.title || "").trim() || undefined,
         sessionUpdatedAt:
           String(response.updatedAt || "").trim() || undefined,
+        configOptions,
         modes: response.modes || null,
         models: response.models || null,
       };
@@ -794,10 +816,12 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         message: `Loaded ACP session ${sessionId}`,
       });
       this.currentSessionId = sessionId;
+      const configOptions = this.updateLatestConfigOptions(response?.configOptions);
       return {
         sessionId,
         sessionTitle: String(response?.title || "").trim() || undefined,
         sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+        configOptions,
         modes: response?.modes || null,
         models: response?.models || null,
       };
@@ -832,10 +856,12 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         message: `Resumed ACP session ${sessionId}`,
       });
       this.currentSessionId = sessionId;
+      const configOptions = this.updateLatestConfigOptions(response?.configOptions);
       return {
         sessionId,
         sessionTitle: String(response?.title || "").trim() || undefined,
         sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+        configOptions,
         modes: response?.modes || null,
         models: response?.models || null,
       };
@@ -910,6 +936,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!this.connection) {
       await this.initialize();
     }
+    if (
+      await this.setConfigOption({
+        sessionId: args.sessionId,
+        category: "mode",
+        value: args.modeId,
+      })
+    ) {
+      return;
+    }
     await this.connection!.setSessionMode({
       sessionId: args.sessionId,
       modeId: args.modeId,
@@ -924,6 +959,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!this.connection) {
       await this.initialize();
     }
+    if (
+      await this.setConfigOption({
+        sessionId: args.sessionId,
+        category: "model",
+        value: args.modelId,
+      })
+    ) {
+      return;
+    }
     await this.connection!.setSessionModel({
       sessionId: args.sessionId,
       modelId: args.modelId,
@@ -932,6 +976,49 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       kind: "initialized",
       message: `Model set to ${args.modelId}`,
     });
+  }
+
+  private updateLatestConfigOptions(value: unknown) {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    this.latestConfigOptions = normalizeAcpSessionConfigOptions(value);
+    return this.latestConfigOptions.map((entry) => ({ ...entry }));
+  }
+
+  async setConfigOption(args: {
+    sessionId: string;
+    category: AcpSessionConfigCategory;
+    value: string;
+  }) {
+    if (!this.connection) {
+      await this.initialize();
+    }
+    const option = findAcpSessionConfigOptionByCategory(
+      this.latestConfigOptions,
+      args.category,
+    );
+    if (!option) {
+      return false;
+    }
+    try {
+      const response = await this.connection!.setSessionConfigOption({
+        sessionId: args.sessionId,
+        configId: option.id,
+        value: args.value,
+      });
+      this.updateLatestConfigOptions(response?.configOptions);
+      this.emitDiagnostic({
+        kind: "initialized",
+        message: `Config option ${option.id} set to ${args.value}`,
+      });
+      return true;
+    } catch (error) {
+      if (isRequestError(error) && error.code === -32601) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async authenticate(args: { methodId: string }) {

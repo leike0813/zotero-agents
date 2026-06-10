@@ -20,6 +20,7 @@ import {
 import { getHostBridgeServerStatus } from "./hostBridgeServer";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import type {
+  AcpSessionConfigCategory,
   AcpToolCall,
   RequestPermissionOutcome,
   SessionNotification,
@@ -185,6 +186,8 @@ export type AcpSkillRunRecord = {
   workflowLabel?: string;
   jobId?: string;
   runId?: string;
+  sequenceStepId?: string;
+  sequenceFinalStepId?: string;
   taskName?: string;
   skillId?: string;
   requestPayload?: unknown;
@@ -330,6 +333,11 @@ type AcpSkillRunController = {
   reply?: (message: string) => Promise<void>;
   disconnect?: () => Promise<void>;
   endSession?: () => Promise<void>;
+  setConfigOption?: (args: {
+    sessionId: string;
+    category: AcpSessionConfigCategory;
+    value: string;
+  }) => Promise<boolean>;
   setMode?: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
 };
@@ -968,6 +976,8 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     workflowLabel: normalizeString(raw.workflowLabel) || undefined,
     jobId: normalizeString(raw.jobId) || undefined,
     runId: normalizeString(raw.runId) || undefined,
+    sequenceStepId: normalizeString(raw.sequenceStepId) || undefined,
+    sequenceFinalStepId: normalizeString(raw.sequenceFinalStepId) || undefined,
     taskName: normalizeString(raw.taskName) || undefined,
     skillId: normalizeString(raw.skillId) || undefined,
     requestPayload: raw.requestPayload,
@@ -1200,6 +1210,8 @@ export function upsertAcpSkillRun(update: {
   workflowLabel?: string;
   jobId?: string;
   runId?: string;
+  sequenceStepId?: string;
+  sequenceFinalStepId?: string;
   taskName?: string;
   skillId?: string;
   requestPayload?: unknown;
@@ -1299,6 +1311,8 @@ export function upsertAcpSkillRun(update: {
   assignString("workflowLabel", update.workflowLabel);
   assignString("jobId", update.jobId);
   assignString("runId", update.runId);
+  assignString("sequenceStepId", update.sequenceStepId);
+  assignString("sequenceFinalStepId", update.sequenceFinalStepId);
   assignString("taskName", update.taskName);
   assignString("skillId", update.skillId);
   if (Object.prototype.hasOwnProperty.call(update, "requestPayload")) {
@@ -2673,7 +2687,15 @@ export async function setAcpSkillRunReasoningEffort(args: {
     currentRawModelId: run.acpRawModelId,
   });
   const controller = requireRuntimeController(requestId, "setModel");
-  await controller.setModel({ sessionId, modelId: rawModelId });
+  const applied =
+    (await controller.setConfigOption?.({
+      sessionId,
+      category: "thought_level",
+      value: effortId,
+    })) === true;
+  if (!applied) {
+    await controller.setModel({ sessionId, modelId: rawModelId });
+  }
   upsertAcpSkillRun({
     requestId,
     acpModelId: displayModelId,

@@ -52,7 +52,6 @@ import {
 } from "./modules/skillRunnerLocalRuntimeManager";
 import { openSkillRunnerLocalDeployDebugDialog } from "./modules/skillRunnerLocalDeployDebugDialog";
 import { loadBackendsRegistry } from "./backends/registry";
-import { openSkillRunnerManagementDialog } from "./modules/skillRunnerManagementDialog";
 import { refreshSkillRunnerModelCacheForBackend } from "./providers/skillrunner/modelCache";
 import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConstants";
 import { isDebugModeEnabled } from "./modules/debugMode";
@@ -867,9 +866,10 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "openSkillRunnerManagedBackendPage": {
       try {
         const backend = await resolveManagedLocalBackend();
-        await openSkillRunnerManagementDialog({
-          backendId: backend.id,
-          baseUrl: backend.baseUrl,
+        await openZoteroSkillsWorkspaceTab({
+          initialView: "dashboard",
+          initialDashboardTabKey: `backend:${backend.id}`,
+          initialDashboardBackendSubview: "management",
         });
         return {
           ok: true,

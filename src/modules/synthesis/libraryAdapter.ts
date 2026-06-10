@@ -49,6 +49,11 @@ export type SynthesisLibraryIndex = {
   page_hash?: string;
 };
 
+export type SynthesisTagUsageCount = {
+  tag: string;
+  count: number;
+};
+
 export type SynthesisRegistryMetadataFingerprint = {
   library_id: number;
   item_key: string;
@@ -108,6 +113,9 @@ export type SynthesisLibraryAdapter = {
     libraryId?: number;
     itemKey: string;
   }) => Promise<ReferenceSidecarInput | null>;
+  getTagUsageCounts?: (args?: {
+    libraryId?: number;
+  }) => Promise<SynthesisTagUsageCount[]>;
   getRegistryMetadataFingerprints?: (args?: {
     libraryId?: number;
     limit?: number;
@@ -405,6 +413,27 @@ async function registryInputsFromZotero(libraryId: number) {
     .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
 }
 
+async function tagUsageCountsFromZotero(
+  libraryId: number,
+): Promise<SynthesisTagUsageCount[]> {
+  const counts = new Map<string, number>();
+  const items = await getAllRegularZoteroItems(libraryId);
+  for (const item of items) {
+    if (!isVisibleTopLevelRegular(item)) {
+      continue;
+    }
+    if (normalizeLibraryId(item?.libraryID, libraryId) !== libraryId) {
+      continue;
+    }
+    for (const tag of getTags(item)) {
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((left, right) => left.tag.localeCompare(right.tag));
+}
+
 function itemByLibraryAndKey(libraryId: number, itemKey: string) {
   const zotero = zoteroRuntime();
   return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
@@ -672,7 +701,7 @@ function payloadProbeFields(args: {
   payloadTypesSeen?: string[];
 }) {
   return {
-    probe_source: "synthesis.read_paper_artifacts",
+    probe_source: "paper_artifacts.read",
     item_found: args.inputFound,
     child_note_count: args.childNoteCount || 0,
     note_keys_seen: [...(args.noteKeysSeen || [])],
@@ -1016,6 +1045,13 @@ export function createZoteroSynthesisLibraryAdapter(
         return null;
       }
       return paperInputSummaryFromItem(item, requestedLibraryId);
+    },
+    async getTagUsageCounts(request = {}) {
+      const requestedLibraryId = normalizeLibraryId(
+        request.libraryId,
+        libraryId,
+      );
+      return tagUsageCountsFromZotero(requestedLibraryId);
     },
     async getRegistryMetadataFingerprints(request = {}) {
       const requestedLibraryId = normalizeLibraryId(

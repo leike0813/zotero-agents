@@ -131,7 +131,7 @@
       kind: "acp-skills",
       context: {
         id: safeText(run.requestId || (snapshot && snapshot.selectedRequestId)),
-        title: safeText(run.workflowLabel || run.taskName || run.skillId) || "ACP Skill Run",
+        title: safeText(run.taskName || run.workflowLabel || run.skillId) || "ACP Skill Run",
         status: safeText(run.status) || "idle",
       },
       lifecycle: {

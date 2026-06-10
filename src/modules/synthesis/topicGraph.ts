@@ -45,7 +45,8 @@ export type SynthesisTopicGraphEdgeStatus =
   | "suggested"
   | "confirmed"
   | "rejected"
-  | "stale";
+  | "stale"
+  | "deleted";
 
 export type SynthesisTopicGraphNode = {
   topic_id: string;
@@ -77,7 +78,7 @@ export type SynthesisTopicGraphEdge = {
 
 export type SynthesisTopicGraphReviewItem = {
   review_id: string;
-  status: "open" | "approved" | "rejected";
+  status: "open" | "approved" | "rejected" | "deleted";
   source_topic_id: string;
   target_topic_id: string;
   target_title?: string;
@@ -142,7 +143,8 @@ type IndexRebuildOptions = {
 };
 
 export type SynthesisTopicRelationProposalType =
-  | "broader_topic_candidate"
+  | "target_is_broader_topic_candidate"
+  | "target_is_narrower_topic_candidate"
   | "related_topic_candidate"
   | "overlap_topic_candidate"
   | "contrast_topic_candidate";
@@ -321,7 +323,12 @@ function normalizeRelation(value: unknown): SynthesisTopicGraphRelation | null {
 
 function normalizeEdgeStatus(value: unknown): SynthesisTopicGraphEdgeStatus {
   const status = cleanString(value);
-  if (status === "confirmed" || status === "rejected" || status === "stale") {
+  if (
+    status === "confirmed" ||
+    status === "rejected" ||
+    status === "stale" ||
+    status === "deleted"
+  ) {
     return status;
   }
   return "suggested";
@@ -466,7 +473,9 @@ function createRegistry() {
       relation: {
         enum: ["broader_than", "related_to", "overlaps_with", "contrasts_with"],
       },
-      status: { enum: ["suggested", "confirmed", "rejected", "stale"] },
+      status: {
+        enum: ["suggested", "confirmed", "rejected", "stale", "deleted"],
+      },
       confidence: { type: "number" },
       provenance: { type: "array" },
       evidence_refs: { type: "array" },
@@ -490,7 +499,7 @@ function createRegistry() {
     additionalProperties: true,
     properties: {
       review_id: { type: "string", minLength: 1 },
-      status: { enum: ["open", "approved", "rejected"] },
+      status: { enum: ["open", "approved", "rejected", "deleted"] },
       source_topic_id: { type: "string", minLength: 1 },
       target_topic_id: { type: "string", minLength: 1 },
       target_title: { type: "string" },
@@ -530,7 +539,10 @@ function createRegistry() {
 function proposalRelation(
   type: SynthesisTopicRelationProposalType,
 ): SynthesisTopicGraphRelation {
-  if (type === "broader_topic_candidate") {
+  if (
+    type === "target_is_broader_topic_candidate" ||
+    type === "target_is_narrower_topic_candidate"
+  ) {
     return "broader_than";
   }
   if (type === "overlap_topic_candidate") {
@@ -547,7 +559,8 @@ function normalizeProposalType(
 ): SynthesisTopicRelationProposalType | null {
   const type = cleanString(value);
   if (
-    type === "broader_topic_candidate" ||
+    type === "target_is_broader_topic_candidate" ||
+    type === "target_is_narrower_topic_candidate" ||
     type === "related_topic_candidate" ||
     type === "overlap_topic_candidate" ||
     type === "contrast_topic_candidate"
@@ -563,7 +576,9 @@ function normalizeProposal(
   if (!isRecord(input)) {
     return null;
   }
-  const type = normalizeProposalType(input.type || input.proposal_type);
+  const type = normalizeProposalType(
+    input.type || input.proposal_type || input.relation_type,
+  );
   if (!type) {
     return null;
   }
@@ -575,15 +590,13 @@ function normalizeProposal(
       undefined,
     target_title: cleanString(input.target_title || target.title) || undefined,
     confidence: clampConfidence(input.confidence),
-    evidence_refs: Array.isArray(input.evidence_refs)
-      ? input.evidence_refs
-      : [],
+    evidence_refs: Array.isArray(input.source_paper_refs)
+      ? input.source_paper_refs
+      : Array.isArray(input.evidence_refs)
+        ? input.evidence_refs
+        : [],
     provenance: Array.isArray(input.provenance) ? input.provenance : [],
   };
-}
-
-function placeholderTopicId(title: string) {
-  return `placeholder:${safeTopicGraphId(title).toLowerCase()}`;
 }
 
 function reviewIdFor(args: {
@@ -724,7 +737,9 @@ function topicGraphReviewFromRecord(
   return {
     review_id: record.reviewId,
     status:
-      record.status === "approved" || record.status === "rejected"
+      record.status === "approved" ||
+      record.status === "rejected" ||
+      record.status === "deleted"
         ? record.status
         : "open",
     source_topic_id: record.sourceTopicId,
@@ -747,7 +762,12 @@ function hasBroaderPath(
 ) {
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {
-    if (edge.relation !== "broader_than" || edge.status === "rejected") {
+    if (
+      edge.relation !== "broader_than" ||
+      edge.status === "rejected" ||
+      edge.status === "deleted" ||
+      edge.status === "stale"
+    ) {
       continue;
     }
     adjacency.set(edge.source_topic_id, [
@@ -992,6 +1012,111 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       edges: [edge],
       transactionId: options?.transactionId,
     });
+  }
+
+  async function markTopicRelationsDeleted(
+    topicId: string,
+    options?: { transactionId?: string },
+  ) {
+    const normalizedTopicId = cleanString(topicId);
+    const current = await loadTopicGraph();
+    if (!normalizedTopicId) {
+      return {
+        transactionId: "",
+        receipt: undefined,
+        deleted_edges: 0,
+        deleted_review_items: 0,
+      };
+    }
+    const timestamp = now();
+    let deletedEdges = 0;
+    let deletedReviewItems = 0;
+    const edges = current.edges.map((edge) => {
+      if (
+        edge.source_topic_id !== normalizedTopicId &&
+        edge.target_topic_id !== normalizedTopicId
+      ) {
+        return edge;
+      }
+      if (edge.status !== "deleted") {
+        deletedEdges += 1;
+      }
+      return {
+        ...edge,
+        status: "deleted" as const,
+        updated_at: timestamp,
+      };
+    });
+    const reviewItems = current.review_items.map((item) => {
+      if (
+        item.source_topic_id !== normalizedTopicId &&
+        item.target_topic_id !== normalizedTopicId
+      ) {
+        return item;
+      }
+      if (item.status !== "deleted") {
+        deletedReviewItems += 1;
+      }
+      return {
+        ...item,
+        status: "deleted" as const,
+        updated_at: timestamp,
+        resolved_at: item.resolved_at || timestamp,
+      };
+    });
+    const result = await commitGraph({
+      nodes: current.nodes,
+      edges,
+      reviewItems,
+      transactionId: options?.transactionId,
+    });
+    return {
+      transactionId: result.transactionId,
+      receipt: result.receipt,
+      deleted_edges: deletedEdges,
+      deleted_review_items: deletedReviewItems,
+    };
+  }
+
+  async function purgeDeletedTopicRelations(
+    topicIds: string[],
+    options?: { transactionId?: string },
+  ) {
+    const ids = new Set(topicIds.map(cleanString).filter(Boolean));
+    const current = await loadTopicGraph();
+    if (!ids.size) {
+      return {
+        transactionId: "",
+        receipt: undefined,
+        purged_nodes: 0,
+        purged_edges: 0,
+        purged_review_items: 0,
+      };
+    }
+    const nodes = current.nodes.filter(
+      (node) => !ids.has(node.topic_id) || node.definition_status !== "deleted",
+    );
+    const edges = current.edges.filter(
+      (edge) =>
+        !ids.has(edge.source_topic_id) && !ids.has(edge.target_topic_id),
+    );
+    const reviewItems = current.review_items.filter(
+      (item) =>
+        !ids.has(item.source_topic_id) && !ids.has(item.target_topic_id),
+    );
+    const result = await commitGraph({
+      nodes,
+      edges,
+      reviewItems,
+      transactionId: options?.transactionId,
+    });
+    return {
+      transactionId: result.transactionId,
+      receipt: result.receipt,
+      purged_nodes: current.nodes.length - nodes.length,
+      purged_edges: current.edges.length - edges.length,
+      purged_review_items: current.review_items.length - reviewItems.length,
+    };
   }
 
   async function upsertMaterializedTopic(args: {
@@ -1256,15 +1381,22 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
 
     for (const proposal of normalized) {
       const relation = proposalRelation(proposal.type);
-      let targetTopicId = cleanString(proposal.target_topic_id);
-      if (!targetTopicId && proposal.target_title) {
-        targetTopicId = placeholderTopicId(proposal.target_title);
-      }
+      const targetTopicId = cleanString(proposal.target_topic_id);
       if (!targetTopicId) {
         diagnostics.push({
           code: "missing_target_topic",
           message: "Relation proposal target topic is missing.",
           source_topic_id: effectiveSource,
+          relation,
+        });
+        continue;
+      }
+      if (!nodesById.has(targetTopicId)) {
+        diagnostics.push({
+          code: "unknown_target_topic",
+          message: "Relation proposal target topic is not available.",
+          source_topic_id: effectiveSource,
+          target_topic_id: targetTopicId,
           relation,
         });
         continue;
@@ -1278,22 +1410,6 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
           relation,
         });
         continue;
-      }
-      if (!nodesById.has(targetTopicId)) {
-        const placeholder = normalizeTopicNode(
-          {
-            topic_id: targetTopicId,
-            title: proposal.target_title || targetTopicId,
-            aliases: [],
-            node_type: "placeholder",
-            definition_status: "placeholder",
-          },
-          timestamp,
-        );
-        if (placeholder) {
-          nodesById.set(placeholder.topic_id, placeholder);
-          placeholders.push(placeholder);
-        }
       }
       if (!nodesById.has(effectiveSource)) {
         const sourceNode = normalizeTopicNode(
@@ -1312,11 +1428,17 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       }
       const tuple =
         relation === "broader_than"
-          ? {
-              sourceTopicId: targetTopicId,
-              targetTopicId: effectiveSource,
-              relation,
-            }
+          ? proposal.type === "target_is_narrower_topic_candidate"
+            ? {
+                sourceTopicId: effectiveSource,
+                targetTopicId,
+                relation,
+              }
+            : {
+                sourceTopicId: targetTopicId,
+                targetTopicId: effectiveSource,
+                relation,
+              }
           : { sourceTopicId: effectiveSource, targetTopicId, relation };
       const canonical = canonicalizeTopicGraphEdgeTuple(tuple);
       if (proposal.confidence !== undefined && proposal.confidence < 0.5) {
@@ -1567,6 +1689,8 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     importTopicGraphCheckpoint,
     upsertTopicNode,
     upsertTopicEdge,
+    markTopicRelationsDeleted,
+    purgeDeletedTopicRelations,
     upsertMaterializedTopic,
     decideTopicGraphRelation,
     applyTopicGraphReviewAction,

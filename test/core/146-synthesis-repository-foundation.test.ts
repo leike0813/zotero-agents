@@ -1,8 +1,10 @@
 import { assert } from "chai";
 import {
+  createSynthesisSqlAdapterForPath,
   createSynthesisRepository,
   getSynthesisRepositoryDatabasePath,
 } from "../../src/modules/synthesis/repository";
+import { resetGuardedSqliteForTests } from "../../src/modules/guardedSqlite";
 import {
   SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT,
   createSynthesisService,
@@ -21,14 +23,22 @@ import {
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
 
+function createSynthesisBusyError() {
+  const error = new Error("database is locked: SQLITE_BUSY");
+  error.name = "NS_ERROR_STORAGE_BUSY";
+  return error;
+}
+
 describe("Synthesis repository foundation", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
+    resetGuardedSqliteForTests();
     resetDefaultSynthesisServiceForTests();
   });
 
   afterEach(function () {
     resetPluginStateStoreForTests();
+    resetGuardedSqliteForTests();
     resetDefaultSynthesisServiceForTests();
   });
 
@@ -62,10 +72,12 @@ describe("Synthesis repository foundation", function () {
             createStatement() {
               throw new Error("unexpected SQL during service construction");
             },
-            executeSimpleSQL() {
-              throw new Error(
-                "unexpected transaction during service construction",
-              );
+            executeSimpleSQL(sql: string) {
+              if (!String(sql).startsWith("PRAGMA busy_timeout=")) {
+                throw new Error(
+                  "unexpected transaction during service construction",
+                );
+              }
             },
           };
         },
@@ -90,6 +102,69 @@ describe("Synthesis repository foundation", function () {
       }
       (globalThis as { Services?: unknown }).Services = previousServices;
       resetDefaultSynthesisServiceForTests();
+    }
+  });
+
+  it("retries transient busy writes through the shared Zotero SQLite guard", function () {
+    const runtime = globalThis as { Services?: unknown; Zotero?: any };
+    const previousServices = runtime.Services;
+    const previousPathToFile = runtime.Zotero?.File?.pathToFile;
+    let insertAttempts = 0;
+
+    if (runtime.Zotero?.File) {
+      runtime.Zotero.File.pathToFile = (filePath: string) => ({
+        path: filePath,
+        parent: { exists: () => true },
+      });
+    }
+    runtime.Services = {
+      storage: {
+        openDatabase() {
+          return {
+            createStatement(sql: string) {
+              return {
+                params: {} as Record<string, unknown>,
+                bindByIndex() {
+                  // No binding is needed for this adapter-level retry test.
+                },
+                execute() {
+                  if (String(sql).trim().toLowerCase().startsWith("insert")) {
+                    insertAttempts += 1;
+                    if (insertAttempts === 1) {
+                      throw createSynthesisBusyError();
+                    }
+                  }
+                },
+                executeStep() {
+                  return false;
+                },
+                finalize() {
+                  // no-op
+                },
+              };
+            },
+            executeSimpleSQL() {
+              // PRAGMA and transaction boundaries are accepted.
+            },
+          };
+        },
+      },
+    };
+    resetGuardedSqliteForTests();
+
+    try {
+      const adapter = createSynthesisSqlAdapterForPath(
+        "C:/runtime/state/zotero-agents.db",
+      );
+      adapter.run("INSERT INTO synt_schema_meta(key, value) VALUES ('k', 'v')");
+
+      assert.equal(insertAttempts, 2);
+    } finally {
+      runtime.Services = previousServices;
+      if (runtime.Zotero?.File && previousPathToFile) {
+        runtime.Zotero.File.pathToFile = previousPathToFile;
+      }
+      resetGuardedSqliteForTests();
     }
   });
 

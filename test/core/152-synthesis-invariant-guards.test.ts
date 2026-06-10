@@ -81,7 +81,9 @@ function listCoreTestFiles(dir = repoPath("test/core")): string[] {
 }
 
 function extractFunctionBlock(source: string, functionName: string): string {
-  const start = source.indexOf(`async function ${functionName}`);
+  const asyncStart = source.indexOf(`async function ${functionName}`);
+  const syncStart = source.indexOf(`function ${functionName}`);
+  const start = asyncStart >= 0 ? asyncStart : syncStart;
   assert.isAtLeast(start, 0, `${functionName} should exist`);
 
   let depth = 0;
@@ -104,8 +106,8 @@ function extractFunctionBlock(source: string, functionName: string): string {
   assert.fail(`Could not extract ${functionName}`);
 }
 
-describe("Synthesis invariant guards", () => {
-  it("declares executable test_refs for every Synthesis invariant", () => {
+describe("Synthesis invariant guards", function () {
+  it("declares executable test_refs for every Synthesis invariant", function () {
     const contract = readInvariantContract();
     assert.equal(contract.schema, "synthesis.invariants.v2");
     assert.isArray(contract.invariants);
@@ -170,7 +172,7 @@ describe("Synthesis invariant guards", () => {
     }
   });
 
-  it("keeps invariant test markers reversible from test titles", () => {
+  it("keeps invariant test markers reversible from test titles", function () {
     const contract = readInvariantContract();
     const refs = new Set<string>();
     const ids = new Set(contract.invariants.map((invariant) => invariant.id));
@@ -201,7 +203,7 @@ describe("Synthesis invariant guards", () => {
     assert.isAtLeast(activeMarkerCount, 1);
   });
 
-  it("keeps topic discovery metadata-overlap only [inv.discovery.no_global_llm_nxm]", () => {
+  it("keeps topic discovery metadata-overlap only [inv.discovery.no_global_llm_nxm]", function () {
     const serviceSource = readRepoText("src/modules/synthesis/service.ts");
     const repositorySource = readRepoText(
       "src/modules/synthesis/repository.ts",
@@ -221,7 +223,7 @@ describe("Synthesis invariant guards", () => {
     assert.notMatch(discoveryRepositorySlice, forbidden);
   });
 
-  it("keeps runtime coordination local async only [inv.runtime.local_async_only]", () => {
+  it("keeps runtime coordination local async only [inv.runtime.local_async_only]", function () {
     assert.isFalse(
       fs.existsSync(repoPath("src/modules/synthesis/updateEvents.ts")),
     );
@@ -251,7 +253,7 @@ describe("Synthesis invariant guards", () => {
     assert.match(runtimeSources, /LibraryWriteLock|runExclusive/);
   });
 
-  it("keeps reference sidecar refresh separated from graph rebuild and legacy readiness sources", () => {
+  it("keeps reference sidecar refresh separated from graph rebuild and legacy readiness sources", function () {
     const serviceSource = readRepoText("src/modules/synthesis/service.ts");
     const workbenchSource = readRepoText(
       "src/modules/synthesisWorkbenchTab.ts",
@@ -276,6 +278,32 @@ describe("Synthesis invariant guards", () => {
     assert.isAbove(graphRetryStart, graphRebuildStart);
     const refreshEnd = Math.min(graphRebuildStart, advancedMatchingStart);
     const refreshBlock = serviceSource.slice(refreshStart, refreshEnd);
+    const graphStaleHelperStart = serviceSource.indexOf(
+      "function markCitationGraphLibraryCacheStale",
+    );
+    const graphStaleHelperEnd = serviceSource.indexOf(
+      "function replaceReferenceSidecarForSourceRef",
+      graphStaleHelperStart,
+    );
+    const relatedStaleHelperStart = serviceSource.indexOf(
+      "function markRelatedItemsSyncCacheStaleForSidecarChange",
+    );
+    const relatedStaleHelperEnd = serviceSource.indexOf(
+      "function relatedItemsEdgesFromGraphRecords",
+      relatedStaleHelperStart,
+    );
+    assert.isAtLeast(graphStaleHelperStart, 0);
+    assert.isAbove(graphStaleHelperEnd, graphStaleHelperStart);
+    assert.isAtLeast(relatedStaleHelperStart, 0);
+    assert.isAbove(relatedStaleHelperEnd, relatedStaleHelperStart);
+    const graphStaleHelperBlock = serviceSource.slice(
+      graphStaleHelperStart,
+      graphStaleHelperEnd,
+    );
+    const relatedStaleHelperBlock = serviceSource.slice(
+      relatedStaleHelperStart,
+      relatedStaleHelperEnd,
+    );
     const graphRebuildBlock = serviceSource.slice(
       graphRebuildStart,
       graphRetryStart,
@@ -349,9 +377,17 @@ describe("Synthesis invariant guards", () => {
     }
 
     assert.include(refreshBlock, 'cacheKey: "reference-sidecar:library"');
-    assert.include(refreshBlock, 'cacheKey: "citation-graph:library"');
-    assert.include(refreshBlock, 'status: "stale"');
-    assert.include(refreshBlock, "refreshCitationGraphCacheIncremental");
+    assert.include(refreshBlock, "markCitationGraphLibraryCacheStale");
+    assert.include(graphStaleHelperBlock, 'cacheKey: "citation-graph:library"');
+    assert.include(graphStaleHelperBlock, 'status: "stale"');
+    assert.include(
+      relatedStaleHelperBlock,
+      'cacheKey: "related-items-sync:global"',
+    );
+    assert.include(relatedStaleHelperBlock, 'status: "stale"');
+    assert.include(refreshBlock, "markRelatedItemsSyncCacheStaleForSidecarChange");
+    assert.notInclude(refreshBlock, "refreshCitationGraphCacheIncremental");
+    assert.notInclude(refreshBlock, "syncRelatedItemsAfterSynthesisUpdate");
     assert.notInclude(refreshBlock, "replaceCitationGraphState(");
     assert.include(advancedMatchingBlock, "buildReferenceMatcherIndex");
     assert.include(advancedMatchingBlock, "resolveReferenceWithPolicy");
@@ -388,7 +424,7 @@ describe("Synthesis invariant guards", () => {
     assert.notInclude(appSource, "applyLiteratureCleanupAction");
   });
 
-  it("keeps related-items sync independent from graph rebuild and digest auto matching", () => {
+  it("keeps related-items sync independent from graph rebuild and digest auto matching", function () {
     const serviceSource = readRepoText("src/modules/synthesis/service.ts");
     const digestWorkflow = readRepoText(
       "workflows_builtin/literature-workbench-package/literature-digest/workflow.json",
@@ -417,7 +453,7 @@ describe("Synthesis invariant guards", () => {
     assert.include(serviceSource, "yieldToEventLoop");
   });
 
-  it("keeps review candidate generation bounded [inv.review.queue_bounded]", () => {
+  it("keeps review candidate generation bounded [inv.review.queue_bounded]", function () {
     const matcherSource = readRepoText(
       "src/modules/synthesis/referenceMatcher.ts",
     );

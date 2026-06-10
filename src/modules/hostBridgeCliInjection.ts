@@ -14,11 +14,6 @@ import {
   ensureRuntimeDirectory,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import {
-  ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID,
-  loadAcpRuntimePromptTemplate,
-  renderAcpRuntimePromptTemplate,
-} from "./acpRuntimePromptTemplates";
 import { registerHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
 
 export type HostBridgeCliRunInjection = {
@@ -35,7 +30,6 @@ export type HostBridgeCliRunInjection = {
   autoApproveWrites: boolean;
   fallbackReason?: string;
   env: Record<string, string>;
-  promptSnippet: string;
 };
 
 type MaterializeArgs = {
@@ -162,66 +156,31 @@ function buildProfileJson(args: {
   };
 }
 
-function cliAvailabilityLine(args: {
-  available: boolean;
-  fallbackReason?: string;
-}) {
-  return args.available
-    ? "CLI availability: available."
-    : `CLI availability: unavailable (${args.fallbackReason || "cli_binary_unavailable"}).`;
-}
-
-function cliUnavailableLine(args: {
-  available: boolean;
-  fallbackReason?: string;
-}) {
-  return args.available
-    ? ""
-    : `Current availability: unavailable (${args.fallbackReason || "cli_binary_unavailable"}). Continue without CLI unless the user asks for diagnostics.`;
-}
-
-async function buildReadme(args: {
+function buildReadme(args: {
   available: boolean;
   fallbackReason?: string;
   endpoint: string;
+  profilePath: string;
   autoApproveWrites?: boolean;
 }) {
-  const rendered = await renderAcpRuntimePromptTemplate({
-    template: await loadAcpRuntimePromptTemplate(
-      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.host_bridge_cli_readme,
-    ),
-    replacements: {
-      ENDPOINT: args.endpoint,
-      CLI_AVAILABILITY_LINE: cliAvailabilityLine(args),
-    },
-    requiredPlaceholders: ["ENDPOINT", "CLI_AVAILABILITY_LINE"],
-  });
-  return `${rendered.trimEnd()}\n\nAuto-approve Zotero writes for this run: ${
-    args.autoApproveWrites === true ? "enabled" : "disabled"
-  }.\n`;
-}
-
-async function buildPromptSnippet(args: {
-  available: boolean;
-  profilePath: string;
-  readmePath: string;
-  fallbackReason?: string;
-}) {
-  return renderAcpRuntimePromptTemplate({
-    template: await loadAcpRuntimePromptTemplate(
-      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.host_bridge_cli_prompt,
-    ),
-    replacements: {
-      PROFILE_PATH: formatPortablePath(args.profilePath),
-      README_PATH: formatPortablePath(args.readmePath),
-      CLI_UNAVAILABLE_LINE: cliUnavailableLine(args),
-    },
-    requiredPlaceholders: [
-      "PROFILE_PATH",
-      "README_PATH",
-      "CLI_UNAVAILABLE_LINE",
-    ],
-  });
+  return [
+    "# Zotero Bridge Runtime",
+    "",
+    `Endpoint: ${args.endpoint || "(unavailable)"}`,
+    `Profile: ${formatPortablePath(args.profilePath)}`,
+    `CLI availability: ${
+      args.available
+        ? "available"
+        : `unavailable (${args.fallbackReason || "cli_binary_unavailable"})`
+    }`,
+    `Auto-approve Zotero writes for this run: ${
+      args.autoApproveWrites === true ? "enabled" : "disabled"
+    }.`,
+    "",
+    "Host Bridge CLI guidance is provided by the built-in `zotero-bridge-cli` wrapper skill.",
+    "Read that skill and `references/host-bridge-cli.md` for command and capability mappings.",
+    "",
+  ].join("\n");
 }
 
 export async function materializeHostBridgeCliRunInjection(
@@ -292,10 +251,11 @@ export async function materializeHostBridgeCliRunInjection(
 
   await writeRuntimeTextFile(
     readmePath,
-    await buildReadme({
+    buildReadme({
       available,
       fallbackReason,
       endpoint,
+      profilePath,
       autoApproveWrites,
     }),
   );
@@ -335,12 +295,6 @@ export async function materializeHostBridgeCliRunInjection(
     autoApproveWrites,
     fallbackReason: available ? undefined : fallbackReason,
     env,
-    promptSnippet: await buildPromptSnippet({
-      available,
-      profilePath,
-      readmePath,
-      fallbackReason,
-    }),
   };
 }
 
@@ -355,7 +309,6 @@ export function createDisabledHostBridgeCliRunInjection(): HostBridgeCliRunInjec
     autoApproveWrites: false,
     fallbackReason: "zotero_host_access_disabled",
     env: {},
-    promptSnippet: "",
   };
 }
 
@@ -409,5 +362,4 @@ export const hostBridgeCliInjectionInternalsForTests = {
   buildCmdShim,
   buildProfileJson,
   buildReadme,
-  buildPromptSnippet,
 };

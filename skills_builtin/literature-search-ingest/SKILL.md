@@ -24,14 +24,14 @@ description: ACP-only interactive workflow for literature search, user confirmat
 ## 固定交互流程
 
 1. 上下文读取与方案确认
-   - 使用 `zotero-bridge synthesis list-topics`、`zotero-bridge synthesis get-library-index`，并按需使用 `zotero-bridge item search` / `zotero-bridge item get` 读取 Zotero library 与 Synthesis 上下文。
+   - 使用 `zotero-bridge topics list`、`zotero-bridge library-index get`，并按需使用 `zotero-bridge item search` / `zotero-bridge item get` 读取 Zotero library 与 Synthesis 上下文。
    - 如果 `searchMode` 为 `auto` 或缺省，必须额外执行一次联网搜索，再判断搜索模式：
      - `topic_expansion`: 用户输入更像研究方向、主题、关键词、技术路线。
      - `paper_seed_expansion`: 用户输入更像一篇具体论文、DOI、arXiv、PMID、标题或作者线索。
      - `targeted_ingest`: 联网搜索发现与 `query` 匹配度极高、且库中不存在的单篇文献。
    - 如果 `searchMode` 显式指定为 `topic_expansion`、`paper_seed_expansion` 或 `targeted_ingest`，不得再执行模式分类；仍需完成库内比对、联网查证和方案确认。
    - `targeted_ingest` 模式必须展示单篇候选的标题、作者、年份、identifier、landing link、PDF URL 状态、匹配依据和库内去重结论。用户确认后直接进入入库，不再做额外候选扩展搜索。
-   - `paper_seed_expansion` 模式必须先尝试在库内定位 seed paper，并使用 `zotero-bridge synthesis read-paper-artifacts` 获取该文献的 references / citation-analysis / digest artifact；围绕 references 和 citation context 展开搜索。artifact 不存在或不可读时，降级为基于 seed metadata 的联网搜索。
+   - `paper_seed_expansion` 模式必须先尝试在库内定位 seed paper，并使用 `zotero-bridge paper-artifacts read` 获取该文献的 references / citation-analysis / digest artifact；围绕 references 和 citation context 展开搜索。artifact 不存在或不可读时，降级为基于 seed metadata 的联网搜索。
    - 向用户展示搜索方案，至少说明搜索模式、关键词/种子、是否使用 references artifact、优先来源、去重策略、PDF best-effort 限制。
    - 等待用户明确确认后再进入搜索。
 

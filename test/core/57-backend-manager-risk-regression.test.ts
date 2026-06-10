@@ -17,6 +17,7 @@ import {
   refreshSkillRunnerModelCacheFromRow,
   resolveSkillRunnerManagementLaunchPayloadFromRow,
 } from "../../src/modules/backendManager";
+import { buildSkillRunnerManagementUiUrl } from "../../src/modules/skillRunnerManagementDialog";
 import {
   getSkillRunnerBackendHealthState,
   registerSkillRunnerBackendForHealthTracking,
@@ -140,10 +141,25 @@ describe("backend manager risk regression", function () {
     const source = readFileSync("src/modules/backendManager.ts", "utf8");
     assert.include(source, 'data-zs-backend-scroll-region", "1"');
     assert.include(source, 'data-zs-backend-action-bar", "1"');
+    assert.include(source, 'root.style.height = "100%"');
+    assert.include(source, 'root.style.maxHeight = "none"');
+    assert.include(source, 'scrollRegion.style.flex = "1 1 0"');
+    assert.include(source, 'actionBar.style.alignItems = "center"');
+    assert.include(source, 'cell.style.whiteSpace = "nowrap"');
+    assert.include(source, '? "300px"');
+    assert.include(source, '"110px"');
+    assert.include(source, '"96px"');
+    assert.include(source, "fitContent: false");
+    assert.include(source, "width: 1320");
+    assert.include(source, "height: 760");
     assert.include(source, "createBackendManagerDraftSignature");
     assert.include(source, "installBackendManagerBeforeUnloadPrompt");
     assert.include(source, "backend-manager-unsaved-exit-confirm");
-    assert.notInclude(source, ".addButton(getString(\"backend-manager-save\"");
+    assert.notInclude(source, '.addButton(getString("backend-manager-save"');
+    assert.notInclude(
+      source,
+      '"backend-manager-refresh-acp-runtime-cache-success"',
+    );
   });
 
   it("rejects duplicated backend internal ids during dialog collection", function () {
@@ -350,6 +366,55 @@ describe("backend manager risk regression", function () {
     assert.equal(payload.backendId, "backend-skillrunner-primary");
     assert.equal(payload.baseUrl, "http://127.0.0.1:9030/");
     assert.equal(payload.uiUrl, "http://127.0.0.1:9030/ui");
+  });
+
+  it("builds management ui url under the configured base url path", function () {
+    assert.equal(
+      buildSkillRunnerManagementUiUrl("http://127.0.0.1:8030"),
+      "http://127.0.0.1:8030/ui",
+    );
+    assert.equal(
+      buildSkillRunnerManagementUiUrl("http://127.0.0.1:8030/api/"),
+      "http://127.0.0.1:8030/api/ui",
+    );
+    assert.equal(
+      buildSkillRunnerManagementUiUrl("http://127.0.0.1:8030/ui"),
+      "http://127.0.0.1:8030/ui",
+    );
+  });
+
+  it("routes SkillRunner management through Dashboard instead of standalone dialog", function () {
+    const backendManagerSource = readFileSync(
+      "src/modules/backendManager.ts",
+      "utf8",
+    );
+    const dashboardSource = readFileSync(
+      "src/modules/taskManagerDialog.ts",
+      "utf8",
+    );
+    const managementSource = readFileSync(
+      "src/modules/skillRunnerManagementDialog.ts",
+      "utf8",
+    );
+
+    assert.include(backendManagerSource, "openZoteroSkillsWorkspaceTab");
+    assert.include(backendManagerSource, 'initialView: "dashboard"');
+    assert.include(
+      backendManagerSource,
+      'initialDashboardBackendSubview: "management"',
+    );
+    assert.notInclude(backendManagerSource, "openTaskManagerDialog");
+    assert.notInclude(backendManagerSource, "openSkillRunnerManagementDialog");
+    assert.include(
+      dashboardSource,
+      'state.selectedBackendSubviewById.set(backend.id, "management")',
+    );
+    assert.include(
+      dashboardSource,
+      'state.selectedBackendSubviewById.set(backend.id, "runs")',
+    );
+    assert.notInclude(managementSource, "new ztoolkit.Dialog");
+    assert.notInclude(managementSource, "createXULElement");
   });
 
   it("launches management host with unsaved endpoint edits", async function () {

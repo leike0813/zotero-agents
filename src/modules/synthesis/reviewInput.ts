@@ -36,17 +36,13 @@ export type ReviewStructuredTopicInput = {
   metadata?: Record<string, unknown>;
   claims: unknown[];
   timeline_events: Record<string, unknown> | unknown[];
-  paper_evidence: unknown[];
-  external_literature_analysis: Record<string, unknown>;
-  positioning: Record<string, unknown>;
+  source_papers: unknown[];
   taxonomy: Record<string, unknown>;
-  improvement_dimension_summary: Record<string, unknown>;
-  improvement_dimensions: unknown[];
+  improvement_dimensions: Record<string, unknown>;
   debates: unknown[];
   coverage: Record<string, unknown>;
-  gaps: unknown[];
+  future_directions: unknown[];
   review_outline: Record<string, unknown>;
-  evidence_map: Record<string, unknown>;
   incomplete_sections: string[];
 };
 
@@ -161,39 +157,29 @@ function buildStructuredTopicInput(
       : Array.isArray(artifact.timeline_events)
         ? { summary: {}, events: artifact.timeline_events }
         : { summary: {}, events: [] },
-    paper_evidence: Array.isArray(artifact.paper_evidence)
-      ? artifact.paper_evidence
+    source_papers: Array.isArray(artifact.source_papers)
+      ? artifact.source_papers
       : [],
-    external_literature_analysis: isRecord(
-      artifact.external_literature_analysis,
-    )
-      ? artifact.external_literature_analysis
-      : {},
-    positioning: isRecord(artifact.positioning) ? artifact.positioning : {},
     taxonomy: isRecord(artifact.taxonomy) ? artifact.taxonomy : {},
-    improvement_dimension_summary: isRecord(
-      artifact.improvement_dimension_summary,
-    )
-      ? artifact.improvement_dimension_summary
-      : {},
-    improvement_dimensions: Array.isArray(artifact.improvement_dimensions)
+    improvement_dimensions: isRecord(artifact.improvement_dimensions)
       ? artifact.improvement_dimensions
-      : [],
+      : Array.isArray(artifact.improvement_dimensions)
+        ? { summary: {}, dimensions: artifact.improvement_dimensions }
+        : { summary: {}, dimensions: [] },
     debates: Array.isArray(artifact.debates) ? artifact.debates : [],
     coverage: isRecord(artifact.coverage) ? artifact.coverage : {},
-    gaps: Array.isArray(artifact.gaps) ? artifact.gaps : [],
+    future_directions: Array.isArray(artifact.future_directions)
+      ? artifact.future_directions
+      : [],
     review_outline: isRecord(artifact.review_outline)
       ? artifact.review_outline
       : {},
-    evidence_map: isRecord(artifact.evidence_map) ? artifact.evidence_map : {},
     incomplete_sections: [
-      "positioning",
       "taxonomy",
-      "improvement_dimension_summary",
       "improvement_dimensions",
       "debates",
       "review_outline",
-      "evidence_map",
+      "source_papers",
     ].filter((section) => !(section in artifact)),
   };
 }

@@ -1,0 +1,83 @@
+[1] TAYLOR S R. Planetary science: a lunar perspective[M]. Houston, Tex: Lunar and Planetary Institute, 1982.
+
+[2] WILSHIRE H G, STUART A L, JACKSON E D. Apollo 16 rocks: Petrology and classification[J]. Journal of Geophysical Research, 1973, 78(14): 2379- 2392.
+
+[3] TAYLOR G J. Ancient lunar crust: Origin, composition, and implications[J]. Elements, 2009, 5(1): 17- 22.
+
+[4] NEAL C R. Petrogenesis of mare basalts: A record of lunar volcanism[J]. Geochimica et Cosmochimica Acta, 1992, 56(6): 2177-2211.
+
+[5] KIRK R L. The competition between thermal contraction and differentiation in the stress history of the Moon[J]. Journal of Geophysical Research: Solid Earth, 1989, 94(B9): 12133-12144.
+
+[6] LUCEY P G, BLEWETT D T, JOLLIFF B L. Lunar iron and titanium abundance algorithms based on final processing of Clementine ultraviolet-visible images[J]. Journal of Geophysical Research: Planets, 2000, 105(E8): 20297-20305.
+
+[7] CHEN J, LING Z C, LIU J Z, et al. Digital and global lithologic mapping of the Moon at a 1:2,500,000 scale[J]. Science Bulletin, 2022, 67(20): 2050-2054.
+
+[8] VON ENGELHARDT W, STENGELIN R. Normative composition and classification of lunar igneous rocks and glasses, I: Lunar igneous rocks[J]. Earth and Planetary Science Letters, 1979, 42(2): 213-222.
+
+[9] JIANG Y, ZHOU J, FENG J, TENG Q. Application of DBSCAN algorithm and mathematical morphology in rock thin section image segmentation[J]. Microcomputer Applications, 2016, 35: 39-41.
+
+[10] 吴继敏. 薄片显微描绘和自动图像分析技术在岩石学定量评价中的应用[J]. 矿物岩石, 1999(02): 26-31.
+
+[11] SINGH N, SINGH T N, TIWARY A, SARKAR K M. Textural identification of basaltic rock mass using image processing and neural network[J]. Computational Geosciences, 2010, 14(2): 301-310.
+
+[12] 周程阳, 刘伟, 吴天润, 等. 基于混合专家模型的岩石薄片图像分类 [J]. 吉林大学学报(理学版), 2024,62(4): 905-914.
+
+[13] 程国建, 李碧, 万晓龙, 等. 基于 SqueezeNet 卷积神经网络的岩石薄片图像分类研究[J]. 矿物岩石,2021, 41(4): 94-101.
+
+[14] SU C, ZHU K Y. Research progress of intelligent image analysis for petrographic thin section images[J]. Bulletin of Mineralogy, Petrology and Geochemistry, 2023, 42(1): 13-25.
+
+[15] ZONG K Q, WANG Z C, LI J W, et al. Bulk compositions of the Chang'E-5 lunar soil: Insights into chemical homogeneity, exotic addition, and origin of landing site basalts[J]. Geochimica et Cosmochimica Acta, 2022, 335: 284-296.
+
+[16] XIA Z P, MIAO B K, CHEN H Y, et al. The petrology and mineralogy of lunar meteorite EET 96008 from Antarctica[J]. Advances in Polar Science, 2013, 25 (4): 352-361.
+
+[17] CARON M , TOUVRON H, MISRA I, et al. Emerging Properties in Self- Supervised Vision Transformers[C]// 2021 IEEE/CVF International Conference on Computer Vision (ICCV). Montreal, QC, Canada: IEEE, 2021: 9630-9640.
+
+[18] NASA Johnson Space Center. Lunar Sample Compendium[DB/OL]. Houston: NASA Johnson Space Center. https://curator.jsc.nasa.gov/lunar/samplecatalog/.
+
+[19] APOLLO 15 PRELIMINARY EXAMINATION TE-AM. The Apollo 15 lunar samples: A preliminary description[J]. Science, 1972, 175(4020): 363-375.
+
+[20] CHEN H, XIE L, SHU Q, MIAO B. Northwest Africa 12279: Evidence for the interaction between early lunar mantle melt and anorthositic crust[J]. Journal of Geophysical Research: Planets, 2023, 128: e2023 JE007844.
+
+[21] DEER W A, HOWIE R A, ZUSSMAN J. An introduction to the rock- forming minerals[M]. 2nd ed. London: Mineralogical Society of Great Britain and Ire-
+
+land, 2013.
+
+[22] TATAR A, HAGHIGHI M, ZEINIJAHROMI A. Experiments on image data augmentation techniques for geological rock type classification with convolutional neural networks[J]. Journal of Rock Mechanics and Geotechnical Engineering, 2025, 17(1): 106-125.
+
+[23] GUI J, CHEN T, ZHANG J, et al. A survey on self-supervised learning: Algorithms, applications, and future trends[J]. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2024, 46(12): 9052-9071.
+
+[24] ABE M, NIIOKA H, MATSUMOTO A, et al. Self-supervised learning for feature extraction from glomerular images and disease classification with minimal annotations[J]. Journal of the American Society of Nephrology, 2025, 36(3): 471-486.
+
+[25] BALESTRIERO R, IBRAHIM M, SOBAL V, et al. A Cookbook of Self-Supervised Learning[J]. arXiv preprint arXiv:2304.12210, 2023.
+
+[26] HE K, ZHANG X, REN S, SUN J. Deep residual learning for image recognition[C]// Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. Las Vegas: IEEE, 2016: 770-778.
+
+[27] VAN DER MAATEN L, HINTON G. Visualizing data using t- SNE[J]. Journal of Machine Learning Research, 2008, 9: 2579-2605.
+
+[28] LIU H, HAOCHEN J Z, GAIDON A, et al. Self- supervised Learning is More Robust to Dataset Imbalance[C]// International Conference on Learning Representations, 2022.
+
+收稿日期：2025年4月29日
+
+戴旻昊，山东大学，本科，目前就读于计算机科学与技术专业。
+
+本文负责本文初稿撰写、模型构建和开展实验。
+
+DAI Minhao, is currently pursuing the B.E. degree in Computer Science and Technology at the Shandong University.
+
+![](Images_ARIXDK7Z/578140736a2ed5354ad35cec1d4ba96b06151082af17a7b7efdc1cc728e67347.jpg)
+
+In this paper, he is responsible for drafting the paper, building the model and conducting the experiments.
+
+E-mail: 3221416220@qq.com
+
+张立，山东大学，副教授。任国家深空探测遥感测绘工作委员会委员、山东宇航学会理事，近年来主要从事机器学习/深度学习在行星数据中应用等方面的教学与科研工作。
+
+本文负责制定研究计划，论文修改。
+
+ZHANG Li, is an associate professor at Shandong University. He is a member of the National Committee for Remote Sensing and Mapping of Deep Space Exploration, and council member of Shandong Society of Astronautics. In recent years, he has mainly been engaged in teaching and research work related to the application of machine learning and deep learning techniques to planetary data.
+
+![](Images_ARIXDK7Z/91b9cd6a57a2f055eff4c07594592f0306661f81fbc50f768f6fd3ce8a0454ae.jpg)
+
+In this paper, he is responsible for
+
+formulating the research plan and revising the manuscript. E-mail: zhangliwh@sdu.edu.cn

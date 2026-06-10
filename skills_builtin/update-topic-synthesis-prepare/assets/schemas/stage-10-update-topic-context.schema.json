@@ -4,18 +4,23 @@
   "title": "Stage 10 update topic context payload",
   "type": "object",
   "additionalProperties": false,
-  "required": ["topic_context", "update_assessment", "diagnostics"],
+  "required": ["topic_context", "update_assessment"],
   "properties": {
     "topic_context": {
       "type": "object",
       "additionalProperties": true,
       "required": ["topic_id"],
       "properties": {
-        "topic_id": { "type": "string", "minLength": 1 },
-        "topic_definition": { "type": "object" },
-        "current_hashes": { "type": "object" },
-        "section_hashes": { "type": "object" },
-        "recommended_update": { "type": "object" }
+        "topic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "topic_definition": {
+          "type": "object"
+        },
+        "recommended_update": {
+          "type": "object"
+        }
       }
     },
     "update_assessment": {
@@ -28,28 +33,28 @@
         },
         "changed_sections": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "reason": { "type": "string" }
+        "reason": {
+          "type": "string"
+        }
       }
-    },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    }
   },
   "examples": [
     {
       "topic_context": {
         "topic_id": "existing-topic-id",
         "topic_definition": {},
-        "current_hashes": {},
-        "section_hashes": {},
         "recommended_update": {}
       },
       "update_assessment": {
         "operation": "update_full",
         "changed_sections": [],
         "reason": ""
-      },
-      "diagnostics": []
+      }
     }
   ]
 }

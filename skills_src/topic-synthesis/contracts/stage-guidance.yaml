@@ -7,7 +7,6 @@ stages:
       - "只执行 gate 返回的 command；这个 stage 不写 payload。"
       - "命令成功后重新运行 gate，读取下一个 stage 指令。"
     quality_checks:
-      - "不要手写 SQLite、receipt、artifact registry、hash 或 handoff。"
       - "不要把 prompt 里的历史状态当作真源；以 SQLite 和已登记文件为准。"
     common_pitfalls:
       - "不要在非 ACP run workspace 中尝试修补 Host Bridge artifact export。"
@@ -17,14 +16,13 @@ stages:
     semantic_goal: "校验上一 skill 产生的 DB、handoff 和必需 artifacts，确保当前 skill 只基于持久化状态继续。"
     execution_steps:
       - "读取 gate 返回的 command，并只执行该 command。"
-      - "如果 gate 报 missing handoff、hash mismatch 或 artifact 缺失，停止当前 skill，不要自行修补 runtime-owned files。"
       - "命令成功后重新运行 gate，进入当前 skill 的第一个 payload stage。"
     quality_checks:
       - "当前 skill 的输入必须来自 SQLite、handoff 和文件，不从聊天上下文继承业务状态。"
       - "不要写 payload 来绕过 state check。"
     common_pitfalls:
       - "不要重新生成上游 handoff。"
-      - "不要基于旧单体 stage 名推断恢复路径。"
+      - "只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断下一步。"
 
   stage_10_create_topic_context:
     semantic_goal: "把 topic seed 转成稳定、可查重、可解析的创建意图。"
@@ -34,7 +32,7 @@ stages:
       - "只根据已有 topic 的 title、description、aliases 判断重复风险。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: "<zotero-bridge> synthesis list-topics --input '{}'"
+      - command: "<zotero-bridge> topics list --input '{}'"
         purpose: "获取现有 topic 列表，用于 create duplicate check。"
         notes: "只根据返回 topic 的 title、description、aliases 和 id 判断是否同一主题；不要把相关主题直接判为 duplicate。"
     required_read_notes:
@@ -48,7 +46,6 @@ stages:
       duplicate_status: "`none` 表示未发现重复；`possible_duplicate` 表示需谨慎；`duplicate` 表示已有同一主题；`unknown` 表示材料不足。"
       duplicate_candidate_ids: "只填写 Host topic list 中真实存在的候选 id。"
       duplicate_reason: "说明重复判断依据，不能只写“相似”。"
-      diagnostics: "记录缺失 topic list、语言不确定、边界不确定等诊断。"
     quality_checks:
       - "topic boundary 要能指导 resolver 设计。"
       - "重复判断要保守，不能把宽泛相关主题误判为同一 topic。"
@@ -65,25 +62,20 @@ stages:
       duplicate_status: "none"
       duplicate_candidate_ids: []
       duplicate_reason: "现有 topic 的标题和别名中没有表示同一 DETR-style object detection 方法族的条目。"
-      diagnostics: []
 
   stage_10_update_topic_context:
     semantic_goal: "读取既有 topic 状态并判断本次更新应是 full update、patch update 还是暂时不确定。"
     execution_steps:
       - "从 `runtime/input.json` 找到目标 topic id；执行 topic context Host read command。"
-      - "读取返回的 topic definition、当前 artifact hashes、section hashes 和 recommended_update。"
       - "判断哪些 section 需要重算或补充，写入 `changed_sections`。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis get-topic-context --input ''{"topicId":"<topic_id>"}'''
-        purpose: "获取既有 topic 的当前定义、section hashes、artifact hashes 和推荐更新信息。"
+      - command: '<zotero-bridge> topics get-context --input ''{"topicId":"<topic_id>"}'''
         notes: "`<topic_id>` 来自 `runtime/input.json` 或 gate/input payload；不要自行发明 topic id。"
     required_read_notes:
       - "topic context 是既有 topic 的当前状态，不是新建 topic seed。"
     field_guidance:
-      topic_context: "保留 Host 给出的 topic id、definition、hashes、section hashes 和 recommended_update；不要自行发明 hash。"
       update_assessment: "说明 operation、changed_sections 和选择理由。"
-      diagnostics: "记录 Host context 缺字段、hash 不完整、更新范围不明确等诊断。"
     quality_checks:
       - "update path 当前仍是 split suite skeleton；只写当前 schema 接受的判断，不承诺后续完整 update workflow。"
       - "不要把 create 的 duplicate check 逻辑套到 update topic context。"
@@ -95,14 +87,11 @@ stages:
         topic_id: "existing-topic-id"
         topic_definition:
           title: "DETR-style Object Detection"
-        current_hashes: {}
-        section_hashes: {}
         recommended_update: {}
       update_assessment:
         operation: "update_full"
         changed_sections: ["taxonomy", "claims"]
         reason: "当前 topic context 显示核心分析 sections 需要重新生成。"
-      diagnostics: []
 
   stage_20_resolver_and_workset:
     semantic_goal: "设计紧凑 resolver proposal；runtime 负责 resolver、citation metrics 和 filtered artifact export cascade。"
@@ -113,7 +102,7 @@ stages:
       - "用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。"
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
     host_read_commands:
-      - command: '<zotero-bridge> synthesis get-library-index --input ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
         notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
@@ -122,7 +111,6 @@ stages:
       resolver: "Host Bridge resolver input proposal；必须有 `mode`，并包含 `query` 或 `paper_refs`。"
       resolver_reasoning: "说明检索条件、边界和可能遗漏，不写跨文献结论。"
       operation_intent: "create prepare 使用 `create`；update prepare 可使用 `update_full` 或 `update_patch`。"
-      diagnostics: "记录 library index 为空、标签歧义、显式 paper_refs 不完整等情况。"
     quality_checks:
       - "resolver 要服务 topic 边界，而不是最大化召回所有相邻文献。"
       - "不要写 runtime 会生成的 resolver result、citation metrics 或 artifact manifest。"
@@ -136,21 +124,60 @@ stages:
           and: ["object-detection", "detr"]
       resolver_reasoning: "该标签组合面向 DETR-family 目标检测论文，同时避开泛 transformer 论文。"
       operation_intent: "create"
-      diagnostics: []
 
   stage_30_prepare_analysis_context:
     semantic_goal: "为 resolver workset 中每篇文献写 paper-local triage，给后续 runtime context selection 提供可靠输入。"
+    hard_constraints:
+      - "paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。"
+      - "脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。"
+    subagent_delegation:
+      recommendation: "当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 `assessments[]` payload。"
+      constraints:
+        - "每个 subagent 只能读取分配给它的 paper artifact 和当前 topic context，不做跨文献综合。"
+        - "subagent 只返回 assessment row 草案，不写文件、不运行脚本、不调用 gate。"
+        - "主 agent 必须检查每个 row 的 paper_ref、枚举值、理由和 core_digest，再写入 `runtime/payloads/prepare-analysis-context.json`。"
+      prompt: |
+        你是 topic synthesis Stage 30 的 paper triage subagent。请只处理下面分配给你的 paper_ref 和对应 artifact 内容。
+
+        任务边界：
+        - 逐篇阅读分配的 digest、references 和 citation-analysis。
+        - 只判断该 paper 与当前 topic 的关系，不做跨文献综合。
+        - 不编写或运行脚本，不写文件，不调用 gate。
+        - 只返回 JSON 数组；数组中的每个对象必须是一个 assessment row。
+
+        当前 topic：
+        <topic_definition_or_scope>
+
+        分配的 paper artifacts：
+        <paper_ref_to_artifact_excerpt_or_path>
+
+        输出字段：
+        - paper_ref：必须使用分配给你的 paper_ref。
+        - relevance_level：core / related / external / irrelevant / unknown。
+        - relevance_reason：说明该 paper 与 topic 边界的关系。
+        - paper_quality_level：high / medium / low / unknown。
+        - paper_quality_reason：说明证据质量。
+        - core_digest：一到三句 paper-local 贡献摘要。
+        - caveats：数组，记录证据限制或适用边界。
     execution_steps:
-      - "读取 runtime 导出的 filtered paper artifacts。"
+      - "先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。"
+      - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
+      - "逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。"
+      - "如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。"
       - "每篇 resolved paper 写一条 assessment；判断只限该 paper 与 topic 的关系。"
       - "用 `core_digest` 提炼该 paper 对 topic window 的贡献。"
-      - "提交后由 runtime 生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。"
+      - "提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
     required_read_notes:
-      - "`runtime/views/filtered-paper-artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。"
+      - "`runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。"
+      - "`runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。"
+      - "LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。"
     runtime_reads:
-      - path: "runtime/views/filtered-paper-artifacts/"
+      - path: "runtime/payloads/paper-artifacts-manifest-batch-1.json"
         produced_by: "Stage 20 submit 的 runtime resolver cascade"
-        purpose: "读取每篇 resolved paper 的过滤后 digest、references 和 citation-analysis，用于 paper-local triage。"
+        purpose: "读取每篇 resolved paper 的 artifact manifest，并按 `content_file` 定位 digest、references 和 citation-analysis。"
+      - path: "runtime/payloads/artifacts/"
+        produced_by: "Stage 20 submit 的 runtime resolver cascade"
+        purpose: "读取 manifest 指向的过滤后 digest、references 和 citation-analysis，用于 paper-local triage。"
     field_guidance:
       assessments: "一篇 resolved paper 一条 assessment，`paper_ref` 必须来自当前 workset。"
       relevance_level: "`core` 是主题核心证据；`related` 是相关背景或变体；`external` 主要用于覆盖/补充判断；`irrelevant` 是误召回；`unknown` 是材料不足。"
@@ -159,13 +186,12 @@ stages:
       paper_quality_reason: "说明实验、方法、综述、benchmark 或证据完整性。"
       core_digest: "一到三句说明该 paper 对 topic 的贡献，保持 paper-local。"
       caveats: "记录训练效率、实验范围、artifact 缺失、适用边界等限制。"
-      diagnostics: "记录 artifact 缺失、无法判断、疑似误召回等诊断。"
     quality_checks:
-      - "triage 阶段只抽取单篇事实，不写 taxonomy、timeline、claim 或 gaps。"
+      - "triage 阶段只抽取单篇事实，不写 taxonomy、timeline、claim 或 future directions。"
       - "每条 assessment 要能支撑后续 context selection。"
+      - "不要把 references 或 citation-analysis 内容复制进 `core_digest`；runtime 会把它们分流到 external-literature context。"
     common_pitfalls:
-      - "不要使用旧单体 paper-triage wrapper；当前 payload 顶层必须是 `assessments`。"
-      - "不要手写 source evidence ids、hashes 或 evidence refs。"
+      - "payload 顶层必须是 `assessments`。"
     example:
       assessments:
         - paper_ref: "1:DETR2020"
@@ -175,143 +201,215 @@ stages:
           paper_quality_reason: "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。"
           core_digest: "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。"
           caveats: ["训练效率限制会影响后续改进工作的解释方式。"]
-          diagnostics: []
 
   stage_40_core_synthesis:
     semantic_goal: "基于 prepare handoff、cross-paper context 和 evidence index 写 topic-level 核心综合分析。"
     execution_steps:
       - "读取 prepare handoff，确认 workset、context manifest 和 evidence index。"
-      - "读取 `cross-paper-context.md`，只用 core_analysis context 写 taxonomy、timeline、claims、debates、gaps 和 outline。"
-      - "在需要 paper evidence 的对象中使用 `source_paper_refs`，让 runtime 后续编译 evidence/provenance。"
+      - "先锁定 prepare handoff 中的 topic_definition 和 scope_boundary；这是当前 topic 的语义边界真源。"
+      - "读取 `cross-paper-context.md`，只用 core_analysis context 写 taxonomy、timeline、claims、debates、future directions 和 outline。"
+      - "把 workset 当作库内证据覆盖，不要让库内样本密集子域反向改写 topic identity。"
+      - "在需要引用论文的对象中使用 `source_paper_refs`，让 runtime 后续关联 source paper。"
       - "提交后 runtime 会生成 concept candidate context，供 KG stage 使用。"
     required_read_notes:
-      - "`runtime/views/cross-paper-context.md` 服务 core analysis。"
+      - "prepare handoff 中的 topic definition、aliases、scope include/exclude 用于确定 topic 的宏观语义范围。"
+      - "`runtime/views/cross-paper-context.md` 服务 core analysis，包含 runtime 选择的 filtered digest、paper triage 和 citation graph metrics。"
       - "`runtime/views/source-paper-evidence-index.json` 用于核对可引用的 source_paper_refs。"
     runtime_reads:
       - path: "runtime/handoff/prepare-analysis-context.json"
         produced_by: "create/update prepare 完成 Stage 30 后的 runtime handoff"
-        purpose: "确认 workset、artifact manifest 和上游 handoff hash。"
       - path: "runtime/views/cross-paper-context.md"
         produced_by: "prepare runtime 在 paper triage submit 后生成"
-        purpose: "作为 taxonomy、timeline、claims、debates、gaps 和 outline 的 core analysis context。"
+        purpose: "作为 taxonomy、timeline、claims、debates、future directions 和 outline 的 core analysis context。"
       - path: "runtime/views/source-paper-evidence-index.json"
         produced_by: "prepare runtime 在 paper triage submit 后生成"
         purpose: "核对当前可引用的 source_paper_refs 和短 evidence。"
     field_guidance:
-      taxonomy: "解释研究路线、机制、边界、代表论文、成熟度、优势和局限，不是标签表。"
+      taxonomy: "解释 topic 语义边界内的研究路线、机制、边界、代表论文、成熟度、优势和局限；如果 workset 只覆盖子域，taxonomy 仍要按 topic 本身的宏观结构组织。"
       timeline_events: "解释历史递进、里程碑和后续影响，不是按年份排序的 bibliography。"
-      positioning: "说明 topic 的领域位置、综述角度和 scope boundary。"
       claims: "topic-level findings；每条应有证据范围、适用边界和 source_paper_refs。"
       improvement_dimension_summary: "概括方法进展的主轴。"
-      improvement_dimensions: "解释设计 tradeoff、评价轴和代表路线。"
+      improvement_dimensions: "解释设计 tradeoff、评价轴和代表路线；单条 dimension 使用 `title` 命名、使用 `analysis` 写正文。"
       concept_candidate_labels: "列出值得交给 KG stage 补全的概念标签。"
-      debates: "描述争议轴、不同立场和当前判断。"
-      gaps: "区分真实研究空白、证据缺口、评价缺口和库内覆盖缺口。"
-      review_outline: "把综合分析转为可写综述的结构。"
+      debates: "描述争议轴、不同立场和当前判断；每条使用 `title` 命名争议，用 `current_judgment` 写当前证据下的判断，并附上 `source_paper_refs`。"
+      future_directions: "基于当前 source papers 支撑出的研究局限与未来研究方向。每条都要同时说明当前局限、下一步研究推进方向和成立理由。"
+      review_outline: "提出针对当前 topic 撰写综述的候选思路和策略。`topic_importance` 说明为什么值得写，`writing_strategies` 给出多种组织综述的方式，`recommended_strategy_id` 指向当前最适合的策略。"
     quality_checks:
       - "不能把单篇摘要拼接成 taxonomy 或 claims。"
+      - "不能把库内样本分布当作 topic 定义；样本偏向 DETR/检测时，Computer Vision 仍然是更大的视觉领域。"
+      - "future_directions 必须有 source_paper_refs 支撑；workset 未覆盖的宏观方向应通过 review_outline 的写作风险、coverage caveats 和 collection suggestions 表达。"
       - "coverage 和 collection suggestions 留给 finalize，不在 core 阶段使用 external literature context。"
     common_pitfalls:
       - "不要读取或引用当前 stage 必读材料以外的上下文。"
-      - "不要手写 evidence_map_refs、hashes 或 final sections。"
+      - "不要把大 topic 收缩成 resolved papers 最密集的子 topic。"
     example:
       taxonomy:
         summary:
-          text: "该 topic 可分为集合预测公式、收敛加速和面向部署的效率路线。"
+          text: "Computer Vision 的宏观结构包括视觉表示学习、图像分类、目标检测、分割、三维视觉、视频理解和视觉语言多模态；当前库内证据主要覆盖检测与分割相关路线。"
         nodes:
-          - id: "route:set-prediction"
-            definition: "使用 object queries 将目标检测表述为全局集合预测。"
-            representative_papers: ["1:DETR2020"]
-            source_paper_refs: ["1:DETR2020"]
+          - id: "area:object-detection"
+            title: "Object detection"
+            definition: "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。"
+            core_problem: "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。"
+            mechanism: "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。"
+            strengths: ["直接支撑场景理解、自动驾驶和机器人感知等应用。"]
+            limitations:
+              [
+                "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。",
+              ]
+            maturity: "established subfield with active method evolution"
+            representative_papers: ["1:DETR"]
+            source_paper_refs: ["1:DETR"]
+          - id: "area:detection-optimization"
+            title: "Detection optimization"
+            definition: "围绕检测模型的训练稳定性、收敛速度和查询设计进行改进，是当前 workset 中最充分的证据区域。"
+            core_problem: "让端到端检测公式在有限训练预算和复杂场景中保持稳定有效。"
+            mechanism: "通过 denoising、anchor/query design 和训练目标设计改善匹配学习过程。"
+            strengths: ["能解释当前库内 DETR-family 改进论文的主要证据贡献。"]
+            limitations:
+              [
+                "它只是 Computer Vision 的检测子域，不能代表分类、视频、三维和视觉语言路线。",
+              ]
+            maturity: "active method family"
+            representative_papers: ["1:DINO"]
+            source_paper_refs: ["1:DINO"]
       timeline_events:
         summary:
-          text: "历史递进从公式建立开始，随后转向收敛和效率改进。"
+          text: "当前 evidence 支持检测与分割路线中的若干里程碑；分类、视频理解和视觉语言路线需要后续补证。"
         events:
-          - id: "event:detr-formulation"
+          - id: "event:query-based-detection"
+            label: "Query-based detection"
             year: 2020
-            historical_role: "建立 query-based set prediction 作为该路线的基线。"
-            source_paper_refs: ["1:DETR2020"]
-      positioning:
-        importance: "定义了一条目标检测的端到端研究路线。"
-        scope_boundary:
-          include: ["DETR-style object detection"]
-          exclude: ["generic transformer NLP"]
+            description: "query-based set prediction 成为目标检测子域的重要范式，但它只是 Computer Vision 的一个分支。"
+            historical_role: "query-based set prediction 成为目标检测子域的重要范式，但它只是 Computer Vision 的一个分支。"
+            phase: "subfield reformulation"
+            source_paper_refs: ["1:DETR"]
       claims:
-        - id: "claim:set-prediction-shift"
-          text: "DETR-style 工作把检测问题推进到 query-based set prediction 范式。"
+        - id: "claim:detection-evidence-concentration"
+          text: "当前库内证据能较好支撑 Computer Vision 中的检测/分割子域，但不足以代表整个 Computer Vision。"
+          analysis: "resolved papers 集中在 DETR-style detection variants，因此它们能解释局部路线，却不能重写 Computer Vision 的整体语义边界。"
+          scope: "library evidence coverage rather than full domain definition"
+          limitations:
+            [
+              "该判断依赖当前 resolver workset，需要补充分类、视频、三维和多模态视觉材料。",
+            ]
           confidence: "high"
-          source_paper_refs: ["1:DETR2020"]
+          source_paper_refs: ["1:DETR", "1:DINO"]
       improvement_dimension_summary:
-        text: "该方向的进展最适合从公式清晰度、收敛行为和效率三个维度解释。"
+        text: "当前可证据化的进展主轴集中在检测和分割；更完整的 Computer Vision 综述还需要补充分类、表示学习、视频和多模态材料。"
       improvement_dimensions:
         - id: "dim:convergence"
-          label: "收敛行为"
-          analysis: "后续工作在保留集合预测框架的同时改善训练效率。"
-          source_paper_refs: ["1:DETR2020"]
-      concept_candidate_labels: ["Set prediction", "Object queries"]
+          title: "检测中的端到端训练效率"
+          analysis: "DETR-family 工作展示了目标检测子域中端到端公式和训练效率之间的 tradeoff。"
+          source_paper_refs: ["1:DETR", "1:DINO"]
+      concept_candidate_labels:
+        [
+          "Object detection",
+          "Image segmentation",
+          "Visual representation learning",
+        ]
       debates:
-        - id: "debate:pipeline-vs-set-prediction"
-          title: "Pipeline components 与 set prediction 的取舍"
-          current_judgment: "集合预测让公式更清晰，但也带来优化压力。"
-          source_paper_refs: ["1:DETR2020"]
-      gaps:
-        - id: "gap:deployment-evidence"
-          title: "部署证据仍不均衡"
-          gap_type: "evidence_gap"
-          source_paper_refs: ["1:DETR2020"]
+        - id: "debate:task-specific-vs-foundation-models"
+          title: "任务专用模型与视觉基础模型的取舍"
+          current_judgment: "当前库内证据主要来自任务专用检测/分割模型，对基础模型路线支撑不足。"
+          source_paper_refs: ["1:DETR"]
+      future_directions:
+        - id: "future:efficient-query-detection"
+          title: "更高效的 query-based detection"
+          direction_type: "method_limitation"
+          current_limitation: "当前 evidence 显示 query matching 和长训练 schedule 仍是端到端检测路线的重要成本来源。"
+          future_direction: "后续研究可以围绕更稳定的 query initialization、轻量 matching objective 和低 epoch 收敛机制展开。"
+          rationale: "DETR 与 DINO 等论文共同表明，set prediction 范式清晰但训练效率和稳定性会影响实际可用性。"
+          source_paper_refs: ["1:DETR", "1:DINO"]
       review_outline:
-        introduction_logic: ["先定义集合预测路线及其瓶颈。"]
-        body_sections: ["公式", "收敛", "效率"]
+        topic_importance: "Computer Vision 是视觉感知、识别和理解的上位领域；当前 workset 能支撑检测与分割相关路线的综述入口。"
+        writing_strategies:
+          - id: "strategy:method-evolution"
+            title: "按方法演进组织综述"
+            review_thesis: "以 query-based detection 如何重塑目标检测公式为主线，并说明它只是 Computer Vision 的一个证据充分子域。"
+            writing_strategy: "先定义 Computer Vision 的宏观边界，再解释当前 evidence 为什么适合写检测/分割子域的路线演进，最后把不足覆盖交给 coverage caveats。"
+            section_plan:
+              [
+                "定义视觉任务谱系和当前 evidence-covered scope",
+                "解释 query-based detection 的公式重构",
+                "比较后续变体如何处理收敛、query design 和效率问题",
+                "指出该综述策略不覆盖分类、视频、三维和视觉语言路线",
+              ]
+            best_for: "适合写方法演进型 Related Work 或 topic survey 的一个章节。"
+            risks: "不要把 Computer Vision 整体压缩成 DETR-family，也不要把 coverage caveats 写成已被 source papers 支撑的研究结论。"
+            source_paper_refs: ["1:DETR", "1:DINO"]
+        recommended_strategy_id: "strategy:method-evolution"
 
   stage_50_kg_enrichment:
     semantic_goal: "把 core synthesis 中的概念候选转成可供 sidecar materialization 的 KG 补全 payload。"
     execution_steps:
       - "读取 concept candidate context。"
+      - "读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge topics list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge topics list --input '{}'`。"
       - "为关键概念写 definition、aliases、disambiguation 和 topic relevance。"
-      - "提出 topic relation candidates 和 matching terms，供 runtime 生成 sidecars。"
+      - "以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。"
+      - "判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。"
+      - "把指向已有 topic 的关系写入 existing_topic_relation_proposals，把未来 topic seed 写入 prospective_topic_relation_proposals。"
+      - "写 topic matching terms，供 runtime 生成 sidecars。"
     required_read_notes:
-      - "`runtime/views/concept-candidate-context.json` 来自已校验 core synthesis，不要绕回旧 resolver context。"
+      - "`runtime/views/concept-candidate-context.json` 来自已校验 core synthesis，用它核对概念候选。"
+      - "`topics list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。"
     runtime_reads:
       - path: "runtime/views/concept-candidate-context.json"
         produced_by: "Stage 40 core synthesis submit 后的 runtime materialization"
         purpose: "读取待补全的概念候选、来源和上下文。"
     field_guidance:
       concept_details: "解释 topic 边界、路线、机制、任务、benchmark、数据集、评价轴或训练信号相关概念。"
-      topic_relation_candidates: "只写候选关系和理由，不写 canonical topic graph。"
+      existing_topic_relation_proposals: "只引用 `topics list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。"
+      prospective_topic_relation_proposals: "只写未来可能 synthesis 的 target_topic_seed 和 relation_type。"
+      relation_type: "`target_is_broader_topic_candidate` 表示 target 比当前 topic 更宽；`target_is_narrower_topic_candidate` 表示 target 比当前 topic 更窄；`related_topic_candidate` 表示相关但没有清晰包含或交叉；`overlap_topic_candidate` 表示两者部分交叉且互不包含；`contrast_topic_candidate` 表示同一问题空间中的替代路线或对立视角。"
       topic_matching_terms: "用于 topic discovery/matching 的 include、must-have、methods、exclude terms。"
-      diagnostics: "记录概念歧义、候选为空、关系不确定等诊断。"
     quality_checks:
       - "KG enrichment 是语义补全，不是重复 core synthesis。"
-      - "relation candidates 要带 rationale，避免只列目标 topic 名。"
+      - "已有 topic 关系要能对应 list-topics 中的 topic_id。"
+      - "所有关系判断都以当前 synthesis topic 指向 target topic 的视角书写。"
+      - "如果当前 topic 是 Computer Vision，Object Detection、DETR-style Object Detection 等应按下位或相关 target 判断；不能因为 workset 偏向 DETR 就把当前 topic 改写成 DETR-series。"
+      - "如果一个 topic 明确包含另一个 topic，使用 broader/narrower 关系；overlap 只用于互不包含的部分交叉范围。"
+      - "预备关系只保留可复用的 topic seed。"
     common_pitfalls:
       - "不要写 canonical KG assets、SQLite rows 或 Git metadata。"
       - "不要把宽泛领域词都加入 must-have terms。"
     example:
       concept_details:
-        - label: "Object queries"
-          aliases: ["detection queries"]
-          concept_type: "mechanism"
-          definition: "DETR-style decoder 用来以集合形式预测目标的可学习 query slots。"
-          topic_relevance: "DETR-family detection 的核心机制。"
-      topic_relation_candidates:
-        - relation_type: "related_topic_candidate"
-          target_topic_title: "Transformer-based Object Detection"
-          rationale: "目标 topic 更宽，通过 transformer detector architecture 与当前 topic 重叠。"
+        - label: "Object detection"
+          aliases: ["目标检测"]
+          concept_type: "task"
+          definition: "在图像或视频中定位并识别目标，是 Computer Vision 的下位任务。"
+          topic_relevance: "当前 workset 覆盖较多的 Computer Vision 子域。"
+      existing_topic_relation_proposals:
+        - relation_type: "target_is_narrower_topic_candidate"
+          target_topic_id: "object-detection"
+          target_topic_title: "Object Detection"
+          confidence: 0.88
+          rationale: "Object Detection 是 Computer Vision 的下位任务；即使当前 workset 偏向检测，Computer Vision 的语义范围仍更宽。"
+          source_paper_refs: ["1:DETR"]
+        - relation_type: "target_is_narrower_topic_candidate"
+          target_topic_id: "detr-style-object-detection"
+          target_topic_title: "DETR-style Object Detection"
+          confidence: 0.76
+          rationale: "DETR-style Object Detection 是 Computer Vision 中目标检测方向的更窄方法族。"
+          source_paper_refs: ["1:DETR"]
+      prospective_topic_relation_proposals:
+        - target_topic_seed: "query-centric object detection"
+          relation_type: "target_is_narrower_topic_candidate"
       topic_matching_terms:
         include_terms: ["DETR", "object queries", "set prediction"]
         must_have_terms: ["object detection"]
         methods: ["Hungarian matching", "transformer decoder"]
         exclude_terms: ["NLP transformers"]
-        diagnostics: []
-      diagnostics: []
 
   stage_60_coverage_and_collection_suggestions:
     semantic_goal: "基于 core handoff、finalize context 和 external literature context 判断库内覆盖、可靠性和后续入库方向。"
     execution_steps:
       - "读取 core handoff、finalize context manifest 和 `external-literature-context.md`。"
       - "判断当前库内材料对 topic 的覆盖档位和证据可靠性。"
+      - "如果 workset 集中在 topic 的某个子域，把它写成库内样本偏置和 coverage caveat，而不是降低 topic 的语义范围。"
       - "写出 external context summary 和可执行的 collection suggestions。"
-      - "提交后 runtime 生成 synthesis report view，并登记 coverage payload；完整 result sections 和 manifest 会在 Stage 70 submit 后由 runtime 统一物化。"
+      - "提交后 runtime 登记 coverage payload；完整 result sections、synthesis report section 和 manifest 会在 Stage 70 submit 后由 runtime 统一物化。"
     required_read_notes:
       - "`runtime/views/external-literature-context.md` 只服务 finalize 的 coverage、statistics 和入库建议。"
       - "`runtime/views/finalize-context.manifest.json` 用于定位 sidecars 和 finalize 输入。"
@@ -325,13 +423,13 @@ stages:
     field_guidance:
       coverage_verdict: "`sufficient`、`partial`、`insufficient`、`severely_missing` 或 `unknown`。"
       coverage_reason: "解释 verdict，区分领域真实空白、库内覆盖不足和 artifact 证据不足。"
-      reliability_summary: "说明当前 synthesis 的可靠性边界。"
-      coverage_caveats: "结构化记录证据范围、graph uncertainty、artifact 缺失或 topic 边界不确定。"
-      external_context_summary: "总结外部/邻近文献对覆盖判断的影响，不重写 core synthesis。"
+      coverage_caveats: "结构化记录证据范围、workset 子域偏置、artifact 缺失、外部文献不足、topic 边界不确定或 graph uncertainty。"
+      external_context_summary: "总结外部/邻近文献对 coverage verdict 和 collection suggestions 的影响。"
       suggested_collection_directions: "给出具体补充方向、理由、示例标题或关键词、优先级。"
-      diagnostics: "记录 conservative-empty、缺失 context、无法判断等原因。"
     quality_checks:
       - "coverage 是对当前库和证据链的解释，不是对整个领域成熟度的绝对判断。"
+      - "宏观 topic 的 coverage 要按 topic scope 判断；库内文献集中于 DETR/检测时，应明确 Computer Vision 的其他方向覆盖不足。"
+      - "coverage_caveats 描述覆盖限制；基于 source papers 的研究局限和未来方向由 core synthesis 的 future_directions 承担。"
       - "collection suggestions 要具体到方向或示例 term，不能只写“增加更多论文”。"
     common_pitfalls:
       - "不要把 core taxonomy/claims 整段复制到 external_context_summary。"
@@ -339,7 +437,6 @@ stages:
     example:
       coverage_verdict: "partial"
       coverage_reason: "库内已经覆盖 DETR 公式和若干收敛改进变体，但部署与更广 benchmark 覆盖仍不均衡。"
-      reliability_summary: "关于公式和收敛趋势的核心 claims 较可靠；collection-level 结论应视为暂定。"
       coverage_caveats:
         - type: "library_coverage_gap"
           note: "效率导向和部署导向的变体覆盖不足。"
@@ -349,30 +446,32 @@ stages:
           reason: "这些文献能改善部署和 latency tradeoff 的覆盖。"
           example_titles_or_terms: ["DAB-DETR", "Deformable DETR"]
           priority: "medium"
-      diagnostics: []
 
   stage_70_summary:
-    semantic_goal: "基于 runtime 已渲染 synthesis report 写最终用户可读 summary。"
+    semantic_goal: "基于 core handoff、coverage payload 和 finalize context 写最终用户可读 summary。"
     execution_steps:
-      - "读取 synthesis report 和 manifest。"
+      - "读取 core handoff、Stage 60 coverage payload 和 finalize context manifest。"
       - "写一个短摘要、一个概览段落和若干 key takeaways。"
-      - "保持总结面向用户理解 topic，不新增未在 report 中出现的 claim。"
+      - "保持总结面向用户理解 topic，不新增未在 core/coverage/finalize context 中出现的 claim。"
       - "提交后 runtime 生成完整 Host apply-ready sections、`result/topic-analysis.json` 和最终 `topic_synthesis` 或 canceled 输出。"
     required_read_notes:
-      - "`runtime/views/synthesis-report.md` 是最终 summary 的主要依据。"
-      - "`runtime/views/synthesis-report.manifest.json` 用于核对 report 来源。"
+      - "`runtime/handoff/core-enrichment.json` 提供 core synthesis 与 KG enrichment 的 handoff 边界。"
+      - "`runtime/payloads/coverage-and-collection-suggestions.json` 是 Stage 60 已提交的 coverage 与 external context 结论。"
+      - "`runtime/views/finalize-context.manifest.json` 说明 finalize 可用的 sections、sidecars 和上下文文件。"
     runtime_reads:
-      - path: "runtime/views/synthesis-report.md"
-        produced_by: "Stage 60 coverage payload submit 后的 runtime report rendering"
-        purpose: "作为最终 summary 的主要依据。"
-      - path: "runtime/views/synthesis-report.manifest.json"
-        produced_by: "Stage 60 coverage payload submit 后的 runtime report rendering"
-        purpose: "核对 synthesis report 的来源和 hash。"
+      - path: "runtime/handoff/core-enrichment.json"
+        produced_by: "core enrichment skill Stage 50 submit"
+        purpose: "确认 core handoff、sidecars 和 finalize context 已生成。"
+      - path: "runtime/payloads/coverage-and-collection-suggestions.json"
+        produced_by: "finalize skill Stage 60 payload submit"
+        purpose: "复用已 gate 的 coverage verdict、external context summary 和 collection suggestions。"
+      - path: "runtime/views/finalize-context.manifest.json"
+        produced_by: "core enrichment skill Stage 50 submit"
+        purpose: "确认 finalize 可读材料和 sidecar 范围。"
     field_guidance:
       summary_brief: "一到两句，说明 topic 的核心定位和当前 synthesis 结论。"
       summary_overview: "一个较完整段落，连接路线、演进、覆盖和可靠性。"
       key_takeaways: "面向用户行动或理解的要点，每条应具体。"
-      diagnostics: "记录 report 缺失、summary 保守化、语言不确定等诊断。"
     quality_checks:
       - "summary 不应替代 result sections，也不应引入新证据。"
       - "key takeaways 要能帮助用户决定如何阅读或补充该 topic。"
@@ -387,4 +486,3 @@ stages:
         - "理解该 topic 时应以 set prediction 和 object queries 作为概念入口。"
         - "后续 variants 主要应从收敛、query 设计和效率 tradeoff 解释。"
         - "在判断 collection coverage 充分之前，应补充更多效率导向 variants。"
-      diagnostics: []

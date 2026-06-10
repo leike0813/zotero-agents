@@ -1,0 +1,53 @@
+[1] AlexeyBochkovskiy， Chien-Yao Wang，and HongYuan Mark Liao. Yolov4: Optimal speed and accuracy of object detection. CoRR,abs/2004.10934,2020.2   
+[2] Zhaowei Cai and Nuno Vasconcelos. Cascade R-CNN: delving into high quality object detection. In CVPR,2018.2   
+[3] Nicolas Carion,Francisco Massa,Gabriel Synnaeve,Nicolas Usunier,Alexander Kirillov,and Sergey Zagoruyko. End-toend object detection with transformers.In ECCV,2020.1, 2,3,4,5,6,7   
+[4] Yinpeng Chen， Xiyang Dai, Mengchen Liu, Dongdong Chen,Lu Yuan,and Zicheng Liu. Dynamic convolution: Attention over convolution kernels. In CVPR,2020.2   
+[5] Zhigang Dai, Bolun Cai, Yugeng Lin,and Junying Chen. UP-DETR:unsupervised pre-training for object detection with transformers.CoRR,abs/2011.09094,2020.6,7   
+[6] Kaiwen Duan, Song Bai, Lingxi Xie, Honggang Qi, Qingming Huang,and Qi Tian. Centernet: Keypoint triplets for object detection. In ICCV,2019.2   
+[7] Peng Gao,Minghang Zheng,Xiaogang Wang,Jifeng Dai, and Hongsheng Li. Fast convergence of DETR with spatially modulated co-attention. CoRR,abs/2101.07448,2021.2,3   
+[8] Zigang Geng,Ke Sun, Bin Xiao,Zhaoxiang Zhang,and Jingdong Wang. Bottom-up human pose estimation via disentangled keypoint regression. In CVPR, pages 14676-14686, June 2021. 8   
+[9] Ross B.Girshick. Fast R-CNN.In ICCV,2015.2   
+[10] Xavier Glorot and Yoshua Bengio.Understanding the difficulty of training deep feedforward neural networks.In AISTATS,2010.6   
+[11] Maosheng Guo,Yu Zhang,and Ting Liu.Gaussian transformer: A lightweight approach for natural language inference. In AAAI, 2019.3   
+[12] Kaiming He,Xiangyu Zhang, Shaoqing Ren,and Jian Sun. Deep residual learning for image recognition.In CVPR, 2016.7   
+[13] Jie Hu, Li Shen, Samuel Albanie,Gang Sun,and Andrea Vedaldi. Gather-excite: Exploiting feature context in convolutional neural networks. In NeurIPS,2018.2   
+[14] Jie Hu,Li Shen,and Gang Sun. Squeeze-and-excitation networks.In CVPR,2018.2   
+[15] Lichao Huang,Yi Yang, Yafeng Deng,and Yinan Yu. Densebox:Unifying landmark localization with end to end object detection. CoRR,abs/1509.04874,2015.2   
+[16] Xu Jia, Bert De Brabandere,Tinne Tuytelaars,and Luc Van Gool.Dynamic filter networks. In NeurIPS,2016.2   
+[17] Guolin Ke,Di He,and Tie-Yan Liu. Rethinking positional encoding in language pre-training. CoRR,abs/20o6.15595, 2020.3   
+[18] Jaeyoung Kim, Mostafa El-Khamy, and Jungwon Lee. TGSA: transformer with gaussian-weighted self-attention for speech enhancement. In ICASSP,2020.3   
+[19] Tao Kong,Fuchun Sun,Huaping Liu, Yuning Jiang,and Jianbo Shi． Foveabox:Beyond anchor-based object detector. CoRR,abs/1904.03797,2019.2   
+[20] Harold W.Kuhn. The hungarian method for the assignment problem. Naval Research Logistics Quarterly,1995.6   
+[Z1] Hel Law ana jia Deng.Cornernet: Detecung opjects as paired keypoints.In ECCV,2018.2   
+[22] Hei Law,Yun Teng, Olga Russakovsky，and Jia Deng. Cornernet-lite: Efficient keypoint based object detection. In BMVC.BMVA Press,2020.2   
+[23] Yanghao Li, Yuntao Chen,Naiyan Wang,and Zhaoxiang Zhang.Scale-aware trident networks for object detection. In ICCV, pages 6054-6063,2019. 2   
+[24] Tsung-Yi Lin,Priya Goyal, Ross B.Girshick, Kaiming He, and Piotr Dollar.Focal loss for dense object detection. TPAMI,2020. 2, 6   
+[25] Tsung-Yi Lin,Michael Maire,Serge J.Belongie,James Hays,Pietro Perona,Deva Ramanan,Piotr Dollar,and C.Lawrence Zitnick. Microsoft COCO: common objects in context. In ECCV,2014. 6   
+[26] Wei Liu,Dragomir Anguelov,Dumitru Erhan,Christian Szegedy, Scott E. Reed, Cheng-Yang Fu,and Alexander C. Berg. SSD: single shot multibox detector.In ECCV,2016.2   
+[27] Ilya Loshchilov and Frank Huter.Fixing weight decay regularization in adam. In ICLR, 2017.6   
+[28] Xin Lu,Buyu Li, Yuxin Yue, Quanquan Li,and Junjie Yan. Grid R-CNN. In CVPR,2019.2   
+[29] Jiangmiao Pang，Kai Chen,Jianping Shi, Huajun Feng, Wanli Ouyang,and Dahua Lin. Libra R-CNN: towards balanced learning for object detection. In CVPR,2019. 2   
+[30] Joseph Redmon, Santosh Kumar Divvala, Ross B.Girshick, and Ali Farhadi. You only look once: Unified,real-time object detection. In CVPR,2016.2   
+[31] Joseph Redmon and Ali Farhadi. YOLO90OO: beter, faster, stronger.In CVPR,2017.2   
+[32] Joseph Redmon and Ali Farhadi. Yolov3: An incremental improvement. CoRR,abs/1804.02767,2018.2   
+[33] Shaoqing Ren, Kaiming He, Ross B. Girshick,and Jian Sun. Faster R-CNN: towards real-time object detection with region proposal networks. TPAMI,2017.7   
+[34] Hamid Rezatofighi,Nathan Tsoi, JunYoung Gwak,Amir Sadeghian,IanD.Reid,and Silvio Savarese．Generalized intersection over union: A metric and a loss for bounding box regression. In CVPR, 2019. 6   
+[35] Guanglu Song, Yu Liu, and Xiaogang Wang. Revisiting the sibling head in object detector.In CVPR,2020.2   
+[36] Ke Sun, Bin Xiao,Dong Liu,and Jingdong Wang.Deep high-resolution representation learning for human pose estimation. In CVPR,pages 5693-5703,2019.8   
+[37] Zhiqing Sun, Shengcao Cao, Yiming Yang,and Kris Kitani. Rethinking transformer-based set prediction for object detection. CoRR,abs/2011.10881,2020. 2,7   
+[38] Zhi Tian,Chunhua Shen,and Hao Chen.Conditional convolutions for instance segmentation.In ECCV,2020.2   
+[39] Zhi Tian, Chunhua Shen,Hao Chen,and Tong He. FCOS: fully convolutional one-stage object detection.In ICCV, 2019. 2,7   
+[40] Ashish Vaswani,Noam Shazeer,Niki Parmar,Jakob Uszkoreit,Llion Jones,Aidan N. Gomez,Lukasz Kaiser,and Illia Polosukhin. Attention is all you need. In NeurIPS,2017.2   
+[41] Jingdong Wang, Ke Sun,Tianheng Cheng，Borui Jiang, Chaorui Deng,Yang Zhao,Dong Liu, Yadong Mu,Mingkui Tan, Xinggang Wang,Wenyu Liu,and Bin Xiao.Deep high-resolution representation learning for visual recognition. TPAMI,2019.8   
+[42] Xinlong Wang,Rufeng Zhang,Tao Kong,Lei Li,and Chunhua Shen. Solov2: Dynamic and fast instance segmentation. In NeurIPS,2020.2   
+[43] Yifan Xu,Weijian Xu,David Cheung,and Zhuowen Tu. Line segment detection using transformers without edges. In CVPR, pages 4257-4266, June 2021. 8   
+[44] Brandon Yang,Gabriel Bender,Quoc V.Le,and Jiquan Ngiam. Condconv: Conditionally parameterized convolutions for effcient inference.In NeurIPS,2019.2   
+[45] Changqian Yu,Bin Xiao,Changxin Gao,Lu Yuan,Lei Zhang,Nong Sang,and Jingdong Wang.Lite-hrnet:A lightweight high-resolution network.In CVPR，pages 10440-10450,June 2021.2   
+[46] Jiahui Yu, Yuning Jiang, Zhangyang Wang,Zhimin Cao,and Thomas S. Huang. Unitbox: An advanced object detection network. In MM,2016.2   
+[47] Shifeng Zhang,Cheng Chi, Yongqiang Yao, Zhen Lei,and Stan Z.Li. Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection. In CVPR,2020.2   
+[48] Minghang Zheng, Peng Gao, Xiaogang Wang, Hongsheng Li,and Hao Dong. End-to-end object detection with adaptive clustering transformer. CoRR,abs/2011.09315,2020.2   
+[49] Xingyi Zhou, Dequan Wang,and Philipp Krähenbuhl. Objects as points.CoRR,abs/1904.07850,2019.2   
+[50] Xingyi Zhou，Jiacheng Zhuo，and Philipp Krahenbuhl. Botom-up object detection by grouping extreme and center points.In CVPR,2019.2   
+[51] Chenchen Zhu,Fangyi Chen,Zhiqiang Shen,and Marios Savvides. Soft anchor-point object detection.In ECCV, 2020.2   
+[52] Chenchen Zhu, Yihui He,and Marios Savvides.Feature selective anchor-free module for single-shot object detection. In CVPR,2019.2   
+[53] Xizhou Zhu, Weijie Su,Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai. Deformable DETR:deformable transformers for end-to-end object detection. CoRR,abs/2010.04159, 2020. 1,2, 6, 7,8

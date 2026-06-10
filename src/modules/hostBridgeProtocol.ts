@@ -109,12 +109,20 @@ export type HostBridgeHealth = {
 export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
 
 export type HostBridgeCapabilityCategory =
+  | "citation_graph"
+  | "concepts"
   | "context"
   | "debug"
   | "diagnostic"
+  | "insights"
   | "library"
+  | "library_index"
   | "mutation"
-  | "synthesis";
+  | "paper_artifacts"
+  | "reference_index"
+  | "resolvers"
+  | "schemas"
+  | "topics";
 
 export type HostBridgeCapabilityManifestEntry = {
   name: string;

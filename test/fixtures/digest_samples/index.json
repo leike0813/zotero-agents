@@ -1,0 +1,1142 @@
+[
+  {
+    "note_key": "NWZC3ETN",
+    "note_id": 1869,
+    "text_length": 2224,
+    "parent_title": "Accelerating DETR convergence via semantic-aligned matching",
+    "parent_key": "S86GB385",
+    "file": "digest_samples\\NWZC3ETN_Accelerating DETR convergence via semantic-aligned matching.md",
+    "content_length": 2170,
+    "payload_meta": {
+      "attachment_key": "9MXG2YCR",
+      "estimated_size": 2170,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2170,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "RY6DVGB7",
+    "note_id": 1857,
+    "text_length": 2015,
+    "parent_title": "An end-to-end transformer model for 3D object detection",
+    "parent_key": "JMWG9XVD",
+    "file": "digest_samples\\RY6DVGB7_An end-to-end transformer model for 3D object detection.md",
+    "content_length": 2075,
+    "payload_meta": {
+      "attachment_key": "FXTXN8I9",
+      "estimated_size": 2075,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2075,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "GQMC6DAS",
+    "note_id": 513,
+    "text_length": 4000,
+    "parent_title": "Conditional DETR for fast training convergence",
+    "parent_key": "W4CDLU28",
+    "file": "digest_samples\\GQMC6DAS_Conditional DETR for fast training convergence.md",
+    "content_length": 6708,
+    "payload_meta": {
+      "attachment_key": "HXCJFT72",
+      "estimated_size": 6708,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6708,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "7584RQ28",
+    "note_id": 526,
+    "text_length": 2358,
+    "parent_title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries",
+    "parent_key": "3JUY9GBQ",
+    "file": "digest_samples\\7584RQ28_DETR3D_ 3D object detection from multi-view images via 3D-to-2D queries.md",
+    "content_length": 2512,
+    "payload_meta": {
+      "attachment_key": "N2RX76TE",
+      "estimated_size": 2512,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2512,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "IY5HVBPI",
+    "note_id": 306,
+    "text_length": 3150,
+    "parent_title": "DETRs beat YOLOs on real-time object detection",
+    "parent_key": "CBJWE4JX",
+    "file": "digest_samples\\IY5HVBPI_DETRs beat YOLOs on real-time object detection.md",
+    "content_length": 3331,
+    "payload_meta": {
+      "attachment_key": "ELIJMIBX",
+      "estimated_size": 3331,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3331,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "4SR2S7BK",
+    "note_id": 429,
+    "text_length": 4000,
+    "parent_title": "DETRs with collaborative hybrid assignments training",
+    "parent_key": "7AERRYC7",
+    "file": "digest_samples\\4SR2S7BK_DETRs with collaborative hybrid assignments training.md",
+    "content_length": 6490,
+    "payload_meta": {
+      "attachment_key": "DJ7FN7IC",
+      "estimated_size": 6490,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6490,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "EX9VVBLF",
+    "note_id": 365,
+    "text_length": 3123,
+    "parent_title": "DN-DETR: accelerate DETR training by introducing query DeNoising",
+    "parent_key": "NXLIGKF5",
+    "file": "digest_samples\\EX9VVBLF_DN-DETR_ accelerate DETR training by introducing query DeNoising.md",
+    "content_length": 3327,
+    "payload_meta": {
+      "attachment_key": "MKBIZECE",
+      "estimated_size": 3327,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3327,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "RYSLHWHX",
+    "note_id": 434,
+    "text_length": 4000,
+    "parent_title": "Faster R-CNN: towards real-time object detection with region proposal networks",
+    "parent_key": "M3AU5AC9",
+    "file": "digest_samples\\RYSLHWHX_Faster R-CNN_ towards real-time object detection with region proposal networks.md",
+    "content_length": 9445,
+    "payload_meta": {
+      "attachment_key": "U9GWM2HU",
+      "estimated_size": 9445,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 9445,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "X4MLEKID",
+    "note_id": 370,
+    "text_length": 4000,
+    "parent_title": "MOTR: end-to-end multiple-object tracking with transformer",
+    "parent_key": "KSM65VAD",
+    "file": "digest_samples\\X4MLEKID_MOTR_ end-to-end multiple-object tracking with_transformer.md",
+    "content_length": 4862,
+    "payload_meta": {
+      "attachment_key": "M4KU8WTU",
+      "estimated_size": 4862,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 4862,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "ELSUVFQJ",
+    "note_id": 295,
+    "text_length": 4000,
+    "parent_title": "Panoptic SegFormer: delving deeper into panoptic segmentation with transformers",
+    "parent_key": "RPRBE2QN",
+    "file": "digest_samples\\ELSUVFQJ_Panoptic SegFormer_ delving deeper into panoptic segmentation with transformers.md",
+    "content_length": 9009,
+    "payload_meta": {
+      "attachment_key": "SBG5NH6Z",
+      "estimated_size": 9009,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 9009,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "L8J6U9BM",
+    "note_id": 542,
+    "text_length": 4000,
+    "parent_title": "Rethinking detection based table structure recognition for visually rich document images",
+    "parent_key": "VI9JURUB",
+    "file": "digest_samples\\L8J6U9BM_Rethinking detection based table structure recognition for visually rich documen.md",
+    "content_length": 10181,
+    "payload_meta": {
+      "attachment_key": "WIK4EURN",
+      "estimated_size": 10181,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 10181,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "GCEBKP23",
+    "note_id": 401,
+    "text_length": 4000,
+    "parent_title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity",
+    "parent_key": "29IBKEUR",
+    "file": "digest_samples\\GCEBKP23_Sparse DETR_ efficient end-to-end object detection with learnable sparsity.md",
+    "content_length": 8173,
+    "payload_meta": {
+      "attachment_key": "N7QZR7S6",
+      "estimated_size": 8173,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 8173,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "537FPF8A",
+    "note_id": 290,
+    "text_length": 4000,
+    "parent_title": "Deformable DETR: deformable transformers for end-to-end object detection",
+    "parent_key": "5HBHAWIV",
+    "file": "digest_samples\\537FPF8A_Deformable DETR_ deformable transformers for end-to-end object detection.md",
+    "content_length": 9132,
+    "payload_meta": {
+      "attachment_key": "XFYEJPRL",
+      "estimated_size": 9132,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 9132,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "8YJZV37N",
+    "note_id": 291,
+    "text_length": 2608,
+    "parent_title": "End-to-end object detection with transformers",
+    "parent_key": "EIMSDEU3",
+    "file": "digest_samples\\8YJZV37N_End-to-end object detection with transformers.md",
+    "content_length": 2798,
+    "payload_meta": {
+      "attachment_key": "UCMPUB47",
+      "estimated_size": 2798,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2798,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "V4SSEUUH",
+    "note_id": 408,
+    "text_length": 2481,
+    "parent_title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection",
+    "parent_key": "HPLZ65Z2",
+    "file": "digest_samples\\V4SSEUUH_DINO_ DETR with improved DeNoising anchor boxes for end-to-end object detection.md",
+    "content_length": 2645,
+    "payload_meta": {
+      "attachment_key": "KV4LL4ZE",
+      "estimated_size": 2645,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2645,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "VNM6M9XY",
+    "note_id": 439,
+    "text_length": 4000,
+    "parent_title": "RT-DETRv3: real-time end-to-end object detection with hierarchical dense positive supervision",
+    "parent_key": "GHWYS7AF",
+    "file": "digest_samples\\VNM6M9XY_RT-DETRv3_ real-time end-to-end object detection with hierarchical dense positiv.md",
+    "content_length": 7872,
+    "payload_meta": {
+      "attachment_key": "64IJGBPS",
+      "estimated_size": 7872,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 7872,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "ATHC7UMU",
+    "note_id": 300,
+    "text_length": 4000,
+    "parent_title": "RF-DETR: neural architecture search for real-time detection transformers",
+    "parent_key": "SZ3GNWT9",
+    "file": "digest_samples\\ATHC7UMU_RF-DETR_ neural architecture search for real-time detection transformers.md",
+    "content_length": 6842,
+    "payload_meta": {
+      "attachment_key": "PM87AY9Z",
+      "estimated_size": 6842,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6842,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "5FH6PDPD",
+    "note_id": 1978,
+    "text_length": 4000,
+    "parent_title": "DAB-DETR: dynamic anchor boxes are better queries for DETR",
+    "parent_key": "IY3FMWQM",
+    "file": "digest_samples\\5FH6PDPD_DAB-DETR_ dynamic anchor boxes are better queries for DETR.md",
+    "content_length": 6069,
+    "payload_meta": {
+      "attachment_key": "A5UUWWTU",
+      "estimated_size": 6069,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6069,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "8RH88RDX",
+    "note_id": 367,
+    "text_length": 4000,
+    "parent_title": "Joint perceptual learning for enhancement and object detection in underwater scenarios",
+    "parent_key": "4IUAXCCZ",
+    "file": "digest_samples\\8RH88RDX_Joint perceptual learning for enhancement and object detection in underwater sce.md",
+    "content_length": 6668,
+    "payload_meta": {
+      "attachment_key": "SU89WHCX",
+      "estimated_size": 6668,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6668,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "AAB2EQG5",
+    "note_id": 353,
+    "text_length": 2673,
+    "parent_title": "LW-DETR: a transformer replacement to YOLO for real-time detection",
+    "parent_key": "8838AH6P",
+    "file": "digest_samples\\AAB2EQG5_LW-DETR_ a transformer replacement to YOLO for real-time detection.md",
+    "content_length": 2865,
+    "payload_meta": {
+      "attachment_key": "ILQJVU7M",
+      "estimated_size": 2865,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2865,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "FWYHYEH9",
+    "note_id": 374,
+    "text_length": 3916,
+    "parent_title": "Enhancing DETRs variants through improved content query and similar query aggregation",
+    "parent_key": "CGJBFE6C",
+    "file": "digest_samples\\FWYHYEH9_Enhancing DETRs variants through improved content query and similar query aggreg.md",
+    "content_length": 4150,
+    "payload_meta": {
+      "attachment_key": "PL35IFB9",
+      "estimated_size": 4150,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 4150,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "AEM54IG6",
+    "note_id": 444,
+    "text_length": 4000,
+    "parent_title": "YOLOv7: Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object Detectors",
+    "parent_key": "ABTG2CFC",
+    "file": "digest_samples\\AEM54IG6_YOLOv7_ Trainable Bag-of-Freebies Sets New State-of-the-Art for Real-Time Object.md",
+    "content_length": 6971,
+    "payload_meta": {
+      "attachment_key": "VKFLS98E",
+      "estimated_size": 6971,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6971,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "WTSWR3AB",
+    "note_id": 394,
+    "text_length": 2026,
+    "parent_title": "UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers",
+    "parent_key": "P5NLH47E",
+    "file": "digest_samples\\WTSWR3AB_UP-DETR_ Unsupervised Pre-Training for Object Detection With Transformers.md",
+    "content_length": 2217,
+    "payload_meta": {
+      "attachment_key": "VJ3X5BWJ",
+      "estimated_size": 2217,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2217,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "33I7D2HF",
+    "note_id": 397,
+    "text_length": 4000,
+    "parent_title": "Group DETR: Fast DETR Training with Group-Wise One-to-Many Assignment",
+    "parent_key": "DBYQ4LWE",
+    "file": "digest_samples\\33I7D2HF_Group DETR_ Fast DETR Training with Group-Wise One-to-Many Assignment.md",
+    "content_length": 5739,
+    "payload_meta": {
+      "attachment_key": "Q77QREKH",
+      "estimated_size": 5739,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 5739,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "YHLDGN3U",
+    "note_id": 448,
+    "text_length": 4000,
+    "parent_title": "Rank-DETR for high quality object detection",
+    "parent_key": "3YG8UNCI",
+    "file": "digest_samples\\YHLDGN3U_Rank-DETR for high quality object detection.md",
+    "content_length": 7669,
+    "payload_meta": {
+      "attachment_key": "44ANTENG",
+      "estimated_size": 7669,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 7669,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "SYFSGK57",
+    "note_id": 405,
+    "text_length": 4000,
+    "parent_title": "Efficient DETR: improving end-to-end object detector with dense prior",
+    "parent_key": "VHBU3NI6",
+    "file": "digest_samples\\SYFSGK57_Efficient DETR_ improving end-to-end object detector with dense prior.md",
+    "content_length": 6425,
+    "payload_meta": {
+      "attachment_key": "L8UU2DEM",
+      "estimated_size": 6425,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 6425,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "DN7XB49E",
+    "note_id": 516,
+    "text_length": 2469,
+    "parent_title": "DETR for crowd pedestrian detection",
+    "parent_key": "I4ZU2PCY",
+    "file": "digest_samples\\DN7XB49E_DETR for crowd pedestrian detection.md",
+    "content_length": 2678,
+    "payload_meta": {
+      "attachment_key": "23HP4ZA5",
+      "estimated_size": 2678,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2678,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "XZ9P8QYX",
+    "note_id": 469,
+    "text_length": 2866,
+    "parent_title": "Mask DINO: towards a unified transformer-based framework for object detection and segmentation",
+    "parent_key": "VQ2WLIDR",
+    "file": "digest_samples\\XZ9P8QYX_Mask DINO_ towards a unified transformer-based framework for object detection an.md",
+    "content_length": 3043,
+    "payload_meta": {
+      "attachment_key": "U4EFCDUK",
+      "estimated_size": 3043,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3043,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "KPML75VI",
+    "note_id": 480,
+    "text_length": 2803,
+    "parent_title": "Real-time object detection meets DINOv3",
+    "parent_key": "8YS3DEMI",
+    "file": "digest_samples\\KPML75VI_Real-time object detection meets DINOv3.md",
+    "content_length": 2992,
+    "payload_meta": {
+      "attachment_key": "JJ9JEPPC",
+      "estimated_size": 2992,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2992,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "BYZWIGC4",
+    "note_id": 493,
+    "text_length": 4000,
+    "parent_title": "SAM 3: segment anything with concepts",
+    "parent_key": "HDDAIKQQ",
+    "file": "digest_samples\\BYZWIGC4_SAM 3_ segment anything with concepts.md",
+    "content_length": 8081,
+    "payload_meta": {
+      "attachment_key": "P4QR4W6W",
+      "estimated_size": 8081,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 8081,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "T4IT45HE",
+    "note_id": 883,
+    "text_length": 1983,
+    "parent_title": "RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer",
+    "parent_key": "8PP8HQMY",
+    "file": "digest_samples\\T4IT45HE_RT-DETRv2_ Improved Baseline with Bag-of-Freebies for Real-Time Detection Transf.md",
+    "content_length": 2133,
+    "payload_meta": {
+      "attachment_key": "7VIBFANL",
+      "estimated_size": 2133,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2133,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "X7H758B3",
+    "note_id": 872,
+    "text_length": 3163,
+    "parent_title": "D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement",
+    "parent_key": "MERSIDHN",
+    "file": "digest_samples\\X7H758B3_D-FINE_ Redefine Regression Task in DETRs as Fine-grained Distribution Refinemen.md",
+    "content_length": 3346,
+    "payload_meta": {
+      "attachment_key": "URWBVWAD",
+      "estimated_size": 3346,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3346,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "X83ZMR5Z",
+    "note_id": 901,
+    "text_length": 3116,
+    "parent_title": "DETRs with Hybrid Matching",
+    "parent_key": "D6BUKS9Q",
+    "file": "digest_samples\\X83ZMR5Z_DETRs with Hybrid Matching.md",
+    "content_length": 3161,
+    "payload_meta": {
+      "attachment_key": "DR7WU5X5",
+      "estimated_size": 3161,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3161,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "ZHTJTYSJ",
+    "note_id": 2005,
+    "text_length": 2726,
+    "parent_title": "Object Detection with Transformers: A Review",
+    "parent_key": "4FUJYLNY",
+    "file": "digest_samples\\ZHTJTYSJ_Object Detection with Transformers_ A Review.md",
+    "content_length": 2805,
+    "payload_meta": {
+      "attachment_key": "VDGABFU5",
+      "estimated_size": 2805,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2805,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "Z8NVAEKS",
+    "note_id": 1970,
+    "text_length": 3432,
+    "parent_title": "Mask R-CNN",
+    "parent_key": "UVI9ULI2",
+    "file": "digest_samples\\Z8NVAEKS_Mask R-CNN.md",
+    "content_length": 3646,
+    "payload_meta": {
+      "attachment_key": "YW7H93B5",
+      "estimated_size": 3646,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3646,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "ZCSRTWDV",
+    "note_id": 857,
+    "text_length": 4000,
+    "parent_title": "YOLACT: Real-time Instance Segmentation",
+    "parent_key": "2KUGMFL2",
+    "file": "digest_samples\\ZCSRTWDV_YOLACT_ Real-time Instance Segmentation.md",
+    "content_length": 8458,
+    "payload_meta": {
+      "attachment_key": "YXHTUVU2",
+      "estimated_size": 8458,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 8458,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "J4KJTAD3",
+    "note_id": 869,
+    "text_length": 1884,
+    "parent_title": "SOLO: Segmenting Objects by Locations",
+    "parent_key": "76BD6UYE",
+    "file": "digest_samples\\J4KJTAD3_SOLO_ Segmenting Objects by Locations.md",
+    "content_length": 2055,
+    "payload_meta": {
+      "attachment_key": "MMH7AFZT",
+      "estimated_size": 2055,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2055,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "LW7H3272",
+    "note_id": 863,
+    "text_length": 3196,
+    "parent_title": "SOLOv2: Dynamic and Fast Instance Segmentation",
+    "parent_key": "4DB3YS8Y",
+    "file": "digest_samples\\LW7H3272_SOLOv2_ Dynamic and Fast Instance Segmentation.md",
+    "content_length": 3421,
+    "payload_meta": {
+      "attachment_key": "Y5A9DD5D",
+      "estimated_size": 3421,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3421,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "GH6YWGYK",
+    "note_id": 1272,
+    "text_length": 2947,
+    "parent_title": "Conditional Convolutions for Instance Segmentation",
+    "parent_key": "8AXAW2GX",
+    "file": "digest_samples\\GH6YWGYK_Conditional Convolutions for Instance Segmentation.md",
+    "content_length": 2985,
+    "payload_meta": {
+      "attachment_key": "SK2J77Q5",
+      "estimated_size": 2985,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2985,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "8RDB7D5H",
+    "note_id": 854,
+    "text_length": 4000,
+    "parent_title": "Per-Pixel Classification is Not All You Need for Semantic Segmentation",
+    "parent_key": "USRNFHXP",
+    "file": "digest_samples\\8RDB7D5H_Per-Pixel Classification is Not All You Need for Semantic Segmentation.md",
+    "content_length": 7013,
+    "payload_meta": {
+      "attachment_key": "LAV8HLZ3",
+      "estimated_size": 7013,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 7013,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "XK79ZMF4",
+    "note_id": 1157,
+    "text_length": 2478,
+    "parent_title": "Masked-attention Mask Transformer for Universal Image Segmentation",
+    "parent_key": "53A2WXX8",
+    "file": "digest_samples\\XK79ZMF4_Masked-attention Mask Transformer for Universal Image Segmentation.md",
+    "content_length": 2523,
+    "payload_meta": {
+      "attachment_key": "6GVGKQNE",
+      "estimated_size": 2523,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2523,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "LJCSNPHK",
+    "note_id": 866,
+    "text_length": 3207,
+    "parent_title": "Segment Anything",
+    "parent_key": "8WM66ZL3",
+    "file": "digest_samples\\LJCSNPHK_Segment Anything.md",
+    "content_length": 3465,
+    "payload_meta": {
+      "attachment_key": "BWJRIEVT",
+      "estimated_size": 3465,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3465,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "YU3X6P95",
+    "note_id": 1989,
+    "text_length": 2958,
+    "parent_title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
+    "parent_key": "CHPBJDLU",
+    "file": "digest_samples\\YU3X6P95_PolarNet_ An Improved Grid Representation for Online LiDAR Point Clouds Semantic.md",
+    "content_length": 3029,
+    "payload_meta": {
+      "attachment_key": "WCGILNIL",
+      "estimated_size": 3029,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3029,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "K443V8QK",
+    "note_id": 1149,
+    "text_length": 3109,
+    "parent_title": "Panoptic-PolarNet: Proposal-free LiDAR Point Cloud Panoptic Segmentation",
+    "parent_key": "DDT5Q9QF",
+    "file": "digest_samples\\K443V8QK_Panoptic-PolarNet_ Proposal-free LiDAR Point Cloud Panoptic Segmentation.md",
+    "content_length": 2941,
+    "payload_meta": {
+      "attachment_key": "KYXMD8S6",
+      "estimated_size": 2941,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2941,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "A88J72CE",
+    "note_id": 1984,
+    "text_length": 2756,
+    "parent_title": "Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation in CTA Images",
+    "parent_key": "XKJFVI8H",
+    "file": "digest_samples\\A88J72CE_Using the Polar Transform for Efficient Deep Learning-Based Aorta Segmentation i.md",
+    "content_length": 3007,
+    "payload_meta": {
+      "attachment_key": "GKR4DYTE",
+      "estimated_size": 3007,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3007,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "YXS248F2",
+    "note_id": 875,
+    "text_length": 3460,
+    "parent_title": "Center-based 3D Object Detection and Tracking",
+    "parent_key": "J6DSFFBH",
+    "file": "digest_samples\\YXS248F2_Center-based 3D Object Detection and Tracking.md",
+    "content_length": 3427,
+    "payload_meta": {
+      "attachment_key": "F9FJIL2W",
+      "estimated_size": 3427,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3427,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "3KY4LH86",
+    "note_id": 851,
+    "text_length": 2840,
+    "parent_title": "PolarStream: Streaming Lidar Object Detection and Segmentation with Polar Pillars",
+    "parent_key": "AHF2RU48",
+    "file": "digest_samples\\3KY4LH86_PolarStream_ Streaming Lidar Object Detection and Segmentation with Polar Pillar.md",
+    "content_length": 3034,
+    "payload_meta": {
+      "attachment_key": "867HQQZR",
+      "estimated_size": 3034,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3034,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "LAB5L8K2",
+    "note_id": 1281,
+    "text_length": 3512,
+    "parent_title": "DINOv3",
+    "parent_key": "TWR6CC4I",
+    "file": "digest_samples\\LAB5L8K2_DINOv3.md",
+    "content_length": 3648,
+    "payload_meta": {
+      "attachment_key": "DXY53ZQU",
+      "estimated_size": 3648,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3648,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "ZR6WPJWH",
+    "note_id": 1141,
+    "text_length": 3193,
+    "parent_title": "MedDINOv3: How to adapt vision foundation models for medical image segmentation?",
+    "parent_key": "BBIY57N3",
+    "file": "digest_samples\\ZR6WPJWH_MedDINOv3_ How to adapt vision foundation models for medical image segmentation_.md",
+    "content_length": 2991,
+    "payload_meta": {
+      "attachment_key": "QNW9HIR7",
+      "estimated_size": 2991,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2991,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "SDWE8AJK",
+    "note_id": 886,
+    "text_length": 2375,
+    "parent_title": "SegDINO: An Efficient Design for Medical and Natural Image Segmentation with DINO-V3",
+    "parent_key": "7T29H6SR",
+    "file": "digest_samples\\SDWE8AJK_SegDINO_ An Efficient Design for Medical and Natural Image Segmentation with DIN.md",
+    "content_length": 2262,
+    "payload_meta": {
+      "attachment_key": "GHVIZS57",
+      "estimated_size": 2262,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2262,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "4T39DBVV",
+    "note_id": 860,
+    "text_length": 2290,
+    "parent_title": "DINO Soars: DINOv3 for Open-Vocabulary Semantic Segmentation of Remote Sensing Imagery",
+    "parent_key": "8DP4884A",
+    "file": "digest_samples\\4T39DBVV_DINO Soars_ DINOv3 for Open-Vocabulary Semantic Segmentation of Remote Sensing I.md",
+    "content_length": 2470,
+    "payload_meta": {
+      "attachment_key": "JI5I2KMH",
+      "estimated_size": 2470,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2470,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "B2AGUE5S",
+    "note_id": 1075,
+    "text_length": 3822,
+    "parent_title": "Does DINOv3 Set a New Medical Vision Standard? Benchmarking 2D and 3D Classification, Segmentation, and Registration",
+    "parent_key": "UW8ZLVA6",
+    "file": "digest_samples\\B2AGUE5S_Does DINOv3 Set a New Medical Vision Standard_ Benchmarking 2D and 3D Classifica.md",
+    "content_length": 3827,
+    "payload_meta": {
+      "attachment_key": "USTESDPZ",
+      "estimated_size": 3827,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3827,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "88MEMAHB",
+    "note_id": 1068,
+    "text_length": 2310,
+    "parent_title": "Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Image Segmentation",
+    "parent_key": "M68XPFA9",
+    "file": "digest_samples\\88MEMAHB_Exploiting DINOv3-Based Self-Supervised Features for Robust Few-Shot Medical Ima.md",
+    "content_length": 2490,
+    "payload_meta": {
+      "attachment_key": "48VXK2W7",
+      "estimated_size": 2490,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2490,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "J8YJRTNN",
+    "note_id": 1290,
+    "text_length": 4000,
+    "parent_title": "DinoDental: Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Analysis",
+    "parent_key": "9CBBDH3Y",
+    "file": "digest_samples\\J8YJRTNN_DinoDental_ Benchmarking DINOv3 as a Unified Vision Encoder for Dental Image Ana.md",
+    "content_length": 5420,
+    "payload_meta": {
+      "attachment_key": "F3HAWA4A",
+      "estimated_size": 5420,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 5420,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "HR68LM47",
+    "note_id": 1851,
+    "text_length": 2149,
+    "parent_title": "Attention is All you Need",
+    "parent_key": "Z25GLKZV",
+    "file": "digest_samples\\HR68LM47_Attention is All you Need.md",
+    "content_length": 2359,
+    "payload_meta": {
+      "attachment_key": "CYC9Q6XN",
+      "estimated_size": 2359,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2359,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "UU27URPQ",
+    "note_id": 1946,
+    "text_length": 3452,
+    "parent_title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "parent_key": "LUM266YT",
+    "file": "digest_samples\\UU27URPQ_An Image is Worth 16x16 Words_ Transformers for Image Recognition at Scale.md",
+    "content_length": 3564,
+    "payload_meta": {
+      "attachment_key": "PMSN5EEM",
+      "estimated_size": 3564,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3564,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "F378W342",
+    "note_id": 2021,
+    "text_length": 2748,
+    "parent_title": "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows",
+    "parent_key": "95F26DIX",
+    "file": "digest_samples\\F378W342_Swin Transformer_ Hierarchical Vision Transformer using Shifted Windows.md",
+    "content_length": 2991,
+    "payload_meta": {
+      "attachment_key": "JV4NCBGU",
+      "estimated_size": 2991,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2991,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "YEMRFUM3",
+    "note_id": 1954,
+    "text_length": 3311,
+    "parent_title": "Deep Residual Learning for Image Recognition",
+    "parent_key": "34WIW5FH",
+    "file": "digest_samples\\YEMRFUM3_Deep Residual Learning for Image Recognition.md",
+    "content_length": 3568,
+    "payload_meta": {
+      "attachment_key": "BACE4R2R",
+      "estimated_size": 3568,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3568,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "DVC8LFI9",
+    "note_id": 1938,
+    "text_length": 3543,
+    "parent_title": "A ConvNet for the 2020s",
+    "parent_key": "I6XI39WA",
+    "file": "digest_samples\\DVC8LFI9_A ConvNet for the 2020s.md",
+    "content_length": 3521,
+    "payload_meta": {
+      "attachment_key": "A3SEAFXW",
+      "estimated_size": 3521,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 3521,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "TWFHAPK5",
+    "note_id": 1997,
+    "text_length": 2820,
+    "parent_title": "YOLOv3: An Incremental Improvement",
+    "parent_key": "URSNH83W",
+    "file": "digest_samples\\TWFHAPK5_YOLOv3_ An Incremental Improvement.md",
+    "content_length": 2995,
+    "payload_meta": {
+      "attachment_key": "7VMAJZZG",
+      "estimated_size": 2995,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2995,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "3EGFK5SS",
+    "note_id": 2013,
+    "text_length": 4000,
+    "parent_title": "U-Net: Convolutional Networks for Biomedical Image Segmentation",
+    "parent_key": "8ET4QJ6S",
+    "file": "digest_samples\\3EGFK5SS_U-Net_ Convolutional Networks for Biomedical Image Segmentation.md",
+    "content_length": 4997,
+    "payload_meta": {
+      "attachment_key": "9K58S3ID",
+      "estimated_size": 4997,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 4997,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "H4CQZLMM",
+    "note_id": 1962,
+    "text_length": 3015,
+    "parent_title": "A Simple Framework for Contrastive Learning of Visual Representations",
+    "parent_key": "ANFVBN87",
+    "file": "digest_samples\\H4CQZLMM_A Simple Framework for Contrastive Learning of Visual Representations.md",
+    "content_length": 2936,
+    "payload_meta": {
+      "attachment_key": "FISEKLY2",
+      "estimated_size": 2936,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2936,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "8I5RMGAY",
+    "note_id": 2089,
+    "text_length": 2481,
+    "parent_title": "SSD: Single Shot MultiBox Detector",
+    "parent_key": "V3TMPN22",
+    "file": "digest_samples\\8I5RMGAY_SSD_ Single Shot MultiBox Detector.md",
+    "content_length": 2424,
+    "payload_meta": {
+      "attachment_key": "GP7P42CC",
+      "estimated_size": 2424,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2424,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "EQ7HSP39",
+    "note_id": 2081,
+    "text_length": 2827,
+    "parent_title": "ImageNet Large Scale Visual Recognition Challenge",
+    "parent_key": "B3REC7HH",
+    "file": "digest_samples\\EQ7HSP39_ImageNet Large Scale Visual Recognition Challenge.md",
+    "content_length": 2973,
+    "payload_meta": {
+      "attachment_key": "V5BNVJHV",
+      "estimated_size": 2973,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 2973,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "IPKT28IY",
+    "note_id": 2073,
+    "text_length": 4000,
+    "parent_title": "Fully convolutional networks for semantic segmentation",
+    "parent_key": "VA9QJETD",
+    "file": "digest_samples\\IPKT28IY_Fully convolutional networks for semantic segmentation.md",
+    "content_length": 5024,
+    "payload_meta": {
+      "attachment_key": "L5MKDI9C",
+      "estimated_size": 5024,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 5024,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "2EZGMNG2",
+    "note_id": 2097,
+    "text_length": 4000,
+    "parent_title": "Very Deep Convolutional Networks for Large-Scale Image Recognition",
+    "parent_key": "RWXIXM24",
+    "file": "digest_samples\\2EZGMNG2_Very Deep Convolutional Networks for Large-Scale Image Recognition.md",
+    "content_length": 7652,
+    "payload_meta": {
+      "attachment_key": "IZ7QRWWN",
+      "estimated_size": 7652,
+      "source": "embedded-image-attachment",
+      "format": "markdown",
+      "actual_chars": 7652,
+      "has_more": false
+    }
+  },
+  {
+    "note_key": "JPNGBGHQ",
+    "note_title": "Digest",
+    "text_length": 3826,
+    "parent_title": "基于计算机视觉的Transformer研究进展",
+    "parent_key": "ELUGCCPA",
+    "file": "test/fixtures/digest_samples/JPNGBGHQ_ji-yu-ji-suan-ji-shi-jue-de-Transformer-yan-jiu-jin-zhan.md",
+    "content_length": 4135
+  },
+  {
+    "note_key": "4V6A6ZQZ",
+    "note_title": "Digest",
+    "text_length": 1786,
+    "parent_title": "基于改进RT-DETR的铁路施工场景下人员安全穿戴检测",
+    "parent_key": "UFJQE7PA",
+    "file": "test/fixtures/digest_samples/4V6A6ZQZ_ji-yu-gai-jin-RT-DETR-de-tie-lu-shi-gong-chang-jing-ren-yuan-an-quan.md",
+    "content_length": 1924
+  }
+]

@@ -1,28 +1,21 @@
 ## zotero-bridge CLI 使用说明
 
-在 ACP run workspace 中优先使用工作区注入的 Host Bridge shim；只有 shim 不存在时才回退到环境中的裸命令 `zotero-bridge`。不要把插件内部 binary 路径写入 payload、日志或最终产物。
+Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill 维护。
+使用 Zotero host 能力前，先阅读该 wrapper skill 及其生成的
+`references/host-bridge-cli.md` 参考。
 
-本说明中的 `<zotero-bridge>` 表示以下解析顺序：
+<!-- host-bridge-surface:topic-synthesis-fragment:start -->
+Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
+当前 topic synthesis 相关命令族摘要：`citation-graph get-metrics`, `citation-graph get-slice`, `citation-graph overview`, `citation-graph query-cluster`, `citation-graph rank-external-references`, `citation-graph rank-library-papers`, `citation-graph refresh-metrics`, `insights attention-queue`, `library-index get`, `paper-artifacts export-filtered`, `paper-artifacts manifest`, `paper-artifacts read`, `paper-artifacts resolve-topic-digest`, `reference-index get`, `resolvers resolve`, `topics get-context`, `topics get-report`, `topics get-review-input`, `topics list`。
+使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
+不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
+<!-- host-bridge-surface:topic-synthesis-fragment:end -->
 
-1. Windows：如果存在 `.\.zotero-bridge\bin\zotero-bridge.cmd`，使用它。
-2. POSIX：如果存在 `./.zotero-bridge/bin/zotero-bridge`，使用它。
-3. 如果工作区没有注入 shim，才使用裸命令 `zotero-bridge`。
+在 ACP run workspace 中，优先使用工作区注入的 Host Bridge shim：
 
-需要确认 Host Bridge 状态时先运行：
+- Windows：`.\.zotero-bridge\bin\zotero-bridge.cmd`
+- POSIX：`./.zotero-bridge/bin/zotero-bridge`
 
-```bash
-<zotero-bridge> status
-<zotero-bridge> manifest
-```
-
-本 suite 的 agent-authored payload stage 只需要这些 Host read 命令：
-
-```bash
-<zotero-bridge> synthesis list-topics --input '{}'
-<zotero-bridge> synthesis get-topic-context --input '{"topicId":"<topic_id>"}'
-<zotero-bridge> synthesis get-library-index --input '{"cursor":0,"limit":200}'
-```
-
-Stage 20 payload 提交后，resolver、citation metrics 和 filtered artifact export 由 runtime 调用 Host Bridge cascade 完成；agent 不要手写 resolver result、metrics manifest 或 artifact manifest。
-
-如果工作区 shim 和裸命令都不可用、capability missing 或返回非零退出码，不要伪造 Host 数据，也不要切换到 MCP。当前 payload stage 可以在 `diagnostics` 中记录不可用原因；如果无法继续满足当前 skill output contract，则停止并输出 gate/error 指定的合法 JSON。
+只有找不到 workspace shim 时，才使用裸命令 `zotero-bridge`。无论使用哪种入口，
+都只能通过 Host Bridge 合同读取 Zotero 数据；不要直接读取 Zotero DB/storage，
+也不要在用户未要求 MCP 诊断时切换到 MCP。

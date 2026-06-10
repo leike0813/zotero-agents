@@ -48,11 +48,11 @@ Synthesis sidecar state changes only through bounded, explicit paths:
 
 | Path | Trigger | Effect |
 | --- | --- | --- |
-| Digest apply sync | `literature-digest` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact sidecar row for the applied `source_ref`; if the references artifact hash changed, stale old raw references for that source/hash and extract new raw references. |
+| Digest apply sync | `literature-digest` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact/reference sidecar rows for the applied `source_ref`, and mark Citation Graph plus related-items sync stale with source-scoped diagnostics. |
 | Topic apply sync | topic create/update apply succeeds | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries. |
-| Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding. |
+| Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding; mark Citation Graph plus related-items sync stale with changed source/canonical diagnostics. |
 | Explicit reference binding review | user starts review/repair workflow | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions. |
-| Graph cache incremental refresh | workflow apply, Reference Sidecar refresh, or Advanced Matching changes graph-affecting sidecar facts | Recompute affected source-slice graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
+| Graph cache incremental refresh | user refreshes a stale graph, or Advanced Matching changes graph-affecting sidecar facts | Recompute affected source-slice graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks; public stale refresh may run scoped related-items sync after success. |
 | Explicit graph cache rebuild | user opens graph refresh or debug command, or allowed bootstrap after heavy reference operations | Recompute full graph projection from active raw references, effective canonical references, binding decisions, and direct Zotero binding checks. |
 | Explicit cache repair | user/debug command | Re-scan selected source items or artifacts; report a bounded diff before broad changes. |
 | Reset/import/export | protected user command | Reset or move sidecar state according to documented scope. |

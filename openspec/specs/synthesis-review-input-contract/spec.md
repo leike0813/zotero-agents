@@ -74,7 +74,7 @@ review workflows.
 
 #### Scenario: Review input includes synthesis structures
 
-- **WHEN** `synthesis.get_review_input` returns a complete topic synthesis
+- **WHEN** `topics.get_review_input` returns a complete topic synthesis
   artifact
 - **THEN** it SHALL include positioning, taxonomy, comparison matrix, debates,
   review outline, and evidence map

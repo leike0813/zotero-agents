@@ -115,6 +115,39 @@ describe("host bridge file downloads", function () {
     }
   });
 
+  it("encodes non-ASCII download filenames as RFC 5987 header values", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile(
+      "paper.pdf",
+      "registered file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "中文 文件.pdf",
+        contentType: "application/pdf",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v1/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.include(
+        parsed.head,
+        'Content-Disposition: attachment; filename="download.pdf"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.pdf',
+      );
+      assert.notInclude(parsed.head, "中文");
+      assert.notInclude(parsed.head, "\u0000");
+      assert.match(parsed.head, /^[\x00-\x7f]*$/);
+      assert.strictEqual(parsed.body, "registered file content");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("downloads registered file handles with a master token for remote profiles", async function () {
     configureHostBridgeServerForTests({ token: "local-file-token" });
     const master = await rotateHostBridgeMasterToken();

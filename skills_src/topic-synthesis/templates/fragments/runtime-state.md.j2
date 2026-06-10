@@ -1,5 +1,5 @@
 ## 运行状态
 
-- SQLite 是 stage state、receipt、artifact registry 和 handoff registry 的真源。
+- SQLite 只保存 stage state 和必要的跨 stage 上下文。
 - 跨 skill 业务状态来自 SQLite 与 handoff/files，不从 prompt 文本传递。
 - 命令型入口 stage 负责处理本包的 runtime 初始化或状态校验。

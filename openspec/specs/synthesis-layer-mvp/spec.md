@@ -18,15 +18,15 @@ rows, and derived artifact notes.
 - **AND** `getReferenceSidecarIndex()` SHALL return rows for those papers.
 
 ### Requirement: Resolver execution is deterministic
-Topic Resolver execution SHALL be deterministic and plugin-owned, and `synthesis.resolve_resolver` SHALL require a canonical resolver under the top-level `resolver` input field.
+Topic Resolver execution SHALL be deterministic and plugin-owned, and `resolvers.resolve` SHALL require a canonical resolver under the top-level `resolver` input field.
 
 #### Scenario: Resolver wrapper field is missing
-- **WHEN** `synthesis.resolve_resolver` receives an input object without a valid `resolver` object
+- **WHEN** `resolvers.resolve` receives an input object without a valid `resolver` object
 - **THEN** it SHALL return `ok: false`
 - **AND** the errors SHALL identify `$.resolver` as the missing or invalid field.
 
 #### Scenario: Workflow bundle resolver field is rejected
-- **WHEN** `synthesis.resolve_resolver` receives `topic_resolver` instead of `resolver`
+- **WHEN** `resolvers.resolve` receives `topic_resolver` instead of `resolver`
 - **THEN** it SHALL return `ok: false`
 - **AND** it SHALL explain that `topic_resolver` is not accepted by this Host Bridge/MCP contract.
 
@@ -110,7 +110,7 @@ the plugin-owned Synthesis service.
 #### Scenario: Create workflow checks topic duplicates semantically
 
 - **WHEN** a `create-topic-synthesis` ACP Skill run starts
-- **THEN** it SHALL call `synthesis.list_topics` before resolver generation
+- **THEN** it SHALL call `topics.list` before resolver generation
 - **AND** it SHALL compare the user seed only against existing topic
   `title/description/aliases`.
 
@@ -119,7 +119,7 @@ the plugin-owned Synthesis service.
 - **WHEN** a create-mode run finds a plausible existing topic duplicate
 - **THEN** the agent SHALL ask for ACP interactive user confirmation before
   switching to update
-- **AND** it SHALL call `synthesis.get_topic_context` only after the user chooses
+- **AND** it SHALL call `topics.get_context` only after the user chooses
   an existing topic to update.
 
 ### Requirement: Workbench can submit topic synthesis tasks
@@ -150,4 +150,3 @@ using persisted layout coordinates.
 - **WHEN** no persisted graph snapshot exists
 - **THEN** the Workbench SHALL show diagnostics and a rebuild action instead of
   a fake graph or silent blank canvas.
-

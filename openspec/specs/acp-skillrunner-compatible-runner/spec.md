@@ -5,6 +5,7 @@ TBD - created by archiving change add-acp-skillrunner-compatible-runner. Update 
 ## Requirements
 ### Requirement: ACP backend SHALL execute SkillRunner-compatible workflow jobs
 
+
 The system SHALL allow `skillrunner.job.v1` workflow requests to execute through
 an ACP backend without changing the workflow-facing request contract, when the
 workflow's provider-derived backend compatibility allows an ACP backend.
@@ -26,8 +27,8 @@ workflow's provider-derived backend compatibility allows an ACP backend.
 - **WHEN** backend compatibility is resolved
 - **THEN** ACP backend profiles SHALL NOT be considered compatible solely
   because of the request kind.
-
 ### Requirement: ACP runner SHALL materialize skills into agent-specific roots
+
 
 The ACP runner SHALL materialize plugin-side skills into run-local skill roots
 selected by ACP agent family, except for ACP families that use catalog-based
@@ -42,8 +43,8 @@ instruction discovery.
   roots
 - **AND** it SHALL keep the requested skill's catalog root available for
   execution and validation.
-
 ### Requirement: ACP runner SHALL wrap workflow launches with uv when needed
+
 
 The ACP runner SHALL use `uv run --with` only for workflow-run ACP launches when
 the materialized skill declares runtime Python dependencies.
@@ -58,8 +59,8 @@ the materialized skill declares runtime Python dependencies.
 - **AND** the uv probe succeeds
 - **WHEN** the workflow runner launches the ACP process
 - **THEN** it SHALL wrap the command with `uv run --with ... --`
-
 ### Requirement: ACP runner SHALL validate structured output and repair failures
+
 
 The ACP runner SHALL validate assistant turn output and issue bounded repair
 prompts when validation fails.
@@ -75,8 +76,8 @@ prompts when validation fails.
   and catalog skill root
 - **AND** the first prompt SHALL include compact catalog context rather than
   proxy skill roots.
-
 ### Requirement: ACP Skills Busy Composer SHALL Interrupt Current Turn Without Canceling Run
+
 
 ACP Skills MUST distinguish interrupting the current agent turn from canceling the whole skill run.
 
@@ -93,8 +94,8 @@ ACP Skills MUST distinguish interrupting the current agent turn from canceling t
 - **THEN** the run SHALL remain available in the run list
 - **AND** the run status SHALL NOT be changed to `canceled`
 - **AND** the session SHALL NOT be disconnected by that action.
-
 ### Requirement: ACP Skills Panel SHALL Preserve Per-Run Composer State
+
 
 ACP Skills frontend state MUST be isolated per selected run.
 
@@ -108,8 +109,8 @@ ACP Skills frontend state MUST be isolated per selected run.
 - **WHEN** a completed run has an active follow-up prompt or reply in progress
 - **THEN** the hint area SHALL show the active turn state
 - **AND** it SHALL NOT remain stuck on `Run completed`.
-
 ### Requirement: ACP Skills Task Drawer SHALL Surface Waiting Tasks
+
 
 ACP Skills task drawer rows MUST indicate tasks requiring user action.
 
@@ -123,8 +124,8 @@ ACP Skills task drawer rows MUST indicate tasks requiring user action.
 - **WHEN** a run first enters `waiting_user` or permission-required state
 - **THEN** the UI SHALL emit one toast for that transition
 - **AND** repeated snapshots SHALL NOT emit duplicate toasts.
-
 ### Requirement: ACP skill runner MUST execute ACP skill run requests
+
 
 ACP skill execution SHALL use `acp.skill.run.v1` as its provider-facing request
 contract. The runner MUST reject `skillrunner.job.v1` at its public dispatch
@@ -136,8 +137,8 @@ boundary.
 - **THEN** the run input manifest SHALL contain local absolute file paths
 - **AND** it SHALL NOT expose `inputs/<key>/...` upload-relative paths to the
   agent.
-
 ### Requirement: ACP Skills transcript signal governance
+
 
 ACP Skills SHALL project only high-signal runtime events into the conversation transcript.
 
@@ -152,8 +153,8 @@ ACP Skills SHALL project only high-signal runtime events into the conversation t
 - **WHEN** the store projects transcript items
 - **THEN** those events SHALL remain in logs only
 - **AND** they SHALL NOT appear as transcript status items.
-
 ### Requirement: ACP Skills selected composer is isolated from other run updates
+
 
 ACP Skills SHALL preserve the selected run's active composer while unrelated
 runs stream, reconnect, or refresh.
@@ -171,8 +172,8 @@ runs stream, reconnect, or refresh.
   conversation reply path
 - **THEN** reconnect or snapshot refresh SHALL NOT force the composer into a
   disabled completed-only state.
-
 ### Requirement: ACP Skills refresh hardening preserves prompt semantics
+
 
 ACP Skills SHALL preserve existing prompt interaction semantics while hardening
 refresh behavior.
@@ -183,8 +184,8 @@ refresh behavior.
 - **THEN** the corresponding buttons SHALL remain operable after snapshot
   refresh
 - **AND** text input SHALL NOT become the only available reply path.
-
 ### Requirement: ACP skill replies SHALL recover from failed prompt chains
+
 
 ACP skill run replies SHALL NOT reuse a previously rejected prompt-chain promise
 as the starting point for a later user reply.
@@ -203,8 +204,8 @@ as the starting point for a later user reply.
 - **WHEN** the runner records the failure
 - **THEN** it SHALL retain diagnostics for the failed turn
 - **AND** it SHALL clear or replace the mutable prompt-chain state before accepting another reply.
-
 ### Requirement: ACP runner SHALL resolve Skill Runner schema assets consistently
+
 
 The ACP runner SHALL resolve `input`, `parameter`, and `output` schema assets using Skill Runner-compatible rules: declared `runner.schemas.<key>` first, then `assets/<key>.schema.json` fallback.
 
@@ -225,8 +226,8 @@ The ACP runner SHALL resolve `input`, `parameter`, and `output` schema assets us
 - **WHEN** ACP needs to validate output
 - **AND** neither the declared output schema nor `assets/output.schema.json` can be resolved
 - **THEN** output validation SHALL fail with a schema diagnostic instead of silently passing.
-
 ### Requirement: ACP runner SHALL validate request input and parameter schemas
+
 
 The ACP runner SHALL validate request `input` and `parameter` payloads before sending the first ACP prompt.
 
@@ -245,8 +246,8 @@ The ACP runner SHALL validate request `input` and `parameter` payloads before se
 
 - **WHEN** input keys marked `x-input-source=inline` or parameter keys are present
 - **THEN** ACP SHALL validate them against their corresponding JSON schemas.
-
 ### Requirement: ACP runner SHALL render Skill Runner entrypoint prompts
+
 
 The ACP runner SHALL render `runner.entrypoint.prompts.<engine>` when available, fall back to `common`, and only use the generic ACP prompt when no runner prompt is defined.
 
@@ -260,8 +261,8 @@ The ACP runner SHALL render `runner.entrypoint.prompts.<engine>` when available,
 - **WHEN** no engine-specific prompt exists
 - **AND** `runner.entrypoint.prompts.common` exists
 - **THEN** ACP SHALL render the common prompt with resolved `input`, `parameter`, `skill`, `run_dir`, and `engine_id` variables.
-
 ### Requirement: ACP runner SHALL recover valid package result files
+
 
 The ACP runner SHALL attempt package result-file fallback when assistant output is invalid before exhausting repair/failure handling.
 
@@ -280,8 +281,8 @@ The ACP runner SHALL attempt package result-file fallback when assistant output 
 
 - **WHEN** a fallback result file is missing, invalid JSON, non-object, or schema invalid
 - **THEN** ACP SHALL continue normal invalid-output repair or failure handling.
-
 ### Requirement: ACP runner SHALL preserve declared compatibility divergences
+
 
 ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
@@ -295,8 +296,8 @@ ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
 - **WHEN** final output contains schema fields annotated with `x-type=artifact` or `x-type=file`
 - **THEN** ACP SHALL NOT rewrite those fields to bundle-relative paths.
-
 ### Requirement: ACP Skill runs SHALL optionally auto-approve ACP tool permissions
+
 
 ACP Skill runs SHALL automatically resolve ACP backend tool-call permission
 requests only when the run's frozen ACP provider options enable permission
@@ -328,4 +329,33 @@ auto-approval.
 - **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
 - **WHEN** a permission request source is not `acp-tool-call`
 - **THEN** the run SHALL NOT auto-approve that request.
+### Requirement: ACP Skills controls distinguish turn, connection, and task cancellation
 
+
+ACP Skills SHALL treat current-turn cancel, connection disconnect, and task
+cancel as separate user actions with separate state transitions.
+
+#### Scenario: Current turn cancel stops only the active prompt
+
+- **WHEN** the user cancels the current ACP Skills prompt turn
+- **THEN** Host SHALL stop the active ACP prompt call
+- **AND** the run SHALL remain non-terminal
+- **AND** the ACP connection SHALL remain available for later prompts
+- **AND** assistant text returned after the cancel SHALL NOT enter output
+  validation, result-file fallback, or output repair.
+
+#### Scenario: Disconnect stops the turn before detaching
+
+- **WHEN** the user disconnects an ACP Skills run during an active prompt turn
+- **THEN** Host SHALL stop the active prompt turn before detaching the local
+  connection
+- **AND** the run SHALL remain non-terminal and recoverable
+- **AND** assistant text returned after the disconnect SHALL NOT enter output
+  validation, result-file fallback, or output repair.
+
+#### Scenario: Task cancel is terminal
+
+- **WHEN** the user cancels the ACP Skills task
+- **THEN** Host SHALL stop the active prompt turn and detach the connection
+- **AND** the run SHALL become terminal `canceled`
+- **AND** any parent sequence SHALL NOT start downstream steps.

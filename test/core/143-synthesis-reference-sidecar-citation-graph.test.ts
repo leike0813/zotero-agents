@@ -18,9 +18,10 @@ async function makeRuntimeRoot() {
 function makeService(args: {
   root: string;
   repository?: ReturnType<typeof createSynthesisRepository>;
-  registryInputs?: any[];
+  registryInputs?: any[] | null;
   citationGraphPapers?: any[];
   libraryAdapter?: any;
+  relatedItemsSyncHost?: any;
 }) {
   const repository =
     args.repository || createSynthesisRepository({ runtimeRoot: args.root });
@@ -29,9 +30,10 @@ function makeService(args: {
     runtimeRoot: args.root,
     libraryId: 1,
     synthesisRepository: repository,
-    registryInputs: args.registryInputs || [],
+    registryInputs: args.registryInputs === null ? undefined : args.registryInputs || [],
     citationGraphPapers: args.citationGraphPapers,
     libraryAdapter: args.libraryAdapter,
+    relatedItemsSyncHost: args.relatedItemsSyncHost,
   });
   return { service, repository };
 }
@@ -97,10 +99,27 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(repository.listReferenceFacts()[0]?.resolutionStatus, "unbound");
     assert.equal(repository.listArtifactSidecars().length, 3);
     const operations = repository.listOperations({ includeCompleted: true });
-    assert.equal(operations[0]?.operationType, "related_items_sync");
-    assert.equal(operations[0]?.status, "failed");
-    assert.isUndefined(
-      repository.listCacheBasis({ cacheKinds: ["citation_graph"] })[0],
+    assert.notInclude(
+      operations.map((operation) => operation.operationType),
+      "citation_graph_cache_incremental_refresh",
+    );
+    assert.notInclude(
+      operations.map((operation) => operation.operationType),
+      "related_items_sync",
+    );
+    const graphBasis = repository.getCacheBasis("citation-graph:library");
+    assert.equal(graphBasis?.status, "stale");
+    assert.include(graphBasis?.diagnosticsJson || "", "1:AAA");
+    assert.include(
+      graphBasis?.diagnosticsJson || "",
+      "citation_graph_cache_stale_delta",
+    );
+    const relatedBasis = repository.getCacheBasis("related-items-sync:global");
+    assert.equal(relatedBasis?.status, "stale");
+    assert.include(relatedBasis?.diagnosticsJson || "", "1:AAA");
+    assert.include(
+      relatedBasis?.diagnosticsJson || "",
+      "related_items_sync_stale_delta",
     );
 
     const registry = await service.getReferenceSidecarIndex({
@@ -434,7 +453,12 @@ describe("Synthesis sidecar cache hard cut", function () {
         references: [],
       },
     ];
-    const { service } = makeService({ root, repository, citationGraphPapers });
+    const { service } = makeService({
+      root,
+      repository,
+      registryInputs: null,
+      citationGraphPapers,
+    });
     let progressCalls = 0;
 
     const ready = await service.refreshReferenceSidecarNow({
@@ -442,12 +466,29 @@ describe("Synthesis sidecar cache hard cut", function () {
         progressCalls += 1;
       },
     });
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
 
     assert.equal(ready.status, "ready");
     assert.isAtLeast(progressCalls, 3);
     assert.equal(repository.getCacheBasis("reference-sidecar:library")?.status, "ready");
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+    const graphBasis = repository.getCacheBasis("citation-graph:library");
+    assert.equal(graphBasis?.status, "stale");
+    assert.include(graphBasis?.diagnosticsJson || "", "1:AAA");
+    assert.include(
+      graphBasis?.diagnosticsJson || "",
+      "citation_graph_cache_stale_delta",
+    );
+    const relatedBasis = repository.getCacheBasis("related-items-sync:global");
+    assert.equal(relatedBasis?.status, "stale");
+    assert.include(relatedBasis?.diagnosticsJson || "", "1:AAA");
+    assert.include(
+      relatedBasis?.diagnosticsJson || "",
+      "related_items_sync_stale_delta",
+    );
+    const operationTypes = repository
+      .listOperations({ includeCompleted: true })
+      .map((operation) => operation.operationType);
+    assert.notInclude(operationTypes, "citation_graph_cache_incremental_refresh");
+    assert.notInclude(operationTypes, "related_items_sync");
 
     const failing = makeService({
       root,
@@ -472,7 +513,7 @@ describe("Synthesis sidecar cache hard cut", function () {
 
     assert.equal(failed.status, "ready");
     assert.equal(repository.getCacheBasis("reference-sidecar:library")?.status, "ready");
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "stale");
   });
 
   it("refreshes citation graph source slices without replacing unrelated rows", async function () {
@@ -610,12 +651,29 @@ describe("Synthesis sidecar cache hard cut", function () {
 
   it("runs manual stale graph cache incremental refresh from cache basis delta metadata", async function () {
     const root = await makeRuntimeRoot();
+    const relations = new Set<string>();
+    const stats = { reads: 0, adds: 0, removes: 0 };
+    const relatedItemsSyncHost = {
+      hasRelatedItem(args: any) {
+        stats.reads += 1;
+        return relations.has(`${args.sourceItemKey}->${args.targetItemKey}`);
+      },
+      addRelatedItem(args: any) {
+        stats.adds += 1;
+        relations.add(`${args.sourceItemKey}->${args.targetItemKey}`);
+      },
+      removeRelatedItem(args: any) {
+        stats.removes += 1;
+        relations.delete(`${args.sourceItemKey}->${args.targetItemKey}`);
+      },
+    };
     const { service, repository } = makeService({
       root,
       registryInputs: [
         { libraryId: 1, itemKey: "AAA", title: "Source A", notes: [] },
         { libraryId: 1, itemKey: "BBB", title: "Target B", notes: [] },
       ],
+      relatedItemsSyncHost,
     });
 
     await service.applyReferenceMatchingSidecar({
@@ -628,6 +686,9 @@ describe("Synthesis sidecar cache hard cut", function () {
     await service.rebuildCitationGraphCacheNow();
     const rebuildCount = repository.listOperations({ includeCompleted: true })
       .filter((operation) => operation.operationType === "citation_graph_cache_rebuild")
+      .length;
+    const relatedSyncCount = repository.listOperations({ includeCompleted: true })
+      .filter((operation) => operation.operationType === "related_items_sync")
       .length;
     repository.upsertCacheBasis({
       cacheKey: "citation-graph:library",
@@ -655,6 +716,9 @@ describe("Synthesis sidecar cache hard cut", function () {
     const result = await service.refreshCitationGraphCacheIncrementalNow();
 
     assert.equal(result.status, "completed");
+    assert.deepEqual(result.affected_source_refs, ["1:AAA"]);
+    assert.equal((result as any).related_items_sync?.processed, 1);
+    assert.equal((result as any).related_items_sync?.failed, 0);
     assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
     assert.equal(
       repository.listOperations({ includeCompleted: true })
@@ -668,6 +732,18 @@ describe("Synthesis sidecar cache hard cut", function () {
       ),
       "citation_graph_cache_incremental_refresh",
     );
+    const relatedSyncOperations = repository
+      .listOperations({ includeCompleted: true })
+      .filter((operation) => operation.operationType === "related_items_sync");
+    assert.lengthOf(relatedSyncOperations, relatedSyncCount + 1);
+    assert.isTrue(
+      relatedSyncOperations.some(
+        (operation) =>
+          operation.scopeKind === "source_ref" &&
+          operation.scopeRef === "1:AAA",
+      ),
+    );
+    assert.isAtLeast(stats.reads, 1);
   });
 
   it("profiles reference sidecar and citation graph rebuild phases", async function () {
@@ -675,6 +751,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     resetSynthesisJobProfilerForTests(root);
     const { service } = makeService({
       root,
+      registryInputs: null,
       citationGraphPapers: [
         {
           libraryId: 1,
@@ -715,6 +792,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({
       root,
+      registryInputs: null,
       citationGraphPapers: [
         {
           libraryId: 1,

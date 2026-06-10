@@ -70,6 +70,12 @@ function completeSidecars() {
       content_type: "json",
       schema_id: "synthesis.topic_graph_relation_proposals",
     },
+    prospective_topic_relation_proposals: {
+      path: "result/sidecars/prospective-topic-relation-proposals.json",
+      hash: "sha256:prospective-topic-relation-proposals",
+      content_type: "json",
+      schema_id: "synthesis.prospective_topic_relation_proposals",
+    },
   };
 }
 
@@ -817,7 +823,7 @@ describe("Topic synthesis structured artifact contract", function () {
     );
   });
 
-  it("computes documented manifest, artifact, export, metadata, and section hashes from canonical current files", async function () {
+  it("computes documented manifest, artifact, metadata, and section hashes from canonical current files", async function () {
     const module = await importOptional(
       "../../src/modules/synthesis/topicStructuredArtifact",
     );
@@ -830,7 +836,6 @@ describe("Topic synthesis structured artifact contract", function () {
       manifest: { schema_id: "synthesis.topic_current_manifest", sections: {} },
       artifact: structuredArtifact(),
       metadata: { topic_id: "object-detection", language: "zh-CN" },
-      exportMarkdown: "# Object Detection\n",
       sections: {
         claims: [{ id: "claim:detector-evolution" }],
       },
@@ -840,13 +845,12 @@ describe("Topic synthesis structured artifact contract", function () {
       "manifest_hash",
       "structured_hash",
       "artifact_hash",
-      "markdown_hash",
-      "export_hash",
       "metadata_hash",
       "section_hashes",
     ]);
     assert.equal(hashes.structured_hash, hashes.artifact_hash);
-    assert.equal(hashes.markdown_hash, hashes.export_hash);
+    assert.notProperty(hashes, "markdown_hash");
+    assert.notProperty(hashes, "export_hash");
     assert.match(hashes.section_hashes.claims, /^sha256:/);
   });
 

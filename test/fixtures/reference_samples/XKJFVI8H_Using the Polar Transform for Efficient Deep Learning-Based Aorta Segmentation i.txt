@@ -1,0 +1,21 @@
+[1] M. Bencevic, I. Galic, M. Habijan, and D. Babin, “Training on Polar Image Transformations Improves Biomedical Image Segmentation,” IEEE Access, vol. 9, pp. 133365–133375, 2021.
+
+[2] A. Fantazzini, M. Esposito, A. Finotello, F. Auricchio, B. Pane, C. Basso, G. Spinella, and M. Conti, “3D Automatic Segmentation of Aortic Computed Tomography Angiography Combining Multi-View 2D Convolutional Neural Networks,” Cardiovascular Engineering and Technology, vol. 11, pp. 576–586, Oct. 2020.
+
+[3] Y. Yu, Y. Gao, J. Wei, F. Liao, Q. Xiao, J. Zhang, W. Yin, and B. Lu, “A Three-Dimensional Deep Convolutional Neural Network for Automatic Segmentation and Diameter Measurement of Type B Aortic Dissection,” Korean Journal of Radiology, vol. 22, no. 2, p. 168, 2021.
+
+[4] D. Chen, X. Zhang, Y. Mei, F. Liao, H. Xu, Z. Li, Q. Xiao, W. Guo, H. Zhang, T. Yan, J. Xiong, and Y. Ventikos, “Multi-stage learning for segmentation of aortic dissections using a prior aortic anatomy simplification,” Medical Image Analysis, vol. 69, p. 101931, Apr. 2021.
+
+[5] Q. Liu, X. Hong, W. Ke, Z. Chen, and B. Zou, “DDNet: Cartesian-polar Dual-domain Network for the Joint Optic Disc and Cup Segmentation,” 2019.
+
+[6] C. Esteves, C. Allen-Blanchette, X. Zhou, and K. Daniilidis, “Polar Transformer Networks,” arXiv:1709.01889 [cs], Feb. 2018.
+
+[7] H. Salehinejad, S. Valaee, T. Dowdell, and J. Barfett, “Image Augmentation Using Radial Transform for Training Deep Neural Networks,” in 2018 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), (Calgary, AB), pp. 3016–3020, IEEE, Apr. 2018.
+
+[8] L. Radl, Y. Jin, A. Pepe, J. Li, C. Gsaxner, F.-h. Zhao, and J. Egger, “AVT: Multicenter aortic vessel tree CTA dataset collection with ground truth segmentation masks,” Data in Brief, vol. 40, p. 107801, Feb. 2022.
+
+[9] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional Networks for Biomedical Image Segmentation,” in Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015 (N. Navab, J. Hornegger, W. M. Wells, and A. F. Frangi, eds.), vol. 9351, pp. 234– 241, Cham: Springer International Publishing, 2015.
+
+[10] A. A. Taha and A. Hanbury, “Metrics for evaluating 3D medical image segmentation: Analysis, selection, and tool,” BMC Medical Imaging, vol. 15, p. 29, Dec. 2015.
+
+[11] W. K. Cheung, R. Bell, A. Nair, L. Menezies, R. Patel, S. Wan, K. Chou, J. Chen, R. Torii, R. H. Davies, J. C. Moon, D. C. Alexander, and J. Jacob, “A computationally efficient approach to segmentation of the aorta and coronary arteries using deep learning,” preprint, Cardiovascular Medicine, Feb. 2021.

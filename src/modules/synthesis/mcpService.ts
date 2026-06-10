@@ -1,6 +1,7 @@
 export type SynthesisMcpService = {
   listTopics?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getTopicContext?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getTopicReport?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   queryConceptKb?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   queryCitationGraphCluster?: (
@@ -18,6 +19,13 @@ export type SynthesisMcpService = {
   getCitationGraphMetrics?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
+  rankExternalReferences?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
+  rankLibraryPapers?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
+  getAttentionQueue?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   refreshCitationGraphMetricsNow?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

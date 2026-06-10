@@ -12,24 +12,47 @@
     "scope_exclude",
     "duplicate_status",
     "duplicate_candidate_ids",
-    "duplicate_reason",
-    "diagnostics"
+    "duplicate_reason"
   ],
   "properties": {
-    "topic_title": { "type": "string", "minLength": 1 },
-    "aliases": { "type": "array", "items": { "type": "string" } },
-    "definition": { "type": "string", "minLength": 1 },
-    "scope_include": { "type": "array", "items": { "type": "string" } },
-    "scope_exclude": { "type": "array", "items": { "type": "string" } },
+    "topic_title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "definition": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope_include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scope_exclude": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "duplicate_status": {
       "enum": ["none", "possible_duplicate", "duplicate", "unknown"]
     },
     "duplicate_candidate_ids": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
-    "duplicate_reason": { "type": "string" },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    "duplicate_reason": {
+      "type": "string"
+    }
   },
   "examples": [
     {
@@ -40,8 +63,7 @@
       "scope_exclude": [],
       "duplicate_status": "none",
       "duplicate_candidate_ids": [],
-      "duplicate_reason": "",
-      "diagnostics": []
+      "duplicate_reason": ""
     }
   ]
 }

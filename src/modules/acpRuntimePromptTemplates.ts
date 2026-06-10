@@ -8,9 +8,7 @@ import {
 
 export type AcpRuntimePromptTemplateId =
   | "mcp_required_guard"
-  | "recovered_continuation_guard"
-  | "host_bridge_cli_readme"
-  | "host_bridge_cli_prompt";
+  | "recovered_continuation_guard";
 
 export type AcpRuntimePromptTemplate = {
   id: AcpRuntimePromptTemplateId;
@@ -28,14 +26,6 @@ export const ACP_RUNTIME_PROMPT_TEMPLATES = [
   {
     id: "recovered_continuation_guard",
     filename: "recovered_continuation_guard.md",
-  },
-  {
-    id: "host_bridge_cli_readme",
-    filename: "host_bridge_cli_readme.md",
-  },
-  {
-    id: "host_bridge_cli_prompt",
-    filename: "host_bridge_cli_prompt.md",
   },
 ] satisfies AcpRuntimePromptTemplate[];
 

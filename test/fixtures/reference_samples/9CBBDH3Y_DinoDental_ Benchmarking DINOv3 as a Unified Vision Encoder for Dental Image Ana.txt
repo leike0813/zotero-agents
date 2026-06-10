@@ -1,0 +1,159 @@
+[1] Amani Almalki and Longin Jan Latecki. Self-supervised learning with masked image modeling for teeth numbering, detection of dental restorations, and instance segmentation in dental panoramic radiographs. In Proceedings of the IEEE/CVF winter conference on applications of computer vision, pages 5594–5603, 2023. 1
+
+[2] Johan Andreas Balle Rubak, Khuram Naveed, Sanyam Jain,
+
+Lukas Esterle, Alexandros Iosifidis, and Ruben Pauwels. Impact of labeling inaccuracy and image noise on tooth segmentation in panoramic radiographs using federated, centralized and local learning. Dentomaxillofacial Radiology, page twag001, 2026. 1
+
+[3] Hangbo Bao, Li Dong, Songhao Piao, and Furu Wei. Beit: Bert pre-training of image transformers. arXiv preprint arXiv:2106.08254, 2021. 2, 8, 10, 12, 14
+
+[4] Benedikt Boecking, Naoto Usuyama, Shruthi Bannur, Daniel C Castro, Anton Schwaighofer, Stephanie Hyland, Maria Wetscherek, Tristan Naumann, Aditya Nori, Javier Alvarez-Valle, et al. Making the most of text semantics to improve biomedical vision–language processing. In European conference on computer vision, pages 1–21. Springer, 2022. 3
+
+[5] Zijian Cai, Xinquan Yang, Xuguang Li, Xiaoling Luo, Xuechen Li, Linlin Shen, He Meng, and Yongqiang Deng. Ssad: Self-supervised auxiliary detection framework for panoramic x-ray based dental disease diagnosis. arXiv preprint arXiv:2406.13963, 2024. 3
+
+[6] Mathilde Caron, Hugo Touvron, Ishan Misra, Hervé Jégou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision, pages 9650–9660, 2021. 1, 2, 3
+
+[7] Bingzhi Chen, Sisi Fu, Xiaocheng Fang, Jieyi Cai, Boya Zhang, Minhua Lu, and Yishu Liu. Oralxrays-9: Towards hospital-scale panoramic x-ray anomaly detection via personalized multi-object query-aware mining. In Proceedings of the Computer Vision and Pattern Recognition Conference, pages 15570–15579, 2025. 3, 4, 5
+
+[8] Bingzhi Chen, Sisi Fu, Yishu Liu, Jiahui Pan, Guangming Lu, and Zheng Zhang. Cariesxrays: Enhancing caries detection in hospital-scale panoramic dental x-rays via feature pyramid contrastive learning. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 38, pages 21940–21948, 2024. 3, 4
+
+[9] Kai Chen, Jiaqi Wang, Jiangmiao Pang, Yuhang Cao, Yu Xiong, Xiaoxiao Li, Shuyang Sun, Wansen Feng, Ziwei Liu, Jiarui Xu, Zheng Zhang, Dazhi Cheng, Chenchen Zhu, Tianheng Cheng, Qijie Zhao, Buyu Li, Xin Lu, Rui Zhu, Yue Wu, Jifeng Dai, Jingdong Wang, Jianping Shi, Wanli Ouyang, Chen Change Loy, and Dahua Lin. MMDetection: Open mmlab detection toolbox and benchmark. arXiv preprint arXiv:1906.07155, 2019. 6
+
+[10] Shoufa Chen, Chongjian Ge, Zhan Tong, Jiangliu Wang, Yibing Song, Jue Wang, and Ping Luo. Adaptformer: Adapting vision transformers for scalable visual recognition. Advances in Neural Information Processing Systems, 35:16664–16678, 2022. 6
+
+[11] Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton. A simple framework for contrastive learning of visual representations. In International conference on machine learning, pages 1597–1607. PmLR, 2020. 2
+
+[12] Xinlei Chen, Saining Xie, and Kaiming He. An empirical study of training self-supervised vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision, pages 9640–9649, 2021. 8
+
+[13] Xiangxiang Chu, Zhi Tian, Yuqing Wang, Bo Zhang, Haibing Ren, Xiaolin Wei, Huaxia Xia, and Chunhua Shen. Twins: Revisiting the design of spatial attention in vision transformers. Advances in neural information processing systems, 34:9355–9366, 2021. 10
+
+[14] MMSegmentation Contributors. MMSegmentation: Openmmlab semantic segmentation toolbox and benchmark. ht tps://github.com/open-mmlab/mmsegmentati on, 2020. 6
+
+[15] MMEngine Contributors. MMEngine: Openmmlab foundational library for training deep learning models. 2022. 6
+
+[16] MMPreTrain Contributors. Openmmlab’s pre-training toolbox and benchmark. https://github.com/openmmlab/mmpretrain, 2023. 6
+
+[17] Carl Doersch, Abhinav Gupta, and Alexei A Efros. Unsupervised visual representation learning by context prediction. In Proceedings of the IEEE international conference on computer vision, pages 1422–1430, 2015. 2
+
+[18] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929, 2020. 10, 12, 14
+
+[19] Spyros Gidaris, Praveer Singh, and Nikos Komodakis. Unsupervised representation learning by predicting image rotations. arXiv preprint arXiv:1803.07728, 2018. 2
+
+[20] Jean-Bastien Grill, Florian Strub, Florent Altché, Corentin Tallec, Pierre Richemond, Elena Buchatskaya, Carl Doersch, Bernardo Avila Pires, Zhaohan Guo, Mohammad Gheshlaghi Azar, et al. Bootstrap your own latent-a new approach to self-supervised learning. Advances in neural information processing systems, 33:21271–21284, 2020. 2
+
+[21] Jie Gui, Tuo Chen, Jing Zhang, Qiong Cao, Zhenan Sun, Hao Luo, and Dacheng Tao. A survey on self-supervised learning: Algorithms, applications, and future trends. IEEE Transactions on Pattern Analysis and Machine Intelligence, 46(12):9052–9071, 2024. 2
+
+[22] Meng-Hao Guo, Cheng-Ze Lu, Qibin Hou, Zhengning Liu, Ming-Ming Cheng, and Shi-Min Hu. Segnext: Rethinking convolutional attention design for semantic segmentation. Advances in neural information processing systems, 35:1140–1156, 2022. 10
+
+[23] Ibrahim Ethem Hamamci, Sezgin Er, Enis Simsar, Atif Emre Yuksel, Sadullah Gultekin, Serife Damla Ozdemir, Kaiyuan Yang, Hongwei Bran Li, Sarthak Pati, Bernd Stadlinger, et al. Dentex: An abnormal tooth detection with dental enumeration and diagnosis benchmark for panoramic x-rays. arXiv preprint arXiv:2305.19112, 2023. 3, 4
+
+[24] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 16000– 16009, 2022. 2, 8, 10
+
+[25] Kaiming He, Haoqi Fan, Yuxin Wu, Saining Xie, and Ross Girshick. Momentum contrast for unsupervised visual representation learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 9729–9738, 2020. 2
+
+[26] Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross Girshick. Mask r-cnn. In Proceedings of the IEEE international conference on computer vision, pages 2961–2969, 2017. 6
+
+[27] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 770–778, 2016. 6, 8, 10, 12, 14
+
+[28] Senbao Hou, Tao Zhou, Yuncan Liu, Pei Dang, Huiling Lu, and Hongbin Shi. Teeth u-net: A segmentation model of dental panoramic x-ray images for context semantics and contrast enhancement. Computers in biology and medicine, 152:106296, 2023. 2
+
+[29] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. Parameter-efficient transfer learning for nlp. In International conference on machine learning, pages 2790–2799. PMLR, 2019. 6
+
+[30] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr, 1(2):3, 2022. 2, 6
+
+[31] Meiyu Hu, Qianli Zhang, Zhenyang Wei, Pingyi Jia, Mu Yuan, Huajie Yu, Xu-Cheng Yin, and Junran Peng. Selfsupervised learning enhances periapical films segmentation with limited labeled data. Journal of Dentistry, page 106150, 2025. 1, 3
+
+[32] Chenxi Huang, Jiaji Wang, Shuihua Wang, and Yudong Zhang. A review of deep learning in dentistry. Neurocomputing, 554:126629, 2023. 1
+
+[33] Shih-Cheng Huang, Anuj Pareek, Malte Jensen, Matthew P Lungren, Serena Yeung, and Akshay S Chaudhari. Selfsupervised learning for medical image classification: a systematic review and implementation guidelines. NPJ Digital Medicine, 6(1):74, 2023. 1
+
+[34] Shih-Cheng Huang, Liyue Shen, Matthew P Lungren, and Serena Yeung. Gloria: A multimodal global-local representation learning framework for label-efficient medical image recognition. In Proceedings of the IEEE/CVF international conference on computer vision, pages 3942–3951, 2021. 3
+
+[35] Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie, Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. Visual prompt tuning. In European conference on computer vision, pages 709–727. Springer, 2022. 6
+
+[36] Longlong Jing and Yingli Tian. Self-supervised visual feature learning with deep neural networks: A survey. IEEE transactions on pattern analysis and machine intelligence, 43(11):4037–4058, 2020. 2
+
+[37] Ismail Kayadibi, Utku Köse, Gür Emre Güraksın, and Bilgün Çetin. An ai-assisted explainable mtmcnn architecture for detection of mandibular third molar presence from panoramic radiography. International Journal of Medical Informatics, 195:105724, 2025. 3, 5
+
+[38] Xiang Li, Xuan Ma, Yibai Zhao, Jingjing Hu, Jie Liu, Zhicheng Yang, Fangkai Han, Jie Zhang, Weifan Liu, and Zhongwei Zhou. A multi-center dental panoramic radiography image dataset for impacted teeth, periodontitis, and dental caries: Benchmarking segmentation and classification tasks. Journal of Imaging Informatics in Medicine, 37(2):831–841, 2024. 3, 5
+
+[39] Tsung-Yi Lin, Piotr Dollár, Ross Girshick, Kaiming He, Bharath Hariharan, and Serge Belongie. Feature pyramid networks for object detection. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 2117–2125, 2017. 6
+
+[40] Che Liu, Yinda Chen, Haoyuan Shi, Jinpeng Lu, Bailiang Jian, Jiazhen Pan, Linghan Cai, Jiayi Wang, Yundi Zhang, Jun Li, et al. Does dinov3 set a new medical vision standard? arXiv e-prints, pages arXiv–2509, 2025. 4
+
+[41] Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia Ning, Yue Cao, Zheng Zhang, Li Dong, et al. Swin transformer v2: Scaling up capacity and resolution. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 12009–12019, 2022. 12, 14
+
+[42] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In Proceedings of the IEEE/CVF international conference on computer vision, pages 10012–10022, 2021. 8, 10, 12, 14
+
+[43] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the 2020s. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 11976–11986, 2022. 8, 10, 12, 14
+
+[44] Tian Ma, Jiahui Li, Zhenrui Dang, Yawen Li, and Yuancheng Li. A dual-stream dental panoramic x-ray image segmentation method based on transformer heterogeneous feature complementation. Technologies, 13(7):293, 2025. 2
+
+[45] Ishan Misra and Laurens van der Maaten. Self-supervised learning of pretext-invariant representations. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 6707–6717, 2020. 2
+
+[46] Hossein Mohammad-Rahimi, Saeed Reza Motamedian, Mohammad Hossein Rohban, Joachim Krois, Sergio E Uribe, Erfan Mahmoudinia, Rata Rokhshad, Mohadeseh Nadimi, and Falk Schwendicke. Deep learning for caries detection: a systematic review. Journal of dentistry, 122:104115, 2022.
+
+[47] Sorana Mures, anu, Mihaela Hedes, iu, Liviu Iacob, Radu Eftimie, Eliza Olariu, Cristian Dinu, Reinhilde Jacobs, and Team Project Group. Automating dental condition detection on panoramic radiographs: challenges, pitfalls, and opportunities. Diagnostics, 14(20):2336, 2024. 3, 4, 5
+
+[48] AM Mutawa, Yacoub Yousef Altarakemah, and Karthiga Thirupathy. Deep learning applications for dental-disease classification using intraoral photographic images: Current status and future perspectives. AI, 7(3):85, 2026. 2
+
+[49] Mehdi Noroozi and Paolo Favaro. Unsupervised learning of visual representations by solving jigsaw puzzles. In European conference on computer vision, pages 69–84. Springer, 2016. 2
+
+[50] Shota Okazaki, Yuichi Mine, Yuki Yoshimi, Yuko Iwamoto, Shota Ito, Tzu-Yu Peng, Taku Nishimura, Tomoya Suehiro, Yuma Koizumi, Ryota Nomura, et al. Radimagenet and imagenet as datasets for transfer learning in the assessment of dental radiographs: a comparative study. Journal of imaging informatics in medicine, 38(1):534–544, 2025. 1, 3
+
+[51] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193, 2023. 1, 4, 8, 10, 12, 14
+
+[52] Deepak Pathak, Philipp Krahenbuhl, Jeff Donahue, Trevor Darrell, and Alexei A Efros. Context encoders: Feature learning by inpainting. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 2536–2544, 2016. 2
+
+[53] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning, pages 8748–8763. PmLR, 2021. 3
+
+[54] Ilija Radosavovic, Raj Prateek Kosaraju, Ross Girshick, Kaiming He, and Piotr Dollár. Designing network design spaces. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 10428–10436, 2020. 12, 14
+
+[55] Fet al Schwendicke, Wojciech Samek, and Joachim Krois. Artificial intelligence in dentistry: chances and challenges. Journal of dental research, 99(7):769–774, 2020. 1
+
+[56] Oriane Siméoni, Huy V Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, et al. Dinov3. arXiv preprint arXiv:2508.10104, 2025. 1, 4, 6, 8, 10, 12, 14, 15, 16, 17, 18
+
+[57] Evgeniy I Sosnin, Yuriy L Vasilev, Roman A Solovyev, Aleksandr L Stempkovskiy, Dmitry V Telpukhov, Artem A Vasilev, Aleksandr A Amerikanov, and Aleksandr Y Romanov. Alphadent: A dataset for automated tooth pathology detection. arXiv preprint arXiv:2507.22512, 2025. 3, 4, 5
+
+[58] Andreas Steiner, Alexander Kolesnikov, Xiaohua Zhai, Ross Wightman, Jakob Uszkoreit, and Lucas Beyer. How to train your vit? data, augmentation, and regularization in vision transformers. arXiv preprint arXiv:2106.10270, 2021. 8
+
+[59] Mingxing Tan and Quoc Le. Efficientnet: Rethinking model scaling for convolutional neural networks. In International conference on machine learning, pages 6105–6114. PMLR, 2019. 12, 14
+
+[60] Hugo Touvron, Matthieu Cord, Matthijs Douze, Francisco Massa, Alexandre Sablayrolles, and Hervé Jégou. Training data-efficient image transformers & distillation through attention. In International conference on machine learning, pages 10347–10357. PMLR, 2021. 8, 12, 14
+
+[61] Hugo Touvron, Matthieu Cord, and Hervé Jégou. Deit iii: Revenge of the vit. In European conference on computer vision, pages 516–533. Springer, 2022. 12, 14
+
+[62] Natalia Turosz, Kamila Ch˛ecinska, Maciej Ch˛eci ´ nski, Anita ´ Brzozowska, Zuzanna Nowak, and Maciej Sikora. Applications of artificial intelligence in the analysis of dental panoramic radiographs: an overview of systematic reviews. Dentomaxillofacial Radiology, 52(7):20230284, 2023. 2
+
+[63] Pawan Valluri. Dentalai computer vision project, 2023. 3, 4, 5
+
+[64] Jingdong Wang, Ke Sun, Tianheng Cheng, Borui Jiang, Chaorui Deng, Yang Zhao, Dong Liu, Yadong Mu, Mingkui Tan, Xinggang Wang, et al. Deep high-resolution representation learning for visual recognition. IEEE transactions on pattern analysis and machine intelligence, 43(10):3349– 3364, 2020. 10
+
+[65] Xianyun Wang, Sizhe Gao, Kaisheng Jiang, Huicong Zhang, Linhong Wang, Feng Chen, Jun Yu, and Fan Yang. Multi-level uncertainty aware learning for semi-supervised dental panoramic caries segmentation. Neurocomputing, 540:126208, 2023. 3, 5
+
+[66] Zifeng Wang, Zhenbang Wu, Dinesh Agarwal, and Jimeng Sun. Medclip: Contrastive learning from unpaired medical images and text. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing, pages 3876–3887, 2022. 3
+
+[67] World Health Organization. Who highlights oral health neglect affecting nearly half of the world’s population. http s://www.who.int/news/item/18-11-2022- who- highlights- oral- health- neglectaffecting-nearly-half-of-the-world-spopulation, 2022. Accessed: 2026-01-12. 1
+
+[68] World Health Organization. Oral health. https://www. who.int/news-room/fact-sheets/detail/or al-health, 2025. Accessed: 2026-01-12. 1
+
+[69] Tete Xiao, Yingcheng Liu, Bolei Zhou, Yuning Jiang, and Jian Sun. Unified perceptual parsing for scene understanding. In Proceedings of the European conference on computer vision (ECCV), pages 418–434, 2018. 6
+
+[70] Saining Xie, Ross Girshick, Piotr Dollár, Zhuowen Tu, and Kaiming He. Aggregated residual transformations for deep neural networks. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 1492–1500, 2017. 10
+
+[71] Sicheng Yang, Hongqiu Wang, Zhaohu Xing, Sixiang Chen, and Lei Zhu. Segdino: An efficient design for medical and natural image segmentation with dino-v3. arXiv preprint arXiv:2509.00833, 2025. 4
+
+[72] Weihao Yu, Mi Luo, Pan Zhou, Chenyang Si, Yichen Zhou, Xinchao Wang, Jiashi Feng, and Shuicheng Yan. Metaformer is actually what you need for vision. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 10819–10829, 2022. 10
+
+[73] John R Zech, Marcus A Badgeley, Manway Liu, Anthony B Costa, Joseph J Titano, and Eric Karl Oermann. Variable generalization performance of a deep learning model to detect pneumonia in chest radiographs: a cross-sectional study. PLoS medicine, 15(11):e1002683, 2018. 1
+
+[74] Hang Zhang, Chongruo Wu, Zhongyue Zhang, Yi Zhu, Haibin Lin, Zhi Zhang, Yue Sun, Tong He, Jonas Mueller, R Manmatha, et al. Resnest: Split-attention networks. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 2736–2746, 2022. 10
+
+[75] Richard Zhang, Phillip Isola, and Alexei A Efros. Colorful image colorization. In European conference on computer vision, pages 649–666. Springer, 2016. 2
+
+[76] Sheng Zhang, Yanbo Xu, Naoto Usuyama, Hanwen Xu, Jaspreet Bagga, Robert Tinn, Sam Preston, Rajesh Rao, Mu Wei, Naveen Valluri, et al. Biomedclip: a multimodal biomedical foundation model pretrained from fifteen million scientific image-text pairs. arXiv preprint arXiv:2303.00915, 2023. 3, 8
+
+[77] Yuhao Zhang, Hang Jiang, Yasuhide Miura, Christopher D Manning, and Curtis P Langlotz. Contrastive learning of medical visual representations from paired images and text. In Machine learning for healthcare conference, pages 2–25. PMLR, 2022. 3
+
+[78] Jinghao Zhou, Chen Wei, Huiyu Wang, Wei Shen, Cihang Xie, Alan Yuille, and Tao Kong. ibot: Image bert pre-training with online tokenizer. arXiv preprint arXiv:2111.07832, 2021. 2
+
+[79] Xizhou Zhu, Jinguo Zhu, Hao Li, Xiaoshi Wu, Hongsheng Li, Xiaohua Wang, and Jifeng Dai. Uni-perceiver: Pretraining unified architecture for generic perception for zeroshot and few-shot tasks. pages 16804–16815, 2022. 8

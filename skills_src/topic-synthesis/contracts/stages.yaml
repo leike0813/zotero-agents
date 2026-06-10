@@ -20,21 +20,22 @@ skills:
         schema: stage-10-create-topic-context.schema.json
         payload_path: runtime/payloads/create-topic-context.json
         required_reads:
-          - "<zotero-bridge> synthesis list-topics --input '{}'"
+          - "<zotero-bridge> topics list --input '{}'"
       - id: stage_20_resolver_and_workset
         kind: payload
         task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
         schema: stage-20-resolver-and-workset.schema.json
         payload_path: runtime/payloads/resolver-and-workset.json
         required_reads:
-          - '<zotero-bridge> synthesis get-library-index --input ''{"cursor":0,"limit":200}'''
+          - '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
       - id: stage_30_prepare_analysis_context
         kind: payload
         task: 为已解析的文献工作集编写轻量 paper triage 判断。
         schema: stage-30-prepare-analysis-context.schema.json
         payload_path: runtime/payloads/prepare-analysis-context.json
         required_reads:
-          - runtime/views/filtered-paper-artifacts/
+          - runtime/payloads/paper-artifacts-manifest-batch-1.json
+          - runtime/payloads/artifacts/
   - id: update-topic-synthesis-prepare
     title: 更新主题综合准备
     description: 为更新主题综合运行准备当前主题上下文、resolver、文献工作集和分析上下文。
@@ -55,21 +56,22 @@ skills:
         schema: stage-10-update-topic-context.schema.json
         payload_path: runtime/payloads/update-topic-context.json
         required_reads:
-          - '<zotero-bridge> synthesis get-topic-context --input ''{"topicId":"<topic_id>"}'''
+          - '<zotero-bridge> topics get-context --input ''{"topicId":"<topic_id>"}'''
       - id: stage_20_resolver_and_workset
         kind: payload
         task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
         schema: stage-20-resolver-and-workset.schema.json
         payload_path: runtime/payloads/resolver-and-workset.json
         required_reads:
-          - '<zotero-bridge> synthesis get-library-index --input ''{"cursor":0,"limit":200}'''
+          - '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
       - id: stage_30_prepare_analysis_context
         kind: payload
         task: 为已解析的文献工作集编写轻量 paper triage 判断。
         schema: stage-30-prepare-analysis-context.schema.json
         payload_path: runtime/payloads/prepare-analysis-context.json
         required_reads:
-          - runtime/views/filtered-paper-artifacts/
+          - runtime/payloads/paper-artifacts-manifest-batch-1.json
+          - runtime/payloads/artifacts/
   - id: topic-synthesis-core-enrichment
     title: 主题综合核心分析与知识图谱补全
     description: 读取已准备的分析上下文，编写核心综合分析和知识图谱补全 payload。
@@ -87,7 +89,7 @@ skills:
         required_reads: []
       - id: stage_40_core_synthesis
         kind: payload
-        task: 编写 taxonomy、timeline、positioning、claims、improvement dimensions、debates、gaps、review outline 和 concept candidate labels。
+        task: 编写 taxonomy、timeline、claims、improvement dimensions、debates、future directions、review writing strategies 和 concept candidate labels。
         schema: stage-40-core-synthesis.schema.json
         payload_path: runtime/payloads/core-synthesis.json
         required_reads:
@@ -96,7 +98,7 @@ skills:
           - runtime/views/source-paper-evidence-index.json
       - id: stage_50_kg_enrichment
         kind: payload
-        task: 编写 concept details、topic relation candidates 和 topic matching terms。
+        task: 编写 concept details、existing/prospective relation proposals 和 topic matching terms。
         schema: stage-50-kg-enrichment.schema.json
         payload_path: runtime/payloads/kg-enrichment.json
         required_reads:
@@ -126,9 +128,10 @@ skills:
           - runtime/views/finalize-context.manifest.json
       - id: stage_70_summary
         kind: payload
-        task: 基于已渲染的 synthesis report 编写最终 summary。
+        task: 基于 core handoff、coverage payload 和 finalize context 编写最终 summary。
         schema: stage-70-summary.schema.json
         payload_path: runtime/payloads/summary.json
         required_reads:
-          - runtime/views/synthesis-report.md
-          - runtime/views/synthesis-report.manifest.json
+          - runtime/handoff/core-enrichment.json
+          - runtime/payloads/coverage-and-collection-suggestions.json
+          - runtime/views/finalize-context.manifest.json

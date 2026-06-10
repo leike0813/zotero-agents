@@ -10,6 +10,7 @@ import { ACP_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
+import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   AUTO_APPROVE_ZOTERO_WRITES_PARAM,
   normalizeWorkflowRunOptions,
@@ -176,9 +177,15 @@ function normalizeExecutionOptions(raw: unknown): WorkflowExecutionOptions {
   }
   return {
     backendId:
-      typeof raw.backendId === "string" ? raw.backendId.trim() || undefined : undefined,
-    workflowParams: isObject(raw.workflowParams) ? { ...raw.workflowParams } : {},
-    providerOptions: isObject(raw.providerOptions) ? { ...raw.providerOptions } : {},
+      typeof raw.backendId === "string"
+        ? raw.backendId.trim() || undefined
+        : undefined,
+    workflowParams: isObject(raw.workflowParams)
+      ? { ...raw.workflowParams }
+      : {},
+    providerOptions: isObject(raw.providerOptions)
+      ? { ...raw.providerOptions }
+      : {},
     runOptions: normalizeWorkflowRunOptions(raw.runOptions),
   };
 }
@@ -209,18 +216,19 @@ function normalizeDraftChangedKey(raw: unknown) {
   return String(raw || "").trim();
 }
 
-function isStructuralDraftChange(args: { changedSection: string; changedKey: string }) {
+function isStructuralDraftChange(args: {
+  changedSection: string;
+  changedKey: string;
+}) {
   if (args.changedSection === "backend" && args.changedKey === "backendId") {
     return true;
   }
   if (
     args.changedSection === "providerOptions" &&
-    (
-      args.changedKey === "engine" ||
+    (args.changedKey === "engine" ||
       args.changedKey === "provider_id" ||
       args.changedKey === "model" ||
-      args.changedKey === "acpModelId"
-    )
+      args.changedKey === "acpModelId")
   ) {
     return true;
   }
@@ -241,6 +249,48 @@ function buildDialogErrorResult(args: {
     stage: args.stage,
     reason: text || args.fallback,
   };
+}
+
+function resolveErrorText(error: unknown, fallback: string) {
+  const text =
+    error instanceof Error
+      ? String(error.message || error.name || "").trim()
+      : String(error || "").trim();
+  return text || fallback;
+}
+
+function showAcpRuntimeCacheRefreshToast(args: {
+  ok: boolean;
+  refreshedAt?: string;
+  error?: unknown;
+}) {
+  if (args.ok) {
+    showWorkflowToast({
+      text: localize(
+        "backend-manager-refresh-acp-runtime-cache-success",
+        "ACP config cache refreshed.",
+        {
+          args: {
+            refreshedAt: String(args.refreshedAt || ""),
+          },
+        },
+      ),
+      type: "success",
+    });
+    return;
+  }
+  showWorkflowToast({
+    text: localize(
+      "backend-manager-refresh-acp-runtime-cache-failed",
+      "ACP config cache refresh failed: { $error }",
+      {
+        args: {
+          error: resolveErrorText(args.error, "unknown error"),
+        },
+      },
+    ),
+    type: "error",
+  });
 }
 
 export async function openWorkflowSettingsWebDialog(args: {
@@ -284,7 +334,11 @@ export async function openWorkflowSettingsWebDialog(args: {
     );
   };
 
-  const pushSnapshot = (messageType: "workflow-settings-dialog:init" | "workflow-settings-dialog:snapshot") => {
+  const pushSnapshot = (
+    messageType:
+      | "workflow-settings-dialog:init"
+      | "workflow-settings-dialog:snapshot",
+  ) => {
     if (!frameWindow) {
       return;
     }
@@ -316,7 +370,10 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-submit-persist-checkbox",
           "Save as default settings",
         ),
-        confirmLabel: localize("workflow-settings-submit-confirm", "Confirm & Submit"),
+        confirmLabel: localize(
+          "workflow-settings-submit-confirm",
+          "Confirm & Submit",
+        ),
         cancelLabel: localize("workflow-settings-cancel", "Cancel"),
         noWorkflowParams: localize(
           "workflow-settings-no-workflow-params",
@@ -418,7 +475,9 @@ export async function openWorkflowSettingsWebDialog(args: {
     dialog?.window?.close();
   };
 
-  const handleAction = async (envelope: WorkflowSettingsDialogActionEnvelope) => {
+  const handleAction = async (
+    envelope: WorkflowSettingsDialogActionEnvelope,
+  ) => {
     try {
       const action = String(envelope.action || "").trim();
       if (!action) {
@@ -431,7 +490,9 @@ export async function openWorkflowSettingsWebDialog(args: {
       if (action === "update-draft") {
         const payload = envelope.payload || {};
         draft = normalizeExecutionOptions(payload.executionOptions);
-        const changedSection = normalizeDraftChangedSection(payload.changedSection);
+        const changedSection = normalizeDraftChangedSection(
+          payload.changedSection,
+        );
         const changedKey = normalizeDraftChangedKey(payload.changedKey);
         if (
           isStructuralDraftChange({
@@ -451,30 +512,43 @@ export async function openWorkflowSettingsWebDialog(args: {
         return;
       }
       if (action === "refresh-acp-runtime-cache") {
-        const selectedBackendId = String(
-          draft.backendId || descriptor.selectedProfile || "",
-        ).trim();
-        const loaded = await loadBackendsRegistry();
-        const backends = [...loaded.backends];
-        const index = backends.findIndex(
-          (backend) => String(backend.id || "").trim() === selectedBackendId,
-        );
-        if (index < 0) {
-          throw new Error(`ACP backend not found: ${selectedBackendId}`);
-        }
-        if (String(backends[index].type || "").trim() !== ACP_BACKEND_TYPE) {
-          throw new Error(`Selected backend is not an ACP backend: ${selectedBackendId}`);
-        }
-        const result = await probeAcpBackendRuntimeOptions({
-          backend: backends[index],
-        });
-        backends[index] = result.backend;
-        persistBackendsConfig(backends);
-        candidateBackends = backends;
-        await refreshDescriptor();
-        pushSnapshot("workflow-settings-dialog:snapshot");
-        if (!result.ok) {
-          throw new Error(result.error || "ACP config cache refresh failed");
+        try {
+          const selectedBackendId = String(
+            draft.backendId || descriptor.selectedProfile || "",
+          ).trim();
+          const loaded = await loadBackendsRegistry();
+          const backends = [...loaded.backends];
+          const index = backends.findIndex(
+            (backend) => String(backend.id || "").trim() === selectedBackendId,
+          );
+          if (index < 0) {
+            throw new Error(`ACP backend not found: ${selectedBackendId}`);
+          }
+          if (String(backends[index].type || "").trim() !== ACP_BACKEND_TYPE) {
+            throw new Error(
+              `Selected backend is not an ACP backend: ${selectedBackendId}`,
+            );
+          }
+          const probeResult = await probeAcpBackendRuntimeOptions({
+            backend: backends[index],
+          });
+          backends[index] = probeResult.backend;
+          persistBackendsConfig(backends);
+          candidateBackends = backends;
+          await refreshDescriptor();
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showAcpRuntimeCacheRefreshToast({
+            ok: probeResult.ok,
+            refreshedAt:
+              probeResult.backend.acp?.runtimeOptionsCache?.refreshedAt,
+            error: probeResult.error,
+          });
+        } catch (error) {
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showAcpRuntimeCacheRefreshToast({
+            ok: false,
+            error,
+          });
         }
         return;
       }
@@ -490,7 +564,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         );
         const finalExecutionOptions =
           isObject(envelope.payload) &&
-          Object.prototype.hasOwnProperty.call(envelope.payload, "executionOptions")
+          Object.prototype.hasOwnProperty.call(
+            envelope.payload,
+            "executionOptions",
+          )
             ? payloadExecutionOptions
             : normalizeExecutionOptions(draft);
         result = {
@@ -528,9 +605,9 @@ export async function openWorkflowSettingsWebDialog(args: {
         } catch {
           // ignore
         }
-        const root = doc.getElementById("zs-workflow-settings-dialog-root") as
-          | HTMLElement
-          | null;
+        const root = doc.getElementById(
+          "zs-workflow-settings-dialog-root",
+        ) as HTMLElement | null;
         if (!root) {
           throw new Error("workflow settings dialog root is unavailable");
         }
@@ -543,7 +620,9 @@ export async function openWorkflowSettingsWebDialog(args: {
           if (!frameWindow) {
             result = buildDialogErrorResult({
               stage: "iframe-load",
-              error: new Error("workflow settings iframe window is unavailable"),
+              error: new Error(
+                "workflow settings iframe window is unavailable",
+              ),
               fallback: "workflow settings dialog frame failed to initialize",
             });
             closeDialog();

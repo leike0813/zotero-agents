@@ -159,24 +159,56 @@ describeGenericHttpE2ESuite("generic-http provider: e2e", function () {
       mimeType: "text/markdown",
     });
 
-    const alerts: string[] = [];
+    const toasts: string[] = [];
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      createLine(args: { text?: string }) {
+        toasts.push(String(args?.text || ""));
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
     const win = {
       ZoteroPane: {
         getSelectedItems: () => [attachment],
       },
       alert: (message: string) => {
-        alerts.push(message);
+        throw new Error(`unexpected modal alert: ${message}`);
       },
     } as unknown as _ZoteroTypes.MainWindow;
 
-    await executeWorkflowFromCurrentSelection({
-      win,
-      workflow: workflow!,
-    });
+    try {
+      await executeWorkflowFromCurrentSelection({
+        win,
+        workflow: workflow!,
+      });
+    } finally {
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
 
-    assert.lengthOf(alerts, 1);
-    assert.match(alerts[0], /Workflow Generic HTTP Echo finished\./);
-    assert.match(alerts[0], /succeeded=1, failed=0/);
+    assert.isTrue(
+      toasts.some(
+        (entry) =>
+          /Workflow Generic HTTP Echo finished\./.test(entry) &&
+          /succeeded=1, failed=0/.test(entry),
+      ),
+      `missing summary toast: ${JSON.stringify(toasts)}`,
+    );
 
     const noteIDs = parent.getNotes();
     assert.lengthOf(noteIDs, 1);

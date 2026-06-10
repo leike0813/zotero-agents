@@ -5,6 +5,7 @@ TBD - created by archiving change add-acp-shared-skill-catalog-thin-proxy-overla
 ## Requirements
 ### Requirement: Shared Skill Catalog
 
+
 ACP SkillRunner-compatible runs MUST build or reuse a shared read-only catalog of effective plugin-side skills.
 
 #### Scenario: User Skill Overrides Builtin
@@ -12,8 +13,8 @@ ACP SkillRunner-compatible runs MUST build or reuse a shared read-only catalog o
 Given a builtin skill and a user skill have the same skill id
 When the ACP shared catalog is built
 Then the user skill MUST be the effective catalog entry.
-
 ### Requirement: Thin Proxy Injection
+
 
 ACP SkillRunner-compatible runs MUST inject run-local thin proxy skills for all effective catalog skills.
 
@@ -23,8 +24,8 @@ Given a catalog skill contains `assets`, `scripts`, and `references`
 When a run-local proxy is materialized
 Then the proxy directory MUST contain `SKILL.md` and a lightweight manifest
 And it MUST NOT contain copied `assets`, `scripts`, or `references` directories by default.
-
 ### Requirement: Run-Specific Patch
+
 
 Thin proxy `SKILL.md` files MUST include run-specific instructions, resource
 roots, and Skill-Runner-aligned runtime output contract sections.
@@ -73,8 +74,8 @@ Then it MUST document the pending branch as `__SKILL_DONE__ = false` with `messa
 And it MUST document `ui_hints.prompt`, `ui_hints.hint`, `ui_hints.options`, and `ui_hints.files`
 And it MUST document the supported `ui_hints.kind` values as `open_text`, `choose_one`, `confirm`, and `upload_files`
 And the pending branch example MUST use `ui_hints.options` entries with `label` and `value`.
-
 ### Requirement: Resource Reference Rewrite
+
 
 Thin proxy generation MUST rewrite stable resource references to absolute catalog paths.
 
@@ -83,8 +84,8 @@ Thin proxy generation MUST rewrite stable resource references to absolute catalo
 Given an original `SKILL.md` references `scripts/stage_runtime.py`
 When the proxy `SKILL.md` is generated
 Then that reference MUST point at the catalog skill root `scripts/stage_runtime.py`.
-
 ### Requirement: Catalog-Rooted Runtime Metadata
+
 
 Runtime dependencies and output schema validation MUST use the real catalog skill package, not the proxy directory.
 
@@ -93,8 +94,8 @@ Runtime dependencies and output schema validation MUST use the real catalog skil
 Given a proxy does not contain `assets/output.schema.json`
 When output validation runs
 Then it MUST resolve the schema from the requested skill catalog root.
-
 ### Requirement: ACP runner SHALL maintain a shared skill catalog
+
 
 ACP SkillRunner-compatible runs MUST build or reuse a shared read-only catalog
 of effective plugin-side skills.
@@ -107,8 +108,8 @@ of effective plugin-side skills.
   catalog skill root, and `SKILL.md` path
 - **AND** the runner SHALL NOT create run-local thin proxy skill directories
   for Hermes.
-
 ### Requirement: ACP runner SHALL materialize thin proxy skills for proxy-based families
+
 
 ACP SkillRunner-compatible runs MUST inject run-local thin proxy skills for all
 effective catalog skills for families that use project-level skill roots.
@@ -119,4 +120,17 @@ effective catalog skills for families that use project-level skill roots.
 - **WHEN** ACP Skills prepares a run
 - **THEN** the runner SHALL materialize thin proxy skills into the resolved
   skill roots as before.
+### Requirement: Host Bridge wrapper skill carries generated references
 
+
+ACP SkillRunner-compatible runs SHALL expose Host Bridge guidance through the
+shared skill catalog and run-local skill roots.
+
+#### Scenario: Wrapper reference is available to agents
+
+- **GIVEN** the effective plugin skill registry contains `zotero-bridge-cli`
+- **WHEN** an ACP Skills run materializes the shared catalog and proxy skills
+- **THEN** the shared catalog resource manifest for `zotero-bridge-cli` SHALL
+  include `references/host-bridge-cli.md`
+- **AND** the run prompt SHALL NOT append a separate Host Bridge CLI prompt
+  snippet.

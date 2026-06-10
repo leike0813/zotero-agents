@@ -1,5 +1,3 @@
-import { checkBaseHashes } from "./foundation";
-
 export type SynthesisResultBundle = {
   kind: "topic_synthesis";
   operation?: "create" | "update_full" | "update_patch";
@@ -13,8 +11,8 @@ export type SynthesisResultBundle = {
   topic_resolver?: Record<string, unknown>;
   resolved_paper_set?: Record<string, unknown>;
   resolver_manifest_path?: string;
-  resolver_diagnostics: Record<string, unknown>;
-  artifact_metadata: Record<string, unknown>;
+  resolver_diagnostics?: Record<string, unknown>;
+  artifact_metadata?: Record<string, unknown>;
   analysis_manifest_path?: string;
   topic_interest_metadata_path?: string;
   concept_cards_proposal_path?: string;
@@ -109,18 +107,14 @@ export function validateSynthesisResultBundle(input: unknown): {
     const conceptCardsProposalPath = cleanString(
       input.concept_cards_proposal_path,
     );
-    const artifactMetadata = requireObject(input, "artifact_metadata");
+    const artifactMetadata = isObject(input.artifact_metadata)
+      ? input.artifact_metadata
+      : {};
     const language = requireString(input, "language");
-    const createBaseHashesIgnored =
-      operation === "create" && isObject(input.base_hashes);
     if (operation === "update_patch") {
       if (cleanString(input.markdown_path)) {
         throw new Error("update_patch bundle must not depend on markdown_path");
       }
-      const readSectionHashes = requireObject(
-        input,
-        "read_section_hashes",
-      ) as Record<string, string>;
       return {
         ok: true,
         bundle: {
@@ -129,8 +123,10 @@ export function validateSynthesisResultBundle(input: unknown): {
           mode: "update",
           language,
           topic_id: cleanString(input.topic_id),
-          read_section_hashes: readSectionHashes,
-          topic_definition: {},
+          topic_definition: isObject(input.topic_definition)
+            ? input.topic_definition
+            : {},
+          resolver_manifest_path: cleanString(input.resolver_manifest_path),
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
@@ -146,10 +142,6 @@ export function validateSynthesisResultBundle(input: unknown): {
         "structured topic synthesis bundle must not depend on markdown_path",
       );
     }
-    const baseHashes =
-      operation === "update_full"
-        ? (requireObject(input, "base_hashes") as Record<string, string>)
-        : undefined;
     return {
       ok: true,
       bundle: {
@@ -157,13 +149,11 @@ export function validateSynthesisResultBundle(input: unknown): {
         operation,
         mode: operation === "create" ? "create" : "update",
         language,
-        ...(baseHashes ? { base_hashes: baseHashes } : {}),
-        ...(createBaseHashesIgnored
-          ? { create_base_hashes_ignored: true }
-          : {}),
         topic_definition: requireTopicDefinition(input),
         resolver_manifest_path: requireString(input, "resolver_manifest_path"),
-        resolver_diagnostics: requireObject(input, "resolver_diagnostics"),
+        resolver_diagnostics: isObject(input.resolver_diagnostics)
+          ? input.resolver_diagnostics
+          : {},
         artifact_metadata: artifactMetadata,
         analysis_manifest_path: analysisManifestPath,
         topic_interest_metadata_path: topicInterestMetadataPath,
@@ -173,9 +163,44 @@ export function validateSynthesisResultBundle(input: unknown): {
       },
     };
   }
-  throw new Error(
-    "topic synthesis result requires operation and analysis_manifest_path",
-  );
+  if (input.mode !== "create" && input.mode !== "update") {
+    throw new Error("synthesis result bundle mode must be create or update");
+  }
+  const timeline = input.timeline;
+  if (
+    !(
+      (typeof timeline === "string" && timeline.trim()) ||
+      isObject(timeline) ||
+      Array.isArray(timeline)
+    )
+  ) {
+    throw new Error("synthesis result bundle requires timeline content");
+  }
+  return {
+    ok: true,
+    bundle: {
+      kind: "topic_synthesis",
+      mode: input.mode,
+      base_hashes: isObject(input.base_hashes)
+        ? (input.base_hashes as Record<string, string>)
+        : {},
+      topic_definition: requireTopicDefinition(input),
+      topic_resolver: requireObject(input, "topic_resolver"),
+      resolved_paper_set: requireObject(input, "resolved_paper_set"),
+      resolver_diagnostics: isObject(input.resolver_diagnostics)
+        ? input.resolver_diagnostics
+        : {},
+      artifact_metadata: isObject(input.artifact_metadata)
+        ? input.artifact_metadata
+        : {},
+      markdown: requireString(input, "markdown"),
+      markdown_path:
+        typeof input.markdown_path === "string"
+          ? input.markdown_path.trim()
+          : undefined,
+      timeline,
+    },
+  };
 }
 
 export function decideSynthesisApply(args: {
@@ -189,52 +214,5 @@ export function decideSynthesisApply(args: {
       mismatches: Array<{ name: string; base: string; current: string }>;
     } {
   const { bundle } = validateSynthesisResultBundle(args.bundle);
-  if (bundle.operation === "update_patch") {
-    const readSectionHashes = bundle.read_section_hashes || {};
-    const currentSectionHashes = Object.fromEntries(
-      Object.entries(args.currentHashes || {})
-        .filter(([name]) => name.startsWith("section:"))
-        .map(([name, value]) => [name.slice("section:".length), value]),
-    );
-    const currentReadSectionHashes = Object.fromEntries(
-      Object.keys(readSectionHashes).map((section) => [
-        section,
-        currentSectionHashes[section],
-      ]),
-    );
-    const cas = checkBaseHashes({
-      current: currentReadSectionHashes,
-      base: readSectionHashes,
-    });
-    if (cas.ok) {
-      return { action: "persist", bundle, mismatches: [] };
-    }
-    return {
-      action: "conflict",
-      bundle,
-      mismatches: cas.mismatches.map((mismatch) => ({
-        name: `section:${mismatch.name}`,
-        base: mismatch.base,
-        current: mismatch.current,
-      })),
-    };
-  }
-  if (bundle.operation === "create") {
-    return { action: "persist", bundle, mismatches: [] };
-  }
-  const cas = checkBaseHashes({
-    current: args.currentHashes,
-    base: bundle.base_hashes || {},
-  });
-  const mismatches = cas.ok
-    ? []
-    : cas.mismatches.filter((mismatch) => mismatch.name !== "index");
-  if (!mismatches.length) {
-    return { action: "persist", bundle, mismatches: [] };
-  }
-  return {
-    action: "conflict",
-    bundle,
-    mismatches,
-  };
+  return { action: "persist", bundle, mismatches: [] };
 }

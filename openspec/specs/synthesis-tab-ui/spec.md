@@ -5,6 +5,9 @@ TBD - created by archiving change add-synthesis-tab-ui. Update Purpose after arc
 ## Requirements
 ### Requirement: Synthesis workbench uses host-owned bridge
 
+
+
+
 The Synthesis UI SHALL use a host-owned bridge for snapshot delivery and action
 routing, and its product entry point SHALL be a singleton Zotero main-area tab.
 
@@ -25,8 +28,10 @@ routing, and its product entry point SHALL be a singleton Zotero main-area tab.
 - **WHEN** the user invokes any Synthesis Workbench entry point
 - **THEN** the host SHALL open or select a Zotero tab with type `synthesis-workbench`
 - **AND** repeated invocations SHALL reuse the existing tab rather than opening multiple Workbench dialogs.
-
 ### Requirement: Synthesis UI does not access host resources directly
+
+
+
 
 The web panel SHALL NOT access Zotero APIs, local files, canonical assets, or
 filesystem paths directly.
@@ -42,8 +47,10 @@ filesystem paths directly.
 
 - **WHEN** the user explicitly invokes an open-folder action
 - **THEN** the host MAY open or reveal the folder through Zotero host APIs.
-
 ### Requirement: Citation graph explorer uses persisted layout presets
+
+
+
 
 The graph explorer SHALL display host-provided graph slices and persisted
 layout preset coordinates.
@@ -53,61 +60,31 @@ layout preset coordinates.
 - **WHEN** a user selects `compact`, `balanced`, or `expanded`
 - **THEN** the UI state SHALL switch preset
 - **AND** it SHALL NOT run full-graph D3-force simulation in the web panel.
-
 ### Requirement: Synthesis workbench has stable MVP views
+
+
+
 
 The Synthesis workbench SHALL expose Overview, Topics, Registry, Citation Graph,
 and structured Topic Detail views.
 
-#### Scenario: User opens a structured topic artifact
+#### Scenario: Topic graph inspector opens topic details
 
-- **WHEN** the user opens a topic artifact from Home or Topics
-- **THEN** the Workbench SHALL request a structured topic artifact DTO from the
-  host
-- **AND** it SHALL render Topic Detail as the primary view instead of defaulting
-  to rendered Markdown.
+- **WHEN** the Topic Graph view has a selected materialized topic
+- **THEN** the inspector SHALL expose an action to open that topic's structured
+  Topic Detail view
+- **AND** the action SHALL use the host-owned topic artifact command.
 
-#### Scenario: Legacy Markdown-only topic is encountered
+#### Scenario: Topic graph relations are visually legible
 
-- **WHEN** the host reports that a topic has no structured artifact
-- **THEN** the Workbench SHALL show a `needs_recreate` prompt rather than
-  opening a Markdown fallback reader
-- **AND** it SHALL keep Markdown export actions secondary for structured topics.
-
-#### Scenario: Stale topic row is shown
-
-- **WHEN** a topic row has stale or incomplete state
-- **THEN** the Workbench SHALL show an update or complete action derived from
-  the host-provided update intent
-- **AND** invoking the action SHALL open the workflow submit dialog with
-  prefilled topic id, language, update scope, update mode, and update reason.
-
-#### Scenario: Dirty topic row is shown
-
-- **WHEN** a topic row has dirty state that indicates missing current files,
-  missing metadata, invalid resolver, or index hash mismatch
-- **THEN** the Workbench SHALL present the action as Repair/Rebuild rather than
-  a normal section update
-- **AND** it SHALL prefill update mode as full replacement unless the host marks
-  update as blocked.
-
-#### Scenario: Mirror is missing or degraded
-
-- **WHEN** the Workbench snapshot reports a missing or degraded Zotero mirror
-- **AND** canonical synthesis assets are available
-- **THEN** the Workbench SHALL expose a `rebuildSynthesisMirror` action
-- **AND** the action SHALL be user-triggered rather than performed silently at
-  startup.
-
-#### Scenario: Canonical root is missing but shards are recoverable
-
-- **WHEN** the Workbench snapshot reports a missing canonical root
-- **AND** sync assessment says valid Zotero shards can recover current assets
-- **THEN** the Workbench SHALL expose a `recoverSynthesisFromMirror` action
-- **AND** invoking the action SHALL require explicit confirmation before any
-  canonical files are restored.
-
+- **WHEN** the Topic Graph view renders relation edges
+- **THEN** relation lines SHALL be visible enough to distinguish graph structure
+- **AND** suggested or stale relations MAY remain dashed while retaining adequate
+  contrast.
 ### Requirement: Synthesis Workbench exposes artifact lifecycle controls
+
+
+
 
 The Synthesis Workbench SHALL let users soft delete active topic synthesis
 artifacts and purge previously deleted topic artifacts through host-owned
@@ -132,8 +109,10 @@ commands.
 
 - **WHEN** the user cancels Delete or Purge confirmation
 - **THEN** the host SHALL NOT call the Synthesis service mutation.
-
 ### Requirement: Synthesis Workbench displays topic artifact freshness
+
+
+
 
 The Synthesis Workbench SHALL display freshness from the Synthesis service
 instead of hard-coded values.
@@ -151,8 +130,10 @@ instead of hard-coded values.
 - **THEN** the host SHALL return a snapshot after the service has scanned active
   topic freshness
 - **AND** it SHALL NOT start an agent update workflow automatically.
-
 ### Requirement: Synthesis Workbench exposes a dense topic workbench
+
+
+
 
 Topic Detail SHALL render claims, timeline, paper evidence, coverage, and
 external literature analysis from the structured topic artifact.
@@ -223,8 +204,10 @@ external literature analysis from the structured topic artifact.
 - **THEN** the UI SHALL render analysis prose, themes, representative references,
   citation contexts, contribution-to-topic notes, and limitations
 - **AND** it SHALL NOT render those external references as main timeline markers.
-
 ### Requirement: Synthesis topic summaries expose card metrics
+
+
+
 
 Topic artifact rows SHALL include metrics required by the Home and Topics card
 views.
@@ -235,8 +218,10 @@ views.
 - **THEN** the normalized snapshot SHALL preserve those fields
 - **AND** filtered topic rows SHALL remain sorted according to the selected
   topic sort.
-
 ### Requirement: Topic synthesis creation action is labeled Create Topic
+
+
+
 
 The Synthesis Workbench SHALL label the topic creation command as `Create
 Topic`.
@@ -246,8 +231,10 @@ Topic`.
 - **WHEN** the Topics view renders the primary creation action
 - **THEN** the button label SHALL be `Create Topic`
 - **AND** it SHALL invoke the existing host topic synthesis creation command.
-
 ### Requirement: Synthesis Workbench refresh preserves active controls
+
+
+
 
 The Synthesis Workbench SHALL preserve active search, filter, and scroll state
 when host snapshots refresh existing views.
@@ -266,4 +253,40 @@ when host snapshots refresh existing views.
 - **AND** the host sends a snapshot for the same active view
 - **THEN** the region's scroll position SHALL be preserved unless the user
   explicitly navigates to a different view or item.
+### Requirement: Synthesis Workbench review center is domain complete
 
+
+The Review page SHALL show the active review records for each selected review
+domain without requiring the user to inspect another tab.
+
+#### Scenario: Reference matching rows expose manual target selection
+
+- **WHEN** an open Reference Matching proposal is shown in the Index review table
+- **THEN** the actions SHALL include `Manual target`
+- **AND** opening it SHALL show a bounded scrollable target picker with `#` and
+  `A-Z` navigation
+- **AND** choosing a target SHALL create a pending manual target decision without
+  immediately writing storage.
+
+#### Scenario: Index review drawer exposes manual target selection
+
+- **WHEN** an open Reference Matching proposal is shown in the Index review drawer
+- **THEN** the card actions SHALL include `Manual target`
+- **AND** the picker SHALL use the same target candidates and pending decision
+  flow as the Review page table.
+### Requirement: Topic details displays structured synthesis artifacts
+
+
+
+Topic Details SHALL display the canonical report body directly and avoid the old
+persisted Markdown export reader flow.
+
+#### Scenario: User reads and exports the report
+
+- **WHEN** Topic Details displays a topic with `synthesis_report.body`
+- **THEN** the Report tab SHALL render that Markdown body
+- **AND** it SHALL provide a Copy action that copies the body source
+- **AND** it SHALL provide an Export action that prompts for a Host save path
+  and writes the body as Markdown
+- **AND** Topic Details SHALL NOT show Markdown export or Open folder toolbar
+  actions.

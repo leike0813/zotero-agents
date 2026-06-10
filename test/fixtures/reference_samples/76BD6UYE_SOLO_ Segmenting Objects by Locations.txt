@@ -1,0 +1,67 @@
+[1] Gompper G, Winkler R G, Speck T, Solon A, Nardini C, Peruani F, L¨owen H, Golestanian R, Kaupp U B, Alvarez L, Kiørboe T, Lauga E, Poon W C K, DeSimone A, Mui˜nos-Landin S, Fischer A, S¨oker N A, Cichos F, Kapral R, Gaspard P, Ripoll M, Sagues F, Doostmohammadi A, Yeomans J M, Aranson I S, Bechinger C, Stark H, Hemelrijk C K, Nedelec F J, Sarkar T, Aryaksama T, Lacroix M, Duclos G, Yashunsky V, Silberzan P, Arroyo M and Kale S 2020 Journal of Physics: Condensed Matter 32 193001 URL https://doi.org/10.1088/ 1361-648x/ab6348
+
+[2] Ramaswamy S 2010 Annual Review of Condensed Matter Physics 1 323–345 URL https: //doi.org/10.1146/annurev-conmatphys-070909-104101
+
+[3] Marchetti M C, Joanny J F, Ramaswamy S, Liverpool T B, Prost J, Rao M and Simha R A 2013 Rev. Mod. Phys. 85(3) 1143–1189 URL https://link.aps.org/doi/10.1103/RevModPhys. 85.1143
+
+[4] Bechinger C, Di Leonardo R, L¨owen H, Reichhardt C, Volpe G and Volpe G 2016 Reviews of Modern Physics 88 045006 URL https://journals.aps.org/rmp/abstract/10.1103/ RevModPhys.88.045006
+
+[5] Golestanian R 2019 Phoretic Active Matter (Preprint arXiv:1909.03747)
+
+[6] Cates M E and Tailleur J 2015 Annu. Rev. Condens. Matter Phys. 6 219–244 URL http: //www.annualreviews.org/doi/abs/10.1146/annurev-conmatphys-031214-014710
+
+[7] Henkes S, Fily Y and Marchetti M C 2011 Phys. Rev. E 84(4) 040301 URL https://link.aps. org/doi/10.1103/PhysRevE.84.040301
+
+[8] Redner G S, Hagan M F and Baskaran A 2013 Phys. Rev. Lett. 110(5) 055701 URL https: //link.aps.org/doi/10.1103/PhysRevLett.110.055701
+
+[9] Buttinoni I, Bialk´e J, K¨ummel F, L¨owen H, Bechinger C and Speck T 2013 Phys. Rev. Lett. 110(23) 238301 URL https://link.aps.org/doi/10.1103/PhysRevLett.110.238301
+
+[10] Soto R and Golestanian R 2014 Phys. Rev. E 89(1) 012706 URL https://link.aps.org/doi/ 10.1103/PhysRevE.89.012706
+
+[11] Blaschke J, Maurer M, Menon K, Z¨ottl A and Stark H 2016 Soft Matter 12 9821–9831 URL https://doi.org/10.1039/c6sm02042a
+
+[12] Digregorio P, Levis D, Suma A, Cugliandolo L F, Gonnella G and Pagonabarraga I 2018 Phys. Rev. Lett. 121(9) 098003 URL https://link.aps.org/doi/10.1103/PhysRevLett.121.098003
+
+[13] Abaurrea Velasco C, Abkenar M, Gompper G and Auth T 2018 Phys. Rev. E 98(2) 022605 URL https://link.aps.org/doi/10.1103/PhysRevE.98.022605
+
+[14] Solon A P, Chat´e H and Tailleur J 2015 Phys. Rev. Lett. 114 068101 URL https://journals. aps.org/prl/abstract/10.1103/PhysRevLett.114.068101
+
+[15] Chat´e H 2020 Annual Review of Condensed Matter Physics 11 URL https://doi.org/10.1146/ annurev-conmatphys-031119-050752
+
+[16] Golestanian R 2012 Phys. Rev. Lett. 108(3) 038303 URL https://link.aps.org/doi/10.1103/ PhysRevLett.108.038303
+
+[17] Taktikos J, Zaburdaev V and Stark H 2012 Phys. Rev. E 85(5) 051901 URL https://link.aps. org/doi/10.1103/PhysRevE.85.051901
+
+[18] Saha S, Golestanian R and Ramaswamy S 2014 Phys. Rev. E 89(6) 062316 URL https: //link.aps.org/doi/10.1103/PhysRevE.89.062316
+
+[19] Liebchen B, Marenduzzo D, Pagonabarraga I and Cates M E 2015 Phys. Rev. Lett. 115(25) 258301 URL https://link.aps.org/doi/10.1103/PhysRevLett.115.258301
+
+[20] Varma A, Montenegro-Johnson T D and Michelin S 2018 Soft Matter 14(35) 7155–7173 URL http://dx.doi.org/10.1039/C8SM00690C
+
+[21] Agudo-Canalejo J and Golestanian R 2019 Phys. Rev. Lett. 123(1) 018101 URL https://link. aps.org/doi/10.1103/PhysRevLett.123.018101
+
+[22] Z¨ottl A and Stark H 2014 Phys. Rev. Lett. 112(11) 118101 URL https://link.aps.org/doi/ 10.1103/PhysRevLett.112.118101
+
+[23] Blaschke J, Maurer M, Menon K, Z¨ottl A and Stark H 2016 Soft Matter 12(48) 9821–9831 URL http://dx.doi.org/10.1039/C6SM02042A
+
+[24] Toner J, Tu Y and Ramaswamy S 2005 Annals of Physics 318 170 – 244 ISSN 0003-4916 special Issue URL http://www.sciencedirect.com/science/article/pii/S0003491605000540
+
+[25] Golestanian R 2019 Phys. Rev. E 100(1) 010601 URL https://link.aps.org/doi/10.1103/ PhysRevE.100.010601
+
+[26] Tjhung E, Nardini C and Cates M E 2018 Phys. Rev. X 8(3) 031080 URL https://link.aps. org/doi/10.1103/PhysRevX.8.031080
+
+[27] Golestanian R and Ajdari A 2002 EPL (Europhysics Letters) 59 800 URL http://stacks.iop. org/0295-5075/59/i=6/a=800
+
+[28] Ziff R M, Uhlenbeck G E and Kac M 1977 Physics Reports 32 169 – 248 ISSN 0370-1573 URL http://www.sciencedirect.com/science/article/pii/0370157377900527
+
+[29] Bagnato V, Pritchard D E and Kleppner D 1987 Phys. Rev. A 35(10) 4354–4358 URL https: //link.aps.org/doi/10.1103/PhysRevA.35.4354
+
+[30] Dalfovo F, Giorgini S, Pitaevskii L P and Stringari S 1999 Rev. Mod. Phys. 71(3) 463–512 URL https://link.aps.org/doi/10.1103/RevModPhys.71.463
+
+[31] Mahault B and Golestanian R 2020 in preparation
+
+[32] Chavanis P H 2008 The European Physical Journal B 62 179–208 ISSN 1434-6036 URL https: //doi.org/10.1140/epjb/e2008-00142-9
+
+[33] Romero-Roch´ın V 2005 Phys. Rev. Lett. 94(13) 130601 URL https://link.aps.org/doi/10. 1103/PhysRevLett.94.130601
+
+[34] Solon A P, Fily Y, Baskaran A, Cates M E, Kafri Y, Kardar M and Tailleur J 2015 Nature Physics 11 673 EP – URL https://doi.org/10.1038/nphys3377

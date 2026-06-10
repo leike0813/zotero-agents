@@ -19,24 +19,33 @@
           "paper_quality_level",
           "paper_quality_reason",
           "core_digest",
-          "caveats",
-          "diagnostics"
+          "caveats"
         ],
         "properties": {
-          "paper_ref": { "type": "string", "minLength": 1 },
+          "paper_ref": {
+            "type": "string",
+            "minLength": 1
+          },
           "relevance_level": {
             "enum": ["core", "related", "external", "irrelevant", "unknown"]
           },
-          "relevance_reason": { "type": "string" },
+          "relevance_reason": {
+            "type": "string"
+          },
           "paper_quality_level": {
             "enum": ["high", "medium", "low", "unknown"]
           },
-          "paper_quality_reason": { "type": "string" },
-          "core_digest": { "type": "string" },
-          "caveats": { "type": "array", "items": { "type": "string" } },
-          "diagnostics": {
+          "paper_quality_reason": {
+            "type": "string"
+          },
+          "core_digest": {
+            "type": "string"
+          },
+          "caveats": {
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -52,8 +61,7 @@
           "paper_quality_level": "high",
           "paper_quality_reason": "",
           "core_digest": "",
-          "caveats": [],
-          "diagnostics": []
+          "caveats": []
         }
       ]
     }

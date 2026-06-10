@@ -21,7 +21,7 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 本技能的最低质量目标：
 
 - coverage verdict 必须解释当前库内材料的覆盖档位，并区分领域真实空白、库内覆盖不足、artifact 证据不足和评价口径缺口。
-- reliability summary 必须说明本次 synthesis 的证据边界，不能把文献数量或 citation metrics 机械当作可靠性。
+- coverage caveats 必须说明本次 synthesis 的证据边界，不能把文献数量或 citation metrics 机械当作可靠性。
 - external context summary 和 collection suggestions 只服务覆盖判断和入库建议，不能重写 core synthesis。
 - final summary 必须基于 runtime 已渲染的 synthesis report，不新增未在 report 中出现的 claim。
 
@@ -42,36 +42,31 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 
 ## zotero-bridge CLI 使用说明
 
-在 ACP run workspace 中优先使用工作区注入的 Host Bridge shim；只有 shim 不存在时才回退到环境中的裸命令 `zotero-bridge`。不要把插件内部 binary 路径写入 payload、日志或最终产物。
+Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill 维护。
+使用 Zotero host 能力前，先阅读该 wrapper skill 及其生成的
+`references/host-bridge-cli.md` 参考。
 
-本说明中的 `<zotero-bridge>` 表示以下解析顺序：
+<!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
-1. Windows：如果存在 `.\.zotero-bridge\bin\zotero-bridge.cmd`，使用它。
-2. POSIX：如果存在 `./.zotero-bridge/bin/zotero-bridge`，使用它。
-3. 如果工作区没有注入 shim，才使用裸命令 `zotero-bridge`。
+Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
+当前 topic synthesis 相关命令族摘要：`citation-graph get-metrics`, `citation-graph get-slice`, `citation-graph overview`, `citation-graph query-cluster`, `citation-graph rank-external-references`, `citation-graph rank-library-papers`, `citation-graph refresh-metrics`, `insights attention-queue`, `library-index get`, `paper-artifacts export-filtered`, `paper-artifacts manifest`, `paper-artifacts read`, `paper-artifacts resolve-topic-digest`, `reference-index get`, `resolvers resolve`, `topics get-context`, `topics get-report`, `topics get-review-input`, `topics list`。
+使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
+不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 
-需要确认 Host Bridge 状态时先运行：
+<!-- host-bridge-surface:topic-synthesis-fragment:end -->
 
-```bash
-<zotero-bridge> status
-<zotero-bridge> manifest
-```
+在 ACP run workspace 中，优先使用工作区注入的 Host Bridge shim：
 
-本 suite 的 agent-authored payload stage 只需要这些 Host read 命令：
+- Windows：`.\.zotero-bridge\bin\zotero-bridge.cmd`
+- POSIX：`./.zotero-bridge/bin/zotero-bridge`
 
-```bash
-<zotero-bridge> synthesis list-topics --input '{}'
-<zotero-bridge> synthesis get-topic-context --input '{"topicId":"<topic_id>"}'
-<zotero-bridge> synthesis get-library-index --input '{"cursor":0,"limit":200}'
-```
-
-Stage 20 payload 提交后，resolver、citation metrics 和 filtered artifact export 由 runtime 调用 Host Bridge cascade 完成；agent 不要手写 resolver result、metrics manifest 或 artifact manifest。
-
-如果工作区 shim 和裸命令都不可用、capability missing 或返回非零退出码，不要伪造 Host 数据，也不要切换到 MCP。当前 payload stage 可以在 `diagnostics` 中记录不可用原因；如果无法继续满足当前 skill output contract，则停止并输出 gate/error 指定的合法 JSON。
+只有找不到 workspace shim 时，才使用裸命令 `zotero-bridge`。无论使用哪种入口，
+都只能通过 Host Bridge 合同读取 Zotero 数据；不要直接读取 Zotero DB/storage，
+也不要在用户未要求 MCP 诊断时切换到 MCP。
 
 ## 运行状态
 
-- SQLite 是 stage state、receipt、artifact registry 和 handoff registry 的真源。
+- SQLite 只保存 stage state 和必要的跨 stage 上下文。
 - 跨 skill 业务状态来自 SQLite 与 handoff/files，不从 prompt 文本传递。
 - 命令型入口 stage 负责处理本包的 runtime 初始化或状态校验。
 
@@ -79,19 +74,19 @@ Stage 20 payload 提交后，resolver、citation metrics 和 filtered artifact e
 
 必须由 LLM 完成：
 
-- coverage verdict、coverage reason、reliability summary、coverage caveats。
+- coverage verdict、coverage reason、coverage caveats。
 - external context summary 和 collection suggestions。
 - 最终 summary_brief、summary_overview 和 key_takeaways。
 
 必须由脚本/runtime 完成：
 
 - 校验 core handoff、sidecars、finalize context 和 report context。
-- 校验并登记 coverage 和 summary payload。
+- 校验 coverage 和 summary payload。
 - 生成完整 Host apply-ready result sections、synthesis report、topic-analysis manifest 和 final-output candidate。
 
 绝对禁止：
 
-- 手写 SQLite rows、hashes、handoff manifest 或 runtime-owned files。
+- 手写 SQLite rows、handoff manifest 或 runtime-owned files。
 - 用临时脚本生成语义分析 payload。
 - 把 citation metrics 或外部文献当作 core claim/timeline 的主 evidence。
 - 修改 gate 返回的 command 或 submit command 来跳 stage。
@@ -161,8 +156,7 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 语义处理步骤：
 
 1. 读取 gate 返回的 command，并只执行该 command。
-2. 如果 gate 报 missing handoff、hash mismatch 或 artifact 缺失，停止当前 skill，不要自行修补 runtime-owned files。
-3. 命令成功后重新运行 gate，进入当前 skill 的第一个 payload stage。
+2. 命令成功后重新运行 gate，进入当前 skill 的第一个 payload stage。
 
 质量检查：
 
@@ -172,7 +166,7 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 常见错误：
 
 - 不要重新生成上游 handoff。
-- 不要基于旧单体 stage 名推断恢复路径。
+- 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断下一步。
 
 ### stage_60_coverage_and_collection_suggestions
 
@@ -195,8 +189,9 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 
 1. 读取 core handoff、finalize context manifest 和 `external-literature-context.md`。
 2. 判断当前库内材料对 topic 的覆盖档位和证据可靠性。
-3. 写出 external context summary 和可执行的 collection suggestions。
-4. 提交后 runtime 生成 synthesis report view，并登记 coverage payload；完整 result sections 和 manifest 会在 Stage 70 submit 后由 runtime 统一物化。
+3. 如果 workset 集中在 topic 的某个子域，把它写成库内样本偏置和 coverage caveat，而不是降低 topic 的语义范围。
+4. 写出 external context summary 和可执行的 collection suggestions。
+5. 提交后 runtime 登记 coverage payload；完整 result sections、synthesis report section 和 manifest 会在 Stage 70 submit 后由 runtime 统一物化。
 
 上下文获取方式：
 
@@ -214,15 +209,15 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 
 - `coverage_verdict`：`sufficient`、`partial`、`insufficient`、`severely_missing` 或 `unknown`。
 - `coverage_reason`：解释 verdict，区分领域真实空白、库内覆盖不足和 artifact 证据不足。
-- `reliability_summary`：说明当前 synthesis 的可靠性边界。
-- `coverage_caveats`：结构化记录证据范围、graph uncertainty、artifact 缺失或 topic 边界不确定。
-- `external_context_summary`：总结外部/邻近文献对覆盖判断的影响，不重写 core synthesis。
+- `coverage_caveats`：结构化记录证据范围、workset 子域偏置、artifact 缺失、外部文献不足、topic 边界不确定或 graph uncertainty。
+- `external_context_summary`：总结外部/邻近文献对 coverage verdict 和 collection suggestions 的影响。
 - `suggested_collection_directions`：给出具体补充方向、理由、示例标题或关键词、优先级。
-- `diagnostics`：记录 conservative-empty、缺失 context、无法判断等原因。
 
 质量检查：
 
 - coverage 是对当前库和证据链的解释，不是对整个领域成熟度的绝对判断。
+- 宏观 topic 的 coverage 要按 topic scope 判断；库内文献集中于 DETR/检测时，应明确 Computer Vision 的其他方向覆盖不足。
+- coverage_caveats 描述覆盖限制；基于 source papers 的研究局限和未来方向由 core synthesis 的 future_directions 承担。
 - collection suggestions 要具体到方向或示例 term，不能只写“增加更多论文”。
 
 常见错误：
@@ -230,13 +225,12 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 - 不要把 core taxonomy/claims 整段复制到 external_context_summary。
 - 不要从代表文献数量机械推断统计结论。
 
-Payload JSON 示例：
+Payload JSON 示例（可提交结构样例）：
 
 ```json
 {
   "coverage_verdict": "partial",
   "coverage_reason": "库内已经覆盖 DETR 公式和若干收敛改进变体，但部署与更广 benchmark 覆盖仍不均衡。",
-  "reliability_summary": "关于公式和收敛趋势的核心 claims 较可靠；collection-level 结论应视为暂定。",
   "coverage_caveats": [
     {
       "type": "library_coverage_gap",
@@ -251,16 +245,15 @@ Payload JSON 示例：
       "example_titles_or_terms": ["DAB-DETR", "Deformable DETR"],
       "priority": "medium"
     }
-  ],
-  "diagnostics": []
+  ]
 }
 ```
 
 ### stage_70_summary
 
 - stage 类型：payload
-- 任务：基于已渲染的 synthesis report 编写最终 summary。
-- 语义目标：基于 runtime 已渲染 synthesis report 写最终用户可读 summary。
+- 任务：基于 core handoff、coverage payload 和 finalize context 编写最终 summary。
+- 语义目标：基于 core handoff、coverage payload 和 finalize context 写最终用户可读 summary。
 
 本 stage 精确执行序列：
 
@@ -275,20 +268,22 @@ Payload JSON 示例：
 
 语义处理步骤：
 
-1. 读取 synthesis report 和 manifest。
+1. 读取 core handoff、Stage 60 coverage payload 和 finalize context manifest。
 2. 写一个短摘要、一个概览段落和若干 key takeaways。
-3. 保持总结面向用户理解 topic，不新增未在 report 中出现的 claim。
+3. 保持总结面向用户理解 topic，不新增未在 core/coverage/finalize context 中出现的 claim。
 4. 提交后 runtime 生成完整 Host apply-ready sections、`result/topic-analysis.json` 和最终 `topic_synthesis` 或 canceled 输出。
 
 上下文获取方式：
 
-- Runtime read：`runtime/views/synthesis-report.md`。来源：Stage 60 coverage payload submit 后的 runtime report rendering。用途：作为最终 summary 的主要依据。
-- Runtime read：`runtime/views/synthesis-report.manifest.json`。来源：Stage 60 coverage payload submit 后的 runtime report rendering。用途：核对 synthesis report 的来源和 hash。
+- Runtime read：`runtime/handoff/core-enrichment.json`。来源：core enrichment skill Stage 50 submit。用途：确认 core handoff、sidecars 和 finalize context 已生成。
+- Runtime read：`runtime/payloads/coverage-and-collection-suggestions.json`。来源：finalize skill Stage 60 payload submit。用途：复用已 gate 的 coverage verdict、external context summary 和 collection suggestions。
+- Runtime read：`runtime/views/finalize-context.manifest.json`。来源：core enrichment skill Stage 50 submit。用途：确认 finalize 可读材料和 sidecar 范围。
 
 材料使用说明：
 
-- `runtime/views/synthesis-report.md` 是最终 summary 的主要依据。
-- `runtime/views/synthesis-report.manifest.json` 用于核对 report 来源。
+- `runtime/handoff/core-enrichment.json` 提供 core synthesis 与 KG enrichment 的 handoff 边界。
+- `runtime/payloads/coverage-and-collection-suggestions.json` 是 Stage 60 已提交的 coverage 与 external context 结论。
+- `runtime/views/finalize-context.manifest.json` 说明 finalize 可用的 sections、sidecars 和上下文文件。
 - payload 路径：runtime/payloads/summary.json
 - schema 文件：assets/schemas/stage-70-summary.schema.json
 
@@ -297,7 +292,6 @@ Payload JSON 示例：
 - `summary_brief`：一到两句，说明 topic 的核心定位和当前 synthesis 结论。
 - `summary_overview`：一个较完整段落，连接路线、演进、覆盖和可靠性。
 - `key_takeaways`：面向用户行动或理解的要点，每条应具体。
-- `diagnostics`：记录 report 缺失、summary 保守化、语言不确定等诊断。
 
 质量检查：
 
@@ -310,7 +304,7 @@ Payload JSON 示例：
 - 不要输出 Markdown fence 或解释性尾注。
 - 不要手写 final-output candidate。
 
-Payload JSON 示例：
+Payload JSON 示例（可提交结构样例）：
 
 ```json
 {
@@ -320,8 +314,7 @@ Payload JSON 示例：
     "理解该 topic 时应以 set prediction 和 object queries 作为概念入口。",
     "后续 variants 主要应从收敛、query 设计和效率 tradeoff 解释。",
     "在判断 collection coverage 充分之前，应补充更多效率导向 variants。"
-  ],
-  "diagnostics": []
+  ]
 }
 ```
 
@@ -330,13 +323,12 @@ Payload JSON 示例：
 本技能输出一个 `topic_synthesis` JSON 对象，或一个 `topic_synthesis_canceled` JSON 对象。
 
 - 返回对象必须符合 `assets/output.schema.json`。
-- 成功输出包含 operation、language、artifact metadata 和 analysis manifest path。
+- 成功输出包含 operation、language、topic definition 和 analysis manifest path。
 - 运行器负责把通过校验的结果接受为 `result/result.json`。
 
 ## 失败规则
 
 - 如果 gate 返回 error JSON，停止当前技能。
 - 不要手动修改 SQLite。
-- 不要手动生成由 runtime 管理的 hashes。
 - 不要绕过 `gate.py` 调用内部 helper。
-- 不要基于旧字段、旧 stage 或历史路径猜测恢复方式。
+- 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

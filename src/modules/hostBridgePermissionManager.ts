@@ -335,14 +335,24 @@ export function getHostBridgeApprovalRequirement(
   if (
     capability === "debug.synthesis.cleanInstallReset" ||
     capability === "debug.zotero.eval" ||
-    capability === "synthesis.refresh_citation_graph_metrics"
+    capability === "citation_graph.refresh_metrics"
   ) {
     return "zotero-ui-required";
   }
   if (capability.startsWith("debug.")) {
     return "none";
   }
-  if (capability.startsWith("synthesis.")) {
+  if (
+    capability.startsWith("citation_graph.") ||
+    capability.startsWith("concepts.") ||
+    capability.startsWith("insights.") ||
+    capability.startsWith("library_index.") ||
+    capability.startsWith("paper_artifacts.") ||
+    capability.startsWith("reference_index.") ||
+    capability.startsWith("resolvers.") ||
+    capability.startsWith("schemas.") ||
+    capability.startsWith("topics.")
+  ) {
     return "none";
   }
   if (NO_APPROVAL_CAPABILITIES.has(capability)) {

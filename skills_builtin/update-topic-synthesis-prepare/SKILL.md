@@ -20,7 +20,7 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 
 本技能的最低质量目标：
 
-- topic context 必须忠实保留 Host 返回的 topic id、definition、hashes、section hashes 和 recommended_update。
+- topic context 必须忠实保留 Host 返回的 topic id、definition 和 recommended_update。
 - update assessment 只判断当前 update scope，说明 full/patch/unknown 的原因和 changed sections。
 - resolver proposal 仍要服务既有 topic 的边界，不能把 create duplicate check 逻辑套到 update。
 - update path 当前保持 skeleton 边界：只写本 skill schema 接受的准备 payload，不承诺后续完整 update runtime 已实现。
@@ -41,36 +41,31 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 
 ## zotero-bridge CLI 使用说明
 
-在 ACP run workspace 中优先使用工作区注入的 Host Bridge shim；只有 shim 不存在时才回退到环境中的裸命令 `zotero-bridge`。不要把插件内部 binary 路径写入 payload、日志或最终产物。
+Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill 维护。
+使用 Zotero host 能力前，先阅读该 wrapper skill 及其生成的
+`references/host-bridge-cli.md` 参考。
 
-本说明中的 `<zotero-bridge>` 表示以下解析顺序：
+<!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
-1. Windows：如果存在 `.\.zotero-bridge\bin\zotero-bridge.cmd`，使用它。
-2. POSIX：如果存在 `./.zotero-bridge/bin/zotero-bridge`，使用它。
-3. 如果工作区没有注入 shim，才使用裸命令 `zotero-bridge`。
+Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
+当前 topic synthesis 相关命令族摘要：`citation-graph get-metrics`, `citation-graph get-slice`, `citation-graph overview`, `citation-graph query-cluster`, `citation-graph rank-external-references`, `citation-graph rank-library-papers`, `citation-graph refresh-metrics`, `insights attention-queue`, `library-index get`, `paper-artifacts export-filtered`, `paper-artifacts manifest`, `paper-artifacts read`, `paper-artifacts resolve-topic-digest`, `reference-index get`, `resolvers resolve`, `topics get-context`, `topics get-report`, `topics get-review-input`, `topics list`。
+使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
+不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 
-需要确认 Host Bridge 状态时先运行：
+<!-- host-bridge-surface:topic-synthesis-fragment:end -->
 
-```bash
-<zotero-bridge> status
-<zotero-bridge> manifest
-```
+在 ACP run workspace 中，优先使用工作区注入的 Host Bridge shim：
 
-本 suite 的 agent-authored payload stage 只需要这些 Host read 命令：
+- Windows：`.\.zotero-bridge\bin\zotero-bridge.cmd`
+- POSIX：`./.zotero-bridge/bin/zotero-bridge`
 
-```bash
-<zotero-bridge> synthesis list-topics --input '{}'
-<zotero-bridge> synthesis get-topic-context --input '{"topicId":"<topic_id>"}'
-<zotero-bridge> synthesis get-library-index --input '{"cursor":0,"limit":200}'
-```
-
-Stage 20 payload 提交后，resolver、citation metrics 和 filtered artifact export 由 runtime 调用 Host Bridge cascade 完成；agent 不要手写 resolver result、metrics manifest 或 artifact manifest。
-
-如果工作区 shim 和裸命令都不可用、capability missing 或返回非零退出码，不要伪造 Host 数据，也不要切换到 MCP。当前 payload stage 可以在 `diagnostics` 中记录不可用原因；如果无法继续满足当前 skill output contract，则停止并输出 gate/error 指定的合法 JSON。
+只有找不到 workspace shim 时，才使用裸命令 `zotero-bridge`。无论使用哪种入口，
+都只能通过 Host Bridge 合同读取 Zotero 数据；不要直接读取 Zotero DB/storage，
+也不要在用户未要求 MCP 诊断时切换到 MCP。
 
 ## 运行状态
 
-- SQLite 是 stage state、receipt、artifact registry 和 handoff registry 的真源。
+- SQLite 只保存 stage state 和必要的跨 stage 上下文。
 - 跨 skill 业务状态来自 SQLite 与 handoff/files，不从 prompt 文本传递。
 - 命令型入口 stage 负责处理本包的 runtime 初始化或状态校验。
 
@@ -80,18 +75,18 @@ Stage 20 payload 提交后，resolver、citation metrics 和 filtered artifact e
 
 - 读取 Host topic context 后写 update scope 判断。
 - resolver proposal 设计。
-- per-paper triage：relevance、quality、core_digest、caveats、diagnostics。
+- per-paper triage：relevance、quality、core_digest、caveats。
 
 必须由脚本/runtime 完成：
 
-- 初始化或校验 SQLite、stage state、action receipts、artifact registry 和 hashes。
-- 执行 resolver cascade：`resolve-resolver`、citation metrics、filtered artifact export。
-- 校验并登记 update topic context、resolver proposal 和 paper triage payload。
+- 初始化或校验 SQLite 和 stage state。
+- 执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。
+- 校验 update topic context、resolver proposal 和 paper triage payload。
 - 生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff；深度 update diff/patch 语义后续单独完善。
 
 绝对禁止：
 
-- 手写 SQLite rows、hashes、handoff manifest 或 runtime-owned files。
+- 手写 SQLite rows、handoff manifest 或 runtime-owned files。
 - 用临时脚本生成语义分析 payload。
 - 把 citation metrics 或外部文献当作 core claim/timeline 的主 evidence。
 - 修改 gate 返回的 command 或 submit command 来跳 stage。
@@ -166,7 +161,6 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 
 质量检查：
 
-- 不要手写 SQLite、receipt、artifact registry、hash 或 handoff。
 - 不要把 prompt 里的历史状态当作真源；以 SQLite 和已登记文件为准。
 
 常见错误：
@@ -194,13 +188,12 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 语义处理步骤：
 
 1. 从 `runtime/input.json` 找到目标 topic id；执行 topic context Host read command。
-2. 读取返回的 topic definition、当前 artifact hashes、section hashes 和 recommended_update。
-3. 判断哪些 section 需要重算或补充，写入 `changed_sections`。
-4. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
+2. 判断哪些 section 需要重算或补充，写入 `changed_sections`。
+3. 把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis get-topic-context --input '{"topicId":"<topic_id>"}'`。用途：获取既有 topic 的当前定义、section hashes、artifact hashes 和推荐更新信息。
+- Host read：`<zotero-bridge> topics get-context --input '{"topicId":"<topic_id>"}'`。用途：undefined
   说明：`<topic_id>` 来自 `runtime/input.json` 或 gate/input payload；不要自行发明 topic id。
 
 材料使用说明：
@@ -211,9 +204,7 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 
 字段说明：
 
-- `topic_context`：保留 Host 给出的 topic id、definition、hashes、section hashes 和 recommended_update；不要自行发明 hash。
 - `update_assessment`：说明 operation、changed_sections 和选择理由。
-- `diagnostics`：记录 Host context 缺字段、hash 不完整、更新范围不明确等诊断。
 
 质量检查：
 
@@ -225,7 +216,7 @@ python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --p
 - 不要删除或改写 Host 提供的 topic_id。
 - 不要把 `unknown` 当作成功更新策略，只在证据不足时使用。
 
-Payload JSON 示例：
+Payload JSON 示例（可提交结构样例）：
 
 ```json
 {
@@ -234,16 +225,13 @@ Payload JSON 示例：
     "topic_definition": {
       "title": "DETR-style Object Detection"
     },
-    "current_hashes": {},
-    "section_hashes": {},
     "recommended_update": {}
   },
   "update_assessment": {
     "operation": "update_full",
     "changed_sections": ["taxonomy", "claims"],
     "reason": "当前 topic context 显示核心分析 sections 需要重新生成。"
-  },
-  "diagnostics": []
+  }
 }
 ```
 
@@ -274,7 +262,7 @@ Payload JSON 示例：
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis get-library-index --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
+- Host read：`<zotero-bridge> library-index get --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
   说明：如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。
 
 材料使用说明：
@@ -288,7 +276,6 @@ Payload JSON 示例：
 - `resolver`：Host Bridge resolver input proposal；必须有 `mode`，并包含 `query` 或 `paper_refs`。
 - `resolver_reasoning`：说明检索条件、边界和可能遗漏，不写跨文献结论。
 - `operation_intent`：create prepare 使用 `create`；update prepare 可使用 `update_full` 或 `update_patch`。
-- `diagnostics`：记录 library index 为空、标签歧义、显式 paper_refs 不完整等情况。
 
 质量检查：
 
@@ -300,7 +287,7 @@ Payload JSON 示例：
 - 不要把 paper title 列表伪造成 resolver output。
 - 不要在 resolver stage 做 paper triage。
 
-Payload JSON 示例：
+Payload JSON 示例（可提交结构样例）：
 
 ```json
 {
@@ -311,8 +298,7 @@ Payload JSON 示例：
     }
   },
   "resolver_reasoning": "该标签组合面向 DETR-family 目标检测论文，同时避开泛 transformer 论文。",
-  "operation_intent": "create",
-  "diagnostics": []
+  "operation_intent": "create"
 }
 ```
 
@@ -335,18 +321,24 @@ Payload JSON 示例：
 
 语义处理步骤：
 
-1. 读取 runtime 导出的 filtered paper artifacts。
-2. 每篇 resolved paper 写一条 assessment；判断只限该 paper 与 topic 的关系。
-3. 用 `core_digest` 提炼该 paper 对 topic window 的贡献。
-4. 提交后由 runtime 生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。
+1. 先读取 `runtime/payloads/paper-artifacts-manifest-batch-1.json`。
+2. 按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。
+3. 逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。
+4. 如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。
+5. 每篇 resolved paper 写一条 assessment；判断只限该 paper 与 topic 的关系。
+6. 用 `core_digest` 提炼该 paper 对 topic window 的贡献。
+7. 提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。
 
 上下文获取方式：
 
-- Runtime read：`runtime/views/filtered-paper-artifacts/`。来源：Stage 20 submit 的 runtime resolver cascade。用途：读取每篇 resolved paper 的过滤后 digest、references 和 citation-analysis，用于 paper-local triage。
+- Runtime read：`runtime/payloads/paper-artifacts-manifest-batch-1.json`。来源：Stage 20 submit 的 runtime resolver cascade。用途：读取每篇 resolved paper 的 artifact manifest，并按 `content_file` 定位 digest、references 和 citation-analysis。
+- Runtime read：`runtime/payloads/artifacts/`。来源：Stage 20 submit 的 runtime resolver cascade。用途：读取 manifest 指向的过滤后 digest、references 和 citation-analysis，用于 paper-local triage。
 
 材料使用说明：
 
-- `runtime/views/filtered-paper-artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。
+- `runtime/payloads/paper-artifacts-manifest-batch-1.json` 是 artifact 索引真源；具体文件以每条 artifact 的 `content_file` 为准。
+- `runtime/payloads/artifacts/` 中的 digest/references/citation-analysis 是判断依据；不要依赖大段附件路径。
+- LLM 不手写 cross-paper context 或 external-literature context；这些 view 必须由 runtime 从已校验输入生成。
 - payload 路径：runtime/payloads/prepare-analysis-context.json
 - schema 文件：assets/schemas/stage-30-prepare-analysis-context.schema.json
 
@@ -359,19 +351,58 @@ Payload JSON 示例：
 - `paper_quality_reason`：说明实验、方法、综述、benchmark 或证据完整性。
 - `core_digest`：一到三句说明该 paper 对 topic 的贡献，保持 paper-local。
 - `caveats`：记录训练效率、实验范围、artifact 缺失、适用边界等限制。
-- `diagnostics`：记录 artifact 缺失、无法判断、疑似误召回等诊断。
+
+硬性约束：
+
+- paper triage 必须由 LLM 逐篇阅读 runtime 导出的 paper artifacts 后手写判断；不得编写或运行脚本来批量抽取、归纳、评分或生成 `assessments`。
+- 脚本只能执行 gate 返回的 runtime command；Stage 30 payload 的 relevance、quality、core_digest 和 caveats 必须来自 LLM 对单篇材料的判断。
+
+Subagent 委派建议：
+
+当 workset 包含多篇文献且执行环境支持 subagent 时，推荐把 paper triage 按 paper_ref 分批委派给 subagent；每个 subagent 只处理分配到的单篇或少量文献，主 agent 负责汇总为一个 `assessments[]` payload。
+
+- 每个 subagent 只能读取分配给它的 paper artifact 和当前 topic context，不做跨文献综合。
+- subagent 只返回 assessment row 草案，不写文件、不运行脚本、不调用 gate。
+- 主 agent 必须检查每个 row 的 paper_ref、枚举值、理由和 core_digest，再写入 `runtime/payloads/prepare-analysis-context.json`。
+
+委派 prompt 模板：
+
+```text
+你是 topic synthesis Stage 30 的 paper triage subagent。请只处理下面分配给你的 paper_ref 和对应 artifact 内容。
+
+任务边界：
+- 逐篇阅读分配的 digest、references 和 citation-analysis。
+- 只判断该 paper 与当前 topic 的关系，不做跨文献综合。
+- 不编写或运行脚本，不写文件，不调用 gate。
+- 只返回 JSON 数组；数组中的每个对象必须是一个 assessment row。
+
+当前 topic：
+<topic_definition_or_scope>
+
+分配的 paper artifacts：
+<paper_ref_to_artifact_excerpt_or_path>
+
+输出字段：
+- paper_ref：必须使用分配给你的 paper_ref。
+- relevance_level：core / related / external / irrelevant / unknown。
+- relevance_reason：说明该 paper 与 topic 边界的关系。
+- paper_quality_level：high / medium / low / unknown。
+- paper_quality_reason：说明证据质量。
+- core_digest：一到三句 paper-local 贡献摘要。
+- caveats：数组，记录证据限制或适用边界。
+```
 
 质量检查：
 
-- triage 阶段只抽取单篇事实，不写 taxonomy、timeline、claim 或 gaps。
+- triage 阶段只抽取单篇事实，不写 taxonomy、timeline、claim 或 future directions。
 - 每条 assessment 要能支撑后续 context selection。
+- 不要把 references 或 citation-analysis 内容复制进 `core_digest`；runtime 会把它们分流到 external-literature context。
 
 常见错误：
 
-- 不要使用旧单体 paper-triage wrapper；当前 payload 顶层必须是 `assessments`。
-- 不要手写 source evidence ids、hashes 或 evidence refs。
+- payload 顶层必须是 `assessments`。
 
-Payload JSON 示例：
+Payload JSON 示例（可提交结构样例）：
 
 ```json
 {
@@ -383,8 +414,7 @@ Payload JSON 示例：
       "paper_quality_level": "high",
       "paper_quality_reason": "该论文给出模型公式，并提供支撑该路线的 benchmark evidence。",
       "core_digest": "提出面向目标检测的 transformer-based set prediction，使 object queries 与 bipartite matching 成为后续 DETR-family 工作的核心概念。",
-      "caveats": ["训练效率限制会影响后续改进工作的解释方式。"],
-      "diagnostics": []
+      "caveats": ["训练效率限制会影响后续改进工作的解释方式。"]
     }
   ]
 }
@@ -395,13 +425,12 @@ Payload JSON 示例：
 本技能输出一个用于 `prepare_analysis_context` 的 `topic_synthesis_handoff` JSON 对象。
 
 - 返回对象必须符合 `assets/output.schema.json`。
-- handoff manifest path 和 hash 用来标识本 skill 的持久化输出。
-- 大段正文、业务状态和 hashes 仍以 SQLite 与文件为真源。
+- handoff manifest path 用来标识本 skill 的持久化输出。
+- 大段正文和业务状态以 SQLite 与 runtime 文件为真源。
 
 ## 失败规则
 
 - 如果 gate 返回 error JSON，停止当前技能。
 - 不要手动修改 SQLite。
-- 不要手动生成由 runtime 管理的 hashes。
 - 不要绕过 `gate.py` 调用内部 helper。
-- 不要基于旧字段、旧 stage 或历史路径猜测恢复方式。
+- 只依据 gate JSON、当前 stage 指令和当前 runtime 文件判断恢复方式。

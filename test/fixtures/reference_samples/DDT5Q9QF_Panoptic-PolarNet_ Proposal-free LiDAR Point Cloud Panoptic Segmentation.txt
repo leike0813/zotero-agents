@@ -1,0 +1,166 @@
+[1] Jens Behley, Martin Garbade, Andres Milioto, Jan Quenzel, Sven Behnke, Cyrill Stachniss, and Jurgen Gall. SemanticKITTI: A dataset for semantic scene understanding of lidar sequences. In ICCV, 2019. 1
+
+[2] Jens Behley, Andres Milioto, and Cyrill Stachniss. A Benchmark for LiDAR-based Panoptic Segmentation based on KITTI. In arXiv, 2020. 1, 3, 6
+
+[3] Maxim Berman, Amal Rannen Triki, and Matthew B Blaschko. The Lovasz-Softmax loss: A tractable surrogate´ for the optimization of the intersection-over-union measure in neural networks. In CVPR, 2018. 7
+
+[4] Alexey Bochkovskiy, Chien-Yao Wang, and Hong-Yuan Mark Liao. Yolov4: Optimal speed and accuracy of object detection. In arXiv, 2020. 5
+
+[5] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Giancarlo Baldan, and Oscar Beijbom. nuscenes: A multimodal dataset for autonomous driving. In CVPR, 2020. 1, 6
+
+[6] Yifeng Chen, Guangchen Lin, Songyuan Li, Omar Bourahla, Yiming Wu, Fangfang Wang, Junyi Feng, Mingliang Xu, and Xi Li. Banet: Bidirectional aggregation network with occlusion handling for panoptic segmentation. In CVPR, 2020. 3
+
+[7] Bowen Cheng, Maxwell D Collins, Yukun Zhu, Ting Liu, Thomas S Huang, Hartwig Adam, and Liang-Chieh Chen. Panoptic-deeplab: A simple, strong, and fast baseline for bottom-up panoptic segmentation. In CVPR, 2020. 2, 3, 5, 8
+
+[8] Tiago Cortinhal, George Tzelepis, and Eren Erdal Aksoy. Salsanext: Fast, uncertainty-aware semantic segmentation of lidar point clouds for autonomous driving. In arXiv, 2020. 3, 6, 7, 8
+
+[9] Bert De Brabandere, Davy Neven, and Luc Van Gool. Semantic instance segmentation with a discriminative loss function. In arXiv, 2017. 3
+
+[10] Naiyu Gao, Yanhu Shan, Yupei Wang, Xin Zhao, Yinan Yu, Ming Yang, and Kaiqi Huang. Ssap: Single-shot instance segmentation with affinity pyramid. In ICCV, 2019. 3
+
+[11] Stefano Gasperini, Mohammad-Ali Nikouei Mahani, Alvaro Marcos-Ramiro, Nassir Navab, and Federico Tombari. Panoster: End-to-end panoptic segmentation of lidar point clouds. In arXiv, 2020. 6, 7
+
+[12] Andreas Geiger, Philip Lenz, and Raquel Urtasun. Are we ready for autonomous driving? The KITTI vision benchmark suite. In CVPR, 2012. 6, 8
+
+[13] Jakob Geyer, Yohannes Kassahun, Mentar Mahmudi, Xavier Ricou, Rupesh Durgesh, Andrew S Chung, Lorenz Hauswald, Viet Hoang Pham, Maximilian Muhlegg, Sebas- ¨ tian Dorn, et al. A2d2: Audi autonomous driving dataset. In arXiv, 2020. 1
+
+[14] Golnaz Ghiasi, Tsung-Yi Lin, and Quoc V Le. Dropblock: A regularization method for convolutional networks. In NeurIPS, 2018. 7
+
+[15] Martin Hahner, Dengxin Dai, Alexander Liniger, and Luc Van Gool. Quantifying data augmentation for lidar based 3d object detection. In arXiv, 2020. 5
+
+[16] Kaiming He, Georgia Gkioxari, Piotr Dollar, and Ross Gir- ´ shick. Mask r-cnn. In ICCV, 2017. 1, 2
+
+[17] Peiyun Hu, Jason Ziglar, David Held, and Deva Ramanan. What you see is what you get: Exploiting visibility for 3d object detection. In CVPR, 2020. 5
+
+[18] Qingyong Hu, Bo Yang, Linhai Xie, Stefano Rosa, Yulan Guo, Zhihua Wang, Niki Trigoni, and Andrew Markham. RandLA-Net: Efficient semantic segmentation of large-scale point clouds. In CVPR, 2020. 3
+
+[19] Juana Valeria Hurtado, Rohit Mohan, and Abhinav Valada. Mopt: Multi-object panoptic tracking. In CVPR Workshop, 2020. 3, 6, 7
+
+[20] Alexander Kirillov, Kaiming He, Ross Girshick, Carsten Rother, and Piotr Dollar. Panoptic segmentation. In CVPR, 2019. 1, 4, 6
+
+[21] Deyvid Kochanov, Fatemeh Karimi Nejadasl, and Olaf Booij. Kprnet: Improving projection-based lidar semantic segmentation. In arXiv, 2020. 3
+
+[22] Jean Lahoud, Bernard Ghanem, Marc Pollefeys, and Martin R Oswald. 3d instance segmentation via multi-task metric learning. In ICCV, 2019. 3
+
+[23] Alex H Lang, Sourabh Vora, Holger Caesar, Lubing Zhou, Jiong Yang, and Oscar Beijbom. PointPillars: Fast encoders for object detection from point clouds. In CVPR, 2019. 3, 5, 6, 7
+
+[24] Yanwei Li, Xinze Chen, Zheng Zhu, Lingxi Xie, Guan Huang, Dalong Du, and Xingang Wang. Attention-guided unified network for panoptic segmentation. In CVPR, 2019. 3
+
+[25] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and Piotr Dollar. Focal loss for dense object detection. In ´ ICCV, 2017. 11
+
+[26] Huanyu Liu, Chao Peng, Changqian Yu, Jingbo Wang, Xu Liu, Gang Yu, and Wei Jiang. An end-to-end network for panoptic segmentation. In CVPR, 2019. 1, 2, 3
+
+[27] Jinxian Liu, Minghui Yu, Bingbing Ni, and Ye Chen. Selfprediction for joint instance and semantic segmentation of point clouds. In ECCV, 2020. 3
+
+[28] Jonathan Long, Evan Shelhamer, and Trevor Darrell. Fully convolutional networks for semantic segmentation. In CVPR, 2015. 1
+
+[29] Andres Milioto, Jens Behley, Chris McCool, and Cyrill Stachniss. Lidar panoptic segmentation for autonomous driving. In IROS, 2020. 3, 6, 7
+
+[30] Andres Milioto and C Stachniss. RangeNet++: Fast and accurate LiDAR semantic segmentation. In IROS, 2019. 3, 6, 7
+
+[31] Rohit Mohan and Abhinav Valada. Efficientps: Efficient panoptic segmentation. In arXiv, 2020. 3
+
+[32] Pavlo Molchanov, Arun Mallya, Stephen Tyree, Iuri Frosio, and Jan Kautz. Importance estimation for neural network pruning. In CVPR, 2019. 5
+
+[33] Quang-Hieu Pham, Thanh Nguyen, Binh-Son Hua, Gemma Roig, and Sai-Kit Yeung. Jsis3d: joint semantic-instance
+
+segmentation of 3d point clouds with multi-task pointwise networks and multi-value conditional random fields. In CVPR, 2019. 3
+
+[34] Lorenzo Porzi, Samuel Rota Bulo, Aleksander Colovic, and \` Peter Kontschieder. Seamless scene segmentation. In CVPR, 2019. 3, 6
+
+[35] Charles R Qi, Or Litany, Kaiming He, and Leonidas J Guibas. Deep hough voting for 3d object detection in point clouds. In ICCV, 2019. 3
+
+[36] Charles R Qi, Wei Liu, Chenxia Wu, Hao Su, and Leonidas J Guibas. Frustum pointnets for 3d object detection from rgb-d data. In CVPR, 2018. 3
+
+[37] Charles R Qi, Hao Su, Kaichun Mo, and Leonidas J Guibas. Pointnet: Deep learning on point sets for 3d classification and segmentation. In CVPR, 2017. 3, 4
+
+[38] Charles Ruizhongtai Qi, Li Yi, Hao Su, and Leonidas J Guibas. Pointnet++: Deep hierarchical feature learning on point sets in a metric space. In NeurIPS, 2017. 3
+
+[39] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In MICCAI, 2015. 4
+
+[40] Shaoshuai Shi, Chaoxu Guo, Li Jiang, Zhe Wang, Jianping Shi, Xiaogang Wang, and Hongsheng Li. Pv-rcnn: Pointvoxel feature set abstraction for 3d object detection. In CVPR, 2020. 6, 7
+
+[41] Shaoshuai Shi, Xiaogang Wang, and Hongsheng Li. Pointrcnn: 3d object progposal generation and detection from point cloud. In CVPR, 2019. 3, 6, 7
+
+[42] Pei Sun, Henrik Kretzschmar, Xerxes Dotiwalla, Aurelien Chouard, Vijaysai Patnaik, Paul Tsui, James Guo, Yin Zhou, Yuning Chai, Benjamin Caine, et al. Scalability in perception for autonomous driving: Waymo open dataset. In CVPR, 2020. 8
+
+[43] Haotian Tang, Zhijian Liu, Shengyu Zhao, Yujun Lin, Ji Lin, Hanrui Wang, and Song Han. Searching efficient 3d architectures with sparse point-voxel convolution. In ECCV, 2020. 3
+
+[44] OpenPCDet Development Team. Openpcdet: An opensource toolbox for 3d object detection from point clouds. https://github.com/open-mmlab/OpenPCDet, 2020. 6
+
+[45] Hugues Thomas, Charles R. Qi, Jean-Emmanuel Deschaud, Beatriz Marcotegui, Franc¸ois Goulette, and Leonidas J. Guibas. KPConv: Flexible and deformable convolution for point clouds. In ICCV, 2019. 3, 6, 7
+
+[46] Xinlong Wang, Shu Liu, Xiaoyong Shen, Chunhua Shen, and Jiaya Jia. Associatively segmenting instances and semantics in point clouds. In CVPR, 2019. 3
+
+[47] Yan Wang, Wei-Lun Chao, Divyansh Garg, Bharath Hariharan, Mark Campbell, and Kilian Q Weinberger. Pseudo-lidar from visual depth estimation: Bridging the gap in 3d object detection for autonomous driving. In CVPR, 2019. 2, 4
+
+[48] Bichen Wu, Alvin Wan, Xiangyu Yue, and Kurt Keutzer. Squeezeseg: Convolutional neural nets with recurrent crf for real-time road-object segmentation from 3d lidar point cloud. In ICRA, 2018. 3
+
+[49] Bichen Wu, Xuanyu Zhou, Sicheng Zhao, Xiangyu Yue, and Kurt Keutzer. Squeezesegv2: Improved model structure and unsupervised domain adaptation for road-object segmentation from a lidar point cloud. In ICRA, 2019. 3
+
+[50] Yangxin Wu, Gengwei Zhang, Yiming Gao, Xiajun Deng, Ke Gong, Xiaodan Liang, and Liang Lin. Bidirectional graph reasoning network for panoptic segmentation. In CVPR, 2020. 3
+
+[51] Yuwen Xiong, Renjie Liao, Hengshuang Zhao, Rui Hu, Min Bai, Ersin Yumer, and Raquel Urtasun. Upsnet: A unified panoptic segmentation network. In CVPR, 2019. 1, 3
+
+[52] Yan Yan, Yuxing Mao, and Bo Li. Second: Sparsely embedded convolutional detection. In Sensors, 2018. 3
+
+[53] Bin Yang, Wenjie Luo, and Raquel Urtasun. Pixor: Realtime 3d object detection from point clouds. In CVPR, 2018. 3
+
+[54] Tien-Ju Yang, Maxwell D Collins, Yukun Zhu, Jyh-Jing Hwang, Ting Liu, Xiao Zhang, Vivienne Sze, George Papandreou, and Liang-Chieh Chen. Deeperlab: Single-shot image parser. In arXiv, 2019. 3
+
+[55] Tianwei Yin, Xingyi Zhou, and Philipp Krahenb ¨ uhl. Center- ¨ based 3d object detection and tracking. In arXiv, 2020. 3
+
+[56] Yang Zhang, Zixiang Zhou, Philip David, Xiangyu Yue, Zerong Xi, Boqing Gong, and Hassan Foroosh. Polarnet: An improved grid representation for online lidar point clouds semantic segmentation. In CVPR, 2020. 2, 3, 4, 6, 7, 8
+
+[57] Dingfu Zhou, Jin Fang, Xibin Song, Liu Liu, Junbo Yin, Yuchao Dai, Hongdong Li, and Ruigang Yang. Joint 3d instance segmentation and object detection for autonomous driving. In CVPR, 2020. 3
+
+[58] Yin Zhou, Pei Sun, Yu Zhang, Dragomir Anguelov, Jiyang Gao, Tom Ouyang, James Guo, Jiquan Ngiam, and Vijay Vasudevan. End-to-end multi-view fusion for 3d object detection in lidar point clouds. In CoRL, 2020. 3
+
+[59] Yin Zhou and Oncel Tuzel. Voxelnet: End-to-end learning for point cloud based 3d object detection. In CVPR, 2018. 3
+
+[60] Benjin Zhu, Zhengkai Jiang, Xiangxin Zhou, Zeming Li, and Gang Yu. Class-balanced grouping and sampling for point cloud 3d object detection. In arXiv, 2019. 6, 8
+
+## 6. Supplementary Material
+
+## 6.1. Discussion
+
+Choice of the loss: We adopted a combination of crossentropy loss and Lovasz softmax loss in the semantic head. Given the highly imbalanced class distribution in LiDAR point clouds, the cross-entropy loss will favor those classes that are the majority of points, like the road class and the building class. Conversely, Lovasz softmax loss optimizes directly on the mIoU Jaccard index, which treats all classes equally. Combining these two losses will force the network to optimize toward an overall accurate prediction while focusing more on hard classes. In the instance head, we chose the MSE loss instead of focal loss [25] for the heatmap regression. The reason is that we do not necessarily need a very accurate prediction of the center in the BEV due to the scarcity of instance overlaps. However, we need a monotonically decreasing heatmap from the center to the edge to have a proper keypoint selection in the NMS. Also, the experiments showed that focal loss decreases the PQ by 1.3%.
+
+Data augmentation: We apply instance oversampling to compensate for two imbalances in the LiDAR point cloud: (1) The imbalance between “thing” and “stuff”. Points belong to “thing” classes usually consist of only a small portion of the point cloud. (2) The imbalance between different “thing” classes. For example, the most occurring class, car, has around 107 time more points than the least occurring class, motorcyclist in the SemanticKITTI dataset. Experiments show that even though this oversampling will decrease the segmentation accuracy in “stuff”, the overwhelmingly increases in “thing” can still provide a huge improvement to the PQ and mIoU. Our experiments also show that either simply putting instance points at any place in a point cloud or transform it through its center will decrease the PQ. We conclude that such simple augmentation ignores projection properties, introduces inconsistency into the Li-DAR point cloud, and thus entangles BEV feature learning.
+
+Proposal-free vs. proposal-based: Even though proposal-based panoptic segmentation methods dominate in the 2D domain, there are only a few existing approaches for LiDAR point clouds. We think there are two reasons. First, proposal-based methods rely heavily on the annotation of bounding boxes, whereas point cloud datasets do not necessarily provide such annotations. Second, most current proposal-based object detection methods, like what we assume in our instance head, are not designed to represent the scene along the Z-axis. Lacking proper representation makes it more challenging to achieve a competitive result while maintaining speed when modified into a panoptic segmentation network.
+
+End-to-end training: We only train the network to get an intermediate result and use a majority voting fusion to generate the final panoptic segmentation. Making the proposal-free panoptic segmentation network end-toend trainable is still an open problem to explore in the future.
+
+![](Images_BIMUUELW/c56133b79058180ab8229d5106a0edf43a4472eb8933d1d2dc5d90afa99c1262.jpg)  
+Figure 3: We highlight SAP-pruned points in color. Left: SAP prunes tangled vegetation and fence; Right: SAP prunes garden curbs that are annotated as the “ fence ”
+
+Self-adversarial Pruning Visualization: SAP is designed to remove ambiguous, noisy or/ and informative points. Since SemanticKITTI is a well-annotated dataset, we visually find SAP tends to remove challenging or ambiguous cases. Some examples are shown in Fig. 3.
+
+## 6.2. Class-wise Results
+
+We show the class-wise results of Panoptic-PolarNet on SemanticKITTI and nuScenes in Table 7 and Table 8. Our method has a similar panoptic segmentation performance in the corresponding classes among these two datasets. The low performance comes from the class that either has a small physical shape (like bicycle) or has a small number of instances in the dataset (like truck and construction vehicle). Despite being a more challenging dataset due to its significantly higher number of instances, nuScenes has fewer classes than SemanticKITTI, which makes it more distinguishable and thus having higher PQ and mIoU.
+
+## 6.3. Qualitative Results
+
+We show the visualization examples of Panoptic-PolarNet on SemanticKITTI and nuScenes in Figure 4 and Figure 5 respectively. Our method can make accurate instance predictions regardless of the distance and point density variation. We can also visually verify that nuScenes has significantly more instances than SemanticKITTI. And most of those instances belong to some challenging classes that have a small number of points. There are also duplicated instance predictions within a short distance. This could be fixed by introducing class-wise prior knowledge in the grouping stage in the future.
+
+![](Images_BIMUUELW/7e9d9f63ba4b953ab7f4fadc42d4e71dd27e8164160f4731cd7f31345daf2e63.jpg)  
+(a) Semantic Ground Truth  
+(b) Semantic Prediction  
+(c) Instance Ground Truth  
+(d) Instance Prediction  
+Figure 4: Visualization of Panoptic-PolarNet on the SemanticKITTI dataset. The red dots in the instance prediction represent the center for each instance.
+
+![](Images_BIMUUELW/d8c80eec4d2f07856b4b24c5f8ccd892f20edc949fce30a6a572b3c913fd9b67.jpg)  
+(a) Semantic Ground Truth  
+(b) Semantic Prediction  
+(c) Instance Ground Truth  
+(d) Instance Prediction  
+Figure 5: Visualization of Panoptic-PolarNet on the nuScenes dataset. The red dots in the instance prediction represent the center for each instance.
+
+Table 7: Class-wise results on test split of SemanticKITTI.
+<table><tr><td></td><td></td><td></td><td>rroreit</td><td></td><td>irirlalie</td><td></td><td>pipltitt</td><td>mrrlreiit</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>urssrgen</td><td></td></tr><tr><td>metrics</td><td></td><td>eprel</td><td></td><td>yonn</td><td></td><td></td><td></td><td></td><td></td><td>peo1</td><td>Bpred</td><td>xereare</td><td>punars-nano</td><td>Buippnq</td><td>eeee</td><td>Geneege</td><td>yunn</td><td>rera</td><td></td><td></td><td></td></tr><tr><td>PQ</td><td>88.8%</td><td></td><td></td><td></td><td></td><td>uosiad</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>aod</td><td></td><td>naea</td></tr><tr><td>RQ</td><td>96.2%</td><td>33.0%</td><td>51.8%</td><td>35.2%</td><td>37.6%</td><td>57.3%</td><td>69.9%</td><td>52.4%</td><td>88.6%</td><td>42.6%</td><td>61.2%</td><td>1.6%</td><td></td><td>85.7%</td><td>46.0%</td><td>75.7%</td><td>54.5%</td><td>41.5%</td><td>48.5%</td><td>56.4%</td><td>54.1%</td></tr><tr><td>SQ</td><td>92.3%</td><td>46.7% 70.7%</td><td>59.9%</td><td>38.7%</td><td>41.5%</td><td>65.7%</td><td>78.6%</td><td>57.7%</td><td></td><td>96.8%</td><td>56.2%</td><td>76.3%</td><td>2.8%</td><td>92.1%</td><td>62.3%</td><td>92.5%</td><td>73.6%</td><td>55.5%</td><td>66.0%</td><td>75.2%</td><td>65.0% 81.4%</td></tr><tr><td>IoU</td><td>94.4%</td><td>38.7%</td><td>86.4% 48.2%</td><td>90.9% 46.2%</td><td>90.5% 34.5%</td><td>87.2% 51.1%</td><td>88.9% 63.9%</td><td>90.9% 24.9%</td><td></td><td>91.5% 90.8%</td><td>75.9% 61.3%</td><td>80.3% 74.6%</td><td>55.6% 16.5%</td><td>93.0% 89.9%</td><td>73.8% 61.1%</td><td>81.9% 83.4%</td><td>74.1% 66.7%</td><td>74.9% 68.0%</td><td>73.4% 56.8%</td><td>75.0% 58.5%</td><td>59.5%</td></tr></table>
+
+Table 8: Class-wise results on validation split of nuScenes.
+<table><tr><td></td><td colspan="5">aetiii</td><td>mroroitt</td><td>rrsesed</td><td>rrreereene</td><td>iiaern</td><td></td><td></td><td>Prrieereetet</td><td>ee reat</td><td>xerepra</td><td>Erlrn</td><td>maaaaa</td><td>Veieee</td><td>neea</td></tr><tr><td>metrics PQ</td><td>arr 41.5%</td><td></td><td>70.4%</td><td>3u</td><td></td><td>ererrreerrrnteee 36.4%</td><td>78.4%</td><td>85.1%</td><td>80.7%</td><td>49.7%</td><td>ynn 63.3%</td><td>95.7%</td><td>53.9%</td><td>67.7%</td><td>49.8%</td><td>84.3%</td><td>80.0%</td><td>67.7%</td></tr><tr><td>RQ</td><td>54.4%</td><td>58.0%</td><td></td><td>89.0%</td><td></td><td></td><td></td><td>95.2%</td><td>91.8%</td><td>58.2%</td><td>69.4%</td><td>100.0%</td><td>66.3%</td><td>85.3%</td><td>65.1%</td><td>98.2%</td><td>94.7%</td><td>78.1%</td></tr><tr><td>SQ</td><td>76.3%</td><td>68.6% 84.6%</td><td>76.1% 92.5%</td><td>95.9% 92.8%</td><td>44.9% 81.2%</td><td>86.0% 91.2%</td><td>89.4%</td><td>87.9%</td><td></td><td>85.3%</td><td>91.3%</td><td>95.7%</td><td>81.3%</td><td>79.4%</td><td>76.5%</td><td>86.0%</td><td>84.5%</td><td>86.0%</td></tr><tr><td>IoU</td><td>52.3%</td><td>28.1%</td><td>88.0%</td><td>90.3%</td><td>32.4%</td><td>71.7%</td><td>72.2%</td><td></td><td>52.8%</td><td>58.3%</td><td>76.6%</td><td>95.9%</td><td>68.8%</td><td>74.3%</td><td>73.4%</td><td>87.3%</td><td>85.5%</td><td>69.3%</td></tr></table>

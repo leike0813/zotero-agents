@@ -1,0 +1,19 @@
+[1] Nicolas Carion,Francisco Massa, Gabriel Synnaeve,Nicolas Usunier, Alexander Kirillov,and Sergey Zagoruyko. End-toend object detection with transformers. In European Conference on Computer Vision, pages 213-229. Springer, 2020.   
+[2] Ting Chen, Saurabh Saxena,LalaLi, David J. Fleet,and Geoffrey Hinton. Pix2seq: A language modeling framework for object detection, 2021.   
+[3] Xiyang Dai，Yinpeng Chen，Jianwei Yang，Pengchuan Zhang,Lu Yuan,and Lei Zhang. Dynamic detr: End-to-end object detection with dynamic attention. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), pages 2988-2997, October 2021.   
+[4] Xiyang Dai，Yinpeng Chen，Jianwei Yang，Pengchuan Zhang,Lu Yuan,and Lei Zhang.Dynamic detr: End-toend object detection with dynamic attention.In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 2988-2997,2021.   
+[5] Enrico Maria Fenoaltea, Izat B Baybusinov, Jianyang Zhao, Lei Zhou,and Yi-Cheng Zhang. The stable marriage problem: An interdisciplinary review from the physicist's perspective.Physics Reports,2021.   
+[6] Peng Gao,Minghang Zheng, Xiaogang Wang, Jifeng Dai, and Hongsheng Li. Fast convergence of detr with spatially modulated co-attention. arXiv preprint arXiv:2101.07448, 2021.   
+[7] Ross Girshick,Jeff Donahue,Trevor Darrell,and Jitendra Malik. Rich feature hierarchies for accurate object detection and semantic segmentation, 2014. [8] Kaiming He, Xiangyu Zhang,Shaoqing Ren,and Jian Sun. Deep residual learning for image recognition. In 2016 IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 770-778,2016.   
+[9] Tsung-YiLin, Priya Goyal, Ross Girshick, Kaiming He,and Piotr Dollar. Focal loss for dense object detection,2018.   
+[10] Tsung-Yi Lin,Michael Maire,Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick.Microsoft coco: Common objects in context.In European conference on computer vision, pages 740-755. Springer, 2014.   
+[11] Shilong Liu,Feng Li, Hao Zhang, Xiao Yang, Xianbiao Qi, Hang Su, Jun Zhu, and Lei Zhang. DAB-DETR: Dynamic anchor boxes are better queries for DETR.In International Conference on Learning Representations, 2022.   
+[12] Depu Meng, Xiaokang Chen, Zejia Fan,Gang Zeng, Houqiang Li, Yuhui Yuan, Lei Sun,and Jingdong Wang. Conditional detr for fast training convergence. arXiv preprint arXiv:2108.06152,2021.   
+[13] Joseph Redmon and Ali Farhadi. Yolo90oO:Better,faster, stronger, 2016.   
+[14] Joseph Redmon and Ali Farhadi． Yolov3:An incremental improvement, 2018.   
+[15] Shaoqing Ren,Kaiming He,Ross Girshick,and Jian Sun. Faster r-cnn: Towards real-time object detection with region proposal networks. IEEE Transactions on Pattern Analysis and Machine Intelligence. 39(6):1137-1149.2017.   
+[16] Zhiqing Sun, Shengcao Cao,Yiming Yang,and Kris Kitani. Rethinking transformer-based set prediction for object detection.arXiv preprint arXiv:2011.10881,2020.   
+[17] AshishVaswani,Noam Shazeer,NikiParmar,JakobUszkoreit,Llion Jones,Aidan NGomez,Lukasz Kaiser,and Illia Polosukhin. Attention is all you need. In Advances in neural information processing systems,pages 5998-6008,2017.   
+[18] Yingming Wang,Xiangyu Zhang, Tong Yang,and Jian Sun. Anchor detr: Query design for transformer-based detector. arXiv preprint arXiv:2109.07107,2021.   
+[19] Zhuyu Yao,Jiangbo Ai,Boxun Li,and Chi Zhang.Efficient detr: Improving end-to-end object detector with dense prior. arXiv preprint arXiv:2104.01318,2021.   
+[20] Xizhou Zhu, Weijie Su,Lewei Lu, Bin Li, Xiaogang Wang, and Jifeng Dai.Deformable detr:Deformable transformers for end-to-end object detection.In ICLR 2021: The Ninth International Conference on Learning Representations,2021.

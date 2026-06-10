@@ -13,10 +13,8 @@ import {
 } from "../backends/registry";
 import { isWindowAlive } from "../utils/window";
 import { getString } from "../utils/locale";
-import {
-  buildSkillRunnerManagementUiUrl,
-  openSkillRunnerManagementDialog,
-} from "./skillRunnerManagementDialog";
+import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
+import { openZoteroSkillsWorkspaceTab } from "./workspaceTab";
 import type { BackendInstance } from "../backends/types";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import {
@@ -497,6 +495,7 @@ function appendSelectCell(
   label: string,
   options: Array<{ value: string; text: string }>,
   selected: string,
+  width = "130px",
 ) {
   const cell = appendCell(row);
   const control = createChoiceControl({
@@ -505,7 +504,7 @@ function appendSelectCell(
     selectedValue: selected,
   });
   control.setAttribute("data-zs-backend-field", label);
-  applySelectVisualStyle(control, "130px");
+  applySelectVisualStyle(control, width);
   cell.appendChild(control);
 }
 
@@ -644,6 +643,11 @@ function appendActionCell(args: {
   onRefreshAcpRuntimeOptions?: (row: HTMLElement) => void;
 }) {
   const cell = appendCell(args.row);
+  cell.style.whiteSpace = "nowrap";
+  cell.style.minWidth =
+    String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE
+      ? "300px"
+      : "180px";
   if (String(args.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     const manageButton = createHtmlElement(args.row.ownerDocument!, "button");
     manageButton.type = "button";
@@ -748,8 +752,9 @@ function appendBackendRow(args: {
         },
       ],
       args.backend.authKind,
+      "110px",
     );
-    appendTextCell(row, "authToken", args.backend.authToken, "220px");
+    appendTextCell(row, "authToken", args.backend.authToken, "96px");
     appendTextCell(row, "timeoutMs", args.backend.timeoutMs, "110px");
   }
   appendActionCell({
@@ -882,8 +887,10 @@ function createBackendManagerActionBar(args: {
   actionBar.setAttribute("data-zs-backend-action-bar", "1");
   actionBar.style.display = "flex";
   actionBar.style.flex = "0 0 auto";
+  actionBar.style.alignItems = "center";
   actionBar.style.justifyContent = "flex-end";
   actionBar.style.gap = "8px";
+  actionBar.style.minHeight = "0";
   actionBar.style.padding = "8px 10px";
   actionBar.style.borderTop = "1px solid #d0d0d7";
   actionBar.style.backgroundColor = "Canvas";
@@ -929,14 +936,15 @@ function ensureTableSkeleton(
   root.style.display = "flex";
   root.style.flexDirection = "column";
   root.style.height = "100%";
-  root.style.maxHeight = "min(78vh, 720px)";
+  root.style.maxHeight = "none";
   root.style.minHeight = "0";
   root.style.minWidth = "1040px";
+  root.style.overflow = "hidden";
   root.style.padding = "0";
 
   const scrollRegion = createHtmlElement(doc, "div");
   scrollRegion.setAttribute("data-zs-backend-scroll-region", "1");
-  scrollRegion.style.flex = "1 1 auto";
+  scrollRegion.style.flex = "1 1 0";
   scrollRegion.style.minHeight = "0";
   scrollRegion.style.overflow = "auto";
   scrollRegion.style.padding = "6px";
@@ -1000,7 +1008,9 @@ function hasBackendManagerUnsavedChanges(
   dialogData: BackendManagerDialogData,
 ) {
   const initial = String(dialogData._initialBackendDraftSignature || "");
-  return Boolean(initial && createBackendManagerDraftSignature(doc) !== initial);
+  return Boolean(
+    initial && createBackendManagerDraftSignature(doc) !== initial,
+  );
 }
 
 function confirmBackendManagerClose(
@@ -1240,8 +1250,15 @@ export async function launchSkillRunnerManagementFromRow(args: {
   openDialog?: (payload: SkillRunnerManagementLaunchPayload) => Promise<void>;
 }) {
   const payload = resolveSkillRunnerManagementLaunchPayloadFromRow(args.row);
-  const openDialog = args.openDialog || openSkillRunnerManagementDialog;
-  await openDialog(payload);
+  if (args.openDialog) {
+    await args.openDialog(payload);
+  } else {
+    await openZoteroSkillsWorkspaceTab({
+      initialView: "dashboard",
+      initialDashboardTabKey: `backend:${payload.backendId}`,
+      initialDashboardBackendSubview: "management",
+    });
+  }
   return payload;
 }
 
@@ -1761,33 +1778,15 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
         })
           .then(async (result) => {
             await persistAcpBackendProbeResultFromRow(row);
-            if (result.ok) {
-              alertWindow?.alert?.(
-                getString(
-                  "backend-manager-refresh-acp-runtime-cache-success" as any,
-                  {
-                    args: {
-                      refreshedAt: String(
-                        result.backend.acp?.runtimeOptionsCache?.refreshedAt ||
-                          "",
-                      ),
-                    },
-                  },
-                ),
-              );
-              return;
-            }
-            throw new Error(String(result.error || "unknown error"));
           })
           .catch((error) => {
-            alertWindow?.alert?.(
-              getString(
-                "backend-manager-refresh-acp-runtime-cache-failed" as any,
-                {
-                  args: { error: String(error) },
-                },
-              ),
-            );
+            writeAcpMetadataToRow(row, {
+              connectionTest: {
+                status: "failed",
+                testedAt: new Date().toISOString(),
+                error: String(error),
+              },
+            });
           })
           .finally(() => {
             setAcpBackendRowBusy(row, false);
@@ -1895,7 +1894,14 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       namespace: "html",
       id: "zs-backend-manager-root",
       styles: {
+        width: "100%",
+        height: "100%",
+        minHeight: "0",
         padding: "0",
+        margin: "0",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
       },
     })
     .setDialogData(dialogData)
@@ -1903,7 +1909,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       centerscreen: true,
       resizable: true,
       fitContent: false,
-      width: 1180,
+      width: 1320,
       height: 760,
     });
 

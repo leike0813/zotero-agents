@@ -1,4 +1,5 @@
 import { getRuntimePersistencePaths } from "../runtimePersistence";
+import { getGuardedSqliteConnection } from "../guardedSqlite";
 
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
@@ -172,7 +173,8 @@ export type SynthesisReferenceMatchProposalStatus =
   | "open"
   | "accepted"
   | "rejected"
-  | "superseded";
+  | "superseded"
+  | "retargeted";
 
 export type SynthesisReferenceMatchProposalRecord = {
   proposalId: string;
@@ -1051,15 +1053,11 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
       Components: runtime.Components,
     },
   );
-  const conn = runtime.Services?.storage?.openDatabase?.(file) as
-    | {
-        createStatement?: (sql: string) => unknown;
-        executeSimpleSQL?: (sql: string) => void;
-      }
-    | undefined;
-  if (!conn?.createStatement || !conn.executeSimpleSQL) {
-    throw new Error("Services.storage.openDatabase is unavailable");
-  }
+  const conn = getGuardedSqliteConnection({
+    dbPath,
+    file,
+    storage: runtime.Services?.storage,
+  });
 
   const bindParams = (statement: unknown, sql: string, params?: SqlParams) => {
     const target = statement as {
@@ -1159,12 +1157,18 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           }
         | undefined;
       try {
-        statement = conn.createStatement!(sql) as {
-          execute?: () => void;
-          finalize?: () => void;
-        };
-        bindParams(statement, sql, params);
-        statement.execute?.();
+        conn.execute(() => {
+          statement = conn.createStatement(sql) as {
+            execute?: () => void;
+            finalize?: () => void;
+          };
+          try {
+            bindParams(statement, sql, params);
+            statement.execute?.();
+          } finally {
+            statement?.finalize?.();
+          }
+        });
       } catch (error) {
         throw storageError({
           operation: statement ? "run.execute" : "run.createStatement",
@@ -1174,8 +1178,6 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           dbPath,
           cause: error,
         });
-      } finally {
-        statement?.finalize?.();
       }
     },
     all(sql, params) {
@@ -1189,26 +1191,30 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           }
         | undefined;
       try {
-        statement = conn.createStatement!(sql) as {
-          columnCount?: number;
-          executeStep?: () => boolean;
-          finalize?: () => void;
-          getColumnName?: (index: number) => string;
-        };
-        bindParams(statement, sql, params);
-        const rows: SqlRow[] = [];
-        while (statement.executeStep?.()) {
-          const row: SqlRow = {};
-          const count = Number(statement.columnCount || 0);
-          for (let index = 0; index < count; index += 1) {
-            row[String(statement.getColumnName?.(index) || "")] = readValue(
-              statement,
-              index,
-            );
+        return conn.execute(() => {
+          statement = conn.createStatement(sql) as {
+            columnCount?: number;
+            executeStep?: () => boolean;
+            finalize?: () => void;
+            getColumnName?: (index: number) => string;
+          };
+          try {
+            bindParams(statement, sql, params);
+            const rows: SqlRow[] = [];
+            while (statement.executeStep?.()) {
+              const row: SqlRow = {};
+              const count = Number(statement.columnCount || 0);
+              for (let index = 0; index < count; index += 1) {
+                row[String(statement.getColumnName?.(index) || "")] =
+                  readValue(statement, index);
+              }
+              rows.push(row);
+            }
+            return rows;
+          } finally {
+            statement?.finalize?.();
           }
-          rows.push(row);
-        }
-        return rows;
+        });
       } catch (error) {
         throw storageError({
           operation: statement ? "all.executeStep" : "all.createStatement",
@@ -1218,27 +1224,13 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
           dbPath,
           cause: error,
         });
-      } finally {
-        statement?.finalize?.();
       }
     },
     get(sql, params) {
       return this.all(sql, params)[0] || null;
     },
     transaction(fn) {
-      conn.executeSimpleSQL!("BEGIN IMMEDIATE");
-      try {
-        const result = fn();
-        conn.executeSimpleSQL!("COMMIT");
-        return result;
-      } catch (error) {
-        try {
-          conn.executeSimpleSQL!("ROLLBACK");
-        } catch {
-          // Ignore rollback failure and surface the original error.
-        }
-        throw error;
-      }
+      return conn.transaction(fn);
     },
   };
 }
@@ -3241,7 +3233,8 @@ function normalizeReferenceMatchProposalStatus(
   if (
     text === "accepted" ||
     text === "rejected" ||
-    text === "superseded"
+    text === "superseded" ||
+    text === "retargeted"
   ) {
     return text;
   }
