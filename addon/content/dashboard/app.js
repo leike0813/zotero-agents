@@ -1103,6 +1103,9 @@
       );
       control = customSelect.element;
       control.classList.add("workflow-settings-field-control");
+      if (args.entry.key === "acpModelId") {
+        control.classList.add("tail-preserve-select");
+      }
     } else if (optionEntries.length > 0 && args.entry.allowCustom === true) {
       const combo = document.createElement("div");
       combo.className = "workflow-settings-field-combo";
@@ -1122,6 +1125,9 @@
         },
       );
       customSelect.element.classList.add("workflow-settings-field-control");
+      if (args.entry.key === "acpModelId") {
+        customSelect.element.classList.add("tail-preserve-select");
+      }
       customSelect.element.style.flex = "1 1 55%";
       combo.appendChild(customSelect.element);
       control = document.createElement("input");

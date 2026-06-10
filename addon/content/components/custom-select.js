@@ -12,7 +12,11 @@
     trigger.tabIndex = 0;
     
     const currentOption = options.find(function(opt) { return toText(opt.value) === toText(currentValue); }) || options[0] || { value: "", label: "" };
-    trigger.textContent = currentOption.label;
+    const triggerLabel = document.createElement("span");
+    triggerLabel.className = "custom-select-trigger-label";
+    trigger.appendChild(triggerLabel);
+    triggerLabel.textContent = currentOption.label;
+    trigger.title = currentOption.label;
 
     const menu = document.createElement("div");
     menu.className = "custom-select-menu";
@@ -80,7 +84,8 @@
         : opt.label; // For tooltip if truncated
       optionEl.addEventListener("click", function (event) {
         event.stopPropagation();
-        trigger.textContent = opt.label;
+        triggerLabel.textContent = opt.label;
+        trigger.title = opt.label;
         const previousSelected = menu.querySelector(".selected");
         if (previousSelected) previousSelected.classList.remove("selected");
         optionEl.classList.add("selected");
@@ -104,7 +109,8 @@
       setValue: function(val) {
         const opt = options.find(function(o) { return toText(o.value) === toText(val); });
         if (opt) {
-          trigger.textContent = opt.label;
+          triggerLabel.textContent = opt.label;
+          trigger.title = opt.label;
           const opts = menu.querySelectorAll(".custom-select-option");
           opts.forEach(function(el) { el.classList.remove("selected"); });
           const matchedOpt = Array.from(opts).find(function(el) { return el.textContent === opt.label; });

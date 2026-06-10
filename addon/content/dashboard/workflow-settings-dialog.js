@@ -341,6 +341,9 @@
         "data-workflow-settings-control-key",
         controlKey,
       );
+      if (args.entry.key === "acpModelId") {
+        customSelect.element.classList.add("tail-preserve-select");
+      }
       if (args.entry.disabled === true) {
         markCustomSelectDisabled(customSelect.element);
       }
@@ -373,6 +376,9 @@
         "data-workflow-settings-control-key",
         controlKey + ".recommendation",
       );
+      if (args.entry.key === "acpModelId") {
+        customSelect.element.classList.add("tail-preserve-select");
+      }
       customSelect.element.style.flex = "1 1 55%";
       if (args.entry.disabled === true) {
         markCustomSelectDisabled(customSelect.element);

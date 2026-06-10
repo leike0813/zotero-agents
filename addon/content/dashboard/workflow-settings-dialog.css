@@ -269,6 +269,22 @@
   user-select: none;
 }
 
+.custom-select-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select.tail-preserve-select .custom-select-trigger-label,
+.custom-select.tail-preserve-select .custom-select-option {
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+
 .custom-select-trigger:focus {
   outline: none;
   border-color: var(--zs-accent);
@@ -308,6 +324,9 @@
   color: var(--text);
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .custom-select-option:hover {

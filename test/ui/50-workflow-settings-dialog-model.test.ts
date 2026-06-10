@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFile } from "node:fs/promises";
 import {
   buildWorkflowSettingsDialogDraft,
   buildWorkflowSettingsDialogRenderModel,
@@ -383,5 +384,53 @@ describe("workflow settings dialog model", function () {
       "xhigh",
     ]);
     assert.equal(effort?.disabled, false);
+  });
+
+  itNodeOnly("renders ACP model choices with tail-preserving label truncation", async function () {
+    const [
+      customSelectJs,
+      customSelectCss,
+      dashboardApp,
+      workflowDialogJs,
+      workflowDialogCss,
+      dashboardHtml,
+      workflowDialogHtml,
+      pluginDialogSource,
+    ] = await Promise.all([
+      readFile("addon/content/components/custom-select.js", "utf8"),
+      readFile("addon/content/components/custom-select.css", "utf8"),
+      readFile("addon/content/dashboard/app.js", "utf8"),
+      readFile("addon/content/dashboard/workflow-settings-dialog.js", "utf8"),
+      readFile("addon/content/dashboard/workflow-settings-dialog.css", "utf8"),
+      readFile("addon/content/dashboard/index.html", "utf8"),
+      readFile("addon/content/dashboard/workflow-settings-dialog.html", "utf8"),
+      readFile("src/modules/workflowSettingsDialog.ts", "utf8"),
+    ]);
+
+    assert.include(customSelectJs, "custom-select-trigger-label");
+    assert.include(customSelectCss, ".custom-select.tail-preserve-select");
+    assert.include(customSelectCss, "direction: rtl");
+    assert.include(customSelectCss, "flex: 1 1 auto");
+    assert.include(customSelectCss, "unicode-bidi: isolate");
+    assert.include(workflowDialogCss, ".custom-select.tail-preserve-select");
+    assert.include(workflowDialogCss, "direction: rtl");
+    assert.include(workflowDialogCss, "unicode-bidi: isolate");
+    assert.include(dashboardHtml, "custom-select.css?ui=20260611-tail-v1");
+    assert.include(dashboardHtml, "custom-select.js?ui=20260611-tail-v1");
+    assert.include(workflowDialogHtml, "custom-select.css?ui=20260611-tail-v1");
+    assert.include(workflowDialogHtml, "custom-select.js?ui=20260611-tail-v1");
+    assert.match(
+      dashboardApp,
+      /args\.entry\.key === "acpModelId"[\s\S]*tail-preserve-select/,
+    );
+    assert.match(
+      workflowDialogJs,
+      /args\.entry\.key === "acpModelId"[\s\S]*tail-preserve-select/,
+    );
+    assert.include(pluginDialogSource, "applyTailPreservingChoiceStyle");
+    assert.match(
+      pluginDialogSource,
+      /entry\.key === "acpModelId"[\s\S]*applyTailPreservingChoiceStyle/,
+    );
   });
 });

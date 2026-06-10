@@ -311,6 +311,33 @@ function isWarningProviderOptionKey(key: string) {
   return key === "autoApproveAcpPermissions";
 }
 
+function applyTailPreservingChoiceStyle(control: Element) {
+  control.classList.add("tail-preserve-select");
+  const triggerLabel = control.querySelector(
+    "[data-zs-choice-trigger-label='1']",
+  ) as HTMLElement | null;
+  if (triggerLabel) {
+    triggerLabel.style.display = "block";
+    triggerLabel.style.flex = "1 1 auto";
+    triggerLabel.style.minWidth = "0";
+    triggerLabel.style.maxWidth = "100%";
+    triggerLabel.style.overflow = "hidden";
+    triggerLabel.style.textOverflow = "ellipsis";
+    triggerLabel.style.whiteSpace = "nowrap";
+    triggerLabel.style.direction = "rtl";
+    triggerLabel.style.textAlign = "left";
+    triggerLabel.style.unicodeBidi = "isolate";
+  }
+  const optionButtons = Array.from(
+    control.querySelectorAll("[data-zs-choice-list='1'] button"),
+  ) as HTMLElement[];
+  optionButtons.forEach((option: HTMLElement) => {
+    option.style.direction = "rtl";
+    option.style.textAlign = "left";
+    option.style.unicodeBidi = "isolate";
+  });
+}
+
 function renderSchemaFields(args: {
   doc: Document;
   container: HTMLElement;
@@ -412,6 +439,9 @@ function renderSchemaFields(args: {
         });
         recommendationControl.setAttribute("id", `${controlId}-recommendation`);
         applySelectVisualStyle(recommendationControl, "180px");
+        if (entry.key === "acpModelId") {
+          applyTailPreservingChoiceStyle(recommendationControl);
+        }
         combo.appendChild(recommendationControl);
 
         const customInput = createHtmlElement(doc, "input");
@@ -450,6 +480,9 @@ function renderSchemaFields(args: {
           disabledControl.style.pointerEvents = "none";
         }
         applySelectVisualStyle(control, "320px");
+        if (entry.key === "acpModelId") {
+          applyTailPreservingChoiceStyle(control);
+        }
         row.appendChild(control);
       }
     } else {
