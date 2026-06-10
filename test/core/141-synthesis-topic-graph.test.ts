@@ -53,7 +53,12 @@ describe("Synthesis topic graph", function () {
     await service.saveTopicGraph({
       transactionId: "topic-graph-write",
       nodes: [
-        { topic_id: "topic-a", title: "Alpha", node_type: "materialized" },
+        {
+          topic_id: "topic-a",
+          title: "Alpha",
+          definition: "Alpha topic definition",
+          node_type: "materialized",
+        },
         { topic_id: "topic-z", title: "Zeta", node_type: "placeholder" },
       ],
       edges: [
@@ -71,6 +76,7 @@ describe("Synthesis topic graph", function () {
       snapshot.nodes.map((node) => node.topic_id),
       ["topic-a", "topic-z"],
     );
+    assert.equal(snapshot.nodes[0]?.definition, "Alpha topic definition");
     assert.equal(snapshot.edges[0]?.edge_id, edgeId);
     assert.equal(edgeId, "edge:related_to:topic-a:topic-z");
     assert.equal(repository.countRows("synt_topic_graph_node"), 2);

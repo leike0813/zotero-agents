@@ -101,6 +101,9 @@ function readonlyReasonForAction(action: string) {
     return "backend-submit";
   }
   if (
+    action.includes("merge") ||
+    action.includes("update") ||
+    action.includes("archive") ||
     action.includes("delete") ||
     action.includes("apply") ||
     action.includes("accept") ||
@@ -414,6 +417,7 @@ async function handleSynthesisAction(
         });
         runtime.state = reader.state;
         surface = "reader";
+        await refreshSynthesisInput(runtime, "concepts").catch(() => undefined);
         await refreshSynthesisInput(runtime, surface);
         messages.push({
           type: "synthesis:topic-detail",
@@ -499,6 +503,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
             assistantModel && "diagnostics" in assistantModel
               ? assistantModel.diagnostics()
               : null,
+          synthesis: {
+            canonicalRevisionProposals:
+              synthesisRuntime?.input.registry?.cleanupProposals?.filter(
+                (proposal) =>
+                  String(proposal.review_kind || proposal.kind || "") ===
+                  "canonical_revision",
+              ).length || 0,
+            mockActionCount: actionLog.length,
+          },
         },
         liveReload: {
           clients: liveReloadClients.size,

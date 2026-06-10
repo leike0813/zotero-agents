@@ -5,9 +5,6 @@ TBD - created by archiving change add-synthesis-tab-ui. Update Purpose after arc
 ## Requirements
 ### Requirement: Synthesis workbench uses host-owned bridge
 
-
-
-
 The Synthesis UI SHALL use a host-owned bridge for snapshot delivery and action
 routing, and its product entry point SHALL be a singleton Zotero main-area tab.
 
@@ -28,10 +25,8 @@ routing, and its product entry point SHALL be a singleton Zotero main-area tab.
 - **WHEN** the user invokes any Synthesis Workbench entry point
 - **THEN** the host SHALL open or select a Zotero tab with type `synthesis-workbench`
 - **AND** repeated invocations SHALL reuse the existing tab rather than opening multiple Workbench dialogs.
+
 ### Requirement: Synthesis UI does not access host resources directly
-
-
-
 
 The web panel SHALL NOT access Zotero APIs, local files, canonical assets, or
 filesystem paths directly.
@@ -47,10 +42,8 @@ filesystem paths directly.
 
 - **WHEN** the user explicitly invokes an open-folder action
 - **THEN** the host MAY open or reveal the folder through Zotero host APIs.
+
 ### Requirement: Citation graph explorer uses persisted layout presets
-
-
-
 
 The graph explorer SHALL display host-provided graph slices and persisted
 layout preset coordinates.
@@ -60,10 +53,8 @@ layout preset coordinates.
 - **WHEN** a user selects `compact`, `balanced`, or `expanded`
 - **THEN** the UI state SHALL switch preset
 - **AND** it SHALL NOT run full-graph D3-force simulation in the web panel.
+
 ### Requirement: Synthesis workbench has stable MVP views
-
-
-
 
 The Synthesis workbench SHALL expose Overview, Topics, Registry, Citation Graph,
 and structured Topic Detail views.
@@ -81,10 +72,8 @@ and structured Topic Detail views.
 - **THEN** relation lines SHALL be visible enough to distinguish graph structure
 - **AND** suggested or stale relations MAY remain dashed while retaining adequate
   contrast.
+
 ### Requirement: Synthesis Workbench exposes artifact lifecycle controls
-
-
-
 
 The Synthesis Workbench SHALL let users soft delete active topic synthesis
 artifacts and purge previously deleted topic artifacts through host-owned
@@ -109,10 +98,8 @@ commands.
 
 - **WHEN** the user cancels Delete or Purge confirmation
 - **THEN** the host SHALL NOT call the Synthesis service mutation.
+
 ### Requirement: Synthesis Workbench displays topic artifact freshness
-
-
-
 
 The Synthesis Workbench SHALL display freshness from the Synthesis service
 instead of hard-coded values.
@@ -130,10 +117,8 @@ instead of hard-coded values.
 - **THEN** the host SHALL return a snapshot after the service has scanned active
   topic freshness
 - **AND** it SHALL NOT start an agent update workflow automatically.
+
 ### Requirement: Synthesis Workbench exposes a dense topic workbench
-
-
-
 
 Topic Detail SHALL render claims, timeline, paper evidence, coverage, and
 external literature analysis from the structured topic artifact.
@@ -204,10 +189,8 @@ external literature analysis from the structured topic artifact.
 - **THEN** the UI SHALL render analysis prose, themes, representative references,
   citation contexts, contribution-to-topic notes, and limitations
 - **AND** it SHALL NOT render those external references as main timeline markers.
+
 ### Requirement: Synthesis topic summaries expose card metrics
-
-
-
 
 Topic artifact rows SHALL include metrics required by the Home and Topics card
 views.
@@ -218,10 +201,8 @@ views.
 - **THEN** the normalized snapshot SHALL preserve those fields
 - **AND** filtered topic rows SHALL remain sorted according to the selected
   topic sort.
+
 ### Requirement: Topic synthesis creation action is labeled Create Topic
-
-
-
 
 The Synthesis Workbench SHALL label the topic creation command as `Create
 Topic`.
@@ -231,10 +212,8 @@ Topic`.
 - **WHEN** the Topics view renders the primary creation action
 - **THEN** the button label SHALL be `Create Topic`
 - **AND** it SHALL invoke the existing host topic synthesis creation command.
+
 ### Requirement: Synthesis Workbench refresh preserves active controls
-
-
-
 
 The Synthesis Workbench SHALL preserve active search, filter, and scroll state
 when host snapshots refresh existing views.
@@ -253,8 +232,8 @@ when host snapshots refresh existing views.
 - **AND** the host sends a snapshot for the same active view
 - **THEN** the region's scroll position SHALL be preserved unless the user
   explicitly navigates to a different view or item.
-### Requirement: Synthesis Workbench review center is domain complete
 
+### Requirement: Synthesis Workbench review center is domain complete
 
 The Review page SHALL show the active review records for each selected review
 domain without requiring the user to inspect another tab.
@@ -274,9 +253,8 @@ domain without requiring the user to inspect another tab.
 - **THEN** the card actions SHALL include `Manual target`
 - **AND** the picker SHALL use the same target candidates and pending decision
   flow as the Review page table.
+
 ### Requirement: Topic details displays structured synthesis artifacts
-
-
 
 Topic Details SHALL display the canonical report body directly and avoid the old
 persisted Markdown export reader flow.
@@ -290,3 +268,86 @@ persisted Markdown export reader flow.
   and writes the body as Markdown
 - **AND** Topic Details SHALL NOT show Markdown export or Open folder toolbar
   actions.
+
+### Requirement: Review Index SHALL show Canonical Revision proposals
+
+The Review Center Index tab SHALL include Canonical Revision proposals generated by stale canonical lifecycle reconciliation.
+
+#### Scenario: User reviews protected stale canonical
+
+- **WHEN** a Canonical Revision proposal is open
+- **THEN** the Index review table SHALL show its source canonical, optional successor target, blockers, recommended action, and Accept/Reject actions.
+
+### Requirement: Revise Canonicals SHALL not act as stale lifecycle review
+
+Revise Canonicals SHALL identify proposal-managed stale canonical records as managed by Review, and SHALL NOT present a separate review workflow for those records.
+
+#### Scenario: Proposal-managed canonical is shown as review-managed
+
+- **WHEN** a canonical has an open Canonical Revision proposal
+- **THEN** Revise Canonicals SHALL show review-managed diagnostics
+- **AND** SHALL NOT expose a second stale lifecycle approval action for that canonical.
+
+### Requirement: Index SHALL expose Revise Canonicals as an on-demand workbench
+
+The Synthesis Workbench Index page SHALL expose `Revise Canonicals` beside the existing matching controls and SHALL render it as an Index functional subview rather than a top-level tab.
+
+#### Scenario: User opens and leaves Revise Canonicals
+
+- **WHEN** the user clicks `Revise Canonicals`
+- **THEN** the Index main area SHALL switch to the canonical workbench
+- **AND** the normal Index table and Index review drawer SHALL be hidden
+- **AND** `Back to Index` SHALL restore the normal Index view without clearing Index filters or drawer state.
+
+### Requirement: Revise Canonicals SHALL show effective canonical rows
+
+Revise Canonicals SHALL display effective projected canonical references with human-readable summaries and diagnostics.
+
+#### Scenario: User inspects canonical rows
+
+- **WHEN** canonical rows are available on the registry surface
+- **THEN** the workbench SHALL show title, year, binding, graph state, raw references, redirects, reviews, and action controls
+- **AND** bound rows SHALL be projected by Zotero binding target
+- **AND** unbound rows SHALL be projected by effective canonical id
+- **AND** possible duplicates SHALL be diagnostics, not automatic merge actions.
+
+### Requirement: Revise Canonicals SHALL support pending merge selection
+
+Revise Canonicals SHALL stage merge decisions locally and apply them only through an explicit `Apply pending` action.
+
+#### Scenario: User stages a single merge
+
+- **WHEN** the user clicks `Merge` on one row
+- **THEN** that row SHALL become the merge source
+- **AND** other eligible rows SHALL expose target selection
+- **AND** choosing a target SHALL add a pending merge request without writing storage.
+
+#### Scenario: User stages batch merges
+
+- **WHEN** the user selects multiple rows and clicks `Merge Selected`
+- **THEN** selected rows SHALL become merge sources
+- **AND** choosing a target SHALL create one pending merge request per source
+- **AND** pending source rows SHALL be hidden from the active table until pending state is applied or cleared.
+
+### Requirement: Canonical Details SHALL host metadata edit mode
+
+The Canonical Details area SHALL support a structured edit mode for eligible unbound external canonicals.
+
+#### Scenario: User edits canonical metadata
+
+- **WHEN** the user opens Edit on an eligible row
+- **THEN** Canonical Details SHALL show editable title/year/authors/identifiers fields
+- **AND** it SHALL show incoming redirect source metadata in a matching readonly comparison panel
+- **AND** `Copy to draft` SHALL copy the compared source metadata into the draft
+- **AND** dirty drafts SHALL mark the row Edit control until saved or reverted.
+
+### Requirement: Revise Canonicals SHALL preserve Review boundaries
+
+Revise Canonicals SHALL not act as a second approval workflow for Canonical Revision proposals.
+
+#### Scenario: Canonical is managed by Review
+
+- **WHEN** a canonical row has an open Canonical Revision proposal
+- **THEN** Revise Canonicals SHALL show the row as Review-managed
+- **AND** SHALL NOT expose a second stale lifecycle approve/reject action for that row.
+

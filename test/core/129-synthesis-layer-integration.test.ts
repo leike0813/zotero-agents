@@ -30,7 +30,7 @@ function validBundle(overrides: Record<string, unknown> = {}) {
     topic_definition: {
       id: "topic-alpha",
       title: "Alpha Topic",
-      description: "A topic",
+      definition: "A topic",
     },
     topic_resolver: {
       mode: "tag_query",
@@ -438,6 +438,216 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
+  it("redirects safe stale canonicals to same-source artifact successors", async function () {
+    const root = await makeRoot();
+    const first = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({
+            references: [
+              {
+                title: "Shared Artifact Reference",
+                year: "2020",
+                authors: ["A. Author"],
+              },
+            ],
+          }),
+        }),
+      ],
+    });
+    await first.refreshReferenceSidecarNow();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const oldCanonical = repository.listCanonicalReferences({
+      statuses: ["active"],
+    })[0];
+    assert.isOk(oldCanonical?.canonicalReferenceId);
+
+    const second = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({
+            references: [
+              {
+                title: "Shared Artifact Reference",
+                year: "2020",
+                authors: ["Alice Author"],
+              },
+            ],
+          }),
+        }),
+      ],
+    });
+    await second.refreshReferenceSidecarNow();
+
+    const redirects = repository.listCanonicalReferenceRedirects({
+      fromCanonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+    });
+    assert.lengthOf(redirects, 1);
+    assert.notEqual(
+      redirects[0]?.toCanonicalReferenceId,
+      oldCanonical!.canonicalReferenceId,
+    );
+    assert.equal(
+      repository.listCanonicalReferences({
+        canonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      })[0]?.status,
+      "stale",
+    );
+    const snapshot = await second.getSynthesisWorkbenchSurfaceInput("index");
+    assert.notInclude(
+      (snapshot.registry?.canonicalRows || []).map(
+        (row) => row.effective_canonical_id,
+      ),
+      oldCanonical!.canonicalReferenceId,
+    );
+  });
+
+  it("marks safe stale canonicals stale when no same-source successor exists", async function () {
+    const root = await makeRoot();
+    const first = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({
+            references: [{ title: "Temporary Reference", year: "2021" }],
+          }),
+        }),
+      ],
+    });
+    await first.refreshReferenceSidecarNow();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const oldCanonical = repository.listCanonicalReferences({
+      statuses: ["active"],
+    })[0];
+
+    const second = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({ references: [] }),
+        }),
+      ],
+    });
+    await second.refreshReferenceSidecarNow();
+
+    assert.equal(
+      repository.listCanonicalReferences({
+        canonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      })[0]?.status,
+      "stale",
+    );
+    assert.lengthOf(
+      repository.listCanonicalReferenceRedirects({
+        fromCanonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      }),
+      0,
+    );
+  });
+
+  it("creates canonical revision proposals for protected stale canonicals", async function () {
+    const root = await makeRoot();
+    const first = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({
+            references: [
+              {
+                title: "Protected Artifact Reference",
+                year: "2022",
+                authors: ["P. Author"],
+              },
+            ],
+          }),
+        }),
+      ],
+    });
+    await first.refreshReferenceSidecarNow();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const oldCanonical = repository.listCanonicalReferences({
+      statuses: ["active"],
+    })[0];
+    repository.upsertReferenceBinding({
+      bindingId: "binding:protected",
+      canonicalReferenceId: oldCanonical!.canonicalReferenceId,
+      libraryId: 1,
+      itemKey: "BOUND",
+      status: "accepted",
+      confidence: "manual",
+      createdAt: "2026-05-11T00:00:00.000Z",
+      updatedAt: "2026-05-11T00:00:00.000Z",
+    });
+
+    const second = createSynthesisService({
+      root,
+      libraryId: 1,
+      registryInputs: [
+        registryInput({
+          itemKey: "A",
+          references: JSON.stringify({
+            references: [
+              {
+                title: "Protected Artifact Reference",
+                year: "2022",
+                authors: ["Pat Author"],
+              },
+            ],
+          }),
+        }),
+      ],
+    });
+    await second.refreshReferenceSidecarNow();
+
+    assert.equal(
+      repository.listCanonicalReferences({
+        canonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      })[0]?.status,
+      "active",
+    );
+    const proposal = repository.listReviewItems({
+      reviewKind: "canonical_revision",
+      statuses: ["open"],
+    })[0];
+    assert.isOk(proposal?.reviewItemId);
+    assert.include(proposal!.payloadJson || "", "redirect_to_successor");
+
+    const result = await second.applyCanonicalRevisionReviewAction({
+      reviewItemId: proposal!.reviewItemId,
+      action: "accept",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(
+      repository.listReviewItems({
+        reviewKind: "canonical_revision",
+      })[0]?.status,
+      "approved",
+    );
+    assert.equal(
+      repository.listCanonicalReferences({
+        canonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      })[0]?.status,
+      "stale",
+    );
+    assert.lengthOf(
+      repository.listCanonicalReferenceRedirects({
+        fromCanonicalReferenceIds: [oldCanonical!.canonicalReferenceId],
+      }),
+      1,
+    );
+  });
+
   it("keeps snapshot reads side-effect free when artifact state is missing", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -827,7 +1037,7 @@ describe("Synthesis Layer v1 integration service", function () {
         topic_definition: {
           id: "topic-alpha",
           title: "Alpha Topic",
-          description: "Semantic scope for Alpha.",
+          definition: "Semantic scope for Alpha.",
           aliases: ["Alpha", "A topic", "Alpha"],
         },
         topic_resolver: {
@@ -839,19 +1049,42 @@ describe("Synthesis Layer v1 integration service", function () {
         },
       }),
     );
+    await createSynthesisTopicGraphService({ root }).importTopicGraphCheckpoint({
+      nodes: [
+        {
+          topic_id: "topic-alpha",
+          title: "Alpha Topic",
+          aliases: [],
+          node_type: "materialized",
+          definition_status: "has_synthesis",
+          current_artifact_path: "topics/topic-alpha/current/artifact.json",
+          paper_count: 1,
+          last_synthesis_at: "2026-05-12T00:00:00.000Z",
+          created_at: "2026-05-12T00:00:00.000Z",
+          updated_at: "2026-05-12T00:00:00.000Z",
+        },
+      ],
+      edges: [],
+      reviewItems: [],
+    });
 
     const inventory = await service.listTopics();
     const topic = inventory.topics[0] as Record<string, unknown>;
+    const graph = await service.loadTopicGraph();
+    const graphTopic = graph.nodes.find(
+      (node) => node.topic_id === "topic-alpha",
+    );
 
     assert.deepEqual(inventory.diagnostics, {
       count: 1,
       source: "sqlite-topic-graph",
     });
+    assert.equal(graphTopic?.definition, "Semantic scope for Alpha.");
     assert.deepEqual(topic, {
       topic_id: "topic-alpha",
       title: "Alpha Topic",
-      description: "",
-      aliases: [],
+      definition: "Semantic scope for Alpha.",
+      aliases: ["Alpha", "A topic"],
       updated_at: "2026-05-12T00:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -1112,7 +1345,7 @@ describe("Synthesis Layer v1 integration service", function () {
       validBundle({
         topic_definition: {
           id: "topic-beta",
-          description: "Beta semantic scope.",
+          definition: "Beta semantic scope.",
           aliases: ["Beta"],
         },
       }),
@@ -1123,8 +1356,8 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.deepInclude(inventory.topics, {
       topic_id: "topic-beta",
       title: "topic-beta",
-      description: "",
-      aliases: [],
+      definition: "Beta semantic scope.",
+      aliases: ["Beta"],
       updated_at: "2026-05-12T01:00:00.000Z",
       prospective_topic_relation_proposals: [],
     });
@@ -1730,6 +1963,34 @@ describe("Synthesis Layer v1 integration service", function () {
           proposal.targetItemKey === "MANUAL",
       ),
     );
+    assert.isTrue(
+      acceptedAuditProposals.some((proposal) => {
+        if (
+          proposal.kind !== "canonical_merge" ||
+          proposal.sourceCanonicalReferenceId !== "cref:merge-source" ||
+          proposal.targetCanonicalReferenceId !== "cref:merge-selected-target"
+        ) {
+          return false;
+        }
+        const evidence = JSON.parse(proposal.evidenceJson || "{}");
+        return (
+          evidence.source?.title === "Merge Source" &&
+          evidence.target?.title === "Selected Target"
+        );
+      }),
+    );
+    assert.isTrue(
+      acceptedAuditProposals.some((proposal) => {
+        if (
+          proposal.kind !== "zotero_binding" ||
+          proposal.targetItemKey !== "MANUAL"
+        ) {
+          return false;
+        }
+        const evidence = JSON.parse(proposal.evidenceJson || "{}");
+        return evidence.target?.title === "Manual Target";
+      }),
+    );
 
     const invalid = await service.applyReferenceMatchProposalActions({
       decisions: [
@@ -2057,6 +2318,222 @@ describe("Synthesis Layer v1 integration service", function () {
       "raw:bound-a",
       "raw:bound-b",
     ]);
+  });
+
+  it("builds Revise Canonicals rows and enforces merge binding boundaries", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [],
+      now: () => "2026-06-10T00:00:00.000Z",
+    });
+    for (const [canonicalReferenceId, title] of [
+      ["cref:bound-a", "Duplicate Bound A"],
+      ["cref:bound-b", "Duplicate Bound B"],
+      ["cref:bound-c", "Duplicate Bound C"],
+      ["cref:other-bound", "Other Bound"],
+      ["cref:external", "External Work"],
+      ["cref:stale-source", "Stale Redirect Source"],
+    ]) {
+      repository.upsertCanonicalReference({
+        canonicalReferenceId,
+        title,
+        normalizedTitle: title.toLowerCase(),
+        year: "2026",
+        authorsJson:
+          canonicalReferenceId === "cref:stale-source"
+            ? JSON.stringify(["Source Author"])
+            : "[]",
+        identifiersJson:
+          canonicalReferenceId === "cref:stale-source"
+            ? JSON.stringify({ doi: "10.1000/source" })
+            : "{}",
+        metadataHash: `hash:${canonicalReferenceId}`,
+        status: canonicalReferenceId === "cref:stale-source" ? "stale" : "active",
+      });
+    }
+    repository.upsertCanonicalReferenceRedirect({
+      fromCanonicalReferenceId: "cref:stale-source",
+      toCanonicalReferenceId: "cref:external",
+      reason: "test_stale_source",
+      diagnosticsJson: "[]",
+    });
+    for (const [rawReferenceId, canonicalReferenceId] of [
+      ["raw:a", "cref:bound-a"],
+      ["raw:b", "cref:bound-b"],
+      ["raw:c", "cref:bound-c"],
+      ["raw:other", "cref:other-bound"],
+    ]) {
+      repository.upsertRawReference({
+        rawReferenceId,
+        sourceRef: "1:SRC",
+        referencesArtifactHash: "hash:refs",
+        referenceIndex: 1,
+        rawHash: `hash:${rawReferenceId}`,
+        parsedTitle: "Duplicate Bound",
+        normalizedTitle: "duplicate bound",
+        year: "2026",
+        authorsJson: "[]",
+        rawReference: "Duplicate Bound. 2026.",
+        canonicalReferenceId,
+        status: "active",
+        diagnosticsJson: "[]",
+      });
+    }
+    for (const [bindingId, canonicalReferenceId, itemKey] of [
+      ["binding:a", "cref:bound-a", "BOUND"],
+      ["binding:b", "cref:bound-b", "BOUND"],
+      ["binding:c", "cref:bound-c", "BOUND"],
+      ["binding:other", "cref:other-bound", "OTHER"],
+    ]) {
+      repository.upsertReferenceBinding({
+        bindingId,
+        canonicalReferenceId,
+        libraryId: 1,
+        itemKey,
+        status: "accepted",
+        confidence: "manual",
+        reviewer: "test",
+        basisHash: `hash:${bindingId}`,
+        diagnosticsJson: "[]",
+      });
+    }
+    repository.upsertCitationNode({
+      literatureItemId: "cref:external",
+      nodeStatus: "active",
+      hasZoteroBinding: false,
+      title: "External Work",
+      year: "2026",
+      summaryJson: JSON.stringify({ existing: true }),
+      updatedAt: "2026-06-09T00:00:00.000Z",
+    });
+
+    const input = await service.getSynthesisWorkbenchSurfaceInput("index");
+    const rows = input.registry?.canonicalRows || [];
+    const boundRow = rows.find((row) => row.projected_literature_item_id === "1:BOUND");
+    const externalRow = rows.find(
+      (row) => row.effective_canonical_id === "cref:external",
+    );
+
+    assert.isOk(boundRow);
+    assert.sameMembers(boundRow?.physical_canonical_ids || [], [
+      "cref:bound-a",
+      "cref:bound-b",
+      "cref:bound-c",
+    ]);
+    assert.equal(boundRow?.raw_reference_count, 3);
+    assert.equal(
+      externalRow?.incoming_redirects?.[0]?.from?.title,
+      "Stale Redirect Source",
+    );
+    assert.deepEqual(externalRow?.incoming_redirects?.[0]?.from?.authors, [
+      "Source Author",
+    ]);
+    assert.deepEqual(externalRow?.incoming_redirects?.[0]?.from?.identifiers, {
+      doi: "10.1000/source",
+    });
+    assert.equal(externalRow?.incoming_redirects?.[0]?.from?.status, "stale");
+
+    const updatedMetadata = await service.updateCanonicalReferenceMetadata({
+      canonicalReferenceId: "cref:external",
+      patch: {
+        title: "External Better Title",
+        year: "2027",
+        authors: ["External Author"],
+        identifiers: { doi: "10.1000/external" },
+      },
+    });
+    assert.equal(updatedMetadata.ok, true);
+    const updatedExternal = repository.listCanonicalReferences({
+      canonicalReferenceIds: ["cref:external"],
+    })[0];
+    assert.equal(updatedExternal.title, "External Better Title");
+    assert.equal(updatedExternal.normalizedTitle, "external better title");
+    assert.equal(updatedExternal.year, "2027");
+    assert.deepEqual(JSON.parse(updatedExternal.authorsJson || "[]"), [
+      "External Author",
+    ]);
+    assert.deepEqual(JSON.parse(updatedExternal.identifiersJson || "{}"), {
+      doi: "10.1000/external",
+    });
+    const updatedNode = repository.listCitationNodes({
+      literatureItemIds: ["cref:external"],
+    })[0];
+    assert.equal(updatedNode?.title, "External Better Title");
+    assert.equal(updatedNode?.year, "2027");
+    assert.equal(
+      JSON.parse(updatedNode?.summaryJson || "{}")
+        .canonical_metadata_updated_at,
+      "2026-06-10T00:00:00.000Z",
+    );
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "stale",
+    );
+
+    const boundMetadata = await service.updateCanonicalReferenceMetadata({
+      canonicalReferenceId: "cref:bound-a",
+      patch: { title: "Should Not Apply" },
+    });
+    assert.equal(boundMetadata.ok, false);
+    assert.equal(boundMetadata.status, "bound_to_zotero");
+
+    const conflicting = await service.mergeEffectiveCanonicalReference({
+      sourceEffectiveCanonicalId: "cref:bound-a",
+      targetEffectiveCanonicalId: "cref:other-bound",
+    });
+    assert.equal(conflicting.ok, false);
+    assert.equal(conflicting.status, "conflicting_bindings");
+
+    const applied = await service.applyCanonicalRevisionMergeRequests({
+      requests: [
+        {
+          sourceEffectiveCanonicalId: "cref:bound-c",
+          targetEffectiveCanonicalId: "cref:bound-b",
+        },
+      ],
+    });
+    assert.equal(applied.ok, true);
+    assert.equal(applied.applied_count, 1);
+    assert.isTrue(
+      repository
+        .listCanonicalReferenceRedirects()
+        .some(
+          (redirect) =>
+            redirect.fromCanonicalReferenceId === "cref:bound-c" &&
+            redirect.toCanonicalReferenceId === "cref:bound-b",
+        ),
+    );
+    const revisionProposal = repository
+      .listReferenceMatchProposals({ kinds: ["canonical_merge"] })
+      .find(
+        (proposal) =>
+          proposal.sourceCanonicalReferenceId === "cref:bound-c" &&
+          proposal.targetCanonicalReferenceId === "cref:bound-b" &&
+          proposal.status === "accepted",
+      );
+    assert.isOk(revisionProposal);
+    const revisionEvidence = JSON.parse(revisionProposal?.evidenceJson || "{}");
+    assert.equal(revisionEvidence.source?.title, "Duplicate Bound C");
+    assert.equal(revisionEvidence.target?.title, "Duplicate Bound B");
+
+    const merged = await service.mergeEffectiveCanonicalReference({
+      sourceEffectiveCanonicalId: "cref:bound-a",
+      targetEffectiveCanonicalId: "cref:bound-b",
+    });
+    assert.equal(merged.ok, true);
+    assert.isTrue(
+      repository
+        .listCanonicalReferenceRedirects()
+        .some(
+          (redirect) =>
+            redirect.fromCanonicalReferenceId === "cref:bound-a" &&
+            redirect.toCanonicalReferenceId === "cref:bound-b",
+        ),
+    );
   });
 
   it("runs advanced canonical dedupe as an explicit proposal/fact operation", async function () {

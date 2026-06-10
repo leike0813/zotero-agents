@@ -293,6 +293,10 @@ describe("UI readonly harness", function () {
     const adapter = await createReadonlySqliteAdapter(dbPath);
     try {
       assert.equal(adapter.get("SELECT name FROM rows")?.name, "ready");
+      assert.equal(
+        Number(adapter.get("PRAGMA busy_timeout")?.timeout || 0),
+        5000,
+      );
       assert.throws(() =>
         adapter.run("INSERT INTO rows(name) VALUES (@name)", { name: "x" }),
       );
@@ -421,6 +425,7 @@ describe("UI readonly harness", function () {
 
     assert.ok(source.includes('command === "openTopicArtifact"'));
     assert.ok(source.includes("runtime.service.readTopicDetail"));
+    assert.ok(source.includes('refreshSynthesisInput(runtime, "concepts")'));
     assert.ok(source.includes('type: "synthesis:topic-detail"'));
     assert.equal(source.includes('type: "synthesis:artifact"'), false);
     assert.ok(source.includes("readonlyReasonForAction(command)"));

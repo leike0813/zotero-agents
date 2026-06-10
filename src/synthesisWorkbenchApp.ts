@@ -128,6 +128,9 @@ type Snapshot = {
     cleanupProposals?: Array<Record<string, unknown>>;
     matchProposals?: Array<Record<string, unknown>>;
     matchTargetCandidates?: Array<Record<string, unknown>>;
+    canonicalRows?: Array<Record<string, unknown>>;
+    visibleCanonicalRows?: Array<Record<string, unknown>>;
+    canonicalDiagnostics?: unknown[];
     cacheStatus?: {
       cache_key?: string;
       status?: string;
@@ -403,6 +406,26 @@ type PendingReferenceProposalDecision = {
   createdAt: number;
 };
 
+type PendingCanonicalMergeRequest = {
+  sourceEffectiveCanonicalId: string;
+  targetEffectiveCanonicalId: string;
+  sourceTitle: string;
+  targetTitle: string;
+  createdAt: number;
+};
+
+type CanonicalEditIdentifierDraft = {
+  kind: string;
+  value: string;
+};
+
+type CanonicalEditDraft = {
+  title: string;
+  year: string;
+  authorsText: string;
+  identifiers: CanonicalEditIdentifierDraft[];
+};
+
 type ManualTargetPickerState = {
   proposalId: string;
   sourceTitle: string;
@@ -419,6 +442,11 @@ type ManualTargetPickerState = {
 type ReferenceProposalSubmission = {
   operationKey: string;
   proposalIds: string[];
+};
+
+type CanonicalMergeSubmission = {
+  operationKey: string;
+  sourceEffectiveCanonicalIds: string[];
 };
 
 type LocalReviewPanelState = {
@@ -483,9 +511,16 @@ const state: {
     string,
     PendingReferenceProposalDecision
   >;
+  pendingCanonicalMergeRequests: Map<string, PendingCanonicalMergeRequest>;
+  canonicalEditOpenRowId?: string;
+  canonicalEditDrafts: Map<string, CanonicalEditDraft>;
+  canonicalEditCompareIndexByRowId: Map<string, number>;
+  selectedCanonicalRowIds: Set<string>;
+  canonicalMergeSourceRowIds: Set<string>;
   selectedReferenceProposalIds: Set<string>;
   selectedConceptIds: Set<string>;
   referenceProposalSubmission?: ReferenceProposalSubmission;
+  canonicalMergeSubmission?: CanonicalMergeSubmission;
   manualTargetPicker?: ManualTargetPickerState;
   topicGraphReviewPanel: LocalReviewPanelState;
   conceptReviewPanel: LocalReviewPanelState;
@@ -500,6 +535,8 @@ const state: {
   autoLayoutRequests: Set<string>;
   registryExpandedRows: Set<string>;
   registryLoadingReferenceRows: Set<string>;
+  canonicalDetailTab: "overview" | "redirects" | "reviews";
+  canonicalDetailCollapsed: boolean;
 } = {
   snapshot: null,
   topicDetailSection: "overview",
@@ -509,6 +546,11 @@ const state: {
   localPendingActions: new Map(),
   optimisticReviewDecisions: new Map(),
   pendingReferenceProposalDecisions: new Map(),
+  pendingCanonicalMergeRequests: new Map(),
+  canonicalEditDrafts: new Map(),
+  canonicalEditCompareIndexByRowId: new Map(),
+  selectedCanonicalRowIds: new Set(),
+  canonicalMergeSourceRowIds: new Set(),
   selectedReferenceProposalIds: new Set(),
   selectedConceptIds: new Set(),
   topicGraphReviewPanel: { collapsed: false, index: 0 },
@@ -521,6 +563,8 @@ const state: {
   autoLayoutRequests: new Set(),
   registryExpandedRows: new Set(),
   registryLoadingReferenceRows: new Set(),
+  canonicalDetailTab: "overview",
+  canonicalDetailCollapsed: false,
   dynamicHoverNodeIds: new Set(),
   dynamicHoverEdgeIds: new Set(),
 };
@@ -535,6 +579,7 @@ const CITATION_GRAPH_INCOMING_EDGE_COLOR = "#d97706";
 const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
 
 let conceptBubbleCleanup: (() => void) | undefined;
+let conceptBubbleCloseTimer: number | undefined;
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
   if (action === "selectTab" && state.snapshot) {
@@ -634,6 +679,8 @@ function reviewDecisionKey(
       return `topic-review:${keyPart(args.reviewId)}`;
     case "applyConceptReviewAction":
       return `concept-review:${keyPart(args.reviewId)}`;
+    case "applyCanonicalRevisionReviewAction":
+      return `canonical-revision:${keyPart(args.reviewItemId || args.proposalId)}`;
     case "deleteConceptEntry":
       return `concept:${keyPart(Array.isArray(args.conceptIds) ? args.conceptIds.join("_") : args.conceptId)}`;
     case "applyReferenceMatchProposalAction":
@@ -676,6 +723,15 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyReferenceMatchProposalActions":
       return command;
+    case "applyCanonicalRevisionReviewAction":
+      return `${command}:${keyPart(args.reviewItemId || args.proposalId)}`;
+    case "mergeEffectiveCanonicalReference":
+      return `${command}:${keyPart(args.sourceEffectiveCanonicalId)}:${keyPart(args.targetEffectiveCanonicalId)}`;
+    case "applyCanonicalRevisionMergeRequests":
+      return command;
+    case "updateCanonicalReferenceMetadata":
+    case "archiveCanonicalReference":
+      return `${command}:${keyPart(args.canonicalReferenceId)}`;
     case "acceptTopicGraphRelation":
     case "rejectTopicGraphRelation":
       return `decideTopicGraphRelation:${keyPart(args.edgeId)}`;
@@ -727,6 +783,11 @@ function operationLabel(command: string) {
     retryAdvancedReferenceMatching: "Retrying advanced reference matching",
     applyReferenceMatchProposalAction: "Applying reference match proposal",
     applyReferenceMatchProposalActions: "Applying reference match proposals",
+    applyCanonicalRevisionReviewAction: "Applying canonical revision review",
+    mergeEffectiveCanonicalReference: "Merging canonical reference",
+    applyCanonicalRevisionMergeRequests: "Applying canonical merge requests",
+    updateCanonicalReferenceMetadata: "Updating canonical reference",
+    archiveCanonicalReference: "Archiving canonical reference",
     refreshCitationGraphCacheIncrementalNow:
       "Refreshing citation graph cache incrementally",
     rebuildCitationGraphCacheNow: "Rebuilding citation graph cache",
@@ -785,6 +846,27 @@ function clearResolvedLocalPending(snapshot: Snapshot | null) {
     submittedReferenceDecisions.operationKey === failedKey
   ) {
     state.referenceProposalSubmission = undefined;
+  }
+  if (
+    state.canonicalMergeSubmission &&
+    state.canonicalMergeSubmission.operationKey === completedKey
+  ) {
+    const completedSources = new Set(
+      state.canonicalMergeSubmission.sourceEffectiveCanonicalIds,
+    );
+    for (const [key, request] of state.pendingCanonicalMergeRequests) {
+      if (completedSources.has(request.sourceEffectiveCanonicalId)) {
+        state.pendingCanonicalMergeRequests.delete(key);
+      }
+    }
+    state.selectedCanonicalRowIds.clear();
+    state.canonicalMergeSourceRowIds.clear();
+    state.canonicalMergeSubmission = undefined;
+  } else if (
+    state.canonicalMergeSubmission &&
+    state.canonicalMergeSubmission.operationKey === failedKey
+  ) {
+    state.canonicalMergeSubmission = undefined;
   }
   if (failedKey) {
     for (const [key, decision] of state.optimisticReviewDecisions) {
@@ -1584,10 +1666,10 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   [
     ["overview", "Home", "home"],
     ["artifacts", "Topics", "topics"],
-    ["tags", "Tags", "tags"],
     ["concepts", "Concepts", "concepts"],
     ["graph", "Graph", "graph"],
     ["registry", "Index", "index"],
+    ["tags", "Tags", "tags"],
     ["reviews", "Review", "review"],
   ].forEach(([tab, label, iconName]) => {
     const button = makeButton(
@@ -1843,7 +1925,10 @@ function renderTopicCard(row: Record<string, unknown>) {
     }),
   );
   const title = String(row.title || row.id || "Untitled topic");
-  const summary = String(row.summary || row.markdown_preview || "").trim();
+  const definition = String(row.definition || "").trim();
+  const summary = String(
+    definition || row.summary || row.markdown_preview || "",
+  ).trim();
   const count = topicPaperCount(row);
   const completion = topicCompletion(row);
   const head = el("div", "topic-card-head");
@@ -2202,6 +2287,7 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
       tableView(
         [
           "Title",
+          "Definition",
           { label: "Papers", className: "topics-list-center-cell" },
           { label: "Completion", className: "topics-list-center-cell" },
           { label: "Coverage", className: "topics-list-center-cell" },
@@ -2214,6 +2300,11 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
           titleWithSummary(
             String(row.title || ""),
             String(row.summary || row.markdown_preview || ""),
+          ),
+          el(
+            "span",
+            "topics-list-definition-cell",
+            String(row.definition || "-"),
           ),
           topicPaperCount(row),
           `${topicCompletion(row)}%`,
@@ -2610,7 +2701,11 @@ function renderTopicInspector(snapshot: Snapshot) {
     return inspector;
   }
   inspector.appendChild(el("h4", "", textValue(topic.title)));
-  const definition = firstText(topic, ["definition", "short_definition", "summary"]);
+  const definition = firstText(topic, [
+    "definition",
+    "short_definition",
+    "summary",
+  ]);
   if (definition) {
     inspector.appendChild(el("p", "muted topic-definition", definition));
   }
@@ -3054,6 +3149,31 @@ function conceptOverlayEntries(snapshot?: Snapshot | null) {
     : [];
 }
 
+const CONCEPT_OVERLAY_SKIP_SELECTOR = [
+  "a",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "code",
+  "pre",
+  "kbd",
+  "samp",
+  "script",
+  "style",
+  ".katex",
+  ".math",
+  ".badge",
+  ".chip",
+  ".toolbar",
+  ".filters",
+  ".topic-detail-tabs",
+  ".topic-report-outline",
+  ".topic-report-concept-nav",
+  ".concept-mention",
+  ".concept-bubble",
+].join(", ");
+
 function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
   const entries = conceptOverlayEntries(snapshot);
   if (!entries.length) {
@@ -3077,11 +3197,7 @@ function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
     const parent = node.parentElement;
-    if (
-      parent?.closest(
-        "a, code, pre, kbd, samp, script, style, .katex, .math, .concept-mention",
-      )
-    ) {
+    if (parent?.closest(CONCEPT_OVERLAY_SKIP_SELECTOR)) {
       continue;
     }
     if (node.nodeValue && pattern.test(node.nodeValue)) {
@@ -3104,21 +3220,18 @@ function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
       );
       const link = el("span", "concept-mention", match);
       link.tabIndex = 0;
-      link.setAttribute("role", "button");
       link.setAttribute("data-concept-id", textValue(entry.concept_id));
-      const openBubble = (event: Event) => {
-        event.preventDefault();
-        sendAction("selectConcept", {
-          conceptId: textValue(entry.concept_id),
-        });
+      link.setAttribute(
+        "aria-label",
+        `Concept preview: ${textValue(entry.label || entry.alias)}`,
+      );
+      const openBubble = () => {
         showConceptBubble(link, entry);
       };
-      link.addEventListener("click", openBubble);
-      link.addEventListener("keydown", (event: KeyboardEvent) => {
-        if (event.key === "Enter" || event.key === " ") {
-          openBubble(event);
-        }
-      });
+      link.addEventListener("mouseenter", openBubble);
+      link.addEventListener("focus", openBubble);
+      link.addEventListener("mouseleave", scheduleConceptBubbleClose);
+      link.addEventListener("blur", scheduleConceptBubbleClose);
       fragment.appendChild(link);
       linkedSenseIds.add(senseKey);
       lastIndex = offset + match.length;
@@ -3130,7 +3243,22 @@ function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
   return root;
 }
 
+function cancelConceptBubbleClose() {
+  if (conceptBubbleCloseTimer !== undefined) {
+    window.clearTimeout(conceptBubbleCloseTimer);
+    conceptBubbleCloseTimer = undefined;
+  }
+}
+
+function scheduleConceptBubbleClose() {
+  cancelConceptBubbleClose();
+  conceptBubbleCloseTimer = window.setTimeout(() => {
+    closeConceptBubble();
+  }, 120);
+}
+
 function closeConceptBubble() {
+  cancelConceptBubbleClose();
   conceptBubbleCleanup?.();
   conceptBubbleCleanup = undefined;
   document
@@ -3167,32 +3295,187 @@ function showConceptBubble(
   bubble.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 260))}px`;
   bubble.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 160)}px`;
   document.body?.appendChild(bubble);
-  const handlePointerDown = (event: MouseEvent) => {
-    const target = event.target;
-    if (
-      target instanceof Node &&
-      !bubble.contains(target) &&
-      !anchor.contains(target)
-    ) {
-      closeConceptBubble();
-    }
-  };
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       closeConceptBubble();
     }
   };
-  window.setTimeout(() => {
-    if (!bubble.isConnected) {
-      return;
+  bubble.addEventListener("mouseenter", cancelConceptBubbleClose);
+  bubble.addEventListener("mouseleave", scheduleConceptBubbleClose);
+  document.addEventListener("keydown", handleKeyDown);
+  conceptBubbleCleanup = () => {
+    bubble.removeEventListener("mouseenter", cancelConceptBubbleClose);
+    bubble.removeEventListener("mouseleave", scheduleConceptBubbleClose);
+    document.removeEventListener("keydown", handleKeyDown);
+  };
+}
+
+type TopicReportConceptEntry = {
+  conceptId: string;
+  label: string;
+  preview: Record<string, unknown>;
+};
+
+function topicReportConceptEntries(
+  snapshot: Snapshot | null | undefined,
+  detail: TopicDetailDto,
+): TopicReportConceptEntry[] {
+  const topicId = textValue(detail.topicId || snapshot?.reader?.topicId);
+  if (!snapshot || !topicId) {
+    return [];
+  }
+  const conceptsById = new Map(
+    snapshot.concepts.rows.map((row) => [textValue(row.concept_id), row]),
+  );
+  const overlayBySenseId = new Map<string, Record<string, unknown>>();
+  const overlayByConceptId = new Map<string, Record<string, unknown>>();
+  conceptOverlayEntries(snapshot).forEach((entry) => {
+    const senseId = textValue(entry.sense_id);
+    const conceptId = textValue(entry.concept_id);
+    if (senseId && !overlayBySenseId.has(senseId)) {
+      overlayBySenseId.set(senseId, entry);
     }
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    conceptBubbleCleanup = () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, 0);
+    if (conceptId && !overlayByConceptId.has(conceptId)) {
+      overlayByConceptId.set(conceptId, entry);
+    }
+  });
+  const seenConceptIds = new Set<string>();
+  return snapshot.concepts.senses
+    .filter((sense) => stringArray(sense.source_topic_ids).includes(topicId))
+    .map((sense): TopicReportConceptEntry | undefined => {
+      const conceptId = textValue(sense.concept_id);
+      if (!conceptId || seenConceptIds.has(conceptId)) {
+        return undefined;
+      }
+      seenConceptIds.add(conceptId);
+      const concept = conceptsById.get(conceptId) || {};
+      const senseId = textValue(sense.sense_id);
+      const overlay =
+        overlayBySenseId.get(senseId) || overlayByConceptId.get(conceptId) || {};
+      const label =
+        textValue(overlay.label) ||
+        textValue(concept.label) ||
+        textValue(sense.label) ||
+        conceptId;
+      const alias =
+        textValue(overlay.alias) ||
+        stringArray(sense.aliases)[0] ||
+        stringArray(concept.aliases)[0] ||
+        label;
+      const summary =
+        textValue(overlay.short_definition) ||
+        textValue(sense.short_definition) ||
+        textValue(concept.short_definition) ||
+        textValue(overlay.definition) ||
+        textValue(sense.definition) ||
+        textValue(concept.definition);
+      return {
+        conceptId,
+        label,
+        preview: {
+          concept_id: conceptId,
+          sense_id: senseId || undefined,
+          alias,
+          label,
+          short_definition: summary || undefined,
+          definition:
+            textValue(overlay.definition) ||
+            textValue(sense.definition) ||
+            textValue(concept.definition) ||
+            undefined,
+          confidence: textValue(
+            overlay.confidence || sense.confidence,
+            "medium",
+          ),
+        },
+      };
+    })
+    .filter((entry): entry is TopicReportConceptEntry => Boolean(entry))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function renderTopicReportConceptNav(
+  snapshot: Snapshot | null | undefined,
+  detail: TopicDetailDto,
+) {
+  const entries = topicReportConceptEntries(snapshot, detail);
+  if (!entries.length) {
+    return undefined;
+  }
+  const nav = el("aside", "topic-report-concept-nav");
+  nav.setAttribute("aria-label", "Topic concepts");
+  const header = el("div", "topic-report-concept-nav-header");
+  header.appendChild(el("strong", "", "Concepts"));
+  header.appendChild(el("span", "muted", String(entries.length)));
+  nav.appendChild(header);
+  const list = el("div", "topic-report-concept-nav-list");
+  list.setAttribute("role", "list");
+  entries.forEach((entry) => {
+    const item = el("div", "topic-report-concept-nav-item");
+    item.tabIndex = 0;
+    item.setAttribute("role", "listitem");
+    item.setAttribute("data-concept-id", entry.conceptId);
+    item.setAttribute("aria-label", `Concept preview: ${entry.label}`);
+    item.appendChild(el("strong", "", entry.label));
+    const openBubble = () => showConceptBubble(item, entry.preview);
+    item.addEventListener("mouseenter", openBubble);
+    item.addEventListener("focus", openBubble);
+    item.addEventListener("mouseleave", scheduleConceptBubbleClose);
+    item.addEventListener("blur", scheduleConceptBubbleClose);
+    list.appendChild(item);
+  });
+  nav.appendChild(list);
+  return nav;
+}
+
+type MarkdownOutlineOptions = {
+  ariaLabel: string;
+  headingIdPrefix: string;
+  linkClassName: string;
+  navClassName: string;
+  title: string;
+};
+
+function buildMarkdownOutline(
+  markdownNode: HTMLElement,
+  options: MarkdownOutlineOptions,
+) {
+  const headings = Array.from(
+    markdownNode.querySelectorAll("h1, h2, h3, h4"),
+  ) as HTMLElement[];
+  if (!headings.length) {
+    return undefined;
+  }
+  const outline = el("nav", options.navClassName);
+  outline.setAttribute("aria-label", options.ariaLabel);
+  outline.appendChild(el("strong", "", options.title));
+  headings.forEach((heading, index) => {
+    const id = `${options.headingIdPrefix}-${index + 1}`;
+    heading.id = id;
+    const level = Number(heading.tagName.replace(/\D/g, "")) || 2;
+    const link = el(
+      "a",
+      `${options.linkClassName} depth-${Math.max(1, Math.min(4, level))}`,
+      heading.textContent || `Section ${index + 1}`,
+    );
+    link.href = `#${id}`;
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      heading.scrollIntoView({ block: "start" });
+    });
+    outline.appendChild(link);
+  });
+  return outline;
+}
+
+function buildReportOutline(markdownNode: HTMLElement) {
+  return buildMarkdownOutline(markdownNode, {
+    ariaLabel: "Report outline",
+    headingIdPrefix: "topic-report-heading",
+    linkClassName: "topic-report-outline-link",
+    navClassName: "topic-report-outline",
+    title: "Report",
+  });
 }
 
 function renderMarkdown(markdown: string) {
@@ -4664,7 +4947,10 @@ function renderTopicFutureDirectionsSection(detail: TopicDetailDto) {
   return section;
 }
 
-function renderTopicReportSection(detail: TopicDetailDto) {
+function renderTopicReportSection(
+  detail: TopicDetailDto,
+  snapshot?: Snapshot | null,
+) {
   const section = el("div", "topic-section topic-report-section");
   const header = el("div", "topic-report-header");
   header.appendChild(el("h2", "", "Synthesis Report"));
@@ -4710,21 +4996,46 @@ function renderTopicReportSection(detail: TopicDetailDto) {
     actions.appendChild(exportButton);
     header.appendChild(actions);
   }
-  section.appendChild(header);
   if (body) {
     const reportBody = renderMarkdown(
       stripDuplicateReportHeadings(body, title),
     );
     reportBody.classList.add("report-card");
-    section.appendChild(reportBody);
+    const reportOutline =
+      reportBody instanceof HTMLElement
+        ? buildReportOutline(reportBody)
+        : undefined;
+    const conceptNav = renderTopicReportConceptNav(snapshot, detail);
+    const scrollBody = el("div", "topic-report-scroll-body");
+    scrollBody.appendChild(reportBody);
+    const readerFrame = el("div", "topic-report-reader-frame");
+    if (reportOutline) {
+      readerFrame.appendChild(reportOutline);
+    } else {
+      readerFrame.classList.add("no-outline");
+    }
+    readerFrame.appendChild(scrollBody);
+    const reportPanel = el("div", "topic-report-panel");
+    reportPanel.appendChild(header);
+    reportPanel.appendChild(readerFrame);
+    if (conceptNav) {
+      const workspace = el("div", "topic-report-workspace");
+      workspace.appendChild(conceptNav);
+      workspace.appendChild(reportPanel);
+      section.appendChild(workspace);
+    } else {
+      section.appendChild(reportPanel);
+    }
+  } else {
+    section.appendChild(header);
   }
-  if (section.childElementCount <= 1) {
+  if (!body) {
     section.appendChild(renderEmptyStructuredState("No synthesis report"));
   }
   return section;
 }
 
-function renderTopicSection(detail: TopicDetailDto) {
+function renderTopicSection(detail: TopicDetailDto, snapshot?: Snapshot | null) {
   if (
     state.topicDetailSection === "external" ||
     state.topicDetailSection === "statistics"
@@ -4744,7 +5055,7 @@ function renderTopicSection(detail: TopicDetailDto) {
   if (state.topicDetailSection === "future_directions")
     return renderTopicFutureDirectionsSection(detail);
   if (state.topicDetailSection === "report")
-    return renderTopicReportSection(detail);
+    return renderTopicReportSection(detail, snapshot);
   return renderTopicOverviewSection(detail);
 }
 
@@ -4754,10 +5065,10 @@ function renderTopicTabs() {
     ["overview", "Overview"],
     ["taxonomy", "Taxonomy"],
     ["claims", "Claims"],
-    ["references", "References"],
     ["compare", "Compare"],
-    ["coverage", "Coverage"],
     ["future_directions", "Future Directions"],
+    ["coverage", "Coverage"],
+    ["references", "References"],
     ["report", "Report"],
   ];
   entries.forEach(([id, label]) => {
@@ -4978,6 +5289,11 @@ type PlacedTimelineItem = {
 };
 
 const TIMELINE_LABEL_COLLISION_GAP_PERCENT = 7;
+const TIMELINE_BASE_WIDTH_PX = 1080;
+const TIMELINE_YEAR_MIN_WIDTH_PX = 80;
+const TIMELINE_MARKER_MIN_WIDTH_PX = 34;
+const TIMELINE_RAIL_PADDING_PX = 80;
+const TIMELINE_EDGE_TOOLTIP_PERCENT = 7;
 
 type TimelineItem = {
   key: string;
@@ -5010,26 +5326,25 @@ type TimelineLayout = {
   minYear: number;
   maxYear: number;
   endYear: number;
+  widthPx: number;
   intervals: TimelineInterval[];
 };
 
-function timelineYearCounts(
-  papers: Record<string, unknown>[],
-): Map<number, number> {
+function timelineYearCounts(items: TimelineItem[]): Map<number, number> {
   const counts = new Map<number, number>();
-  papers.forEach((paper) => {
-    const year = evidenceYear(paper);
-    if (!Number.isFinite(year)) return;
+  items.forEach((item) => {
+    const year = item.year;
+    if (!Number.isFinite(year)) {
+      return;
+    }
     const normalized = Math.floor(year);
     counts.set(normalized, (counts.get(normalized) || 0) + 1);
   });
   return counts;
 }
 
-function timelineLayoutFromPapers(
-  papers: Record<string, unknown>[],
-): TimelineLayout | undefined {
-  const counts = timelineYearCounts(papers);
+function timelineLayoutFromItems(items: TimelineItem[]): TimelineLayout | undefined {
+  const counts = timelineYearCounts(items);
   const years = Array.from(counts.keys()).sort((left, right) => left - right);
   if (!years.length) return undefined;
   const minYear = years[0];
@@ -5039,9 +5354,16 @@ function timelineLayoutFromPapers(
     intervalYears.push(year);
   }
   const weights = intervalYears.map((year) =>
-    Math.max(1, counts.get(year) || 0),
+    Math.max(
+      TIMELINE_YEAR_MIN_WIDTH_PX,
+      Math.max(1, counts.get(year) || 0) * TIMELINE_MARKER_MIN_WIDTH_PX,
+    ),
   );
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const widthPx = Math.max(
+    TIMELINE_BASE_WIDTH_PX,
+    totalWeight + TIMELINE_RAIL_PADDING_PX,
+  );
   let cursor = 0;
   const intervals = intervalYears.map((year, index) => {
     const start = cursor;
@@ -5058,6 +5380,7 @@ function timelineLayoutFromPapers(
     minYear,
     maxYear,
     endYear: maxYear + 1,
+    widthPx,
     intervals,
   };
 }
@@ -5091,7 +5414,7 @@ function timelinePaperLeft(
   const count = Math.max(1, total);
   return (
     interval.start +
-    ((1 + 2 * itemIndex) * (interval.end - interval.start)) / (2 * count)
+    ((itemIndex + 1) * (interval.end - interval.start)) / (count + 1)
   );
 }
 
@@ -5211,6 +5534,40 @@ function timelineEventTitle(event: Record<string, unknown> | undefined) {
   return firstText(event || {}, ["event", "title", "label", "summary"]);
 }
 
+function timelineEventDescription(
+  event: Record<string, unknown> | undefined,
+  index: number,
+) {
+  return (
+    firstText(event || {}, [
+      "description",
+      "analysis",
+      "why_it_matters",
+      "summary",
+    ]) ||
+    timelineEventTitle(event) ||
+    `Event ${index + 1}`
+  );
+}
+
+function timelineTooltipLines(item: TimelineItem) {
+  if (item.kind !== "event") {
+    return [item.title].filter(Boolean);
+  }
+  const events = item.events?.length
+    ? item.events
+    : item.event
+      ? [item.event]
+      : [];
+  return events
+    .map((event, index) => timelineEventDescription(event, index))
+    .filter(Boolean);
+}
+
+function timelineTooltipText(item: TimelineItem) {
+  return timelineTooltipLines(item).join("\n") || item.title;
+}
+
 function timelineDenseMarkerKeys(items: PlacedTimelineItem[]) {
   const dense = new Set<string>();
   const sorted = [...items]
@@ -5285,38 +5642,57 @@ function timelineEventGroups(detail: TopicDetailDto): TimelineItem[] {
 }
 
 function renderTimelineEventPopover(item: TimelineItem) {
-  const events = item.events?.length
-    ? item.events
-    : item.event
-      ? [item.event]
-      : [];
-  const popover = el("span", "timeline-event-label timeline-milestone-popover");
-  popover.appendChild(el("strong", "", item.title));
-  events.forEach((event, index) => {
-    const row = el("span", "timeline-milestone-row");
-    row.appendChild(
-      el(
-        "span",
-        "timeline-milestone-title",
-        timelineEventTitle(event) || `Event ${index + 1}`,
-      ),
-    );
-    const meta = [
-      firstText(event, ["phase", "stage"]),
-      firstText(event, ["description", "analysis", "why_it_matters"]),
-    ]
-      .filter(Boolean)
-      .join(" - ");
-    if (meta) row.appendChild(el("span", "timeline-milestone-meta", meta));
-    const refs = stringArray(event.source_paper_refs);
-    if (refs.length) {
-      row.appendChild(
-        el("span", "timeline-milestone-refs", refs.slice(0, 4).join(", ")),
-      );
-    }
-    popover.appendChild(row);
+  const popover = el("div", "timeline-hover-popover timeline-milestone-popover");
+  const lines = timelineTooltipLines(item);
+  lines.forEach((line) => {
+    popover.appendChild(el("span", "timeline-milestone-row", line));
   });
+  popover.title = lines.join("\n");
   return popover;
+}
+
+function renderTimelinePaperPopover(item: TimelineItem) {
+  const popover = el("div", "timeline-hover-popover timeline-paper-popover");
+  popover.appendChild(el("span", "timeline-milestone-row", item.title));
+  popover.title = item.title;
+  return popover;
+}
+
+let activeTimelinePopover: HTMLElement | undefined;
+
+function hideTimelineTooltip() {
+  activeTimelinePopover?.remove();
+  activeTimelinePopover = undefined;
+}
+
+function showTimelineTooltip(anchor: HTMLElement, item: TimelineItem) {
+  hideTimelineTooltip();
+  const popover =
+    item.kind === "event"
+      ? renderTimelineEventPopover(item)
+      : renderTimelinePaperPopover(item);
+  const overlayRoot = document.body || document.documentElement;
+  if (!overlayRoot) {
+    return;
+  }
+  overlayRoot.appendChild(popover);
+  const anchorRect = anchor.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const margin = 8;
+  const centeredLeft =
+    anchorRect.left + anchorRect.width / 2 - popoverRect.width / 2;
+  const maxLeft = Math.max(
+    margin,
+    window.innerWidth - popoverRect.width - margin,
+  );
+  const left = Math.min(Math.max(margin, centeredLeft), maxLeft);
+  let top = anchorRect.top - popoverRect.height - 10;
+  if (top < margin) {
+    top = anchorRect.bottom + 10;
+  }
+  popover.style.left = `${left}px`;
+  popover.style.top = `${Math.max(margin, top)}px`;
+  activeTimelinePopover = popover;
 }
 
 function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
@@ -5346,25 +5722,23 @@ function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
     const sortedItems = [...cluster.items].sort((left, right) =>
       timelineItemSortKey(left).localeCompare(timelineItemSortKey(right)),
     );
-    const paperItems = sortedItems.filter((item) => item.kind === "paper");
-    const eventItems = sortedItems.filter((item) => item.kind === "event");
     const interval = timelineIntervalForYear(layout, year);
     if (!interval) return;
-    sortedItems.forEach((item, itemIndex) => {
-      const paperIndex = paperItems.findIndex(
-        (entry) => entry.key === item.key,
-      );
-      const eventIndex = eventItems.findIndex(
-        (entry) => entry.key === item.key,
-      );
-      const left =
-        item.kind === "paper" && paperIndex >= 0
-          ? timelinePaperLeft(interval, paperIndex, paperItems.length)
-          : interval.end - eventIndex * 1.4;
+    const paperItems = sortedItems.filter((item) => item.kind === "paper");
+    const eventItems = sortedItems.filter((item) => item.kind === "event");
+    paperItems.forEach((item, itemIndex) => {
+      const left = timelinePaperLeft(interval, itemIndex, paperItems.length);
       placedItems.push({
         cluster,
         item,
         left,
+      });
+    });
+    eventItems.forEach((item) => {
+      placedItems.push({
+        cluster,
+        item,
+        left: interval.end,
       });
     });
   });
@@ -5385,6 +5759,9 @@ function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
       `timeline-${item.kind}`,
       `timeline-tone-${item.tone}`,
     ];
+    if (left <= TIMELINE_EDGE_TOOLTIP_PERCENT) markerClasses.push("near-left");
+    if (left >= 100 - TIMELINE_EDGE_TOOLTIP_PERCENT)
+      markerClasses.push("near-right");
     if (denseTimelineMarkerKeys.has(item.key)) markerClasses.push("too-dense");
     if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
       markerClasses.push("selected");
@@ -5392,7 +5769,7 @@ function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
     marker.type = "button";
     marker.style.left = "0";
     marker.style.setProperty("--pin-scale", String(item.weight));
-    marker.title = item.title;
+    marker.title = timelineTooltipText(item);
     marker.setAttribute("aria-label", marker.title);
     const code = el("span", "timeline-code", item.label);
     marker.appendChild(code);
@@ -5400,11 +5777,12 @@ function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
     pin.appendChild(el("span", "timeline-pin-body"));
     pin.appendChild(el("span", "timeline-pin-dot"));
     marker.appendChild(pin);
-    if (item.kind === "event") {
-      marker.appendChild(renderTimelineEventPopover(item));
-    } else {
-      marker.appendChild(el("span", "timeline-event-label", marker.title));
-    }
+    marker.addEventListener("mouseenter", () =>
+      showTimelineTooltip(marker, item),
+    );
+    marker.addEventListener("focus", () => showTimelineTooltip(marker, item));
+    marker.addEventListener("mouseleave", hideTimelineTooltip);
+    marker.addEventListener("blur", hideTimelineTooltip);
     if (evidence) {
       marker.addEventListener("click", () => {
         openEvidenceExplorer(evidenceId(evidence));
@@ -5421,10 +5799,8 @@ function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
 
 function renderTopicTimeline(detail: TopicDetailDto) {
   const paperItems = timelineItems(detail);
-  const layout = timelineLayoutFromPapers(
-    paperItems.map((item) => item.evidence).filter(isRecord),
-  );
-  const milestoneItems = layout ? timelineEventGroups(detail) : [];
+  const milestoneItems = timelineEventGroups(detail);
+  const layout = timelineLayoutFromItems(paperItems);
   const items = [...paperItems, ...milestoneItems].filter((item) => {
     if (!layout) return false;
     return !!timelineIntervalForYear(layout, item.year);
@@ -5476,7 +5852,9 @@ function renderTopicTimeline(detail: TopicDetailDto) {
   }
 
   const scroll = el("div", "timeline-scroll");
+  scroll.addEventListener("scroll", hideTimelineTooltip);
   const timeline = el("div", "horizontal-timeline");
+  timeline.style.width = `${layout.widthPx}px`;
   const trackInner = el("div", "timeline-inner-rail");
 
   const axis = el("div", "time-axis");
@@ -5563,8 +5941,15 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   const body = el("section", "topic-detail");
   const workbench = el("div", "topic-detail-layout");
   workbench.appendChild(renderTopicTabs());
-  const reader = el("main", "topic-reading-surface");
-  reader.appendChild(renderTopicSection(detail));
+  const reader = el(
+    "main",
+    state.topicDetailSection === "report"
+      ? "topic-reading-surface topic-report-reading-surface"
+      : "topic-reading-surface",
+  );
+  reader.appendChild(
+    applyConceptOverlay(renderTopicSection(detail, snapshot), snapshot),
+  );
   workbench.appendChild(reader);
   body.appendChild(workbench);
   body.appendChild(renderEvidenceDrawer(detail));
@@ -5755,9 +6140,28 @@ function referenceMatchProposalContext(
   const targetEvidenceTitle =
     textValue(targetEvidence.title) ||
     textValue(targetEvidence.normalized_title);
-  const parentItemTitle = sourceMatch?.source
-    ? textValue(sourceMatch.source.title, "Unknown parent item")
-    : "Unknown parent item";
+  const sourceBinding = recordValue(sourceEvidence.binding);
+  const sourceEvidenceTitle =
+    textValue(sourceEvidence.title) ||
+    textValue(sourceEvidence.normalized_title);
+  const sourceBindingTitle =
+    textValue(sourceBinding.title) ||
+    textValue(sourceBinding.paper_ref) ||
+    textValue(sourceEvidence.projected_literature_item_id);
+  const sourceRowTitle = sourceMatch?.source
+    ? textValue(sourceMatch.source.title)
+    : "";
+  const sourceRowRef = sourceMatch?.source
+    ? textValue(sourceMatch.source.paper_ref)
+    : "";
+  const sourceRowTitleIsFallback =
+    !sourceRowTitle ||
+    sourceRowTitle === sourceRowRef ||
+    sourceRowTitle === textValue(proposal.source_canonical_reference_id) ||
+    sourceRowTitle.endsWith("(fallback id)");
+  const parentItemTitle = sourceRowTitleIsFallback
+    ? sourceBindingTitle || sourceEvidenceTitle || sourceRowTitle || "Unknown parent item"
+    : sourceRowTitle;
   return {
     proposal,
     sourceReference: sourceMatch?.reference,
@@ -5765,8 +6169,7 @@ function referenceMatchProposalContext(
     targetPaper: targetRow,
     sourceReferenceTitle: sourceMatch?.reference
       ? registryReferenceReadableTitle(sourceMatch.reference)
-      : textValue(sourceEvidence.title) ||
-        textValue(sourceEvidence.normalized_title) ||
+      : sourceEvidenceTitle ||
         textValue(proposal.source_canonical_reference_id, "Unknown reference"),
     parentItemTitle,
     sourcePaperTitle: parentItemTitle,
@@ -6776,6 +7179,49 @@ function renderIndexReviewDrawer(snapshot: Snapshot) {
 
 function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   const panel = el("div", "panel");
+  const activeIndexTool = textValue(snapshot.registry.filters.activeIndexTool);
+  if (activeIndexTool === "revise_canonicals") {
+    const filters = el("div", "filters");
+    filters.appendChild(
+      makeLocalButton("Back to Index", () =>
+        sendAction("setFilters", {
+          registry: { activeIndexTool: "none", selectedCanonicalRowId: "" },
+        }),
+      ),
+    );
+    filters.appendChild(
+      badge(
+        `Reference sidecar: ${textValue(snapshot.registry.cacheStatus?.status, "missing")}`,
+        toneFor(snapshot.registry.cacheStatus?.status),
+      ),
+    );
+    filters.appendChild(
+      makeButton(
+        "Refresh",
+        "hostCommand",
+        {
+          command: "refreshReferenceSidecarNow",
+        },
+        false,
+        isOperationPending("refreshReferenceSidecarNow"),
+      ),
+    );
+    filters.appendChild(
+      makeButton(
+        "Advanced Matching",
+        "hostCommand",
+        {
+          command: "runAdvancedReferenceMatchingNow",
+        },
+        false,
+        isOperationPending("runAdvancedReferenceMatchingNow"),
+      ),
+    );
+    panel.appendChild(renderPanelToolbar(filters));
+    panel.appendChild(renderCanonicalRevisionWorkbench(snapshot));
+    main.appendChild(panel);
+    return;
+  }
   const filters = el("div", "filters");
   const search = el("input");
   search.placeholder = "Search";
@@ -6855,6 +7301,13 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
       isOperationPending("runAdvancedReferenceMatchingNow"),
     ),
   );
+  filters.appendChild(
+    makeLocalButton("Revise Canonicals", () =>
+      sendAction("setFilters", {
+        registry: { activeIndexTool: "revise_canonicals" },
+      }),
+    ),
+  );
   if (snapshot.registry.cacheStatus?.status === "failed") {
     filters.appendChild(
       makeButton("Retry", "hostCommand", {
@@ -6874,6 +7327,1384 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     panel.appendChild(indexReviewDrawer);
   }
   main.appendChild(panel);
+}
+
+function canonicalRows(snapshot: Snapshot) {
+  return (snapshot.registry.visibleCanonicalRows ||
+    snapshot.registry.canonicalRows ||
+    []) as Array<Record<string, unknown>>;
+}
+
+function allCanonicalRows(snapshot: Snapshot) {
+  return (snapshot.registry.canonicalRows || []) as Array<Record<string, unknown>>;
+}
+
+function pendingCanonicalMergeSourceIds() {
+  return new Set(
+    Array.from(state.pendingCanonicalMergeRequests.values()).map(
+      (request) => request.sourceEffectiveCanonicalId,
+    ),
+  );
+}
+
+function canonicalRowId(row: Record<string, unknown>) {
+  return (
+    textValue(row.row_id) ||
+    textValue(row.projected_literature_item_id) ||
+    textValue(row.effective_canonical_id)
+  );
+}
+
+function canonicalEffectiveId(row: Record<string, unknown>) {
+  return textValue(row.effective_canonical_id);
+}
+
+function visibleCanonicalRowsForRevision(snapshot: Snapshot) {
+  const pendingSources = pendingCanonicalMergeSourceIds();
+  return canonicalRows(snapshot).filter(
+    (row) => !pendingSources.has(canonicalEffectiveId(row)),
+  );
+}
+
+function canonicalRowByRowId(snapshot: Snapshot, rowId: string) {
+  return allCanonicalRows(snapshot).find((row) => canonicalRowId(row) === rowId);
+}
+
+function canonicalPendingMergeKey(source: string, target: string) {
+  return `${source}->${target}`;
+}
+
+function setCanonicalMergeSources(rowIds: string[]) {
+  state.canonicalMergeSourceRowIds = new Set(rowIds.filter(Boolean));
+  render();
+}
+
+function clearCanonicalMergeMode() {
+  if (!state.canonicalMergeSourceRowIds.size) return;
+  state.canonicalMergeSourceRowIds.clear();
+  render();
+}
+
+function queueCanonicalMergeTarget(
+  snapshot: Snapshot,
+  target: Record<string, unknown>,
+) {
+  const targetEffectiveCanonicalId = canonicalEffectiveId(target);
+  if (!targetEffectiveCanonicalId) return;
+  state.canonicalMergeSourceRowIds.forEach((sourceRowId) => {
+    const source = canonicalRowByRowId(snapshot, sourceRowId);
+    if (!source) return;
+    const sourceEffectiveCanonicalId = canonicalEffectiveId(source);
+    if (
+      !sourceEffectiveCanonicalId ||
+      sourceEffectiveCanonicalId === targetEffectiveCanonicalId
+    ) {
+      return;
+    }
+    state.pendingCanonicalMergeRequests.set(
+      canonicalPendingMergeKey(sourceEffectiveCanonicalId, targetEffectiveCanonicalId),
+      {
+        sourceEffectiveCanonicalId,
+        targetEffectiveCanonicalId,
+        sourceTitle: textValue(source.title, sourceEffectiveCanonicalId),
+        targetTitle: textValue(target.title, targetEffectiveCanonicalId),
+        createdAt: Date.now(),
+      },
+    );
+  });
+  state.canonicalMergeSourceRowIds.clear();
+  state.selectedCanonicalRowIds.clear();
+  render();
+}
+
+function clearPendingCanonicalMerges() {
+  if (state.canonicalMergeSubmission) return;
+  state.pendingCanonicalMergeRequests.clear();
+  state.canonicalMergeSourceRowIds.clear();
+  render();
+}
+
+function applyPendingCanonicalMerges() {
+  const requests = Array.from(state.pendingCanonicalMergeRequests.values()).map(
+    (request) => ({
+      sourceEffectiveCanonicalId: request.sourceEffectiveCanonicalId,
+      targetEffectiveCanonicalId: request.targetEffectiveCanonicalId,
+    }),
+  );
+  if (!requests.length) return;
+  state.canonicalMergeSubmission = {
+    operationKey: operationKey("applyCanonicalRevisionMergeRequests"),
+    sourceEffectiveCanonicalIds: requests.map(
+      (request) => request.sourceEffectiveCanonicalId,
+    ),
+  };
+  state.canonicalMergeSourceRowIds.clear();
+  state.selectedCanonicalRowIds.clear();
+  sendAction("hostCommand", {
+    command: "applyCanonicalRevisionMergeRequests",
+    args: { requests },
+  });
+  render();
+}
+
+function canonicalRowBindingLabel(row: Record<string, unknown>) {
+  const binding = recordValue(row.binding);
+  return binding.itemKey
+    ? textValue(binding.paperRef) ||
+        `${textValue(binding.libraryId)}:${textValue(binding.itemKey)}`
+    : "External";
+}
+
+function canonicalAuthorsForEdit(row: Record<string, unknown>) {
+  return normalizeStringArray(row.authors);
+}
+
+function canonicalIdentifierDrafts(row: Record<string, unknown>) {
+  const identifiers = canonicalRecordArray(row.identifiers_list)
+    .map((entry) => ({
+      kind: textValue(entry.kind),
+      value: textValue(entry.value),
+    }))
+    .filter((entry) => entry.kind || entry.value);
+  if (identifiers.length) {
+    return identifiers;
+  }
+  return Object.entries(recordValue(row.identifiers))
+    .map(([kind, value]) => ({ kind, value: textValue(value) }))
+    .filter((entry) => entry.kind || entry.value);
+}
+
+function canonicalEditDraftFromRecord(
+  row: Record<string, unknown>,
+): CanonicalEditDraft {
+  return {
+    title: textValue(row.title),
+    year: textValue(row.year),
+    authorsText: canonicalAuthorsForEdit(row).join("\n"),
+    identifiers: canonicalIdentifierDrafts(row),
+  };
+}
+
+function canonicalEditComparableDraft(draft: CanonicalEditDraft) {
+  return {
+    title: draft.title.trim(),
+    year: draft.year.trim(),
+    authors: draft.authorsText
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    identifiers: draft.identifiers
+      .map((entry) => ({
+        kind: entry.kind.trim(),
+        value: entry.value.trim(),
+      }))
+      .filter((entry) => entry.kind || entry.value),
+  };
+}
+
+function canonicalEditDraftForRow(row: Record<string, unknown>) {
+  const rowId = canonicalRowId(row);
+  const existing = state.canonicalEditDrafts.get(rowId);
+  if (existing) {
+    return existing;
+  }
+  return canonicalEditDraftFromRecord(row);
+}
+
+function setCanonicalEditDraft(
+  row: Record<string, unknown>,
+  draft: CanonicalEditDraft,
+) {
+  state.canonicalEditDrafts.set(canonicalRowId(row), draft);
+  render();
+}
+
+function canonicalEditIsDirty(row: Record<string, unknown>) {
+  const draft = state.canonicalEditDrafts.get(canonicalRowId(row));
+  if (!draft) {
+    return false;
+  }
+  return (
+    JSON.stringify(canonicalEditComparableDraft(draft)) !==
+    JSON.stringify(canonicalEditComparableDraft(canonicalEditDraftFromRecord(row)))
+  );
+}
+
+function canonicalEditPatch(draft: CanonicalEditDraft) {
+  const comparable = canonicalEditComparableDraft(draft);
+  const identifiers: Record<string, string> = {};
+  comparable.identifiers.forEach((entry) => {
+    if (entry.kind && entry.value) {
+      identifiers[entry.kind] = entry.value;
+    }
+  });
+  return {
+    title: comparable.title,
+    year: comparable.year,
+    authors: comparable.authors,
+    identifiers,
+  };
+}
+
+function toggleCanonicalEdit(row: Record<string, unknown>) {
+  const rowId = canonicalRowId(row);
+  if (!rowId) return;
+  sendAction("setFilters", {
+    registry: { selectedCanonicalRowId: rowId },
+  });
+  state.canonicalEditOpenRowId =
+    state.canonicalEditOpenRowId === rowId ? undefined : rowId;
+  if (state.canonicalEditOpenRowId) {
+    state.canonicalDetailCollapsed = false;
+  }
+  render();
+}
+
+function canonicalIncomingRedirectSources(row: Record<string, unknown>) {
+  return canonicalRecordArray(row.incoming_redirects)
+    .map((redirect) => recordValue(redirect.from))
+    .filter((entry) => textValue(entry.canonical_reference_id));
+}
+
+function canonicalActionAllowed(
+  row: Record<string, unknown>,
+  action: "merge" | "edit" | "archive",
+) {
+  const availability = recordValue(recordValue(row.action_availability)[action]);
+  return Boolean(availability.allowed);
+}
+
+function canonicalActionBlockers(
+  row: Record<string, unknown>,
+  action: "merge" | "edit" | "archive",
+) {
+  const availability = recordValue(recordValue(row.action_availability)[action]);
+  return normalizeStringArray(availability.blockers).join(", ") ||
+    textValue(availability.reason) ||
+    "Unavailable";
+}
+
+function normalizeStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((entry) => textValue(entry)).filter(Boolean)
+    : textValue(value)
+      ? [textValue(value)]
+      : [];
+}
+
+function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
+  const wrap = el("div", "canonical-revision-workbench");
+  const rows = visibleCanonicalRowsForRevision(snapshot);
+  const allRows = allCanonicalRows(snapshot);
+  const boundCount = allRows.filter((row) => recordValue(row.binding).itemKey).length;
+  const duplicateCount = allRows.filter((row) =>
+    textValue(row.possible_duplicate_group),
+  ).length;
+  const blockedCount = allRows.filter(
+    (row) =>
+      !canonicalActionAllowed(row, "merge") &&
+      !canonicalActionAllowed(row, "edit") &&
+      !canonicalActionAllowed(row, "archive"),
+  ).length;
+  const header = el("div", "canonical-revision-header");
+  const title = el("div", "canonical-revision-title");
+  title.appendChild(el("strong", "", "Revise Canonicals"));
+  title.appendChild(
+    el(
+      "span",
+      "muted",
+      "Inspect effective canonical references and manage safe sidecar facts.",
+    ),
+  );
+  header.appendChild(title);
+  const summary = el("div", "canonical-summary-strip");
+  [
+    [`${rows.length}/${allRows.length}`, "Shown"],
+    [`${allRows.length}`, "Effective"],
+    [`${boundCount}`, "Bound"],
+    [`${Math.max(0, allRows.length - boundCount)}`, "External"],
+    [`${duplicateCount}`, "Possible dupes"],
+    [`${blockedCount}`, "Blocked"],
+    [
+      textValue(snapshot.registry.cacheStatus?.status, "missing"),
+      "Sidecar",
+    ],
+  ].forEach(([value, label]) => {
+    const item = el("div", "canonical-summary-item");
+    item.appendChild(el("strong", "", value));
+    item.appendChild(el("span", "muted", label));
+    summary.appendChild(item);
+  });
+  header.appendChild(summary);
+  wrap.appendChild(header);
+  const filters = el("div", "filters canonical-filters");
+  const search = el("input");
+  search.placeholder = "Search canonicals";
+  search.value = textValue(snapshot.registry.filters.canonicalSearch);
+  search.addEventListener("input", () =>
+    sendAction("setFilters", {
+      registry: { canonicalSearch: search.value },
+    }),
+  );
+  filters.appendChild(search);
+  filters.appendChild(
+    selectControlWithLabels(
+      [
+        ["all", "Binding: All"],
+        ["bound", "Binding: Bound"],
+        ["external", "Binding: External"],
+      ],
+      textValue(snapshot.registry.filters.canonicalBinding, "all"),
+      (canonicalBinding) =>
+        sendAction("setFilters", { registry: { canonicalBinding } }),
+    ),
+  );
+  filters.appendChild(
+    selectControlWithLabels(
+      [
+        ["all", "Graph: All"],
+        ["visible", "Graph: Visible"],
+        ["not_in_graph", "Graph: Not in graph"],
+      ],
+      textValue(snapshot.registry.filters.canonicalGraph, "all"),
+      (canonicalGraph) =>
+        sendAction("setFilters", { registry: { canonicalGraph } }),
+    ),
+  );
+  filters.appendChild(
+    selectControlWithLabels(
+      [
+        ["all", "Duplicates: All"],
+        ["possible_duplicate", "Duplicates: Possible"],
+      ],
+      textValue(snapshot.registry.filters.canonicalDuplicates, "all"),
+      (canonicalDuplicates) =>
+        sendAction("setFilters", { registry: { canonicalDuplicates } }),
+    ),
+  );
+  const mergeBar = renderCanonicalMergeBar(snapshot, rows);
+  if (mergeBar) {
+    filters.appendChild(mergeBar);
+  }
+  wrap.appendChild(filters);
+  const selected =
+    allRows.find(
+      (row) =>
+        canonicalRowId(row) ===
+        textValue(snapshot.registry.filters.selectedCanonicalRowId),
+    ) || rows[0];
+  const layout = el("div", "canonical-revision-layout");
+  layout.appendChild(renderCanonicalRevisionTable(snapshot, rows));
+  if (selected) {
+    layout.appendChild(renderCanonicalDetailDrawer(selected));
+  }
+  wrap.appendChild(layout);
+  return wrap;
+}
+
+function selectedVisibleCanonicalRowIds(rows: Array<Record<string, unknown>>) {
+  const visible = new Set(rows.map(canonicalRowId).filter(Boolean));
+  state.selectedCanonicalRowIds.forEach((rowId) => {
+    if (!visible.has(rowId)) {
+      state.selectedCanonicalRowIds.delete(rowId);
+    }
+  });
+  return Array.from(state.selectedCanonicalRowIds).filter((rowId) =>
+    visible.has(rowId),
+  );
+}
+
+function setAllCanonicalRowSelection(
+  rows: Array<Record<string, unknown>>,
+  checked: boolean,
+) {
+  if (checked) {
+    rows.map(canonicalRowId).filter(Boolean).forEach((rowId) =>
+      state.selectedCanonicalRowIds.add(rowId),
+    );
+  } else {
+    rows.map(canonicalRowId).filter(Boolean).forEach((rowId) =>
+      state.selectedCanonicalRowIds.delete(rowId),
+    );
+  }
+  render();
+}
+
+function toggleCanonicalRowSelection(rowId: string, checked: boolean) {
+  if (!rowId) return;
+  if (checked) {
+    state.selectedCanonicalRowIds.add(rowId);
+  } else {
+    state.selectedCanonicalRowIds.delete(rowId);
+  }
+  render();
+}
+
+function renderCanonicalMergeBar(
+  snapshot: Snapshot,
+  rows: Array<Record<string, unknown>>,
+) {
+  const selectedIds = selectedVisibleCanonicalRowIds(rows);
+  const pending = Array.from(state.pendingCanonicalMergeRequests.values());
+  const applying = Boolean(
+    state.canonicalMergeSubmission ||
+      isOperationPending("applyCanonicalRevisionMergeRequests"),
+  );
+  const bar = el("div", "canonical-merge-bar");
+  const mergeSelected = makeLocalButton("Merge Selected", () =>
+    setCanonicalMergeSources(selectedIds),
+  );
+  mergeSelected.disabled =
+    applying ||
+    selectedIds.length === 0 ||
+    state.canonicalMergeSourceRowIds.size > 0;
+  bar.appendChild(mergeSelected);
+  if (state.canonicalMergeSourceRowIds.size) {
+    bar.appendChild(
+      badge(`${state.canonicalMergeSourceRowIds.size} source(s)`, "warn"),
+    );
+    bar.appendChild(makeLocalButton("Cancel target picking", clearCanonicalMergeMode));
+  }
+  if (pending.length) {
+    const label = el(
+      "span",
+      "canonical-pending-summary",
+      applying
+        ? `Applying ${pending.length} pending merge(s)`
+        : `${pending.length} pending merge(s)`,
+    );
+    label.title = pending
+      .map((request) => `${request.sourceTitle} -> ${request.targetTitle}`)
+      .join("\n");
+    bar.appendChild(label);
+    const apply = makeLocalButton("Apply pending", applyPendingCanonicalMerges);
+    apply.disabled = applying;
+    bar.appendChild(apply);
+    const clear = makeLocalButton("Clear pending", clearPendingCanonicalMerges);
+    clear.disabled = applying;
+    bar.appendChild(clear);
+  }
+  if (!bar.childNodes.length) {
+    return null;
+  }
+  return bar;
+}
+
+function renderCanonicalRevisionTable(
+  snapshot: Snapshot,
+  rows: Array<Record<string, unknown>>,
+) {
+  if (!rows.length) {
+    return renderEmptyState({
+      title: "No canonical references",
+      message: "Adjust filters or refresh the reference sidecar.",
+      tone: "info",
+    });
+  }
+  const shell = el("div", "canonical-table-shell");
+  const index = el("div", "reference-target-index canonical-letter-index");
+  const wrap = el("div", "table-wrap registry-table-wrap canonical-table-wrap");
+  wrap.dataset.synthesisScrollKey = "registry.canonical.table";
+  const availableGroups = new Set(
+    rows.map((row) => referenceTargetCandidateGroup(textValue(row.title))),
+  );
+  ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].forEach((group) => {
+    const button = makeLocalButton(group, () =>
+      scrollReferenceTargetListToGroup(wrap, group),
+    );
+    button.disabled = !availableGroups.has(group);
+    index.appendChild(button);
+  });
+  const table = el("table", "registry-table canonical-table");
+  appendRegistryColgroup(table, [
+    "canonical-select",
+    "canonical-title",
+    "canonical-year",
+    "canonical-binding",
+    "canonical-graph",
+    "canonical-count",
+    "canonical-redirects",
+    "canonical-reviews",
+    "canonical-actions",
+  ]);
+  const thead = el("thead");
+  const head = el("tr");
+  const selectedIds = selectedVisibleCanonicalRowIds(rows);
+  const selectAllCell = el("th", "registry-center-cell");
+  const selectAll = el("input") as HTMLInputElement;
+  selectAll.type = "checkbox";
+  selectAll.checked = selectedIds.length > 0 && selectedIds.length === rows.length;
+  selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
+  selectAll.setAttribute("aria-label", "Select all visible canonicals");
+  selectAll.addEventListener("change", () =>
+    setAllCanonicalRowSelection(rows, selectAll.checked),
+  );
+  selectAllCell.appendChild(selectAll);
+  head.appendChild(selectAllCell);
+  ["Title", "Year", "Binding", "Graph", "Raw refs", "Pointed by", "Reviews", "Actions"].forEach(
+    (label) => head.appendChild(renderRegistryHeader(label)),
+  );
+  thead.appendChild(head);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  const selectedRowId =
+    textValue(snapshot.registry.filters.selectedCanonicalRowId) ||
+    canonicalRowId(rows[0] || {});
+  const seenGroups = new Set<string>();
+  rows.forEach((row) => {
+    const rowId = canonicalRowId(row);
+    const selected = rowId === selectedRowId;
+    const isMergeSource = state.canonicalMergeSourceRowIds.has(rowId);
+    const group = referenceTargetCandidateGroup(textValue(row.title));
+    const tr = el(
+      "tr",
+      [
+        "registry-parent-row",
+        "canonical-row",
+        selected ? "selected" : "",
+        isMergeSource ? "merge-source" : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-selected", selected ? "true" : "false");
+    tr.dataset.referenceTargetGroup = group;
+    if (!seenGroups.has(group)) {
+      tr.dataset.referenceTargetGroupStart = group;
+      seenGroups.add(group);
+    }
+    tr.addEventListener("click", () =>
+      rowId && rowId !== selectedRowId
+        ? sendAction("setFilters", {
+            registry: { selectedCanonicalRowId: rowId },
+          })
+        : undefined,
+    );
+    tr.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      if (rowId && rowId !== selectedRowId) {
+        sendAction("setFilters", {
+          registry: { selectedCanonicalRowId: rowId },
+        });
+      }
+    });
+    const title = el("div", "registry-reference-title-cell");
+    const label = textValue(row.title);
+    title.title = label;
+    title.appendChild(el("span", "registry-reference-parent-title", label));
+    title.appendChild(
+      el("span", "registry-reference-muted", textValue(row.projected_literature_item_id)),
+    );
+    const selectionCell = el("td", "registry-center-cell canonical-select-cell");
+    const checkbox = el("input") as HTMLInputElement;
+    checkbox.type = "checkbox";
+    checkbox.checked = state.selectedCanonicalRowIds.has(rowId);
+    checkbox.disabled = state.canonicalMergeSourceRowIds.size > 0;
+    checkbox.setAttribute("aria-label", `Select ${label || rowId}`);
+    checkbox.addEventListener("click", (event) => event.stopPropagation());
+    checkbox.addEventListener("change", () =>
+      toggleCanonicalRowSelection(rowId, checkbox.checked),
+    );
+    selectionCell.appendChild(checkbox);
+    tr.appendChild(selectionCell);
+    [
+      [title],
+      [textValue(row.year, "-"), "registry-center-cell"],
+      [badge(canonicalRowBindingLabel(row), recordValue(row.binding).itemKey ? "ok" : "orange"), "registry-center-cell"],
+      [
+        badge(
+          textValue(row.graph_node_id) ? "Visible" : "Not in graph",
+          textValue(row.graph_node_id) ? "ok" : "danger",
+        ),
+        "registry-center-cell",
+      ],
+      [textValue(row.raw_reference_count, "0"), "registry-center-cell"],
+      [textValue(row.incoming_redirect_count, "0"), "registry-center-cell"],
+      [textValue(row.proposal_count, "0"), "registry-center-cell"],
+      [renderCanonicalRowActions(snapshot, row), "registry-center-cell"],
+    ].forEach(([value, className]) =>
+      appendRegistryCell(tr, value, textValue(className)),
+    );
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  shell.appendChild(index);
+  shell.appendChild(wrap);
+  return shell;
+}
+
+function renderCanonicalRowActions(
+  snapshot: Snapshot,
+  row: Record<string, unknown>,
+) {
+  const controls = el("div", "canonical-row-actions");
+  const rowId = canonicalRowId(row);
+  const mergeSourceActive = state.canonicalMergeSourceRowIds.size > 0;
+  if (mergeSourceActive) {
+    const isSource = state.canonicalMergeSourceRowIds.has(rowId);
+    const target = makeLocalButton(isSource ? "Source" : "Target", () =>
+      queueCanonicalMergeTarget(snapshot, row),
+    );
+    target.disabled = isSource || !canonicalActionAllowed(row, "merge");
+    target.title = isSource
+      ? "This row is selected as merge source"
+      : target.disabled
+        ? canonicalActionBlockers(row, "merge")
+        : "Use this canonical as merge target";
+    controls.appendChild(target);
+  } else {
+    const merge = makeLocalButton("Merge", () => setCanonicalMergeSources([rowId]));
+    merge.disabled = !canonicalActionAllowed(row, "merge");
+    merge.title = merge.disabled
+      ? canonicalActionBlockers(row, "merge")
+      : "Select this row as merge source";
+    controls.appendChild(merge);
+  }
+  const edit = makeLocalButton("Edit", () => toggleCanonicalEdit(row));
+  edit.disabled = !canonicalActionAllowed(row, "edit");
+  edit.dataset.canonicalEditRowId = rowId;
+  edit.classList.toggle("is-dirty", canonicalEditIsDirty(row));
+  edit.classList.toggle(
+    "active",
+    state.canonicalEditOpenRowId === canonicalRowId(row),
+  );
+  edit.title = edit.disabled
+    ? canonicalActionBlockers(row, "edit")
+    : canonicalEditIsDirty(row)
+      ? "Metadata draft has unsaved changes"
+      : "Edit external canonical metadata";
+  controls.appendChild(edit);
+  const archive = makeLocalButton("Archive", () =>
+    sendAction("hostCommand", {
+      command: "archiveCanonicalReference",
+      args: { canonicalReferenceId: textValue(row.effective_canonical_id) },
+    }),
+  );
+  archive.disabled = !canonicalActionAllowed(row, "archive");
+  archive.title = archive.disabled
+    ? canonicalActionBlockers(row, "archive")
+    : "Archive empty canonical";
+  controls.appendChild(archive);
+  return controls;
+}
+
+function canonicalRecordArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === "object",
+      )
+    : [];
+}
+
+function renderCanonicalIdentifierList(row: Record<string, unknown>) {
+  const identifiers = canonicalRecordArray(row.identifiers_list);
+  if (!identifiers.length) {
+    const record = recordValue(row.identifiers);
+    Object.entries(record).forEach(([kind, value]) => {
+      const normalized = textValue(value);
+      if (kind && normalized) {
+        identifiers.push({ kind, value: normalized });
+      }
+    });
+  }
+  if (!identifiers.length) {
+    return el("span", "muted", "No identifiers recorded");
+  }
+  const list = el("div", "canonical-chip-list");
+  identifiers.forEach((identifier) => {
+    const kind = textValue(identifier.kind).toUpperCase();
+    const value = textValue(identifier.value);
+    const chip = el("span", "canonical-info-chip");
+    chip.appendChild(el("strong", "", kind));
+    chip.appendChild(el("span", "", value));
+    list.appendChild(chip);
+  });
+  return list;
+}
+
+function renderCanonicalBinding(row: Record<string, unknown>) {
+  const binding = recordValue(row.binding);
+  if (!binding.itemKey) {
+    return el("span", "muted", "External canonical, not bound to Zotero");
+  }
+  const block = el("div", "canonical-readable-block");
+  block.appendChild(
+    el("strong", "", textValue(binding.title) || textValue(row.title)),
+  );
+  block.appendChild(
+    el(
+      "span",
+      "muted",
+      [
+        textValue(binding.paperRef),
+        textValue(binding.status) ? `status ${textValue(binding.status)}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    ),
+  );
+  return block;
+}
+
+function withHoverTitle<T extends HTMLElement>(node: T, value: unknown) {
+  const title = textValue(value);
+  if (title) {
+    node.title = title;
+  }
+  return node;
+}
+
+function renderCanonicalRedirectList(
+  rows: Array<Record<string, unknown>>,
+  empty: string,
+  direction: "from" | "to",
+) {
+  if (!rows.length) {
+    return el("span", "muted", empty);
+  }
+  const list = el("div", "canonical-readable-list");
+  rows.slice(0, 12).forEach((redirect) => {
+    const endpoint = recordValue(redirect[direction]);
+    const item = el("div", "canonical-readable-block");
+    item.appendChild(
+      withHoverTitle(
+        el("strong", "", textValue(endpoint.title, "Untitled canonical")),
+        endpoint.title,
+      ),
+    );
+    item.title = textValue(endpoint.title, "Untitled canonical");
+    item.appendChild(
+      withHoverTitle(
+        el(
+          "span",
+          "muted",
+          [
+          textValue(endpoint.year),
+          textValue(redirect.reason) ? `reason ${textValue(redirect.reason)}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+        [
+          textValue(endpoint.title),
+          textValue(endpoint.year),
+          textValue(redirect.reason) ? `reason ${textValue(redirect.reason)}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    list.appendChild(item);
+  });
+  if (rows.length > 12) {
+    list.appendChild(el("span", "muted", `${rows.length - 12} more...`));
+  }
+  return list;
+}
+
+function renderCanonicalDuplicatePeers(row: Record<string, unknown>) {
+  const peers = canonicalRecordArray(row.duplicate_peers);
+  if (!peers.length) {
+    return el("span", "muted", "No possible duplicate group");
+  }
+  const list = el("div", "canonical-readable-list");
+  peers.slice(0, 10).forEach((peer) => {
+    const item = el("div", "canonical-readable-block");
+    item.title = textValue(peer.title, "Untitled canonical");
+    item.appendChild(
+      withHoverTitle(
+        el("strong", "", textValue(peer.title, "Untitled canonical")),
+        peer.title,
+      ),
+    );
+    item.appendChild(
+      withHoverTitle(
+        el(
+          "span",
+          "muted",
+          [textValue(peer.year), textValue(peer.binding)].filter(Boolean).join(" · "),
+        ),
+        [textValue(peer.title), textValue(peer.year), textValue(peer.binding)]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    list.appendChild(item);
+  });
+  return list;
+}
+
+function renderCanonicalProposalList(row: Record<string, unknown>) {
+  const proposals = canonicalRecordArray(row.related_proposals);
+  if (!proposals.length) {
+    return el("span", "muted", "No related review proposals");
+  }
+  const list = el("div", "canonical-readable-list");
+  proposals.slice(0, 12).forEach((proposal) => {
+    const source = recordValue(proposal.source);
+    const target = recordValue(proposal.target);
+    const item = el("div", "canonical-readable-block");
+    const proposalTitle = `${textValue(proposal.kind, "proposal")} · ${textValue(proposal.status, "unknown")}`;
+    const proposalMeta = `${textValue(source.title, "Source")} -> ${textValue(target.title, "Target")}`;
+    item.title = `${proposalTitle}\n${proposalMeta}`;
+    item.appendChild(
+      withHoverTitle(el("strong", "", proposalTitle), proposalTitle),
+    );
+    item.appendChild(
+      withHoverTitle(el("span", "muted", proposalMeta), proposalMeta),
+    );
+    list.appendChild(item);
+  });
+  return list;
+}
+
+function renderCanonicalRawReferenceList(row: Record<string, unknown>) {
+  const refs = canonicalRecordArray(row.raw_reference_samples);
+  if (!refs.length) {
+    return el("span", "muted", "No raw reference samples available");
+  }
+  const list = el("div", "canonical-readable-list");
+  refs.slice(0, 10).forEach((ref) => {
+    const item = el("div", "canonical-readable-block");
+    item.title = textValue(ref.raw_reference) || textValue(ref.title, "Untitled reference");
+    item.appendChild(
+      withHoverTitle(
+        el("strong", "", textValue(ref.title, "Untitled reference")),
+        ref.title,
+      ),
+    );
+    item.appendChild(
+      withHoverTitle(
+        el(
+          "span",
+          "muted",
+          [
+          textValue(ref.year),
+          textValue(ref.source_ref),
+          textValue(ref.reference_index)
+            ? `#${textValue(ref.reference_index)}`
+            : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+        [
+          textValue(ref.title),
+          textValue(ref.year),
+          textValue(ref.source_ref),
+          textValue(ref.reference_index)
+            ? `#${textValue(ref.reference_index)}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    );
+    const raw = textValue(ref.raw_reference);
+    if (raw && raw !== textValue(ref.title)) {
+      item.appendChild(withHoverTitle(el("span", "muted", raw), raw));
+    }
+    list.appendChild(item);
+  });
+  if (Number(row.raw_reference_count || 0) > refs.length) {
+    list.appendChild(
+      el(
+        "span",
+        "muted",
+        `${Number(row.raw_reference_count || 0) - refs.length} more raw reference(s)`,
+      ),
+    );
+  }
+  return list;
+}
+
+function renderCanonicalDetailSection(
+  title: string,
+  content: Node,
+) {
+  const section = el("section", "canonical-detail-section");
+  section.appendChild(el("h3", "", title));
+  section.appendChild(content);
+  return section;
+}
+
+function updateCanonicalEditButtons(row: Record<string, unknown>) {
+  const rowId = canonicalRowId(row);
+  const dirty = canonicalEditIsDirty(row);
+  document
+    .querySelectorAll("button[data-canonical-edit-row-id]")
+    .forEach((node: Element) => {
+      if (!(node instanceof HTMLButtonElement)) return;
+      if (node.dataset.canonicalEditRowId !== rowId) return;
+      node.classList.toggle("is-dirty", dirty);
+      node.title = dirty
+        ? "Metadata draft has unsaved changes"
+        : "Edit external canonical metadata";
+    });
+  document
+    .querySelectorAll("button[data-canonical-edit-save-row-id]")
+    .forEach((node: Element) => {
+      if (!(node instanceof HTMLButtonElement)) return;
+      if (node.dataset.canonicalEditSaveRowId !== rowId) return;
+      node.disabled = !dirty;
+    });
+}
+
+function canonicalEditTextInput(args: {
+  label: string;
+  value: string;
+  readOnly?: boolean;
+  onInput?: (value: string) => void;
+}) {
+  const field = el("label", "canonical-edit-field");
+  field.appendChild(el("span", "muted", args.label));
+  const input = el("input") as HTMLInputElement;
+  input.value = args.value;
+  input.disabled = Boolean(args.readOnly);
+  input.addEventListener("input", () => args.onInput?.(input.value));
+  field.appendChild(input);
+  return field;
+}
+
+function canonicalEditAuthorsInput(args: {
+  value: string;
+  readOnly?: boolean;
+  onInput?: (value: string) => void;
+}) {
+  const field = el("label", "canonical-edit-field");
+  field.appendChild(el("span", "muted", "Authors"));
+  const input = el("textarea") as HTMLTextAreaElement;
+  input.rows = 4;
+  input.value = args.value;
+  input.disabled = Boolean(args.readOnly);
+  input.placeholder = "One author per line";
+  input.addEventListener("input", () => args.onInput?.(input.value));
+  field.appendChild(input);
+  return field;
+}
+
+function renderCanonicalEditIdentifierRows(args: {
+  row: Record<string, unknown>;
+  draft: CanonicalEditDraft;
+  readOnly?: boolean;
+}) {
+  const wrap = el("div", "canonical-edit-identifiers");
+  const rows = args.draft.identifiers.length
+    ? args.draft.identifiers
+    : [{ kind: "", value: "" }];
+  rows.forEach((identifier, index) => {
+    const line = el("div", "canonical-edit-identifier-row");
+    const kind = el("input") as HTMLInputElement;
+    kind.value = identifier.kind;
+    kind.placeholder = "Kind";
+    kind.disabled = Boolean(args.readOnly);
+    const value = el("input") as HTMLInputElement;
+    value.value = identifier.value;
+    value.placeholder = "Value";
+    value.disabled = Boolean(args.readOnly);
+    const updateIdentifier = () => {
+      const next = {
+        ...args.draft,
+        identifiers: rows.map((entry, rowIndex) =>
+          rowIndex === index
+            ? { kind: kind.value, value: value.value }
+            : { ...entry },
+        ),
+      };
+      state.canonicalEditDrafts.set(canonicalRowId(args.row), next);
+      args.draft.identifiers = next.identifiers;
+      updateCanonicalEditButtons(args.row);
+    };
+    kind.addEventListener("input", updateIdentifier);
+    value.addEventListener("input", updateIdentifier);
+    line.appendChild(kind);
+    line.appendChild(value);
+    if (!args.readOnly) {
+      const remove = makeLocalButton("Remove", () => {
+        const next = {
+          ...args.draft,
+          identifiers: args.draft.identifiers.filter((_, rowIndex) => rowIndex !== index),
+        };
+        setCanonicalEditDraft(args.row, next);
+      });
+      remove.disabled = args.draft.identifiers.length === 0;
+      line.appendChild(remove);
+    }
+    wrap.appendChild(line);
+  });
+  if (!args.readOnly) {
+    wrap.appendChild(
+      makeLocalButton("Add identifier", () =>
+        setCanonicalEditDraft(args.row, {
+          ...args.draft,
+          identifiers: [...args.draft.identifiers, { kind: "", value: "" }],
+        }),
+      ),
+    );
+  }
+  return wrap;
+}
+
+function renderCanonicalEditFields(args: {
+  row: Record<string, unknown>;
+  draft: CanonicalEditDraft;
+  readOnly?: boolean;
+}) {
+  const form = el("div", "canonical-edit-fields");
+  form.appendChild(
+    canonicalEditTextInput({
+      label: "Title",
+      value: args.draft.title,
+      readOnly: args.readOnly,
+      onInput: (title) => {
+        const next = { ...args.draft, title };
+        state.canonicalEditDrafts.set(canonicalRowId(args.row), next);
+        args.draft.title = title;
+        updateCanonicalEditButtons(args.row);
+      },
+    }),
+  );
+  form.appendChild(
+    canonicalEditTextInput({
+      label: "Year",
+      value: args.draft.year,
+      readOnly: args.readOnly,
+      onInput: (year) => {
+        const next = { ...args.draft, year };
+        state.canonicalEditDrafts.set(canonicalRowId(args.row), next);
+        args.draft.year = year;
+        updateCanonicalEditButtons(args.row);
+      },
+    }),
+  );
+  form.appendChild(
+    canonicalEditAuthorsInput({
+      value: args.draft.authorsText,
+      readOnly: args.readOnly,
+      onInput: (authorsText) => {
+        const next = { ...args.draft, authorsText };
+        state.canonicalEditDrafts.set(canonicalRowId(args.row), next);
+        args.draft.authorsText = authorsText;
+        updateCanonicalEditButtons(args.row);
+      },
+    }),
+  );
+  const identifiersLabel = el("div", "canonical-edit-label");
+  identifiersLabel.appendChild(el("span", "muted", "Identifiers"));
+  form.appendChild(identifiersLabel);
+  form.appendChild(renderCanonicalEditIdentifierRows(args));
+  return form;
+}
+
+function renderCanonicalEditDrawer(row: Record<string, unknown>) {
+  const rowId = canonicalRowId(row);
+  const drawer = el(
+    "section",
+    `index-review-drawer canonical-detail-drawer canonical-edit-drawer ${
+      state.canonicalDetailCollapsed ? "is-collapsed" : "is-open"
+    }`,
+  );
+  const header = el("div", "review-card-header");
+  const title = el("div", "canonical-detail-title");
+  title.appendChild(el("strong", "", "Edit canonical metadata"));
+  title.appendChild(
+    el("span", "muted", textValue(row.title, "Untitled canonical")),
+  );
+  header.appendChild(title);
+  const mode = el("div", "canonical-detail-tabs segmented-control");
+  mode.appendChild(el("span", "canonical-edit-mode-label", "Metadata editor"));
+  header.appendChild(mode);
+  const headerActions = el("div", "canonical-detail-header-actions");
+  if (canonicalEditIsDirty(row)) {
+    headerActions.appendChild(badge("Unsaved", "warn"));
+  }
+  headerActions.appendChild(
+    makeLocalButton(
+      state.canonicalDetailCollapsed ? "Expand" : "Collapse",
+      () => {
+        state.canonicalDetailCollapsed = !state.canonicalDetailCollapsed;
+        render();
+      },
+    ),
+  );
+  header.appendChild(headerActions);
+  drawer.appendChild(header);
+  if (state.canonicalDetailCollapsed) {
+    return drawer;
+  }
+  const draft = canonicalEditDraftForRow(row);
+  const compareSources = canonicalIncomingRedirectSources(row);
+  const currentIndex = Math.min(
+    Math.max(0, state.canonicalEditCompareIndexByRowId.get(rowId) || 0),
+    Math.max(0, compareSources.length - 1),
+  );
+  state.canonicalEditCompareIndexByRowId.set(rowId, currentIndex);
+  const compareSource = compareSources[currentIndex];
+  const body = el("div", "canonical-edit-body");
+  const editor = renderCanonicalDetailSection(
+    "Current canonical",
+    (() => {
+      const panel = el("div", "canonical-edit-panel");
+      panel.appendChild(renderCanonicalEditFields({ row, draft }));
+      const actions = el("div", "canonical-edit-actions");
+      const save = makeLocalButton("Save", () => {
+        sendAction("hostCommand", {
+          command: "updateCanonicalReferenceMetadata",
+          args: {
+            canonicalReferenceId: textValue(row.effective_canonical_id),
+            patch: canonicalEditPatch(canonicalEditDraftForRow(row)),
+          },
+        });
+        state.canonicalEditDrafts.delete(rowId);
+        state.canonicalEditOpenRowId = undefined;
+        render();
+      });
+      save.dataset.canonicalEditSaveRowId = rowId;
+      save.disabled = !canonicalEditIsDirty(row);
+      actions.appendChild(save);
+      actions.appendChild(
+        makeLocalButton("Revert", () => {
+          state.canonicalEditDrafts.delete(rowId);
+          render();
+        }),
+      );
+      panel.appendChild(actions);
+      return panel;
+    })(),
+  );
+  body.appendChild(editor);
+  const compare = renderCanonicalDetailSection(
+    "Pointing canonical",
+    (() => {
+      const panel = el("div", "canonical-edit-panel canonical-edit-compare-panel");
+      const nav = el("div", "canonical-edit-compare-nav");
+      nav.appendChild(
+        el(
+          "span",
+          "muted",
+          compareSources.length
+            ? `${currentIndex + 1} / ${compareSources.length}`
+            : "No incoming redirect source",
+        ),
+      );
+      const prev = makeLocalButton("↑", () => {
+        state.canonicalEditCompareIndexByRowId.set(rowId, currentIndex - 1);
+        render();
+      });
+      prev.disabled = currentIndex <= 0;
+      const next = makeLocalButton("↓", () => {
+        state.canonicalEditCompareIndexByRowId.set(rowId, currentIndex + 1);
+        render();
+      });
+      next.disabled = currentIndex >= compareSources.length - 1;
+      nav.appendChild(prev);
+      nav.appendChild(next);
+      const copy = makeLocalButton("Copy to draft", () => {
+        if (!compareSource) return;
+        setCanonicalEditDraft(row, canonicalEditDraftFromRecord(compareSource));
+      });
+      copy.disabled = !compareSource;
+      nav.appendChild(copy);
+      panel.appendChild(nav);
+      if (compareSource) {
+        panel.appendChild(
+          renderCanonicalEditFields({
+            row,
+            draft: canonicalEditDraftFromRecord(compareSource),
+            readOnly: true,
+          }),
+        );
+      } else {
+        panel.appendChild(
+          renderEmptyState({
+            title: "No source canonical",
+            message: "No redirect source points to this canonical.",
+            tone: "info",
+          }),
+        );
+      }
+      return panel;
+    })(),
+  );
+  body.appendChild(compare);
+  drawer.appendChild(body);
+  return drawer;
+}
+
+function renderCanonicalDetailDrawer(row: Record<string, unknown>) {
+  if (state.canonicalEditOpenRowId === canonicalRowId(row)) {
+    return renderCanonicalEditDrawer(row);
+  }
+  const drawer = el(
+    "section",
+    `index-review-drawer canonical-detail-drawer ${
+      state.canonicalDetailCollapsed ? "is-collapsed" : "is-open"
+    }`,
+  );
+  const header = el("div", "review-card-header");
+  const title = el("div", "canonical-detail-title");
+  title.appendChild(el("strong", "", textValue(row.title, "Canonical details")));
+  title.appendChild(
+    el(
+      "span",
+      "muted",
+      [textValue(row.year), textValue(row.authors)].filter(Boolean).join(" · "),
+    ),
+  );
+  header.appendChild(title);
+  const tabs = el("div", "canonical-detail-tabs segmented-control");
+  ([
+    ["overview", "Overview"],
+    ["redirects", "Redirects"],
+    ["reviews", "Reviews"],
+  ] as const).forEach(([tab, label]) => {
+    const button = makeLocalButton(label, () => {
+      state.canonicalDetailTab = tab;
+      render();
+    });
+    button.classList.toggle("active", state.canonicalDetailTab === tab);
+    button.setAttribute("aria-selected", String(state.canonicalDetailTab === tab));
+    tabs.appendChild(button);
+  });
+  header.appendChild(tabs);
+  const headerActions = el("div", "canonical-detail-header-actions");
+  headerActions.appendChild(
+    badge(
+      recordValue(row.binding).itemKey ? "Bound" : "External",
+      recordValue(row.binding).itemKey ? "ok" : "muted",
+    ),
+  );
+  headerActions.appendChild(
+    makeLocalButton(
+      state.canonicalDetailCollapsed ? "Expand" : "Collapse",
+      () => {
+        state.canonicalDetailCollapsed = !state.canonicalDetailCollapsed;
+        render();
+      },
+    ),
+  );
+  header.appendChild(headerActions);
+  drawer.appendChild(header);
+  if (state.canonicalDetailCollapsed) {
+    return drawer;
+  }
+  const body = el(
+    "div",
+    `canonical-detail-body canonical-detail-body-${state.canonicalDetailTab}`,
+  );
+  if (state.canonicalDetailTab === "redirects") {
+    body.appendChild(
+      renderCanonicalDetailSection(
+        `Pointing here (${textValue(row.incoming_redirect_count, "0")})`,
+        renderCanonicalRedirectList(
+          canonicalRecordArray(row.incoming_redirects),
+          "No canonical redirects point to this row",
+          "from",
+        ),
+      ),
+    );
+    body.appendChild(
+      renderCanonicalDetailSection("Raw references", renderCanonicalRawReferenceList(row)),
+    );
+  } else if (state.canonicalDetailTab === "reviews") {
+    body.appendChild(
+      renderCanonicalDetailSection(
+        `Related proposals (${textValue(row.proposal_count, "0")})`,
+        renderCanonicalProposalList(row),
+      ),
+    );
+    body.appendChild(
+      renderCanonicalDetailSection("Possible duplicates", renderCanonicalDuplicatePeers(row)),
+    );
+  } else {
+    body.appendChild(renderCanonicalDetailSection("Binding", renderCanonicalBinding(row)));
+    body.appendChild(
+      renderCanonicalDetailSection("Identifiers", renderCanonicalIdentifierList(row)),
+    );
+    body.appendChild(
+      renderCanonicalDetailSection(
+        "Signals",
+        (() => {
+          const grid = el("div", "canonical-signal-grid");
+          [
+            ["Raw refs", row.raw_reference_count],
+            ["Redirect targets", textValue(row.incoming_redirect_count, "0")],
+            ["Graph", textValue(row.graph_node_id) ? "Visible" : "Not in graph"],
+            ["Reviews", `${textValue(row.open_proposal_count, "0")} open / ${textValue(row.proposal_count, "0")} total`],
+          ].forEach(([label, value]) => {
+            const item = el("div", "canonical-signal-item");
+            item.appendChild(el("span", "muted", textValue(label)));
+            item.appendChild(el("strong", "", textValue(value, "-")));
+            grid.appendChild(item);
+          });
+          return grid;
+        })(),
+      ),
+    );
+  }
+  drawer.appendChild(body);
+  return drawer;
+}
+
+function openCanonicalMergePicker(
+  snapshot: Snapshot,
+  source: Record<string, unknown>,
+) {
+  document
+    .querySelectorAll(".reference-target-overlay")
+    .forEach((node: Element) => node.remove());
+  const overlay = el("div", "reference-target-overlay");
+  overlay.tabIndex = -1;
+  overlay.addEventListener("click", () => overlay.remove());
+  const popover = el("div", "reference-target-popover");
+  popover.addEventListener("click", (event) => event.stopPropagation());
+  const header = el("div", "reference-target-popover-header");
+  header.appendChild(el("strong", "", "Merge into"));
+  header.appendChild(makeLocalButton("Close", () => overlay.remove()));
+  popover.appendChild(header);
+  const list = el("div", "reference-target-list");
+  allCanonicalRows(snapshot)
+    .filter(
+      (row) =>
+        textValue(row.projected_literature_item_id) !==
+        textValue(source.projected_literature_item_id),
+    )
+    .sort((left, right) =>
+      textValue(left.title).localeCompare(textValue(right.title), undefined, {
+        sensitivity: "base",
+      }),
+    )
+    .forEach((row) => {
+      const button = el("button", "reference-target-row");
+      button.type = "button";
+      button.title = `${textValue(row.title)}\n${textValue(row.projected_literature_item_id)}`;
+      button.appendChild(el("span", "reference-target-title", textValue(row.title)));
+      button.appendChild(
+        el("span", "reference-target-meta", textValue(row.projected_literature_item_id)),
+      );
+      button.addEventListener("click", () => {
+        overlay.remove();
+        sendAction("hostCommand", {
+          command: "mergeEffectiveCanonicalReference",
+          args: {
+            sourceEffectiveCanonicalId: textValue(source.effective_canonical_id),
+            targetEffectiveCanonicalId: textValue(row.effective_canonical_id),
+            confirmRetargetGroup: true,
+          },
+        });
+      });
+      list.appendChild(button);
+    });
+  popover.appendChild(list);
+  overlay.appendChild(popover);
+  document.body?.appendChild(overlay);
+  positionReferenceManualTargetPopover(popover);
 }
 
 function reviewStatusMatches(status: unknown, filter: unknown) {
@@ -7757,9 +9588,38 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
       proposal.updated_at,
       "review-cell-center review-updated-cell",
     );
+    if (
+      textValue(proposal.review_kind || proposal.kind) ===
+        "canonical_revision" &&
+      textValue(proposal.status, "open") === "open" &&
+      !isReviewOptimisticallyResolved("canonical-revision", proposal.proposal_id)
+    ) {
+      const actions = el("div", "review-table-actions");
+      actions.appendChild(
+        makeButton("Accept", "hostCommand", {
+          command: "applyCanonicalRevisionReviewAction",
+          args: { reviewItemId: proposal.proposal_id, action: "accept" },
+        }),
+      );
+      actions.appendChild(
+        makeButton("Reject", "hostCommand", {
+          command: "applyCanonicalRevisionReviewAction",
+          args: { reviewItemId: proposal.proposal_id, action: "reject" },
+        }),
+      );
+      appendReviewTableCell(row, actions, "review-action-cell");
+      tbody.appendChild(row);
+      return;
+    }
     appendReviewTableCell(
       row,
-      el("span", "muted", "Managed in Index Review"),
+      el(
+        "span",
+        "muted",
+        textValue(proposal.review_kind || proposal.kind) === "canonical_revision"
+          ? "Managed by Canonical Revision"
+          : "Managed in Index Review",
+      ),
       "review-action-cell",
     );
     tbody.appendChild(row);
@@ -9384,7 +11244,6 @@ function renderTagImportPanel(snapshot: Snapshot) {
 }
 
 function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
-  const shell = el("div", "graph-shell concepts-shell");
   const panel = el("div", "panel");
   const filters = el("div", "filters");
   const search = el("input");
@@ -9454,9 +11313,7 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       ),
     );
   }
-  shell.appendChild(panel);
-  shell.appendChild(renderConceptInspector(snapshot));
-  main.appendChild(shell);
+  main.appendChild(panel);
 }
 
 function conceptDefinitionSummary(row: Record<string, unknown>) {
@@ -9466,12 +11323,6 @@ function conceptDefinitionSummary(row: Record<string, unknown>) {
     "usage_note",
     "editorial_note",
   ]);
-}
-
-function selectConceptRow(row: Record<string, unknown>) {
-  const conceptId = textValue(row.concept_id);
-  if (!conceptId) return;
-  sendAction("selectConcept", { conceptId });
 }
 
 function visibleConceptIds(snapshot: Snapshot) {
@@ -9587,18 +11438,7 @@ function renderConceptTable(snapshot: Snapshot) {
   const tbody = el("tbody");
   snapshot.concepts.visibleRows.forEach((row) => {
     const conceptId = textValue(row.concept_id);
-    const selected = conceptId === snapshot.concepts.selected?.concept_id;
-    const tr = el("tr", selected ? "concept-row selected" : "concept-row");
-    tr.tabIndex = 0;
-    tr.setAttribute("role", "button");
-    tr.setAttribute("aria-selected", selected ? "true" : "false");
-    tr.addEventListener("click", () => selectConceptRow(row));
-    tr.addEventListener("keydown", (event: KeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        selectConceptRow(row);
-      }
-    });
+    const tr = el("tr", "concept-row");
     const selectionCell = el("td", "concept-selection-cell");
     const checkbox = el("input") as HTMLInputElement;
     checkbox.type = "checkbox";
@@ -9804,77 +11644,6 @@ function renderConceptReviewDecisionSummary(
     summary.appendChild(merge);
   }
   return summary;
-}
-
-function renderConceptInspector(snapshot: Snapshot) {
-  const selected = snapshot.concepts.selected;
-  const panel = el("aside", "panel details concept-inspector");
-  const header = el("div", "panel-header");
-  header.appendChild(el("strong", "", "Concept Detail"));
-  panel.appendChild(header);
-  const details = el("div", "details");
-  if (!selected) {
-    details.appendChild(
-      renderEmptyState({
-        title: "No concept selected",
-        message: "Select a concept row to inspect definitions and senses.",
-      }),
-    );
-    panel.appendChild(details);
-    return panel;
-  }
-  const fields: Array<[string, unknown]> = [
-    ["concept_id", selected.concept_id],
-    ["label", selected.label],
-    ["type", selected.concept_type],
-    ["domain", selected.domain],
-    ["status", selected.status],
-    [
-      "aliases",
-      Array.isArray(selected.aliases) ? selected.aliases.join(", ") : "-",
-    ],
-    ["short_definition", selected.short_definition || "-"],
-    ["definition", selected.definition || "-"],
-    ["usage_note", selected.usage_note || "-"],
-    ["editorial_note", selected.editorial_note || "-"],
-  ];
-  fields.forEach(([label, value]) => {
-    const row = el("div", "detail-row");
-    row.appendChild(el("span", "muted", label));
-    row.appendChild(el("strong", "", String(value)));
-    details.appendChild(row);
-  });
-  details.appendChild(
-    makeButton("Edit Display Text", "hostCommand", {
-      command: "updateConceptDisplayText",
-      args: {
-        conceptId: selected.concept_id,
-        allowedFields: [
-          "short_definition",
-          "definition",
-          "usage_note",
-          "editorial_note",
-        ],
-      },
-    }),
-  );
-  const senses = snapshot.concepts.senses.filter(
-    (sense) => sense.concept_id === selected.concept_id,
-  );
-  const senseBox = el("div", "details");
-  senseBox.appendChild(el("strong", "", "Senses"));
-  senses.forEach((sense) => {
-    senseBox.appendChild(
-      el(
-        "p",
-        "muted",
-        `${sense.label || sense.sense_id}: ${sense.short_definition || sense.definition || ""}`,
-      ),
-    );
-  });
-  details.appendChild(senseBox);
-  panel.appendChild(details);
-  return panel;
 }
 
 function roleOptions(snapshot: Snapshot) {
@@ -11631,32 +13400,13 @@ function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
 }
 
 function buildDigestOutline(markdownNode: HTMLElement) {
-  const headings = Array.from(
-    markdownNode.querySelectorAll("h1, h2, h3, h4"),
-  ) as HTMLElement[];
-  if (!headings.length) {
-    return undefined;
-  }
-  const outline = el("nav", "digest-outline");
-  outline.setAttribute("aria-label", "Digest outline");
-  outline.appendChild(el("strong", "", "Outline"));
-  headings.forEach((heading, index) => {
-    const id = `digest-heading-${index + 1}`;
-    heading.id = id;
-    const level = Number(heading.tagName.replace(/\D/g, "")) || 2;
-    const link = el(
-      "a",
-      `digest-outline-link depth-${Math.max(1, Math.min(4, level))}`,
-      heading.textContent || `Section ${index + 1}`,
-    );
-    link.href = `#${id}`;
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      heading.scrollIntoView({ block: "start" });
-    });
-    outline.appendChild(link);
+  return buildMarkdownOutline(markdownNode, {
+    ariaLabel: "Digest outline",
+    headingIdPrefix: "digest-heading",
+    linkClassName: "digest-outline-link",
+    navClassName: "digest-outline",
+    title: "Outline",
   });
-  return outline;
 }
 
 function renderDigestRepresentativeImage(result: Record<string, unknown>) {

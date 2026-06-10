@@ -1722,6 +1722,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "Sync review");
     assert.include(source, "paper_count");
     assert.include(source, "completion");
+    assert.include(source, "row.definition");
+    assert.notInclude(source, "row.description");
+    assert.include(source, '"Definition"');
+    assert.include(source, "topics-list-definition-cell");
     assert.include(source, 'makeButton("Create Topic", "hostCommand"');
     assert.notInclude(source, 'makeButton("Run synthesis", "hostCommand"');
     assert.include(source, "immersive-reader");
@@ -1733,6 +1737,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".insight-grid");
     assert.include(css, ".topic-grid");
     assert.include(css, ".topic-card");
+    assert.include(css, ".topics-list-definition-cell");
     assert.include(css, ".panel-toolbar");
     assert.include(css, ".immersive-reader");
     assert.include(css, ":focus-visible");
@@ -1792,13 +1797,30 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderEvidenceDrawer");
     assert.include(source, "renderTopicTimeline");
     assert.include(source, "timelineItems");
-    assert.include(source, "timelineLayoutFromPapers");
+    assert.include(source, "timelineLayoutFromItems");
+    assert.include(source, "TIMELINE_BASE_WIDTH_PX = 1080");
+    assert.include(source, "TIMELINE_YEAR_MIN_WIDTH_PX = 80");
+    assert.include(source, "TIMELINE_MARKER_MIN_WIDTH_PX = 34");
     assert.include(source, "timelineYearCounts");
     assert.include(source, "timelinePaperLeft");
-    assert.include(source, "(1 + 2 * itemIndex)");
+    assert.include(source, "itemIndex + 1");
+    assert.include(source, "count + 1");
     assert.include(source, "timelineEventGroups");
+    assert.include(source, "timelineEventDescription");
+    assert.include(source, '"description"');
     assert.include(source, "renderTimelineEventPopover");
+    assert.include(source, "showTimelineTooltip");
+    assert.include(source, "hideTimelineTooltip");
+    assert.include(source, "overlayRoot.appendChild(popover)");
+    assert.include(source, 'sortedItems.filter((item) => item.kind === "paper")');
+    assert.include(source, 'sortedItems.filter((item) => item.kind === "event")');
+    assert.include(source, "left: interval.end");
+    assert.include(source, "const layout = timelineLayoutFromItems(paperItems)");
+    assert.notInclude(source, "timelineLayoutFromItems([...paperItems, ...milestoneItems])");
     assert.include(source, "denseTimelineMarkerKeys");
+    assert.include(source, "timeline.style.width = `${layout.widthPx}px`");
+    assert.include(source, "markerClasses.push(\"near-left\")");
+    assert.include(source, "markerClasses.push(\"near-right\")");
     assert.include(source, '"paper_year"');
     assert.include(source, '"bibliographic"');
     assert.include(source, "return papers");
@@ -1838,6 +1860,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "--topic-timeline-height: 250px");
     assert.include(css, "--topic-pin-milestone-fill");
     assert.include(css, ".timeline-tone-foundation");
+    assert.include(css, ".timeline-event.timeline-tone-milestone:hover .timeline-pin");
+    assert.include(css, ".timeline-event:hover,");
+    assert.include(css, ".timeline-hover-popover");
+    assert.include(css, "position: fixed;");
+    assert.include(css, "height: 68px;");
+    assert.include(css, "overflow-x: auto;");
+    assert.include(css, "white-space: normal;");
+    assert.include(css, ".timeline-marker.near-left .timeline-event-label");
+    assert.include(css, ".timeline-marker.near-right .timeline-event-label");
     assert.include(css, ".timeline-milestone-popover");
     assert.include(css, ".timeline-milestone-row");
     assert.include(css, ".metric-grid");
@@ -1909,8 +1940,8 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(css, ".splitter");
     assert.notInclude(css, "resize: horizontal");
     assert.notInclude(css, ".timeline-track");
-    assert.include(css, "top: 50px");
-    assert.include(css, "top: 62px");
+    assert.include(css, "top: 28px");
+    assert.include(css, "top: 40px");
     assert.notInclude(source, "reader-panel topic-detail-panel");
     assert.include(source, "sidebarExpanded: false");
     assert.include(source, "brand brand-icon-only");
@@ -2800,11 +2831,11 @@ describe("Synthesis tab UI model", function () {
       inspectorBlock,
       "args: { topicId: textValue(topic.topic_id) }",
     );
-    assert.include(
+    assert.include(inspectorBlock, '"definition"');
+    assert.notInclude(
       inspectorBlock,
-      'firstText(topic, ["definition", "short_definition", "summary"])',
+      'el("p", "muted", textValue(topic.topic_id))',
     );
-    assert.notInclude(inspectorBlock, 'el("p", "muted", textValue(topic.topic_id))');
   });
 
   it("builds topic graph modes, excludes roots from Unplaced, and fills inspector context", function () {
@@ -2827,6 +2858,7 @@ describe("Synthesis tab UI model", function () {
             {
               topic_id: "topic-child",
               title: "Child",
+              definition: "Child topic definition from topic.json",
               node_type: "materialized",
               paper_count: 3,
               last_synthesis_at: "2026-05-24T00:00:00.000Z",
@@ -2874,6 +2906,10 @@ describe("Synthesis tab UI model", function () {
       ["topic-peer"],
     );
     assert.equal(snapshot.topicGraph.inspector.topic?.topic_id, "topic-child");
+    assert.equal(
+      snapshot.topicGraph.inspector.topic?.definition,
+      "Child topic definition from topic.json",
+    );
     assert.deepEqual(
       snapshot.topicGraph.inspector.parents.map((node) => node.topic_id),
       ["topic-root"],
@@ -2905,7 +2941,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(snapshot.hostCommands, "applyTopicGraphReviewAction");
   });
 
-  it("renders Concepts tab state with filters, detail, display-text edit, and overlay entries [inv.concepts.overlay_optional]", function () {
+  it("renders Concepts tab state with filters, selection state, display-text command, and overlay entries [inv.concepts.overlay_optional]", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setFilters",
       payload: {
@@ -3039,16 +3075,28 @@ describe("Synthesis tab UI model", function () {
 
   it("wires Concepts tab and non-destructive concept overlay rendering", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const overlayBlock = extractFunctionBlock(source, "applyConceptOverlay");
+    const reportConceptNavBlock = extractFunctionBlock(
+      source,
+      "renderTopicReportConceptNav",
+    );
+    const reportSectionBlock = extractFunctionBlock(
+      source,
+      "renderTopicReportSection",
+    );
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
     );
     const service = await fs.readFile("src/modules/synthesis/service.ts", "utf8");
+    const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "renderConcepts");
     assert.include(source, "renderConceptTable");
     assert.include(source, "conceptDefinitionSummary");
-    assert.include(source, "concept-row selected");
+    assert.notInclude(source, "concept-row selected");
+    assert.notInclude(source, "renderConceptInspector");
+    assert.notInclude(source, "selectConceptRow");
     assert.include(source, "selectedConceptIds");
     assert.include(source, "renderConceptBulkActionBar");
     assert.include(source, "Delete Selected");
@@ -3069,16 +3117,76 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, '["topic relevance", item.topic_relevance]');
     assert.include(source, "conceptReviewActionCell");
     assert.include(source, "expandedConceptReviewMergeRows");
-    assert.include(source, "Concept Detail");
+    assert.notInclude(source, "Concept Detail");
     assert.include(source, "applyConceptOverlay");
+    assert.include(source, "applyConceptOverlay(renderTopicSection(detail, snapshot), snapshot)");
+    assert.include(host, 'getSynthesisWorkbenchSurfaceInput("concepts"');
+    assert.include(source, "topicReportConceptEntries");
+    assert.include(source, "renderTopicReportConceptNav");
+    assert.include(source, "buildMarkdownOutline");
+    assert.include(source, "buildReportOutline");
+    assert.include(source, "topic-report-concept-nav");
+    assert.include(source, "topic-report-workspace");
+    assert.include(source, "topic-report-panel");
+    assert.include(source, "topic-report-reader-frame");
+    assert.include(source, "topic-report-scroll-body");
+    assert.include(source, "topic-report-reading-surface");
+    assert.include(source, "topic-report-outline");
+    assert.include(source, "source_topic_ids");
+    assert.include(source, "detail.topicId || snapshot?.reader?.topicId");
+    assert.include(source, "renderTopicReportSection(detail, snapshot)");
+    assert.include(source, "buildReportOutline(reportBody)");
+    assert.include(source, "heading.scrollIntoView({ block: \"start\" })");
+    assert.include(reportSectionBlock, "workspace.appendChild(conceptNav)");
+    assert.include(reportSectionBlock, "workspace.appendChild(reportPanel)");
+    assert.include(reportSectionBlock, "reportPanel.appendChild(header)");
+    assert.include(reportSectionBlock, "reportPanel.appendChild(readerFrame)");
+    assert.include(reportSectionBlock, "readerFrame.appendChild(reportOutline)");
+    assert.notInclude(reportSectionBlock, "readerFrame.appendChild(conceptNav)");
+    assert.notInclude(reportSectionBlock, "sideNav.appendChild(reportOutline)");
+    assert.notInclude(reportSectionBlock, "sideNav.appendChild(conceptNav)");
+    assert.include(reportConceptNavBlock, '"mouseenter"');
+    assert.include(reportConceptNavBlock, '"mouseleave"');
+    assert.include(reportConceptNavBlock, '"focus"');
+    assert.include(reportConceptNavBlock, '"blur"');
+    assert.notInclude(reportConceptNavBlock, '"click"');
+    assert.notInclude(reportConceptNavBlock, 'sendAction("selectConcept"');
+    assert.notInclude(reportConceptNavBlock, "topic-report-concept-nav-summary");
     assert.include(source, "concept-mention");
     assert.include(source, "concept-bubble");
     assert.include(source, "closeConceptBubble");
-    assert.include(source, "mousedown");
+    assert.include(source, "scheduleConceptBubbleClose");
+    assert.include(source, "cancelConceptBubbleClose");
+    assert.include(overlayBlock, '"mouseenter"');
+    assert.include(overlayBlock, '"mouseleave"');
+    assert.include(overlayBlock, '"focus"');
+    assert.include(overlayBlock, '"blur"');
+    assert.notInclude(overlayBlock, 'sendAction("selectConcept"');
+    assert.notInclude(overlayBlock, '"click"');
     assert.include(source, "Escape");
     assert.notInclude(source, "Open Concept");
-    assert.include(source, "a, code, pre");
+    assert.include(source, "CONCEPT_OVERLAY_SKIP_SELECTOR");
+    assert.include(source, ".topic-report-outline");
+    assert.include(source, ".topic-report-concept-nav");
+    assert.include(source, '"button"');
+    assert.include(source, '"textarea"');
     assert.include(source, "updateConceptDisplayText");
+    assert.notInclude(css, ".topic-report-concept-nav-summary");
+    assert.include(css, ".topic-report-workspace");
+    assert.include(css, ".topic-report-panel");
+    assert.include(css, ".topic-report-reading-surface");
+    assert.include(css, ".topic-report-reader-frame");
+    assert.include(css, ".topic-report-scroll-body");
+    assert.include(css, ".topic-report-outline");
+    assert.include(css, ".topic-report-outline-link");
+    assert.include(css, ".topic-report-concept-nav");
+    assert.include(css, "overflow-y: auto;");
+    assert.include(css, "grid-template-columns: 180px minmax(0, 1fr);");
+    assert.include(css, "grid-template-columns: 220px minmax(0, 1fr);");
+    assert.include(css, "grid-template-rows: auto minmax(0, 1fr);");
+    assert.include(css, "overflow: hidden;");
+    assert.include(css, "color: var(--topic-muted);");
+    assert.include(css, ".topic-report-reader-frame.no-outline");
   });
 
   it("shows reference sidecar cache status without exposing legacy cleanup host actions", async function () {
@@ -3247,6 +3355,10 @@ describe("Synthesis tab UI model", function () {
   it("wires Index filters and cleanup review card in the Workbench [inv.review.user_manageable]", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const model = await fs.readFile("src/modules/synthesis/uiModel.ts", "utf8");
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
 
     assert.include(source, "Scope: Referenced only");
@@ -3309,6 +3421,38 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "queueReferenceProposalDecision");
     assert.include(source, "Reverse & accept");
     assert.include(source, "Manual target");
+    assert.include(source, "Revise Canonicals");
+    assert.include(source, "renderCanonicalRevisionWorkbench");
+    assert.include(source, "mergeEffectiveCanonicalReference");
+    assert.include(source, "pendingCanonicalMergeRequests");
+    assert.include(source, "canonicalMergeSourceRowIds");
+    assert.include(source, "canonicalMergeSubmission");
+    assert.include(source, "canonicalDetailCollapsed");
+    assert.include(source, "canonicalEditOpenRowId");
+    assert.include(source, "canonicalEditDrafts");
+    assert.include(source, "canonicalEditCompareIndexByRowId");
+    assert.include(source, "renderCanonicalEditDrawer");
+    assert.include(source, "Copy to draft");
+    assert.include(source, "canonicalEditPatch(canonicalEditDraftForRow(row))");
+    assert.include(source, "data-canonical-edit-row-id");
+    assert.include(source, "canonical-edit-body");
+    assert.include(source, "canonical-edit-compare-nav");
+    assert.include(source, "state.canonicalEditDrafts.delete(rowId)");
+    assert.notInclude(source, "window.prompt(\"Canonical title\"");
+    assert.notInclude(source, "normalizedTitle: canonicalEditPatch");
+    assert.include(source, "canonical-detail-tabs segmented-control");
+    assert.include(source, "canonical-detail-header-actions");
+    assert.include(source, "state.canonicalDetailCollapsed ? \"Expand\" : \"Collapse\"");
+    assert.include(source, "Merge Selected");
+    assert.include(source, "Apply pending");
+    assert.include(source, "Applying ${pending.length} pending merge(s)");
+    assert.include(source, "queueCanonicalMergeTarget");
+    assert.include(source, "applyCanonicalRevisionMergeRequests");
+    assert.include(source, "archiveCanonicalReference");
+    assert.include(host, "{ deferStart: true }");
+    assert.include(host, "command === \"applyCanonicalRevisionMergeRequests\"");
+    assert.notInclude(source, "Actions: All");
+    assert.notInclude(model, "canonicalActionable");
     assert.include(source, "renderReferenceManualTargetPicker");
     assert.include(source, "openReferenceManualTargetPicker");
     assert.include(source, "syncReferenceManualTargetOverlay");
@@ -3336,6 +3480,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, '"reverse_accept"');
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
+    assert.include(source, "sourceRowTitleIsFallback");
+    assert.include(source, "sourceBindingTitle || sourceEvidenceTitle");
     assert.include(source, '["proposal id", proposal.proposal_id]');
     assert.notInclude(source, "applyLiteratureCleanupAction");
     assert.notInclude(source, "confirm_literature_item");
@@ -3430,6 +3576,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "reference-target-popover");
     assert.include(app, "manual_target");
     assert.include(app, "retargeted");
+    assert.include(app, "applyCanonicalRevisionReviewAction");
+    assert.include(app, "canonical_revision");
     assert.include(app, '["reference_matching", "Index"]');
     assert.notInclude(app, '["index_cleanup", "Index Cleanup"]');
     assert.notInclude(app, "Concept Review Queue");

@@ -6,6 +6,7 @@ type DatabaseSync = {
     get: (params?: Record<string, unknown>) => SqlRow | undefined;
     run: (params?: Record<string, unknown>) => unknown;
   };
+  exec?: (sql: string) => unknown;
   close: () => void;
 };
 
@@ -22,6 +23,8 @@ export type ReadonlySqliteAdapter = SqlAdapter & {
 const dynamicImport = new Function("specifier", "return import(specifier)") as (
   specifier: string,
 ) => Promise<any>;
+
+const READONLY_SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 function normalizeSql(sql: string) {
   return String(sql || "")
@@ -70,7 +73,12 @@ async function openReadonlyDatabase(dbPath: string): Promise<DatabaseSync> {
       "node:sqlite DatabaseSync is unavailable; Node 24+ is required.",
     );
   }
-  return new DatabaseCtor(dbPath, { readOnly: true }) as DatabaseSync;
+  const db = new DatabaseCtor(dbPath, {
+    readOnly: true,
+    timeout: READONLY_SQLITE_BUSY_TIMEOUT_MS,
+  }) as DatabaseSync;
+  db.exec?.(`PRAGMA busy_timeout=${READONLY_SQLITE_BUSY_TIMEOUT_MS}`);
+  return db;
 }
 
 export async function createReadonlySqliteDatabase(

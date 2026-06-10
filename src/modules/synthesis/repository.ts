@@ -129,6 +129,12 @@ export type SynthesisRawReferenceRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisRawReferenceStaleResult = {
+  staleCount: number;
+  staleRawReferences: SynthesisRawReferenceRecord[];
+  canonicalReferenceIds: string[];
+};
+
 export type SynthesisCanonicalReferenceRecord = {
   canonicalReferenceId: string;
   title?: string;
@@ -422,6 +428,7 @@ export type SynthesisTopicDiscoveryBuildResult = {
 export type SynthesisTopicGraphNodeRecord = {
   topicId: string;
   title: string;
+  definition?: string;
   aliasesJson?: string;
   nodeType: string;
   definitionStatus?: string;
@@ -982,6 +989,23 @@ function applyOptionalMigration(db: SqlAdapter, sql: string) {
     db.run(sql);
   } catch {
     // Additive compatibility migration. Existing columns raise duplicate errors.
+  }
+}
+
+function tableColumnExists(db: SqlAdapter, tableName: string, columnName: string) {
+  return db
+    .all(`PRAGMA table_info(${tableName})`)
+    .some((row) => cleanString(row.name) === columnName);
+}
+
+function dropOptionalColumn(db: SqlAdapter, tableName: string, columnName: string) {
+  if (!tableColumnExists(db, tableName, columnName)) {
+    return;
+  }
+  try {
+    db.run(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
+  } catch {
+    // Old SQLite adapters may not support DROP COLUMN; all reads/writes ignore it.
   }
 }
 
@@ -2627,6 +2651,7 @@ function ensureSchema(db: SqlAdapter) {
     CREATE TABLE IF NOT EXISTS synt_topic_graph_node (
       topic_id TEXT PRIMARY KEY,
       title TEXT NOT NULL DEFAULT '',
+      definition TEXT NOT NULL DEFAULT '',
       aliases_json TEXT NOT NULL DEFAULT '[]',
       node_type TEXT NOT NULL DEFAULT 'placeholder',
       definition_status TEXT NOT NULL DEFAULT '',
@@ -2639,6 +2664,18 @@ function ensureSchema(db: SqlAdapter) {
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_topic_graph_node ADD COLUMN definition TEXT NOT NULL DEFAULT ''",
+  );
+  if (tableColumnExists(db, "synt_topic_graph_node", "description")) {
+    db.run(`
+      UPDATE synt_topic_graph_node
+      SET definition = description
+      WHERE COALESCE(definition, '') = '' AND COALESCE(description, '') <> ''
+    `);
+    dropOptionalColumn(db, "synt_topic_graph_node", "description");
+  }
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_topic_graph_edge (
       edge_id TEXT PRIMARY KEY,
@@ -3569,6 +3606,7 @@ function rowToTopicGraphNode(row: SqlRow): SynthesisTopicGraphNodeRecord {
   return {
     topicId: cleanString(row.topic_id),
     title: cleanString(row.title),
+    definition: cleanString(row.definition) || undefined,
     aliasesJson: cleanString(row.aliases_json) || "[]",
     nodeType: cleanString(row.node_type) || "placeholder",
     definitionStatus: cleanString(row.definition_status) || undefined,
@@ -4687,11 +4725,11 @@ export class SynthesisRepository {
     sourceRef: string;
     exceptReferencesArtifactHash?: string;
     timestamp?: string;
-  }) {
+  }): SynthesisRawReferenceStaleResult {
     this.initialize();
     const sourceRef = cleanString(args.sourceRef);
     if (!sourceRef) {
-      return 0;
+      return { staleCount: 0, staleRawReferences: [], canonicalReferenceIds: [] };
     }
     const timestamp = cleanString(args.timestamp) || this.now();
     const rows = this.listRawReferences({
@@ -4709,7 +4747,15 @@ export class SynthesisRepository {
         updatedAt: timestamp,
       });
     }
-    return rows.length;
+    return {
+      staleCount: rows.length,
+      staleRawReferences: rows,
+      canonicalReferenceIds: Array.from(
+        new Set(
+          rows.map((row) => cleanString(row.canonicalReferenceId)).filter(Boolean),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    };
   }
 
   upsertReferenceBinding(record: SynthesisReferenceBindingRecord) {
@@ -7111,6 +7157,7 @@ export class SynthesisRepository {
         INSERT OR REPLACE INTO synt_topic_graph_node (
           topic_id,
           title,
+          definition,
           aliases_json,
           node_type,
           definition_status,
@@ -7125,6 +7172,7 @@ export class SynthesisRepository {
         VALUES (
           @topic_id,
           @title,
+          @definition,
           @aliases_json,
           @node_type,
           @definition_status,
@@ -7140,6 +7188,7 @@ export class SynthesisRepository {
       {
         topic_id: topicId,
         title: cleanString(record.title) || topicId,
+        definition: cleanString(record.definition),
         aliases_json: cleanString(record.aliasesJson) || "[]",
         node_type: cleanString(record.nodeType) || "placeholder",
         definition_status: cleanString(record.definitionStatus),

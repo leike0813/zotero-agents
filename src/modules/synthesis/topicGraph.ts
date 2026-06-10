@@ -51,6 +51,7 @@ export type SynthesisTopicGraphEdgeStatus =
 export type SynthesisTopicGraphNode = {
   topic_id: string;
   title: string;
+  definition?: string;
   aliases: string[];
   node_type: "materialized" | "placeholder";
   definition_status?: "has_synthesis" | "placeholder" | "deleted" | "stale";
@@ -283,6 +284,8 @@ function normalizeTopicNode(
   return {
     topic_id: topicId,
     title: cleanString(input.title || previous?.title) || topicId,
+    definition:
+      cleanString(input.definition || previous?.definition) || undefined,
     aliases: normalizeStringList(input.aliases || previous?.aliases),
     node_type: nodeType,
     definition_status:
@@ -438,6 +441,7 @@ function createRegistry() {
     properties: {
       topic_id: { type: "string", minLength: 1 },
       title: { type: "string", minLength: 1 },
+      definition: { type: "string" },
       aliases: { type: "array", items: { type: "string" } },
       node_type: { enum: ["materialized", "placeholder"] },
       definition_status: {
@@ -634,6 +638,7 @@ function topicGraphNodeToRecord(
   return {
     topicId: node.topic_id,
     title: node.title,
+    definition: node.definition,
     aliasesJson: jsonArrayText(node.aliases),
     nodeType: node.node_type,
     definitionStatus: node.definition_status,
@@ -653,6 +658,7 @@ function topicGraphNodeFromRecord(
   return {
     topic_id: record.topicId,
     title: record.title,
+    definition: record.definition,
     aliases: normalizeStringList(parseJsonArrayText(record.aliasesJson)),
     node_type:
       record.nodeType === "materialized" ? "materialized" : "placeholder",
@@ -1122,6 +1128,7 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
   async function upsertMaterializedTopic(args: {
     topicId: string;
     title: string;
+    definition?: string;
     aliases?: string[];
     currentArtifactPath?: string;
     paperCount?: number;
@@ -1134,6 +1141,7 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       {
         topic_id: args.topicId,
         title: args.title,
+        definition: args.definition,
         aliases: args.aliases || [],
         node_type: "materialized",
         definition_status: "has_synthesis",

@@ -10,6 +10,7 @@ Synthesis persistence SHALL optimize sidecar projection reads, explicit decision
 - **WHEN** the repository initializes
 - **THEN** it SHALL create sidecar cache, decision, and operation tables
 - **AND** it MAY drop old queue, job, WorkItem, WorkRun, and Registry rebuild tables.
+
 ### Requirement: Explicit operations are bounded
 
 Explicit cache refresh and review operations SHALL use bounded reads, bounded writes, and progress checkpoints.
@@ -18,6 +19,7 @@ Explicit cache refresh and review operations SHALL use bounded reads, bounded wr
 - **WHEN** an operation reaches its configured time or count budget
 - **THEN** it SHALL store progress and return control to the caller
 - **AND** it SHALL NOT block Zotero UI waiting for a global drain to finish.
+
 ### Requirement: Reference refresh and graph rebuild have separate budgets
 
 Reference Sidecar refresh and Citation Graph cache rebuild SHALL be measured as separate explicit operations.
@@ -29,6 +31,7 @@ Reference Sidecar refresh and Citation Graph cache rebuild SHALL be measured as 
 #### Scenario: Graph cache rebuild reports progress
 - **WHEN** Citation Graph cache rebuild runs
 - **THEN** progress SHALL report graph input loading, effective canonical resolution, binding target application, node and edge generation, metrics generation, and cache commit.
+
 ### Requirement: Advanced matching is budgeted separately from refresh
 
 Advanced reference matching SHALL have a separate performance budget from Reference Sidecar refresh.
@@ -41,6 +44,7 @@ Advanced reference matching SHALL have a separate performance budget from Refere
 #### Scenario: Fuzzy budget is exceeded
 - **WHEN** a fuzzy block or operation exceeds its budget
 - **THEN** Synthesis SHALL record diagnostics and skip excess comparisons instead of widening the scan.
+
 ### Requirement: Harness writes only isolated debug persistence
 
 The Synthesis Index harness SHALL write algorithm run output only to an
@@ -61,6 +65,7 @@ explicit debug SQLite database.
 - **WHEN** a cluster run encounters excluded canonical records
 - **THEN** those records SHALL be reported through counters or diagnostics
 - **AND** they SHALL NOT expand candidate blocks or pair comparisons.
+
 ### Requirement: Workbench reads are bounded by surface
 
 Synthesis Workbench read paths SHALL avoid loading unrelated domain data for a surface.
@@ -91,6 +96,7 @@ Synthesis Workbench read paths SHALL avoid loading unrelated domain data for a s
 - **THEN** the notifier path SHALL only mark affected surface read models dirty and debounce a visible-surface reload
 - **AND** it SHALL NOT scan the full Zotero Library
 - **AND** it SHALL NOT construct a full Workbench snapshot or invoke Reference Sidecar refresh.
+
 ### Requirement: Warmup yields between phases
 
 Synthesis Workbench warmup SHALL yield control between read-model phases.
@@ -98,6 +104,7 @@ Synthesis Workbench warmup SHALL yield control between read-model phases.
 #### Scenario: Warmup phase completes
 - **WHEN** a warmup phase completes or fails
 - **THEN** the warmup runner SHALL yield to the event loop before starting the next phase.
+
 ### Requirement: Production Cluster Dedupe SHALL Remain Bounded
 
 Production cluster external dedupe SHALL use bounded blocking and pair budgets.
@@ -106,8 +113,8 @@ Production cluster external dedupe SHALL use bounded blocking and pair budgets.
 - **WHEN** cluster dedupe block size or pair budget is exceeded
 - **THEN** production advanced matching SHALL record diagnostics
 - **AND** it SHALL NOT widen to a global all-canonical pair scan.
-### Requirement: Full related-items sync is batched and bounded by accepted edges
 
+### Requirement: Full related-items sync is batched and bounded by accepted edges
 
 Full related-items sync SHALL process accepted library-to-library citation edges in batches and yield between batches. It SHALL avoid per-edge full graph hash recomputation and SHALL cache binding lookups within a sync run.
 
@@ -117,8 +124,8 @@ Full related-items sync SHALL process accepted library-to-library citation edges
 - **THEN** it SHALL report progress through its own operation
 - **AND** it SHALL yield control between batches
 - **AND** it SHALL NOT recompute the entire graph state for every edge.
-### Requirement: Synthesis Workbench surface reads are bounded
 
+### Requirement: Synthesis Workbench surface reads are bounded
 
 Workbench surface reads SHALL avoid broad recomputation for hot UI paths.
 
@@ -129,3 +136,14 @@ Workbench surface reads SHALL avoid broad recomputation for hot UI paths.
   read models
 - **AND** it SHALL NOT run advanced reference matching
 - **AND** it SHALL NOT rebuild reference sidecar, graph, tag, or concept indexes.
+
+### Requirement: Stale canonical governance SHALL avoid broad matcher work
+
+Stale canonical lifecycle reconciliation SHALL run only for canonical ids affected by the current sourceRef artifact refresh and SHALL NOT run Advanced Matching or full-library fuzzy matching.
+
+#### Scenario: Harness readonly safety
+
+- **WHEN** the UI harness receives a Canonical Revision accept or reject action
+- **THEN** it SHALL mock the action as readonly with blocked reason `db-write`
+- **AND** SHALL NOT mutate the plugin database.
+

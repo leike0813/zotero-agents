@@ -9,6 +9,8 @@ const METADATA_ONLY_PATTERN =
 const AUTHOR_CONNECTOR_PATTERN = /\b(?:and|et\s+al)\b|,/i;
 const AUTHOR_TOKEN_PATTERN =
   /^(?:[A-Z]\.?|[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?|[A-Z][a-z]*\.)$/;
+const PLACEHOLDER_TITLE_PATTERN =
+  /^(?:n\/?a|none|null|undefined|unknown|untitled|not\s+available)$/i;
 
 type ReferenceQualityDisposition = "accept" | "reject";
 
@@ -109,6 +111,10 @@ function isBareIdentifierOrUrl(title: string) {
   );
 }
 
+function isPlaceholderTitle(title: string) {
+  return PLACEHOLDER_TITLE_PATTERN.test(cleanText(title));
+}
+
 function isMetadataOnlyTitle(title: string) {
   const text = cleanText(title);
   if (!text) {
@@ -170,6 +176,8 @@ export function classifySynthesisReferenceQuality(
 
   if (!title) {
     rejectReasons.push("empty_title");
+  } else if (isPlaceholderTitle(title)) {
+    rejectReasons.push("placeholder_title");
   } else if (isBareIdentifierOrUrl(title)) {
     rejectReasons.push("bare_identifier_or_url_title");
   } else if (isMetadataOnlyTitle(title)) {

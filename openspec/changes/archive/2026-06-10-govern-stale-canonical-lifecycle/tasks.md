@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec delta specs for reference sidecar lifecycle, Review UI, and persistence safety.
+- [x] 2. Extend raw-reference stale marking to return affected rows/canonical ids.
+- [x] 3. Implement source-scoped stale canonical reconciliation and successor detection.
+- [x] 4. Add Canonical Revision review proposal creation and accept/reject service actions.
+- [x] 5. Surface Canonical Revision proposals in Review Index and Revise Canonicals diagnostics.
+- [x] 6. Update harness readonly command handling/status diagnostics for the new action.
+- [x] 7. Add focused service/UI/harness tests and run build.

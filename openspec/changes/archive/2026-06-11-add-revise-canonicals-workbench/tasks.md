@@ -1,0 +1,7 @@
+- [x] 1. Document Revise Canonicals as an Index functional subview, not a top-level tab.
+- [x] 2. Document canonical read model projection, diagnostics, and bounded row summaries.
+- [x] 3. Document single/batch pending merge behavior and apply-pending semantics.
+- [x] 4. Document Canonical Details drawer, collapse behavior, and structured metadata edit UX.
+- [x] 5. Document service command boundaries for merge, edit, and archive.
+- [x] 6. Document readonly harness mocking for canonical workbench write actions.
+- [x] 7. Link behavior to focused UI/service/harness coverage already implemented.

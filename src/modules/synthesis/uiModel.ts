@@ -98,6 +98,7 @@ export type SynthesisUiArtifactRow = {
   coverage: SynthesisUiCoverage;
   freshness: SynthesisUiFreshness;
   updated_at?: string;
+  definition?: string;
   markdown_preview?: string;
   paper_count?: number;
   summary?: string;
@@ -181,8 +182,55 @@ export type SynthesisUiReferenceMatchTargetCandidate =
       libraryId: number;
       itemKey: string;
       paperRef?: string;
+      };
     };
+
+export type SynthesisUiCanonicalActionAvailability = {
+  allowed: boolean;
+  reason?: string;
+  blockers?: string[];
+};
+
+export type SynthesisUiCanonicalReferenceRow = {
+  row_id: string;
+  effective_canonical_id: string;
+  projected_literature_item_id: string;
+  title: string;
+  normalized_title?: string;
+  year?: string;
+  authors?: string[];
+  identifiers?: Record<string, unknown>;
+  identifiers_list?: Array<{ kind: string; value: string }>;
+  binding?: {
+    libraryId: number;
+    itemKey: string;
+    paperRef: string;
+    title?: string;
+    status?: SynthesisUiBindingStatus;
   };
+  raw_reference_count: number;
+  raw_reference_samples?: unknown[];
+  physical_canonical_ids: string[];
+  effective_canonical_ids: string[];
+  incoming_redirects?: unknown[];
+  outgoing_redirects?: unknown[];
+  related_proposals?: unknown[];
+  duplicate_peers?: unknown[];
+  incoming_redirect_count: number;
+  outgoing_redirect_count: number;
+  proposal_count: number;
+  open_proposal_count: number;
+  graph_node_id?: string;
+  graph_in_degree: number;
+  graph_out_degree: number;
+  possible_duplicate_group?: string;
+  action_availability: {
+    merge: SynthesisUiCanonicalActionAvailability;
+    edit: SynthesisUiCanonicalActionAvailability;
+    archive: SynthesisUiCanonicalActionAvailability;
+  };
+  diagnostics?: unknown[];
+};
 
 export type SynthesisUiCleanupProposalRow = {
   proposal_id: string;
@@ -619,10 +667,18 @@ export type SynthesisUiState = {
     viewMode: "graph" | "list" | "grid";
   };
   registry: {
+    activeIndexTool: "none" | "revise_canonicals";
     search: string;
     scope: SynthesisUiRegistryScopeFilter;
     artifactCoverage: "all" | SynthesisUiCoverage;
     bindingStatus: SynthesisUiBindingStatusFilter;
+    canonicalSearch: string;
+    canonicalBinding: "all" | "bound" | "external";
+    canonicalGraph: "all" | "visible" | "not_in_graph";
+    canonicalRedirects: "all" | "has_redirects";
+    canonicalProposals: "all" | "has_proposals";
+    canonicalDuplicates: "all" | "possible_duplicate";
+    selectedCanonicalRowId?: string;
     reviewDrawerOpen: boolean;
     reviewDrawerIndex: number;
     expandedSourceRefs: string[];
@@ -713,6 +769,13 @@ export type SynthesisUiSnapshotInput = {
     cleanupProposals?: SynthesisUiCleanupProposalRow[];
     matchProposals?: SynthesisUiReferenceMatchProposalRow[];
     matchTargetCandidates?: SynthesisUiReferenceMatchTargetCandidate[];
+    canonicalRows?: Array<
+      Partial<SynthesisUiCanonicalReferenceRow> & {
+        effective_canonical_id?: string;
+        projected_literature_item_id?: string;
+      }
+    >;
+    canonicalDiagnostics?: unknown[];
     cacheStatus?: Partial<SynthesisUiCacheStatus>;
   };
   tags?: {
@@ -810,6 +873,9 @@ export type SynthesisUiSnapshot = {
     cleanupProposals: SynthesisUiCleanupProposalRow[];
     matchProposals: SynthesisUiReferenceMatchProposalRow[];
     matchTargetCandidates: SynthesisUiReferenceMatchTargetCandidate[];
+    canonicalRows: SynthesisUiCanonicalReferenceRow[];
+    visibleCanonicalRows: SynthesisUiCanonicalReferenceRow[];
+    canonicalDiagnostics: unknown[];
     cacheStatus: SynthesisUiCacheStatus;
   };
   reviews: {
@@ -934,6 +1000,11 @@ export type SynthesisUiHostCommandName =
   | "retryAdvancedReferenceMatching"
   | "applyReferenceMatchProposalAction"
   | "applyReferenceMatchProposalActions"
+  | "applyCanonicalRevisionReviewAction"
+  | "mergeEffectiveCanonicalReference"
+  | "applyCanonicalRevisionMergeRequests"
+  | "updateCanonicalReferenceMetadata"
+  | "archiveCanonicalReference"
   | "refreshCitationGraphCacheIncrementalNow"
   | "rebuildCitationGraphCacheNow"
   | "retryCitationGraphCacheRebuild"
@@ -1019,6 +1090,11 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "retryAdvancedReferenceMatching",
   "applyReferenceMatchProposalAction",
   "applyReferenceMatchProposalActions",
+  "applyCanonicalRevisionReviewAction",
+  "mergeEffectiveCanonicalReference",
+  "applyCanonicalRevisionMergeRequests",
+  "updateCanonicalReferenceMetadata",
+  "archiveCanonicalReference",
   "refreshCitationGraphCacheIncrementalNow",
   "rebuildCitationGraphCacheNow",
   "retryCitationGraphCacheRebuild",
@@ -1069,6 +1145,11 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   retryAdvancedReferenceMatching: "Retry advanced reference matching",
   applyReferenceMatchProposalAction: "Apply reference match proposal",
   applyReferenceMatchProposalActions: "Apply reference match proposals",
+  applyCanonicalRevisionReviewAction: "Apply canonical revision review",
+  mergeEffectiveCanonicalReference: "Merge canonical reference",
+  applyCanonicalRevisionMergeRequests: "Apply canonical merge requests",
+  updateCanonicalReferenceMetadata: "Update canonical reference metadata",
+  archiveCanonicalReference: "Archive canonical reference",
   refreshCitationGraphCacheIncrementalNow:
     "Refresh citation graph cache incrementally",
   rebuildCitationGraphCacheNow: "Rebuild citation graph cache",
@@ -1112,6 +1193,8 @@ export function getSynthesisUiOperationKey(
       return `${command}:${keyPart(args.reviewId)}`;
     case "applyReferenceMatchProposalAction":
       return `${command}:${keyPart(args.proposalId)}`;
+    case "applyCanonicalRevisionReviewAction":
+      return `${command}:${keyPart(args.reviewItemId || args.proposalId)}`;
     case "applyReferenceMatchProposalActions":
       return command;
     case "acceptTopicGraphRelation":
@@ -1690,6 +1773,7 @@ function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
         coverage: normalizeCoverage(row.coverage),
         freshness: normalizeFreshness(row.freshness),
         updated_at: cleanString(row.updated_at) || undefined,
+        definition: cleanString(row.definition) || undefined,
         markdown_preview: cleanString(row.markdown_preview) || undefined,
         paper_count: Math.max(0, Math.floor(cleanNumber(row.paper_count, 0))),
         summary: cleanString(row.summary) || undefined,
@@ -1963,6 +2047,215 @@ function normalizeReferenceMatchTargetCandidates(
     });
 }
 
+function normalizeCanonicalActionAvailability(
+  value: unknown,
+): SynthesisUiCanonicalActionAvailability {
+  const row =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    allowed: Boolean(row.allowed),
+    reason: cleanString(row.reason) || undefined,
+    blockers: normalizeStringList(row.blockers),
+  };
+}
+
+function normalizeCanonicalReferenceRows(
+  rows:
+    | Array<
+        Partial<SynthesisUiCanonicalReferenceRow> & {
+          effective_canonical_id?: string;
+          projected_literature_item_id?: string;
+        }
+      >
+    | undefined,
+): SynthesisUiCanonicalReferenceRow[] {
+  return [...(rows || [])]
+    .map((row) => {
+      const effectiveCanonicalId = cleanString(row.effective_canonical_id);
+      const projectedLiteratureItemId =
+        cleanString(row.projected_literature_item_id) || effectiveCanonicalId;
+      const actionAvailability =
+        row.action_availability &&
+        typeof row.action_availability === "object"
+          ? (row.action_availability as Record<string, unknown>)
+          : {};
+      const binding =
+        row.binding && typeof row.binding === "object"
+          ? {
+              libraryId: Math.max(
+                0,
+                Math.floor(Number(row.binding.libraryId) || 0),
+              ),
+              itemKey: cleanString(row.binding.itemKey),
+              paperRef: cleanString(row.binding.paperRef),
+              title: cleanString(row.binding.title) || undefined,
+              status: normalizeReferenceBindingStatus(row.binding.status),
+            }
+          : undefined;
+      return {
+        row_id:
+          cleanString(row.row_id) ||
+          projectedLiteratureItemId ||
+          effectiveCanonicalId,
+        effective_canonical_id: effectiveCanonicalId,
+        projected_literature_item_id: projectedLiteratureItemId,
+        title:
+          cleanString(row.title) ||
+          projectedLiteratureItemId ||
+          effectiveCanonicalId,
+        normalized_title: cleanString(row.normalized_title) || undefined,
+        year: cleanString(row.year) || undefined,
+        authors: normalizeStringList(row.authors),
+        identifiers:
+          row.identifiers && typeof row.identifiers === "object"
+            ? (row.identifiers as Record<string, unknown>)
+            : undefined,
+        identifiers_list: Array.isArray(row.identifiers_list)
+          ? row.identifiers_list
+              .filter((entry) => entry && typeof entry === "object")
+              .map((entry) => ({
+                kind: cleanString((entry as Record<string, unknown>).kind),
+                value: cleanString((entry as Record<string, unknown>).value),
+              }))
+              .filter((entry) => entry.kind && entry.value)
+          : undefined,
+        binding: binding?.itemKey
+          ? {
+              ...binding,
+              paperRef:
+                binding.paperRef || `${binding.libraryId}:${binding.itemKey}`,
+            }
+          : undefined,
+        raw_reference_count: Math.max(
+          0,
+          Math.floor(Number(row.raw_reference_count) || 0),
+        ),
+        raw_reference_samples: Array.isArray(row.raw_reference_samples)
+          ? row.raw_reference_samples
+          : [],
+        physical_canonical_ids: normalizeStringList(
+          row.physical_canonical_ids,
+        ),
+        effective_canonical_ids: normalizeStringList(
+          row.effective_canonical_ids,
+        ),
+        incoming_redirects: Array.isArray(row.incoming_redirects)
+          ? row.incoming_redirects
+          : [],
+        outgoing_redirects: Array.isArray(row.outgoing_redirects)
+          ? row.outgoing_redirects
+          : [],
+        related_proposals: Array.isArray(row.related_proposals)
+          ? row.related_proposals
+          : [],
+        duplicate_peers: Array.isArray(row.duplicate_peers)
+          ? row.duplicate_peers
+          : [],
+        incoming_redirect_count: Math.max(
+          0,
+          Math.floor(Number(row.incoming_redirect_count) || 0),
+        ),
+        outgoing_redirect_count: Math.max(
+          0,
+          Math.floor(Number(row.outgoing_redirect_count) || 0),
+        ),
+        proposal_count: Math.max(
+          0,
+          Math.floor(Number(row.proposal_count) || 0),
+        ),
+        open_proposal_count: Math.max(
+          0,
+          Math.floor(Number(row.open_proposal_count) || 0),
+        ),
+        graph_node_id: cleanString(row.graph_node_id) || undefined,
+        graph_in_degree: Math.max(
+          0,
+          Math.floor(Number(row.graph_in_degree) || 0),
+        ),
+        graph_out_degree: Math.max(
+          0,
+          Math.floor(Number(row.graph_out_degree) || 0),
+        ),
+        possible_duplicate_group:
+          cleanString(row.possible_duplicate_group) || undefined,
+        action_availability: {
+          merge: normalizeCanonicalActionAvailability(
+            actionAvailability.merge,
+          ),
+          edit: normalizeCanonicalActionAvailability(actionAvailability.edit),
+          archive: normalizeCanonicalActionAvailability(
+            actionAvailability.archive,
+          ),
+        },
+        diagnostics: Array.isArray(row.diagnostics) ? row.diagnostics : [],
+      };
+    })
+    .filter(
+      (row) => row.effective_canonical_id && row.projected_literature_item_id,
+    )
+    .sort(
+      (left, right) =>
+        left.title.localeCompare(right.title, undefined, {
+          sensitivity: "base",
+        }) ||
+        (left.year || "").localeCompare(right.year || "") ||
+        left.projected_literature_item_id.localeCompare(
+          right.projected_literature_item_id,
+        ),
+    );
+}
+
+function filterCanonicalReferenceRows(
+  rows: SynthesisUiCanonicalReferenceRow[],
+  filters: SynthesisUiState["registry"],
+) {
+  const query = cleanString(filters.canonicalSearch || filters.search)
+    .toLowerCase()
+    .trim();
+  return rows.filter((row) => {
+    if (
+      query &&
+      ![
+        row.title,
+        row.year,
+        row.effective_canonical_id,
+        row.projected_literature_item_id,
+        ...(row.physical_canonical_ids || []),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    ) {
+      return false;
+    }
+    if (filters.canonicalBinding === "bound" && !row.binding) return false;
+    if (filters.canonicalBinding === "external" && row.binding) return false;
+    if (filters.canonicalGraph === "visible" && !row.graph_node_id) return false;
+    if (filters.canonicalGraph === "not_in_graph" && row.graph_node_id) {
+      return false;
+    }
+    if (
+      filters.canonicalRedirects === "has_redirects" &&
+      row.incoming_redirect_count + row.outgoing_redirect_count <= 0
+    ) {
+      return false;
+    }
+    if (
+      filters.canonicalProposals === "has_proposals" &&
+      row.proposal_count <= 0
+    ) {
+      return false;
+    }
+    if (
+      filters.canonicalDuplicates === "possible_duplicate" &&
+      !row.possible_duplicate_group
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function normalizeTagWarnings(
   values: unknown,
 ): SynthesisUiTagValidationWarning[] {
@@ -2145,7 +2438,8 @@ function normalizeTopicGraphNodes(
       return {
         topic_id: topicId,
         title: cleanString(node.title) || topicId,
-        short_definition: cleanString((node as any).short_definition) || undefined,
+        short_definition:
+          cleanString((node as any).short_definition) || undefined,
         definition: cleanString((node as any).definition) || undefined,
         summary: cleanString((node as any).summary) || undefined,
         aliases: normalizeStringList(node.aliases),
@@ -2776,10 +3070,17 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
       viewMode: "graph",
     },
     registry: {
+      activeIndexTool: "none",
       search: "",
       scope: "library",
       artifactCoverage: "all",
       bindingStatus: "all",
+      canonicalSearch: "",
+      canonicalBinding: "all",
+      canonicalGraph: "all",
+      canonicalRedirects: "all",
+      canonicalProposals: "all",
+      canonicalDuplicates: "all",
       reviewDrawerOpen: true,
       reviewDrawerIndex: 0,
       expandedSourceRefs: [],
@@ -2884,7 +3185,12 @@ function filterArtifacts(
   filters: SynthesisUiState["artifacts"],
 ) {
   const filtered = rows.filter((row) => {
-    if (!includesText(`${row.title} ${row.id}`, filters.search)) {
+    if (
+      !includesText(
+        `${row.title} ${row.id} ${row.definition || ""}`,
+        filters.search,
+      )
+    ) {
       return false;
     }
     if (filters.coverage !== "all" && row.coverage !== filters.coverage) {
@@ -3319,6 +3625,9 @@ export function buildSynthesisUiSnapshot(
   const matchTargetCandidates = normalizeReferenceMatchTargetCandidates(
     input.registry?.matchTargetCandidates,
   );
+  const canonicalRows = normalizeCanonicalReferenceRows(
+    input.registry?.canonicalRows,
+  );
   const tagWarnings = normalizeTagWarnings(input.tags?.validationWarnings);
   const tagRows = normalizeTagRows(input.tags?.entries, tagWarnings);
   const stagedTagRows = normalizeStagedTagRows(input.tags?.staged);
@@ -3464,6 +3773,14 @@ export function buildSynthesisUiSnapshot(
       cleanupProposals,
       matchProposals,
       matchTargetCandidates,
+      canonicalRows,
+      visibleCanonicalRows: filterCanonicalReferenceRows(
+        canonicalRows,
+        state.registry,
+      ),
+      canonicalDiagnostics: Array.isArray(input.registry?.canonicalDiagnostics)
+        ? input.registry.canonicalDiagnostics
+        : [],
       cacheStatus: normalizeCacheStatus(
         input.registry?.cacheStatus,
         "reference-sidecar:library",
@@ -3712,8 +4029,49 @@ export function applySynthesisUiAction(
     }
     if (payload.registry && typeof payload.registry === "object") {
       const filters = payload.registry as Record<string, unknown>;
+      if ("activeIndexTool" in filters) {
+        next.registry.activeIndexTool =
+          filters.activeIndexTool === "revise_canonicals"
+            ? "revise_canonicals"
+            : "none";
+      }
       if ("search" in filters) {
         next.registry.search = cleanString(filters.search);
+      }
+      if ("canonicalSearch" in filters) {
+        next.registry.canonicalSearch = cleanString(filters.canonicalSearch);
+      }
+      if ("canonicalBinding" in filters) {
+        const value = cleanString(filters.canonicalBinding);
+        next.registry.canonicalBinding =
+          value === "bound" || value === "external" ? value : "all";
+      }
+      if ("canonicalGraph" in filters) {
+        const value = cleanString(filters.canonicalGraph);
+        next.registry.canonicalGraph =
+          value === "visible" || value === "not_in_graph" ? value : "all";
+      }
+      if ("canonicalRedirects" in filters) {
+        next.registry.canonicalRedirects =
+          cleanString(filters.canonicalRedirects) === "has_redirects"
+            ? "has_redirects"
+            : "all";
+      }
+      if ("canonicalProposals" in filters) {
+        next.registry.canonicalProposals =
+          cleanString(filters.canonicalProposals) === "has_proposals"
+            ? "has_proposals"
+            : "all";
+      }
+      if ("canonicalDuplicates" in filters) {
+        next.registry.canonicalDuplicates =
+          cleanString(filters.canonicalDuplicates) === "possible_duplicate"
+            ? "possible_duplicate"
+            : "all";
+      }
+      if ("selectedCanonicalRowId" in filters) {
+        next.registry.selectedCanonicalRowId =
+          cleanString(filters.selectedCanonicalRowId) || undefined;
       }
       if ("scope" in filters) {
         next.registry.scope = normalizeRegistryScopeFilter(filters.scope);

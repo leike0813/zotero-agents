@@ -861,9 +861,22 @@ async function sendTopicDetail(
   if (!runtime?.frameWindow) {
     return;
   }
-  const detail = await getDefaultSynthesisService().readTopicDetail({
+  const service = getDefaultSynthesisService();
+  const detail = await service.readTopicDetail({
     topicId,
   });
+  if (
+    !runtime.snapshotInputLocked &&
+    surfaceNeedsServiceRefresh(runtime, "concepts")
+  ) {
+    const conceptInput = await service
+      .getSynthesisWorkbenchSurfaceInput("concepts", runtime.state)
+      .catch(() => undefined);
+    if (conceptInput) {
+      mergeRuntimeSnapshotInput(runtime, conceptInput);
+      markSurfaceLoaded(runtime, "concepts");
+    }
+  }
   const result = applySynthesisUiAction(runtime.state, {
     action: "showArtifactReader",
     payload: { topicId },
@@ -1425,6 +1438,30 @@ function handleAction(
     );
     return;
   }
+  if (result.hostCommand?.command === "applyCanonicalRevisionReviewAction") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const reviewItemId = String(
+      commandArgs.reviewItemId || commandArgs.review_item_id || "",
+    ).trim();
+    const action =
+      String(commandArgs.action || "").trim() === "reject"
+        ? "reject"
+        : "accept";
+    if (reviewItemId) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyCanonicalRevisionReviewAction",
+        { reviewItemId, action },
+        () =>
+          getDefaultSynthesisService()
+            .applyCanonicalRevisionReviewAction({ reviewItemId, action })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
   if (result.hostCommand?.command === "applyReferenceMatchProposalActions") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const decisions = Array.isArray(commandArgs.decisions)
@@ -1519,6 +1556,110 @@ function handleAction(
         () =>
           getDefaultSynthesisService()
             .applyReferenceMatchProposalAction({ proposalId, action })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "mergeEffectiveCanonicalReference") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const sourceEffectiveCanonicalId = String(
+      commandArgs.sourceEffectiveCanonicalId ||
+        commandArgs.source_effective_canonical_id ||
+        "",
+    ).trim();
+    const targetEffectiveCanonicalId = String(
+      commandArgs.targetEffectiveCanonicalId ||
+        commandArgs.target_effective_canonical_id ||
+        "",
+    ).trim();
+    if (sourceEffectiveCanonicalId && targetEffectiveCanonicalId) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "mergeEffectiveCanonicalReference",
+        { sourceEffectiveCanonicalId, targetEffectiveCanonicalId },
+        () =>
+          getDefaultSynthesisService()
+            .mergeEffectiveCanonicalReference({
+              sourceEffectiveCanonicalId,
+              targetEffectiveCanonicalId,
+              confirmRetargetGroup: Boolean(commandArgs.confirmRetargetGroup),
+            })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "applyCanonicalRevisionMergeRequests") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const requests = Array.isArray(commandArgs.requests)
+      ? commandArgs.requests.filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) && typeof entry === "object",
+        )
+      : [];
+    if (requests.length) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "applyCanonicalRevisionMergeRequests",
+        { count: requests.length },
+        () =>
+          getDefaultSynthesisService()
+            .applyCanonicalRevisionMergeRequests({ requests })
+            .then(failOnDiagnostic),
+        { deferStart: true },
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "updateCanonicalReferenceMetadata") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const canonicalReferenceId = String(
+      commandArgs.canonicalReferenceId || commandArgs.canonical_reference_id || "",
+    ).trim();
+    const patch =
+      commandArgs.patch &&
+      typeof commandArgs.patch === "object" &&
+      !Array.isArray(commandArgs.patch)
+        ? (commandArgs.patch as Record<string, unknown>)
+        : {};
+    if (canonicalReferenceId) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "updateCanonicalReferenceMetadata",
+        { canonicalReferenceId },
+        () =>
+          getDefaultSynthesisService()
+            .updateCanonicalReferenceMetadata({
+              canonicalReferenceId,
+              patch,
+            })
+            .then(failOnDiagnostic),
+      );
+      return;
+    }
+    void sendActiveSurface(runtime, { refreshFromService: false });
+    return;
+  }
+  if (result.hostCommand?.command === "archiveCanonicalReference") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const canonicalReferenceId = String(
+      commandArgs.canonicalReferenceId || commandArgs.canonical_reference_id || "",
+    ).trim();
+    if (canonicalReferenceId) {
+      runWorkbenchCommandOnce(
+        runtime,
+        "archiveCanonicalReference",
+        { canonicalReferenceId },
+        () =>
+          getDefaultSynthesisService()
+            .archiveCanonicalReference({ canonicalReferenceId })
             .then(failOnDiagnostic),
       );
       return;
@@ -1857,9 +1998,18 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "applyReferenceMatchProposalAction" ||
-    command === "applyReferenceMatchProposalActions"
+    command === "applyReferenceMatchProposalActions" ||
+    command === "applyCanonicalRevisionReviewAction" ||
+    command === "mergeEffectiveCanonicalReference" ||
+    command === "applyCanonicalRevisionMergeRequests"
   ) {
     return ["index", "review", "graph"];
+  }
+  if (
+    command === "updateCanonicalReferenceMetadata" ||
+    command === "archiveCanonicalReference"
+  ) {
+    return ["index", "review"];
   }
   if (
     command === "refreshCitationGraphCacheIncrementalNow" ||

@@ -290,6 +290,10 @@ describe("Synthesis sidecar cache hard cut", function () {
             raw: "Sensors 18(10), 3337",
           },
           {
+            title: "None",
+            raw: "Arandjelovic, R.",
+          },
+          {
             title:
               "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
             year: "2021",
