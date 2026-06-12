@@ -185,7 +185,7 @@ Allowed transitions:
 Forbidden transitions:
 
 - `stale -> topic source changed`.
-- `missing -> block literature-digest`.
+- `missing -> block literature-analysis`.
 - `refreshing -> mutate Zotero Library metadata`.
 
 ## `sm.operation.explicit`

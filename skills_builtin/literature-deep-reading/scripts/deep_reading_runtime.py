@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import difflib
 import hashlib
+import html
 import json
+import mimetypes
 import os
 import re
 import shutil
@@ -24,6 +28,9 @@ VIEWS_DIR = Path("runtime/views")
 SOURCE_DIR = Path("runtime/source")
 PAYLOADS_DIR = Path("runtime/payloads")
 RESULT_PATH = Path("literature-deep-reading.result.json")
+RESULT_DIR = Path("result")
+RESULT_SECTIONS_DIR = RESULT_DIR / "sections"
+FINAL_HTML_PATH = RESULT_DIR / "deep-reading.html"
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\n]+)\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -49,6 +56,10 @@ READING_ENRICHMENT_FIELDS = {
 BLOCK_TRANSLATION_FIELDS = {"translations"}
 BLOCK_TRANSLATION_ROW_FIELDS = {"block_id", "translated_markdown", "quality_notes"}
 FORMULA_BLOCK_KINDS = {"formula"}
+FINAL_REVIEW_FIELDS = {"overall_assessment", "quality_observations"}
+FINAL_REVIEW_OBSERVATION_FIELDS = {"severity", "kind", "block_id", "section_anchor", "message"}
+FINAL_REVIEW_ASSESSMENTS = {"ready", "ready_with_notes", "needs_revision"}
+FINAL_REVIEW_SEVERITIES = {"info", "warning", "error"}
 
 
 def utc_now() -> str:
@@ -238,6 +249,75 @@ def block_text(block: dict[str, Any]) -> str:
     return str(block.get("source_markdown") or "").strip()
 
 
+def render_math_text(text: str) -> str:
+    placeholders: list[str] = []
+
+    def display_repl(match: re.Match[str]) -> str:
+        content = match.group(1).strip()
+        placeholders.append(
+            f'<div class="math math-display" role="math"><code>{html.escape(content)}</code></div>'
+        )
+        return f"\u0000MATH{len(placeholders) - 1}\u0000"
+
+    def inline_repl(match: re.Match[str]) -> str:
+        content = match.group(1).strip()
+        placeholders.append(
+            f'<span class="math math-inline" role="math"><code>{html.escape(content)}</code></span>'
+        )
+        return f"\u0000MATH{len(placeholders) - 1}\u0000"
+
+    protected = re.sub(r"\$\$\s*([\s\S]*?)\s*\$\$", display_repl, text)
+    protected = re.sub(r"(?<!\$)\$([^$\n]+?)\$(?!\$)", inline_repl, protected)
+    escaped = html.escape(protected)
+    for index, value in enumerate(placeholders):
+        escaped = escaped.replace(html.escape(f"\u0000MATH{index}\u0000"), value)
+    return escaped
+
+
+def render_inline_markdown(text: str) -> str:
+    rendered = render_math_text(text)
+    rendered = re.sub(r"`([^`]+)`", lambda m: f"<code>{html.escape(m.group(1))}</code>", rendered)
+    rendered = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", rendered)
+    rendered = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", rendered)
+    return rendered
+
+
+def render_markdown_fragment(markdown: str, kind: str = "paragraph", section_anchor: str = "") -> str:
+    raw = str(markdown or "")
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    if stripped.lower().startswith("<table"):
+        return raw
+    if stripped.startswith("$$") and stripped.endswith("$$"):
+        return render_math_text(stripped)
+    image_match = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)", stripped)
+    if image_match:
+        alt = html.escape(image_match.group(1))
+        src = html.escape(image_match.group(2).strip())
+        return f'<img class="paper-image" src="" data-image-src="{src}" alt="{alt}">'
+    heading = HEADING_RE.match(stripped)
+    if heading:
+        level = len(heading.group(1))
+        anchor_attr = f' id="{html.escape(section_anchor)}"' if section_anchor else ""
+        return f"<h{level}{anchor_attr}>{render_inline_markdown(heading.group(2).strip())}</h{level}>"
+    lines = raw.splitlines()
+    if len(lines) >= 2 and "|" in lines[0] and re.match(r"^\s*\|?[\s:-]+\|", lines[1] or ""):
+        rows = []
+        for row_index, line in enumerate(lines):
+            if row_index == 1:
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            tag = "th" if row_index == 0 else "td"
+            rows.append("<tr>" + "".join(f"<{tag}>{render_inline_markdown(cell)}</{tag}>" for cell in cells) + "</tr>")
+        return "<table>" + "".join(rows) + "</table>"
+    return "\n".join(
+        f"<p>{render_inline_markdown(part.strip()).replace(chr(10), '<br>')}</p>"
+        for part in re.split(r"\n\s*\n", raw)
+        if part.strip()
+    )
+
+
 def extract_image_refs(text: str) -> list[str]:
     refs = [match.group(1).strip() for match in MARKDOWN_IMAGE_RE.finditer(text)]
     refs.extend(match.group(1).strip() for match in HTML_IMAGE_RE.finditer(text))
@@ -391,12 +471,20 @@ def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source
             original_src = str(entry.get("original_src") or entry.get("src") or bundle_path)
             if bundle_path:
                 seen.add(bundle_path)
+            path = extract_dir / bundle_path if bundle_path else Path()
+            exists = bool(bundle_path and path.exists())
+            byte_count = path.stat().st_size if exists else safe_int(entry.get("bytes"), 0)
+            status = clean_text(entry.get("status")) or ("available" if exists and byte_count > 0 else "missing")
+            if status == "available" and byte_count <= 0:
+                status = "corrupt"
             items.append(
                 {
                     "image_id": f"image-{len(items) + 1:04d}",
                     "original_src": original_src,
                     "bundle_path": bundle_path,
-                    "status": str(entry.get("status") or ("available" if bundle_path and (extract_dir / bundle_path).exists() else "missing")),
+                    "status": status,
+                    "bytes": byte_count,
+                    "sha256": clean_text(entry.get("sha256")),
                     "reason": str(entry.get("reason") or ""),
                 }
             )
@@ -407,13 +495,18 @@ def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source
                 continue
             seen.add(ref_text)
             candidate = extract_dir / ref_text
+            byte_count = candidate.stat().st_size if candidate.exists() else 0
+            status = "available" if candidate.exists() and byte_count > 0 else "missing"
+            if candidate.exists() and byte_count <= 0:
+                status = "corrupt"
             items.append(
                 {
                     "image_id": f"image-{len(items) + 1:04d}",
                     "original_src": ref_text,
                     "bundle_path": ref_text,
-                    "status": "available" if candidate.exists() else "missing",
-                    "reason": "" if candidate.exists() else "referenced file not found in bundle",
+                    "status": status,
+                    "bytes": byte_count,
+                    "reason": "" if status == "available" else "referenced file not found in bundle" if not candidate.exists() else "referenced image file is empty",
                 }
             )
     return {
@@ -498,6 +591,321 @@ def build_target_artifacts_view(extract_dir: Path) -> dict[str, Any]:
         "schema_version": "literature-deep-reading.target-artifacts-view.v0",
         "artifacts": artifacts,
     }
+
+
+def normalize_artifact_type(value: Any) -> str:
+    text = clean_text(value).replace("-", "_")
+    if text in {"citationanalysis", "citation_analysis"}:
+        return "citation_analysis"
+    return text
+
+
+def artifact_type_from_entry(entry: dict[str, Any]) -> str:
+    return normalize_artifact_type(
+        entry.get("artifact_type")
+        or entry.get("artifactType")
+        or entry.get("kind")
+        or entry.get("type")
+    )
+
+
+def artifact_paper_ref(entry: dict[str, Any]) -> str:
+    return first_text(
+        entry.get("paper_ref"),
+        entry.get("paperRef"),
+        entry.get("source_ref"),
+        entry.get("sourceRef"),
+        entry.get("bound_paper_ref"),
+    )
+
+
+def artifact_bundle_destination(entry: dict[str, Any]) -> str:
+    artifact_type = artifact_type_from_entry(entry)
+    payload_type = clean_text(entry.get("payload_type") or entry.get("payloadType"))
+    if artifact_type == "digest":
+        return "artifacts/digest.md"
+    if artifact_type == "references":
+        return "artifacts/references.json"
+    if artifact_type == "citation_analysis":
+        if payload_type.endswith("-markdown") or payload_type.endswith("-md"):
+            return "artifacts/citation-analysis.md"
+        return "artifacts/citation_analysis.json"
+    return ""
+
+
+def export_manifest_path(run_root: Path, export_data: dict[str, Any]) -> Path | None:
+    raw_path = first_text(
+        export_data.get("manifestPath"),
+        export_data.get("manifest_path"),
+        export_data.get("manifest_file"),
+        export_data.get("manifestFile"),
+    )
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = run_root / candidate
+    return candidate
+
+
+def load_export_manifest(run_root: Path, export_data: dict[str, Any]) -> dict[str, Any]:
+    manifest_file = export_manifest_path(run_root, export_data)
+    if manifest_file and manifest_file.exists():
+        manifest = read_json(manifest_file, {}) or {}
+        if isinstance(manifest, dict):
+            return manifest
+    return export_data if isinstance(export_data, dict) else {}
+
+
+def export_manifest_artifacts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for artifact in as_list(manifest.get("artifacts") or manifest.get("items")):
+        if isinstance(artifact, dict):
+            artifacts.append(artifact)
+    for paper in as_list(manifest.get("papers")):
+        if not isinstance(paper, dict):
+            continue
+        paper_ref = first_text(paper.get("paper_ref"), paper.get("paperRef"))
+        for artifact in as_list(paper.get("artifacts")):
+            if not isinstance(artifact, dict):
+                continue
+            normalized = dict(artifact)
+            if paper_ref and not artifact_paper_ref(normalized):
+                normalized["paper_ref"] = paper_ref
+            artifacts.append(normalized)
+    return artifacts
+
+
+def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export_data: dict[str, Any]) -> list[dict[str, Any]]:
+    manifest = load_export_manifest(run_root, export_data)
+    exported: list[dict[str, Any]] = []
+    for artifact in export_manifest_artifacts(manifest):
+        if not isinstance(artifact, dict):
+            continue
+        artifact_type = artifact_type_from_entry(artifact)
+        if artifact_type not in {"digest", "references", "citation_analysis"}:
+            continue
+        paper_ref = artifact_paper_ref(artifact)
+        if target_paper_ref and paper_ref and paper_ref != target_paper_ref:
+            continue
+        content_file = first_text(
+            artifact.get("content_file"),
+            artifact.get("contentFile"),
+            artifact.get("path"),
+            artifact.get("payload_path"),
+            artifact.get("payloadPath"),
+        )
+        destination = artifact_bundle_destination(artifact)
+        if not content_file or not destination:
+            exported.append(
+                {
+                    "artifact_type": artifact_type,
+                    "status": "missing",
+                    "reason": "export manifest entry does not include content_file or a known artifact type",
+                    "raw": artifact,
+                }
+            )
+            continue
+        source_path = Path(content_file)
+        if not source_path.is_absolute():
+            source_path = run_root / content_file
+        destination_path = SOURCE_DIR / destination
+        if not source_path.exists() or source_path.stat().st_size <= 0:
+            exported.append(
+                {
+                    "artifact_type": artifact_type,
+                    "status": "missing",
+                    "reason": "exported artifact content file is missing or empty",
+                    "content_file": content_file,
+                    "bundle_path": destination,
+                }
+            )
+            continue
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if not destination_path.exists() or destination_path.stat().st_size <= 0:
+            shutil.copyfile(source_path, destination_path)
+        exported.append(
+            {
+                "artifact_type": artifact_type,
+                "payload_type": clean_text(artifact.get("payload_type") or artifact.get("payloadType")),
+                "status": "available",
+                "content_file": normalize_posix(source_path),
+                "bundle_path": destination,
+                "bytes": destination_path.stat().st_size,
+                "sha256": sha256_file(destination_path),
+            }
+        )
+    return exported
+
+
+def reference_index_rows(index_data: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = index_data.get("rows")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def find_target_reference_index_row(index_data: dict[str, Any], target: dict[str, str]) -> dict[str, Any]:
+    paper_ref = clean_text(target.get("paper_ref"))
+    item_key = clean_text(target.get("item_key"))
+    for row in reference_index_rows(index_data):
+        row_paper_ref = first_text(row.get("paper_ref"), row.get("paperRef"), row.get("source_ref"), row.get("sourceRef"))
+        row_item_key = first_text(row.get("item_key"), row.get("itemKey"), row.get("zotero_item_key"), row.get("zoteroItemKey"))
+        if (paper_ref and row_paper_ref == paper_ref) or (item_key and row_item_key == item_key):
+            return row
+    return {}
+
+
+def explicit_topic_id_from_preflight(preflight: dict[str, Any]) -> str:
+    topic = preflight.get("topic") if isinstance(preflight.get("topic"), dict) else {}
+    row = preflight.get("target_reference_index_row") if isinstance(preflight.get("target_reference_index_row"), dict) else {}
+    return first_text(
+        topic.get("topic_id"),
+        topic.get("topicId"),
+        row.get("topic_id"),
+        row.get("topicId"),
+    )
+
+
+def normalize_topic_candidates(data: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for entry in as_list(data.get("topics") or data.get("items") or data.get("matches")):
+        if not isinstance(entry, dict):
+            continue
+        topic_id = first_text(entry.get("topic_id"), entry.get("topicId"), entry.get("id"))
+        if not topic_id:
+            continue
+        candidates.append(
+            {
+                "topic_id": topic_id,
+                "title": first_text(entry.get("title"), entry.get("name")),
+                "status": first_text(entry.get("status")),
+                "updated_at": first_text(entry.get("updated_at"), entry.get("updatedAt")),
+                "matched_paper_refs": [clean_text(item) for item in as_list(entry.get("matched_paper_refs") or entry.get("matchedPaperRefs")) if clean_text(item)],
+                "match_sources": [clean_text(item) for item in as_list(entry.get("match_sources") or entry.get("matchSources")) if clean_text(item)],
+                "raw": entry,
+            }
+        )
+    return candidates
+
+
+def build_topic_candidates_view(target: dict[str, str], data: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    candidates = normalize_topic_candidates(data)
+    return {
+        "schema_version": "literature-deep-reading.topic-candidates-view.v0",
+        "source": "host_topics_find_by_paper_ref" if candidates or data else "none",
+        "target": target,
+        "topics": candidates,
+        "raw": data,
+        "diagnostics": diagnostics,
+    }
+
+
+def resolve_preflight_topic(topic_candidates: list[dict[str, Any]], reference_topic_id: str) -> dict[str, str]:
+    if reference_topic_id:
+        return {"topic_id": reference_topic_id, "source": "reference_index"}
+    if len(topic_candidates) == 1:
+        return {"topic_id": clean_text(topic_candidates[0].get("topic_id")), "source": "topics_find_by_paper_ref"}
+    if len(topic_candidates) > 1:
+        return {"topic_id": "", "source": "multiple_topic_candidates"}
+    return {"topic_id": "", "source": "none"}
+
+
+def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    target = infer_target_refs(source_manifest())
+    preflight_diagnostics: list[dict[str, Any]] = []
+    topic_candidates_view = build_topic_candidates_view(target, {}, [])
+    result: dict[str, Any] = {
+        "schema_version": "literature-deep-reading.host-preflight-view.v0",
+        "source": "host_bridge_best_effort",
+        "target": target,
+        "reference_index": {},
+        "target_reference_index_row": {},
+        "paper_artifacts_manifest": {},
+        "paper_artifacts_export": {},
+        "exported_target_artifacts": [],
+        "topic_candidates": [],
+        "topic": {"topic_id": "", "source": "none"},
+        "diagnostics": preflight_diagnostics,
+    }
+    if not target.get("paper_ref"):
+        diagnostic = {"severity": "info", "code": "host_preflight_target_missing", "message": "No paper_ref is available for Host preflight."}
+        preflight_diagnostics.append(diagnostic)
+        diagnostics.append(diagnostic)
+        write_json(VIEWS_DIR / "topic-candidates-view.json", build_topic_candidates_view(target, {}, [diagnostic]))
+        return result
+    try:
+        bridge_executable(run_root)
+    except Exception as exc:  # noqa: BLE001
+        diagnostic = {"severity": "warning", "code": "host_bridge_unavailable", "message": str(exc)}
+        preflight_diagnostics.append(diagnostic)
+        diagnostics.append(diagnostic)
+        write_json(VIEWS_DIR / "topic-candidates-view.json", build_topic_candidates_view(target, {}, [diagnostic]))
+        return result
+    try:
+        reference_output = run_bridge_json(
+            run_root,
+            ["reference-index", "get"],
+            {"sourceRefs": [target["paper_ref"]], "limit": 250, "artifactCoverage": "all"},
+            "bootstrap-reference-index-input.json",
+        )
+        reference_data = unwrap_bridge_data(reference_output)
+        target_row = find_target_reference_index_row(reference_data, target)
+        result["reference_index"] = reference_data
+        result["target_reference_index_row"] = target_row
+        topic_id = explicit_topic_id_from_preflight({"target_reference_index_row": target_row})
+        if topic_id:
+            result["topic"] = {"topic_id": topic_id, "source": "reference_index"}
+    except Exception as exc:  # noqa: BLE001
+        diagnostic = {"severity": "warning", "code": "host_preflight_reference_index_failed", "message": str(exc)}
+        preflight_diagnostics.append(diagnostic)
+        diagnostics.append(diagnostic)
+    try:
+        topic_output = run_bridge_json(
+            run_root,
+            ["topics", "find-by-paper-ref"],
+            {"paper_ref": target["paper_ref"]},
+            "bootstrap-topics-find-by-paper-ref-input.json",
+        )
+        topic_data = unwrap_bridge_data(topic_output)
+        topic_candidates = normalize_topic_candidates(topic_data)
+        topic_candidates_view = build_topic_candidates_view(target, topic_data, as_list(topic_data.get("diagnostics")))
+        result["topic_candidates"] = topic_candidates
+        if not clean_text(result.get("topic", {}).get("topic_id")):
+            result["topic"] = resolve_preflight_topic(topic_candidates, "")
+        if len(topic_candidates) > 1:
+            diagnostic = {"severity": "info", "code": "topic_context_multiple_candidates", "message": "Multiple topics contain the target paper; context-request must choose selected_topic_id to fetch topic context."}
+            preflight_diagnostics.append(diagnostic)
+            diagnostics.append(diagnostic)
+            topic_candidates_view["diagnostics"] = [*as_list(topic_candidates_view.get("diagnostics")), diagnostic]
+    except Exception as exc:  # noqa: BLE001
+        diagnostic = {"severity": "warning", "code": "host_preflight_topic_candidates_failed", "message": str(exc)}
+        preflight_diagnostics.append(diagnostic)
+        diagnostics.append(diagnostic)
+        topic_candidates_view = build_topic_candidates_view(target, {}, [diagnostic])
+    try:
+        manifest_output = run_bridge_json(
+            run_root,
+            ["paper-artifacts", "manifest"],
+            {"paper_refs": [target["paper_ref"]], "artifact_types": ["digest", "references", "citation_analysis"]},
+            "bootstrap-paper-artifacts-manifest-input.json",
+        )
+        result["paper_artifacts_manifest"] = unwrap_bridge_data(manifest_output)
+        export_output = run_bridge_json(
+            run_root,
+            ["paper-artifacts", "export-filtered"],
+            {"run_root": str(run_root), "paper_refs": [target["paper_ref"]], "artifact_types": ["digest", "references", "citation_analysis"]},
+            "bootstrap-paper-artifacts-export-input.json",
+        )
+        export_data = unwrap_bridge_data(export_output)
+        result["paper_artifacts_export"] = export_data
+        result["exported_target_artifacts"] = copy_exported_target_artifacts(run_root, target["paper_ref"], export_data)
+    except Exception as exc:  # noqa: BLE001
+        diagnostic = {"severity": "warning", "code": "host_preflight_artifact_export_failed", "message": str(exc)}
+        preflight_diagnostics.append(diagnostic)
+        diagnostics.append(diagnostic)
+    write_json(VIEWS_DIR / "topic-candidates-view.json", topic_candidates_view)
+    return result
 
 
 def build_references_seed_view(extract_dir: Path, blocks: list[dict[str, Any]], references_anchor: str | None) -> dict[str, Any]:
@@ -886,10 +1294,12 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             }
         ]
     image_manifest = build_image_manifest(SOURCE_DIR, blocks, source_manifest if isinstance(source_manifest, dict) else {})
+    host_preflight = run_host_preflight(Path.cwd(), diagnostics)
     target_artifacts = build_target_artifacts_view(SOURCE_DIR)
     source_structure = build_source_structure(sections, blocks, references_anchor)
     source_reading = build_source_reading_view(sections, blocks)
     references_seed = build_references_seed_view(SOURCE_DIR, blocks, references_anchor)
+    concept_needs = build_concept_needs_view({}, {"concepts": []}, source_reading)
     missing_images = [item for item in image_manifest["images"] if item.get("status") != "available"]
     for item in missing_images:
         diagnostics.append({"severity": "warning", "code": "image_missing", "image": item.get("bundle_path") or item.get("original_src")})
@@ -907,6 +1317,8 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     write_json(VIEWS_DIR / "source-reading-view.json", source_reading)
     write_json(VIEWS_DIR / "target-artifacts-view.json", target_artifacts)
     write_json(VIEWS_DIR / "references-seed-view.json", references_seed)
+    write_json(VIEWS_DIR / "host-preflight-view.json", host_preflight)
+    write_json(VIEWS_DIR / "concept-needs-view.json", concept_needs)
     write_json(
         VIEWS_DIR / "diagnostics-bootstrap.json",
         {
@@ -931,6 +1343,9 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             "source_reading": normalize_posix(VIEWS_DIR / "source-reading-view.json"),
             "target_artifacts": normalize_posix(VIEWS_DIR / "target-artifacts-view.json"),
             "references_seed": normalize_posix(VIEWS_DIR / "references-seed-view.json"),
+            "host_preflight": normalize_posix(VIEWS_DIR / "host-preflight-view.json"),
+            "topic_candidates": normalize_posix(VIEWS_DIR / "topic-candidates-view.json"),
+            "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-bootstrap.json"),
         "final_html_available": False,
@@ -963,6 +1378,7 @@ def validate_context_request_payload(payload: Any) -> list[str]:
         "external_context_section_anchors",
         "request_topic_context",
         "topic_context_reason",
+        "selected_topic_id",
         "request_concept_context",
         "concept_labels",
         "request_citation_graph",
@@ -1010,6 +1426,7 @@ def normalize_context_request(payload: dict[str, Any]) -> dict[str, Any]:
         "external_context_section_anchors": [clean_text(item) for item in as_list(payload.get("external_context_section_anchors")) if clean_text(item)],
         "request_topic_context": bool(payload.get("request_topic_context")),
         "topic_context_reason": clean_text(payload.get("topic_context_reason")),
+        "selected_topic_id": clean_text(payload.get("selected_topic_id")),
         "request_concept_context": bool(payload.get("request_concept_context")),
         "concept_labels": [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)],
         "request_citation_graph": bool(payload.get("request_citation_graph")),
@@ -1060,16 +1477,29 @@ def normalize_reference(entry: Any, index: int) -> dict[str, Any]:
 
 
 def merge_reference_index_bindings(bindings: list[dict[str, Any]], index_result: dict[str, Any]) -> list[dict[str, Any]]:
-    references = as_list(index_result.get("references") or index_result.get("items"))
+    references = as_list(
+        index_result.get("references")
+        or index_result.get("items")
+        or index_result.get("bindings")
+        or index_result.get("rows")
+    )
     by_title: dict[str, dict[str, Any]] = {}
     by_index: dict[int, dict[str, Any]] = {}
     for entry in references:
         if not isinstance(entry, dict):
             continue
-        title = clean_text(entry.get("title") or entry.get("reference_title") or entry.get("raw")).lower()
+        if "rows" in index_result and not (
+            entry.get("reference_index")
+            or entry.get("referenceIndex")
+            or entry.get("index")
+            or entry.get("reference_title")
+            or entry.get("referenceTitle")
+        ):
+            continue
+        title = clean_text(entry.get("title") or entry.get("reference_title") or entry.get("referenceTitle") or entry.get("raw")).lower()
         if title:
             by_title[title] = entry
-        idx = safe_int(entry.get("reference_index") or entry.get("index"), 0)
+        idx = safe_int(entry.get("reference_index") or entry.get("referenceIndex") or entry.get("index"), 0)
         if idx:
             by_index[idx] = entry
     merged: list[dict[str, Any]] = []
@@ -1098,6 +1528,10 @@ def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostic
     references = as_list(seed.get("references"))
     bindings = [normalize_reference(entry, index) for index, entry in enumerate(references, start=1)]
     target_refs = infer_target_refs(source_manifest())
+    preflight = read_view("host-preflight-view.json", {})
+    preflight_index = preflight.get("reference_index") if isinstance(preflight.get("reference_index"), dict) else {}
+    if bindings and preflight_index:
+        bindings = merge_reference_index_bindings(bindings, preflight_index)
     if bindings and target_refs["paper_ref"]:
         try:
             output = run_bridge_json(
@@ -1136,14 +1570,8 @@ def library_bindings_for_policy(bindings: list[dict[str, Any]], context: dict[st
 
 def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any]], export_data: dict[str, Any]) -> list[dict[str, Any]]:
     target_dir = clean_text(export_data.get("targetDir") or export_data.get("target_dir"))
-    manifest_path = clean_text(export_data.get("manifestPath") or export_data.get("manifest_path"))
-    manifest: dict[str, Any] = {}
-    if manifest_path:
-        candidate = Path(manifest_path)
-        if not candidate.is_absolute():
-            candidate = run_root / candidate
-        manifest = read_json(candidate, {}) or {}
-    artifacts = as_list(manifest.get("artifacts") or manifest.get("items"))
+    manifest = load_export_manifest(run_root, export_data)
+    artifacts = export_manifest_artifacts(manifest)
     artifacts_by_paper: dict[str, dict[str, Any]] = {}
     for artifact in artifacts:
         if not isinstance(artifact, dict):
@@ -1340,6 +1768,69 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
     return snapshot, layout
 
 
+def normalize_concept_query_entries(data: dict[str, Any], labels: list[str]) -> list[dict[str, Any]]:
+    raw_entries = as_list(data.get("concepts") or data.get("matches") or data.get("items"))
+    concepts: list[dict[str, Any]] = []
+    for entry in raw_entries:
+        if not isinstance(entry, dict):
+            continue
+        query_label = first_text(entry.get("query"), entry.get("query_label"), entry.get("queryLabel"), entry.get("label"))
+        nested = entry.get("concept") if isinstance(entry.get("concept"), dict) else None
+        candidates = as_list(entry.get("matches") or entry.get("candidates") or entry.get("concepts"))
+        if nested:
+            candidates = [nested, *candidates]
+        if candidates:
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                label = first_text(candidate.get("label"), candidate.get("name"), candidate.get("title"), query_label)
+                if not label:
+                    continue
+                aliases = [clean_text(item) for item in as_list(candidate.get("aliases") or candidate.get("alias")) if clean_text(item)]
+                if query_label and concept_key(query_label) != concept_key(label):
+                    aliases.append(query_label)
+                concepts.append(
+                    {
+                        "label": label,
+                        "aliases": sorted({alias for alias in aliases if alias}),
+                        "kind": first_text(candidate.get("kind"), candidate.get("type"), entry.get("kind"), entry.get("type")),
+                        "definition": first_text(candidate.get("definition"), candidate.get("description"), entry.get("definition"), entry.get("description")),
+                        "status": first_text(candidate.get("status"), entry.get("status")) or "available",
+                        "score": candidate.get("score") or entry.get("score"),
+                        "raw": candidate,
+                    }
+                )
+            continue
+        label = first_text(entry.get("label"), entry.get("name"), entry.get("title"), query_label)
+        if not label:
+            continue
+        concepts.append(
+            {
+                "label": label,
+                "aliases": [clean_text(item) for item in as_list(entry.get("aliases") or entry.get("alias")) if clean_text(item)],
+                "kind": first_text(entry.get("kind"), entry.get("type")),
+                "definition": first_text(entry.get("definition"), entry.get("description")),
+                "status": clean_text(entry.get("status") or "available"),
+                "score": entry.get("score"),
+                "raw": entry,
+            }
+        )
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for concept in concepts:
+        key = concept_key(first_text(concept.get("label")))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(concept)
+    for label in labels:
+        key = concept_key(label)
+        if key and key not in seen:
+            seen.add(key)
+            unique.append({"label": label, "aliases": [], "kind": "", "definition": "", "status": "requested"})
+    return unique
+
+
 def collect_concepts(context: dict[str, Any], run_root: Path, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
     labels = context["concept_labels"]
     if not context["request_concept_context"] or not labels:
@@ -1362,7 +1853,7 @@ def collect_concepts(context: dict[str, Any], run_root: Path, diagnostics: list[
             "source": "host_concepts_query",
             "request": {"labels": labels},
             "raw": data,
-            "concepts": as_list(data.get("concepts")),
+            "concepts": normalize_concept_query_entries(data, labels),
             "diagnostics": as_list(data.get("diagnostics")),
         }
     except Exception as exc:  # noqa: BLE001
@@ -1376,14 +1867,99 @@ def collect_concepts(context: dict[str, Any], run_root: Path, diagnostics: list[
         }
 
 
+def extract_source_concept_terms(limit: int = 20, source_reading: dict[str, Any] | None = None) -> list[str]:
+    source_reading = source_reading if isinstance(source_reading, dict) else read_view("source-reading-view.json", {})
+    text = "\n".join(
+        first_text(section.get("title"), section.get("excerpt"))
+        for section in as_list(source_reading.get("sections"))
+        if isinstance(section, dict)
+    )
+    candidates: list[str] = []
+    for match in re.finditer(r"\b[A-Z][A-Z0-9-]{2,}\b", text):
+        candidates.append(match.group(0))
+    for match in re.finditer(r"\b(?:[A-Za-z][A-Za-z0-9-]+(?:\s+|$)){2,4}", text):
+        term = re.sub(r"\s+", " ", match.group(0)).strip()
+        if len(term) >= 12 and not term.lower().startswith(("this ", "that ", "there ", "these ")):
+            candidates.append(term)
+    unique: list[str] = []
+    seen: set[str] = set()
+    for term in candidates:
+        key = concept_key(term)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(term)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def build_concept_needs_view(context: dict[str, Any], concept_candidates: dict[str, Any], source_reading: dict[str, Any] | None = None) -> dict[str, Any]:
+    labels: list[tuple[str, str]] = []
+    for label in as_list(context.get("concept_labels")):
+        text = clean_text(label)
+        if text:
+            labels.append((text, "context_request"))
+    for concept in as_list(concept_candidates.get("concepts")):
+        if isinstance(concept, dict) and clean_text(concept.get("label")):
+            labels.append((clean_text(concept.get("label")), "host_candidate"))
+    for term in extract_source_concept_terms(source_reading=source_reading):
+        labels.append((term, "source_terms"))
+
+    candidate_by_key = {
+        concept_key(clean_text(concept.get("label"))): concept
+        for concept in as_list(concept_candidates.get("concepts"))
+        if isinstance(concept, dict) and clean_text(concept.get("label"))
+    }
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for label, source in labels:
+        key = concept_key(label)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        candidate = candidate_by_key.get(key, {})
+        definition = first_text(candidate.get("definition"), candidate.get("description")) if isinstance(candidate, dict) else ""
+        items.append(
+            {
+                "label": label,
+                "source": source,
+                "host_definition_available": bool(definition),
+                "definition": definition,
+                "status": "resolved_by_host" if definition else "needs_agent_definition",
+            }
+        )
+    return {
+        "schema_version": "literature-deep-reading.concept-needs-view.v0",
+        "source": "source_terms_context_request_and_host_candidates",
+        "items": items,
+        "diagnostics": [],
+    }
+
+
 def collect_topic_context(context: dict[str, Any], run_root: Path, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
     manifest = source_manifest()
     paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
-    topic_id = first_text(paper.get("topic_id"), paper.get("topicId"), manifest.get("topic_id"), manifest.get("topicId"))
+    preflight = read_view("host-preflight-view.json", {})
+    topic_candidates_view = read_view("topic-candidates-view.json", {})
+    topic_candidates = [item for item in as_list(topic_candidates_view.get("topics")) if isinstance(item, dict)]
+    selected_topic_id = clean_text(context.get("selected_topic_id"))
+    topic_id = first_text(
+        selected_topic_id,
+        paper.get("topic_id"),
+        paper.get("topicId"),
+        manifest.get("topic_id"),
+        manifest.get("topicId"),
+        explicit_topic_id_from_preflight(preflight if isinstance(preflight, dict) else {}),
+    )
+    if not topic_id and len(topic_candidates) == 1:
+        topic_id = clean_text(topic_candidates[0].get("topic_id"))
     if not context["request_topic_context"]:
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": []}
     if not topic_id:
-        diagnostic = {"severity": "info", "code": "topic_context_unresolved", "message": "No explicit topic id is available for topics get-context."}
+        code = "topic_context_multiple_candidates" if len(topic_candidates) > 1 else "topic_context_unresolved"
+        message = "Multiple topic candidates are available; set selected_topic_id in context-request.json." if len(topic_candidates) > 1 else "No explicit topic id is available for topics get-context."
+        diagnostic = {"severity": "info", "code": code, "message": message}
         diagnostics.append(diagnostic)
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": [diagnostic]}
     try:
@@ -1528,7 +2104,7 @@ def concept_key(label: str) -> str:
     return re.sub(r"\s+", " ", label.strip().lower())
 
 
-def normalize_concept_record(entry: Any, source: str, fallback_status: str = "available") -> dict[str, Any] | None:
+def normalize_concept_record(entry: Any, source: str, fallback_status: str = "available", require_definition: bool = False) -> dict[str, Any] | None:
     if not isinstance(entry, dict):
         return None
     label = first_text(entry.get("label"), entry.get("name"), entry.get("title"))
@@ -1536,6 +2112,8 @@ def normalize_concept_record(entry: Any, source: str, fallback_status: str = "av
         return None
     aliases = [clean_text(item) for item in as_list(entry.get("aliases") or entry.get("alias")) if clean_text(item)]
     definition = first_text(entry.get("definition"), entry.get("description"))
+    if require_definition and not definition:
+        return None
     return {
         "concept_id": loose_slug(label, "concept"),
         "label": label,
@@ -1552,8 +2130,12 @@ def build_concept_overlay_view(payload: dict[str, Any], diagnostics: list[dict[s
     concepts_by_key: dict[str, dict[str, Any]] = {}
     used_ids: set[str] = set()
 
+    unresolved_mentions: list[dict[str, str]] = []
+
     for entry in as_list(candidates.get("concepts")):
-        concept = normalize_concept_record(entry, "host_concepts_query")
+        concept = normalize_concept_record(entry, "host_concepts_query", require_definition=True)
+        if not concept and isinstance(entry, dict) and clean_text(entry.get("label")):
+            diagnostics.append({"severity": "info", "code": "concept_candidate_needs_definition", "label": clean_text(entry.get("label"))})
         if not concept:
             continue
         concept["concept_id"] = stable_id("concept", concept["label"], used_ids)
@@ -1562,7 +2144,9 @@ def build_concept_overlay_view(payload: dict[str, Any], diagnostics: list[dict[s
             concepts_by_key.setdefault(concept_key(alias), concept)
 
     for entry in as_list(payload.get("concepts")):
-        concept = normalize_concept_record(entry, "agent_enrichment")
+        concept = normalize_concept_record(entry, "agent_enrichment", require_definition=True)
+        if not concept and isinstance(entry, dict) and clean_text(entry.get("label")):
+            diagnostics.append({"severity": "info", "code": "concept_agent_entry_missing_definition", "label": clean_text(entry.get("label"))})
         if not concept:
             continue
         existing = concepts_by_key.get(concept_key(concept["label"]))
@@ -1597,17 +2181,8 @@ def build_concept_overlay_view(payload: dict[str, Any], diagnostics: list[dict[s
         key = concept_key(label)
         if key in concepts_by_key:
             continue
-        concept = {
-            "concept_id": stable_id("keyword", label, used_ids),
-            "label": label,
-            "aliases": [],
-            "kind": "keyword",
-            "definition": "",
-            "source": "reading_aid",
-            "status": "keyword_only",
-        }
-        concepts_by_key[key] = concept
-        diagnostics.append({"severity": "info", "code": "concept_keyword_only", "label": label})
+        unresolved_mentions.append({"label": label, "status": "keyword", "reason": "no host or agent definition"})
+        diagnostics.append({"severity": "info", "code": "concept_unresolved_in_payload", "label": label})
 
     unique_concepts: dict[str, dict[str, Any]] = {}
     for concept in concepts_by_key.values():
@@ -1617,6 +2192,7 @@ def build_concept_overlay_view(payload: dict[str, Any], diagnostics: list[dict[s
         "source": "host_candidates_and_agent_enrichment",
         "concepts": sorted(unique_concepts.values(), key=lambda item: item["label"].lower()),
         "mentions_by_anchor": mentions,
+        "unresolved_mentions": unresolved_mentions,
         "diagnostics": [item for item in diagnostics if str(item.get("code", "")).startswith("concept_")],
     }
 
@@ -1632,8 +2208,8 @@ def build_preface_view(payload: dict[str, Any], concept_view: dict[str, Any]) ->
         preface_concepts.append(
             {
                 "label": text,
-                "concept_id": concept.get("concept_id") if concept and concept.get("status") != "keyword_only" else "",
-                "status": concept.get("status") if concept else "keyword_only",
+                "concept_id": concept.get("concept_id") if concept else "",
+                "status": concept.get("status") if concept else "keyword",
             }
         )
     return {
@@ -1667,8 +2243,8 @@ def build_section_insights_view(payload: dict[str, Any], concept_view: dict[str,
             concepts.append(
                 {
                     "label": text,
-                    "concept_id": concept.get("concept_id") if concept and concept.get("status") != "keyword_only" else "",
-                    "status": concept.get("status") if concept else "keyword_only",
+                    "concept_id": concept.get("concept_id") if concept else "",
+                    "status": concept.get("status") if concept else "keyword",
                 }
             )
         citation_note = {
@@ -2018,6 +2594,94 @@ def is_table_like(markdown: str) -> bool:
     return False
 
 
+PLACEHOLDER_TRANSLATION_RE = re.compile(r"\b(todo|tbd|same as source|unchanged|copy source|原文同上|同上|未翻译|待翻译)\b", re.IGNORECASE)
+
+
+def text_for_translation_quality(markdown: str) -> str:
+    text = re.sub(r"```.*?```", " ", str(markdown or ""), flags=re.DOTALL)
+    text = re.sub(r"\$\$.*?\$\$|\$[^$]+\$", " ", text, flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[|:.\-#*_`~\[\](){},;!?\"'\\]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def normalized_quality_text(markdown: str) -> str:
+    return text_for_translation_quality(markdown).casefold()
+
+
+def target_language_profile(target_language: str) -> dict[str, Any]:
+    code = clean_text(target_language).split("-")[0].lower()
+    if code in {"zh", "ja"}:
+        return {"code": code, "script": "cjk", "minimum_script_ratio": 0.15}
+    if code == "ko":
+        return {"code": code, "script": "hangul", "minimum_script_ratio": 0.15}
+    if code in {"ru", "uk", "bg", "sr", "mk"}:
+        return {"code": code, "script": "cyrillic", "minimum_script_ratio": 0.35}
+    if code in {"ar", "fa", "ur"}:
+        return {"code": code, "script": "arabic", "minimum_script_ratio": 0.35}
+    if code == "el":
+        return {"code": code, "script": "greek", "minimum_script_ratio": 0.35}
+    if code in {"hi", "mr", "ne"}:
+        return {"code": code, "script": "devanagari", "minimum_script_ratio": 0.25}
+    if code == "he":
+        return {"code": code, "script": "hebrew", "minimum_script_ratio": 0.35}
+    if code == "th":
+        return {"code": code, "script": "thai", "minimum_script_ratio": 0.25}
+    return {"code": code, "script": "latin_or_unknown", "minimum_script_ratio": 0.0}
+
+
+def script_char_ratio(text: str, script: str) -> float:
+    ranges = {
+        "cjk": [(0x3400, 0x9FFF), (0xF900, 0xFAFF), (0x3040, 0x30FF)],
+        "hangul": [(0xAC00, 0xD7AF), (0x1100, 0x11FF)],
+        "cyrillic": [(0x0400, 0x052F)],
+        "arabic": [(0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF)],
+        "greek": [(0x0370, 0x03FF), (0x1F00, 0x1FFF)],
+        "devanagari": [(0x0900, 0x097F)],
+        "hebrew": [(0x0590, 0x05FF)],
+        "thai": [(0x0E00, 0x0E7F)],
+    }
+    chars = [char for char in text if char.isalpha()]
+    if not chars or script not in ranges:
+        return 0.0
+    matched = 0
+    for char in chars:
+        codepoint = ord(char)
+        if any(start <= codepoint <= end for start, end in ranges[script]):
+            matched += 1
+    return matched / len(chars)
+
+
+def translation_quality_errors(block: dict[str, Any], translated: str, target_language: str) -> list[str]:
+    errors: list[str] = []
+    kind = clean_text(block.get("kind"))
+    if kind in FORMULA_BLOCK_KINDS:
+        return errors
+    block_id = clean_text(block.get("block_id"))
+    source_text = normalized_quality_text(clean_text(block.get("source_markdown")))
+    translated_text = normalized_quality_text(translated)
+    if PLACEHOLDER_TRANSLATION_RE.search(translated):
+        errors.append(f"translation appears to be a placeholder: {block_id}")
+    if source_text and translated_text:
+        if source_text == translated_text and (len(source_text) >= 40 or (kind in {"paragraph", "table"} and len(source_text) >= 20)):
+            errors.append(f"translation copies source text: {block_id}")
+        elif len(source_text) >= 80:
+            similarity = difflib.SequenceMatcher(None, source_text, translated_text).ratio()
+            if similarity >= 0.92:
+                errors.append(f"translation is too similar to source text: {block_id}")
+            if kind in {"paragraph", "table", "image"} and len(translated_text) < max(20, int(len(source_text) * 0.22)):
+                errors.append(f"translation is suspiciously short for source block: {block_id}")
+    profile = target_language_profile(target_language)
+    minimum_ratio = float(profile.get("minimum_script_ratio") or 0.0)
+    if minimum_ratio and len(translated_text) >= 30:
+        ratio = script_char_ratio(translated_text, clean_text(profile.get("script")))
+        if ratio < minimum_ratio:
+            errors.append(f"translation does not appear to use target language script for {target_language}: {block_id}")
+    return errors
+
+
 def validate_block_translations_payload(payload: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(payload, dict):
@@ -2039,8 +2703,10 @@ def validate_block_translations_payload(payload: Any) -> list[str]:
         for block_id, block in blocks_by_id.items()
         if bool(block.get("translate")) and clean_text(block.get("kind")) not in FORMULA_BLOCK_KINDS
     }
+    target_language = target_language_from_db()
     seen: set[str] = set()
     submitted_block_ids: set[str] = set()
+    normalized_submissions: dict[str, list[str]] = {}
     for index, row in enumerate(as_list(payload.get("translations")), start=1):
         if not isinstance(row, dict):
             errors.append(f"translations[{index}] must be an object")
@@ -2069,7 +2735,16 @@ def validate_block_translations_payload(payload: Any) -> list[str]:
             errors.append(f"translations[{index}].quality_notes must be an array")
         if clean_text(block.get("kind")) == "table" and translated and not is_table_like(translated):
             errors.append(f"translations[{index}] table translation must remain table-like: {block_id}")
+        if translated and block:
+            errors.extend(f"translations[{index}] {message}" for message in translation_quality_errors(block, translated, target_language))
+            normalized = normalized_quality_text(translated)
+            if len(normalized) >= 40:
+                normalized_submissions.setdefault(normalized, []).append(block_id)
         submitted_block_ids.add(block_id)
+    for block_ids in normalized_submissions.values():
+        unique_ids = sorted(set(block_ids))
+        if len(unique_ids) >= 2:
+            errors.append("repeated identical translation across blocks: " + ", ".join(unique_ids))
     missing = sorted(required_block_ids - submitted_block_ids)
     if missing:
         errors.append("missing translations for required blocks: " + ", ".join(missing))
@@ -2216,6 +2891,360 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-translation.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
+        "error": None,
+    }
+    write_json(RESULT_PATH, result)
+    return result
+
+
+def validate_final_review_payload(payload: Any) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        return ["final review must be a JSON object"]
+    unknown = sorted(set(payload) - FINAL_REVIEW_FIELDS)
+    if unknown:
+        errors.append("unknown fields: " + ", ".join(unknown))
+    assessment = clean_text(payload.get("overall_assessment"))
+    if assessment not in FINAL_REVIEW_ASSESSMENTS:
+        errors.append(f"overall_assessment must be one of {sorted(FINAL_REVIEW_ASSESSMENTS)}")
+    if "quality_observations" in payload and not isinstance(payload.get("quality_observations"), list):
+        errors.append("quality_observations must be an array")
+    anchors = available_section_anchors()
+    block_ids = {clean_text(block.get("block_id")) for block in reading_blocks() if clean_text(block.get("block_id"))}
+    for index, observation in enumerate(as_list(payload.get("quality_observations")), start=1):
+        if not isinstance(observation, dict):
+            errors.append(f"quality_observations[{index}] must be an object")
+            continue
+        row_unknown = sorted(set(observation) - FINAL_REVIEW_OBSERVATION_FIELDS)
+        if row_unknown:
+            errors.append(f"quality_observations[{index}] has unknown fields: " + ", ".join(row_unknown))
+        severity = clean_text(observation.get("severity"))
+        if severity not in FINAL_REVIEW_SEVERITIES:
+            errors.append(f"quality_observations[{index}].severity must be one of {sorted(FINAL_REVIEW_SEVERITIES)}")
+        if not clean_text(observation.get("kind")):
+            errors.append(f"quality_observations[{index}] requires kind")
+        if not clean_text(observation.get("message")):
+            errors.append(f"quality_observations[{index}] requires message")
+        block_id = clean_text(observation.get("block_id"))
+        if block_id and block_id not in block_ids:
+            errors.append(f"quality_observations[{index}] references unknown block_id: {block_id}")
+        anchor = clean_text(observation.get("section_anchor"))
+        if anchor and anchor not in anchors:
+            errors.append(f"quality_observations[{index}] references unknown section_anchor: {anchor}")
+    return errors
+
+
+def normalize_final_review(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "overall_assessment": clean_text(payload.get("overall_assessment")),
+        "quality_observations": [
+            {
+                "severity": clean_text(item.get("severity")),
+                "kind": clean_text(item.get("kind")),
+                "block_id": clean_text(item.get("block_id")),
+                "section_anchor": clean_text(item.get("section_anchor")),
+                "message": clean_text(item.get("message")),
+            }
+            for item in as_list(payload.get("quality_observations"))
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def template_dir() -> Path:
+    script_path = Path(__file__).resolve()
+    return script_path.parents[1] / "renderer" / "templates"
+
+
+def read_template(name: str) -> str:
+    path = template_dir() / name
+    if not path.exists():
+        raise FileNotFoundError(f"renderer template is missing: {normalize_posix(path)}")
+    return path.read_text(encoding="utf-8")
+
+
+def image_data_uri(path: Path) -> str:
+    mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def build_source_images_view() -> dict[str, Any]:
+    manifest = read_view("image-manifest.json", {})
+    items: list[dict[str, Any]] = []
+    by_src: dict[str, Any] = {}
+    by_path: dict[str, Any] = {}
+    for item in as_list(manifest.get("images")):
+        if not isinstance(item, dict):
+            continue
+        bundle_path = clean_text(item.get("bundle_path"))
+        original_src = clean_text(item.get("original_src"))
+        runtime_path = SOURCE_DIR / bundle_path if bundle_path else Path()
+        data_uri = ""
+        status = clean_text(item.get("status") or "missing")
+        bytes_count = runtime_path.stat().st_size if bundle_path and runtime_path.exists() else safe_int(item.get("bytes"), 0)
+        if bundle_path and runtime_path.exists() and bytes_count > 0:
+            data_uri = image_data_uri(runtime_path)
+            status = "available"
+        elif bundle_path and runtime_path.exists() and bytes_count <= 0:
+            status = "corrupt"
+        normalized = {
+            **item,
+            "original_src": original_src,
+            "bundle_path": bundle_path,
+            "status": status,
+            "bytes": bytes_count,
+            "data_uri": data_uri,
+        }
+        items.append(normalized)
+        if original_src:
+            by_src[original_src] = normalized
+        if bundle_path:
+            by_path[bundle_path] = normalized
+    return {
+        "schema_version": "literature-deep-reading.source-images.v0",
+        "images": items,
+        "by_src": by_src,
+        "by_path": by_path,
+        "available_count": sum(1 for item in items if item.get("data_uri")),
+    }
+
+
+def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
+    navigation = [{"anchor": "preface", "title": "阅读前导读", "level": 0, "kind": "preface"}]
+    for section in as_list(source_structure.get("sections")):
+        if not isinstance(section, dict):
+            continue
+        anchor = clean_text(section.get("anchor"))
+        title = clean_text(section.get("title"))
+        if not anchor or not title:
+            continue
+        navigation.append(
+            {
+                "anchor": anchor,
+                "title": title,
+                "level": max(0, safe_int(section.get("level"), 1) - 1),
+                "kind": "paper_section",
+            }
+        )
+    navigation.extend(
+        [
+            {"anchor": "summary", "title": "Summary", "level": 0, "kind": "summary"},
+            {"anchor": "references", "title": "References", "level": 0, "kind": "references"},
+            {"anchor": "citation-graph", "title": "Citation Graph", "level": 0, "kind": "citation_graph"},
+            {"anchor": "extensions", "title": "Extensions", "level": 0, "kind": "extensions"},
+        ]
+    )
+    return navigation
+
+
+def paper_metadata() -> dict[str, Any]:
+    manifest = source_manifest()
+    paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
+    return {
+        "title": first_text(paper.get("title"), manifest.get("title"), "Literature Deep Reading"),
+        "item_key": first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key")),
+        "target_language": target_language_from_db(),
+    }
+
+
+def build_render_reading_blocks(blocks: list[dict[str, Any]], translation: dict[str, Any]) -> list[dict[str, Any]]:
+    translations = {
+        clean_text(item.get("block_id")): item
+        for item in as_list(translation.get("items"))
+        if isinstance(item, dict) and clean_text(item.get("block_id"))
+    }
+    rendered: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict) or block.get("translate") is False:
+            continue
+        block_id = clean_text(block.get("block_id"))
+        source_markdown = str(block.get("source_markdown") or "")
+        translated_markdown = clean_text(translations.get(block_id, {}).get("translated_markdown")) or source_markdown
+        rendered.append(
+            {
+                **block,
+                "id": block_id,
+                "source_html": render_markdown_fragment(source_markdown, clean_text(block.get("kind")), clean_text(block.get("section_anchor"))),
+                "translation": translated_markdown,
+                "translated_markdown": translated_markdown,
+                "translation_html": render_markdown_fragment(translated_markdown, clean_text(block.get("kind")), f"zh-{clean_text(block.get('section_anchor'))}" if block.get("kind") == "heading" else ""),
+            }
+        )
+    return rendered
+
+
+def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    source_structure = read_view("source-structure.json", {})
+    source_images = build_source_images_view()
+    translation = read_view("translation-view.json", {})
+    citation_snapshot = read_view("citation-graph-snapshot.json", {})
+    citation_layout = read_view("citation-graph-layout.json", {})
+    layout_nodes = as_list(citation_layout.get("nodes"))
+    if as_list(citation_snapshot.get("nodes")) and not layout_nodes:
+        diagnostics.append({"severity": "warning", "code": "citation_graph_layout_missing"})
+    blocks = reading_blocks()
+    sections_view = {
+        "schema_version": "literature-deep-reading.seamless-scroll.v0",
+        "paper": paper_metadata(),
+        "navigation": build_navigation(source_structure),
+        "preface": read_view("preface-view.json", {}),
+        "sections": as_list(source_structure.get("sections")),
+        "reading_blocks": build_render_reading_blocks(blocks, translation),
+        "summary": read_view("summary-view.json", {}),
+        "post_reading_markdown": "",
+        "section_insights": read_view("section-insights-view.json", {}),
+        "references_source": read_view("references-view.json", {}).get("references_source") or read_view("references-view.json", {}).get("source") or "none",
+        "references": read_view("references-view.json", {}),
+        "concepts": read_view("concept-overlay-view.json", {}),
+        "citation_graph": {
+            "anchor": "citation-graph",
+            "snapshot": citation_snapshot,
+            "layout": citation_layout,
+        },
+        "extensions": read_view("extensions-view.json", {}),
+        "translation": translation,
+        "images": source_images,
+        "final_review": final_review,
+    }
+    diagnostics_view = {
+        "schema_version": "literature-deep-reading.final-diagnostics.v0",
+        "diagnostics": diagnostics,
+        "final_review": final_review,
+    }
+    return sections_view, source_images, diagnostics_view
+
+
+def safe_inline_json(value: Any) -> str:
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("</", "<\\/")
+        .replace("http://", "http:\\/\\/")
+        .replace("https://", "https:\\/\\/")
+        .replace("file://", "file:\\/\\/")
+    )
+
+
+def render_final_html(sections_view: dict[str, Any]) -> str:
+    title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
+    template = read_template("deep-reading.html.tpl")
+    style = read_template("deep-reading.css")
+    script = read_template("deep-reading.js")
+    return (
+        template.replace("{{TITLE}}", title)
+        .replace("{{STYLE}}", style)
+        .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
+        .replace("{{SCRIPT}}", script)
+    )
+
+
+def external_html_references(html_text: str) -> list[str]:
+    patterns = ["http://", "https://", "file://", 'src="assets/', "src='assets/", 'href="assets/', "href='assets/", 'src="sections/', "src='sections/", 'href="sections/', "href='sections/"]
+    return [pattern for pattern in patterns if pattern in html_text]
+
+
+def persist_stage40_db(payload_path: Path, final_review: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        ensure_stage30_tables(conn)
+        now = utc_now()
+        conn.execute(
+            "INSERT OR REPLACE INTO payload_submissions VALUES (?, ?, ?, ?, ?, ?)",
+            ("stage_40_final_review_and_render", normalize_posix(payload_path), "literature-deep-reading.final-review.v0", "valid", "[]", now),
+        )
+        conn.execute(
+            "UPDATE runs SET status = ?, updated_at = ?, diagnostics_json = ? WHERE run_id = ?",
+            ("completed", now, json.dumps(diagnostics + as_list(final_review.get("quality_observations")), ensure_ascii=False), "default"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def write_invalid_stage40_submission(payload_path: Path, errors: list[str]) -> None:
+    if not DB_PATH.exists():
+        return
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        ensure_stage30_tables(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO payload_submissions VALUES (?, ?, ?, ?, ?, ?)",
+            ("stage_40_final_review_and_render", normalize_posix(payload_path), "literature-deep-reading.final-review.v0", "invalid", json.dumps(errors, ensure_ascii=False), utc_now()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def submit_final_review(payload_path: Path) -> dict[str, Any]:
+    if not DB_PATH.exists():
+        raise FileNotFoundError("bootstrap database is missing; run bootstrap first")
+    missing_views = [
+        path
+        for path in [
+            VIEWS_DIR / "preface-view.json",
+            VIEWS_DIR / "section-insights-view.json",
+            VIEWS_DIR / "concept-overlay-view.json",
+            VIEWS_DIR / "references-view.json",
+            VIEWS_DIR / "summary-view.json",
+            VIEWS_DIR / "extensions-view.json",
+            VIEWS_DIR / "translation-view.json",
+        ]
+        if not path.exists()
+    ]
+    if missing_views:
+        raise FileNotFoundError("final render views are missing: " + ", ".join(normalize_posix(path) for path in missing_views))
+    payload_raw = read_json(payload_path, {})
+    errors = validate_final_review_payload(payload_raw)
+    if errors:
+        write_invalid_stage40_submission(payload_path, errors)
+        raise ValueError("; ".join(errors))
+    final_review = normalize_final_review(payload_raw)
+    diagnostics: list[dict[str, Any]] = []
+    if final_review["overall_assessment"] == "needs_revision":
+        diagnostics.append({"severity": "warning", "code": "final_review_needs_revision"})
+    sections_view, source_images, diagnostics_view = build_final_sections_view(final_review, diagnostics)
+    html_text = render_final_html(sections_view)
+    external_refs = external_html_references(html_text)
+    if external_refs:
+        raise ValueError("final HTML contains external or loose references: " + ", ".join(external_refs))
+    RESULT_SECTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    write_json(RESULT_SECTIONS_DIR / "sections.json", sections_view)
+    write_json(RESULT_SECTIONS_DIR / "source-images.json", source_images)
+    write_json(RESULT_SECTIONS_DIR / "diagnostics.json", diagnostics_view)
+    FINAL_HTML_PATH.write_text(html_text, encoding="utf-8")
+    manifest = {
+        "schema_version": "literature-deep-reading.final-manifest.v0",
+        "entrypoint": normalize_posix(FINAL_HTML_PATH),
+        "final_html_available": True,
+        "html_sha256": sha256_file(FINAL_HTML_PATH),
+        "html_bytes": FINAL_HTML_PATH.stat().st_size,
+        "generated_at": utc_now(),
+        "diagnostics_count": len(diagnostics_view["diagnostics"]),
+    }
+    write_json(RESULT_DIR / "deep-reading-manifest.json", manifest)
+    candidate = {
+        "html": normalize_posix(FINAL_HTML_PATH),
+        "sections": [normalize_posix(RESULT_SECTIONS_DIR / "sections.json")],
+        "diagnostics": diagnostics_view["diagnostics"],
+    }
+    write_json(RESULT_DIR / "final-output.candidate.json", candidate)
+    persist_stage40_db(payload_path, final_review, diagnostics_view["diagnostics"])
+    result = {
+        "kind": "literature_deep_reading_finalized",
+        "status": "completed",
+        "db_path": normalize_posix(DB_PATH),
+        "views": {
+            "sections": normalize_posix(RESULT_SECTIONS_DIR / "sections.json"),
+            "source_images": normalize_posix(RESULT_SECTIONS_DIR / "source-images.json"),
+            "diagnostics": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
+            "manifest": normalize_posix(RESULT_DIR / "deep-reading-manifest.json"),
+        },
+        "diagnostics_path": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
+        "final_html_available": True,
+        "html_path": normalize_posix(FINAL_HTML_PATH),
+        "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics_view["diagnostics"]],
         "error": None,
     }
     write_json(RESULT_PATH, result)
@@ -2379,6 +3408,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
     reference_digests = collect_reference_digests(context, run_root, as_list(reference_bindings.get("items")), diagnostics)
     citation_snapshot, citation_layout = collect_citation_graph(context, run_root, diagnostics)
     concepts = collect_concepts(context, run_root, diagnostics)
+    concept_needs = build_concept_needs_view(context, concepts)
     topic_context = collect_topic_context(context, run_root, diagnostics)
     graph_context = {
         "schema_version": "literature-deep-reading.graph-context.v0",
@@ -2400,6 +3430,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
             "topic_context": normalize_posix(VIEWS_DIR / "topic-context.json"),
             "graph_context": normalize_posix(VIEWS_DIR / "graph-context.json"),
             "concept_candidates": normalize_posix(VIEWS_DIR / "concept-candidates-view.json"),
+            "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
         },
         "diagnostics_count": len(diagnostics),
     }
@@ -2416,6 +3447,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
         "topic-context": topic_context,
         "graph-context": graph_context,
         "concept-candidates-view": concepts,
+        "concept-needs-view": concept_needs,
         "diagnostics-host-context": diagnostics_view,
     }
     for filename, view in view_map.items():
@@ -2430,6 +3462,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
             "citation-graph-layout": citation_layout,
             "topic-context": topic_context,
             "concept-candidates": concepts,
+            "concept-needs": concept_needs,
         },
         diagnostics,
     )
@@ -2469,6 +3502,8 @@ def validate_bootstrap() -> dict[str, Any]:
         VIEWS_DIR / "source-reading-view.json",
         VIEWS_DIR / "target-artifacts-view.json",
         VIEWS_DIR / "references-seed-view.json",
+        VIEWS_DIR / "host-preflight-view.json",
+        VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-bootstrap.json",
         RESULT_PATH,
     ]
@@ -2525,6 +3560,7 @@ def validate_context_request(payload_path: Path | None = None) -> dict[str, Any]
         VIEWS_DIR / "topic-context.json",
         VIEWS_DIR / "graph-context.json",
         VIEWS_DIR / "concept-candidates-view.json",
+        VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-host-context.json",
     ]
     if not any(errors):
@@ -2668,6 +3704,65 @@ def validate_block_translations(payload_path: Path | None = None) -> dict[str, A
     return {"ok": not errors, "errors": errors}
 
 
+def validate_final_output(payload_path: Path | None = None) -> dict[str, Any]:
+    errors: list[str] = []
+    if not DB_PATH.exists():
+        errors.append("missing bootstrap database")
+    selected_payload = payload_path or PAYLOADS_DIR / "final-review.json"
+    if not selected_payload.exists():
+        errors.append(f"missing payload: {normalize_posix(selected_payload)}")
+        payload: Any = {}
+    else:
+        try:
+            payload = read_json(selected_payload, {})
+        except Exception as exc:  # noqa: BLE001
+            payload = {}
+            errors.append(f"invalid json: {normalize_posix(selected_payload)}: {exc}")
+    if selected_payload.exists():
+        errors.extend(validate_final_review_payload(payload))
+    required = [
+        FINAL_HTML_PATH,
+        RESULT_DIR / "deep-reading-manifest.json",
+        RESULT_DIR / "final-output.candidate.json",
+        RESULT_SECTIONS_DIR / "sections.json",
+        RESULT_SECTIONS_DIR / "source-images.json",
+        RESULT_SECTIONS_DIR / "diagnostics.json",
+    ]
+    if not any(errors):
+        for path in required:
+            if not path.exists():
+                errors.append(f"missing: {normalize_posix(path)}")
+        for path in required:
+            if path.suffix == ".json" and path.exists():
+                try:
+                    read_json(path, {})
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"invalid json: {normalize_posix(path)}: {exc}")
+        if FINAL_HTML_PATH.exists():
+            html_text = FINAL_HTML_PATH.read_text(encoding="utf-8", errors="replace")
+            external_refs = external_html_references(html_text)
+            if external_refs:
+                errors.append("final HTML contains external or loose references: " + ", ".join(external_refs))
+            for marker in ["data-nav", "data-concept-rail", "data-mode=\"compare\"", "data-preface", "data-paper", "data-translation-paper", "data-summary", "data-post-reading", "data-citation-graph", "data-extensions", "data-digest-modal"]:
+                if marker not in html_text:
+                    errors.append(f"final HTML missing marker: {marker}")
+        if DB_PATH.exists():
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                try:
+                    stage = conn.execute(
+                        "SELECT status FROM payload_submissions WHERE stage_id = ?",
+                        ("stage_40_final_review_and_render",),
+                    ).fetchone()
+                    if not stage or stage[0] != "valid":
+                        errors.append("missing valid stage_40_final_review_and_render submission")
+                finally:
+                    conn.close()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"invalid sqlite: {exc}")
+    return {"ok": not errors, "errors": errors}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Literature deep reading runtime")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -2679,6 +3774,8 @@ def main(argv: list[str] | None = None) -> int:
     enrichment_parser.add_argument("--payload", required=True, help="Path to runtime/payloads/reading-enrichment.json")
     translation_parser = subparsers.add_parser("submit-block-translations")
     translation_parser.add_argument("--payload", required=True, help="Path to runtime/payloads/block-translations.json")
+    final_parser = subparsers.add_parser("submit-final-review")
+    final_parser.add_argument("--payload", required=True, help="Path to runtime/payloads/final-review.json")
     subparsers.add_parser("status")
     subparsers.add_parser("validate-bootstrap")
     validate_context_parser = subparsers.add_parser("validate-context-request")
@@ -2687,6 +3784,8 @@ def main(argv: list[str] | None = None) -> int:
     validate_enrichment_parser.add_argument("--payload", required=False, help="Path to runtime/payloads/reading-enrichment.json")
     validate_translation_parser = subparsers.add_parser("validate-block-translations")
     validate_translation_parser.add_argument("--payload", required=False, help="Path to runtime/payloads/block-translations.json")
+    validate_final_parser = subparsers.add_parser("validate-final-output")
+    validate_final_parser.add_argument("--payload", required=False, help="Path to runtime/payloads/final-review.json")
     args = parser.parse_args(argv)
     try:
         if args.command == "bootstrap":
@@ -2700,6 +3799,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "submit-block-translations":
             print_json(submit_block_translations(Path(args.payload)))
+            return 0
+        if args.command == "submit-final-review":
+            print_json(submit_final_review(Path(args.payload)))
             return 0
         if args.command == "status":
             print_json(status())
@@ -2718,6 +3820,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["ok"] else 2
         if args.command == "validate-block-translations":
             result = validate_block_translations(Path(args.payload) if args.payload else None)
+            print_json(result)
+            return 0 if result["ok"] else 2
+        if args.command == "validate-final-output":
+            result = validate_final_output(Path(args.payload) if args.payload else None)
             print_json(result)
             return 0 if result["ok"] else 2
         raise ValueError(f"Unknown command: {args.command}")

@@ -20,7 +20,7 @@ describe("domain filter path inference", function () {
 
   it("infers workflow domain from relative path", function () {
     const domain = inferDomainFromFilePath(
-      "test/workflow-literature-digest/21-workflow-literature-digest.test.ts",
+      "test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts",
     );
     assert.equal(domain, "workflow");
   });
@@ -105,7 +105,7 @@ describe("domain filter path inference", function () {
   it("allows retained Zotero workflow smoke files", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(
-        "test/workflow-literature-digest/21-workflow-literature-digest.test.ts",
+        "test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts",
         "lite",
       ),
       true,
@@ -141,7 +141,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: literature-digest skips build for core idempotent note shapes",
+          "workflow: literature-analysis skips build for core idempotent note shapes",
         mode: "lite",
       }),
       true,
@@ -197,7 +197,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: literature-digest upserts existing generated notes and keeps each kind unique",
+          "workflow: literature-analysis upserts existing generated notes and keeps each kind unique",
         mode: "lite",
       }),
       false,
@@ -207,7 +207,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: literature-digest upserts existing generated notes and keeps each kind unique",
+          "workflow: literature-analysis upserts existing generated notes and keeps each kind unique",
         mode: "full",
       }),
       true,

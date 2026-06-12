@@ -223,7 +223,7 @@ async function applyResultImpl(args) {
     "",
     `Debug marker: zs-debug-digest-apply-fixture-${stamp}`,
     "",
-    "This digest was written by the real literature-digest applyResult hook.",
+    "This digest was written by the real literature-analysis applyResult hook.",
     "",
     "## TL;DR",
     "",

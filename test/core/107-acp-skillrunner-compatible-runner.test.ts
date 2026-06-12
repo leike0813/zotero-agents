@@ -1872,11 +1872,11 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("rejects literature-digest selected markdown representative image without markdown_src_hint", async function () {
+  it("rejects literature-analysis selected markdown representative image without markdown_src_hint", async function () {
     const skillDir = path.join(
       process.cwd(),
       "skills_builtin",
-      "literature-digest",
+      "literature-analysis",
     );
     const runnerJson = JSON.parse(
       await fs.readFile(path.join(skillDir, "assets", "runner.json"), "utf8"),
@@ -2770,14 +2770,14 @@ describe("ACP SkillRunner-compatible runner", function () {
       const workspace = await createAcpSkillRunnerWorkspace({
         rootDir: root,
         backendId: "backend-acp-claude-code-acp-e29l768mbmft",
-        workflowId: "literature-digest",
+        workflowId: "literature-analysis",
         jobId: "Lin 等 - 2021 - DETR for crowd pedestrian detection.md",
       });
 
       const normalized = workspace.workspaceDir.replace(/\\/g, "/");
       assert.match(normalized, /\/acp-skill-[^/]+$/);
       assert.notInclude(normalized, "backend-acp-claude-code");
-      assert.notInclude(normalized, "literature-digest");
+      assert.notInclude(normalized, "literature-analysis");
       assert.notInclude(normalized, "DETR-for-crowd");
     } finally {
       await fs.rm(root, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 # import-notes
 
-为单个父条目导入 `literature-digest` 三类结构化 note 产物：
+为单个父条目导入 `literature-analysis` 三类结构化 note 产物：
 
 - digest markdown
 - references json

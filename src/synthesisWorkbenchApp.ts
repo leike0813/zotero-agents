@@ -7294,7 +7294,7 @@ function renderReferencedOnlyTable(snapshot: Snapshot) {
         : "No extracted references yet",
       message: snapshot.registry.rows.length
         ? "Adjust the search or Binding filter to show more extracted references."
-        : "Refresh the reference sidecar after generating literature-digest references.",
+        : "Refresh the reference sidecar after generating literature-analysis references.",
       action: makeButton(
         "Refresh",
         "hostCommand",

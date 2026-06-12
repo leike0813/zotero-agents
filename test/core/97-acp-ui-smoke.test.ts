@@ -2257,7 +2257,7 @@ describe("acp ui smoke", function () {
           status: "running",
           taskName: "Selected Paper Title",
           workflowLabel: "Digest",
-          skillId: "literature-digest",
+          skillId: "literature-analysis",
           backendId: "backend-a",
           backendLabel: "Backend A",
         },

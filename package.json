@@ -28,6 +28,7 @@
     "build": "zotero-plugin build && tsc --noEmit",
     "harness:ui": "tsx scripts/ui-harness-serve.ts",
     "test:node:ui:harness": "tsx node_modules/mocha/bin/mocha \"test/ui/156-ui-readonly-harness.test.ts\" --require test/setup/zotero-mock.ts",
+    "test:literature-deep-reading:detr-visual": "tsx node_modules/mocha/bin/mocha \"test/ui/157-literature-deep-reading-detr-visual.test.ts\" --require test/setup/zotero-mock.ts --exit",
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:ssot-invariants": "tsx scripts/check-skillrunner-ssot-invariants.ts",
@@ -69,7 +70,10 @@
     "test:node:raw": "tsx node_modules/mocha/bin/mocha \"test/**/*.test.ts\" --require test/setup/zotero-mock.ts",
     "test:synthesis:invariants": "tsx node_modules/mocha/bin/mocha \"test/core/121-synthesis-paper-registry.test.ts\" \"test/core/125-synthesis-tab-ui.test.ts\" \"test/core/129-synthesis-layer-integration.test.ts\" \"test/core/132-topic-synthesis-structured-artifact-contract.test.ts\" \"test/core/143-synthesis-literature-registry-citation-graph.test.ts\" \"test/core/146-synthesis-repository-foundation.test.ts\" \"test/core/151-synthesis-reference-resolution-matcher.test.ts\" \"test/core/152-synthesis-invariant-guards.test.ts\" --require test/setup/zotero-mock.ts --grep \"Synthesis invariant guards|\\[inv\\.\" --exit",
     "mock:skillrunner": "tsx scripts/mock-skillrunner-serve.ts",
-    "update-deps": "npm update --save"
+    "update-deps": "npm update --save",
+    "docs:dev": "cd site && npx docusaurus start",
+    "docs:build": "cd site && npx docusaurus build",
+    "docs:serve": "cd site && npx docusaurus serve"
   },
   "dependencies": {
     "ajv": "^8.12.0",
@@ -92,6 +96,7 @@
     "chai": "^6.2.1",
     "eslint": "^9.39.2",
     "mocha": "^11.7.5",
+    "playwright": "^1.60.0",
     "prettier": "^3.7.4",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

@@ -49,7 +49,7 @@ workflows/
 {
   "id": "literature-workbench-package",
   "version": "1.0.0",
-  "workflows": ["literature-digest", "tag-regulator"]
+  "workflows": ["literature-analysis", "tag-regulator"]
 }
 ```
 
@@ -155,7 +155,7 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "literature-digest"
+      "skill_id": "literature-analysis"
     },
     "input": {
       "upload": {

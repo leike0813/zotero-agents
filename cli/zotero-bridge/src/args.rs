@@ -260,6 +260,12 @@ pub enum TopicsCommand {
     List(BridgeInputArgs),
 
     #[command(
+        about = "Find active topic synthesis topics by paper_ref",
+        long_about = "Map to Host Bridge capability topics.find_by_paper_ref. Use --input with paper_ref/paperRef or paper_refs/paperRefs."
+    )]
+    FindByPaperRef(BridgeInputArgs),
+
+    #[command(
         about = "Read one topic synthesis context",
         long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload."
     )]
@@ -773,7 +779,13 @@ mod tests {
         let mut command = Cli::command();
         let topics = command.find_subcommand_mut("topics").unwrap();
         let topics_help = topics.render_long_help().to_string();
-        for name in ["list", "get-context", "get-report", "get-review-input"] {
+        for name in [
+            "list",
+            "find-by-paper-ref",
+            "get-context",
+            "get-report",
+            "get-review-input",
+        ] {
             assert!(topics_help.contains(name), "missing {name}");
         }
 

@@ -1140,6 +1140,111 @@ describe("Synthesis Layer v1 integration service", function () {
     }
   });
 
+  it("finds active topics by paper_ref from current and baseline dependencies", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-12T00:00:00.000Z",
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    await service.applyTopicSynthesisResult(
+      validBundle({
+        topic_definition: {
+          id: "topic-alpha",
+          title: "Alpha Topic",
+          definition: "Alpha semantic scope.",
+        },
+        topic_resolver: {
+          mode: "explicit",
+          paper_refs: ["1:CURRENT", "1:BASELINE"],
+        },
+        resolved_paper_set: {
+          papers: [
+            { paper_ref: "1:CURRENT", match_reasons: ["explicit"] },
+            { paper_ref: "1:BASELINE", match_reasons: ["explicit"] },
+          ],
+        },
+        artifact_metadata: {
+          depends_on: {
+            papers: ["1:CURRENT", "1:BASELINE"],
+            artifacts: [],
+          },
+        },
+      }),
+    );
+    await service.applyTopicSynthesisResult(
+      validBundle({
+        topic_definition: {
+          id: "topic-beta",
+          title: "Beta Topic",
+          definition: "Beta semantic scope.",
+        },
+        topic_resolver: {
+          mode: "explicit",
+          paper_refs: ["1:DELETED"],
+        },
+        resolved_paper_set: {
+          papers: [{ paper_ref: "1:DELETED", match_reasons: ["explicit"] }],
+        },
+        artifact_metadata: {
+          depends_on: {
+            papers: ["1:DELETED"],
+            artifacts: [],
+          },
+        },
+      }),
+    );
+
+    const artifactState = await readArtifactState(root);
+    const stateRows = artifactState.data.topics;
+    const alphaStateKey = Object.keys(stateRows).find(
+      (key) => stateRows[key]?.topic_id === "topic-alpha",
+    );
+    assert.isString(alphaStateKey);
+    stateRows[alphaStateKey!].baseline_dependencies.saved_paper_refs = [
+      "1:BASELINE",
+    ];
+    stateRows[alphaStateKey!].current_dependencies.current_paper_refs = [
+      "1:CURRENT",
+    ];
+    await fs.writeFile(
+      buildSynthesisStoragePaths(root).artifactState,
+      JSON.stringify(artifactState, null, 2),
+      "utf8",
+    );
+    await service.deleteTopicArtifact({ topicId: "topic-beta" });
+
+    const result = await service.findTopicsByPaperRef({
+      paper_refs: ["1:CURRENT", "1:BASELINE", "1:MISSING", "1:CURRENT"],
+    });
+    const deleted = await service.findTopicsByPaperRef({
+      paper_ref: "1:DELETED",
+    });
+    const invalid = await service.findTopicsByPaperRef({});
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.paper_refs, ["1:BASELINE", "1:CURRENT", "1:MISSING"]);
+    assert.deepEqual(result.diagnostics.unmatched_paper_refs, ["1:MISSING"]);
+    assert.equal(result.diagnostics.source, "artifact_state");
+    assert.lengthOf(result.topics, 1);
+    assert.deepInclude(result.topics[0], {
+      topic_id: "topic-alpha",
+      title: "Alpha Topic",
+      matched_paper_refs: ["1:BASELINE", "1:CURRENT"],
+      match_sources: ["current_dependencies", "baseline_dependencies"],
+    });
+    assert.isString(result.topics[0].freshness);
+    assert.isString(result.topics[0].coverage);
+    assert.deepEqual(deleted.topics, []);
+    assert.deepEqual(deleted.diagnostics.unmatched_paper_refs, ["1:DELETED"]);
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.status, "invalid_request");
+    assert.include(invalid.diagnostics.errors?.join("\n"), "paper_ref");
+  });
+
   it("soft deletes topic artifacts from active state while preserving a deleted cleanup record", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();

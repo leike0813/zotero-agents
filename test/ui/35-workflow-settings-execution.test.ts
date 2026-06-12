@@ -85,7 +85,7 @@ describe("workflow settings execution", function () {
 
   afterEach(function () {
     clearSkillRunnerModelCache();
-    clearWorkflowSettings("literature-digest");
+    clearWorkflowSettings("literature-analysis");
     clearWorkflowSettings("literature-explainer");
     clearWorkflowSettings("tag-regulator");
     clearWorkflowSettings("pass-through-settings");
@@ -134,7 +134,7 @@ describe("workflow settings execution", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Settings Parent" },
     });
-    const mdFile = fixturePath("literature-digest", "example.md");
+    const mdFile = fixturePath("literature-analysis", "example.md");
     const attachment = await handlers.attachment.createFromPath({
       parent,
       path: mdFile,
@@ -700,7 +700,7 @@ describe("workflow settings execution", function () {
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow);
 
@@ -774,7 +774,7 @@ describe("workflow settings execution", function () {
         }),
         true,
       );
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "acp-opencode",
         providerOptions: {
           engine: "gemini",
@@ -784,7 +784,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow);
 
@@ -866,7 +866,7 @@ describe("workflow settings execution", function () {
         }),
         true,
       );
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "acp-normal-models",
         providerOptions: {
           acpModelId: "opus",
@@ -875,7 +875,7 @@ describe("workflow settings execution", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow);
 
@@ -986,13 +986,13 @@ describe("workflow settings execution", function () {
         }),
         true,
       );
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
       });
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow);
 
@@ -1039,7 +1039,7 @@ describe("workflow settings execution", function () {
         acpReasoningEffort: "high",
       });
 
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
         providerOptions: {
           acpModelProvider: "openai",
@@ -1073,7 +1073,7 @@ describe("workflow settings execution", function () {
       });
       assert.notProperty(openaiContext.providerOptions, "acpModelProvider");
 
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
         providerOptions: {
           acpModelProvider: "Unscoped",
@@ -1107,13 +1107,13 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "drops incompatible persisted backendId when provider mismatches",
     async function () {
-      updateWorkflowSettings("literature-digest", {
+      updateWorkflowSettings("literature-analysis", {
         backendId: "generic-http-local",
       });
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow);
 

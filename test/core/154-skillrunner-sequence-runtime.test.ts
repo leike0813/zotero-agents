@@ -5,7 +5,7 @@ import { getSequenceRunStateByStepRequest } from "../../src/modules/workflowExec
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { mkTempDir } from "./workflow-test-utils";
-import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-digest/hooks/buildRequest.mjs";
+import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
 
 function sequenceManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -381,9 +381,9 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.deepEqual(state?.providerOptions, { mode: "test" });
   });
 
-  it("builds literature-digest one-step and auto-tag two-step sequence requests", async function () {
+  it("builds literature-analysis one-step and auto-tag two-step sequence requests", async function () {
     const tempRoot = await mkTempDir(
-      "zotero-skills-literature-digest-sequence",
+      "zotero-skills-literature-analysis-sequence",
     );
     const parentItem = {
       id: 42,
@@ -515,7 +515,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
       await executeSkillRunnerSequence({
         request: {
           kind: "skillrunner.sequence.v1",
-          steps: [{ id: "digest", skill_id: "literature-digest" }],
+          steps: [{ id: "digest", skill_id: "literature-analysis" }],
           final_step_id: "digest",
         },
         backend: {

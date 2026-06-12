@@ -63,7 +63,7 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
         itemType: "journalArticle",
         fields: { title: "Queue Parent B" },
       });
-      const mdFile = fixturePath("literature-digest", "example.md");
+      const mdFile = fixturePath("literature-analysis", "example.md");
       const attachmentA = await handlers.attachment.createFromPath({
         parent: parentA,
         path: mdFile,
@@ -80,9 +80,9 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
       const selectionContext = await buildSelectionContext([attachmentA, attachmentB]);
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
-      assert.isOk(workflow, "workflow literature-digest not found");
+      assert.isOk(workflow, "workflow literature-analysis not found");
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext,
@@ -125,7 +125,7 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
         const job = queue.getJob(jobId);
         assert.isOk(job);
         assert.equal(job!.state, "succeeded");
-        assert.equal(job!.workflowId, "literature-digest");
+        assert.equal(job!.workflowId, "literature-analysis");
       }
 
       const allJobs = queue.listJobs();

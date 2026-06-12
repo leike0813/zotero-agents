@@ -62,7 +62,7 @@ describe("deferred workflow completion tracker", function () {
     const registered = registerDeferredWorkflowCompletion({
       runId: "run-auto-1",
       win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-digest",
+      workflowId: "literature-analysis",
       workflowLabel: "Literature Digest",
       totalJobs: 2,
       skipped: 0,
@@ -181,7 +181,7 @@ describe("deferred workflow completion tracker", function () {
     const registered = registerDeferredWorkflowCompletion({
       runId: "run-buffered-1",
       win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-digest",
+      workflowId: "literature-analysis",
       workflowLabel: "Literature Digest",
       totalJobs: 1,
       skipped: 0,
@@ -243,7 +243,7 @@ describe("deferred workflow completion tracker", function () {
     const registered = registerDeferredWorkflowCompletion({
       runId: "run-buffered-mixed",
       win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-digest",
+      workflowId: "literature-analysis",
       workflowLabel: "Literature Digest",
       totalJobs: 2,
       skipped: 0,
@@ -339,7 +339,7 @@ describe("deferred workflow completion tracker", function () {
     const registered = registerDeferredWorkflowCompletion({
       runId: "run-idempotent-1",
       win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-digest",
+      workflowId: "literature-analysis",
       workflowLabel: "Literature Digest",
       totalJobs: 1,
       skipped: 0,
@@ -415,7 +415,7 @@ describe("deferred workflow completion tracker", function () {
     const registered = registerDeferredWorkflowCompletion({
       runId: "run-orphan-1",
       win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-digest",
+      workflowId: "literature-analysis",
       workflowLabel: "Literature Digest",
       totalJobs: 1,
       skipped: 0,

@@ -1,3 +1,8 @@
+# Documentation site (Docusaurus)
+site/build/
+site/.docusaurus/
+site/.cache-loader/
+
 # dot files
 .DS_Store
 
@@ -40,6 +45,7 @@ reference/zotero
 reference/vscode-acp
 
 artifact/test-diagnostics/
+artifact/literature-deep-reading-detr-sample/visual-regression/latest/
 
 .zotero-skills-runtime/
 

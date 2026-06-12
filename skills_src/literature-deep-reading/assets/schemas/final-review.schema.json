@@ -1,0 +1,38 @@
+{
+  "$id": "literature-deep-reading.final-review.v0",
+  "type": "object",
+  "properties": {
+    "overall_assessment": {
+      "type": "string",
+      "enum": ["ready", "ready_with_notes", "needs_revision"]
+    },
+    "quality_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "error"]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "section_anchor": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["severity", "kind", "message"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["overall_assessment"],
+  "additionalProperties": false
+}

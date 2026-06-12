@@ -368,6 +368,29 @@ export type SynthesisCitationGraphLayoutResult = {
   };
 };
 
+export type SynthesisTopicsByPaperRefResult = {
+  ok: boolean;
+  status: "ok" | "invalid_request";
+  paper_refs: string[];
+  topics: Array<{
+    topic_id: string;
+    title: string;
+    status?: string;
+    updated_at?: string;
+    freshness?: TopicFreshness;
+    coverage?: TopicCoverage;
+    matched_paper_refs: string[];
+    match_sources: Array<"current_dependencies" | "baseline_dependencies">;
+  }>;
+  diagnostics: {
+    requested_count: number;
+    matched_topic_count: number;
+    unmatched_paper_refs: string[];
+    source: "artifact_state";
+    errors?: string[];
+  };
+};
+
 export type SynthesisCitationGraphMetricsResult = {
   ok: boolean;
   graph_hash: string;
@@ -4526,6 +4549,64 @@ function topicIdsForPaperRefs(
     .map((state) => state.topic_id)
     .filter(Boolean)
     .sort((left, right) => left.localeCompare(right));
+}
+
+const TOPICS_BY_PAPER_REF_LIMIT = 250;
+
+function normalizeTopicsByPaperRefArgs(args: Record<string, unknown>) {
+  const paperRefs = sortedUniqueStrings(
+    [
+      ...normalizeArray(args.paper_refs),
+      ...normalizeArray(args.paperRefs),
+      ...normalizeArray(args.paper_ref),
+      ...normalizeArray(args.paperRef),
+    ]
+      .map(cleanString)
+      .filter(Boolean),
+  );
+  const errors: string[] = [];
+  if (!paperRefs.length) {
+    errors.push("paper_ref or paper_refs is required");
+  }
+  if (paperRefs.length > TOPICS_BY_PAPER_REF_LIMIT) {
+    errors.push(
+      `paper_refs must contain at most ${TOPICS_BY_PAPER_REF_LIMIT} entries`,
+    );
+  }
+  return { paperRefs, errors };
+}
+
+function dependencyPaperRefs(
+  dependencies: TopicDependencySnapshot | null | undefined,
+) {
+  return new Set([
+    ...(dependencies?.saved_paper_refs || []),
+    ...(dependencies?.current_paper_refs || []),
+  ].map(cleanString).filter(Boolean));
+}
+
+function topicMatchForPaperRefs(args: {
+  state: TopicArtifactStateRow;
+  requested: Set<string>;
+}) {
+  const current = dependencyPaperRefs(args.state.current_dependencies);
+  const baseline = dependencyPaperRefs(args.state.baseline_dependencies);
+  const matched = sortedUniqueStrings(
+    [...args.requested].filter(
+      (paperRef) => current.has(paperRef) || baseline.has(paperRef),
+    ),
+  );
+  if (!matched.length) {
+    return null;
+  }
+  const sources: Array<"current_dependencies" | "baseline_dependencies"> = [];
+  if (matched.some((paperRef) => current.has(paperRef))) {
+    sources.push("current_dependencies");
+  }
+  if (matched.some((paperRef) => baseline.has(paperRef))) {
+    sources.push("baseline_dependencies");
+  }
+  return { matched, sources };
 }
 
 async function markTopicFreshnessStatus(args: {
@@ -15872,7 +15953,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       referencesArtifactHash: referencesHash,
       references: args.references?.references || [],
       matchedItems: args.matchedReferences,
-      reviewer: "literature-digest-apply",
+      reviewer: "literature-analysis-apply",
       timestamp,
     });
     synthesisRepository.upsertCacheBasis({
@@ -17573,6 +17654,100 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  async function findTopicsByPaperRef(
+    args: Record<string, unknown> = {},
+  ): Promise<SynthesisTopicsByPaperRefResult> {
+    const normalized = normalizeTopicsByPaperRefArgs(args);
+    if (normalized.errors.length) {
+      return {
+        ok: false,
+        status: "invalid_request",
+        paper_refs: normalized.paperRefs,
+        topics: [],
+        diagnostics: {
+          requested_count: normalized.paperRefs.length,
+          matched_topic_count: 0,
+          unmatched_paper_refs: normalized.paperRefs,
+          source: "artifact_state",
+          errors: normalized.errors,
+        },
+      };
+    }
+
+    const states = await readArtifactStateRows(root);
+    const deletedRows = await readDeletedRows(root).catch(() => []);
+    const deletedTopicIds = new Set(
+      deletedRows.map((row) => cleanString(row.topic_id)).filter(Boolean),
+    );
+    const topicGraphContext = await topicGraphSnapshotForUi().catch(
+      () => undefined,
+    );
+    const inventory = topicInventoryRowsFromGraphNodes({
+      nodes: topicGraphContext?.snapshot.nodes || [],
+      definitions: topicGraphContext?.definitions || {},
+      metadata: topicGraphContext?.metadata || {},
+    });
+    const inventoryById = new Map(
+      inventory.map((topic) => [topic.topic_id, topic]),
+    );
+    const requested = new Set(normalized.paperRefs);
+    const matchedPaperRefs = new Set<string>();
+    const topics: SynthesisTopicsByPaperRefResult["topics"] = [];
+    for (const state of Object.values(states)) {
+      const topicId = cleanString(state.topic_id);
+      if (!topicId || deletedTopicIds.has(topicId)) {
+        continue;
+      }
+      const match = topicMatchForPaperRefs({ state, requested });
+      if (!match) {
+        continue;
+      }
+      for (const paperRef of match.matched) {
+        matchedPaperRefs.add(paperRef);
+      }
+      const topic = inventoryById.get(topicId);
+      const title = cleanString(topic?.title) || topicId;
+      const row: SynthesisTopicsByPaperRefResult["topics"][number] = {
+        topic_id: topicId,
+        title,
+        freshness: state.freshness,
+        coverage: state.coverage,
+        matched_paper_refs: match.matched,
+        match_sources: match.sources,
+      };
+      const status = cleanString(topic?.status);
+      const updatedAt =
+        cleanString(topic?.updated_at) || cleanString(state.updated_at);
+      if (status) {
+        row.status = status;
+      }
+      if (updatedAt) {
+        row.updated_at = updatedAt;
+      }
+      topics.push(row);
+    }
+    topics.sort(
+      (left, right) =>
+        left.title.localeCompare(right.title) ||
+        left.topic_id.localeCompare(right.topic_id),
+    );
+
+    return {
+      ok: true,
+      status: "ok",
+      paper_refs: normalized.paperRefs,
+      topics,
+      diagnostics: {
+        requested_count: normalized.paperRefs.length,
+        matched_topic_count: topics.length,
+        unmatched_paper_refs: normalized.paperRefs.filter(
+          (paperRef) => !matchedPaperRefs.has(paperRef),
+        ),
+        source: "artifact_state",
+      },
+    };
+  }
+
   async function listWorkflowTopicOptions(args?: {
     filter?: unknown;
   }): Promise<SynthesisWorkflowTopicOptionsResult> {
@@ -18762,6 +18937,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     readTopicDetail,
     getReviewInput,
     listTopics,
+    findTopicsByPaperRef,
     listWorkflowTopicOptions,
     getTopicContext,
     getTopicReport,

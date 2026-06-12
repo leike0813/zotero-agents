@@ -1,0 +1,9 @@
+- [x] Add delta specs for Host preflight, Host return-shape normalization, workflow sidecar diagnostics, and concept timing.
+- [x] Prefer Host `readPaperArtifacts` in workflow source-bundle sidecar packing.
+- [x] Implement bootstrap Host preflight, `topic-candidates-view.json`, and `concept-needs-view.json`.
+- [x] Normalize `reference-index get` rows, `concepts query` matches, and `paper-artifacts export-filtered` manifest fields.
+- [x] Consume `topics.find_by_paper_ref` through `zotero-bridge topics find-by-paper-ref`.
+- [x] Update concept overlay normalization so unresolved terms remain plain keywords.
+- [x] Add generic Stage 30 translation quality gates.
+- [x] Update skill instructions and regenerate the built-in package.
+- [x] Add focused tests and run targeted validation.

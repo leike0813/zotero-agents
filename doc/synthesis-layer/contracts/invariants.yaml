@@ -69,7 +69,7 @@ invariants:
 
   - id: inv.discovery.apply_time_only
     severity: high
-    statement: Normal discovery hints are generated only by literature-digest apply-time matching or explicit repair, not by Workbench snapshots, cache refresh, graph cache rebuild, or Registry rebuild.
+    statement: Normal discovery hints are generated only by literature-analysis apply-time matching or explicit repair, not by Workbench snapshots, cache refresh, graph cache rebuild, or Registry rebuild.
     evidence: Digest apply and discovery tests.
 
   - id: inv.discovery.rejected_suppression
@@ -84,7 +84,7 @@ invariants:
 
   - id: inv.reference.quality_gate_before_identity
     severity: high
-    statement: Deterministic invalid literature-digest reference extraction rows must be filtered before generated references notes are written, and Synthesis sidecar ingestion must not materialize them as raw or canonical reference identities.
+    statement: Deterministic invalid literature-analysis reference extraction rows must be filtered before generated references notes are written, and Synthesis sidecar ingestion must not materialize them as raw or canonical reference identities.
     evidence: Literature digest apply tests and sidecar ingestion tests.
 
   - id: inv.reference.no_matching_metadata_for_citations

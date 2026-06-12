@@ -133,10 +133,10 @@ async function main() {
 
   const loaded = await loadWorkflowManifests("workflows_builtin");
   const workflow = loaded.workflows.find(
-    (entry) => entry.manifest.id === "literature-digest",
+    (entry) => entry.manifest.id === "literature-analysis",
   );
   if (!workflow) {
-    throw new Error("workflow literature-digest not found");
+    throw new Error("workflow literature-analysis not found");
   }
 
   const requests = (await executeBuildRequests({

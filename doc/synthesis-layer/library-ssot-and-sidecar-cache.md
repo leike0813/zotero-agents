@@ -14,7 +14,7 @@ Zotero plugins run in one process on one JavaScript event loop. A background eve
 
 The core product workflows do not require a fully synchronized library index:
 
-- `literature-digest` reads Zotero item/attachment/note state directly and writes artifacts.
+- `literature-analysis` reads Zotero item/attachment/note state directly and writes artifacts.
 - Topic create/update reads Zotero Library and source artifacts directly; citation graph metrics are optional enrichment.
 - Topic discovery hints are produced from digest/topic metadata and do not require a full library backscan.
 - Topic freshness should compare a topic's recorded source manifest with current Zotero/artifact state, not with an index row that may be behind.
@@ -48,7 +48,7 @@ Synthesis sidecar state changes only through bounded, explicit paths:
 
 | Path | Trigger | Effect |
 | --- | --- | --- |
-| Digest apply sync | `literature-digest` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact/reference sidecar rows for the applied `source_ref`, and mark Citation Graph plus related-items sync stale with source-scoped diagnostics. |
+| Digest apply sync | `literature-analysis` apply succeeds | Filter deterministic invalid references before writing the references note, update artifact/reference sidecar rows for the applied `source_ref`, and mark Citation Graph plus related-items sync stale with source-scoped diagnostics. |
 | Topic apply sync | topic create/update apply succeeds | Update topic metadata sidecars, concept/topic-graph proposals, and source manifest summaries. |
 | Explicit reference sidecar refresh | user/debug command | Two-stage operation: scan artifact sidecar state, then process only changed references artifacts through extraction, canonical dedupe, and best-effort binding; mark Citation Graph plus related-items sync stale with changed source/canonical diagnostics. |
 | Explicit reference binding review | user starts review/repair workflow | Generate candidates from canonical references and current Zotero metadata, let the user approve/reject/merge, then write durable binding decisions. |

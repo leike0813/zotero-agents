@@ -232,11 +232,11 @@ workflow. Use the tools harness when debugging the current library/index state.
 ## Upstream Reference Quality Gate
 
 Reference extraction quality belongs upstream of Synthesis identity matching.
-The external `literature-digest` skill should hard-block deterministic bad Stage
+The external `literature-analysis` skill should hard-block deterministic bad Stage
 4 reference rows and soft-warn low-quality rows for LLM review before
 `persist_references` commits them.
 
-The builtin `literature-digest` workflow apply step provides a fallback gate
+The builtin `literature-analysis` workflow apply step provides a fallback gate
 before it writes the generated references note. This fallback removes only
 deterministic invalid rows: empty titles, bare DOI/URL titles, publication
 metadata-only titles, author-only strings, and titles with no usable content

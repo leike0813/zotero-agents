@@ -30,6 +30,14 @@
       "schema": "assets/schemas/block-translations.schema.json",
       "runtime_only": false,
       "description": "Validate the agent-authored block translations and normalize Translation Layer views through the single runtime script."
+    },
+    {
+      "id": "stage_40_final_review_and_render",
+      "runtime_command": "submit-final-review",
+      "payload_path": "runtime/payloads/final-review.json",
+      "schema": "assets/schemas/final-review.schema.json",
+      "runtime_only": false,
+      "description": "Validate the agent-authored final review and render the self-contained deep-reading HTML through the single runtime script."
     }
   ]
 }

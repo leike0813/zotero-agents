@@ -1,0 +1,11 @@
+# Design
+
+Workflow bundle construction now prefers the Host synthesis paper-artifact reader for target sidecars. Parent and attachment selections are normalized to the same parent paper ref, then `digest`, `references`, and `citation_analysis` payloads are read from Host and written into `source_bundle.zip`. Note HTML payload parsing remains a fallback for older runs or test fixtures.
+
+Bootstrap performs a deterministic Host preflight after unpacking the source bundle. If Host Bridge is available and a target paper ref can be inferred, the runtime queries `reference-index get`, `topics find-by-paper-ref`, `paper-artifacts manifest`, and `paper-artifacts export-filtered`. Exported target artifacts are copied into the unpacked source artifact directory so existing summary and references paths keep working. Topic candidates are written to `topic-candidates-view.json`; a single candidate can be used automatically, while multiple candidates require the agent to set the flat `selected_topic_id` field in `context-request.json`. If Host Bridge is unavailable, bootstrap still succeeds with diagnostics.
+
+Stage 10 remains the agent-authored context request step, but the agent reads `host-preflight-view.json`, `topic-candidates-view.json`, and `concept-needs-view.json` before writing the request. `submit-context-request` performs the requested richer collection and refreshes `concept-needs-view.json` using Host concept candidates.
+
+Concept overlay normalization only creates interactive concepts when an agent definition or Host definition is available. Terms mentioned in preface or section notes without a definition stay as plain keywords in the reading aid and diagnostics; they are not inserted into `concept-overlay-view.concepts`.
+
+Stage 30 keeps the same `block-translations.json` schema, but runtime validation now rejects deterministic lazy-translation failures: copied source text, placeholder text, suspiciously short translations, repeated identical translations, non-target-script output for script-distinct target languages, and table translations that no longer look table-like. Runtime diagnostics are intentionally deterministic; semantic quality is enforced through updated agent instructions that require subagent delegation when available and a main-agent review before final payload submission.

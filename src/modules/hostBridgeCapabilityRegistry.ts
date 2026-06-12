@@ -805,6 +805,12 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "listTopics",
   ),
   synthesisCapability(
+    "topics.find_by_paper_ref",
+    "topics",
+    "Return active Synthesis topics associated with selected paper references from artifact dependency state.",
+    "findTopicsByPaperRef",
+  ),
+  synthesisCapability(
     "topics.get_context",
     "topics",
     "Return one topic context, optionally including current artifact and manifest data.",

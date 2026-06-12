@@ -1,6 +1,7 @@
 import type { RequestPermissionOutcome } from "./acpProtocol";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
 import { setAcpConversationHostBridgePermissionRequest } from "./acpConversationHostBridgePermissionRegistry";
+import { isHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
 import type { HostBridgeApprovalRequirement } from "./hostBridgeProtocol";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
@@ -221,6 +222,16 @@ async function requestAcpRunScopedPermission(
   request: HostBridgePermissionRequest & { requestId: string },
   runRequestId: string,
 ): Promise<HostBridgePermissionDecision> {
+  if (
+    normalizeString(request.action) === "workflow.submit" &&
+    isHostBridgeWriteAutoApprovalScope(request.scope)
+  ) {
+    return {
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "acp-skill-run",
+    };
+  }
   const { setAcpSkillRunPermissionRequest } =
     await import("./acpSkillRunStore");
   const outcomePromise = new Promise<HostBridgePermissionDecision>(

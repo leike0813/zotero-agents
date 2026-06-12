@@ -9,7 +9,8 @@
     "export-notes/workflow.json",
     "import-notes/workflow.json",
     "literature-explainer/workflow.json",
-    "literature-digest/workflow.json",
+    "literature-deep-reading/workflow.json",
+    "literature-analysis/workflow.json",
     "literature-search-ingest/workflow.json",
     "tag-regulator/workflow.json"
   ]

@@ -2779,14 +2779,14 @@ function registerTagRegulatorDialogRenderingSegment(itNodeOnly: typeof it) {
 
 function registerTagRegulatorRequestBuildingSegmentThree() {
   itNodeOnly(
-    "keeps language option declarations aligned with literature-digest workflow",
+    "keeps language option declarations aligned with literature-analysis workflow",
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const tagRegulator = loaded.workflows.find(
         (entry) => entry.manifest.id === "tag-regulator",
       );
       const literatureDigest = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(tagRegulator);
       assert.isOk(literatureDigest);

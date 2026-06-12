@@ -17,7 +17,7 @@ This file is the terminology SSOT. If another document needs a term, link here i
 | Reference match proposal | Reviewable advanced-matcher candidate for a Zotero binding or canonical merge, with status `open`, `accepted`, `rejected`, or `superseded`. |
 | `literature_item_id` | Legacy Registry identity term from the old library-index model. New sidecar documents should not allocate or depend on it for source items or reference cache refresh. |
 | Registry binding | Legacy relationship between `literature_item_id` and Zotero item bindings. New design uses `reference_binding` for canonical-reference-to-Zotero binding and direct Zotero reads for source item facts. |
-| Source artifact | A derived note/artifact produced by workflows such as `literature-digest`; Synthesis consumes it but does not own its generation contract. |
+| Source artifact | A derived note/artifact produced by workflows such as `literature-analysis`; Synthesis consumes it but does not own its generation contract. |
 | External work node | Citation Graph node for an effective canonical reference that is not currently bound to a Zotero item. |
 | Zotero Library SSOT | Zotero Library is the authoritative source for Zotero-owned facts: item existence, metadata, tags, collections, native relations, notes, and attachments. Synthesis may cache projections of those facts, but the cache is not a competing source of truth. |
 | Artifact SSOT | Workflow artifacts stored in Zotero notes or embedded payload attachments are authoritative for digest/reference/topic output. Synthesis sidecar rows summarize or index them for speed. |

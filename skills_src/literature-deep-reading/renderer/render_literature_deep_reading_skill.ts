@@ -76,6 +76,13 @@ async function renderScripts(targetRoot: string) {
   );
 }
 
+async function renderRendererTemplates(targetRoot: string) {
+  await copyDirectory(
+    path.join(SUITE_ROOT, "renderer", "templates"),
+    path.join(targetRoot, "renderer", "templates"),
+  );
+}
+
 export async function renderLiteratureDeepReadingSkill(options?: {
   outRoot?: string;
 }) {
@@ -85,6 +92,7 @@ export async function renderLiteratureDeepReadingSkill(options?: {
   await renderSkillMd(targetRoot);
   await renderAssets(targetRoot);
   await renderScripts(targetRoot);
+  await renderRendererTemplates(targetRoot);
   return targetRoot;
 }
 

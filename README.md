@@ -112,7 +112,7 @@ A unified package for literature processing workflows:
 | ------------------------- | -------------- | -------------------------------------------------------------------------------- |
 | **Literature Digest**     | `skillrunner`  | Generate digest, references, and citation analysis notes from markdown or PDF    |
 | **Literature Explainer**  | `skillrunner`  | Interactive conversation-based literature interpretation with conversation notes |
-| **Export Notes**          | `pass-through` | Export custom notes (markdown/HTML) and literature-digest generated artifacts    |
+| **Export Notes**          | `pass-through` | Export custom notes (markdown/HTML) and literature-analysis generated artifacts    |
 | **Import Notes**          | `pass-through` | Import markdown files as custom notes; supports multi-file selection             |
 | **Reference Matching**    | `pass-through` | Match references to Better BibTeX citekeys, rewrite structured payloads          |
 | **Reference Note Editor** | `pass-through` | Edit structured reference entries in a dedicated form dialog                     |

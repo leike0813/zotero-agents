@@ -427,10 +427,10 @@ describe("Synthesis invariant guards", function () {
   it("keeps related-items sync independent from graph rebuild and digest auto matching", function () {
     const serviceSource = readRepoText("src/modules/synthesis/service.ts");
     const digestWorkflow = readRepoText(
-      "workflows_builtin/literature-workbench-package/literature-digest/workflow.json",
+      "workflows_builtin/literature-workbench-package/literature-analysis/workflow.json",
     );
     const digestApply = readRepoText(
-      "workflows_builtin/literature-workbench-package/literature-digest/hooks/applyResult.mjs",
+      "workflows_builtin/literature-workbench-package/literature-analysis/hooks/applyResult.mjs",
     );
     const syncBlock = extractFunctionBlock(
       serviceSource,

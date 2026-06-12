@@ -79,7 +79,7 @@ describe("generic-http provider: steps", function () {
       },
     };
 
-    const sourcePath = fixturePath("literature-digest", "example.md");
+    const sourcePath = fixturePath("literature-analysis", "example.md");
     const sourceBytes = await readBytes(sourcePath);
 
     const result = await provider.execute({
@@ -208,7 +208,7 @@ describe("generic-http provider: steps", function () {
       auth: { kind: "none" },
       defaults: { headers: {} },
     };
-    const sourcePath = fixturePath("literature-digest", "example.md");
+    const sourcePath = fixturePath("literature-analysis", "example.md");
 
     let thrown: unknown;
     try {

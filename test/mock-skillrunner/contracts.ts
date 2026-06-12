@@ -25,10 +25,10 @@ export function validateCreatePayload(payload: unknown) {
     body.input && typeof body.input === "object" && !Array.isArray(body.input)
       ? (body.input as Record<string, unknown>)
       : null;
-  if (body.skill_id === "literature-digest") {
+  if (body.skill_id === "literature-analysis") {
     const sourcePath = String(input?.source_path || "").trim();
     if (!sourcePath) {
-      errors.push("input.source_path is required for literature-digest");
+      errors.push("input.source_path is required for literature-analysis");
     } else if (isAbsolutePath(sourcePath) || sourcePath.startsWith("uploads/")) {
       errors.push(
         "input.source_path must be uploads-root relative path without uploads/ prefix",

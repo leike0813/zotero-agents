@@ -47,6 +47,7 @@ describe("Synthesis MCP tools", function () {
     );
     assert.includeMembers(names, [
       "topics.list",
+      "topics.find_by_paper_ref",
       "topics.get_context",
       "topics.get_report",
       "topics.get_review_input",
@@ -92,6 +93,30 @@ describe("Synthesis MCP tools", function () {
           diagnostics: { count: 1, source: "canonical-topic-definitions" },
         };
       },
+      findTopicsByPaperRef(args) {
+        calls.push(`topics_by_paper:${args.paper_ref || "none"}`);
+        return {
+          ok: true,
+          status: "ok",
+          paper_refs: [args.paper_ref],
+          topics: [
+            {
+              topic_id: "topic-alpha",
+              title: "Alpha Topic",
+              freshness: "fresh",
+              coverage: "complete",
+              matched_paper_refs: [args.paper_ref],
+              match_sources: ["current_dependencies"],
+            },
+          ],
+          diagnostics: {
+            requested_count: 1,
+            matched_topic_count: 1,
+            unmatched_paper_refs: [],
+            source: "artifact_state",
+          },
+        };
+      },
       getSchemas(args) {
         calls.push(`schemas:${args.kind || "all"}`);
         return { schemas: { resolver: { type: "object" } } };
@@ -127,6 +152,10 @@ describe("Synthesis MCP tools", function () {
       request(0, "topics.list"),
       { resolveSynthesisService: () => service },
     );
+    const topicsByPaperResponse: any = await handleZoteroMcpRequestForTests(
+      request(4, "topics.find_by_paper_ref", { paper_ref: "1:ABCD1234" }),
+      { resolveSynthesisService: () => service },
+    );
     const schemaResponse: any = await handleZoteroMcpRequestForTests(
       request(1, "schemas.get", { kind: "resolver" }),
       { resolveSynthesisService: () => service },
@@ -144,12 +173,17 @@ describe("Synthesis MCP tools", function () {
 
     assert.deepEqual(calls, [
       "list_topics",
+      "topics_by_paper:1:ABCD1234",
       "schemas:resolver",
       "library_index:0:1",
       "resolve:tag_query",
     ]);
     assert.equal(
       listResponse.result.structuredContent.result.topics[0].topic_id,
+      "topic-alpha",
+    );
+    assert.equal(
+      topicsByPaperResponse.result.structuredContent.result.topics[0].topic_id,
       "topic-alpha",
     );
     assert.include(schemaResponse.result.content[0].text, "schemas");

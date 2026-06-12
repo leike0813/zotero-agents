@@ -184,6 +184,9 @@ export function parseWorkbenchNoteKind(noteContent) {
   if (/data-zs-payload=(["'])citation-analysis-json\1/i.test(text)) {
     return "citation-analysis";
   }
+  if (/data-zs-payload=(["'])citation-analysis-markdown\1/i.test(text)) {
+    return "citation-analysis";
+  }
   if (/data-zs-payload=(["'])conversation-note-markdown\1/i.test(text)) {
     return "conversation-note";
   }
@@ -201,12 +204,13 @@ export function parseWorkbenchNoteKind(noteContent) {
     kind === "digest" ||
     kind === "references" ||
     kind === "citation-analysis" ||
+    kind === "citation_analysis" ||
     kind === "conversation-note" ||
     kind === "custom"
   ) {
-    return kind;
+    return kind === "citation_analysis" ? "citation-analysis" : kind;
   }
-  if (kind === "literature-digest") {
+  if (kind === "literature-digest" || kind === "literature-analysis") {
     return "digest";
   }
   return "";
@@ -300,9 +304,12 @@ export function buildConversationNoteContent(args) {
 }
 
 export async function createConversationNote(args) {
-  const note = await requireHostApi(args.runtime).parents.addNote(args.parentItem, {
-    content: buildConversationNoteContent(args),
-  });
+  const note = await requireHostApi(args.runtime).parents.addNote(
+    args.parentItem,
+    {
+      content: buildConversationNoteContent(args),
+    },
+  );
   await attachWorkbenchPayloadToNote({
     runtime: args.runtime,
     note,

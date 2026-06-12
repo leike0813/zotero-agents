@@ -39,6 +39,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `library.list_items` | library | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
 | `library.list_note_payloads` | library | `none` | `item-ref required` | `note payloads` | mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `item search` | mcp-mirror |
+| `topics.find_by_paper_ref` | topics | `none` | `object` | `topics find-by-paper-ref` | mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `topics get-context` | mcp-mirror |
 | `topics.get_report` | topics | `none` | `object` | `topics get-report` | mcp-mirror |
 | `topics.get_review_input` | topics | `none` | `object` | `topics get-review-input` | mcp-mirror |
@@ -78,6 +79,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `note get` | `library.get_note_detail` | capability | - |
 | `note payload` | `library.get_note_payload` | capability | - |
 | `note payloads` | `library.list_note_payloads` | capability | - |
+| `topics find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
 | `topics get-context` | `topics.get_context` | capability | - |
 | `topics get-report` | `topics.get_report` | capability | - |
 | `topics get-review-input` | `topics.get_review_input` | capability | - |

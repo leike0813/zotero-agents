@@ -8,6 +8,7 @@
         "literature_deep_reading_context_ready",
         "literature_deep_reading_enriched",
         "literature_deep_reading_translated",
+        "literature_deep_reading_finalized",
         "literature_deep_reading_error"
       ]
     },
@@ -18,6 +19,7 @@
         "context_ready",
         "enriched",
         "translated",
+        "completed",
         "failed"
       ]
     },
@@ -34,7 +36,10 @@
       "type": "string"
     },
     "final_html_available": {
-      "const": false
+      "type": "boolean"
+    },
+    "html_path": {
+      "type": "string"
     },
     "warnings": {
       "type": "array",

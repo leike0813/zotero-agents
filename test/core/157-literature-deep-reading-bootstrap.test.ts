@@ -247,8 +247,9 @@ async function writeContextRequest(
         main_task: "object detection",
         method_family: "transformer-based direct set prediction",
         external_context_section_anchors: ["sec-1-introduction"],
-        request_topic_context: false,
-        topic_context_reason: "",
+        request_topic_context: true,
+        topic_context_reason: "Use the Host topic containing the target paper.",
+        selected_topic_id: "",
         request_concept_context: true,
         concept_labels: ["DETR", "object queries"],
         request_citation_graph: true,
@@ -387,7 +388,7 @@ async function writeBlockTranslations(
       .map((block) => {
         const kind = String(block.kind || "");
         const source = String(block.source_markdown || "");
-        let translated = `译文：${source}`;
+        let translated = `这是 ${block.block_id} 对应自然段的完整中文译文，用于验证段落级翻译流程。`;
         if (kind === "heading") {
           translated = source
             .replace("Sample Paper", "样例论文")
@@ -396,7 +397,7 @@ async function writeBlockTranslations(
           translated =
             "<table><tr><td>指标</td><td>数值</td></tr><tr><td>AP</td><td>42</td></tr></table>";
         } else if (kind === "image") {
-          translated = source;
+          translated = "图示说明：该图用于展示方法的主要想法。";
         }
         return {
           block_id: block.block_id,
@@ -412,9 +413,37 @@ async function writeBlockTranslations(
   );
 }
 
+async function writeFinalReview(
+  runRoot: string,
+  payload?: Record<string, unknown>,
+) {
+  await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(runRoot, "runtime", "payloads", "final-review.json"),
+    JSON.stringify(
+      payload || {
+        overall_assessment: "ready",
+        quality_observations: [
+          {
+            severity: "warning",
+            kind: "translation_style",
+            block_id: "block-0002",
+            message: "术语按概念表统一。",
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
 async function installFakeBridge(
   runRoot: string,
-  options?: { layoutStatus?: string },
+  options?: { layoutStatus?: string; exportTargetArtifacts?: boolean },
 ) {
   const binDir = path.join(runRoot, ".zotero-bridge", "bin");
   await fs.mkdir(binDir, { recursive: true });
@@ -437,19 +466,84 @@ fs.appendFileSync(path.resolve(process.cwd(), "bridge-calls.jsonl"), JSON.string
 function reply(result) {
   console.log(JSON.stringify({ ok: true, data: { result } }));
 }
+const exportTargetArtifacts = ${JSON.stringify(options?.exportTargetArtifacts !== false)};
 if (command === "reference-index get") {
-  reply({ references: [{ index: 3, title: "Reference index bound title", paperRef: "1:B", zoteroItemKey: "B" }] });
+  reply({
+    rows: [
+      {
+        paperRef: "1:EIMSDEU3",
+        zoteroItemKey: "EIMSDEU3",
+        title: "Sample Paper",
+        artifacts: {
+          digest: { status: "available" },
+          references: { status: "available" },
+          citation_analysis: { status: "available" }
+        }
+      },
+      { index: 3, reference_title: "Reference index bound title", paperRef: "1:B", zoteroItemKey: "B" }
+    ]
+  });
 } else if (command === "paper-artifacts manifest") {
-  reply({ artifacts: input.paper_refs.map((paperRef) => ({ paperRef, kind: "digest" })), diagnostics: [], total: input.paper_refs.length });
+  const artifacts = [];
+  for (const paperRef of input.paper_refs) {
+    const types = input.artifact_types || ["digest"];
+    for (const type of types) {
+      artifacts.push({ paperRef, artifact_type: type, payload_type: type === "digest" ? "digest-markdown" : type === "references" ? "references-json" : "citation-analysis-json", status: "available" });
+    }
+  }
+  reply({ artifacts, diagnostics: [], total: artifacts.length });
 } else if (command === "paper-artifacts export-filtered") {
   const targetDir = "runtime/payloads/artifacts";
+  const manifestFile = "runtime/payloads/paper-artifacts-manifest.json";
+  const papers = [];
   for (const paperRef of input.paper_refs) {
     const safe = paperRef.replace(/[^A-Za-z0-9_.-]+/g, "_");
     const dir = path.resolve(process.cwd(), targetDir, safe);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "digest.md"), "# Digest for " + paperRef + "\\n", "utf8");
+    const types = input.artifact_types || ["digest"];
+    const artifacts = [];
+    for (const type of types) {
+      if (type === "digest") {
+        const contentFile = path.join(targetDir, safe, "digest.md");
+        fs.writeFileSync(path.resolve(process.cwd(), contentFile), "# Digest for " + paperRef + "\\n", "utf8");
+        artifacts.push({ artifact_type: "digest", payload_type: "digest-markdown", content_file: contentFile, status: "available" });
+      } else if (type === "references" && exportTargetArtifacts) {
+        const contentFile = path.join(targetDir, safe, "references.json");
+        fs.writeFileSync(path.resolve(process.cwd(), contentFile), JSON.stringify({ references: [{ id: "ref-host", title: "Host Reference", year: "2024" }] }), "utf8");
+        artifacts.push({ artifact_type: "references", payload_type: "references-json", content_file: contentFile, status: "available" });
+      } else if ((type === "citation_analysis" || type === "citation-analysis") && exportTargetArtifacts) {
+        const contentFile = path.join(targetDir, safe, "citation-analysis.md");
+        fs.writeFileSync(path.resolve(process.cwd(), contentFile), "# Citation Analysis for " + paperRef + "\\n", "utf8");
+        artifacts.push({ artifact_type: "citation_analysis", payload_type: "citation-analysis-markdown", content_file: contentFile, status: "available" });
+      }
+    }
+    papers.push({ paper_ref: paperRef, artifacts, diagnostics: [] });
   }
-  reply({ exported: input.paper_refs.length, targetDir, diagnostics: [] });
+  fs.writeFileSync(path.resolve(process.cwd(), manifestFile), JSON.stringify({ papers }, null, 2), "utf8");
+  reply({ exported: papers.reduce((sum, paper) => sum + paper.artifacts.length, 0), manifest_file: manifestFile, diagnostics: [] });
+} else if (command === "topics find-by-paper-ref") {
+  reply({
+    ok: true,
+    status: "ok",
+    paper_refs: [input.paper_ref || input.paperRef],
+    topics: [
+      {
+        topic_id: "computer-vision",
+        title: "Computer Vision",
+        status: "active",
+        matched_paper_refs: [input.paper_ref || input.paperRef],
+        match_sources: ["current_dependencies"]
+      }
+    ],
+    diagnostics: { requested_count: 1, matched_topic_count: 1, unmatched_paper_refs: [], source: "artifact_state" }
+  });
+} else if (command === "topics get-context") {
+  reply({
+    topic_id: input.topicId || input.topic_id,
+    title: "Computer Vision",
+    summary: "Topic context for the selected paper.",
+    diagnostics: []
+  });
 } else if (command === "citation-graph get-slice") {
   reply({
     nodes: [
@@ -495,7 +589,7 @@ if (command === "reference-index get") {
     });
   }
 } else if (command === "concepts query") {
-  reply({ concepts: input.labels.map((label) => ({ label, definition: label + " definition" })) });
+  reply({ matches: input.labels.map((label) => ({ label, matches: [{ label, definition: label + " definition" }] })) });
 } else {
   reply({});
 }
@@ -520,6 +614,8 @@ if (command === "reference-index get") {
 }
 
 describe("Literature deep reading bootstrap skill", function () {
+  this.timeout(30000);
+
   it("keeps the source and generated package structure complete", async function () {
     const requiredSourceFiles = [
       "templates/SKILL.md",
@@ -530,8 +626,12 @@ describe("Literature deep reading bootstrap skill", function () {
       "assets/schemas/context-request.schema.json",
       "assets/schemas/reading-enrichment.schema.json",
       "assets/schemas/block-translations.schema.json",
+      "assets/schemas/final-review.schema.json",
       "runtime/deep_reading_runtime.py",
       "renderer/render_literature_deep_reading_skill.ts",
+      "renderer/templates/deep-reading.html.tpl",
+      "renderer/templates/deep-reading.css",
+      "renderer/templates/deep-reading.js",
     ];
     for (const filePath of requiredSourceFiles) {
       await assertFileExists(path.join(suiteRoot, filePath));
@@ -546,7 +646,11 @@ describe("Literature deep reading bootstrap skill", function () {
       "assets/schemas/context-request.schema.json",
       "assets/schemas/reading-enrichment.schema.json",
       "assets/schemas/block-translations.schema.json",
+      "assets/schemas/final-review.schema.json",
       "scripts/deep_reading_runtime.py",
+      "renderer/templates/deep-reading.html.tpl",
+      "renderer/templates/deep-reading.css",
+      "renderer/templates/deep-reading.js",
     ];
     for (const filePath of requiredGeneratedFiles) {
       await assertFileExists(path.join(skillRoot, filePath));
@@ -690,6 +794,34 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     await installFakeBridge(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const preflight = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "host-preflight-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(preflight.target.paper_ref, "1:EIMSDEU3");
+    assert.equal(preflight.exported_target_artifacts.length, 3);
+    assert.equal(preflight.topic.topic_id, "computer-vision");
+    const topicCandidates = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "topic-candidates-view.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      topicCandidates.topics.map(
+        (topic: Record<string, unknown>) => topic.topic_id,
+      ),
+      ["computer-vision"],
+    );
+    const conceptNeedsAfterBootstrap = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "concept-needs-view.json"),
+        "utf8",
+      ),
+    );
+    assert.isAtLeast(conceptNeedsAfterBootstrap.items.length, 1);
     await writeContextRequest(runRoot);
 
     const result = runRuntime(
@@ -717,11 +849,16 @@ describe("Literature deep reading bootstrap skill", function () {
       calls.map((entry) => entry.command),
       [
         "reference-index get",
+        "topics find-by-paper-ref",
+        "paper-artifacts manifest",
+        "paper-artifacts export-filtered",
+        "reference-index get",
         "paper-artifacts manifest",
         "paper-artifacts export-filtered",
         "citation-graph get-slice",
         "citation-graph get-layout",
         "concepts query",
+        "topics get-context",
       ],
     );
     const layoutCall = calls.find(
@@ -744,6 +881,13 @@ describe("Literature deep reading bootstrap skill", function () {
       )?.x,
       10,
     );
+    const topicContext = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "topic-context.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(topicContext.topic_id, "computer-vision");
 
     const digests = JSON.parse(
       await fs.readFile(
@@ -754,6 +898,18 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.sameMembers(
       digests.items.map((item: Record<string, unknown>) => item.reference_id),
       ["ref-1", "ref-3"],
+    );
+    const conceptNeeds = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "concept-needs-view.json"),
+        "utf8",
+      ),
+    );
+    assert.isTrue(
+      conceptNeeds.items.some(
+        (item: Record<string, unknown>) =>
+          item.label === "DETR" && item.status === "resolved_by_host",
+      ),
     );
   });
 
@@ -834,7 +990,12 @@ describe("Literature deep reading bootstrap skill", function () {
       (item: Record<string, unknown>) => item.label === "unresolved keyword",
     );
     assert.equal(detr.status, "available");
-    assert.equal(unresolved.status, "keyword_only");
+    assert.isUndefined(unresolved);
+    assert.isTrue(
+      concepts.unresolved_mentions.some(
+        (item: Record<string, unknown>) => item.label === "unresolved keyword",
+      ),
+    );
 
     const insights = JSON.parse(
       await fs.readFile(
@@ -864,7 +1025,6 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    await installFakeBridge(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
     runRuntime(
@@ -986,6 +1146,152 @@ describe("Literature deep reading bootstrap skill", function () {
     );
   });
 
+  it("submits final review and renders a self-contained deep-reading HTML", async function () {
+    this.timeout(10000);
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-final-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot);
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot);
+    runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    await writeBlockTranslations(runRoot);
+    runRuntime(
+      [
+        "submit-block-translations",
+        "--payload",
+        "runtime/payloads/block-translations.json",
+      ],
+      runRoot,
+    );
+    await writeFinalReview(runRoot);
+
+    const result = runRuntime(
+      [
+        "submit-final-review",
+        "--payload",
+        "runtime/payloads/final-review.json",
+      ],
+      runRoot,
+    );
+    assert.equal(result.kind, "literature_deep_reading_finalized");
+    assert.equal(result.status, "completed");
+    assert.equal(result.final_html_available, true);
+    assert.equal(result.html_path, "result/deep-reading.html");
+
+    const validation = runRuntime(["validate-final-output"], runRoot);
+    assert.deepEqual(validation, { ok: true, errors: [] });
+
+    const html = await fs.readFile(
+      path.join(runRoot, "result", "deep-reading.html"),
+      "utf8",
+    );
+    for (const forbidden of [
+      "http://",
+      "https://",
+      "file://",
+      'src="assets/',
+      'href="assets/',
+      'src="sections/',
+      'href="sections/',
+    ]) {
+      assert.notInclude(html, forbidden);
+    }
+    for (const marker of [
+      "data-nav",
+      "data-concept-rail",
+      'data-mode="compare"',
+      "data-preface",
+      "data-paper",
+      "data-translation-paper",
+      "data-summary",
+      "data-post-reading",
+      "data-citation-graph",
+      "data-extensions",
+      "data-digest-modal",
+    ]) {
+      assert.include(html, marker);
+    }
+    assert.include(html, "data:image/png;base64,");
+    assert.include(html, "aligned-block-pair");
+    assert.include(html, "data-paper-scroll");
+    assert.include(html, "initScrollTracking");
+    assert.include(html, "可能的问题");
+    assert.include(html, "引用线索");
+    assert.include(html, "math-display");
+    assert.include(html, "structured references artifact");
+    assert.include(html, "data-node-id");
+    assert.include(html, "graph-legend");
+
+    const sections = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "result", "sections", "sections.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(sections.preface.title, "阅读前导读");
+    assert.isAtLeast(sections.reading_blocks.length, 1);
+    assert.isAtLeast(sections.translation.items.length, 1);
+    assert.equal(sections.summary.source, "digest_artifact");
+    assert.equal(sections.references.references_source, "artifact");
+    assert.equal(sections.references.reference_count, 3);
+    assert.isTrue(
+      sections.reading_blocks.some((item: Record<string, unknown>) =>
+        String(item.source_html || "").includes("math-display"),
+      ),
+    );
+    assert.isAtLeast(sections.concepts.concepts.length, 1);
+    assert.isAtLeast(sections.citation_graph.layout.nodes.length, 1);
+    assert.isAtLeast(sections.extensions.items.length, 1);
+    assert.isTrue(
+      sections.references.items.some(
+        (item: Record<string, unknown>) =>
+          (item as { digest_modal?: { available?: boolean } }).digest_modal
+            ?.available === true,
+      ),
+    );
+
+    const manifest = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "result", "deep-reading-manifest.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(manifest.final_html_available, true);
+    assert.equal(manifest.entrypoint, "result/deep-reading.html");
+  });
+
   it("rejects invalid block translation payloads", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-invalid-translation-"),
@@ -1076,6 +1382,84 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(JSON.stringify(result.output.error), "table translation");
     assert.include(JSON.stringify(result.output.error), "missing translations");
   });
+
+  for (const targetLanguage of ["fr-FR", "zh-CN"]) {
+    it(`rejects copied source text as translation for ${targetLanguage}`, async function () {
+      const tempRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), "deep-reading-copy-translation-"),
+      );
+      const bundlePath = await makeSourceBundle(tempRoot);
+      const runRoot = path.join(tempRoot, "run");
+      await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+      await fs.writeFile(
+        path.join(runRoot, "runtime", "input.json"),
+        JSON.stringify(
+          {
+            source_bundle_path: bundlePath,
+            parameter: { target_language: targetLanguage },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      await installFakeBridge(runRoot);
+      runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+      await writeContextRequest(runRoot);
+      runRuntime(
+        [
+          "submit-context-request",
+          "--payload",
+          "runtime/payloads/context-request.json",
+        ],
+        runRoot,
+      );
+      await writeReadingEnrichment(runRoot);
+      runRuntime(
+        [
+          "submit-reading-enrichment",
+          "--payload",
+          "runtime/payloads/reading-enrichment.json",
+        ],
+        runRoot,
+      );
+      await writeBlockTranslations(runRoot);
+
+      const blocks = JSON.parse(
+        await fs.readFile(
+          path.join(runRoot, "runtime", "views", "reading-blocks.json"),
+          "utf8",
+        ),
+      ).blocks as Array<Record<string, unknown>>;
+      const copiedBlock = blocks.find(
+        (block) => block.translate === true && block.kind === "paragraph",
+      )!;
+      const payloadPath = path.join(
+        runRoot,
+        "runtime",
+        "payloads",
+        "block-translations.json",
+      );
+      const payload = JSON.parse(await fs.readFile(payloadPath, "utf8"));
+      const row = payload.translations.find(
+        (entry: Record<string, unknown>) =>
+          entry.block_id === copiedBlock.block_id,
+      );
+      row.translated_markdown = copiedBlock.source_markdown;
+      await fs.writeFile(payloadPath, JSON.stringify(payload, null, 2), "utf8");
+
+      const result = runRuntimeAllowFailure(
+        [
+          "submit-block-translations",
+          "--payload",
+          "runtime/payloads/block-translations.json",
+        ],
+        runRoot,
+      );
+      assert.equal(result.exitCode, 1);
+      assert.include(JSON.stringify(result.output.error), "copies source text");
+    });
+  }
 
   it("rejects invalid reading enrichment payloads", async function () {
     const tempRoot = await fs.mkdtemp(

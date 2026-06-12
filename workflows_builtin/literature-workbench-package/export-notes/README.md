@@ -1,6 +1,6 @@
 # export-notes
 
-导出 `literature-digest` 生成的三类结构化 note 产物：
+导出 `literature-analysis` 生成的三类结构化 note 产物：
 
 - `digest.md`
 - `representative_image.jpg`（当 digest note 含代表图 embedded-image 时）

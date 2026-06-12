@@ -64,7 +64,7 @@ The default direction is apply-time token overlap. Discovery does not require a 
 
 Discovery reads committed metadata snapshots:
 
-- `literature_matching_metadata` is written by literature-digest apply before discovery scoring for that literature starts.
+- `literature_matching_metadata` is written by literature-analysis apply before discovery scoring for that literature starts.
 - `topic_interest_metadata` is written by topic create/update apply before future digest apply matching can see it.
 - If topic update and digest apply interleave, discovery uses whichever committed topic metadata version is visible when the discovery transaction reads. It must not read half-written topic metadata.
 - If topic metadata changes during a digest apply match, the current match may finish against the older committed topic version; the next digest apply or explicit discovery repair can use the newer version.
@@ -158,7 +158,7 @@ Seed literature does not bypass exclude hard rejects. If a pair is not hard-reje
 
 - `normalized_score >= policy.min_open_score`: write an `open` discovery hint. Default `min_open_score = 0.25`.
 - `< 0.25`: do not write a hint.
-- Per literature-digest apply, write at most `policy.top_per_literature` topic hints. Default `5`.
+- Per literature-analysis apply, write at most `policy.top_per_literature` topic hints. Default `5`.
 - Per topic UI, show at most `policy.top_per_topic_ui` open hints by default. Default `20`.
 - Store at most 3 short user-facing reasons, such as `matched required term: object tracking`.
 

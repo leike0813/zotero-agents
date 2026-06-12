@@ -147,7 +147,7 @@ Zotero 环境测试中禁止引入会真实打开以下 UI 的测试：
   - `40-gui-preferences-menu-scan` 的 registry/context-menu/pass-through smoke
   - `50-workflow-settings-dialog-model` 的最小 smoke
 - `workflow`
-  - `literature-digest`
+  - `literature-analysis`
   - `literature-explainer`
   - `literature-workbench-package`
   - `mineru`
@@ -167,7 +167,7 @@ Zotero 环境测试中禁止引入会真实打开以下 UI 的测试：
 - `skillrunner-run-dialog-ui-e2e-alignment`
 - `skillrunner-run-dialog-waiting-auth-observer`
 - `workflow-settings-execution`、`gui-preferences-menu-scan` 的扩展宿主用例
-- `literature-digest`、`literature-explainer`、`literature-workbench-package`、`mineru`、`tag-regulator` 的稳定 host-context / idempotent / parity 用例
+- `literature-analysis`、`literature-explainer`、`literature-workbench-package`、`mineru`、`tag-regulator` 的稳定 host-context / idempotent / parity 用例
 
 `full` 的覆盖目标按 4 个风险桶组织：
 
@@ -193,11 +193,11 @@ lite 模式下：
   - `test/core/12-handlers.test.ts`
   - `test/core/32-job-queue-transport-integration.test.ts`
   - `test/core/34-generic-http-provider-e2e.test.ts`
-  - `test/workflow-literature-digest/23-workflow-literature-digest-fixtures.test.ts`
-  - `test/workflow-literature-digest/50-workflow-literature-digest-mock-e2e.test.ts`
+  - `test/workflow-literature-analysis/23-workflow-literature-analysis-fixtures.test.ts`
+  - `test/workflow-literature-analysis/50-workflow-literature-analysis-mock-e2e.test.ts`
 - `test/core/11-selection-context-rebuild.test.ts` 仅运行 `selection-context-mix-all-top3-parents` 子夹具
 - 在 workflow/ui 的高复杂度测试文件内，部分边界/兼容性用例通过 `itFullOnly` 下沉到 `full`
-  - 代表性文件：`test/workflow-literature-digest/21-workflow-literature-digest.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`
+  - 代表性文件：`test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`
 - `selection-context` 的 lite 子夹具执行后保留重建产物（不清理）
 
 补充治理约定：

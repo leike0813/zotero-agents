@@ -87,5 +87,5 @@
 
 ## 相关工作流
 
-- [literature-digest](../literature-digest/README.md): 自动生成文献摘要
+- [literature-analysis](../literature-analysis/README.md): 自动生成文献摘要
 - note-level `reference-note-editor` 已归档到 `deprecated/workflows_builtin`

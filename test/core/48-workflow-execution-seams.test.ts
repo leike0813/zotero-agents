@@ -204,7 +204,7 @@ describe("workflow execution seams", function () {
           [
             {
               kind: "skillrunner.job.v1",
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
               taskName: "Example",
               upload_files: [
                 { key: "source_path", path: "D:/real/example.md" },
@@ -231,7 +231,7 @@ describe("workflow execution seams", function () {
     assert.deepEqual(result.prepared.requests, [
       {
         kind: "acp.skill.run.v1",
-        skill_id: "literature-digest",
+        skill_id: "literature-analysis",
         taskName: "Example",
         input: {
           source_path: "D:/real/example.md",

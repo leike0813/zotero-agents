@@ -22,6 +22,9 @@
     "topic_context_reason": {
       "type": "string"
     },
+    "selected_topic_id": {
+      "type": "string"
+    },
     "request_concept_context": {
       "type": "boolean",
       "default": false

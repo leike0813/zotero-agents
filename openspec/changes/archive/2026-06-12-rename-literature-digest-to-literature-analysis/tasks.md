@@ -1,0 +1,25 @@
+# Tasks
+
+- [x] Create OpenSpec change directory with proposal, design, specs, tasks
+- [x] `git mv` workflow directory from `literature-digest/` to `literature-analysis/`
+- [x] Update `workflow.json`: `id` and `label`
+- [x] Update `workflows_builtin/manifest.json`: 7 path entries
+- [x] Update `workflows_builtin/literature-workbench-package/workflow-package.json`: workflow reference path
+- [x] Update `hooks/buildRequest.mjs`: `skill_id` and error message prefixes
+- [x] Update `hooks/filterInputs.mjs`: log prefix
+- [x] Update `hooks/applyResult.mjs`: workflow ID, component label, error messages
+- [x] Update `README.md`: skill references
+- [x] Update `lib/noteCodecs.mjs`: add `"literature-analysis"` kind recognition (keep old)
+- [x] Update `lib/digestPayload.mjs`: add `"literature-analysis"` kind recognition (keep old)
+- [x] Update cross-reference READMEs in `literature-explainer/` and `mineru/`
+- [x] Update debug fixture comment in `debug-digest-apply-fixture/hooks/applyResult.mjs`
+- [x] Update `src/synthesisWorkbenchApp.ts`: UI string
+- [x] Update `src/modules/synthesis/service.ts`: reviewer label
+- [x] Rename `test/workflow-literature-digest/` → `test/workflow-literature-analysis/`
+- [x] Rename `test/fixtures/literature-digest/` → `test/fixtures/literature-analysis/`
+- [x] Bulk update test files: `"literature-digest"` → `"literature-analysis"`
+- [x] Fix import paths, type/const names in renamed test directory
+- [x] Update `test/zotero/domainFilter.ts`: path patterns and title prefixes
+- [x] Update `test/mock-skillrunner/server.ts`, `contracts.ts`: skill_id dispatch
+- [x] Verify: `git grep "literature-digest"` for remaining references outside submodule
+- [x] Verify: type check (`npx tsc --noEmit`)

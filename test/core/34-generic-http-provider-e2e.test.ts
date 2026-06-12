@@ -151,7 +151,7 @@ describeGenericHttpE2ESuite("generic-http provider: e2e", function () {
       itemType: "journalArticle",
       fields: { title: "Generic HTTP Provider Parent" },
     });
-    const mdFile = fixturePath("literature-digest", "example.md");
+    const mdFile = fixturePath("literature-analysis", "example.md");
     const attachment = await handlers.attachment.createFromPath({
       parent,
       path: mdFile,

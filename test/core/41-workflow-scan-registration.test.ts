@@ -84,7 +84,7 @@ describe("workflow scan + registry integration", function () {
     ).__zoteroSkillsDisableWorkflowDirOverride = prevDisableWorkflowDirOverride;
   });
 
-  it("keeps user workflow dir default separate from built-in dir and registers literature-digest", async function () {
+  it("keeps user workflow dir default separate from built-in dir and registers literature-analysis", async function () {
     const processEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env;
@@ -108,7 +108,7 @@ describe("workflow scan + registry integration", function () {
 
     const state = await rescanWorkflowRegistry();
     const workflow = state.loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
+      (entry) => entry.manifest.id === "literature-analysis",
     );
     const builtinDir = getBuiltinWorkflowDir();
     assert.match(
@@ -124,7 +124,7 @@ describe("workflow scan + registry integration", function () {
           "referenceQualityGate.mjs",
         ),
       ),
-      "literature-digest quality gate module should be copied with builtin workflows",
+      "literature-analysis quality gate module should be copied with builtin workflows",
     );
 
     assert.equal(state.workflowsDir, configuredDir);
@@ -148,7 +148,7 @@ describe("workflow scan + registry integration", function () {
     const entries = getLoadedWorkflowEntries();
     assert.isAtLeast(entries.length, 1);
     assert.isOk(
-      entries.find((entry) => entry.manifest.id === "literature-digest"),
+      entries.find((entry) => entry.manifest.id === "literature-analysis"),
     );
     assert.equal(getWorkflowRegistryState().workflowsDir, configuredDir);
   });
@@ -221,7 +221,7 @@ describe("workflow scan + registry integration", function () {
 
     const entries = getLoadedWorkflowEntries();
     assert.isOk(
-      entries.find((entry) => entry.manifest.id === "literature-digest"),
+      entries.find((entry) => entry.manifest.id === "literature-analysis"),
     );
   });
 

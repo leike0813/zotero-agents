@@ -80,7 +80,7 @@ describe("workflow settings domain", function () {
 
   it("keeps non-enum string when allowCustom=true", function () {
     const manifest = {
-      id: "literature-digest",
+      id: "literature-analysis",
       label: "Literature Digest",
       hooks: { applyResult: "hooks/applyResult.js" },
       parameters: {
@@ -100,7 +100,7 @@ describe("workflow settings domain", function () {
 
   it("keeps strict enum fallback when allowCustom is false", function () {
     const manifest = {
-      id: "literature-digest",
+      id: "literature-analysis",
       label: "Literature Digest",
       hooks: { applyResult: "hooks/applyResult.js" },
       parameters: {

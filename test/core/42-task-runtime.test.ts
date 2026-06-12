@@ -30,7 +30,7 @@ function makeJob(args: {
 }) {
   const job: JobRecord = {
     id: args.id,
-    workflowId: "literature-digest",
+    workflowId: "literature-analysis",
     request: {},
     meta: {
       runId: args.runId || "run-1",

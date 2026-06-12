@@ -60,12 +60,12 @@ Moved/kept as full-only:
 - `test/core/12-handlers.test.ts`
 - `test/core/32-job-queue-transport-integration.test.ts`
 - `test/core/34-generic-http-provider-e2e.test.ts`
-- `test/workflow-literature-digest/23-workflow-literature-digest-fixtures.test.ts`
-- `test/workflow-literature-digest/50-workflow-literature-digest-mock-e2e.test.ts`
+- `test/workflow-literature-analysis/23-workflow-literature-analysis-fixtures.test.ts`
+- `test/workflow-literature-analysis/50-workflow-literature-analysis-mock-e2e.test.ts`
 
 Case-level full-only (kept in same file, gated via `itFullOnly`):
 
-- `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
+- `test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`
   - legacy note-shape compatibility matrix
   - upsert/partial-fallback and all-skipped edge accounting
 - `test/workflow-mineru/39-workflow-mineru.test.ts`
@@ -167,7 +167,7 @@ Retained `ui` lite files:
 
 Retained `workflow` lite files:
 
-- `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
+- `test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`
 - `test/workflow-literature-explainer/21-workflow-literature-explainer.test.ts`
 - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
 - `test/workflow-mineru/39-workflow-mineru.test.ts`
@@ -190,7 +190,7 @@ Zotero `full` extra parity ring:
 - selected extra cases or full stable-suite prefixes in:
   - `test/ui/35-workflow-settings-execution.test.ts`
   - `test/ui/40-gui-preferences-menu-scan.test.ts`
-  - `test/workflow-literature-digest/21-workflow-literature-digest.test.ts`
+  - `test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`
   - `test/workflow-literature-explainer/21-workflow-literature-explainer.test.ts`
   - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
   - `test/workflow-mineru/39-workflow-mineru.test.ts`

@@ -185,7 +185,7 @@ describe("declarative request compiler guards", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
             },
             input: {
               upload: {
@@ -243,7 +243,7 @@ describe("declarative request compiler guards", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
             },
             input: {
               upload: {
@@ -296,7 +296,7 @@ describe("declarative request compiler guards", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
             },
             input: {
               upload: {

@@ -34,7 +34,7 @@ The detailed SSOT boundary lives in [Library SSOT and Sidecar Cache](./library-s
 
 The old design tried to keep a Registry/Index layer continuously synchronized with Zotero. That model is no longer the target design.
 
-Sidecar projections are allowed to be stale. They should record basis metadata such as `source_ref`, source artifact hash, extractor/matcher policy version, refresh time, and binding decision version where useful. Missing or stale sidecar state may disable graph metrics or show a refresh prompt, but it must not block `literature-digest`, topic create/update, or topic source check.
+Sidecar projections are allowed to be stale. They should record basis metadata such as `source_ref`, source artifact hash, extractor/matcher policy version, refresh time, and binding decision version where useful. Missing or stale sidecar state may disable graph metrics or show a refresh prompt, but it must not block `literature-analysis`, topic create/update, or topic source check.
 
 Reference binding decisions are different from ordinary cache rows. They can contain user judgment and should be durable, reviewable, and removable. A cache rebuild may preserve or flag them as `needs_attention`; it must not silently overwrite them.
 

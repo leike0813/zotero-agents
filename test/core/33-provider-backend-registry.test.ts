@@ -246,9 +246,9 @@ describe("provider/backend registry", function () {
   it("resolves first provider-compatible backend when no preferred profile is set", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
+      (entry) => entry.manifest.id === "literature-analysis",
     );
-    assert.isOk(workflow, "workflow literature-digest not found");
+    assert.isOk(workflow, "workflow literature-analysis not found");
 
     const backend = await resolveBackendForWorkflow(workflow!);
     assert.equal(backend.id, "skillrunner-primary");
@@ -259,9 +259,9 @@ describe("provider/backend registry", function () {
   it("resolves provider by request kind and backend type", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
+      (entry) => entry.manifest.id === "literature-analysis",
     );
-    assert.isOk(workflow, "workflow literature-digest not found");
+    assert.isOk(workflow, "workflow literature-analysis not found");
 
     const backend = await resolveBackendForWorkflow(workflow!);
     const provider = resolveProvider({
@@ -275,9 +275,9 @@ describe("provider/backend registry", function () {
   it("throws when no provider supports request kind for backend", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
-      (entry) => entry.manifest.id === "literature-digest",
+      (entry) => entry.manifest.id === "literature-analysis",
     );
-    assert.isOk(workflow, "workflow literature-digest not found");
+    assert.isOk(workflow, "workflow literature-analysis not found");
 
     const backend = await resolveBackendForWorkflow(workflow!);
     assert.throws(
@@ -476,7 +476,7 @@ describe("provider/backend registry", function () {
         },
         request: {
           kind: ACP_SKILL_RUN_REQUEST_KIND,
-          skill_id: "literature-digest",
+          skill_id: "literature-analysis",
           input: {
             source_path: "inputs/source_path/example.md",
           },
@@ -509,7 +509,7 @@ describe("provider/backend registry", function () {
         },
         request: {
           kind: ACP_SKILL_RUN_REQUEST_KIND,
-          skill_id: "literature-digest",
+          skill_id: "literature-analysis",
           upload_files: [{ key: "source_path", path: "D:/real/example.md" }],
           input: {
             source_path: "D:/real/example.md",

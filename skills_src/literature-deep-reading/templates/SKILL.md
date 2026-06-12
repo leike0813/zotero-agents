@@ -7,12 +7,13 @@ description: Generate a literature deep-reading artifact from a source bundle. C
 
 本 skill 用于从 `source_bundle.zip` 启动文献精读运行。当前内置包实现：
 
-- `stage_00_bootstrap`：解包 source bundle、解析 Markdown 结构、建立 SQLite 和生成 bootstrap runtime views。
-- `stage_10_source_reading_context_request`：agent 读取原文结构后写入 `context-request.json`，runtime 通过 Host Bridge best-effort 收集后续精读需要的上下文。
+- `stage_00_bootstrap`：解包 source bundle、解析 Markdown 结构、best-effort 执行 Host preflight、建立 SQLite 和生成 bootstrap runtime views。
+- `stage_10_source_reading_context_request`：agent 读取原文结构和 Host preflight 后写入 `context-request.json`，runtime 通过 Host Bridge best-effort 收集后续精读需要的上下文。
 - `stage_20_reading_enrichment`：agent 读取原文、Host context 和 artifact views 后写入 `reading-enrichment.json`，runtime 归一化为 Preface、章节说明、概念、参考文献、总结和扩展阅读 views。
 - `stage_30_block_translation`：agent 按稳定 block id 写入 `block-translations.json`，runtime 归一化为翻译 view。
+- `stage_40_final_review_and_render`：agent 写入轻量 `final-review.json`，runtime 使用内置模板渲染最终单体 HTML。
 
-当前阶段不会生成最终 `deep-reading.html`，也不会渲染浏览器页面。
+最终产物为 `result/deep-reading.html`。
 
 ## 输入
 
@@ -45,6 +46,8 @@ python scripts/deep_reading_runtime.py submit-reading-enrichment --payload runti
 python scripts/deep_reading_runtime.py validate-reading-enrichment
 python scripts/deep_reading_runtime.py submit-block-translations --payload runtime/payloads/block-translations.json
 python scripts/deep_reading_runtime.py validate-block-translations
+python scripts/deep_reading_runtime.py submit-final-review --payload runtime/payloads/final-review.json
+python scripts/deep_reading_runtime.py validate-final-output
 ```
 
 不要调用其他脚本入口。
@@ -60,6 +63,9 @@ python scripts/deep_reading_runtime.py validate-block-translations
 - `runtime/views/source-reading-view.json`
 - `runtime/views/target-artifacts-view.json`
 - `runtime/views/references-seed-view.json`
+- `runtime/views/host-preflight-view.json`
+- `runtime/views/topic-candidates-view.json`
+- `runtime/views/concept-needs-view.json`
 - `runtime/views/diagnostics-bootstrap.json`
 - `literature-deep-reading.result.json`
 
@@ -71,6 +77,9 @@ python scripts/deep_reading_runtime.py validate-block-translations
 - `runtime/views/source-structure.json`
 - `runtime/views/references-seed-view.json`
 - `runtime/views/target-artifacts-view.json`
+- `runtime/views/host-preflight-view.json`
+- `runtime/views/topic-candidates-view.json`
+- `runtime/views/concept-needs-view.json`
 - `runtime/views/diagnostics-bootstrap.json`
 
 然后手写且只手写：
@@ -88,6 +97,7 @@ runtime/payloads/context-request.json
   "external_context_section_anchors": ["sec-1-introduction"],
   "request_topic_context": false,
   "topic_context_reason": "",
+  "selected_topic_id": "",
   "request_concept_context": true,
   "concept_labels": ["DETR", "object queries", "bipartite matching"],
   "request_citation_graph": true,
@@ -111,6 +121,7 @@ runtime/payloads/context-request.json
 - `runtime/views/topic-context.json`
 - `runtime/views/graph-context.json`
 - `runtime/views/concept-candidates-view.json`
+- `runtime/views/concept-needs-view.json`
 - `runtime/views/diagnostics-host-context.json`
 
 Host Bridge 不可用或单项能力失败时，runtime 会写入 diagnostics 和空/部分 view，后续阶段仍可继续读取已有内容。
@@ -228,6 +239,10 @@ Stage 20 完成后，继续阅读：
 - `runtime/views/concept-overlay-view.json`
 - `runtime/views/section-insights-view.json`
 
+翻译前先按 `reading-blocks.json` 中 `translate: true` 的 block 分批。运行环境支持 subagent 时，将批次委派给 subagent 翻译；不支持时，由主 agent 分批自译，但必须额外做一次独立复核。最终只能提交主 agent 验收后的译文。
+
+主 agent 验收每个 block 时必须逐项检查：没有遗漏、没有复制原文冒充译文、目标语言正确、术语与 concept/section insights 一致、Markdown 结构保留、公式不被破坏、表格仍是表格且可翻译单元已翻译。References 及其后的 block 不翻译。
+
 然后手写：
 
 ```text
@@ -258,6 +273,53 @@ runtime/payloads/block-translations.json
 - `runtime/views/translation-view.json`
 - `runtime/views/diagnostics-translation.json`
 
+## Stage 40 Final Review and Render
+
+Stage 30 完成后，继续阅读：
+
+- `runtime/views/translation-view.json`
+- `runtime/views/preface-view.json`
+- `runtime/views/section-insights-view.json`
+- `runtime/views/concept-overlay-view.json`
+- `runtime/views/references-view.json`
+- `runtime/views/summary-view.json`
+- `runtime/views/extensions-view.json`
+- `runtime/views/diagnostics-bootstrap.json`
+- `runtime/views/diagnostics-host-context.json`
+- `runtime/views/diagnostics-enrichment.json`
+- `runtime/views/diagnostics-translation.json`
+
+然后手写：
+
+```text
+runtime/payloads/final-review.json
+```
+
+按下面的字段组织 `final-review.json`：
+
+```json
+{
+  "overall_assessment": "ready",
+  "quality_observations": [
+    {
+      "severity": "warning",
+      "kind": "translation_style",
+      "block_id": "block-0002",
+      "message": "译文术语已按概念表统一。"
+    }
+  ]
+}
+```
+
+提交后 runtime 会生成：
+
+- `result/deep-reading.html`
+- `result/deep-reading-manifest.json`
+- `result/final-output.candidate.json`
+- `result/sections/sections.json`
+- `result/sections/source-images.json`
+- `result/sections/diagnostics.json`
+
 ## Final output
 
 当前阶段完成后，读取 `literature-deep-reading.result.json`，并输出一个 JSON object。该 JSON 必须包含：
@@ -265,4 +327,4 @@ runtime/payloads/block-translations.json
 - `"__SKILL_DONE__": true`
 - `literature-deep-reading.result.json` 中的全部业务字段
 
-不要输出 Markdown fence、解释性文字或最终 HTML 路径。
+不要输出 Markdown fence 或解释性文字。

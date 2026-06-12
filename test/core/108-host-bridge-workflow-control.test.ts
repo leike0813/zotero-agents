@@ -20,6 +20,7 @@ import {
   getAcpSkillRunRecord,
   resetAcpSkillRunsForTests,
   resolveAcpSkillRunPermissionRequest,
+  upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
   installRuntimeBridgeOverrideForTests,
@@ -528,6 +529,53 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.permission.channel, "acp-skill-run");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+  });
+
+  it("auto-approves ACP scoped workflow submits when the run enables Host Bridge write auto approval", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-run-auto-approval-1",
+      status: "running",
+      hostBridgeCli: {
+        available: true,
+        endpoint: "http://127.0.0.1:26570/bridge/v1",
+        pathInjected: true,
+        autoApproveWrites: true,
+      },
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge ACP Auto Approved Submit Parent");
+    await parent.saveTx();
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/submit",
+      headers: {
+        "x-zotero-bridge-scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "acp-run-auto-approval-1",
+          autoApproveWrites: true,
+        }),
+      },
+      body: {
+        workflowId: "bridge-workflow",
+        input: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.permission.outcome, "approved");
+    assert.strictEqual(parsed.json.result.permission.channel, "acp-skill-run");
+    assert.isNull(
+      getAcpSkillRunRecord("acp-run-auto-approval-1")?.pendingPermission ||
+        null,
+    );
   });
 
   it("returns run status and task filters from task runtime", async function () {

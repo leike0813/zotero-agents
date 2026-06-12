@@ -137,7 +137,7 @@ describe("workflow duplicate guard seam", function () {
     ];
     const active = [
       makeActiveTask({
-        workflowId: "literature-digest",
+        workflowId: "literature-analysis",
         inputUnitIdentity: "attachment-path:D:/paper-a.pdf",
         taskName: "running-paper-a.pdf",
       }),

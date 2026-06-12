@@ -262,14 +262,19 @@ describe("host bridge capability calls", function () {
     const topicReport = manifest.json.result.capabilities.find(
       (entry: { name?: string }) => entry.name === "topics.get_report",
     );
+    const topicsByPaperRef = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "topics.find_by_paper_ref",
+    );
     const graphLayout = manifest.json.result.capabilities.find(
       (entry: { name?: string }) => entry.name === "citation_graph.get_layout",
     );
     assert.isOk(metricsRefresh);
     assert.isOk(topicReport);
+    assert.isOk(topicsByPaperRef);
     assert.isOk(graphLayout);
     assert.strictEqual(metricsRefresh.approval, "zotero-ui-required");
     assert.strictEqual(topicReport.approval, "none");
+    assert.strictEqual(topicsByPaperRef.approval, "none");
     assert.strictEqual(graphLayout.approval, "none");
   });
 

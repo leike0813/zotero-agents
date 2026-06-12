@@ -1538,8 +1538,7 @@ button.is-busy {
 
 .review-index-table {
   width: 100%;
-  max-width: 100%;
-  min-width: 0;
+  min-width: 1120px;
 }
 
 .review-index-table .review-kind-cell {

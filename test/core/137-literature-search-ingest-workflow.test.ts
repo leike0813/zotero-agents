@@ -515,7 +515,7 @@ describe("Literature Search Ingest workflow contract", function () {
     });
     const ids = loaded.workflows.map((entry) => entry.manifest.id);
 
-    assert.include(ids, "literature-digest");
+    assert.include(ids, "literature-analysis");
     assert.include(ids, "literature-search-ingest");
     assert.deepEqual(
       loaded.diagnostics.filter(

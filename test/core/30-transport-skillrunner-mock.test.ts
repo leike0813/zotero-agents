@@ -46,7 +46,7 @@ describe("transport: skillrunner mock", function () {
   this.timeout(15000);
   const itFullOnly = isFullTestMode() ? it : it.skip;
 
-  it("executes literature-digest request against mock skill-runner", async function () {
+  it("executes literature-analysis request against mock skill-runner", async function () {
     if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
       this.skip();
     }
@@ -55,7 +55,7 @@ describe("transport: skillrunner mock", function () {
         itemType: "journalArticle",
         fields: { title: "Transport Parent" },
       });
-      const mdFile = fixturePath("literature-digest", "example.md");
+      const mdFile = fixturePath("literature-analysis", "example.md");
       const attachment = await handlers.attachment.createFromPath({
         parent,
         path: mdFile,
@@ -66,9 +66,9 @@ describe("transport: skillrunner mock", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
-      assert.isOk(workflow, "workflow literature-digest not found");
+      assert.isOk(workflow, "workflow literature-analysis not found");
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext,
@@ -97,7 +97,7 @@ describe("transport: skillrunner mock", function () {
       assert.isString(result.requestId);
     } catch (error) {
       console.error(
-        `[transport: skillrunner mock] executes literature-digest request failed\n${formatError(error)}`,
+        `[transport: skillrunner mock] executes literature-analysis request failed\n${formatError(error)}`,
       );
       throw error;
     }
@@ -112,7 +112,7 @@ describe("transport: skillrunner mock", function () {
         itemType: "journalArticle",
         fields: { title: "Transport Canceled Parent" },
       });
-      const mdFile = fixturePath("literature-digest", "example.md");
+      const mdFile = fixturePath("literature-analysis", "example.md");
       const attachment = await handlers.attachment.createFromPath({
         parent,
         path: mdFile,
@@ -123,9 +123,9 @@ describe("transport: skillrunner mock", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
-      assert.isOk(workflow, "workflow literature-digest not found");
+      assert.isOk(workflow, "workflow literature-analysis not found");
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext,
@@ -179,7 +179,7 @@ describe("transport: skillrunner mock", function () {
         itemType: "journalArticle",
         fields: { title: "Transport Result Parent" },
       });
-      const mdFile = fixturePath("literature-digest", "example.md");
+      const mdFile = fixturePath("literature-analysis", "example.md");
       const attachment = await handlers.attachment.createFromPath({
         parent,
         path: mdFile,
@@ -190,9 +190,9 @@ describe("transport: skillrunner mock", function () {
 
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-digest",
+        (entry) => entry.manifest.id === "literature-analysis",
       );
-      assert.isOk(workflow, "workflow literature-digest not found");
+      assert.isOk(workflow, "workflow literature-analysis not found");
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext,

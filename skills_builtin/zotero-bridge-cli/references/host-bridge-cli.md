@@ -53,6 +53,7 @@ zotero-bridge file --help
 | `note get` | `library.get_note_detail` | capability | - |
 | `note payload` | `library.get_note_payload` | capability | - |
 | `note payloads` | `library.list_note_payloads` | capability | - |
+| `topics find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
 | `topics get-context` | `topics.get_context` | capability | - |
 | `topics get-report` | `topics.get_report` | capability | - |
 | `topics get-review-input` | `topics.get_review_input` | capability | - |

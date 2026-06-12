@@ -68,6 +68,8 @@ export const ZOTERO_MCP_TOOL_ADD_ITEMS_TO_COLLECTION =
 export const ZOTERO_MCP_TOOL_REMOVE_ITEMS_FROM_COLLECTION =
   "remove_items_from_collection";
 export const ZOTERO_MCP_TOOL_TOPICS_LIST = "topics.list";
+export const ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF =
+  "topics.find_by_paper_ref";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT = "topics.get_context";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT = "topics.get_review_input";
 export const ZOTERO_MCP_TOOL_SCHEMAS_GET = "schemas.get";
@@ -2534,6 +2536,19 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     description:
       "Return a small semantic inventory of existing Synthesis topics for create-mode duplicate checks. This tool does not return resolvers, paper sets, artifacts, or freshness data.",
     method: "listTopics",
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF,
+    title: "Find Synthesis topics by paper reference",
+    description:
+      "Return active Synthesis topics associated with one or more paper_ref values from artifact dependency state. This tool does not scan report text or rebuild topic state.",
+    method: "findTopicsByPaperRef",
+    properties: {
+      paper_ref: { type: "string" },
+      paperRef: { type: "string" },
+      paper_refs: { type: "array", maxItems: 250 },
+      paperRefs: { type: "array", maxItems: 250 },
+    },
   }),
   synthesisTool({
     name: ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT,

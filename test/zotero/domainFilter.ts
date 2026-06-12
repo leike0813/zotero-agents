@@ -33,7 +33,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<
     /(^|\/)test\/ui\/99-acp-runtime-dependency-probe\.zotero\.test\.ts$/,
   ],
   workflow: [
-    /(^|\/)test\/workflow-literature-digest\/21-workflow-literature-digest\.test\.ts$/,
+    /(^|\/)test\/workflow-literature-analysis\/21-workflow-literature-analysis\.test\.ts$/,
     /(^|\/)test\/workflow-literature-explainer\/21-workflow-literature-explainer\.test\.ts$/,
     /(^|\/)test\/workflow-literature-workbench-package\/45-workflow-note-import-export\.test\.ts$/,
     /(^|\/)test\/workflow-mineru\/39-workflow-mineru\.test\.ts$/,
@@ -94,9 +94,9 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "ACP runtime dependency probe in Zotero ",
   ],
   workflow: [
-    "workflow: literature-digest builds request from selected markdown attachment",
-    "workflow: literature-digest applies bundle by creating digest/references/citation-analysis child notes",
-    "workflow: literature-digest skips build for core idempotent note shapes",
+    "workflow: literature-analysis builds request from selected markdown attachment",
+    "workflow: literature-analysis applies bundle by creating digest/references/citation-analysis child notes",
+    "workflow: literature-analysis skips build for core idempotent note shapes",
     "workflow: literature-explainer builds request from selected markdown attachment",
     "workflow: literature-explainer creates a conversation note when note_path is bundle-relative",
     "workflow: literature-workbench import/export notes exports decoded note artifacts into parent title + itemKey folders",
@@ -148,7 +148,7 @@ const ZOTERO_FULL_EXTRA_TITLE_ALLOWLIST: Record<
     "gui: preference scripts disables oneclick/stop/uninstall when snapshot is starting or in-flight while keeping debug enabled",
   ],
   workflow: [
-    "workflow: literature-digest ",
+    "workflow: literature-analysis ",
     "workflow: literature-explainer ",
     "workflow: literature-workbench import/export notes ",
     "workflow: mineru ",

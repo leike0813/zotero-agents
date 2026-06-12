@@ -244,6 +244,7 @@ fn debug_input(args: DebugInputArgs) -> Result<Value, CliError> {
 fn topics_capability(command: &TopicsCommand) -> &'static str {
     match command {
         TopicsCommand::List(_) => "topics.list",
+        TopicsCommand::FindByPaperRef(_) => "topics.find_by_paper_ref",
         TopicsCommand::GetContext(_) => "topics.get_context",
         TopicsCommand::GetReport(_) => "topics.get_report",
         TopicsCommand::GetReviewInput(_) => "topics.get_review_input",
@@ -253,6 +254,7 @@ fn topics_capability(command: &TopicsCommand) -> &'static str {
 fn topics_input(command: TopicsCommand) -> BridgeInputArgs {
     match command {
         TopicsCommand::List(args)
+        | TopicsCommand::FindByPaperRef(args)
         | TopicsCommand::GetContext(args)
         | TopicsCommand::GetReport(args)
         | TopicsCommand::GetReviewInput(args) => args,
@@ -799,6 +801,12 @@ mod tests {
         assert_eq!(
             topics_capability(&TopicsCommand::List(BridgeInputArgs { input: None })),
             "topics.list"
+        );
+        assert_eq!(
+            topics_capability(&TopicsCommand::FindByPaperRef(BridgeInputArgs {
+                input: None
+            })),
+            "topics.find_by_paper_ref"
         );
         assert_eq!(
             topics_capability(&TopicsCommand::GetContext(BridgeInputArgs { input: None })),

@@ -1,7 +1,8 @@
 # literature-deep-reading-skill Specification
 
 ## Purpose
-TBD - created by archiving change bootstrap-literature-deep-reading-skill-runtime. Update Purpose after archive.
+
+Specifies the `literature-deep-reading` built-in skill: a multi-stage runtime that bootstraps a source bundle, collects Host context, accepts agent-authored enrichment/translation/final-review payloads, and renders a self-contained deep-reading HTML artifact.
 
 ## Requirements
 
@@ -49,6 +50,43 @@ The first-phase runtime SHALL accept a source bundle and materialize determinist
 - **THEN** bootstrap SHALL record diagnostics
 - **AND** it SHALL continue when `source.md` is available.
 
+### Requirement: Bootstrap Host Preflight
+
+The `literature-deep-reading` runtime SHALL expose best-effort Host preflight information before the agent writes `context-request.json`.
+
+#### Scenario: Host preflight exports target artifacts
+
+- **GIVEN** bootstrap can infer the target paper ref from `source-manifest.json`
+- **AND** Host Bridge returns target digest, references, and citation-analysis artifacts in a filtered export manifest
+- **WHEN** `bootstrap` runs
+- **THEN** the runtime SHALL write `runtime/views/host-preflight-view.json`
+- **AND** it SHALL copy available exported target artifacts into the unpacked source artifact directory
+- **AND** `target-artifacts-view.json` and `references-seed-view.json` SHALL reflect those available artifacts.
+
+#### Scenario: Host preflight exposes topic candidates
+
+- **GIVEN** bootstrap can infer the target paper ref from `source-manifest.json`
+- **AND** Host Bridge `topics.find_by_paper_ref` returns topic candidates
+- **WHEN** `bootstrap` runs
+- **THEN** the runtime SHALL write `runtime/views/topic-candidates-view.json`
+- **AND** `host-preflight-view.json` SHALL include the normalized candidates
+- **AND** a single candidate SHALL be usable as the default topic for later `topics get-context`.
+
+#### Scenario: Ambiguous topic candidates require an agent choice
+
+- **GIVEN** `topic-candidates-view.json` contains multiple topics
+- **AND** `context-request.json` requests topic context without `selected_topic_id`
+- **WHEN** Stage 10 context collection runs
+- **THEN** the runtime SHALL NOT guess a topic id
+- **AND** `topic-context.json` SHALL include a diagnostic explaining that `selected_topic_id` is required.
+
+#### Scenario: Host preflight degrades when Host is unavailable
+
+- **GIVEN** Host Bridge is unavailable
+- **WHEN** `bootstrap` runs
+- **THEN** bootstrap SHALL still succeed
+- **AND** `host-preflight-view.json` SHALL include a diagnostic instead of blocking the run.
+
 ### Requirement: Stage 10 SHALL accept a flat context request payload
 
 The `literature-deep-reading` runtime SHALL accept `runtime/payloads/context-request.json` as the Stage 10 agent-authored payload after bootstrap.
@@ -79,6 +117,18 @@ The runtime SHALL perform deterministic Host Bridge collection after a valid Sta
 - **AND** it SHALL write `runtime/views/citation-graph-layout.json`
 - **AND** it SHALL write `runtime/views/concept-candidates-view.json`
 - **AND** it SHALL write `runtime/views/diagnostics-host-context.json`.
+
+### Requirement: Host Context Return Shapes
+
+The runtime SHALL normalize the current Host Bridge response shapes used by Stage 10.
+
+#### Scenario: Current Host Bridge response fields are used
+
+- **GIVEN** Host Bridge returns `reference-index get` data under `rows`
+- **AND** `concepts query` data under `matches`
+- **AND** `paper-artifacts export-filtered` returns `manifest_file` with `papers[].artifacts[].content_file`
+- **WHEN** context collection runs
+- **THEN** the runtime SHALL consume those fields and generate usable reference, concept, and artifact views.
 
 ### Requirement: Citation graph layout SHALL come from Host Bridge layout state
 
@@ -126,3 +176,271 @@ The runtime SHALL only collect digest artifacts for references that resolve to l
 - **WHEN** Stage 10 is submitted
 - **THEN** `reference-digests-view.json` SHALL include digest entries only for library-bound references
 - **AND** external or unresolved references SHALL not expose digest availability.
+
+### Requirement: Stage 20 SHALL accept a reading enrichment payload
+
+The `literature-deep-reading` runtime SHALL accept `runtime/payloads/reading-enrichment.json` after bootstrap and Host context collection.
+
+#### Scenario: Valid reading enrichment is submitted
+
+- **GIVEN** Stage 00 bootstrap views exist
+- **AND** Stage 10 Host Context Layer views exist
+- **AND** the agent writes a valid `reading-enrichment.json`
+- **WHEN** the agent runs `python scripts/deep_reading_runtime.py submit-reading-enrichment --payload runtime/payloads/reading-enrichment.json`
+- **THEN** the runtime SHALL validate the payload
+- **AND** it SHALL record the submission in runtime state
+- **AND** it SHALL write Analysis Layer views
+- **AND** it SHALL return `kind: "literature_deep_reading_enriched"` and `status: "enriched"`
+- **AND** it SHALL keep `final_html_available: false`.
+
+### Requirement: Stage 20 SHALL normalize Analysis Layer views
+
+The runtime SHALL normalize enrichment payload and existing runtime views into deterministic Analysis Layer JSON files.
+
+#### Scenario: Analysis views are generated
+
+- **GIVEN** a valid enrichment payload
+- **WHEN** Stage 20 is submitted
+- **THEN** the runtime SHALL write `runtime/views/preface-view.json`
+- **AND** it SHALL write `runtime/views/section-insights-view.json`
+- **AND** it SHALL write `runtime/views/concept-overlay-view.json`
+- **AND** it SHALL write `runtime/views/references-view.json`
+- **AND** it SHALL write `runtime/views/summary-view.json`
+- **AND** it SHALL write `runtime/views/extensions-view.json`
+- **AND** it SHALL write `runtime/views/diagnostics-enrichment.json`.
+
+### Requirement: Section and reference bindings SHALL be validated
+
+Stage 20 payload references SHALL resolve against existing source sections and reference ids.
+
+#### Scenario: Payload references an unknown source section
+
+- **GIVEN** source structure does not contain `sec-missing`
+- **AND** `reading-enrichment.json` contains a section note for `sec-missing`
+- **WHEN** Stage 20 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+#### Scenario: Payload references an unknown reference id
+
+- **GIVEN** the references seed and bindings do not contain `ref-999`
+- **AND** `reading-enrichment.json` contains a reference digest note for `ref-999`
+- **WHEN** Stage 20 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+### Requirement: Summary SHALL prefer target digest artifact
+
+The Stage 20 summary view SHALL use the target paper digest artifact when available.
+
+#### Scenario: Target digest exists
+
+- **GIVEN** `runtime/source/artifacts/digest.md` exists
+- **AND** the enrichment payload includes fallback summary sections
+- **WHEN** Stage 20 is submitted
+- **THEN** `summary-view.json` SHALL declare `source: "digest_artifact"`
+- **AND** it SHALL derive summary sections from the digest artifact.
+
+#### Scenario: Target digest is missing
+
+- **GIVEN** `runtime/source/artifacts/digest.md` is missing
+- **AND** the enrichment payload enables fallback summary sections
+- **WHEN** Stage 20 is submitted
+- **THEN** `summary-view.json` SHALL declare `source: "agent_fallback"`
+- **AND** it SHALL use the fallback summary sections.
+
+### Requirement: Reference digest modal data SHALL require library digest availability
+
+The references view SHALL expose digest modal data only for library-bound references with available digest markdown.
+
+#### Scenario: Mixed reference digest availability
+
+- **GIVEN** one reference is library-bound and has an available digest
+- **AND** another reference is external or lacks an available digest
+- **WHEN** Stage 20 is submitted
+- **THEN** only the library-bound reference with available digest SHALL have `digest_modal.available: true`.
+
+### Requirement: Concept Enrichment Timing
+
+The runtime SHALL NOT create interactive concept overlay entries after the enrichment payload for terms the agent could not see or define.
+
+#### Scenario: Undefined section terms remain plain keywords
+
+- **GIVEN** `reading-enrichment.json` mentions a section concept label with no Host definition and no agent definition
+- **WHEN** Stage 20 normalizes the payload
+- **THEN** that label SHALL NOT appear in `concept-overlay-view.concepts`
+- **AND** the section insight SHALL retain the label as a plain keyword
+- **AND** diagnostics SHALL record the unresolved concept reference.
+
+### Requirement: Stage 30 SHALL accept block translations
+
+The `literature-deep-reading` runtime SHALL accept `runtime/payloads/block-translations.json` after Stage 20 enrichment.
+
+#### Scenario: Valid block translations are submitted
+
+- **GIVEN** Stage 00 bootstrap views exist
+- **AND** Stage 20 Analysis Layer views exist
+- **AND** the agent writes a valid `block-translations.json`
+- **WHEN** the agent runs `python scripts/deep_reading_runtime.py submit-block-translations --payload runtime/payloads/block-translations.json`
+- **THEN** the runtime SHALL validate the payload
+- **AND** it SHALL record the submission in runtime state
+- **AND** it SHALL write `runtime/views/translation-view.json`
+- **AND** it SHALL write `runtime/views/diagnostics-translation.json`
+- **AND** it SHALL return `kind: "literature_deep_reading_translated"` and `status: "translated"`
+- **AND** it SHALL keep `final_html_available: false`.
+
+### Requirement: Stage 30 SHALL preserve source block structure
+
+The translation view SHALL preserve the source block order and bind translations to stable block ids.
+
+#### Scenario: Translation view is generated
+
+- **GIVEN** the source reading blocks contain translatable body blocks
+- **WHEN** Stage 30 is submitted
+- **THEN** `translation-view.json` SHALL list translated rows in source block order
+- **AND** each row SHALL include block id, section anchor, kind, source markdown, translated markdown, status, and quality notes.
+
+### Requirement: Stage 30 SHALL reject invalid block coverage
+
+The runtime SHALL reject translations that do not match the bootstrap block structure.
+
+#### Scenario: Unknown or duplicated block id is submitted
+
+- **GIVEN** `block-translations.json` contains an unknown block id or repeats the same block id
+- **WHEN** Stage 30 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+#### Scenario: Required body block is missing
+
+- **GIVEN** a non-formula block has `translate: true`
+- **AND** no translation row is submitted for that block
+- **WHEN** Stage 30 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+#### Scenario: References block is submitted
+
+- **GIVEN** a block is marked `translate: false`
+- **AND** the payload contains a translation row for that block
+- **WHEN** Stage 30 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+### Requirement: Formula blocks SHALL be carried over when omitted from payload
+
+Formula blocks SHALL not require agent-authored translation.
+
+#### Scenario: Formula translation is omitted
+
+- **GIVEN** a formula block has `translate: true`
+- **AND** the payload does not contain that formula block
+- **WHEN** Stage 30 is submitted
+- **THEN** `translation-view.json` SHALL include the formula block with `status: "carried_over"`
+- **AND** its translated markdown SHALL equal the source markdown.
+
+### Requirement: Table translations SHALL remain table-like
+
+Table block translations SHALL preserve table-like Markdown or HTML structure.
+
+#### Scenario: Table translation is not table-like
+
+- **GIVEN** a table block requires translation
+- **AND** the submitted translated markdown is plain paragraph text
+- **WHEN** Stage 30 is submitted
+- **THEN** the runtime SHALL reject the payload.
+
+### Requirement: Generic Translation Quality Gates
+
+The runtime SHALL reject deterministic lazy or structurally invalid block translations without assuming a single target language.
+
+#### Scenario: Copied source text is rejected for different target languages
+
+- **GIVEN** Stage 30 target language is `fr-FR` or `zh-CN`
+- **AND** a translatable prose block translation copies the source text
+- **WHEN** `submit-block-translations` runs
+- **THEN** the runtime SHALL reject the payload with a translation quality error.
+
+#### Scenario: Translation structure and completeness are checked
+
+- **GIVEN** `block-translations.json` contains placeholders, repeated identical long translations, suspiciously short prose translations, or a table translation that is no longer table-like
+- **WHEN** `submit-block-translations` runs
+- **THEN** the runtime SHALL reject definite failures
+- **AND** it SHALL continue to allow formula blocks to be carried over unchanged.
+
+### Requirement: Stage 40 SHALL accept final review and render final HTML
+
+The `literature-deep-reading` runtime SHALL accept `runtime/payloads/final-review.json` after Stage 30 translation and render the final artifact.
+
+#### Scenario: Valid final review is submitted
+
+- **GIVEN** Stage 00, Stage 10, Stage 20, and Stage 30 views exist
+- **AND** the agent writes a valid `final-review.json`
+- **WHEN** the agent runs `python scripts/deep_reading_runtime.py submit-final-review --payload runtime/payloads/final-review.json`
+- **THEN** the runtime SHALL write `result/deep-reading.html`
+- **AND** it SHALL write `result/deep-reading-manifest.json`
+- **AND** it SHALL write `result/final-output.candidate.json`
+- **AND** it SHALL return `kind: "literature_deep_reading_finalized"` and `status: "completed"`
+- **AND** it SHALL declare `final_html_available: true`.
+
+### Requirement: Final HTML renderer
+
+The `literature-deep-reading` skill SHALL render a self-contained deep-reading HTML using the reviewed seamless reader behavior.
+
+#### Scenario: Compare mode aligns source and translation by block
+
+- **GIVEN** `reading-blocks.json` and `translation-view.json` are available
+- **WHEN** Stage 40 renders `result/deep-reading.html`
+- **THEN** translatable body blocks before References SHALL be rendered as `aligned-block-pair` rows keyed by `block_id`
+- **AND** References and later sections SHALL be rendered full-width outside the paired reading flow.
+
+#### Scenario: Right reading aid follows scroll position
+
+- **GIVEN** section insights contain Q&A and citation notes
+- **WHEN** the reader scrolls through body sections
+- **THEN** the right reading aid SHALL update for the active section
+- **AND** questions SHALL appear before citation clues.
+
+#### Scenario: Final HTML does not depend on external math rendering
+
+- **GIVEN** source or translated blocks contain inline or display LaTeX
+- **WHEN** Stage 40 renders the final HTML
+- **THEN** math content SHALL be emitted as local rendered HTML wrappers
+- **AND** the HTML SHALL NOT reference CDN math assets.
+
+#### Scenario: Citation graph uses host layout coordinates
+
+- **GIVEN** citation graph snapshot and layout views are available
+- **WHEN** Stage 40 renders the citation graph
+- **THEN** graph nodes SHALL be positioned from the layout view
+- **AND** browser code SHALL NOT compute a replacement force layout.
+
+#### Scenario: Structured references replace Markdown fallback when available
+
+- **GIVEN** `artifacts/references.json` is available in the source bundle
+- **WHEN** Stage 20 and Stage 40 render references
+- **THEN** the References section SHALL use structured reference entries rather than raw Markdown text.
+
+#### Scenario: Empty image files do not produce empty data URIs
+
+- **GIVEN** an image file in the source bundle has zero bytes
+- **WHEN** Stage 40 builds source image data
+- **THEN** the image SHALL be marked corrupt or missing
+- **AND** no `data:image/...;base64,` URI SHALL be generated for that file.
+
+### Requirement: Final HTML SHALL be self-contained
+
+The final HTML SHALL be usable without sidecar assets or network access.
+
+#### Scenario: HTML is inspected statically
+
+- **GIVEN** Stage 40 has rendered `result/deep-reading.html`
+- **WHEN** the HTML is scanned
+- **THEN** it SHALL NOT reference `http://`, `https://`, `file://`, `assets/`, or `sections/`
+- **AND** it SHALL include CSS, JavaScript, data, and images inline.
+
+### Requirement: References after body SHALL remain full width
+
+References and post-reading content SHALL not enter the bilingual body columns.
+
+#### Scenario: References are rendered
+
+- **GIVEN** structured references exist
+- **WHEN** Stage 40 renders HTML
+- **THEN** references SHALL be represented in the post-reading data
+- **AND** references SHALL not be included in translation compare body blocks.

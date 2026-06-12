@@ -52,7 +52,7 @@ function resolveExpectedUploadTargets(createPayload: unknown) {
   const input = isObject(payload.input) ? payload.input : {};
   const skillId = String(payload.skill_id || "").trim();
   const targets: string[] = [];
-  if (skillId === "literature-digest") {
+  if (skillId === "literature-analysis") {
     targets.push(normalizeUploadRelativePath(input.source_path));
   }
   if (skillId === "tag-regulator") {
@@ -498,7 +498,7 @@ export function literatureDigestBundlePath(projectRoot: string) {
     projectRoot,
     "test",
     "fixtures",
-    "literature-digest",
+    "literature-analysis",
     "run_bundle.zip",
   );
 }

@@ -10,7 +10,7 @@
 	path = skills_builtin/literature-explainer
 	url = https://github.com/leike0813/agent-skills
 	branch = skill/literature-explainer
-[submodule "skills_builtin/autoskill-converter"]
-	path = skills_builtin/autoskill-converter
+[submodule "skills_builtin/literature-analysis"]
+	path = skills_builtin/literature-analysis
 	url = https://github.com/leike0813/agent-skills
-	branch = skill/autoskill-converter
+	branch = skill/literature-analysis

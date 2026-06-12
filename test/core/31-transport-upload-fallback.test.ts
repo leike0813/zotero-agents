@@ -77,7 +77,7 @@ describe("transport: upload fallback without FormData", function () {
         upload_files: [
           {
             key: "source_path",
-            path: fixturePath("literature-digest", "example.md"),
+            path: fixturePath("literature-analysis", "example.md"),
           },
         ],
         fetch_type: "result",
@@ -145,7 +145,7 @@ describe("transport: upload fallback without FormData", function () {
         upload_files: [
           {
             key: "source_path",
-            path: fixturePath("literature-digest", "example.md"),
+            path: fixturePath("literature-analysis", "example.md"),
           },
         ],
         parameter: { mode: "strict" },
@@ -295,7 +295,7 @@ describe("transport: upload fallback without FormData", function () {
           upload_files: [
             {
               key: "source_path",
-              path: fixturePath("literature-digest", "example.md"),
+              path: fixturePath("literature-analysis", "example.md"),
             },
           ],
           fetch_type: "result",
@@ -384,7 +384,7 @@ describe("transport: upload fallback without FormData", function () {
           upload_files: [
             {
               key: "source_path",
-              path: fixturePath("literature-digest", "example.md"),
+              path: fixturePath("literature-analysis", "example.md"),
             },
           ],
           fetch_type: "result",
@@ -454,7 +454,7 @@ describe("transport: upload fallback without FormData", function () {
         upload_files: [
           {
             key: "source_path",
-            path: fixturePath("literature-digest", "example.md"),
+            path: fixturePath("literature-analysis", "example.md"),
           },
         ],
         runtime_options: {
@@ -523,7 +523,7 @@ describe("transport: upload fallback without FormData", function () {
         upload_files: [
           {
             key: "source_path",
-            path: fixturePath("literature-digest", "example.md"),
+            path: fixturePath("literature-analysis", "example.md"),
           },
         ],
         runtime_options: {
@@ -664,7 +664,7 @@ describe("transport: upload fallback without FormData", function () {
               method: "POST",
               path: "/v1/jobs",
               json: {
-                skill_id: "literature-digest",
+                skill_id: "literature-analysis",
                 engine: "gemini",
                 parameter: { language: "en-US" },
               },
@@ -762,7 +762,7 @@ describe("transport: upload fallback without FormData", function () {
           upload_files: [
             {
               key: "md_path",
-              path: fixturePath("literature-digest", "example.md"),
+              path: fixturePath("literature-analysis", "example.md"),
             },
           ],
           fetch_type: "result",
@@ -821,7 +821,7 @@ describe("transport: upload fallback without FormData", function () {
         upload_files: [
           {
             key: "source_path",
-            path: fixturePath("literature-digest", "example.md"),
+            path: fixturePath("literature-analysis", "example.md"),
           },
         ],
         runtime_options: {
@@ -889,7 +889,7 @@ describe("transport: upload fallback without FormData", function () {
           upload_files: [
             {
               key: "md_path",
-              path: fixturePath("literature-digest", "example.md"),
+              path: fixturePath("literature-analysis", "example.md"),
             },
           ],
           fetch_type: "result",

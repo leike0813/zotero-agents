@@ -1,5 +1,8 @@
 export type SynthesisMcpService = {
   listTopics?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  findTopicsByPaperRef?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getTopicContext?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getTopicReport?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;

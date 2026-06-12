@@ -137,7 +137,7 @@ On success, reference refresh marks `reference-sidecar:library` ready in `synt_c
 
 ## Workflow Apply
 
-`literature-digest` apply is an explicit workflow action and may run the same single-source pipeline:
+`literature-analysis` apply is an explicit workflow action and may run the same single-source pipeline:
 
 1. Write or update the digest/references/citation-analysis artifacts through Zotero APIs.
 2. Update the artifact sidecar row for that `source_ref`.
@@ -202,7 +202,7 @@ Graph display rules:
 
 ## Related Items Sync
 
-The old literature-digest apply path no longer runs automatic note-level Reference Matching. Zotero Library remains the SSOT for native related-item relations; Synthesis can only perform bounded side effects with provenance:
+The old literature-analysis apply path no longer runs automatic note-level Reference Matching. Zotero Library remains the SSOT for native related-item relations; Synthesis can only perform bounded side effects with provenance:
 
 - Source is accepted library-to-library citation edges from ready Citation Graph cache when available, or directly from active sidecar facts when graph cache is missing, stale, failed, empty, or graph refresh failed.
 - Target is Zotero related-item relations between the source Zotero item and accepted target Zotero item.

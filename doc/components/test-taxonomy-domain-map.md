@@ -35,7 +35,7 @@ Fixture ownership:
 Current fixture ownership:
 
 - `test/fixtures/selection-context/*` -> shared (`core` + multiple workflows)
-- `test/fixtures/literature-digest/*` -> workflow-literature-digest (legacy path retained)
+- `test/fixtures/literature-analysis/*` -> workflow-literature-analysis (legacy path retained)
 - deprecated reference-matching fixtures are archived under `deprecated/tests/fixtures/`
 - `test/fixtures/workflow-loader-*/*` -> core (loader validation domain)
 
@@ -46,7 +46,7 @@ Current fixture ownership:
 - Domain distribution:
   - `core`: 37 (24 migrated + 13 in-place)
   - `ui`: 6
-  - `workflow-literature-digest`: 4
+  - `workflow-literature-analysis`: 4
   - `workflow-mineru`: 1
 - Orphaned test suites after mapping: 0
 
@@ -116,16 +116,16 @@ Mapped files:
 
 ### 5.3 Workflow Domains
 
-#### workflow-literature-digest
+#### workflow-literature-analysis
 
 Source root: `test/zotero/*`  
-Target root: `test/workflow-literature-digest/*`
+Target root: `test/workflow-literature-analysis/*`
 
-- `21-workflow-literature-digest.test.ts`
-- `22-literature-digest-filter-inputs.test.ts`
-- `23-workflow-literature-digest-fixtures.test.ts`
-- `50-workflow-literature-digest-mock-e2e.test.ts`
-- `literature-digest-fixture-cases.ts` (helper module)
+- `21-workflow-literature-analysis.test.ts`
+- `22-literature-analysis-filter-inputs.test.ts`
+- `23-workflow-literature-analysis-fixtures.test.ts`
+- `50-workflow-literature-analysis-mock-e2e.test.ts`
+- `literature-analysis-fixture-cases.ts` (helper module)
 
 #### deprecated reference note workflow suites
 

@@ -1257,7 +1257,7 @@ describe("workflow loader validation", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
               engine: "openai",
             },
           },
@@ -1273,7 +1273,7 @@ describe("workflow loader validation", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
               parameter: {},
             },
           },
@@ -1289,7 +1289,7 @@ describe("workflow loader validation", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
               model: "gpt-4o-mini",
             },
           },
@@ -1305,7 +1305,7 @@ describe("workflow loader validation", function () {
           request: {
             kind: "skillrunner.job.v1",
             create: {
-              skill_id: "literature-digest",
+              skill_id: "literature-analysis",
               runtime_options: {},
             },
           },

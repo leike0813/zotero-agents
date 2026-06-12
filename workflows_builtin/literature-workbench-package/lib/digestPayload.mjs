@@ -59,7 +59,7 @@ function parseGeneratedNoteKind(noteContent) {
   const directKind = kindMatch
     ? normalizeText(kindMatch[1] || kindMatch[2] || kindMatch[3])
     : "";
-  if (directKind === "digest" || directKind === "literature-digest") {
+  if (directKind === "digest" || directKind === "literature-digest" || directKind === "literature-analysis") {
     return "digest";
   }
   if (

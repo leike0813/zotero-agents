@@ -7,7 +7,7 @@ describe("ACP skill run request adapter", function () {
   it("converts upload-derived input paths to absolute local paths", function () {
     const adapted = adaptSkillRunnerJobToAcpSkillRun({
       kind: "skillrunner.job.v1",
-      skill_id: "literature-digest",
+      skill_id: "literature-analysis",
       taskName: "Example",
       targetParentID: 123,
       sourceAttachmentPaths: ["D:/real/example.md"],
@@ -23,7 +23,7 @@ describe("ACP skill run request adapter", function () {
     });
 
     assert.equal(adapted.kind, ACP_SKILL_RUN_REQUEST_KIND);
-    assert.equal(adapted.skill_id, "literature-digest");
+    assert.equal(adapted.skill_id, "literature-analysis");
     assert.deepEqual(adapted.input, {
       source_path: "D:/real/example.md",
       language_hint: "zh-CN",
@@ -131,7 +131,7 @@ describe("ACP skill run request adapter", function () {
       () =>
         adaptSkillRunnerJobToAcpSkillRun({
           kind: "skillrunner.job.v1",
-          skill_id: "literature-digest",
+          skill_id: "literature-analysis",
           upload_files: [{ key: "source_path", path: "D:/real/example.md" }],
           input: {},
         }),
@@ -144,7 +144,7 @@ describe("ACP skill run request adapter", function () {
       () =>
         adaptSkillRunnerJobToAcpSkillRun({
           kind: "skillrunner.job.v1",
-          skill_id: "literature-digest",
+          skill_id: "literature-analysis",
           upload_files: [{ key: "source_path", path: "relative/example.md" }],
           input: { source_path: "inputs/source_path/example.md" },
         }),
@@ -155,7 +155,7 @@ describe("ACP skill run request adapter", function () {
   it("renders ACP prompts with local absolute input paths", async function () {
     const prompt = await buildAcpSkillRunPrompt({
       context: {
-        skillId: "literature-digest",
+        skillId: "literature-analysis",
         workspace: {
           requestId: "run-1",
           workspaceDir: "D:/runtime/run-1",
@@ -173,12 +173,12 @@ describe("ACP skill run request adapter", function () {
         agentFamily: "claude-code",
         proxySkillRoots: ["D:/runtime/run-1/.claude/skills"],
         requestedSkillProxyPath:
-          "D:/runtime/run-1/.claude/skills/literature-digest",
+          "D:/runtime/run-1/.claude/skills/literature-analysis",
         sharedSkillCatalogPath: "D:/runtime/catalog",
       },
       request: {
         kind: ACP_SKILL_RUN_REQUEST_KIND,
-        skill_id: "literature-digest",
+        skill_id: "literature-analysis",
         input: {
           source_path: "D:/real/example.md",
         },
@@ -195,7 +195,7 @@ describe("ACP skill run request adapter", function () {
   it("renders Opencode ACP skill invocation as natural language", async function () {
     const prompt = await buildAcpSkillRunPrompt({
       context: {
-        skillId: "literature-digest",
+        skillId: "literature-analysis",
         workspace: {
           requestId: "run-1",
           workspaceDir: "D:/runtime/run-1",
@@ -216,23 +216,23 @@ describe("ACP skill run request adapter", function () {
           "D:/runtime/run-1/.claude/skills",
         ],
         requestedSkillProxyPath:
-          "D:/runtime/run-1/.agents/skills/literature-digest",
+          "D:/runtime/run-1/.agents/skills/literature-analysis",
         sharedSkillCatalogPath: "D:/runtime/catalog",
       },
       request: {
         kind: ACP_SKILL_RUN_REQUEST_KIND,
-        skill_id: "literature-digest",
+        skill_id: "literature-analysis",
       },
     });
 
-    assert.match(prompt, /^Invoke skill named literature-digest/m);
-    assert.notInclude(prompt, "/skills literature-digest");
+    assert.match(prompt, /^Invoke skill named literature-analysis/m);
+    assert.notInclude(prompt, "/skills literature-analysis");
   });
 
   it("renders runner entrypoint common prompts with resolved contexts", async function () {
     const prompt = await buildAcpSkillRunPrompt({
       context: {
-        skillId: "literature-digest",
+        skillId: "literature-analysis",
         workspace: {
           requestId: "run-1",
           workspaceDir: "D:/runtime/run-1",
@@ -250,12 +250,12 @@ describe("ACP skill run request adapter", function () {
         agentFamily: "claude-code",
         proxySkillRoots: ["D:/runtime/run-1/.claude/skills"],
         requestedSkillProxyPath:
-          "D:/runtime/run-1/.claude/skills/literature-digest",
+          "D:/runtime/run-1/.claude/skills/literature-analysis",
         sharedSkillCatalogPath: "D:/runtime/catalog",
       },
       request: {
         kind: ACP_SKILL_RUN_REQUEST_KIND,
-        skill_id: "literature-digest",
+        skill_id: "literature-analysis",
         input: {
           source_path: "inputs/source_path/example.md",
         },
@@ -270,7 +270,7 @@ describe("ACP skill run request adapter", function () {
         language: "zh-CN",
       },
       runnerJson: {
-        id: "literature-digest",
+        id: "literature-analysis",
         entrypoint: {
           prompts: {
             common:
@@ -282,7 +282,7 @@ describe("ACP skill run request adapter", function () {
 
     assert.include(
       prompt,
-      "Run literature-digest with D:/real/example.md, zh-CN, D:/runtime/run-1, claude.",
+      "Run literature-analysis with D:/real/example.md, zh-CN, D:/runtime/run-1, claude.",
     );
     assert.notInclude(prompt, "{{ input.source_path }}");
     assert.notInclude(prompt, "inputs/source_path");

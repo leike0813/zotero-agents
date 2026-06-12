@@ -19,7 +19,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 
 Normal workflow apply is the only automatic sidecar update path:
 
-1. `literature-digest` reads Zotero item/attachment/note data directly.
+1. `literature-analysis` reads Zotero item/attachment/note data directly.
 2. The workflow writes digest/reference artifacts to Zotero notes or embedded payload attachments.
 3. Host apply updates bounded sidecar projections for that `source_ref`: artifact existence/hash state, changed references extraction, canonical-reference dedupe, and optional literature matching metadata.
 4. Topic create/update reads Zotero Library and source artifacts directly. Citation graph metrics may be included only as optional enrichment.
